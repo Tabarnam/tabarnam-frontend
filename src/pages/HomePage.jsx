@@ -31,7 +31,7 @@ const HomePage = () => {
     return (
         <>
             <Helmet>
-                <title>Tabarnam - Transparent Origins</title>
+                <title>Tabarnam</title>
                 <meta name="description" content="Discover products with transparent origins. Search for companies by location, rating, and more." />
             </Helmet>
             <div className="min-h-screen w-full flex flex-col p-4 bg-white relative">
