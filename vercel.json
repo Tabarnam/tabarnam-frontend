@@ -3,7 +3,3 @@
     { "source": "/(.*)", "destination": "/" }
   ]
 }
-
-
-
-Add vercel.json for SPA routing
