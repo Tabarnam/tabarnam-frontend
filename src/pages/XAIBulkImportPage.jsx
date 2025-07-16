@@ -1,0 +1,44 @@
+import React, { useState } from 'react';
+
+export default function XAIBulkImportPage() {
+  const [keyword, setKeyword] = useState('');
+  const [status, setStatus] = useState('');
+
+  const handleImport = async () => {
+    setStatus('Importing...');
+
+    try {
+      const res = await fetch('/api/xai/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyword }),
+      });
+
+      if (res.ok) {
+        setStatus('✅ Import successful!');
+      } else {
+        const error = await res.text();
+        setStatus(`❌ Import failed: ${error}`);
+      }
+    } catch (e) {
+      setStatus(`❌ Error: ${e.message}`);
+    }
+  };
+
+  return (
+    <div className="p-6 space-y-4">
+      <h1 className="text-2xl font-semibold">xAI Bulk Import</h1>
+      <input
+        type="text"
+        placeholder="Enter keyword (e.g. pet food)"
+        value={keyword}
+        onChange={(e) => setKeyword(e.target.value)}
+        className="p-2 border rounded w-full"
+      />
+      <button onClick={handleImport} className="bg-blue-600 text-white px-4 py-2 rounded">
+        Start Import
+      </button>
+      <div className="mt-4 text-sm">{status}</div>
+    </div>
+  );
+}
