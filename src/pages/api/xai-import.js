@@ -5,47 +5,37 @@ export default async function handler(req, res) {
 
   const { query } = req.body;
 
-  if (!query || typeof query !== 'string') {
+  if (!query || typeof query !== 'string' || query.trim().length < 2) {
     return res.status(400).json({ error: 'Missing or invalid search query' });
   }
 
-  try {
-    const prompt = `Return a list of 20 real companies related to "${query}". 
-For each company, include: name, working website URL, industry, and tagline. 
-Only return real and verifiable companies.`;
+  const fullPrompt = `
+You are a professional research assistant.
+Search real companies based on this input: "${query}".
 
-    const xaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, // or XAI_API_KEY
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4',
-        messages: [
-          { role: 'system', content: 'You are a helpful data extractor for real-world companies.' },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.3
-      }),
-    });
-
-    const data = await xaiResponse.json();
-
-    if (!data || !data.choices || !data.choices[0]?.message?.content) {
-      return res.status(500).json({ error: 'Invalid xAI response' });
-    }
-
-    const rawText = data.choices[0].message.content;
-
-    // TODO: parse `rawText` into company objects
-    return res.status(200).json({
-      message: '✅ Raw company list received from xAI',
-      rawText
-    });
-
-  } catch (error) {
-    console.error('❌ xAI import error:', error);
-    res.status(500).json({ error: 'Internal error calling xAI' });
+Return companies in this JSON format (as a single array):
+[
+  {
+    "company_name": "",
+    "company_tagline": "",
+    "industries": [],
+    "product_keywords": "",
+    "url": "",
+    "email_address": "",
+    "headquarters_location": "",
+    "manufacturing_locations": [],
+    "amazon_url": "",
+    "red_flag": false
   }
-}
+]
+
+Guidelines:
+- All companies must be real and verifiable.
+- Website must be live (not parked or broken).
+- Industries must be an array of 1–3 words each.
+- Keywords must be at least 20 comma-separated values.
+- Do not include placeholder text.
+- If email or manufacturing location is missing, that’s OK.
+- If any required field (name, url) is missing or unverifiable, set "red_flag" to true.
+- Only return verified or verifiable companies.
+`;
