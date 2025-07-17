@@ -72,7 +72,8 @@ Guidelines:
       return res.status(500).json({ error: 'Could not parse company list from xAI response' });
     }
 
-    const parsedCompanies = JSON.parse(jsonBlock);
+  const parsedCompanies = JSON.parse(jsonBlock);
+
 // Loop through companies to verify required fields and apply red_flag logic
 const validatedCompanies = parsedCompanies.map(company => {
   const hasName = typeof company.company_name === 'string' && company.company_name.trim().length > 2;
