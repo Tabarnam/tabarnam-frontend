@@ -88,12 +88,16 @@ const validatedCompanies = parsedCompanies.map(company => {
   };
 });
 
-return res.status(200).json({
-  total_returned: validatedCompanies.length,
-  companies: validatedCompanies
-return res.status(200).json({
-  total_returned: validatedCompanies.length,
-  companies: validatedCompanies
+ return res.status(200).json({
+      total_returned: validatedCompanies.length,
+      companies: validatedCompanies
+    });
+
+  } catch (error) {
+    console.error('xAI error:', error);
+    return res.status(500).json({ error: 'Failed to fetch company data from xAI' });
+  }
+}
 });
 
   } catch (error) {
