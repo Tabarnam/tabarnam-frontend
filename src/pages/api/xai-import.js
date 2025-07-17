@@ -73,11 +73,28 @@ Guidelines:
     }
 
     const parsedCompanies = JSON.parse(jsonBlock);
+// Loop through companies to verify required fields and apply red_flag logic
+const validatedCompanies = parsedCompanies.map(company => {
+  const hasName = typeof company.company_name === 'string' && company.company_name.trim().length > 2;
+  const hasURL = typeof company.url === 'string' && company.url.startsWith('http');
+  const has20Keywords = company.product_keywords?.split(',').length >= 20;
+
+  const isRedFlag = !hasName || !hasURL || !has20Keywords;
+
+  return {
+    ...company,
+    red_flag: isRedFlag
+  };
+});
 
     return res.status(200).json({
       total_returned: parsedCompanies.length,
       companies: parsedCompanies
     });
+return res.status(200).json({
+  total_returned: validatedCompanies.length,
+  companies: validatedCompanies
+});
 
   } catch (error) {
     console.error('xAI error:', error);
