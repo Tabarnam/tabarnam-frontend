@@ -87,10 +87,6 @@ const validatedCompanies = parsedCompanies.map(company => {
   };
 });
 
-    return res.status(200).json({
-      total_returned: parsedCompanies.length,
-      companies: parsedCompanies
-    });
 return res.status(200).json({
   total_returned: validatedCompanies.length,
   companies: validatedCompanies
