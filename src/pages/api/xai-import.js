@@ -1,3 +1,43 @@
+async function fetchBatchFromXAI(query, promptTemplate) {
+  const xaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.XAI_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4',
+      temperature: 0.2,
+      messages: [
+        {
+          role: 'system',
+          content: 'You return verified companies only. You output strict JSON arrays. You never fake data.'
+        },
+        {
+          role: 'user',
+          content: promptTemplate
+        }
+      ]
+    }),
+  });
+
+  const result = await xaiResponse.json();
+  const rawContent = result.choices?.[0]?.message?.content;
+
+  if (!rawContent) return [];
+
+  const match = rawContent.match(/\[\s*{[\s\S]+}\s*\]/);
+  const jsonBlock = match ? match[0] : null;
+
+  if (!jsonBlock) return [];
+
+  try {
+    const parsed = JSON.parse(jsonBlock);
+    return parsed;
+  } catch (err) {
+    return [];
+  }
+}
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
