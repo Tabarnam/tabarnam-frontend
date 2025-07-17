@@ -1,15 +1,8 @@
 import path from 'node:path';
 import react from '@vitejs/plugin-react';
-import { createLogger, defineConfig } from 'vite';
+import { defineConfig } from 'vite';
 
 const isDev = process.env.NODE_ENV !== 'production';
-
-let inlineEditPlugin, editModeDevPlugin;
-
-if (isDev) {
-  inlineEditPlugin = (await import('./plugins/visual-editor/vite-plugin-react-inline-editor.js')).default;
-  editModeDevPlugin = (await import('./plugins/visual-editor/vite-plugin-edit-mode.js')).default;
-}
 
 const configHorizonsViteErrorHandler = `
   const observer = new MutationObserver((mutations) => {
@@ -32,18 +25,27 @@ const configHorizonsViteErrorHandler = `
   });
 `;
 
-export default defineConfig({
-  plugins: [
-    react(),
-    ...(isDev ? [inlineEditPlugin, editModeDevPlugin] : [])
-  ],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, 'src'),
-      '@pages': path.resolve(__dirname, 'pages'),
-    },
-  },
-  define: {
-    __HORIZONS_VITE_ERROR_HANDLER__: JSON.stringify(configHorizonsViteErrorHandler)
+export default async () => {
+  let inlineEditPlugin, editModeDevPlugin;
+
+  if (isDev) {
+    inlineEditPlugin = (await import('./plugins/visual-editor/vite-plugin-react-inline-editor.js')).default;
+    editModeDevPlugin = (await import('./plugins/visual-editor/vite-plugin-edit-mode.js')).default;
   }
-});
+
+  return defineConfig({
+    plugins: [
+      react(),
+      ...(isDev ? [inlineEditPlugin, editModeDevPlugin] : [])
+    ],
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, 'src'),
+        '@pages': path.resolve(__dirname, 'pages'),
+      },
+    },
+    define: {
+      __HORIZONS_VITE_ERROR_HANDLER__: JSON.stringify(configHorizonsViteErrorHandler)
+    }
+  });
+};
