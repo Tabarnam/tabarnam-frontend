@@ -39,3 +39,48 @@ Guidelines:
 - If any required field (name, url) is missing or unverifiable, set "red_flag" to true.
 - Only return verified or verifiable companies.
 `;
+  try {
+    const xaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.XAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4',
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: 'You return verified companies only. You output strict JSON arrays. You never fake data.' },
+          { role: 'user', content: fullPrompt }
+        ]
+      }),
+    });
+
+    const result = await xaiResponse.json();
+
+    const rawContent = result.choices?.[0]?.message?.content;
+
+    if (!rawContent) {
+      return res.status(500).json({ error: 'No content returned from xAI' });
+    }
+
+    // Try to extract JSON block from response
+    const match = rawContent.match(/\[\s*{[\s\S]+}\s*\]/);
+    const jsonBlock = match ? match[0] : null;
+
+    if (!jsonBlock) {
+      return res.status(500).json({ error: 'Could not parse company list from xAI response' });
+    }
+
+    const parsedCompanies = JSON.parse(jsonBlock);
+
+    return res.status(200).json({
+      total_returned: parsedCompanies.length,
+      companies: parsedCompanies
+    });
+
+  } catch (error) {
+    console.error('xAI error:', error);
+    return res.status(500).json({ error: 'Failed to fetch company data from xAI' });
+  }
+}
