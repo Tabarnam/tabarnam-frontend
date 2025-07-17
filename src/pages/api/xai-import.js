@@ -51,7 +51,10 @@ Guidelines:
         model: 'gpt-4',
         temperature: 0.2,
         messages: [
-          { role: 'system', content: 'You return verified companies only. You output strict JSON arrays. You never fake data.' },
+          {
+            role: 'system',
+            content: 'You return verified companies only. You output strict JSON arrays. You never fake data.'
+          },
           { role: 'user', content: fullPrompt }
         ]
       }),
