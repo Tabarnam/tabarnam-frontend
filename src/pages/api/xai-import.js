@@ -39,6 +39,7 @@ Guidelines:
 - If any required field (name, url) is missing or unverifiable, set "red_flag" to true.
 - Only return verified or verifiable companies.
 `;
+
   try {
     const xaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -64,7 +65,6 @@ Guidelines:
       return res.status(500).json({ error: 'No content returned from xAI' });
     }
 
-    // Try to extract JSON block from response
     const match = rawContent.match(/\[\s*{[\s\S]+}\s*\]/);
     const jsonBlock = match ? match[0] : null;
 
@@ -72,26 +72,26 @@ Guidelines:
       return res.status(500).json({ error: 'Could not parse company list from xAI response' });
     }
 
-  const parsedCompanies = JSON.parse(jsonBlock);
+    const parsedCompanies = JSON.parse(jsonBlock);
 
-// Loop through companies to verify required fields and apply red_flag logic
-const validatedCompanies = parsedCompanies.map(company => {
-  const hasName = typeof company.company_name === 'string' && company.company_name.trim().length > 2;
-  const hasURL = typeof company.url === 'string' && company.url.startsWith('http');
-  const has20Keywords = company.product_keywords?.split(',').length >= 20;
+    const validatedCompanies = parsedCompanies.map(company => {
+      const hasName = typeof company.company_name === 'string' && company.company_name.trim().length > 2;
+      const hasURL = typeof company.url === 'string' && company.url.startsWith('http');
+      const has20Keywords = company.product_keywords?.split(',').length >= 20;
 
-  const isRedFlag = !hasName || !hasURL || !has20Keywords;
+      const isRedFlag = !hasName || !hasURL || !has20Keywords;
 
-  return {
-    ...company,
-    red_flag: isRedFlag
-  };
-});
+      return {
+        ...company,
+        red_flag: isRedFlag
+      };
+    });
 
- return res.status(200).json({
+    return res.status(200).json({
       total_returned: validatedCompanies.length,
       companies: validatedCompanies
     });
+
   } catch (error) {
     console.error('xAI error:', error);
     return res.status(500).json({ error: 'Failed to fetch company data from xAI' });
