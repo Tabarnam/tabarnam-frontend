@@ -1,10 +1,11 @@
-
+import './index.css'; // ✅ Tailwind + custom styles
 import React from 'react';
 import { Helmet } from 'react-helmet';
-import { Toaster } from '@/components/ui/toaster';
+import { toaster } from '@/components/ui/toaster';
 import { AuthProvider } from '@/contexts/SupabaseAuthContext';
 import { UserRoleProvider } from '@/contexts/UserRoleContext';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+
 import AdminPanel from '@/pages/AdminPanel';
 import ResultsPage from '@/pages/ResultsPage';
 import HomePage from '@/pages/HomePage';
@@ -20,24 +21,16 @@ function App() {
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/results" element={<ResultsPage />} />
-              <Route 
-                path="/admin" 
+              <Route
+                path="/admin"
                 element={
                   <AdminRoute>
                     <AdminPanel />
                   </AdminRoute>
-                } 
+                }
               />
-              <Route 
-                path="/admin/xai-bulk-import" 
-                element={
-                  <AdminRoute>
-                    <XAIBulkImportPage />
-                  </AdminRoute>
-                } 
-              />
+              <Route path="/admin/xai-bulk-import" element={<XAIBulkImportPage />} />
             </Routes>
-            <Toaster />
           </div>
         </Router>
       </UserRoleProvider>
