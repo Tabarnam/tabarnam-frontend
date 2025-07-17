@@ -58,7 +58,6 @@ Guidelines:
     });
 
     const result = await xaiResponse.json();
-
     const rawContent = result.choices?.[0]?.message?.content;
 
     if (!rawContent) {
