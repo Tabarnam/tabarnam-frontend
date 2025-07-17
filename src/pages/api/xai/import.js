@@ -102,3 +102,4 @@ Guidelines:
     return res.status(500).json({ error: 'Failed to fetch company data from xAI' });
   }
 }
+
