@@ -2,6 +2,8 @@ import path from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 const configHorizonsViteErrorHandler = `
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
@@ -23,15 +25,13 @@ const configHorizonsViteErrorHandler = `
   });
 `;
 
-export default async function () {
-  const isDev = process.env.NODE_ENV !== 'production';
-
+export default async () => {
   let inlineEditPlugin, editModeDevPlugin;
 
   if (isDev) {
     inlineEditPlugin = (await import('./plugins/visual-editor/vite-plugin-react-inline-editor.js')).default;
     editModeDevPlugin = (await import('./plugins/visual-editor/vite-plugin-edit-mode.js')).default;
-    console.log('[Vite Config] Visual editor plugins enabled in dev mode');
+    console.log('[dev] Injecting inlineEditPlugin and editModeDevPlugin');
   }
 
   return defineConfig({
@@ -42,13 +42,13 @@ export default async function () {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),
-        '@pages': path.resolve(__dirname, 'pages'),
+        '@pages': path.resolve(__dirname, 'src/pages'),
         '@components': path.resolve(__dirname, 'src/components'),
         '@contexts': path.resolve(__dirname, 'src/contexts'),
       },
     },
     define: {
-      __HORIZONS_VITE_ERROR_HANDLER__: JSON.stringify(configHorizonsViteErrorHandler),
+      __HORIZONS_VITE_ERROR_HANDLER__: JSON.stringify(configHorizonsViteErrorHandler)
     }
   });
-}
+};
