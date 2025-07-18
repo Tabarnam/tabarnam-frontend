@@ -31,6 +31,7 @@ export default async () => {
   if (isDev) {
     inlineEditPlugin = (await import('./plugins/visual-editor/vite-plugin-react-inline-editor.js')).default;
     editModeDevPlugin = (await import('./plugins/visual-editor/vite-plugin-edit-mode.js')).default;
+    console.log('[vite] Dev mode: Visual Editor plugins loaded');
   }
 
   return defineConfig({
@@ -42,12 +43,12 @@ export default async () => {
       alias: {
         '@': path.resolve(__dirname, 'src'),
         '@pages': path.resolve(__dirname, 'src/pages'),
-        '@components': path.resolve(__dirname, 'src/components'), // ✅ ADD THIS LINE
+        '@components': path.resolve(__dirname, 'src/components'),
+        '@contexts': path.resolve(__dirname, 'src/contexts'),
       },
     },
     define: {
-      __HORIZONS_VITE_ERROR_HANDLER__: JSON.stringify(configHorizonsViteErrorHandler),
+      __HORIZONS_VITE_ERROR_HANDLER__: JSON.stringify(configHorizonsViteErrorHandler)
     }
   });
 };
-
