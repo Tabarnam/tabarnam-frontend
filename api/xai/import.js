@@ -41,17 +41,16 @@ Guidelines:
 `;
 
   try {
-    console.log("API KEY Present:", Boolean(process.env.XAI_API_KEY)); // ✅ Check environment
-
-    const xaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+    const xaiResponse = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.XAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4',
+        model: 'grok-4',
         temperature: 0.2,
+        stream: false,
         messages: [
           {
             role: 'system',
@@ -66,11 +65,10 @@ Guidelines:
     });
 
     const result = await xaiResponse.json();
-    console.log("xAI raw response:", JSON.stringify(result, null, 2));
     const rawContent = result.choices?.[0]?.message?.content;
 
     if (!rawContent) {
-      return res.status(500).json({ error: 'No content returned from xAI' });
+      return res.status(500).json({ error: 'No content returned from xAI', raw: result });
     }
 
     let jsonBlock;
