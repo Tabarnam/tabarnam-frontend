@@ -1,27 +1,15 @@
-export const config = {
-  runtime: 'edge',
-};
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 
-export default async function handler(req) {
-  try {
-    const { query } = await req.json();
+  const { query } = req.body;
 
-    if (!query || typeof query !== 'string' || query.trim().length < 2) {
-      return new Response(JSON.stringify({ error: 'Missing or invalid search query' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+  if (!query || typeof query !== 'string' || query.trim().length < 2) {
+    return res.status(400).json({ error: 'Missing or invalid search query' });
+  }
 
-    const apiKey = process.env.XAI_API_KEY;
-    if (!apiKey) {
-      return new Response(JSON.stringify({ error: 'Missing XAI_API_KEY' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    const fullPrompt = `
+  const fullPrompt = `
 You are a professional research assistant.
 Search real companies based on this input: "${query}".
 
@@ -52,10 +40,11 @@ Guidelines:
 - Only return verified or verifiable companies.
 `;
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  try {
+    const xaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        'Authorization': `Bearer ${process.env.XAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -64,70 +53,73 @@ Guidelines:
         messages: [
           {
             role: 'system',
-            content: 'You return verified companies only. You output strict JSON arrays. You never fake data.',
+            content: 'You return verified companies only. You output strict JSON arrays. You never fake data.'
           },
           {
             role: 'user',
-            content: fullPrompt,
-          },
-        ],
+            content: fullPrompt
+          }
+        ]
       }),
     });
 
-    const data = await response.json();
-    const raw = data.choices?.[0]?.message?.content;
+    const result = await xaiResponse.json();
+    const rawContent = result.choices?.[0]?.message?.content;
 
-    if (!raw) {
-      return new Response(JSON.stringify({ error: 'No content returned from xAI' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    if (!rawContent) {
+      return res.status(500).json({ error: 'No content returned from xAI' });
     }
 
-    const match = raw.match(/\[\s*{[\s\S]+?}\s*]/);
-    const jsonBlock = match ? match[0] : null;
+    let jsonBlock;
+
+    // Attempt 1: If it starts with [ it's probably JSON
+    if (rawContent.trim().startsWith('[')) {
+      jsonBlock = rawContent.trim();
+    }
+
+    // Attempt 2: Match JSON block manually from Markdown or formatted output
+    if (!jsonBlock) {
+      const match = rawContent.match(/```json\s*([\s\S]*?)```/i) || rawContent.match(/\[\s*{[\s\S]+}\s*\]/);
+      if (match) {
+        jsonBlock = match[1] || match[0];
+      }
+    }
 
     if (!jsonBlock) {
-      return new Response(JSON.stringify({ error: 'Could not parse company list from xAI response' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return res.status(500).json({ error: 'Could not parse company list from xAI response', raw: rawContent });
     }
 
-    let parsed = [];
+    let parsedCompanies;
     try {
-      parsed = JSON.parse(jsonBlock);
-    } catch (e) {
-      return new Response(JSON.stringify({ error: 'JSON parse failed' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
+      parsedCompanies = JSON.parse(jsonBlock);
+    } catch (err) {
+      return res.status(500).json({
+        error: 'Failed to parse xAI JSON',
+        message: err.message,
+        snippet: jsonBlock.slice(0, 500)
       });
     }
 
-    const validated = parsed.map((company) => {
+    const validatedCompanies = parsedCompanies.map(company => {
       const hasName = typeof company.company_name === 'string' && company.company_name.trim().length > 2;
       const hasURL = typeof company.url === 'string' && company.url.startsWith('http');
       const has20Keywords = company.product_keywords?.split(',').length >= 20;
+
+      const isRedFlag = !hasName || !hasURL || !has20Keywords;
+
       return {
         ...company,
-        red_flag: !hasName || !hasURL || !has20Keywords,
+        red_flag: isRedFlag
       };
     });
 
-    return new Response(
-      JSON.stringify({
-        total_returned: validated.length,
-        companies: validated,
-      }),
-      {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }
-    );
-  } catch (err) {
-    return new Response(JSON.stringify({ error: 'Internal error: ' + err.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
+    return res.status(200).json({
+      total_returned: validatedCompanies.length,
+      companies: validatedCompanies
     });
+
+  } catch (error) {
+    console.error('xAI IMPORT ERROR:', error);
+    return res.status(500).json({ error: 'Failed to fetch or parse data from xAI', details: error.message });
   }
 }
