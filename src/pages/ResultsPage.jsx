@@ -1,48 +1,47 @@
 import React, {
   useState,
   useEffect,
-  useCallback,
-  useRef
+  useCallback
 } from 'react';
 import { useLocation } from 'react-router-dom';
-import Head from 'next/head';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Helmet } from 'react-helmet';
+import { motion } from 'framer-motion';
 
 import supabase from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Loader2,
   BrainCircuit,
-  ArrowLeft,
-  Globe,
   Languages
 } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
-import ResultsTable from '@/components/results/ResultsTable';
-import logError from '@/lib/errorLogger';
-import useBrowserLanguage from '@/hooks/useBrowserLanguage';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import ResultsSearch from '@/components/results/ResultsSearch';
+import ResultsTable from '@/components/results/ResultsTable';
+import logError from '@/lib/errorLogger';
+import useBrowserLanguage from '@/hooks/useBrowserLanguage';
 import useUserGeolocation from '@/hooks/useUserLocation';
 
 const ResultsPage = () => {
-  const { query } = useRouter();
+  const location = useLocation();
+  const queryParams = new URLSearchParams(location.search);
+
+  const searchTermInitial = queryParams.get('term') || '';
+  const sortByInitial = queryParams.get('sortBy') || 'relevance_score';
+
   const toast = useToast();
   const browserLang = useBrowserLanguage();
   const userLocation = useUserGeolocation();
 
-  const [searchTerm, setSearchTerm] = useState(query.term || '');
-  const [sortBy, setSortBy] = useState(query.sortBy || 'relevance_score');
+  const [searchTerm, setSearchTerm] = useState(searchTermInitial);
+  const [sortBy, setSortBy] = useState(sortByInitial);
   const [loading, setLoading] = useState(true);
-  const [deepSearchLoading, setDeepSearchLoading] = useState(false);
   const [companies, setCompanies] = useState([]);
   const [viewTranslated, setViewTranslated] = useState(false);
 
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
-
     try {
       const { data, error } = await supabase
         .from('companies')
@@ -71,9 +70,9 @@ const ResultsPage = () => {
 
   return (
     <>
-      <Head>
+      <Helmet>
         <title>Search Results – Tabarnam</title>
-      </Head>
+      </Helmet>
 
       <motion.main
         className="min-h-screen bg-background"
