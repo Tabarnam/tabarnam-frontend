@@ -66,6 +66,7 @@ Guidelines:
     });
 
     const result = await xaiResponse.json();
+    console.log("xAI raw response:", JSON.stringify(result, null, 2));
     const rawContent = result.choices?.[0]?.message?.content;
 
     if (!rawContent) {
