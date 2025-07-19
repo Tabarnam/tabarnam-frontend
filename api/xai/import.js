@@ -41,6 +41,8 @@ Guidelines:
 `;
 
   try {
+    console.log("API KEY Present:", Boolean(process.env.XAI_API_KEY)); // ✅ Check environment
+
     const xaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
