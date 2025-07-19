@@ -36,7 +36,7 @@ Guidelines:
 - Keywords must be at least 20 comma-separated values.
 - Do not include placeholder text.
 - If email or manufacturing location is missing, that’s OK.
-- If any required field (name, url) is missing or unverifiable, set "red_flag" to true.
+- If any required field (name, url) is missing or unverifiable, set "red_flag": true.
 - Only return verified or verifiable companies.
 `;
 
@@ -72,16 +72,20 @@ Guidelines:
 
     let jsonBlock;
 
-    // Attempt 1: If it starts with [ it's probably JSON
+    // Attempt 1: Direct JSON
     if (rawContent.trim().startsWith('[')) {
       jsonBlock = rawContent.trim();
     }
 
-    // Attempt 2: Match JSON block manually from Markdown or formatted output
+    // Attempt 2: Try to extract from markdown or fallback to bracket match
     if (!jsonBlock) {
-      const match = rawContent.match(/```json\s*([\s\S]*?)```/i) || rawContent.match(/\[\s*{[\s\S]+}\s*\]/);
-      if (match) {
-        jsonBlock = match[1] || match[0];
+      const markdownMatch = rawContent.match(/```json\s*([\s\S]*?)```/i);
+      const arrayMatch = rawContent.match(/\[\s*{[\s\S]+}\s*\]/);
+
+      if (markdownMatch && markdownMatch[1]) {
+        jsonBlock = markdownMatch[1];
+      } else if (arrayMatch) {
+        jsonBlock = arrayMatch[0];
       }
     }
 
@@ -123,4 +127,3 @@ Guidelines:
     return res.status(500).json({ error: 'Failed to fetch or parse data from xAI', details: error.message });
   }
 }
-
