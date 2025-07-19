@@ -4,7 +4,7 @@ import React, {
   useCallback,
   useRef
 } from 'react';
-import { useRouter } from 'next/router';
+import { useLocation } from 'react-router-dom';
 import Head from 'next/head';
 import { motion, AnimatePresence } from 'framer-motion';
 
