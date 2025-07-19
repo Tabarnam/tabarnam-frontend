@@ -41,30 +41,36 @@ Guidelines:
 `;
 
   try {
+    const requestBody = {
+      model: 'grok-4',
+      temperature: 0.2,
+      stream: false,
+      messages: [
+        {
+          role: 'system',
+          content: 'You return verified companies only. You output strict JSON arrays. You never fake data.'
+        },
+        {
+          role: 'user',
+          content: fullPrompt
+        }
+      ]
+    };
+
+    console.log("Sending to xAI:", requestBody);
+
     const xaiResponse = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.XAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: 'grok-4',
-        temperature: 0.2,
-        stream: false,
-        messages: [
-          {
-            role: 'system',
-            content: 'You return verified companies only. You output strict JSON arrays. You never fake data.'
-          },
-          {
-            role: 'user',
-            content: fullPrompt
-          }
-        ]
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     const result = await xaiResponse.json();
+    console.log("xAI raw response:", result);
+
     const rawContent = result.choices?.[0]?.message?.content;
 
     if (!rawContent) {
