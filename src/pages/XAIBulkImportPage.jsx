@@ -1,98 +1,67 @@
-// File: /api/xai/import.js
+import React, { useState } from 'react';
 
-export const config = {
-  runtime: 'edge',
-};
+export default function XAIBulkImportPage() {
+  const [keyword, setKeyword] = useState('');
+  const [status, setStatus] = useState('');
+  const [resultCount, setResultCount] = useState(null);
 
-export default async function handler(req) {
-  try {
-    const { query } = await req.json();
+  const handleImport = async () => {
+    setStatus('Importing...');
+    setResultCount(null);
 
-    if (!query || query.trim() === '') {
-      return new Response(JSON.stringify({ error: 'No query provided' }), {
-        status: 400,
-      });
-    }
-
-    const apiKey = process.env.XAI_KEY;
-    if (!apiKey) {
-      return new Response(JSON.stringify({ error: 'Missing XAI_KEY' }), {
-        status: 500,
-      });
-    }
-
-    const prompt = `List 50 real companies that manufacture or sell ${query}. For each company, provide:
-- Name
-- Tagline
-- Industries (array)
-- Product keywords (comma-separated)
-- Website URL
-- Email
-- Headquarters location (city, state, country)
-- Manufacturing location(s) (array of countries or cities)
-
-Only include real and verifiable companies. Reply in raw JSON format as an array of objects using these exact keys:
-company_name, company_tagline, industries, product_keywords, url, email_address, headquarters_location, manufacturing_locations`;
-
-    const response = await fetch('https://api.x.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'xai-knowledge',
-        messages: [
-          { role: 'system', content: 'You are a business research assistant.' },
-          { role: 'user', content: prompt },
-        ],
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('xAI ERROR:', data);
-      return new Response(JSON.stringify({ error: data.error || 'xAI request failed' }), {
-        status: 500,
-      });
-    }
-
-    const content = data.choices?.[0]?.message?.content;
-
-    if (!content || !content.includes('{') && !content.includes('[')) {
-      return new Response(JSON.stringify({ error: 'No content returned from xAI' }), {
-        status: 500,
-      });
-    }
-
-    // Attempt to parse the JSON blob returned by xAI
-    let companies;
     try {
-      companies = JSON.parse(content.trim());
-    } catch (parseErr) {
-      console.error('JSON PARSE ERROR:', parseErr, content);
-      return new Response(JSON.stringify({ error: 'Failed to parse xAI JSON' }), {
-        status: 500,
+      const res = await fetch('/api/xai/import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query: keyword }),
       });
+
+      if (res.ok) {
+        const data = await res.json();
+        setResultCount(data?.companies?.length || 0);
+        setStatus(`✅ Import succeeded: ${data.companies.length} companies returned`);
+      } else {
+        let errorMsg = 'Unknown error';
+        try {
+          const error = await res.json();
+          errorMsg = error.error || error.message || errorMsg;
+        } catch {
+          errorMsg = `HTTP ${res.status}`;
+        }
+        setStatus(`❌ Error: ${errorMsg}`);
+      }
+    } catch (e) {
+      console.error('IMPORT CATCH ERROR:', e);
+      setStatus(`❌ Error: ${e.message}`);
     }
+  };
 
-    if (!Array.isArray(companies) || companies.length === 0) {
-      return new Response(JSON.stringify({ error: 'Parsed content is not a company array' }), {
-        status: 500,
-      });
-    }
-
-    // TODO: Save companies to Supabase here (or return them to frontend for review)
-
-    return new Response(JSON.stringify({ success: true, companies }), {
-      status: 200,
-    });
-
-  } catch (err) {
-    console.error('IMPORT CATCH ERROR:', err);
-    return new Response(JSON.stringify({ error: err.message || 'Unhandled error' }), {
-      status: 500,
-    });
-  }
+  return (
+    <div className="p-6 space-y-6">
+      <h1 className="text-3xl font-bold">XAI Bulk Import</h1>
+      <input
+        type="text"
+        placeholder="Enter search keyword"
+        value={keyword}
+        onChange={(e) => setKeyword(e.target.value)}
+        className="p-2 border rounded w-full"
+      />
+      <button
+        onClick={handleImport}
+        className="px-4 py-2 bg-blue-600 text-white rounded"
+      >
+        Start Import
+      </button>
+      <div className="mt-4 text-gray-700 whitespace-pre-wrap">
+        {status}
+        {resultCount !== null && resultCount > 0 && (
+          <p className="mt-2 text-sm text-green-700">
+            ✅ {resultCount} companies processed successfully.
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }
