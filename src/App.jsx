@@ -28,13 +28,10 @@ function App() {
                   </AdminRoute>
                 }
               />
+              {/* TEMP: Render import page without auth wrapper to debug layout */}
               <Route
                 path="/admin/xai-bulk-import"
-                element={
-                  <AdminRoute>
-                    <XAIBulkImportPage />
-                  </AdminRoute>
-                }
+                element={<XAIBulkImportPage />}
               />
             </Routes>
           </div>
