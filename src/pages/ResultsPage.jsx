@@ -19,7 +19,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import ResultsSearch from '@/components/results/ResultsSearch';
 import ResultsTable from '@/components/results/ResultsTable';
-import logError from '@/lib/errorLogger';
+import { logError } from '@/lib/errorLogger';
 import useBrowserLanguage from '@/hooks/useBrowserLanguage';
 import useUserGeolocation from '@/hooks/useUserLocation';
 
