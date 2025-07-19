@@ -7,7 +7,7 @@ import { useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 
-import supabase from '@/lib/customSupabaseClient';
+import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Loader2,
