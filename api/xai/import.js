@@ -127,3 +127,4 @@ Guidelines:
     return res.status(500).json({ error: 'Failed to fetch or parse data from xAI', details: error.message });
   }
 }
+
