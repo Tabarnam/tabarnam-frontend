@@ -63,42 +63,24 @@ Guidelines:
       }),
     });
 
+    if (!xaiResponse.ok) {
+      const errText = await xaiResponse.text();
+      console.error('xAI HTTP error:', xaiResponse.status, errText);
+      return res.status(500).json({ error: `xAI request failed (${xaiResponse.status})` });
+    }
+
     const result = await xaiResponse.json();
     const rawContent = result.choices?.[0]?.message?.content;
 
-    if (!rawContent) {
+    if (!rawContent || typeof rawContent !== 'string') {
+      console.error('No valid content returned from xAI:', rawContent);
       return res.status(500).json({ error: 'No content returned from xAI' });
     }
 
+    // Extract JSON array from response string
     const match = rawContent.match(/\[\s*{[\s\S]+}\s*\]/);
     const jsonBlock = match ? match[0] : null;
 
     if (!jsonBlock) {
-      return res.status(500).json({ error: 'Could not parse company list from xAI response' });
-    }
-
-    const parsedCompanies = JSON.parse(jsonBlock);
-
-    const validatedCompanies = parsedCompanies.map(company => {
-      const hasName = typeof company.company_name === 'string' && company.company_name.trim().length > 2;
-      const hasURL = typeof company.url === 'string' && company.url.startsWith('http');
-      const has20Keywords = company.product_keywords?.split(',').length >= 20;
-
-      const isRedFlag = !hasName || !hasURL || !has20Keywords;
-
-      return {
-        ...company,
-        red_flag: isRedFlag
-      };
-    });
-
-    return res.status(200).json({
-      total_returned: validatedCompanies.length,
-      companies: validatedCompanies
-    });
-
-  } catch (error) {
-    console.error('xAI error:', error);
-    return res.status(500).json({ error: 'Failed to fetch company data from xAI' });
-  }
-}
+      console.error('Failed to extract JSON array from xAI response:', rawContent);
+      return res.status(500).json({ error: 'Could not parse co
