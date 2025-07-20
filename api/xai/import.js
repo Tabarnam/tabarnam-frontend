@@ -89,7 +89,6 @@ Guidelines:
       }
     }
 
-    // Still nothing? throw
     if (!jsonBlock) {
       console.error('❌ No JSON array found in content:', content?.slice(0, 500));
       throw new Error('Could not parse array from OpenAI');
@@ -121,4 +120,30 @@ Guidelines:
 
   try {
     let all = [];
-    cons
+    const maxAttempts = 6;
+
+    for (let i = 0; i < maxAttempts && all.length < 50; i++) {
+      console.log(`⏳ Fetching batch ${i + 1}...`);
+      const next = await callOpenAI(query);
+
+      const newUnique = next.filter(
+        (item) =>
+          !all.some((existing) =>
+            existing.company_name === item.company_name ||
+            existing.url === item.url
+          )
+      );
+
+      all = [...all, ...newUnique];
+      console.log(`📦 Total collected so far: ${all.length}`);
+    }
+
+    return res.status(200).json({
+      total_returned: all.length,
+      companies: all,
+    });
+  } catch (err) {
+    console.error('❌ IMPORT ERROR:', err);
+    return res.status(500).json({ error: err.message });
+  }
+}
