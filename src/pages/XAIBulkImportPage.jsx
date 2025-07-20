@@ -12,7 +12,7 @@ export default function XAIBulkImportPage() {
   const handleImport = async () => {
     setStatus('Importing...');
     try {
-      const res = await fetch('https://fcfafysalbrvewhymkce.supabase.co/functions/v1/xai-bulk-importer', {
+      const res = await fetch('https://qiqfjqegxnrivayvliba.supabase.co/functions/v1/xai-bulk-importer', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
