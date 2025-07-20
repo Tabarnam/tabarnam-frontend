@@ -1,27 +1,54 @@
 import React, { useState } from 'react';
 
-export default function BulkImportPage() {
+export default function XAIBulkImportPage() {
   const [keyword, setKeyword] = useState('');
   const [status, setStatus] = useState('');
-  const [importedCompanies, setImportedCompanies] = useState([]);
+  const [allCompanies, setAllCompanies] = useState([]);
+  const [filter, setFilter] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
 
   const handleImport = async () => {
-    setStatus('Loading...');
-    const res = await fetch('/api/xai/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: keyword }),
-    });
+    setStatus('Importing...');
+    try {
+      const res = await fetch('/api/xai/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: keyword }),
+      });
 
-    const json = await res.json();
-    if (json.error) {
-      setStatus('Error: ' + json.error);
-      return;
+      const data = await res.json();
+      if (res.ok) {
+        setAllCompanies((prev) => [...prev, ...data.companies]);
+        setStatus(`✅ Imported ${data.companies.length} companies`);
+        setCurrentPage(1);
+      } else {
+        setStatus(`❌ Error: ${data.error || data.message}`);
+      }
+    } catch (e) {
+      console.error(e);
+      setStatus(`❌ Error: ${e.message}`);
     }
-
-    setStatus(`✅ Imported ${json.total_returned} companies.`);
-    setImportedCompanies((prev) => [...prev, ...json.companies]);
   };
+
+  const filteredCompanies = allCompanies.filter((c) => {
+    const nameMatch = c.company_name?.toLowerCase().includes(filter.toLowerCase());
+    const industryMatch = c.industries?.some((i) => i.toLowerCase().includes(filter.toLowerCase()));
+    return nameMatch || industryMatch;
+  });
+
+  const paginatedCompanies = filteredCompanies.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  const handleCopy = async () => {
+    const lines = filteredCompanies.map((c, i) => `${i + 1}. ${c.company_name} — ${c.industries?.join(', ')}`);
+    await navigator.clipboard.writeText(lines.join('\n'));
+    setStatus('✅ Copied to clipboard!');
+  };
+
+  const totalPages = Math.ceil(filteredCompanies.length / itemsPerPage);
 
   return (
     <div className="min-h-screen p-6 space-y-6 bg-gray-50">
@@ -29,33 +56,35 @@ export default function BulkImportPage() {
 
       <input
         type="text"
-        className="p-2 border rounded w-full"
         placeholder="Enter search keyword"
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && handleImport()}
+        className="p-2 border rounded w-full"
       />
 
       <button
-        className="px-4 py-2 bg-blue-600 text-white rounded"
         onClick={handleImport}
+        className="px-4 py-2 bg-blue-600 text-white rounded mt-2"
       >
         Start Import
       </button>
 
-      <div className="mt-4 text-gray-700 whitespace-pre-wrap">{status}</div>
+      {status && <div className="mt-4 text-gray-700 whitespace-pre-wrap">{status}</div>}
 
-      {importedCompanies.length > 0 && (
-        <div className="mt-6">
-          <h2 className="text-xl font-semibold mb-2">Imported Companies</h2>
-          <div className="max-h-96 overflow-y-auto bg-white p-4 border rounded shadow text-sm">
-            {importedCompanies.map((company, index) => (
-              <div key={index} className="mb-2">
-                {index + 1}. {company.company_name} — {company.industries?.join(', ')}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+      {allCompanies.length > 0 && (
+        <>
+          <div className="flex items-center gap-3 mt-6">
+            <input
+              type="text"
+              placeholder="Filter by name or industry..."
+              value={filter}
+              onChange={(e) => {
+                setFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="p-2 border rounded w-full max-w-md"
+            />
+            <button
+              onClick={handleCopy}
+              className="px-3 py-2 text-sm bg-green-600 text-white rounded"
