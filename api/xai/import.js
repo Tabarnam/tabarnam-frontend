@@ -51,7 +51,7 @@ Guidelines:
         model: "gpt-4o",
         temperature: 0.2,
         stream: false,
-        max_tokens: 3000, // ✅ FIXED: allow longer response
+        max_tokens: 3000,
         messages: [
           {
             role: "system",
@@ -67,6 +67,10 @@ Guidelines:
 
     const result = await openaiResponse.json();
     const rawContent = result.choices?.[0]?.message?.content;
+    const finishReason = result.choices?.[0]?.finish_reason;
+
+    console.log('🔍 OpenAI finish_reason:', finishReason);
+    console.log('📝 Response length:', rawContent?.length || 0);
 
     if (!rawContent) {
       return res.status(500).json({ error: 'No content returned from ChatGPT', raw: result });
@@ -114,13 +118,15 @@ Guidelines:
       };
     });
 
+    console.log('✅ Total companies returned:', validatedCompanies.length);
+
     return res.status(200).json({
       total_returned: validatedCompanies.length,
       companies: validatedCompanies
     });
 
   } catch (error) {
-    console.error('OPENAI IMPORT ERROR:', error);
+    console.error('❌ OPENAI IMPORT ERROR:', error);
     return res.status(500).json({ error: 'Failed to fetch or parse data from OpenAI', details: error.message });
   }
 }
