@@ -9,9 +9,9 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing or invalid search query' });
   }
 
-  const prompt = `
+  const promptBase = (keyword) => `
 You are a professional research assistant.
-Search real companies based on this input: "${query}".
+Search real companies based on this input: "${keyword}".
 
 Return companies in this JSON format (as a single array):
 [
@@ -40,7 +40,7 @@ Guidelines:
 - Only return verified or verifiable companies.
 `;
 
-  try {
+  const fetchCompaniesFromOpenAI = async (keyword) => {
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: 'POST',
       headers: {
@@ -59,7 +59,7 @@ Guidelines:
           },
           {
             role: "user",
-            content: prompt
+            content: promptBase(keyword)
           }
         ]
       })
@@ -73,7 +73,7 @@ Guidelines:
     console.log('📝 Response length:', rawContent?.length || 0);
 
     if (!rawContent) {
-      return res.status(500).json({ error: 'No content returned from ChatGPT', raw: result });
+      throw new Error('No content returned from OpenAI');
     }
 
     let jsonBlock;
@@ -91,21 +91,17 @@ Guidelines:
     }
 
     if (!jsonBlock) {
-      return res.status(500).json({ error: 'Could not parse company list from ChatGPT response', raw: rawContent });
+      throw new Error('Could not extract JSON array from OpenAI response');
     }
 
     let parsedCompanies;
     try {
       parsedCompanies = JSON.parse(jsonBlock);
     } catch (err) {
-      return res.status(500).json({
-        error: 'Failed to parse ChatGPT JSON',
-        message: err.message,
-        snippet: jsonBlock.slice(0, 500)
-      });
+      throw new Error('Failed to parse JSON: ' + err.message);
     }
 
-    const validatedCompanies = parsedCompanies.map(company => {
+    return parsedCompanies.map(company => {
       const hasName = typeof company.company_name === 'string' && company.company_name.trim().length > 2;
       const hasURL = typeof company.url === 'string' && company.url.startsWith('http');
       const has20Keywords = company.product_keywords?.split(',').length >= 20;
@@ -117,16 +113,32 @@ Guidelines:
         red_flag: isRedFlag
       };
     });
+  };
 
-    console.log('✅ Total companies returned:', validatedCompanies.length);
+  try {
+    let totalCompanies = [];
+    const maxTries = 5;
+
+    for (let i = 0; i < maxTries && totalCompanies.length < 50; i++) {
+      console.log(`🔁 Fetch attempt ${i + 1}...`);
+      const newBatch = await fetchCompaniesFromOpenAI(query);
+      const newUnique = newBatch.filter(
+        (incoming) => !totalCompanies.some(
+          (existing) => existing.url === incoming.url || existing.company_name === incoming.company_name
+        )
+      );
+      totalCompanies.push(...newUnique);
+    }
+
+    console.log('✅ Total companies returned:', totalCompanies.length);
 
     return res.status(200).json({
-      total_returned: validatedCompanies.length,
-      companies: validatedCompanies
+      total_returned: totalCompanies.length,
+      companies: totalCompanies
     });
 
   } catch (error) {
-    console.error('❌ OPENAI IMPORT ERROR:', error);
-    return res.status(500).json({ error: 'Failed to fetch or parse data from OpenAI', details: error.message });
+    console.error('❌ IMPORT LOOP ERROR:', error);
+    return res.status(500).json({ error: error.message });
   }
 }
