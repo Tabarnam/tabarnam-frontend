@@ -9,9 +9,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing or invalid search query' });
   }
 
-  const promptBase = (keyword) => `
-You are a professional research assistant.
-Search real companies based on this input: "${keyword}".
+  const buildPrompt = (keyword) => `
+You are a professional business data researcher.
+
+Search real companies based on this input: "${keyword}"
 
 Return companies in this JSON format (as a single array):
 [
@@ -32,113 +33,104 @@ Return companies in this JSON format (as a single array):
 Guidelines:
 - All companies must be real and verifiable.
 - Website must be live (not parked or broken).
-- Industries must be an array of 1–3 words each.
-- Keywords must be at least 20 comma-separated values.
-- Do not include placeholder text.
+- Industries must be 1–3 words each.
+- product_keywords must contain 20+ comma-separated values.
+- Do not use placeholder data.
+- If name or URL is missing, set "red_flag": true.
 - If email or manufacturing location is missing, that’s OK.
-- If any required field (name, url) is missing or unverifiable, set "red_flag": true.
 - Only return verified or verifiable companies.
+- Return at least 20 companies per batch.
 `;
 
-  const fetchCompaniesFromOpenAI = async (keyword) => {
-    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+  const callOpenAI = async (keyword) => {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model: 'gpt-4o',
         temperature: 0.2,
-        stream: false,
         max_tokens: 3000,
         messages: [
           {
-            role: "system",
-            content: "You return verified companies only. You output strict JSON arrays. You never fake data."
+            role: 'system',
+            content: 'You only return strict JSON. You never fake data. You return companies only.',
           },
           {
-            role: "user",
-            content: promptBase(keyword)
-          }
-        ]
-      })
+            role: 'user',
+            content: buildPrompt(keyword),
+          },
+        ],
+      }),
     });
 
-    const result = await openaiResponse.json();
-    const rawContent = result.choices?.[0]?.message?.content;
-    const finishReason = result.choices?.[0]?.finish_reason;
+    const result = await res.json();
+    const content = result.choices?.[0]?.message?.content;
+    const finish = result.choices?.[0]?.finish_reason;
 
-    console.log('🔍 OpenAI finish_reason:', finishReason);
-    console.log('📝 Response length:', rawContent?.length || 0);
-
-    if (!rawContent) {
-      throw new Error('No content returned from OpenAI');
-    }
+    console.log('🔁 OpenAI finish_reason:', finish);
+    console.log('📝 Raw content length:', content?.length || 0);
 
     let jsonBlock;
-    if (rawContent.trim().startsWith('[')) {
-      jsonBlock = rawContent.trim();
+    if (content?.trim().startsWith('[')) {
+      jsonBlock = content.trim();
     } else {
-      const markdownMatch = rawContent.match(/```json\s*([\s\S]*?)```/i);
-      const arrayMatch = rawContent.match(/\[\s*{[\s\S]+}\s*\]/);
-
-      if (markdownMatch && markdownMatch[1]) {
-        jsonBlock = markdownMatch[1];
-      } else if (arrayMatch) {
-        jsonBlock = arrayMatch[0];
-      }
+      const match = content.match(/```json\s*([\s\S]*?)```/i);
+      if (match && match[1]) jsonBlock = match[1];
     }
 
-    if (!jsonBlock) {
-      throw new Error('Could not extract JSON array from OpenAI response');
-    }
+    if (!jsonBlock) throw new Error('Could not parse array from OpenAI');
 
-    let parsedCompanies;
+    let parsed;
     try {
-      parsedCompanies = JSON.parse(jsonBlock);
+      parsed = JSON.parse(jsonBlock);
     } catch (err) {
-      throw new Error('Failed to parse JSON: ' + err.message);
+      throw new Error('Invalid JSON format from OpenAI: ' + err.message);
     }
 
-    return parsedCompanies.map(company => {
-      const hasName = typeof company.company_name === 'string' && company.company_name.trim().length > 2;
-      const hasURL = typeof company.url === 'string' && company.url.startsWith('http');
-      const has20Keywords = company.product_keywords?.split(',').length >= 20;
-
-      const isRedFlag = !hasName || !hasURL || !has20Keywords;
+    const cleaned = parsed.map((c) => {
+      const hasName = typeof c.company_name === 'string' && c.company_name.length > 2;
+      const hasUrl = typeof c.url === 'string' && c.url.startsWith('http');
+      const hasKeywords = typeof c.product_keywords === 'string' && c.product_keywords.split(',').length >= 20;
 
       return {
-        ...company,
-        red_flag: isRedFlag
+        ...c,
+        red_flag: !hasName || !hasUrl || !hasKeywords,
       };
     });
+
+    console.log(`✅ OpenAI returned ${cleaned.length} companies`);
+    return cleaned;
   };
 
   try {
-    let totalCompanies = [];
-    const maxTries = 5;
+    let all = [];
+    const maxAttempts = 6;
 
-    for (let i = 0; i < maxTries && totalCompanies.length < 50; i++) {
-      console.log(`🔁 Fetch attempt ${i + 1}...`);
-      const newBatch = await fetchCompaniesFromOpenAI(query);
-      const newUnique = newBatch.filter(
-        (incoming) => !totalCompanies.some(
-          (existing) => existing.url === incoming.url || existing.company_name === incoming.company_name
-        )
+    for (let i = 0; i < maxAttempts && all.length < 50; i++) {
+      console.log(`⏳ Fetching batch ${i + 1}...`);
+      const next = await callOpenAI(query);
+
+      const newUnique = next.filter(
+        (item) =>
+          !all.some((existing) =>
+            existing.company_name === item.company_name ||
+            existing.url === item.url
+          )
       );
-      totalCompanies.push(...newUnique);
+
+      all = [...all, ...newUnique];
+      console.log(`📦 Total collected so far: ${all.length}`);
     }
 
-    console.log('✅ Total companies returned:', totalCompanies.length);
-
     return res.status(200).json({
-      total_returned: totalCompanies.length,
-      companies: totalCompanies
+      total_returned: all.length,
+      companies: all,
     });
-
-  } catch (error) {
-    console.error('❌ IMPORT LOOP ERROR:', error);
-    return res.status(500).json({ error: error.message });
+  } catch (err) {
+    console.error('❌ IMPORT ERROR:', err);
+    return res.status(500).json({ error: err.message });
   }
 }
