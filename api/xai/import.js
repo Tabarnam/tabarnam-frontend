@@ -51,6 +51,7 @@ Guidelines:
         model: "gpt-4o",
         temperature: 0.2,
         stream: false,
+        max_tokens: 3000, // ✅ FIXED: allow longer response
         messages: [
           {
             role: "system",
