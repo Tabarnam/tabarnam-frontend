@@ -14,7 +14,10 @@ export default function XAIBulkImportPage() {
     try {
       const res = await fetch('https://fcfafysalbrvewhymkce.supabase.co/functions/v1/xai-bulk-importer', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpcWZqcWVneG5yaXZheXZsaWJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI2MTY5MjMsImV4cCI6MjA2ODE5MjkyM30.-a4qe-VXr3qyz1Xz-wwueOL7CHd7M1HiC8fpB4Lejyc'
+        },
         body: JSON.stringify({ query: keyword }),
       });
 
@@ -156,7 +159,6 @@ export default function XAIBulkImportPage() {
             })}
           </div>
 
-          {/* Pagination Controls */}
           {totalPages > 1 && (
             <div className="mt-4 flex items-center gap-2 text-sm">
               <button
