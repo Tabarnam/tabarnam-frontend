@@ -9,7 +9,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing or invalid search query' });
   }
 
-  const fullPrompt = `
+  const prompt = `
 You are a professional research assistant.
 Search real companies based on this input: "${query}".
 
@@ -41,51 +41,40 @@ Guidelines:
 `;
 
   try {
-    const requestBody = {
-      model: 'grok-4',
-      temperature: 0.2,
-      stream: false,
-      messages: [
-        {
-          role: 'system',
-          content: 'You return verified companies only. You output strict JSON arrays. You never fake data.'
-        },
-        {
-          role: 'user',
-          content: fullPrompt
-        }
-      ]
-    };
-
-    console.log("Sending to xAI:", requestBody);
-
-    const xaiResponse = await fetch('https://api.x.ai/v1/chat/completions', {
+    const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.XAI_API_KEY}`,
-        'Content-Type': 'application/json',
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify({
+        model: "gpt-4o",
+        temperature: 0.2,
+        stream: false,
+        messages: [
+          {
+            role: "system",
+            content: "You return verified companies only. You output strict JSON arrays. You never fake data."
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ]
+      })
     });
 
-    const result = await xaiResponse.json();
-    console.log("xAI raw response:", result);
-
+    const result = await openaiResponse.json();
     const rawContent = result.choices?.[0]?.message?.content;
 
     if (!rawContent) {
-      return res.status(500).json({ error: 'No content returned from xAI', raw: result });
+      return res.status(500).json({ error: 'No content returned from ChatGPT', raw: result });
     }
 
     let jsonBlock;
-
-    // Attempt 1: Direct JSON
     if (rawContent.trim().startsWith('[')) {
       jsonBlock = rawContent.trim();
-    }
-
-    // Attempt 2: Try to extract from markdown or fallback to bracket match
-    if (!jsonBlock) {
+    } else {
       const markdownMatch = rawContent.match(/```json\s*([\s\S]*?)```/i);
       const arrayMatch = rawContent.match(/\[\s*{[\s\S]+}\s*\]/);
 
@@ -97,7 +86,7 @@ Guidelines:
     }
 
     if (!jsonBlock) {
-      return res.status(500).json({ error: 'Could not parse company list from xAI response', raw: rawContent });
+      return res.status(500).json({ error: 'Could not parse company list from ChatGPT response', raw: rawContent });
     }
 
     let parsedCompanies;
@@ -105,7 +94,7 @@ Guidelines:
       parsedCompanies = JSON.parse(jsonBlock);
     } catch (err) {
       return res.status(500).json({
-        error: 'Failed to parse xAI JSON',
+        error: 'Failed to parse ChatGPT JSON',
         message: err.message,
         snippet: jsonBlock.slice(0, 500)
       });
@@ -130,7 +119,7 @@ Guidelines:
     });
 
   } catch (error) {
-    console.error('xAI IMPORT ERROR:', error);
-    return res.status(500).json({ error: 'Failed to fetch or parse data from xAI', details: error.message });
+    console.error('OPENAI IMPORT ERROR:', error);
+    return res.status(500).json({ error: 'Failed to fetch or parse data from OpenAI', details: error.message });
   }
 }
