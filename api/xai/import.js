@@ -1,149 +1,107 @@
+// /api/xai/import.js
+
+import { OpenAI } from 'openai';
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+const systemPrompt = `
+You are a research assistant. Return ONLY a JSON array of companies that make the requested product.
+Each company must have the following schema exactly:
+
+{
+  "company_name": "Company Name",
+  "company_tagline": "One sentence tagline",
+  "industries": ["Industry1", "Industry2"],
+  "product_keywords": "comma,separated,list,of,at,least,20,keywords",
+  "url": "https://example.com",
+  "email_address": "contact@example.com",
+  "headquarters_location": "City, ST",
+  "manufacturing_locations": ["City, ST", "Country"],
+  "red_flag": false
+}
+
+If you are not sure about a value, still return the field with a placeholder and set red_flag to true.
+Always return an array of at least 20 companies if possible.
+`;
+
+const MAX_BATCHES = 5;
+const MIN_COMPANIES = 50;
+
+async function callOpenAI(query) {
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: `Give me 20+ companies that make ${query}` },
+  ];
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4',
+    messages,
+    temperature: 0.2,
+    max_tokens: 3500,
+  });
+
+  const finishReason = completion.choices?.[0]?.finish_reason;
+  const rawText = completion.choices?.[0]?.message?.content?.trim();
+
+  console.log(`RAW OpenAI text (truncated): ${rawText?.slice(0, 300)}...`);
+  console.log(`Finish reason: ${finishReason}`);
+
+  if (!rawText) throw new Error('No content returned from OpenAI');
+
+  try {
+    // Try direct JSON.parse
+    const parsed = JSON.parse(rawText);
+    if (!Array.isArray(parsed)) throw new Error('Not an array');
+    return parsed;
+  } catch (err) {
+    console.warn('Initial JSON parse failed, attempting fallback…');
+
+    const match = rawText.match(/\[\s*{[\s\S]+}\s*\]/);
+    if (match) {
+      try {
+        const fallbackParsed = JSON.parse(match[0]);
+        return fallbackParsed;
+      } catch (fallbackError) {
+        throw new Error('Fallback JSON parse failed');
+      }
+    }
+
+    console.error('OpenAI returned malformed JSON:', rawText);
+    throw new Error('Could not parse array from OpenAI');
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   const { query } = req.body;
-
-  if (!query || typeof query !== 'string' || query.trim().length < 2) {
-    return res.status(400).json({ error: 'Missing or invalid search query' });
+  if (!query || typeof query !== 'string') {
+    return res.status(400).json({ error: 'Missing or invalid query' });
   }
-
-  const buildPrompt = (keyword) => `
-You are a professional business data researcher.
-
-Search real companies based on this input: "${keyword}"
-
-Return companies in this JSON format (as a single array):
-[
-  {
-    "company_name": "",
-    "company_tagline": "",
-    "industries": [],
-    "product_keywords": "",
-    "url": "",
-    "email_address": "",
-    "headquarters_location": "",
-    "manufacturing_locations": [],
-    "amazon_url": "",
-    "red_flag": false
-  }
-]
-
-Guidelines:
-- All companies must be real and verifiable.
-- Website must be live (not parked or broken).
-- Industries must be 1–3 words each.
-- product_keywords must contain 20+ comma-separated values.
-- Do not use placeholder data.
-- If name or URL is missing, set "red_flag": true.
-- If email or manufacturing location is missing, that’s OK.
-- Only return verified or verifiable companies.
-- Return at least 20 companies per batch.
-`;
-
-  const callOpenAI = async (keyword) => {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        temperature: 0.2,
-        max_tokens: 3000,
-        messages: [
-          {
-            role: 'system',
-            content: 'You only return strict JSON. You never fake data. You return companies only.',
-          },
-          {
-            role: 'user',
-            content: buildPrompt(keyword),
-          },
-        ],
-      }),
-    });
-
-    const result = await res.json();
-    const content = result.choices?.[0]?.message?.content;
-    const finish = result.choices?.[0]?.finish_reason;
-
-    console.log('🔁 OpenAI finish_reason:', finish);
-    console.log('📝 Raw content length:', content?.length || 0);
-
-    let jsonBlock;
-
-    // Extract markdown JSON block if present
-    const markdownMatch = content?.match(/```json\s*([\s\S]*?)```/i);
-    if (markdownMatch?.[1]) {
-      jsonBlock = markdownMatch[1];
-    }
-
-    // Fallback: extract any JSON array manually
-    if (!jsonBlock) {
-      const arrayMatch = content?.match(/\[\s*{[\s\S]*?}\s*\]/);
-      if (arrayMatch) {
-        jsonBlock = arrayMatch[0];
-      }
-    }
-
-    if (!jsonBlock) {
-      console.error('❌ No JSON array found in content:', content?.slice(0, 500));
-      throw new Error('Could not parse array from OpenAI');
-    }
-
-    let parsed;
-    try {
-      parsed = JSON.parse(jsonBlock);
-    } catch (err) {
-      console.error('❌ Failed JSON parse:', err.message);
-      console.error('🧩 Problem snippet:', jsonBlock.slice(0, 500));
-      throw new Error('OpenAI returned invalid JSON: ' + err.message);
-    }
-
-    const cleaned = parsed.map((c) => {
-      const hasName = typeof c.company_name === 'string' && c.company_name.length > 2;
-      const hasUrl = typeof c.url === 'string' && c.url.startsWith('http');
-      const hasKeywords = typeof c.product_keywords === 'string' && c.product_keywords.split(',').length >= 20;
-
-      return {
-        ...c,
-        red_flag: !hasName || !hasUrl || !hasKeywords,
-      };
-    });
-
-    console.log(`✅ OpenAI returned ${cleaned.length} companies`);
-    return cleaned;
-  };
 
   try {
-    let all = [];
-    const maxAttempts = 6;
+    const allCompanies = [];
+    const seenNames = new Set();
 
-    for (let i = 0; i < maxAttempts && all.length < 50; i++) {
-      console.log(`⏳ Fetching batch ${i + 1}...`);
-      const next = await callOpenAI(query);
-
-      const newUnique = next.filter(
-        (item) =>
-          !all.some((existing) =>
-            existing.company_name === item.company_name ||
-            existing.url === item.url
-          )
+    for (let i = 0; i < MAX_BATCHES && allCompanies.length < MIN_COMPANIES; i++) {
+      const batch = await callOpenAI(query);
+      const unique = batch.filter(
+        (c) => c?.company_name && !seenNames.has(c.company_name)
       );
+      unique.forEach((c) => seenNames.add(c.company_name));
+      allCompanies.push(...unique);
 
-      all = [...all, ...newUnique];
-      console.log(`📦 Total collected so far: ${all.length}`);
+      console.log(`✅ Batch ${i + 1}: got ${unique.length} unique companies`);
     }
 
-    return res.status(200).json({
-      total_returned: all.length,
-      companies: all,
-    });
+    console.log(`🎯 Total companies returned: ${allCompanies.length}`);
+    return res.status(200).json({ companies: allCompanies });
   } catch (err) {
-    console.error('❌ IMPORT ERROR:', err);
+    console.error('IMPORT ERROR:', err.message);
     return res.status(500).json({ error: err.message });
   }
 }
