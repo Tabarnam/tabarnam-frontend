@@ -6,6 +6,7 @@ export default function XAIBulkImportPage() {
   const [allCompanies, setAllCompanies] = useState([]);
   const [filter, setFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [expandedIndex, setExpandedIndex] = useState(null);
   const itemsPerPage = 20;
 
   const handleImport = async () => {
@@ -48,6 +49,26 @@ export default function XAIBulkImportPage() {
     setStatus('✅ Copied to clipboard!');
   };
 
+  const handleExportCSV = () => {
+    const headers = Object.keys(filteredCompanies[0] || {});
+    const rows = filteredCompanies.map(company =>
+      headers.map(field => {
+        const val = company[field];
+        if (Array.isArray(val)) return `"${val.join(';')}"`;
+        if (typeof val === 'object') return `"${JSON.stringify(val)}"`;
+        return `"${String(val ?? '')}"`;
+      }).join(',')
+    );
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `companies_export_${Date.now()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const totalPages = Math.ceil(filteredCompanies.length / itemsPerPage);
 
   return (
@@ -74,7 +95,7 @@ export default function XAIBulkImportPage() {
 
       {allCompanies.length > 0 && (
         <>
-          <div className="flex items-center gap-3 mt-6">
+          <div className="flex flex-wrap items-center gap-3 mt-6">
             <input
               type="text"
               placeholder="Filter by name or industry..."
@@ -88,3 +109,75 @@ export default function XAIBulkImportPage() {
             <button
               onClick={handleCopy}
               className="px-3 py-2 text-sm bg-green-600 text-white rounded"
+            >
+              Copy All
+            </button>
+            <button
+              onClick={handleExportCSV}
+              className="px-3 py-2 text-sm bg-yellow-600 text-white rounded"
+            >
+              Export CSV
+            </button>
+            <button
+              onClick={() => {
+                setAllCompanies([]);
+                setFilter('');
+                setCurrentPage(1);
+              }}
+              className="px-3 py-2 text-sm bg-red-600 text-white rounded"
+            >
+              Clear List
+            </button>
+          </div>
+
+          <div className="max-h-[30rem] overflow-y-auto bg-white p-4 border rounded shadow text-sm mt-4">
+            {paginatedCompanies.map((company, index) => {
+              const isRed = company.red_flag === true;
+              const listIndex = (currentPage - 1) * itemsPerPage + index + 1;
+              const isExpanded = expandedIndex === listIndex;
+
+              return (
+                <div
+                  key={index}
+                  className={`mb-2 p-2 rounded cursor-pointer border ${isRed ? 'bg-red-100 border-red-300' : 'hover:bg-gray-100'}`}
+                  onClick={() => setExpandedIndex(isExpanded ? null : listIndex)}
+                >
+                  <div>
+                    <strong>{listIndex}.</strong> {company.company_name} — {company.industries?.join(', ')}
+                    {isRed && <span className="ml-2 text-red-600 font-semibold">⚠ red_flag</span>}
+                  </div>
+                  {isExpanded && (
+                    <pre className="mt-2 text-xs bg-gray-50 p-2 border rounded overflow-x-auto">
+                      {JSON.stringify(company, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="mt-4 flex items-center gap-2 text-sm">
+              <button
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage((p) => p - 1)}
+                className="px-2 py-1 bg-gray-300 rounded disabled:opacity-50"
+              >
+                Prev
+              </button>
+              <span>Page {currentPage} of {totalPages}</span>
+              <button
+                disabled={currentPage === totalPages}
+                onClick={() => setCurrentPage((p) => p + 1)}
+                className="px-2 py-1 bg-gray-300 rounded disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
