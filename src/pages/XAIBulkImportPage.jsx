@@ -46,6 +46,11 @@ export default function XAIBulkImportPage() {
         placeholder="Enter search keyword"
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            handleImport();
+          }
+        }}
         className="p-2 border rounded w-full"
       />
       <button
