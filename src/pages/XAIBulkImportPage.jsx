@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 export default function XAIBulkImportPage() {
   const [keyword, setKeyword] = useState('');
+  console.log("SUPABASE KEY from env:", import.meta.env.VITE_SUPABASE_ANON_KEY);
   const [status, setStatus] = useState('');
   const [allCompanies, setAllCompanies] = useState([]);
   const [filter, setFilter] = useState('');
