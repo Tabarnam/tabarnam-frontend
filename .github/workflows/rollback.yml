@@ -1,0 +1,17 @@
+name: Rollback Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_id:
+        description: 'Vercel Deployment ID to rollback to'
+        required: true
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rollback Deployment via Vercel API
+        run: |
+          curl -X POST "https://api.vercel.com/v13/deployments/${{ github.event.inputs.deployment_id }}/rollback" \
+          -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}"
