@@ -23,12 +23,13 @@ export default function XAIBulkImportPage() {
         setStatus(`Importing batch ${loopCount + 1}...`);
 
         const res = await fetch('https://qiqfjqegxnrivayvliba.supabase.co/functions/v1/xai-bulk-importer', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ query: keyword }),
-        });
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+  },
+  body: JSON.stringify({ query: keyword }),
+});
 
         const data = await res.json();
 
