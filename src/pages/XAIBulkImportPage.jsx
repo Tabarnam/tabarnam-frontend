@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
 export default function XAIBulkImportPage() {
   const [keyword, setKeyword] = useState('');
@@ -12,12 +12,16 @@ export default function XAIBulkImportPage() {
   const handleImport = async () => {
     setStatus('Importing...');
     setAllCompanies([]);
-    let totalCompanies = [];
-    let done = false;
-    let iteration = 0;
+    setCurrentPage(1);
 
     try {
-      while (!done && iteration < 10) {
+      let combinedCompanies = [];
+      let loopCount = 0;
+      const maxLoops = 10;
+
+      while (loopCount < maxLoops) {
+        setStatus(`Importing batch ${loopCount + 1}...`);
+
         const res = await fetch('https://qiqfjqegxnrivayvliba.supabase.co/functions/v1/xai-bulk-importer', {
           method: 'POST',
           headers: {
@@ -28,25 +32,29 @@ export default function XAIBulkImportPage() {
 
         const data = await res.json();
 
-        if (res.ok && Array.isArray(data.companies)) {
-          totalCompanies = [...totalCompanies, ...data.companies];
-          setAllCompanies([...totalCompanies]);
-          setCurrentPage(1);
-          if (data.companies.length < 10 || totalCompanies.length >= 100) {
-            done = true;
-          }
-          if (data.warning) {
-            setStatus(`⚠️ Imported ${totalCompanies.length} companies. ${data.warning}`);
-            done = true;
-          } else {
-            setStatus(`✅ Imported ${totalCompanies.length} companies`);
-          }
-        } else {
+        if (!res.ok || !Array.isArray(data.companies)) {
           setStatus(`❌ Error: ${data.error || data.message || 'Unknown error'}`);
-          done = true;
+          break;
         }
 
-        iteration++;
+        const newCompanies = data.companies.filter(
+          (c) => !combinedCompanies.some((e) => e.company_name === c.company_name)
+        );
+
+        combinedCompanies = [...combinedCompanies, ...newCompanies];
+        setAllCompanies(combinedCompanies);
+        setCurrentPage(1);
+
+        if (data.warning || newCompanies.length < 10 || combinedCompanies.length >= 100) {
+          if (combinedCompanies.length < 25) {
+            setStatus(`⚠️ Only ${combinedCompanies.length} companies found. Try a broader search.`);
+          } else {
+            setStatus(`✅ Imported ${combinedCompanies.length} companies`);
+          }
+          break;
+        }
+
+        loopCount++;
       }
     } catch (err) {
       console.error(err);
@@ -64,7 +72,9 @@ export default function XAIBulkImportPage() {
 
   const filteredCompanies = allCompanies.filter((company) => {
     const nameMatch = company.company_name?.toLowerCase().includes(filter.toLowerCase());
-    const industryMatch = company.industries?.some((i) => i.toLowerCase().includes(filter.toLowerCase()));
+    const industryMatch = company.industries?.some((i) =>
+      i.toLowerCase().includes(filter.toLowerCase())
+    );
     return nameMatch || industryMatch;
   });
 
@@ -106,14 +116,18 @@ export default function XAIBulkImportPage() {
 
           <div className="flex gap-2 mb-3">
             <button
-              onClick={() => navigator.clipboard.writeText(JSON.stringify(filteredCompanies, null, 2))}
+              onClick={() =>
+                navigator.clipboard.writeText(JSON.stringify(filteredCompanies, null, 2))
+              }
               className="bg-green-600 text-white rounded px-3 py-2"
             >
               Copy All
             </button>
             <button
               onClick={() => {
-                const blob = new Blob([JSON.stringify(filteredCompanies, null, 2)], { type: 'text/json' });
+                const blob = new Blob([JSON.stringify(filteredCompanies, null, 2)], {
+                  type: 'text/json',
+                });
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -137,20 +151,41 @@ export default function XAIBulkImportPage() {
             {paginatedCompanies.map((c, idx) => (
               <li
                 key={idx}
-                className="border rounded p-3"
+                className="border rounded p-3 cursor-pointer"
                 onClick={() => setExpandedIndex(expandedIndex === idx ? null : idx)}
               >
-                <strong>{(currentPage - 1) * itemsPerPage + idx + 1}. {c.company_name}</strong> — {c.industries?.join(', ') || 'N/A'}
+                <strong>
+                  {(currentPage - 1) * itemsPerPage + idx + 1}. {c.company_name}
+                </strong>{' '}
+                — {c.industries?.join(', ') || 'N/A'}
 
                 {expandedIndex === idx && (
                   <div className="mt-2 text-sm text-gray-700">
-                    <p><strong>Tagline:</strong> {c.company_tagline}</p>
-                    <p><strong>Email:</strong> {c.email_address}</p>
-                    <p><strong>Website:</strong> <a href={c.url} target="_blank" rel="noreferrer">{c.url}</a></p>
-                    <p><strong>Keywords:</strong> {c.product_keywords}</p>
-                    <p><strong>HQ:</strong> {c.headquarters_location}</p>
-                    <p><strong>Manufacturing:</strong> {c.manufacturing_locations?.join(', ') || 'N/A'}</p>
-                    <p><strong>Red Flag:</strong> {c.red_flag ? '🚩 Yes' : 'No'}</p>
+                    <p>
+                      <strong>Tagline:</strong> {c.company_tagline}
+                    </p>
+                    <p>
+                      <strong>Email:</strong> {c.email_address}
+                    </p>
+                    <p>
+                      <strong>Website:</strong>{' '}
+                      <a href={c.url} target="_blank" rel="noreferrer">
+                        {c.url}
+                      </a>
+                    </p>
+                    <p>
+                      <strong>Keywords:</strong> {c.product_keywords}
+                    </p>
+                    <p>
+                      <strong>HQ:</strong> {c.headquarters_location}
+                    </p>
+                    <p>
+                      <strong>Manufacturing:</strong>{' '}
+                      {c.manufacturing_locations?.join(', ') || 'N/A'}
+                    </p>
+                    <p>
+                      <strong>Red Flag:</strong> {c.red_flag ? '🚩 Yes' : 'No'}
+                    </p>
 
                     {Array.isArray(c.reviews) && c.reviews.length > 0 && (
                       <div className="mt-2">
