@@ -22,8 +22,6 @@ export default function XAIBulkImportPage() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            // Replace with Supabase Bearer token or securely load if needed
-            Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || ''}`,
           },
           body: JSON.stringify({ query: keyword }),
         });
