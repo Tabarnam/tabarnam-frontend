@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 export default function XAIBulkImportPage() {
   const [keyword, setKeyword] = useState('');
@@ -11,33 +11,62 @@ export default function XAIBulkImportPage() {
 
   const handleImport = async () => {
     setStatus('Importing...');
-    try {
-      const res = await fetch('https://qiqfjqegxnrivayvliba.supabase.co/functions/v1/xai-bulk-importer', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpcWZqcWVneG5yaXZheXZsaWJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI2MTY5MjMsImV4cCI6MjA2ODE5MjkyM30.-a4qe-VXr3qyz1Xz-wwueOL7CHd7M1HiC8fpB4Lejyc'
-        },
-        body: JSON.stringify({ query: keyword }),
-      });
+    setAllCompanies([]);
+    let totalCompanies = [];
+    let done = false;
+    let iteration = 0;
 
-      const data = await res.json();
-      if (res.ok) {
-        setAllCompanies((prev) => [...prev, ...data.companies]);
-        setStatus(`✅ Imported ${data.companies.length} companies`);
-        setCurrentPage(1);
-      } else {
-        setStatus(`❌ Error: ${data.error || data.message}`);
+    try {
+      while (!done && iteration < 10) {
+        const res = await fetch('https://qiqfjqegxnrivayvliba.supabase.co/functions/v1/xai-bulk-importer', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            // Replace with Supabase Bearer token or securely load if needed
+            Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || ''}`,
+          },
+          body: JSON.stringify({ query: keyword }),
+        });
+
+        const data = await res.json();
+
+        if (res.ok && Array.isArray(data.companies)) {
+          totalCompanies = [...totalCompanies, ...data.companies];
+          setAllCompanies([...totalCompanies]);
+          setCurrentPage(1);
+          if (data.companies.length < 10 || totalCompanies.length >= 100) {
+            done = true;
+          }
+          if (data.warning) {
+            setStatus(`⚠️ Imported ${totalCompanies.length} companies. ${data.warning}`);
+            done = true;
+          } else {
+            setStatus(`✅ Imported ${totalCompanies.length} companies`);
+          }
+        } else {
+          setStatus(`❌ Error: ${data.error || data.message || 'Unknown error'}`);
+          done = true;
+        }
+
+        iteration++;
       }
-    } catch (e) {
-      console.error(e);
-      setStatus(`❌ Error: ${e.message}`);
+    } catch (err) {
+      console.error(err);
+      setStatus(`❌ Error: ${err.message}`);
     }
   };
 
-  const filteredCompanies = allCompanies.filter((c) => {
-    const nameMatch = c.company_name?.toLowerCase().includes(filter.toLowerCase());
-    const industryMatch = c.industries?.some((i) => i.toLowerCase().includes(filter.toLowerCase()));
+  const handleClear = () => {
+    setAllCompanies([]);
+    setStatus('');
+    setKeyword('');
+    setCurrentPage(1);
+    setExpandedIndex(null);
+  };
+
+  const filteredCompanies = allCompanies.filter((company) => {
+    const nameMatch = company.company_name?.toLowerCase().includes(filter.toLowerCase());
+    const industryMatch = company.industries?.some((i) => i.toLowerCase().includes(filter.toLowerCase()));
     return nameMatch || industryMatch;
   });
 
@@ -46,136 +75,124 @@ export default function XAIBulkImportPage() {
     currentPage * itemsPerPage
   );
 
-  const handleCopy = async () => {
-    const lines = filteredCompanies.map((c, i) => `${i + 1}. ${c.company_name} — ${c.industries?.join(', ')}`);
-    await navigator.clipboard.writeText(lines.join('\n'));
-    setStatus('✅ Copied to clipboard!');
-  };
-
-  const handleExportCSV = () => {
-    const headers = Object.keys(filteredCompanies[0] || {});
-    const rows = filteredCompanies.map(company =>
-      headers.map(field => {
-        const val = company[field];
-        if (Array.isArray(val)) return `"${val.join(';')}"`;
-        if (typeof val === 'object') return `"${JSON.stringify(val)}"`;
-        return `"${String(val ?? '')}"`;
-      }).join(',')
-    );
-    const csvContent = [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `companies_export_${Date.now()}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const totalPages = Math.ceil(filteredCompanies.length / itemsPerPage);
-
   return (
-    <div className="min-h-screen p-6 space-y-6 bg-gray-50">
-      <h1 className="text-3xl font-bold">Bulk Company Import</h1>
+    <div className="p-6 max-w-3xl mx-auto">
+      <h1 className="text-3xl font-bold mb-4">Bulk Company Import</h1>
 
       <input
         type="text"
-        placeholder="Enter search keyword"
+        placeholder="Enter a keyword to search..."
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && handleImport()}
-        className="p-2 border rounded w-full"
+        className="w-full border rounded px-3 py-2 mb-3"
       />
 
       <button
         onClick={handleImport}
-        className="px-4 py-2 bg-blue-600 text-white rounded mt-2"
+        className="bg-blue-600 text-white rounded px-4 py-2 mb-4"
       >
         Start Import
       </button>
 
-      {status && <div className="mt-4 text-gray-700 whitespace-pre-wrap">{status}</div>}
+      {status && <p className="mb-3">{status}</p>}
 
       {allCompanies.length > 0 && (
         <>
-          <div className="flex flex-wrap items-center gap-3 mt-6">
-            <input
-              type="text"
-              placeholder="Filter by name or industry..."
-              value={filter}
-              onChange={(e) => {
-                setFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="p-2 border rounded w-full max-w-md"
-            />
+          <input
+            type="text"
+            placeholder="Filter by name or industry..."
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="w-full border rounded px-3 py-2 mb-3"
+          />
+
+          <div className="flex gap-2 mb-3">
             <button
-              onClick={handleCopy}
-              className="px-3 py-2 text-sm bg-green-600 text-white rounded"
+              onClick={() => navigator.clipboard.writeText(JSON.stringify(filteredCompanies, null, 2))}
+              className="bg-green-600 text-white rounded px-3 py-2"
             >
               Copy All
             </button>
             <button
-              onClick={handleExportCSV}
-              className="px-3 py-2 text-sm bg-yellow-600 text-white rounded"
+              onClick={() => {
+                const blob = new Blob([JSON.stringify(filteredCompanies, null, 2)], { type: 'text/json' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'companies.json';
+                a.click();
+                window.URL.revokeObjectURL(url);
+              }}
+              className="bg-yellow-600 text-white rounded px-3 py-2"
             >
-              Export CSV
+              Export JSON
             </button>
             <button
-              onClick={() => {
-                setAllCompanies([]);
-                setFilter('');
-                setCurrentPage(1);
-              }}
-              className="px-3 py-2 text-sm bg-red-600 text-white rounded"
+              onClick={handleClear}
+              className="bg-red-600 text-white rounded px-3 py-2"
             >
               Clear List
             </button>
           </div>
 
-          <div className="max-h-[30rem] overflow-y-auto bg-white p-4 border rounded shadow text-sm mt-4">
-            {paginatedCompanies.map((company, index) => {
-              const isRed = company.red_flag === true;
-              const listIndex = (currentPage - 1) * itemsPerPage + index + 1;
-              const isExpanded = expandedIndex === listIndex;
+          <ul className="space-y-2">
+            {paginatedCompanies.map((c, idx) => (
+              <li
+                key={idx}
+                className="border rounded p-3"
+                onClick={() => setExpandedIndex(expandedIndex === idx ? null : idx)}
+              >
+                <strong>{(currentPage - 1) * itemsPerPage + idx + 1}. {c.company_name}</strong> — {c.industries?.join(', ') || 'N/A'}
 
-              return (
-                <div
-                  key={index}
-                  className={`mb-2 p-2 rounded cursor-pointer border ${isRed ? 'bg-red-100 border-red-300' : 'hover:bg-gray-100'}`}
-                  onClick={() => setExpandedIndex(isExpanded ? null : listIndex)}
-                >
-                  <div>
-                    <strong>{listIndex}.</strong> {company.company_name} — {company.industries?.join(', ')}
-                    {isRed && <span className="ml-2 text-red-600 font-semibold">⚠ red_flag</span>}
+                {expandedIndex === idx && (
+                  <div className="mt-2 text-sm text-gray-700">
+                    <p><strong>Tagline:</strong> {c.company_tagline}</p>
+                    <p><strong>Email:</strong> {c.email_address}</p>
+                    <p><strong>Website:</strong> <a href={c.url} target="_blank" rel="noreferrer">{c.url}</a></p>
+                    <p><strong>Keywords:</strong> {c.product_keywords}</p>
+                    <p><strong>HQ:</strong> {c.headquarters_location}</p>
+                    <p><strong>Manufacturing:</strong> {c.manufacturing_locations?.join(', ') || 'N/A'}</p>
+                    <p><strong>Red Flag:</strong> {c.red_flag ? '🚩 Yes' : 'No'}</p>
+
+                    {Array.isArray(c.reviews) && c.reviews.length > 0 && (
+                      <div className="mt-2">
+                        <strong>Reviews:</strong>
+                        <ul className="list-disc list-inside">
+                          {c.reviews.map((r, i) => (
+                            <li key={i}>
+                              <a href={r.url} target="_blank" rel="noreferrer">
+                                [{r.source}] {r.abstract}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
-                  {isExpanded && (
-                    <pre className="mt-2 text-xs bg-gray-50 p-2 border rounded overflow-x-auto">
-                      {JSON.stringify(company, null, 2)}
-                    </pre>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                )}
+              </li>
+            ))}
+          </ul>
 
-          {totalPages > 1 && (
-            <div className="mt-4 flex items-center gap-2 text-sm">
+          {filteredCompanies.length > itemsPerPage && (
+            <div className="mt-4 flex gap-3">
               <button
                 disabled={currentPage === 1}
-                onClick={() => setCurrentPage((p) => p - 1)}
-                className="px-2 py-1 bg-gray-300 rounded disabled:opacity-50"
+                onClick={() => setCurrentPage((prev) => prev - 1)}
+                className="px-3 py-1 border rounded"
               >
                 Prev
               </button>
-              <span>Page {currentPage} of {totalPages}</span>
               <button
-                disabled={currentPage === totalPages}
-                onClick={() => setCurrentPage((p) => p + 1)}
-                className="px-2 py-1 bg-gray-300 rounded disabled:opacity-50"
+                disabled={currentPage * itemsPerPage >= filteredCompanies.length}
+                onClick={() => setCurrentPage((prev) => prev + 1)}
+                className="px-3 py-1 border rounded"
               >
                 Next
               </button>
+              <span className="text-sm pt-2">
+                Page {currentPage} of {Math.ceil(filteredCompanies.length / itemsPerPage)}
+              </span>
             </div>
           )}
         </>
