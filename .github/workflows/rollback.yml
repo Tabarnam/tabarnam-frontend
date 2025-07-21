@@ -1,17 +1,23 @@
-name: Rollback Deploy
+name: Auto Rollback to Latest Successful Vercel Deployment
 
 on:
   workflow_dispatch:
-    inputs:
-      deployment_id:
-        description: 'Vercel Deployment ID to rollback to'
-        required: true
 
 jobs:
   rollback:
     runs-on: ubuntu-latest
     steps:
+      - name: Get Latest Successful Deployment ID
+        id: get_id
+        run: |
+          DEPLOYMENT_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            "https://api.vercel.com/v6/deployments?projectId=${{ secrets.VERCEL_PROJECT_ID }}&limit=1&state=READY" \
+            | jq -r '.deployments[0].uid')
+          
+          echo "Latest Deployment ID: $DEPLOYMENT_ID"
+          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+
       - name: Rollback Deployment via Vercel API
         run: |
-          curl -X POST "https://api.vercel.com/v13/deployments/${{ github.event.inputs.deployment_id }}/rollback" \
-          -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}"
+          curl -X POST "https://api.vercel.com/v13/deployments/${{ steps.get_id.outputs.deployment_id }}/rollback" \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}"
