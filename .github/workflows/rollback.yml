@@ -1,23 +1,30 @@
-name: Auto Rollback to Latest Successful Vercel Deployment
+name: Conditional Rollback on Failed Deploy
 
 on:
   workflow_dispatch:
 
 jobs:
-  rollback:
+  rollback_if_failed:
     runs-on: ubuntu-latest
     steps:
-      - name: Get Latest Successful Deployment ID
-        id: get_id
+      - name: Get Most Recent Failed Deployment ID
+        id: get_failed_id
         run: |
           DEPLOYMENT_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
-            "https://api.vercel.com/v6/deployments?projectId=${{ secrets.VERCEL_PROJECT_ID }}&limit=1&state=READY" \
+            "https://api.vercel.com/v6/deployments?projectId=${{ secrets.VERCEL_PROJECT_ID }}&limit=1&state=ERROR" \
             | jq -r '.deployments[0].uid')
-          
-          echo "Latest Deployment ID: $DEPLOYMENT_ID"
-          echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Rollback Deployment via Vercel API
+          if [ "$DEPLOYMENT_ID" = "null" ] || [ -z "$DEPLOYMENT_ID" ]; then
+            echo "No failed deployment found. Exiting gracefully."
+            echo "continue=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Found failed deployment: $DEPLOYMENT_ID"
+            echo "deployment_id=$DEPLOYMENT_ID" >> "$GITHUB_OUTPUT"
+            echo "continue=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rollback if Failed Deployment Exists
+        if: steps.get_failed_id.outputs.continue == 'true'
         run: |
-          curl -X POST "https://api.vercel.com/v13/deployments/${{ steps.get_id.outputs.deployment_id }}/rollback" \
+          curl -X POST "https://api.vercel.com/v13/deployments/${{ steps.get_failed_id.outputs.deployment_id }}/rollback" \
             -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}"
