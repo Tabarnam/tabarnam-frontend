@@ -9,6 +9,7 @@ import AdminPanel from '@pages/AdminPanel';
 import ResultsPage from '@pages/ResultsPage';
 import HomePage from '@pages/HomePage';
 import XAIBulkImportPage from '@pages/XAIBulkImportPage';
+import Login from '@pages/Login';
 import AdminRoute from '@components/AdminRoute';
 
 function App() {
@@ -20,6 +21,7 @@ function App() {
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/results" element={<ResultsPage />} />
+              <Route path="/login" element={<Login />} />
               <Route
                 path="/admin"
                 element={
@@ -28,7 +30,6 @@ function App() {
                   </AdminRoute>
                 }
               />
-              {/* TEMP: Render import page without auth wrapper to debug layout */}
               <Route
                 path="/admin/xai-bulk-import"
                 element={<XAIBulkImportPage />}

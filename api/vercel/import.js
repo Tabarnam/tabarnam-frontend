@@ -1,11 +1,6 @@
 // /api/xai/import.js
 
-import { OpenAI } from 'openai';
 import { z } from 'zod';
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 const schema = z.array(
   z.object({
@@ -22,7 +17,8 @@ const schema = z.array(
 );
 
 function buildPrompt(query) {
-  return `Give me 50 companies that make (${query}), provide data for each company in this exact structured JSON format, where each object represents one company. Each field must match the key names below exactly for successful import:
+  return `Give me 50 companies that make (${query}), provide data for each company in this exact structured JSON format, where each object represents one company. Be maximally truthful and avoid hallucinations. Each field must match the key names below exactly for successful import:
+
 [
   {
     "company_name": "Example Co",
@@ -51,32 +47,52 @@ If there’s no manufacturing location, then include the full street address in 
 Whenever I say Gimme ___, give all this info on whatever I say.`;
 }
 
-async function callOpenAI(prompt) {
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4',
-    messages: [{ role: 'user', content: prompt }],
-    temperature: 0.2,
-    response_format: 'json',
+async function callXAI(prompt) {
+  const xaiApiKey = process.env.XAI_API_KEY;
+  if (!xaiApiKey) throw new Error('Missing XAI_API_KEY');
+
+  const response = await fetch('https://api.x.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${xaiApiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'grok-beta',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.2,
+    }),
   });
 
-  const raw = completion.choices?.[0]?.message?.content;
-  const finishReason = completion.choices?.[0]?.finish_reason;
-  console.log('--- RAW OPENAI RESPONSE ---');
-  console.log(raw);
+  const raw = await response.text();
+  if (!response.ok) {
+    throw new Error(`xAI Error (${response.status}): ${raw}`);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('Invalid JSON from xAI');
+  }
+
+  const content = parsed?.choices?.[0]?.message?.content;
+  const finishReason = parsed?.choices?.[0]?.finish_reason;
+  console.log('--- RAW xAI RESPONSE ---');
+  console.log(content);
   console.log('--- FINISH REASON ---');
   console.log(finishReason);
 
-  if (!raw || !raw.startsWith('[')) {
-    throw new Error('Could not parse array from OpenAI');
+  if (!content || !content.startsWith('[')) {
+    throw new Error('Could not parse array from xAI');
   }
 
   try {
-    const parsed = JSON.parse(raw);
-    const validated = schema.parse(parsed);
+    const validated = schema.parse(JSON.parse(content));
     return validated;
   } catch (e) {
     console.error('VALIDATION OR PARSE ERROR:', e);
-    throw new Error('Failed to parse or validate OpenAI response');
+    throw new Error('Failed to parse or validate xAI response');
   }
 }
 
@@ -92,9 +108,8 @@ export default async function handler(req, res) {
 
   try {
     const prompt = buildPrompt(query);
-    const companies = await callOpenAI(prompt);
-
-    console.log(`✅ IMPORT SUCCESS: ${companies.length} companies`);
+    const companies = await callXAI(prompt);
+    console.log(`✅ IMPORT SUCCESS: ${companies.length} companies via xAI`);
     return res.status(200).json({ companies });
   } catch (error) {
     console.error('IMPORT ERROR:', error);
