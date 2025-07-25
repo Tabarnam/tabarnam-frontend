@@ -12,12 +12,13 @@ const schema = z.array(
     email_address: z.string().email().optional(),
     headquarters_location: z.string(),
     manufacturing_locations: z.array(z.string()),
+    amazon_url: z.string().url().optional(),
     red_flag: z.boolean().optional(),
   })
 );
 
 function buildPrompt(query) {
-  return `Give me 50 companies that make (${query}), provide data for each company in this exact structured JSON format, where each object represents one company. Be maximally truthful and avoid hallucinations. Each field must match the key names below exactly for successful import:
+  return `Give me up to 20 companies that make (${query}), provide data for each company in this exact structured JSON format, where each object represents one company. Be maximally truthful and avoid hallucinations. Each field must match the key names below exactly for successful import. Always include the Amazon store URL if the company has one (search for it if needed, format as "https://www.amazon.com/stores/BrandName/page/ID" or similar seller/store link):
 
 [
   {
@@ -33,7 +34,8 @@ function buildPrompt(query) {
     "headquarters_location": "123 Example St, Exampleville, EX 12345",
     "manufacturing_locations": [
       "456 Factory Rd, Manutown, MF 67890"
-    ]
+    ],
+    "amazon_url": "https://www.amazon.com/stores/ExampleCo/page/12345678-ABCD-EFGH-IJKL-MNOPQRSTUV"
   }
 ]
 
@@ -51,44 +53,63 @@ async function callXAI(prompt) {
   const xaiApiKey = process.env.XAI_API_KEY;
   if (!xaiApiKey) throw new Error('Missing XAI_API_KEY');
 
-  const response = await fetch('https://api.x.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${xaiApiKey}`,
-    },
-    body: JSON.stringify({
-      model: 'grok-beta',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.2,
-    }),
-  });
+  let allCompanies = [];
+  let page = 1;
+  const maxPages = 5; // Limit to 5 pages for up to 100 companies
+  while (page <= maxPages) {
+    const response = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${xaiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'grok-beta',
+        messages: [{ role: 'user', content: prompt + ` Return page ${page} of results.` }],
+        temperature: 0.2,
+      }),
+    });
 
-  const raw = await response.text();
-  if (!response.ok) {
-    throw new Error(`xAI Error (${response.status}): ${raw}`);
+    const raw = await response.text();
+    if (!response.ok) {
+      throw new Error(`xAI Error (${response.status}): ${raw}`);
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error('Invalid JSON from xAI');
+    }
+
+    const content = parsed?.choices?.[0]?.message?.content;
+    const finishReason = parsed?.choices?.[0]?.finish_reason;
+    console.log('--- RAW xAI RESPONSE Page', page, '---');
+    console.log(content);
+    console.log('--- FINISH REASON ---');
+    console.log(finishReason);
+
+    if (!content || !content.startsWith('[')) {
+      console.warn('No more company data on page', page, '- stopping.');
+      break;
+    }
+
+    let pageCompanies;
+    try {
+      pageCompanies = JSON.parse(content);
+    } catch {
+      console.warn('Parsing error on page', page, '- skipping.');
+      page++;
+      continue;
+    }
+
+    allCompanies = [...allCompanies, ...pageCompanies];
+    if (pageCompanies.length < 5) break; // Stop if fewer than 5 per page to avoid empty loops
+    page++;
   }
 
-  let parsed;
   try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error('Invalid JSON from xAI');
-  }
-
-  const content = parsed?.choices?.[0]?.message?.content;
-  const finishReason = parsed?.choices?.[0]?.finish_reason;
-  console.log('--- RAW xAI RESPONSE ---');
-  console.log(content);
-  console.log('--- FINISH REASON ---');
-  console.log(finishReason);
-
-  if (!content || !content.startsWith('[')) {
-    throw new Error('Could not parse array from xAI');
-  }
-
-  try {
-    const validated = schema.parse(JSON.parse(content));
+    const validated = schema.parse(allCompanies);
     return validated;
   } catch (e) {
     console.error('VALIDATION OR PARSE ERROR:', e);

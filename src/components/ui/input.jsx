@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 import React from 'react';
 
-const Input = React.forwardRef(({ className, type, ...props }, ref) => {
+const Input = React.forwardRef(({ className, type, onEnter, ...props }, ref) => {
 	return (
 		<input
 			type={type}
@@ -10,6 +10,11 @@ const Input = React.forwardRef(({ className, type, ...props }, ref) => {
 				className,
 			)}
 			ref={ref}
+			onKeyDown={(e) => {
+				if (e.key === 'Enter' && onEnter) {
+					onEnter(e);
+				}
+			}}
 			{...props}
 		/>
 	);

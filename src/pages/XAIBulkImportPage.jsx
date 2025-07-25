@@ -11,6 +11,10 @@ export default function XAIBulkImportPage() {
   const itemsPerPage = 20;
 
   const handleImport = async () => {
+    if (!keyword.trim()) {
+      setStatus('❌ Enter a keyword to search.');
+      return;
+    }
     setStatus('Importing...');
     setAllCompanies([]);
     setCurrentPage(1);
@@ -24,13 +28,13 @@ export default function XAIBulkImportPage() {
         setStatus(`Importing batch ${loopCount + 1}...`);
 
         const res = await fetch('https://qiqfjqegxnrivayvliba.supabase.co/functions/v1/xai-bulk-importer', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
-  },
-  body: JSON.stringify({ query: keyword }),
-});
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+          },
+          body: JSON.stringify({ query: keyword }),
+        });
 
         const data = await res.json();
 
@@ -94,6 +98,12 @@ export default function XAIBulkImportPage() {
         placeholder="Enter a keyword to search..."
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();  // Prevent new line or form submit
+            handleImport();
+          }
+        }}
         className="w-full border rounded px-3 py-2 mb-3"
       />
 
