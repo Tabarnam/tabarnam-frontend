@@ -41,10 +41,10 @@ export default async () => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, 'src'),
-        '@pages': path.resolve(__dirname, 'src/pages'),
-        '@components': path.resolve(__dirname, 'src/components'),
-        '@contexts': path.resolve(__dirname, 'src/contexts'),
+        '@': path.resolve(__dirname, 'src'), // Matches tsconfig.json @/* -> src/*
+        '@pages': path.resolve(__dirname, 'src/pages'), // Retain specific alias
+        '@components': path.resolve(__dirname, 'src/components'), // Retain specific alias
+        '@contexts': path.resolve(__dirname, 'src/contexts'), // Retain specific alias
       },
     },
     define: {

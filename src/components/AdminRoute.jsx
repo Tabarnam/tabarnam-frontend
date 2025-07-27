@@ -1,6 +1,6 @@
 import React from 'react';
-import { useAuth } from '@/contexts/SupabaseAuthContext';
-import { useUserRole } from '@/contexts/UserRoleContext';
+import { useSupabaseAuth } from '@/contexts/useSupabaseAuth';
+import { useUserRole } from '@/contexts/useUserRole';
 import LoginForm from '@/components/LoginForm';
 
 export default function AdminRoute({ children }) {

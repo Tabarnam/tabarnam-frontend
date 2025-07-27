@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Database } from 'lucide-react';
-import { useAuth } from '@/contexts/SupabaseAuthContext';
+import { useSupabaseAuth } from '@/contexts/useSupabaseAuth';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui/use-toast';
 

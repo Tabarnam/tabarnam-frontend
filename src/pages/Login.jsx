@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Helmet } from 'react-helmet';
+import { Helmet } from 'react-helmet-async';
 import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
 import { Input } from '@/components/ui/input';
@@ -31,6 +31,12 @@ export default function Login() {
     }
   };
 
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      handleLogin(e);
+    }
+  };
+
   return (
     <>
       <Helmet>
@@ -54,6 +60,7 @@ export default function Login() {
               onChange={(e) => setEmail(e.target.value)}
               required
               className="bg-slate-700 text-white"
+              onKeyDown={handleKeyDown} // Optional redundancy for Enter
             />
           </div>
           <div>
@@ -65,6 +72,7 @@ export default function Login() {
               onChange={(e) => setPassword(e.target.value)}
               required
               className="bg-slate-700 text-white"
+              onKeyDown={handleKeyDown} // Optional redundancy for Enter
             />
           </div>
           <Button type="submit" className="w-full" disabled={loading}>

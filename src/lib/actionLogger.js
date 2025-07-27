@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/customSupabaseClient';
-import { useAuth } from '@/contexts/SupabaseAuthContext';
+import { useSupabaseAuth } from '@/contexts/useSupabaseAuth';
 
 export const logAction = async (actionDetails) => {
     // This is a placeholder for user ID. In a real app, this would come from the auth context.

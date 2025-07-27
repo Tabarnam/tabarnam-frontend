@@ -1,23 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { Helmet } from 'react-helmet';
+import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { supabase } from '@/lib/customSupabaseClient';
-import { useAuth } from '@/contexts/SupabaseAuthContext';
-import { useUserRole } from '@/contexts/UserRoleContext';
-import { useToast } from '@/components/ui/use-toast';
+import { useSupabaseAuth } from '@/contexts/useSupabaseAuth';
+import { useUserRole } from '@/contexts/useUserRole';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import ReactTable from 'react-table'; // Assumes this is installed via npm install react-table
-import CompanyForm from '@/components/admin/CompanyForm'; // Must be default exported
+import {
+  useReactTable,
+  getCoreRowModel,
+  flexRender,
+} from '@tanstack/react-table';
+import CompanyForm from '@/components/admin/CompanyForm';
 
 const AdminPanel = () => {
   const { user } = useAuth();
   const { userRole } = useUserRole();
-  const { toast } = useToast();
 
   const [companies, setCompanies] = useState([]);
+  const [filteredCompanies, setFilteredCompanies] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newAdminEmail, setNewAdminEmail] = useState('');
@@ -40,12 +45,23 @@ const AdminPanel = () => {
     if (savedImport) setLastImportCount(parseInt(savedImport));
   }, []);
 
+  useEffect(() => {
+    // Filter companies by search query on any field
+    const filtered = companies.filter((company) =>
+      Object.values(company).some((value) =>
+        value && value.toString().toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    );
+    setFilteredCompanies(filtered);
+  }, [searchQuery, companies]);
+
   const fetchData = async () => {
     setLoading(true);
     try {
       const { data: companyData, error: companyError } = await supabase.from('companies').select('*');
       if (companyError) throw companyError;
       setCompanies(companyData || []);
+      setFilteredCompanies(companyData || []);
 
       const { data: userData, error: userError } = await supabase.from('profiles').select('id, email, role');
       if (userError) throw userError;
@@ -55,11 +71,7 @@ const AdminPanel = () => {
       if (configError) throw configError;
       if (configData) setStarConfig(configData);
     } catch (error) {
-      toast({
-        variant: 'destructive',
-        title: 'Fetch Error',
-        description: error.message
-      });
+      toast.error('Fetch Error', error.message);
     } finally {
       setLoading(false);
     }
@@ -67,29 +79,21 @@ const AdminPanel = () => {
 
   const handleAddAdmin = async () => {
     if (!isSuperAdmin) {
-      toast({
-        variant: 'destructive',
-        title: 'Permission Denied',
-        description: 'Only jon@tabarnam.com can manage users.'
-      });
+      toast.error('Permission Denied', 'Only jon@tabarnam.com can manage users.');
       return;
     }
     if (!newAdminEmail) {
-      toast({
-        variant: 'destructive',
-        title: 'Invalid Email',
-        description: 'Enter a valid email.'
-      });
+      toast.error('Invalid Email', 'Enter a valid email.');
       return;
     }
     try {
       const { error } = await supabase.from('profiles').upsert({ email: newAdminEmail, role: 'admin' });
       if (error) throw error;
-      toast({ title: 'Success', description: 'Admin added.' });
+      toast.success('Success', 'Admin added.');
       setNewAdminEmail('');
       fetchData();
     } catch (error) {
-      toast({ variant: 'destructive', title: 'Error', description: error.message });
+      toast.error('Error', error.message);
     }
   };
 
@@ -98,10 +102,10 @@ const AdminPanel = () => {
     try {
       const { error } = await supabase.from('profiles').delete().eq('id', userId);
       if (error) throw error;
-      toast({ title: 'Success', description: 'User deleted.' });
+      toast.success('Success', 'User deleted.');
       fetchData();
     } catch (error) {
-      toast({ variant: 'destructive', title: 'Error', description: error.message });
+      toast.error('Error', error.message);
     }
   };
 
@@ -110,10 +114,10 @@ const AdminPanel = () => {
       await supabase.from('star_config').upsert(starConfig);
       const { error } = await supabase.rpc('recalc_star_ratings');
       if (error) throw error;
-      toast({ title: 'Success', description: 'Stars recalculated.' });
+      toast.success('Success', 'Stars recalculated.');
       fetchData();
     } catch (error) {
-      toast({ variant: 'destructive', title: 'Error', description: error.message });
+      toast.error('Error', error.message);
     }
   };
 
@@ -122,20 +126,71 @@ const AdminPanel = () => {
     setIsFormOpen(true);
   };
 
-  const companyColumns = [
-    { Header: 'Name', accessor: 'company_name' },
-    { Header: 'Star Rating', accessor: 'star_rating' },
-    { Header: 'HQ', accessor: 'headquarters_location' },
-    { Header: 'Manufacturing', accessor: 'manufacturing_locations' },
-    {
-      Header: 'Actions',
-      Cell: ({ row }) => (
-        <Button onClick={() => handleEditCompany(row.original)} className="bg-blue-600">
-          Edit
-        </Button>
-      )
-    }
-  ];
+  const companyColumns = React.useMemo(
+    () => [
+      {
+        accessorKey: 'company_name',
+        header: 'Name',
+      },
+      {
+        accessorKey: 'star_rating',
+        header: 'Star Rating',
+      },
+      {
+        accessorKey: 'headquarters_location',
+        header: 'HQ',
+      },
+      {
+        accessorKey: 'manufacturing_locations',
+        header: 'Manufacturing',
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => (
+          <Button onClick={() => handleEditCompany(row.original)} className="bg-blue-600">
+            Edit
+          </Button>
+        ),
+      },
+    ],
+    []
+  );
+
+  const userColumns = React.useMemo(
+    () => [
+      {
+        accessorKey: 'email',
+        header: 'Email',
+      },
+      {
+        accessorKey: 'role',
+        header: 'Role',
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => (
+          <Button onClick={() => handleDeleteUser(row.original.id)} disabled={!isSuperAdmin}>
+            Delete
+          </Button>
+        ),
+      },
+    ],
+    []
+  );
+
+  const userTable = useReactTable({
+    data: users,
+    columns: userColumns,
+    getCoreRowModel: getCoreRowModel(),
+  });
+
+  const companyTable = useReactTable({
+    data: filteredCompanies,
+    columns: companyColumns,
+    getCoreRowModel: getCoreRowModel(),
+  });
 
   return (
     <>
@@ -156,22 +211,30 @@ const AdminPanel = () => {
           <Button onClick={handleAddAdmin} disabled={!isSuperAdmin}>
             Add Admin
           </Button>
-          <ReactTable
-            data={users}
-            columns={[
-              { Header: 'Email', accessor: 'email' },
-              { Header: 'Role', accessor: 'role' },
-              {
-                Header: 'Actions',
-                Cell: ({ row }) => (
-                  <Button onClick={() => handleDeleteUser(row.original.id)} disabled={!isSuperAdmin}>
-                    Delete
-                  </Button>
-                )
-              }
-            ]}
-            className="w-full border-collapse table-auto"
-          />
+          <table className="w-full border-collapse table-auto">
+            <thead>
+              {userTable.getHeaderGroups().map((headerGroup) => (
+                <tr key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <th key={header.id} className="p-2 border">
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                    </th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {userTable.getRowModel().rows.map((row) => (
+                <tr key={row.id}>
+                  {row.getVisibleCells().map((cell) => (
+                    <td key={cell.id} className="p-2 border">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
 
         {loading ? (
@@ -179,7 +242,31 @@ const AdminPanel = () => {
         ) : (
           <div className="p-4 border" style={{ borderColor: 'rgb(100, 150, 180)' }}>
             <h2 className="text-xl">Companies</h2>
-            <ReactTable data={companies} columns={companyColumns} className="w-full border-collapse table-auto" />
+            <Input placeholder="Search companies by any field..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+            <table className="w-full border-collapse table-auto">
+              <thead>
+                {companyTable.getHeaderGroups().map((headerGroup) => (
+                  <tr key={headerGroup.id}>
+                    {headerGroup.headers.map((header) => (
+                      <th key={header.id} className="p-2 border">
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                      </th>
+                    ))}
+                  </tr>
+                ))}
+              </thead>
+              <tbody>
+                {companyTable.getRowModel().rows.map((row) => (
+                  <tr key={row.id}>
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="p-2 border">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 
@@ -213,7 +300,7 @@ const AdminPanel = () => {
         </div>
 
         {/* Company Form Modal */}
-        {isFormOpen && CompanyForm && (
+        {isFormOpen && (
           <CompanyForm
             isOpen={isFormOpen}
             onClose={() => setIsFormOpen(false)}
