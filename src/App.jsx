@@ -31,7 +31,7 @@ function App() {
     <HelmetProvider>
       <SupabaseAuthProvider>
         <UserRoleProvider>
-          <ErrorBoundary> {/* Wraps the app to catch errors */}
+          <ErrorBoundary>
             <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
               <div className="min-h-screen">
                 <Routes>

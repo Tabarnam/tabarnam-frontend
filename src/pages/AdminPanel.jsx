@@ -17,7 +17,7 @@ import {
 import CompanyForm from '@/components/admin/CompanyForm';
 
 const AdminPanel = () => {
-  const { user } = useAuth();
+  const { user } = useSupabaseAuth();
   const { userRole } = useUserRole();
 
   const [companies, setCompanies] = useState([]);
