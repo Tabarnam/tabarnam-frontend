@@ -4,7 +4,7 @@ import { useUserRole } from '@/contexts/useUserRole';
 import LoginForm from '@/components/LoginForm';
 
 export default function AdminRoute({ children }) {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useSupabaseAuth();
   const { userRole, loading: roleLoading } = useUserRole();
 
   if (authLoading || roleLoading) {

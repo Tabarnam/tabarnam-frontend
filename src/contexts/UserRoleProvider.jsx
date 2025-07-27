@@ -1,8 +1,7 @@
-import React, { createContext, useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/customSupabaseClient';
-import { useSupabaseAuth } from '@/contexts/useSupabaseAuth'; // Updated to new hook
-
-const UserRoleContext = createContext(null);
+import { UserRoleContext } from '@/contexts/UserRoleContext'; // New import
+import { useSupabaseAuth } from '@/contexts/useSupabaseAuth';
 
 export const UserRoleProvider = ({ children }) => {
   const { user, loading: authLoading } = useSupabaseAuth();
