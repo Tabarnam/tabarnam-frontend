@@ -29,7 +29,7 @@ export default function XAIBulkImportPage() {
 
         const queryWithPage = keyword + ` page ${loopCount + 1}`; // Append page to get more results
 
-        const res = await fetch('https://qiqfjqegxnrivayvliba.supabase.co/functions/v1/xai-bulk-importer', {
+        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/xai-bulk-importer`, { // Used VITE_SUPABASE_URL for flexibility
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

@@ -55,7 +55,7 @@ async function callXAI(prompt) {
 
   let allCompanies = [];
   let page = 1;
-  const maxPages = 5; // Limit to 5 pages for up to 100 companies
+  const maxPages = 10; // Increased to 10 for up to 200 companies
   while (page <= maxPages) {
     const response = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',

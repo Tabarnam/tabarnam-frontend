@@ -1,31 +1,30 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { useSupabaseAuth } from '@/contexts/useSupabaseAuth';
+import { supabase } from '@/lib/customSupabaseClient'; // Use the Supabase client for auth functions
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 
 const LoginForm = () => {
-  const { signIn, signUp } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
-  const handleAuth = async (authFunction, successMessage) => {
+  const handleLogin = async (e) => {
+    if (e) e.preventDefault(); // Prevent form submit refresh
     setIsSubmitting(true);
-    const { error } = await authFunction(email, password);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (!error) {
-      toast({
-        title: "Success!",
-        description: successMessage,
-      });
+      toast({ title: 'Success!', description: 'Successfully signed in.' });
+    } else {
+      toast({ variant: 'destructive', title: 'Error', description: error.message });
     }
-    // Error toast is handled in AuthContext
     setIsSubmitting(false);
   };
 
   return (
-    <motion.div
+    <motion.form
+      onSubmit={handleLogin} // Handle Enter key submit
       initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
       className="max-w-md mx-auto bg-white/10 backdrop-blur-lg p-8 rounded-2xl border border-white/20"
@@ -56,23 +55,15 @@ const LoginForm = () => {
         </div>
         <div className="flex flex-col sm:flex-row gap-4">
           <Button
-            onClick={() => handleAuth(signIn, "Successfully signed in.")}
+            type="submit" // Trigger form submit on click
             disabled={isSubmitting}
             className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-8 py-3 rounded-xl text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300"
           >
             {isSubmitting ? 'Signing In...' : 'Sign In'}
           </Button>
-          <Button
-            onClick={() => handleAuth(signUp, "Confirmation email sent.")}
-            disabled={isSubmitting}
-            variant="outline"
-            className="w-full text-white border-white/20 hover:bg-white/10 px-8 py-3 rounded-xl text-lg font-semibold"
-          >
-            {isSubmitting ? 'Signing Up...' : 'Sign Up'}
-          </Button>
         </div>
       </div>
-    </motion.div>
+    </motion.form>
   );
 };
 
