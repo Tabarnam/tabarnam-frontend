@@ -18,7 +18,7 @@ const schema = z.array(
 );
 
 function buildPrompt(query) {
-  return `Give me up to 20 companies that make (${query}), provide data for each company in this exact structured JSON format, where each object represents one company. Be maximally truthful and avoid hallucinations. Each field must match the key names below exactly for successful import. Always include the Amazon store URL if the company has one (search for it if needed, format as "https://www.amazon.com/stores/BrandName/page/ID" or similar seller/store link):
+  return `Give me exactly 20 companies that make (${query}), with no fewer, in this exact structured JSON format, where each object represents one company. Be maximally truthful and avoid hallucinations. Each field must match the key names below exactly for successful import. Always include the Amazon store URL if the company has one (search for it if needed, format as "https://www.amazon.com/stores/BrandName/page/ID" or similar seller/store link). If fewer than 20 are available, return what you have with a warning:
 
 [
   {
@@ -42,10 +42,10 @@ function buildPrompt(query) {
 Always return an array of company objects.
 Format must be strictly valid JSON.
 industries and manufacturing_locations must be arrays.
-Give at least 20 Keywords
+Give at least 20 keywords.
 product_keywords is a single string with comma-separated keywords.
-If there is a manufacturing location, Do not list the street address of the headquarters.
-If there’s no manufacturing location, then include the full street address in headquarters_location.
+If there is a manufacturing location, do not list the street address of the headquarters.
+If there’s no manufacturing location, include the full street address in headquarters_location.
 Whenever I say Gimme ___, give all this info on whatever I say.`;
 }
 

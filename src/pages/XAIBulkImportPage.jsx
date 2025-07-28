@@ -22,14 +22,14 @@ export default function XAIBulkImportPage() {
     try {
       let combinedCompanies = [];
       let loopCount = 0;
-      const maxLoops = 20; // Increased to 20 for more imports
+      const maxLoops = 10; // Match backend maxPages for consistency
 
       while (loopCount < maxLoops) {
         setStatus(`Importing batch ${loopCount + 1}...`);
 
-        const queryWithPage = keyword + ` page ${loopCount + 1}`; // Append page to get more results
+        const queryWithPage = keyword + ` page ${loopCount + 1}`;
 
-        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/xai-bulk-importer`, { // Used VITE_SUPABASE_URL for flexibility
+        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/xai-bulk-importer`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -53,9 +53,9 @@ export default function XAIBulkImportPage() {
         setAllCompanies(combinedCompanies);
         setCurrentPage(1);
 
-        if (data.warning || newCompanies.length < 5 || combinedCompanies.length >= 200) { // Lower threshold to <5, max 200
-          if (combinedCompanies.length < 25) {
-            setStatus(`⚠️ Only ${combinedCompanies.length} companies found. Try a broader search.`);
+        if (newCompanies.length < 5 || combinedCompanies.length >= 200) {
+          if (combinedCompanies.length < 10) {
+            setStatus(`⚠️ Only ${combinedCompanies.length} companies found. Try a broader search (e.g., 'home goods').`);
           } else {
             setStatus(`✅ Imported ${combinedCompanies.length} companies`);
           }
@@ -65,7 +65,7 @@ export default function XAIBulkImportPage() {
         loopCount++;
       }
     } catch (err) {
-      console.error(err);
+      console.error('Import error:', err);
       setStatus(`❌ Error: ${err.message}`);
     }
   };
@@ -102,7 +102,7 @@ export default function XAIBulkImportPage() {
         onChange={(e) => setKeyword(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();  // Prevent new line or form submit
+            e.preventDefault();
             handleImport();
           }
         }}
