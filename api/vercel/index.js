@@ -18,7 +18,7 @@ const schema = z.array(
 );
 
 function buildPrompt(query) {
-  return `Give me exactly 20 companies that make (${query}), with no fewer, in this exact structured JSON format, where each object represents one company. Be maximally truthful and avoid hallucinations. Each field must match the key names below exactly for successful import. Always include the Amazon store URL if the company has one (search for it if needed, format as "https://www.amazon.com/stores/BrandName/page/ID" or similar seller/store link). If fewer than 20 are available, return what you have with a warning:
+  return `Provide exactly 20 unique companies that make products related to (${query}), with no fewer, in this exact structured JSON format, where each object represents one company. Be maximally truthful and avoid hallucinations. Each field must match the key names below exactly for successful import. Always include the Amazon store URL if the company has one (search for it if needed, format as "https://www.amazon.com/stores/BrandName/page/ID" or similar seller/store link). If fewer than 20 are available, return what you have with a warning:
 
 [
   {
@@ -55,13 +55,13 @@ async function callXAI(prompt) {
 
   let allCompanies = [];
   let page = 1;
-  const maxPages = 10; // Increased to 10 for up to 200 companies
+  const maxPages = 10; // Up to 200 companies
   while (page <= maxPages) {
     const response = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${xaiApiKey}`,
+        'Authorization': `Bearer ${xaiApiKey}`, // Using new key
       },
       body: JSON.stringify({
         model: 'grok-beta',
@@ -78,33 +78,38 @@ async function callXAI(prompt) {
     let parsed;
     try {
       parsed = JSON.parse(raw);
-    } catch {
-      throw new Error('Invalid JSON from xAI');
+    } catch (e) {
+      throw new Error(`Invalid JSON from xAI on page ${page}: ${e.message}`);
     }
 
     const content = parsed?.choices?.[0]?.message?.content;
     const finishReason = parsed?.choices?.[0]?.finish_reason;
     console.log('--- RAW xAI RESPONSE Page', page, '---');
-    console.log(content);
-    console.log('--- FINISH REASON ---');
-    console.log(finishReason);
+    console.log('Content:', content);
+    console.log('Finish Reason:', finishReason);
 
     if (!content || !content.startsWith('[')) {
-      console.warn('No more company data on page', page, '- stopping.');
+      console.warn('No valid company data on page', page, '- stopping.');
       break;
     }
 
     let pageCompanies;
     try {
       pageCompanies = JSON.parse(content);
-    } catch {
-      console.warn('Parsing error on page', page, '- skipping.');
+    } catch (e) {
+      console.warn('Parsing error on page', page, ':', e.message, '- skipping.');
       page++;
       continue;
     }
 
-    allCompanies = [...allCompanies, ...pageCompanies];
-    if (pageCompanies.length < 5) break; // Stop if fewer than 5 per page to avoid empty loops
+    console.log('Page', page, 'Companies Count:', pageCompanies.length);
+    allCompanies = [...allCompanies, ...pageCompanies.filter(c => 
+      !allCompanies.some(existing => existing.company_name === c.company_name)
+    )];
+    if (pageCompanies.length < 5 || allCompanies.length >= 200) {
+      console.log('Stopping: Page length < 5 or total >= 200. Total companies:', allCompanies.length);
+      break;
+    }
     page++;
   }
 
@@ -112,7 +117,7 @@ async function callXAI(prompt) {
     const validated = schema.parse(allCompanies);
     return validated;
   } catch (e) {
-    console.error('VALIDATION OR PARSE ERROR:', e);
+    console.error('VALIDATION ERROR:', e.errors);
     throw new Error('Failed to parse or validate xAI response');
   }
 }
@@ -130,10 +135,10 @@ export default async function handler(req, res) {
   try {
     const prompt = buildPrompt(query);
     const companies = await callXAI(prompt);
-    console.log(`✅ IMPORT SUCCESS: ${companies.length} companies via xAI`);
+    console.log(`✅ IMPORT SUCCESS: ${companies.length} unique companies via xAI`);
     return res.status(200).json({ companies });
   } catch (error) {
-    console.error('IMPORT ERROR:', error);
+    console.error('IMPORT ERROR:', error.message);
     return res.status(500).json({ error: error.message || 'Unknown error' });
   }
 }

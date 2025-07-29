@@ -1,73 +1,99 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 export default function XAIBulkImportPage() {
   const [keyword, setKeyword] = useState('');
-  console.log("SUPABASE KEY from env:", import.meta.env.VITE_SUPABASE_ANON_KEY);
   const [status, setStatus] = useState('');
   const [allCompanies, setAllCompanies] = useState([]);
   const [filter, setFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [expandedIndex, setExpandedIndex] = useState(null);
+  const [isImporting, setIsImporting] = useState(false);
   const itemsPerPage = 20;
 
-  const handleImport = async () => {
+  useEffect(() => {
+    // Log only once on mount, with a check to prevent duplicate logs
+    const hasLogged = sessionStorage.getItem('keyLogged');
+    if (!hasLogged) {
+      console.log("SUPABASE KEY from env (once on mount):", import.meta.env.VITE_SUPABASE_ANON_KEY);
+      sessionStorage.setItem('keyLogged', 'true');
+    }
+  }, []); // Empty dependency array ensures single execution
+
+  useEffect(() => {
+    if (isImporting && keyword.trim()) {
+      const importData = async () => {
+        setStatus('Importing...');
+        setAllCompanies([]);
+        setCurrentPage(1);
+
+        try {
+          let combinedCompanies = [];
+          let loopCount = 0;
+          const maxLoops = 10;
+
+          while (loopCount < maxLoops) {
+            setStatus(`Importing batch ${loopCount + 1}...`);
+
+            const queryWithPage = keyword + ` page ${loopCount + 1}`;
+
+            const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/xai-bulk-importer`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
+              },
+              body: JSON.stringify({ query: queryWithPage }),
+            });
+
+            if (!res.ok) {
+              const errorText = await res.text(); // Capture error details
+              console.error('Fetch error:', res.status, errorText);
+              setStatus(`❌ Error: ${res.statusText} - ${errorText || 'Network issue'}`);
+              break;
+            }
+
+            const data = await res.json();
+
+            if (!Array.isArray(data.companies)) {
+              setStatus('❌ Invalid response format from server');
+              break;
+            }
+
+            const newCompanies = data.companies.filter(
+              (c) => !combinedCompanies.some((e) => e.company_name === c.company_name)
+            );
+
+            combinedCompanies = [...combinedCompanies, ...newCompanies];
+            setAllCompanies(combinedCompanies);
+
+            if (newCompanies.length < 5 || combinedCompanies.length >= 200) {
+              if (combinedCompanies.length < 10) {
+                setStatus(`⚠️ Only ${combinedCompanies.length} companies found. Try a broader search (e.g., 'home goods').`);
+              } else {
+                setStatus(`✅ Imported ${combinedCompanies.length} companies`);
+              }
+              break;
+            }
+
+            loopCount++;
+          }
+        } catch (err) {
+          console.error('Import error:', err);
+          setStatus(`❌ Error: ${err.message}`);
+        } finally {
+          setIsImporting(false);
+        }
+      };
+      importData();
+    }
+  }, [isImporting, keyword]);
+
+  const handleImport = () => {
     if (!keyword.trim()) {
       setStatus('❌ Enter a keyword to search.');
       return;
     }
-    setStatus('Importing...');
-    setAllCompanies([]);
-    setCurrentPage(1);
-
-    try {
-      let combinedCompanies = [];
-      let loopCount = 0;
-      const maxLoops = 10; // Match backend maxPages for consistency
-
-      while (loopCount < maxLoops) {
-        setStatus(`Importing batch ${loopCount + 1}...`);
-
-        const queryWithPage = keyword + ` page ${loopCount + 1}`;
-
-        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/xai-bulk-importer`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
-          },
-          body: JSON.stringify({ query: queryWithPage }),
-        });
-
-        const data = await res.json();
-
-        if (!res.ok || !Array.isArray(data.companies)) {
-          setStatus(`❌ Error: ${data.error || data.message || 'Unknown error'}`);
-          break;
-        }
-
-        const newCompanies = data.companies.filter(
-          (c) => !combinedCompanies.some((e) => e.company_name === c.company_name)
-        );
-
-        combinedCompanies = [...combinedCompanies, ...newCompanies];
-        setAllCompanies(combinedCompanies);
-        setCurrentPage(1);
-
-        if (newCompanies.length < 5 || combinedCompanies.length >= 200) {
-          if (combinedCompanies.length < 10) {
-            setStatus(`⚠️ Only ${combinedCompanies.length} companies found. Try a broader search (e.g., 'home goods').`);
-          } else {
-            setStatus(`✅ Imported ${combinedCompanies.length} companies`);
-          }
-          break;
-        }
-
-        loopCount++;
-      }
-    } catch (err) {
-      console.error('Import error:', err);
-      setStatus(`❌ Error: ${err.message}`);
-    }
+    setIsImporting(true);
   };
 
   const handleClear = () => {
@@ -76,6 +102,8 @@ export default function XAIBulkImportPage() {
     setKeyword('');
     setCurrentPage(1);
     setExpandedIndex(null);
+    setIsImporting(false);
+    sessionStorage.removeItem('keyLogged'); // Reset for next session
   };
 
   const filteredCompanies = allCompanies.filter((company) => {
@@ -112,8 +140,9 @@ export default function XAIBulkImportPage() {
       <button
         onClick={handleImport}
         className="bg-blue-600 text-white rounded px-4 py-2 mb-4"
+        disabled={isImporting}
       >
-        Start Import
+        {isImporting ? 'Importing...' : 'Start Import'}
       </button>
 
       {status && <p className="mb-3">{status}</p>}
