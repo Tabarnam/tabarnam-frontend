@@ -1,3 +1,4 @@
+// src/components/AdminRoute.jsx
 import React from 'react';
 import { useSupabaseAuth } from '@/contexts/useSupabaseAuth';
 import { useUserRole } from '@/contexts/useUserRole';
