@@ -146,6 +146,8 @@ export default async function handler(req, res) {
     const prompt = buildPrompt(query);
     const companies = await callXAI(prompt);
     console.log(`✅ IMPORT SUCCESS: ${companies.length} unique companies via xAI`);
+    // Add Cache-Control header for CDN caching
+    res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=60'); // 5 min cache, 1 min stale
     return res.status(200).json({ companies });
   } catch (error) {
     console.error('IMPORT ERROR:', error.message);

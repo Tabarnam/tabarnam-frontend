@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "vite build",
+  "buildCommand": "chmod +x node_modules/.bin/vite && vite build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/" }
@@ -12,3 +12,4 @@
     }
   }
 }
+  
