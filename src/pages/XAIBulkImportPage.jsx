@@ -1,3 +1,4 @@
+// src/pages/XAIBulkImportPage.jsx
 import React, { useState, useEffect } from 'react';
 
 export default function XAIBulkImportPage() {
@@ -11,13 +12,12 @@ export default function XAIBulkImportPage() {
   const itemsPerPage = 20;
 
   useEffect(() => {
-    // Log only once on mount, with a check to prevent duplicate logs
     const hasLogged = sessionStorage.getItem('keyLogged');
     if (!hasLogged) {
-      console.log("SUPABASE KEY from env (once on mount):", import.meta.env.VITE_SUPABASE_ANON_KEY);
+      console.log("VERCEL ENV CHECK (once on mount):", import.meta.env.VITE_VERCEL_URL || 'Not set');
       sessionStorage.setItem('keyLogged', 'true');
     }
-  }, []); // Empty dependency array ensures single execution
+  }, []);
 
   useEffect(() => {
     if (isImporting && keyword.trim()) {
@@ -27,55 +27,35 @@ export default function XAIBulkImportPage() {
         setCurrentPage(1);
 
         try {
-          let combinedCompanies = [];
-          let loopCount = 0;
-          const maxLoops = 10;
+          const response = await fetch('/api/xai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: keyword }),
+          });
 
-          while (loopCount < maxLoops) {
-            setStatus(`Importing batch ${loopCount + 1}...`);
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Fetch error:', response.status, errorText);
+            setStatus(`❌ Error: ${response.statusText} - ${errorText || 'Network issue'}`);
+            return;
+          }
 
-            const queryWithPage = keyword + ` page ${loopCount + 1}`;
+          const data = await response.json();
+          if (!Array.isArray(data.companies)) {
+            setStatus('❌ Invalid response format from server');
+            return;
+          }
 
-            const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/xai-bulk-importer`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
-              },
-              body: JSON.stringify({ query: queryWithPage }),
-            });
+          const newCompanies = data.companies.filter(
+            (c) => !allCompanies.some((e) => e.company_name === c.company_name)
+          );
+          const combinedCompanies = [...allCompanies, ...newCompanies];
+          setAllCompanies(combinedCompanies);
 
-            if (!res.ok) {
-              const errorText = await res.text(); // Capture error details
-              console.error('Fetch error:', res.status, errorText);
-              setStatus(`❌ Error: ${res.statusText} - ${errorText || 'Network issue'}`);
-              break;
-            }
-
-            const data = await res.json();
-
-            if (!Array.isArray(data.companies)) {
-              setStatus('❌ Invalid response format from server');
-              break;
-            }
-
-            const newCompanies = data.companies.filter(
-              (c) => !combinedCompanies.some((e) => e.company_name === c.company_name)
-            );
-
-            combinedCompanies = [...combinedCompanies, ...newCompanies];
-            setAllCompanies(combinedCompanies);
-
-            if (newCompanies.length < 5 || combinedCompanies.length >= 200) {
-              if (combinedCompanies.length < 10) {
-                setStatus(`⚠️ Only ${combinedCompanies.length} companies found. Try a broader search (e.g., 'home goods').`);
-              } else {
-                setStatus(`✅ Imported ${combinedCompanies.length} companies`);
-              }
-              break;
-            }
-
-            loopCount++;
+          if (newCompanies.length < 3) {
+            setStatus(`✅ Imported ${combinedCompanies.length} companies`);
+          } else if (combinedCompanies.length >= 200) {
+            setStatus(`✅ Imported ${combinedCompanies.length} companies (max reached)`);
           }
         } catch (err) {
           console.error('Import error:', err);
@@ -103,7 +83,7 @@ export default function XAIBulkImportPage() {
     setCurrentPage(1);
     setExpandedIndex(null);
     setIsImporting(false);
-    sessionStorage.removeItem('keyLogged'); // Reset for next session
+    sessionStorage.removeItem('keyLogged');
   };
 
   const filteredCompanies = allCompanies.filter((company) => {
@@ -229,7 +209,14 @@ export default function XAIBulkImportPage() {
                     <p>
                       <strong>Red Flag:</strong> {c.red_flag ? '🚩 Yes' : 'No'}
                     </p>
-
+                    {c.amazon_url && (
+                      <p>
+                        <strong>Amazon:</strong>{' '}
+                        <a href={c.amazon_url} target="_blank" rel="noreferrer">
+                          {c.amazon_url}
+                        </a>
+                      </p>
+                    )}
                     {Array.isArray(c.reviews) && c.reviews.length > 0 && (
                       <div className="mt-2">
                         <strong>Reviews:</strong>
