@@ -8,8 +8,7 @@
   "functions": {
     "api/xai.js": {
       "maxDuration": 300,
-      "memory": 2048,
-      "regions": ["iad1", "ord1", "lhr1"]
+      "memory": 2048
     }
   }
 }
