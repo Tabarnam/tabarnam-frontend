@@ -56,6 +56,8 @@ export default function XAIBulkImportPage() {
             setStatus(`✅ Imported ${combinedCompanies.length} companies`);
           } else if (combinedCompanies.length >= 200) {
             setStatus(`✅ Imported ${combinedCompanies.length} companies (max reached)`);
+          } else {
+            setStatus(`✅ Imported ${combinedCompanies.length} companies, more may be available`);
           }
         } catch (err) {
           console.error('Import error:', err);
