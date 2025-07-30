@@ -1,6 +1,6 @@
 {
   "framework": "vite",
-  "buildCommand": "chmod +x node_modules/.bin/vite && vite build",
+  "buildCommand": "vite build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/" }
@@ -10,6 +10,6 @@
       "maxDuration": 300,
       "memory": 2048
     }
-  }
+  },
+  "nodeVersion": "20.x" // Force Node.js 20 LTS
 }
-  

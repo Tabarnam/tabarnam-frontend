@@ -39,7 +39,7 @@ function buildPrompt(query) {
   }
 ]
 
-Always return an array of company objects.
+Always return an array of company companies.
 Format must be strictly valid JSON.
 industries and manufacturing_locations must be arrays.
 Give at least 20 keywords.
@@ -126,11 +126,19 @@ async function callXAI(prompt) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // Debug incoming headers
+  console.log('Request Headers:', req.headers);
+
+  // Set CORS headers for all requests
+  const origin = req.headers.origin;
+  res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Max-Age', '86400'); // Cache preflight for 24 hours
+
   if (req.method === 'OPTIONS') {
-    return res.status(204).end();
+    console.log('Preflight OPTIONS request handled');
+    return res.status(204).end(); // Respond to preflight
   }
 
   if (req.method !== 'POST') {
@@ -146,7 +154,6 @@ export default async function handler(req, res) {
     const prompt = buildPrompt(query);
     const companies = await callXAI(prompt);
     console.log(`✅ IMPORT SUCCESS: ${companies.length} unique companies via xAI`);
-    // Add Cache-Control header for CDN caching
     res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=60'); // 5 min cache, 1 min stale
     return res.status(200).json({ companies });
   } catch (error) {

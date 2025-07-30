@@ -1,3 +1,4 @@
+// src/components/admin/CompanyForm.jsx
 import React from 'react';
 import { useForm } from 'react-hook-form';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';

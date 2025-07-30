@@ -1,3 +1,4 @@
+// src/App.jsx
 import React from 'react';
 import { HelmetProvider } from 'react-helmet-async';
 import { Toaster } from '@/components/ui/sonner';
@@ -5,7 +6,7 @@ import { SupabaseAuthProvider } from '@/contexts/SupabaseAuthProvider';
 import { UserRoleProvider } from '@/contexts/UserRoleProvider';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 
-// Error Boundary for robustness (optional but recommended)
+// Error Boundary for robustness
 class ErrorBoundary extends React.Component {
   state = { hasError: false };
   static getDerivedStateFromError() {
@@ -38,18 +39,8 @@ function App() {
                   <Route path="/" element={<HomePage />} />
                   <Route path="/results" element={<ResultsPage />} />
                   <Route path="/login" element={<Login />} />
-                  <Route
-                    path="/admin"
-                    element={
-                      <AdminRoute>
-                        <AdminPanel />
-                      </AdminRoute>
-                    }
-                  />
-                  <Route
-                    path="/admin/xai-bulk-import"
-                    element={<XAIBulkImportPage />}
-                  />
+                  <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>} />
+                  <Route path="/admin/xai-bulk-import" element={<XAIBulkImportPage />} />
                 </Routes>
               </div>
             </Router>

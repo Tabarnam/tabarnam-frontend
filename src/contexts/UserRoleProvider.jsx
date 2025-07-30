@@ -1,3 +1,4 @@
+// src/contexts/UserRoleProvider.jsx
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/customSupabaseClient';
 import { UserRoleContext } from '@/contexts/UserRoleContext'; // New import
