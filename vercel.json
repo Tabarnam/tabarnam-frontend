@@ -11,5 +11,5 @@
       "memory": 2048
     }
   },
-  "nodeVersion": "20.x" // Force Node.js 20 LTS
+  "nodeVersion": "22.x" 
 }
