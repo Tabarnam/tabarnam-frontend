@@ -4,16 +4,26 @@ import axios from 'axios';
 
 const UserTools = () => {
   const [companies, setCompanies] = useState([]);
+  const [query, setQuery] = useState('candles'); // Default query
+  const functionKey = import.meta.env.VITE_FUNCTION_KEY; // Set in Vercel env vars
 
   useEffect(() => {
-    // Fetch from backend (adjust URL to your Function App)
-    axios.get('https://tabarnam-xai-dedicated-b4a0gdchamaeb8cp.canadacentral-01.azurewebsites.net/companies')
-      .then(response => setCompanies(response.data))
-      .catch(error => console.error('Error:', error));
-  }, []);
+    if (!functionKey) {
+      console.error('Missing VITE_FUNCTION_KEY');
+      return;
+    }
+    // Fetch from backend
+    axios
+      .post(
+        `https://tabarnam-xai-dedicated-b4a0gdchamaeb8cp.canadacentral-01.azurewebsites.net/xai?code=${functionKey}`,
+        { query }
+      )
+      .then((response) => setCompanies(response.data.companies))
+      .catch((error) => console.error('Error fetching companies:', error));
+  }, [query, functionKey]);
 
   const exportToCSV = () => {
-    const csv = companies.map(c => `${c.company_name},${c.company_tagline},${c.industries.join(';')}`).join('\n');
+    const csv = companies.map((c) => `${c.company_name},${c.company_tagline},${c.industries.join(';')}`).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -25,6 +35,12 @@ const UserTools = () => {
   return (
     <div>
       <h2>User Tools</h2>
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Enter search query (e.g., candles)"
+      />
       <table>
         <thead>
           <tr>
@@ -34,7 +50,7 @@ const UserTools = () => {
           </tr>
         </thead>
         <tbody>
-          {companies.map(c => (
+          {companies.map((c) => (
             <tr key={c.company_name}>
               <td>{c.company_name}</td>
               <td>{c.company_tagline}</td>
