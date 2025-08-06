@@ -9,7 +9,5 @@
     "api/xai.js": {
       "maxDuration": 300,
       "memory": 2048
-    }
-  },
-  "nodeVersion": "22.x" 
-}
+  }
+ }
