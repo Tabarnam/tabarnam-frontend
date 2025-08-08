@@ -28,7 +28,7 @@ export default function XAIBulkImportPage() {
         setAllCompanies([]);
         setCurrentPage(1);
 
-        const apiUrl = 'https://tabarnam-xai-dedicated-b4a0gdchamaeb8cp.canadacentral-01.azurewebsites.net/xai?code=saMXY0DA3pmR33hdAarjf_IVjc1Rxw1BmCv2XQKTv8UzAzFusd2jlA==';
+        const apiUrl = `https://tabarnam-xai-dedicated-b4a0gdchamaeb8cp.canadacentral-01.azurewebsites.net/xai?code=${import.meta.env.VITE_FUNCTION_KEY}`;
         try {
           const response = await fetch(apiUrl, {
             method: 'POST',
