@@ -2,7 +2,9 @@
 import React, { useState, useEffect } from 'react';
 
 export default function XAIBulkImportPage() {
-  const [keyword, setKeyword] = useState('');
+  const [maxImports, setMaxImports] = useState(1);
+  const [searchField, setSearchField] = useState('product_keywords');
+  const [searchValue, setSearchValue] = useState('');
   const [status, setStatus] = useState('');
   const [allCompanies, setAllCompanies] = useState([]);
   const [filter, setFilter] = useState('');
@@ -20,18 +22,18 @@ export default function XAIBulkImportPage() {
   }, []);
 
   useEffect(() => {
-    if (isImporting && keyword.trim()) {
+    if (isImporting && searchValue.trim()) {
       const importData = async () => {
         setStatus('Importing...');
         setAllCompanies([]);
         setCurrentPage(1);
 
-        const apiUrl = import.meta.env.VITE_VERCEL_URL ? `${import.meta.env.VITE_VERCEL_URL}/api/xai` : '/api/xai';
+        const apiUrl = 'https://tabarnam-xai-dedicated-b4a0gdchamaeb8cp.canadacentral-01.azurewebsites.net/xai?code=saMXY0DA3pmR33hdAarjf_IVjc1Rxw1BmCv2XQKTv8UzAzFusd2jlA==';
         try {
           const response = await fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: keyword }),
+            body: JSON.stringify({ maxImports, search: { [searchField]: searchValue } }),
           });
 
           if (!response.ok) {
@@ -53,8 +55,8 @@ export default function XAIBulkImportPage() {
           const combinedCompanies = [...allCompanies, ...newCompanies];
           setAllCompanies(combinedCompanies);
 
-          if (newCompanies.length < 3) {
-            setStatus(`✅ Imported ${combinedCompanies.length} companies`);
+          if (newCompanies.length < maxImports) {
+            setStatus(`✅ Imported ${combinedCompanies.length} companies (exhaustive)`);
           } else if (combinedCompanies.length >= 200) {
             setStatus(`✅ Imported ${combinedCompanies.length} companies (max reached)`);
           } else {
@@ -69,11 +71,11 @@ export default function XAIBulkImportPage() {
       };
       importData();
     }
-  }, [isImporting, keyword]);
+  }, [isImporting, searchValue, searchField, maxImports]);
 
   const handleImport = () => {
-    if (!keyword.trim()) {
-      setStatus('❌ Enter a keyword to search.');
+    if (!searchValue.trim()) {
+      setStatus('❌ Enter a search value.');
       return;
     }
     setIsImporting(true);
@@ -82,7 +84,8 @@ export default function XAIBulkImportPage() {
   const handleClear = () => {
     setAllCompanies([]);
     setStatus('');
-    setKeyword('');
+    setSearchValue('');
+    setMaxImports(1);
     setCurrentPage(1);
     setExpandedIndex(null);
     setIsImporting(false);
@@ -102,23 +105,64 @@ export default function XAIBulkImportPage() {
     currentPage * itemsPerPage
   );
 
+  const fields = [
+    { value: 'company_name', label: 'Company Name' },
+    { value: 'product_keywords', label: 'Product Keywords' },
+    { value: 'industries', label: 'Industry' },
+    { value: 'headquarters_location', label: 'Headquarters Location' },
+    { value: 'manufacturing_locations', label: 'Manufacturing Location' },
+    { value: 'email_address', label: 'Email Address' },
+    { value: 'url', label: 'Website URL' },
+    { value: 'amazon_url', label: 'Amazon URL' },
+  ];
+
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <h1 className="text-3xl font-bold mb-4">Bulk Company Import</h1>
 
-      <input
-        type="text"
-        placeholder="Enter a keyword to search..."
-        value={keyword}
-        onChange={(e) => setKeyword(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleImport();
-          }
-        }}
-        className="w-full border rounded px-3 py-2 mb-3"
-      />
+      <div className="space-y-4 mb-4">
+        <div>
+          <label htmlFor="maxImports" className="block text-sm font-medium text-gray-700">Number of Companies (1-20)</label>
+          <input
+            id="maxImports"
+            type="number"
+            min="1"
+            max="20"
+            value={maxImports}
+            onChange={(e) => setMaxImports(Number(e.target.value))}
+            className="w-full border rounded px-3 py-2"
+          />
+        </div>
+        <div>
+          <label htmlFor="searchField" className="block text-sm font-medium text-gray-700">Search Field</label>
+          <select
+            id="searchField"
+            value={searchField}
+            onChange={(e) => setSearchField(e.target.value)}
+            className="w-full border rounded px-3 py-2"
+          >
+            {fields.map(field => (
+              <option key={field.value} value={field.value}>{field.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="searchValue" className="block text-sm font-medium text-gray-700">Search Value</label>
+          <input
+            id="searchValue"
+            type="text"
+            value={searchValue}
+            onChange={(e) => setSearchValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleImport();
+              }
+            }}
+            className="w-full border rounded px-3 py-2"
+          />
+        </div>
+      </div>
 
       <button
         onClick={handleImport}
@@ -226,8 +270,8 @@ export default function XAIBulkImportPage() {
                         <ul className="list-disc list-inside">
                           {c.reviews.map((r, i) => (
                             <li key={i}>
-                              <a href={r.url} target="_blank" rel="noreferrer">
-                                [{r.source}] {r.abstract}
+                              <a href={r.link} target="_blank" rel="noreferrer">
+                                [{r.source || 'Review'}] {r.text}
                               </a>
                             </li>
                           ))}
