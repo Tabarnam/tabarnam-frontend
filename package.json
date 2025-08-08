@@ -4,11 +4,10 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "start": "vite",
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "rollback": "ts-node scripts/rollback.ts",
-    "mock-api": "node mock-api.js"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@emotion/is-prop-valid": "^1.2.1",
