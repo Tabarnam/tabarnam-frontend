@@ -1,6 +1,8 @@
 // src/pages/XAIBulkImportPage.jsx
 import React, { useState, useEffect } from 'react';
 
+console.log('Deploy test');
+
 export default function XAIBulkImportPage() {
   const [maxImports, setMaxImports] = useState(1);
   const [searchField, setSearchField] = useState('product_keywords');
@@ -16,7 +18,7 @@ export default function XAIBulkImportPage() {
   useEffect(() => {
     const hasLogged = sessionStorage.getItem('keyLogged');
     if (!hasLogged) {
-      console.log("VERCEL ENV CHECK (once on mount):", import.meta.env.VITE_VERCEL_URL || 'Not set');
+      console.log("ENV CHECK (once on mount):", { VITE_FUNCTION_KEY: import.meta.env.VITE_FUNCTION_KEY });
       sessionStorage.setItem('keyLogged', 'true');
     }
   }, []);
@@ -28,7 +30,13 @@ export default function XAIBulkImportPage() {
         setAllCompanies([]);
         setCurrentPage(1);
 
-        const apiUrl = `https://tabarnam-xai-dedicated-b4a0gdchamaeb8cp.canadacentral-01.azurewebsites.net/xai?code=${import.meta.env.VITE_FUNCTION_KEY}`;
+        const functionKey = import.meta.env.VITE_FUNCTION_KEY;
+        if (!functionKey) {
+          setStatus('❌ Missing VITE_FUNCTION_KEY. Set it in your environment variables.');
+          setIsImporting(false);
+          return;
+        }
+        const apiUrl = `https://tabarnam-xai-dedicated-b4a0gdchamaeb8cp.canadacentral-01.azurewebsites.net/xai?code=${functionKey}`;
         try {
           const response = await fetch(apiUrl, {
             method: 'POST',
