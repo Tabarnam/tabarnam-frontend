@@ -1,0 +1,8 @@
+{
+  "routes": [
+    {
+      "route": "/admin/xai-bulk-import*",
+      "rewrite": "/index.html"
+    }
+  ]
+}
