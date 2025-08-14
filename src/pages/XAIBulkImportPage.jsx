@@ -1,5 +1,6 @@
 // src/pages/XAIBulkImportPage.jsx
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom'; // For navigation
 
 console.log('Deploy test');
 
@@ -13,7 +14,12 @@ export default function XAIBulkImportPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [expandedIndex, setExpandedIndex] = useState(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [notes, setNotes] = useState(''); // New state for notes
   const itemsPerPage = 20;
+  const navigate = useNavigate(); // For clickable navigation
+
+  // Check user role (assuming a context or prop provides this)
+  const userRole = 'admin'; // Replace with actual role from context (e.g., useUserRole())
 
   useEffect(() => {
     const hasLogged = sessionStorage.getItem('keyLogged');
@@ -97,6 +103,7 @@ export default function XAIBulkImportPage() {
     setCurrentPage(1);
     setExpandedIndex(null);
     setIsImporting(false);
+    setNotes(''); // Clear notes on clear
     sessionStorage.removeItem('keyLogged');
   };
 
@@ -235,7 +242,31 @@ export default function XAIBulkImportPage() {
                 <strong>
                   {(currentPage - 1) * itemsPerPage + idx + 1}. {c.company_name}
                 </strong>{' '}
-                — {c.industries?.join(', ') || 'N/A'}
+                —{' '}
+                {c.industries?.map((industry, i) => (
+                  <span
+                    key={i}
+                    onClick={(e) => {
+                      e.stopPropagation(); // Prevent expanding the card
+                      navigate(`/search?query=${encodeURIComponent(industry)}`);
+                    }}
+                    className="text-blue-600 cursor-pointer underline mr-1"
+                  >
+                    {industry}
+                  </span>
+                )) || 'N/A'}
+                {c.product_keywords?.map((keyword, i) => (
+                  <span
+                    key={i}
+                    onClick={(e) => {
+                      e.stopPropagation(); // Prevent expanding the card
+                      navigate(`/search?query=${encodeURIComponent(keyword)}`);
+                    }}
+                    className="text-blue-600 cursor-pointer underline ml-1"
+                  >
+                    {keyword}
+                  </span>
+                ))}
 
                 {expandedIndex === idx && (
                   <div className="mt-2 text-sm text-gray-700">
@@ -284,6 +315,34 @@ export default function XAIBulkImportPage() {
                             </li>
                           ))}
                         </ul>
+                      </div>
+                    )}
+                    {userRole === 'admin' && c.company_contact_info && (
+                      <div className="mt-2">
+                        <strong>Contact Info:</strong>
+                        <p>
+                          <strong>Page URL:</strong>{' '}
+                          <a href={c.company_contact_info.contact_page_url} target="_blank" rel="noreferrer">
+                            {c.company_contact_info.contact_page_url}
+                          </a>
+                        </p>
+                        <p>
+                          <strong>Email:</strong> {c.company_contact_info.contact_email}
+                        </p>
+                      </div>
+                    )}
+                    {userRole === 'admin' && (
+                      <div className="mt-2">
+                        <label htmlFor={`notes-${idx}`} className="block text-sm font-medium text-gray-700">
+                          Notes:
+                        </label>
+                        <textarea
+                          id={`notes-${idx}`}
+                          value={notes}
+                          onChange={(e) => setNotes(e.target.value)}
+                          className="w-full border rounded px-3 py-2 mt-1"
+                          rows="3"
+                        />
                       </div>
                     )}
                   </div>
