@@ -1,0 +1,14 @@
+# C:\Users\jatlas\OneDrive\Tabarnam Inc\MVP Do It Yourself\tabarnam-frontend\.github\workflows\rollback.yml
+name: Conditional Rollback on Failed Deploy (Disabled - Vercel Removed)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rollback_if_failed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inform Vercel Rollback Disabled
+        run: |
+          echo "Vercel rollback workflow is disabled as Vercel has been removed from the project."
+          echo "No action will be taken. Please use Azure Static Web Apps for deployment."
