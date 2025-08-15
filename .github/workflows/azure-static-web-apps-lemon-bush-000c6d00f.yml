@@ -14,45 +14,61 @@ jobs:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
     runs-on: ubuntu-latest
     name: Build and Deploy Job
+    permissions:
+      id-token: write # Required for workload identity federation
+      contents: read # Required for actions/checkout
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: true
           lfs: false
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '18' # Match your local Node version (check with `node -v`)
+          node-version: '20' # Updated to match modern Vite requirements and Function App
       - name: Cache node_modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
           restore-keys: ${{ runner.os }}-node-
       - name: Install Dependencies
-        run: npm ci # Use npm ci for consistent installs from package-lock.json
+        run: npm ci # Ensures consistent installs from package-lock.json
       - name: Build with Vite
-        run: npm run build # Ensures Vite builds to dist/
+        run: npm run build # Builds to dist/
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_FEDERATED_CREDENTIALS_STATIC }}
+          auth-type: workload-identity
       - name: Build And Deploy
         id: builddeploy
-        uses: azure/static-web-apps-deploy@v1
+        uses: azure/static-web-apps-deploy@v1 # Reverted to v1 as v2 is not available
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_LEMON_BUSH_000C6D00F }}
-          repo_token: ${{ secrets.GITHUB_TOKEN }} # Used for GitHub integrations (e.g., PR comments)
-          action: "upload" # Explicitly set for deployment
-          app_location: "/" # App source code path
-          api_location: "" # No API, so leave empty
-          output_location: "dist" # Matches Vite output
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_LEMON_BUSH_000C6D00F }} # Fallback
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: "/"
+          api_location: ""
+          output_location: "dist"
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
     name: Close Pull Request Job
+    permissions:
+      id-token: write
+      contents: read
     steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_FEDERATED_CREDENTIALS_STATIC }}
+          auth-type: workload-identity
       - name: Close Pull Request
         id: closepullrequest
-        uses: azure/static-web-apps-deploy@v1
+        uses: azure/static-web-apps-deploy@v1 # Reverted to v1
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_LEMON_BUSH_000C6D00F }}
-          action: "close" # Explicitly set for closing preview environments
-          app_location: "/" # Must match the app location used in build_and_deploy_job
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_LEMON_BUSH_000C6D00F }} # Fallback
+          action: "close"
+          app_location: "/"
