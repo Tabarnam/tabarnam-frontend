@@ -1,11 +1,15 @@
 // src/components/ui/toast.jsx
-// Minimal helper to call our local proxy. No direct xAI usage here.
+
+const API_BASE =
+  (typeof window !== "undefined" && window.location.port === "5173")
+    ? "http://localhost:7071"  // dev: talk to Functions directly
+    : "";                       // prod: same-origin
 
 export async function callXAI(
   query,
-  { limit = 3, queryType = "product_keyword", center } = {}
+  { limit = 20, queryType = "product_keyword", center } = {}
 ) {
-  const res = await fetch("/api/proxy-xai", {
+  const res = await fetch(`${API_BASE}/api/proxy-xai`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ queryType, query, limit, ...(center ? { center } : {}) }),
@@ -17,6 +21,4 @@ export async function callXAI(
   return res.json(); // -> { companies, meta }
 }
 
-// Keep a default export so existing imports don't break.
-// Replace with your actual toast UI if you had one here previously.
-export default function ToastPlaceholder() { return null; }
+export default function ToastPlaceholder(){ return null; }
