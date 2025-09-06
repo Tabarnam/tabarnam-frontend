@@ -2,7 +2,9 @@
 import { app } from "@azure/functions";
 import axios from "axios";
 
-/** ---- Helpers ---- */
+const BUILD_STAMP = "proxy-xai build 2025-09-05T22:15Z";
+
+// ---------- helpers ----------
 function cors(req) {
   const origin = req.headers.get("origin") || "*";
   return {
@@ -34,20 +36,17 @@ function normalizeKeywords(value, industries) {
   while (merged.length && merged.length < 5) merged.push(merged[merged.length - 1]);
   return merged.join(", ");
 }
-
-// FORCE our affiliate tag on Amazon urls
 function ensureAmazonAffiliateTag(input) {
   if (!input) return { amazon_url: input, tagged: false };
   try {
     const url = new URL(input.startsWith("http") ? input : `https://${input}`);
     if (!/amazon\./i.test(url.hostname)) return { amazon_url: url.toString(), tagged: false };
-    url.searchParams.set("tag", "tabarnam00-20"); // ← always overwrite
+    url.searchParams.set("tag", "tabarnam00-20");
     return { amazon_url: url.toString(), tagged: true };
   } catch {
     return { amazon_url: input, tagged: false };
   }
 }
-
 function haversineMiles(lat1, lon1, lat2, lon2) {
   const toRad = (d) => (d * Math.PI) / 180, R = 3958.7613;
   const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
@@ -71,15 +70,13 @@ function enrichCompany(company, center) {
   return c;
 }
 
-/** Map legacy UI shape -> upstream shape */
+// ---------- legacy mapper ----------
 function toUpstreamBody(input) {
   const center = safeCenter(input.center);
-  // Already in upstream format
   if (input.queryType && input.query) {
     const limit = Number(input.limit || input.maxImports) || 5;
     return { queryType: String(input.queryType), query: String(input.query), limit, ...(center ? { center } : {}) };
   }
-  // Legacy UI: { search: { field: value }, maxImports }
   if (input.search && typeof input.search === "object") {
     const [field, value] = Object.entries(input.search)[0] || [];
     const q = String(value || "").trim();
@@ -98,15 +95,15 @@ function toUpstreamBody(input) {
     }
     return { queryType, query: q, limit, ...(center ? { center } : {}) };
   }
-  // Fallback
   return { queryType: "product_keyword", query: String(input.query || "").trim() || "candles", limit: Number(input.limit) || 3, ...(center ? { center } : {}) };
 }
 
+// ---------- function ----------
 app.http("proxyXai", {
   route: "proxy-xai",
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req) => {
+  handler: async (req, context) => {
     if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
 
     const started = Date.now();
@@ -117,12 +114,23 @@ app.http("proxyXai", {
 
     if (req.method === "GET") {
       const configured = { FUNCTION_URL: !!baseUrl, FUNCTION_KEY: !!funcKey, XAI_STUB: XAI_STUB === true };
-      return json({ ok: true, route: "/api/proxy-xai", configured, now: new Date().toISOString() }, 200, req);
+      return json({ ok: true, route: "/api/proxy-xai", configured, build: BUILD_STAMP, now: new Date().toISOString() }, 200, req);
     }
 
     // POST
     let inbound = {};
     try { inbound = await req.json(); } catch {}
+    const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+    const envDefault = Number(vals.XAI_TIMEOUT_MS);
+    const requested = Number(inbound?.timeout_ms);
+    const timeoutMs = clamp(
+      Number.isFinite(requested) ? requested :
+      Number.isFinite(envDefault) ? envDefault : 600000, // default to 10 min
+      1000, 15 * 60 * 1000
+    );
+
+    context.log("proxy-xai build", BUILD_STAMP, "timeout resolved", { requested, envDefault, timeoutMs });
+
     if (XAI_STUB) {
       const center = safeCenter(inbound.center);
       const demo = [
@@ -130,11 +138,11 @@ app.http("proxyXai", {
         { company_name: "Bunn", industries: ["food & beverage","equipment"], hq_lat: 40.1, hq_lng: -91.6, amazon_url: "https://www.amazon.com/dp/B000" },
         { company_name: "Taylor Company", industries: ["food & beverage","equipment"], hq_lat: 41.9, hq_lng: -88.3, amazon_url: "" },
       ].map(c => enrichCompany(c, center));
-      return json({ companies: demo, meta: { request_id: `stub_${Date.now()}`, model: "stub", latency_ms: Date.now() - started } }, 200, req);
+      return json({ companies: demo, meta: { request_id: `stub_${Date.now()}`, model: "stub", latency_ms: Date.now() - started, proxy: { status: "stub", timeout_ms: timeoutMs } } }, 200, req);
     }
 
     if (!baseUrl || !funcKey) {
-      return json({ error: "Server not configured (FUNCTION_URL / FUNCTION_KEY)" }, 500, req);
+      return json({ error: "Server not configured (FUNCTION_URL / FUNCTION_KEY)", meta: { proxy: { status: "misconfigured", build: BUILD_STAMP } } }, 500, req);
     }
 
     const upstreamBody = toUpstreamBody(inbound);
@@ -147,13 +155,21 @@ app.http("proxyXai", {
           "x-functions-key": funcKey,
           "x-client-request-id": clientId,
         },
-        timeout: 90000,
-        validateStatus: () => true, // pass through non-2xx
+        timeout: timeoutMs,
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+        validateStatus: () => true,
       });
 
       const contentType = res.headers?.["content-type"] || "application/json";
       if (res.status < 200 || res.status >= 300) {
-        return { status: res.status, headers: { ...cors(req), "Content-Type": contentType }, body: typeof res.data === "string" ? res.data : JSON.stringify(res.data) };
+        return {
+          status: res.status,
+          headers: { ...cors(req), "Content-Type": contentType },
+          body: typeof res.data === "string"
+            ? res.data
+            : JSON.stringify({ ...res.data, meta: { ...(res.data?.meta || {}), proxy: { status: "pass-through", timeout_ms: timeoutMs, build: BUILD_STAMP } } })
+        };
       }
 
       const data = res.data;
@@ -170,11 +186,24 @@ app.http("proxyXai", {
           latency_ms: Date.now() - started,
           rate_limit_remaining: data?.meta?.rate_limit_remaining ?? null,
           warnings: Array.isArray(data?.meta?.warnings) ? data.meta.warnings : [],
+          proxy: { status: "ok", timeout_ms: timeoutMs, build: BUILD_STAMP, baseUrl }
         },
       }, 200, req);
 
     } catch (e) {
-      return json({ error: e?.message || "Proxy error" }, 500, req);
+      const upstream = {
+        status: e?.response?.status ?? null,
+        statusText: e?.response?.statusText ?? null,
+        code: e?.code ?? null,
+        message: e?.message ?? "unknown error",
+      };
+      const remoteBody = e?.response?.data ?? null;
+      return json({
+        error: "Upstream call failed",
+        upstream,
+        remoteBody,
+        proxy: { status: "error", timeout_ms: timeoutMs, build: BUILD_STAMP, request_id: clientId, baseUrl }
+      }, e?.code === "ECONNABORTED" ? 504 : 500, req);
     }
   },
 });
