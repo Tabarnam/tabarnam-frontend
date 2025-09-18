@@ -1,79 +1,101 @@
-// List of countries and territories that officially or primarily use miles.
-const MILES_TERRITORIES = new Set([
-    'US', // United States
-    'GB', // United Kingdom
-    'LR', // Liberia
-    // Supported Territories
-    'AI', // Anguilla
-    'AG', // Antigua and Barbuda
-    'BS', // Bahamas
-    'BB', // Barbados
-    'BZ', // Belize
-    'VG', // British Virgin Islands
-    'KY', // Cayman Islands
-    'DM', // Dominica
-    'FK', // Falkland Islands
-    'GI', // Gibraltar
-    'GD', // Grenada
-    'GG', // Guernsey
-    'GU', // Guam
-    'IM', // Isle of Man
-    'JE', // Jersey
-    'MS', // Montserrat
-    'MP', // Northern Mariana Islands
-    'PR', // Puerto Rico
-    'SH', // Saint Helena, Ascension and Tristan da Cunha
-    'KN', // Saint Kitts and Nevis
-    'LC', // Saint Lucia
-    'VC', // Saint Vincent and the Grenadines
-    'WS', // Samoa
-    'AS', // American Samoa
-    'TC', // Turks and Caicos Islands
-    'VI',  // United States Virgin Islands
-]);
+// src/lib/location.js
+// Country/subdivision helpers + distance utilities
 
+// ----- Minimal inline seeds so the UI isn't empty before the JSONs load -----
+const INLINE = {
+  countries: [
+    { code: 'US', name: 'United States' },
+    { code: 'CA', name: 'Canada' },
+    { code: 'GB', name: 'United Kingdom' },
+    { code: 'AU', name: 'Australia' }
+  ],
+  subdivisions: {
+    US: [
+      { code: 'AL', name: 'Alabama' }, { code: 'AK', name: 'Alaska' }, { code: 'AZ', name: 'Arizona' },
+      { code: 'AR', name: 'Arkansas' }, { code: 'CA', name: 'California' }, { code: 'CO', name: 'Colorado' },
+      { code: 'CT', name: 'Connecticut' }, { code: 'DE', name: 'Delaware' }, { code: 'FL', name: 'Florida' },
+      { code: 'GA', name: 'Georgia' }, { code: 'HI', name: 'Hawaii' }, { code: 'ID', name: 'Idaho' },
+      { code: 'IL', name: 'Illinois' }, { code: 'IN', name: 'Indiana' }, { code: 'IA', name: 'Iowa' },
+      { code: 'KS', name: 'Kansas' }, { code: 'KY', name: 'Kentucky' }, { code: 'LA', name: 'Louisiana' },
+      { code: 'ME', name: 'Maine' }, { code: 'MD', name: 'Maryland' }, { code: 'MA', name: 'Massachusetts' },
+      { code: 'MI', name: 'Michigan' }, { code: 'MN', name: 'Minnesota' }, { code: 'MS', name: 'Mississippi' },
+      { code: 'MO', name: 'Missouri' }, { code: 'MT', name: 'Montana' }, { code: 'NE', name: 'Nebraska' },
+      { code: 'NV', name: 'Nevada' }, { code: 'NH', name: 'New Hampshire' }, { code: 'NJ', name: 'New Jersey' },
+      { code: 'NM', name: 'New Mexico' }, { code: 'NY', name: 'New York' }, { code: 'NC', name: 'North Carolina' },
+      { code: 'ND', name: 'North Dakota' }, { code: 'OH', name: 'Ohio' }, { code: 'OK', name: 'Oklahoma' },
+      { code: 'OR', name: 'Oregon' }, { code: 'PA', name: 'Pennsylvania' }, { code: 'RI', name: 'Rhode Island' },
+      { code: 'SC', name: 'South Carolina' }, { code: 'SD', name: 'South Dakota' }, { code: 'TN', name: 'Tennessee' },
+      { code: 'TX', name: 'Texas' }, { code: 'UT', name: 'Utah' }, { code: 'VT', name: 'Vermont' },
+      { code: 'VA', name: 'Virginia' }, { code: 'WA', name: 'Washington' }, { code: 'WV', name: 'West Virginia' },
+      { code: 'WI', name: 'Wisconsin' }, { code: 'WY', name: 'Wyoming' }
+    ],
+    CA: [
+      { code: 'AB', name: 'Alberta' }, { code: 'BC', name: 'British Columbia' }, { code: 'MB', name: 'Manitoba' },
+      { code: 'NB', name: 'New Brunswick' }, { code: 'NL', name: 'Newfoundland and Labrador' },
+      { code: 'NS', name: 'Nova Scotia' }, { code: 'NT', name: 'Northwest Territories' },
+      { code: 'NU', name: 'Nunavut' }, { code: 'ON', name: 'Ontario' }, { code: 'PE', name: 'Prince Edward Island' },
+      { code: 'QC', name: 'Quebec' }, { code: 'SK', name: 'Saskatchewan' }, { code: 'YT', name: 'Yukon' }
+    ]
+  }
+};
 
-/**
- * Calculates the distance between two points on Earth using the Haversine formula.
- * @param {number} lat1 Latitude of the first point
- * @param {number} lon1 Longitude of the first point
- * @param {number} lat2 Latitude of the second point
- * @param {number} lon2 Longitude of the second point
- * @returns {number} The distance in kilometers.
- */
-export function calculateDistance(lat1, lon1, lat2, lon2) {
-    if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) {
-        return Infinity;
+// cache
+const memo = new Map();
+
+export async function loadCountries() {
+  if (memo.has('countries')) return memo.get('countries');
+  try {
+    const res = await fetch('/geo/countries.json');
+    if (res.ok) {
+      const list = await res.json();
+      memo.set('countries', list);
+      return list;
     }
-    const R = 6371; // Radius of the Earth in km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c; // Distance in km
+  } catch {}
+  memo.set('countries', INLINE.countries);
+  return INLINE.countries;
 }
 
-/**
- * Formats the distance, converting to miles if the country uses them.
- * @param {number} distanceInKm The distance in kilometers.
- * @param {string} countryCode The ISO 3166-1 alpha-2 country code of the location.
- * @returns {string} The formatted distance string, or an empty string if not applicable.
- */
-export function formatDistance(distanceInKm, countryCode) {
-    if (distanceInKm === Infinity || distanceInKm == null) {
-        return "";
+export async function loadSubdivisions(countryCode) {
+  if (!countryCode) return [];
+  if (memo.has(`sub:${countryCode}`)) return memo.get(`sub:${countryCode}`);
+
+  // Inline quick paths
+  if (INLINE.subdivisions[countryCode]) {
+    memo.set(`sub:${countryCode}`, INLINE.subdivisions[countryCode]);
+    return INLINE.subdivisions[countryCode];
+  }
+
+  // Lazy load from /public/geo/<country>.json
+  try {
+    const res = await fetch(`/geo/${countryCode}.json`);
+    if (res.ok) {
+      const list = await res.json();
+      memo.set(`sub:${countryCode}`, list);
+      return list;
     }
+  } catch {}
+  memo.set(`sub:${countryCode}`, []);
+  return [];
+}
 
-    const countryUsesMiles = MILES_TERRITORIES.has(countryCode?.toUpperCase());
+// ----- Distance helpers used by results table/components -----
+export function calculateDistance(lat1, lon1, lat2, lon2) {
+  const toRad = d => (d * Math.PI) / 180;
+  const R = 6371; // km
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  const km = 2 * R * Math.asin(Math.sqrt(a));
+  return km;
+}
 
-    if (countryUsesMiles) {
-        const distanceInMiles = distanceInKm * 0.621371;
-        return `${Math.round(distanceInMiles)} miles`;
-    }
-
-    // Per instructions, do not show km for other countries yet.
-    return "";
+export function formatDistance(km, countryCode = "US") {
+  if (!Number.isFinite(km)) return "";
+  const useMiles = new Set(["US","GB","LR"]).has(countryCode);
+  const val = useMiles ? km * 0.621371 : km;
+  const unit = useMiles ? "mi" : "km";
+  return `${val.toFixed(1)} ${unit}`;
 }

@@ -1,244 +1,178 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, Search, ListFilter, Loader2, Building, Globe, Star, Factory } from 'lucide-react';
+// src/components/home/SearchCard.jsx
+import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Search, MapPin, ListFilter, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import useUserLocation from '@/hooks/useUserLocation';
-import { supabase } from '@/lib/customSupabaseClient';
-import { useToast } from '@/components/ui/use-toast';
-import { useSearchCache } from '@/hooks/useSearchCache';
+import { Popover, PopoverContent } from '@/components/ui/popover';
+import { loadCountries, loadSubdivisions } from '@/lib/location';
+import { getSuggestions } from '@/lib/searchCompanies';
 
-// A simple debounce hook
-const useDebounce = (value, delay) => {
-    const [debouncedValue, setDebouncedValue] = useState(value);
-    useEffect(() => {
-        const handler = setTimeout(() => {
-            setDebouncedValue(value);
-        }, delay);
-        return () => {
-            clearTimeout(handler);
-        };
-    }, [value, delay]);
-    return debouncedValue;
-};
+const SORTS = [
+  { value: 'manu',  label: 'Nearest Manufacturing' },
+  { value: 'hq',    label: 'Nearest Headquarters' },
+  { value: 'stars', label: 'Highest Rated' },
+];
 
+function toQs(o){ return new URLSearchParams(Object.entries(o).filter(([,v]) => v !== undefined && v !== '' && v !== null)).toString(); }
 
-const SearchCard = ({ onSearch, isLoading }) => {
-    const [country, setCountry] = useState(undefined);
-    const [state, setState] = useState(undefined);
-    const [city, setCity] = useState('');
-    const [sortBy, setSortBy] = useState('manufacturing_location_distance');
-    const [searchTerm, setSearchTerm] = useState('');
-    const [suggestions, setSuggestions] = useState([]);
-    const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
-    const [hasSearched, setHasSearched] = useState(false);
+export default function SearchCard({ onSubmitParams }) {
+  const nav = useNavigate();
+  const { search } = useLocation();
 
-    const { location, error: locationError } = useUserLocation();
-    const { toast } = useToast();
-    const { addSearchToCache } = useSearchCache();
-    const searchInputRef = useRef(null);
-    const popoverAnchorRef = useRef(null);
+  const [q, setQ] = useState('');
+  const [country, setCountry] = useState('');
+  const [stateCode, setStateCode] = useState('');
+  const [city, setCity] = useState('');
+  const [sortBy, setSortBy] = useState('manu'); // default
 
-    const debouncedSearchTerm = useDebounce(searchTerm, 300);
+  const [countries, setCountries] = useState([]);
+  const [subdivs, setSubdivs] = useState([]);
 
-    useEffect(() => {
-        if (location && !city) {
-            // This would be a good place for reverse geocoding
-            // For now, we don't pre-fill anything based on user's location
-        }
-         if (locationError && !hasSearched) {
-            // Only show toast if user hasn't tried to search yet.
-            // Avoid spamming on every render.
-         }
-    }, [location, locationError, city, hasSearched, toast]);
-    
-    useEffect(() => {
-        if (debouncedSearchTerm.length > 2) {
-            fetchSuggestions(debouncedSearchTerm);
-        } else {
-            setSuggestions([]);
-        }
-    }, [debouncedSearchTerm]);
+  const [suggestions, setSuggestions] = useState([]);
+  const [openSuggest, setOpenSuggest] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-    const fetchSuggestions = async (query) => {
-        const { data, error } = await supabase.functions.invoke('autocomplete-search', {
-            body: { query },
-        });
+  const inputRef = useRef(null);
 
-        if (error) {
-            console.error('Autocomplete error:', error);
-            setSuggestions([]);
-            return;
-        }
-        setSuggestions(data);
-        if (data.length > 0) {
-            setIsSuggestionsOpen(true);
-        }
-    };
-    
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        setHasSearched(true);
-        
-        let searchLocation = {};
-        let finalCity = city;
+  useEffect(() => { loadCountries().then(setCountries); }, []);
+  useEffect(() => {
+    setStateCode(''); setSubdivs([]);
+    if (country) loadSubdivisions(country).then(setSubdivs);
+  }, [country]);
 
-        // Prioritize browser-detected location
-        if (location) {
-            searchLocation = { lat: location.latitude, lon: location.longitude, country: location.country };
-        } 
-        
-        // Fallback to San Dimas if no location is available at all
-        if (!city && !state && !country && !location) {
-            finalCity = 'San Dimas';
-            setState('CA');
-            setCountry('US');
-            searchLocation = { lat: 34.0983, lon: -117.8076, country: 'US' };
-             toast({
-                title: "No Location Provided",
-                description: "Using default location: San Dimas, CA.",
-            });
-        }
-        
-        const searchParams = {
-            term: searchTerm,
-            sortBy,
-            country: country,
-            state: state,
-            city: city,
-            ...searchLocation,
-        };
+  // Hydrate from URL
+  useEffect(() => {
+    const p = new URLSearchParams(search);
+    if (p.has('q')) setQ(p.get('q') || '');
+    if (p.has('country')) setCountry(p.get('country') || '');
+    if (p.has('state')) setStateCode(p.get('state') || '');
+    if (p.has('city')) setCity(p.get('city') || '');
+    if (p.has('sort')) setSortBy(p.get('sort') || 'manu');
+  }, [search]);
 
-        addSearchToCache(searchParams);
-        onSearch(searchParams);
-        setIsSuggestionsOpen(false);
-    };
-    
-    const handleSuggestionClick = (suggestion) => {
-        setSearchTerm(suggestion.value);
-        setSuggestions([]);
-        setIsSuggestionsOpen(false);
-    };
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      const s = q.trim();
+      if (s.length < 2) { setSuggestions([]); setOpenSuggest(false); return; }
+      const list = await getSuggestions(s, 8);
+      setSuggestions(list);
+      setOpenSuggest(list.length > 0);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
 
+  const onKeyDown = (e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } };
 
-    return (
-        <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-            className="w-full max-w-4xl bg-white border border-gray-200 rounded-2xl p-6 md:p-8 shadow-lg transform scale-100"
+  const handleSubmit = () => {
+    const params = { q: q.trim(), sort: sortBy, country, state: stateCode, city };
+    if (onSubmitParams) onSubmitParams(params);
+    else nav(`/results?${toQs(params)}`);
+  };
+
+  return (
+    <div className="w-full max-w-5xl bg-white border border-gray-200 rounded-2xl p-5 md:p-6 shadow">
+      {/* Row 1 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+        <div className="relative">
+          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <Input
+            value={city}
+            onChange={(e)=>setCity(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder="City / Postal Code"
+            className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
+          />
+        </div>
+        <div className="relative">
+          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <Select value={stateCode} onValueChange={setStateCode}>
+            <SelectTrigger className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900">
+              <SelectValue placeholder="State / Province" />
+            </SelectTrigger>
+            <SelectContent className="max-h-72 overflow-auto">
+              {subdivs.map(s => <SelectItem key={s.code} value={s.code}>{s.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="relative">
+          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <Select value={country} onValueChange={setCountry}>
+            <SelectTrigger className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900">
+              <SelectValue placeholder="Country" />
+            </SelectTrigger>
+            <SelectContent className="max-h-72 overflow-auto">
+              {countries.map(c => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Row 2 */}
+      <div className="grid grid-cols-1 md:grid-cols-[260px_1fr_auto] gap-3">
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="h-11 bg-gray-50 border-gray-300 text-gray-900">
+            <ListFilter className="text-gray-400 mr-2" size={18} />
+            <SelectValue placeholder="Sort Options" />
+          </SelectTrigger>
+          <SelectContent>
+            {SORTS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+
+        <div className="relative">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
+          {q && (
+            <button
+              type="button"
+              onClick={()=>{ setQ(''); inputRef.current?.focus(); }}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
+              aria-label="Clear query"
+            >
+              <X size={16} />
+            </button>
+          )}
+          <Input
+            ref={inputRef}
+            value={q}
+            onChange={(e)=>setQ(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder="Search by product, keyword, company…"
+            className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
+            autoComplete="off"
+          />
+          {/* lightweight suggestions */}
+          <Popover open={suggestions.length > 0}>
+            <PopoverContent
+              className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
+              align="start"
+              onOpenAutoFocus={(e)=>e.preventDefault()}
+            >
+              {suggestions.map((s, i) => (
+                <button
+                  key={`${s.value}-${i}`}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex items-center justify-between"
+                  onMouseDown={(e)=>e.preventDefault()}
+                  onClick={()=>{ setQ(s.value); }}
+                >
+                  <span>{s.value}</span>
+                  <span className="text-xs text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded-sm">{s.type}</span>
+                </button>
+              ))}
+            </PopoverContent>
+          </Popover>
+        </div>
+
+        <Button
+          onClick={handleSubmit}
+          disabled={loading}
+          className="h-11 bg-tabarnam-blue text-slate-900 font-bold hover:bg-tabarnam-blue/80 transition-colors"
         >
-            <form onSubmit={handleSubmit} className="search-bar">
-                {/* This div structure is for desktop grid layout. On mobile, it's ignored due to `display: contents`. */}
-                <div className="search-bar-row grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Country */}
-                    <Select value={country} onValueChange={setCountry} aria-label="Select Country">
-                        <SelectTrigger className="bg-gray-50 border-gray-300 text-gray-900 text-base py-6" aria-label="Country Dropdown">
-                             <MapPin className="text-gray-400 mr-2" size={18} />
-                            <SelectValue placeholder="Country" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-white border-gray-300 text-gray-900">
-                            <SelectItem value="US">United States</SelectItem>
-                            <SelectItem value="CA">Canada</SelectItem>
-                            <SelectItem value="GB">United Kingdom</SelectItem>
-                            <SelectItem value="AU">Australia</SelectItem>
-                        </SelectContent>
-                    </Select>
-
-                    {/* State */}
-                     <Select value={state} onValueChange={setState} aria-label="Select State or Province">
-                        <SelectTrigger className="bg-gray-50 border-gray-300 text-gray-900 text-base py-6" aria-label="State or Province Dropdown">
-                             <MapPin className="text-gray-400 mr-2" size={18} />
-                            <SelectValue placeholder="State / Province" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-white border-gray-300 text-gray-900">
-                                <SelectItem value="CA">California</SelectItem>
-                                <SelectItem value="TX">Texas</SelectItem>
-                                <SelectItem value="FL">Florida</SelectItem>
-                                <SelectItem value="NY">New York</SelectItem>
-                        </SelectContent>
-                    </Select>
-
-                    {/* City / Postal */}
-                    <div className="relative">
-                        <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                        <Input
-                            placeholder="City / Postal Code"
-                            aria-label="City or Postal Code Input"
-                            value={city}
-                            onChange={(e) => setCity(e.target.value)}
-                            className="pl-10 bg-gray-50 border-gray-300 text-gray-900 text-base h-full py-3"
-                        />
-                    </div>
-                </div>
-
-                {/* This div structure is for desktop grid layout. On mobile, it's ignored due to `display: contents`. */}
-                <div className="search-bar-row grid grid-cols-1 md:grid-cols-[1.2fr_2fr_auto] gap-4">
-                    {/* Sort By */}
-                    <Select value={sortBy} onValueChange={setSortBy} aria-label="Sort by option">
-                        <SelectTrigger className="bg-gray-50 border-gray-300 text-gray-900 text-base py-6 whitespace-nowrap" aria-label="Sort by Dropdown">
-                             <ListFilter className="text-gray-400 mr-2" size={18} />
-                            <SelectValue placeholder="Sort By..." />
-                        </SelectTrigger>
-                        <SelectContent className="bg-white border-gray-300 text-gray-900">
-                            <SelectItem value="manufacturing_location_distance">Nearest Manufacturing</SelectItem>
-                            <SelectItem value="headquarters_location_distance">Nearest Headquarters</SelectItem>
-                            <SelectItem value="rating">Highest Rated</SelectItem>
-                        </SelectContent>
-                    </Select>
-
-                    {/* Search Input */}
-                    <Popover open={isSuggestionsOpen} onOpenChange={setIsSuggestionsOpen}>
-                        <div className="relative w-full" ref={popoverAnchorRef}>
-                            <Search 
-                                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10 cursor-pointer" 
-                                size={20}
-                                onClick={() => searchInputRef.current?.focus()}
-                            />
-                            <Input
-                                ref={searchInputRef}
-                                placeholder="Search by product, keyword, or company..."
-                                aria-label="Search by product, keyword, or website"
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                onFocus={() => { if (suggestions.length > 0) setIsSuggestionsOpen(true); }}
-                                className="text-lg bg-gray-50 border-gray-300 text-gray-900 w-full h-full py-3 pl-12"
-                                autoComplete="off"
-                            />
-                        </div>
-                        <PopoverContent 
-                            className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300" 
-                            align="start"
-                            anchor={popoverAnchorRef.current}
-                            style={{ width: popoverAnchorRef.current ? `${popoverAnchorRef.current.offsetWidth}px` : 'auto' }}
-                        >
-                        {suggestions.map((s, i) => (
-                            <div key={i}
-                                onClick={() => handleSuggestionClick(s)}
-                                className="px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 cursor-pointer flex items-center justify-between"
-                            >
-                                <span>{s.value}</span>
-                                <span className="text-xs text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded-sm">{s.type}</span>
-                            </div>
-                        ))}
-                        </PopoverContent>
-                    </Popover>
-
-                    <Button type="submit" size="lg" disabled={isLoading} className="text-base py-6 bg-tabarnam-blue text-slate-900 font-bold hover:bg-tabarnam-blue/80 transition-colors disabled:bg-tabarnam-blue/50 disabled:cursor-wait" aria-label="Submit Search">
-                        {isLoading ? (
-                            <Loader2 className="h-6 w-6 animate-spin" />
-                        ) : (
-                            <Search className="h-6 w-6" />
-                        )}
-                         <span className="md:hidden">Search</span>
-                         <span className="hidden md:inline ml-2">Search</span>
-                    </Button>
-                </div>
-            </form>
-        </motion.div>
-    );
-};
-
-export default SearchCard;
+          {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />}
+          <span className="ml-2">Search</span>
+        </Button>
+      </div>
+    </div>
+  );
+}

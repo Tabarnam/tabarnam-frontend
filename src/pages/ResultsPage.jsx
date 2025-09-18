@@ -1,203 +1,343 @@
 // src/pages/ResultsPage.jsx
-import React, { useState, useEffect } from 'react';
-import { useSupabaseClient } from '@supabase/auth-helpers-react';
-import { useToast } from '@/components/ui/use-toast';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
-import { motion } from 'framer-motion';
-import ReactTable from 'react-table';
-import { Pin } from 'lucide-react'; // For pin icon
-import { supabase } from '@/lib/customSupabaseClient'; // If needed for auth
+import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { geocode } from "@/lib/google";
+import SocialBadges from "@/components/SocialBadges";
+import ReviewsWidget from "@/components/ReviewsWidget";
+import SearchCard from "@/components/home/SearchCard";
+import { searchCompanies } from "@/lib/searchCompanies";
 
-const ResultsPage = () => {
-  const supabase = useSupabaseClient();
-  const { toast } = useToast();
+// Countries that use miles (for distance unit inference)
+const milesCountries = new Set([
+  "US","GB","LR","AG","BS","BB","BZ","VG","KY","DM","FK","GD","GU","MS","MP","KN",
+  "LC","VC","WS","TC","VI","AI","GI","IM","JE","GG","SH","AS","PR"
+]);
+
+export default function ResultsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const qParam = (searchParams.get("q") ?? "").toString();
+  const sortParam = (searchParams.get("sort") ?? "manu").toString(); // for server sort
+  const countryParam = (searchParams.get("country") ?? "").toString();
+  const stateParam = (searchParams.get("state") ?? "").toString();
+  const cityParam = (searchParams.get("city") ?? "").toString();
+  const latParam = (searchParams.get("lat") ?? "").toString();
+  const lngParam = (searchParams.get("lng") ?? "").toString();
+
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [query, setQuery] = useState('');
-  const [country, setCountry] = useState('');
-  const [state, setState] = useState('');
-  const [city, setCity] = useState('');
-  const [sortBy, setSortBy] = useState('Nearest Manufacturing');
-  const [expandedRows, setExpandedRows] = useState([]);
-  const [translationLang, setTranslationLang] = useState('en'); // Default English
-  const [userLocation, setUserLocation] = useState(null); // For distances
+  const [status, setStatus] = useState("");
 
+  // Location + units
+  const [userLoc, setUserLoc] = useState(null); // {lat,lng}
+  const [unit, setUnit] = useState("mi");
+
+  // Secondary, client-side sort of visible columns
+  const [sortBy, setSortBy] = useState("manu"); // "manu" | "hq" | "stars"
+
+  // Resolve a center location (from lat/lng or geocoding) and run the search
   useEffect(() => {
-    // Get user location for distances (mi/km based on country)
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setUserLocation({ lat: pos.coords.latitude, long: pos.coords.longitude }),
-      () => toast({ variant: 'destructive', title: 'Location Error', description: 'Unable to get location.' })
-    );
-  }, []);
+    let cancelled = false;
 
-  const fetchResults = async () => {
-    setLoading(true);
-    try {
-      let { data, error } = await supabase.from('companies').select('*').ilike('company_name', `%${query}%`);
-      if (error) throw error;
-      setResults(data || []);
-      if (data.length < 20) {
-        // Show Dig Deep button logic below
+    (async () => {
+      // infer location
+      let loc = null;
+      try {
+        if (latParam && lngParam && !Number.isNaN(Number(latParam)) && !Number.isNaN(Number(lngParam))) {
+          loc = { lat: Number(latParam), lng: Number(lngParam) };
+        } else if (cityParam || stateParam || countryParam) {
+          const addr = [cityParam, stateParam, countryParam].filter(Boolean).join(", ");
+          const r = await geocode({ address: addr });
+          loc = r?.best?.location || null;
+          const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
+          if (cc) setUnit(milesCountries.has(cc) ? "mi" : "km");
+        } else {
+          // server does IP lookup when ipLookup:true
+          const r = await geocode({ ipLookup: true });
+          loc = r?.best?.location || { lat: 34.0983, lng: -117.8076 }; // harmless fallback
+          const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
+          if (cc) setUnit(milesCountries.has(cc) ? "mi" : "km");
+        }
+      } catch {
+        // ignore geocode errors; we can still search
       }
-    } catch (error) {
-      toast({ variant: 'destructive', title: 'Search Error', description: error.message });
-    } finally {
-      setLoading(false);
-    }
-  };
+      if (!cancelled && loc) setUserLoc({ lat: loc.lat, lng: loc.lng });
 
-  const handleDigDeep = async () => {
-    setLoading(true);
+      // normalize secondary sort selector
+      setSortBy(sortParam === "hq" || sortParam === "stars" ? sortParam : "manu");
+
+      // run search
+      if (!cancelled && qParam) {
+        await doSearch({
+          q: qParam,
+          sort: sortParam,        // server sort: "recent" | "name" | "manu"
+          country: countryParam,
+          state: stateParam,
+          city: cityParam,
+          take: 50,
+        });
+      } else if (!cancelled) {
+        setResults([]);
+        setStatus("");
+      }
+    })();
+
+    return () => { cancelled = true; };
+    // Re-run whenever URL params change
+  }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam]);
+
+  // Called by the top search bar
+  async function handleInlineSearch(params) {
+    const q = (params.q ?? "").toString();
+    const sort = (params.sort ?? "manu").toString();
+    const country = (params.country ?? "").toString();
+    const state = (params.state ?? "").toString();
+    const city = (params.city ?? "").toString();
+
+    // Update URL for shareability (don’t include empty keys to keep it tidy)
+    const next = new URLSearchParams();
+    if (q) next.set("q", q);
+    if (sort) next.set("sort", sort);
+    if (country) next.set("country", country);
+    if (state) next.set("state", state);
+    if (city) next.set("city", city);
+    setSearchParams(next, { replace: true });
+
+    // Resolve typed location if present
     try {
-      // Call xAI for deep search (use your import logic, prompt from scope)
-      const deepPrompt = `Deep search ${query}, find more with reviews/Amazon, prioritizing search terms, location preference, smaller businesses.`;
-      // Assume callXAI function returns new companies
-      const newResults = await callXAI(deepPrompt); // Implement based on your import.js
-      // Add to DB
-      await supabase.from('companies').upsert(newResults);
-      fetchResults(); // Refresh
-    } catch (error) {
-      toast({ variant: 'destructive', title: 'Dig Deep Error', description: error.message });
+      if (city || state || country) {
+        const r = await geocode({ address: [city, state, country].filter(Boolean).join(", ") });
+        const loc = r?.best?.location;
+        if (loc) {
+          setUserLoc({ lat: loc.lat, lng: loc.lng });
+          const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
+          if (cc) setUnit(milesCountries.has(cc) ? "mi" : "km");
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    setSortBy(sort === "hq" || sort === "stars" ? sort : "manu");
+    await doSearch({ q, sort, country, state, city, take: 50 });
+  }
+
+  async function doSearch({ q, sort, country, state, city, take = 50 }) {
+    setLoading(true);
+    setStatus("Searching…");
+    try {
+      const { items = [], count } = await searchCompanies({ q, sort, country, state, city, take });
+      const enriched = items.map((c) => normalizeStars(attachDistances(c, userLoc, unit)));
+      setResults(enriched);
+      setStatus(`Found ${typeof count === "number" ? count : enriched.length} companies`);
+    } catch (e) {
+      setStatus(`❌ ${e?.message || "Search failed"}`);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const calculateDistance = (lat1, lon1, lat2, lon2, country) => {
-    // Simple haversine formula for distance
-    const R = 6371; // km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    let distance = R * c;
-    // mi for US, UK, etc. (scope list)
-    const miCountries = ['United States', 'United Kingdom', 'Liberia', 'Antigua and Barbuda', 'Bahamas', 'Barbados', 'Belize', 'British Virgin Islands', 'Cayman Islands', 'Dominica', 'Falkland Islands', 'Grenada', 'Guam', 'Montserrat', 'Northern Mariana Islands', 'Saint Kitts and Nevis', 'Saint Lucia', 'Saint Vincent and the Grenadines', 'Samoa', 'Turks and Caicos Islands', 'United States Virgin Islands', 'Anguilla', 'Gibraltar', 'Isle of Man', 'Jersey', 'Guernsey', 'Saint Helena/Ascension/Tristan da Cunha', 'American Samoa', 'Puerto Rico'];
-    if (miCountries.includes(country)) {
-      distance *= 0.621371; // km to mi
-      return `${distance.toFixed(2)} mi`;
+  // Secondary sort (client-side)
+  const sorted = useMemo(() => {
+    const arr = [...results];
+    if (sortBy === "stars") {
+      arr.sort((a, b) => (getStarScore(b) ?? -Infinity) - (getStarScore(a) ?? -Infinity));
+    } else if (sortBy === "manu") {
+      arr.sort((a, b) => (a._nearestManuDist ?? Infinity) - (b._nearestManuDist ?? Infinity));
+    } else {
+      arr.sort((a, b) => (a._hqDist ?? Infinity) - (b._hqDist ?? Infinity));
     }
-    return `${distance.toFixed(2)} km`;
-  };
+    return arr;
+  }, [results, sortBy]);
 
-  const translateText = async (text, lang, companyId, field) => {
-    if (lang === 'en') return text;
-    // Use Google Translate API (client-side, cache in translations table)
-    const apiKey = import.meta.env.GOOGLE_TRANSLATE_API_KEY;
-    const response = await fetch(`https://translation.googleapis.com/language/translate/v2?key=${apiKey}`, {
-      method: 'POST',
-      body: JSON.stringify({ q: text, target: lang }),
-    });
-    const data = await response.json();
-    const translated = data.data.translations[0].translatedText;
-    // Cache in DB
-    await supabase.from('translations').upsert({ company_id: companyId, field: field, lang, text: translated });
-    return translated;
-  };
+  const rightColsOrder = useMemo(() => {
+    if (sortBy === "stars") return ["stars", "manu", "hq"];
+    if (sortBy === "hq") return ["hq", "manu", "stars"];
+    return ["manu", "hq", "stars"];
+  }, [sortBy]);
 
-  const columns = [
-    {
-      Header: 'Company',
-      accessor: 'company_name',
-      Cell: ({ row }) => {
-        const company = row.original;
-        const isExpanded = expandedRows.includes(row.id);
-        return (
-          <div onClick={() => toggleExpand(row.id)} className="cursor-pointer">
-            {company.company_name}
-            {isExpanded && (
-              <div>
-                {company.tagline}
-                <a href={company.website_url} target="_blank" rel="noopener noreferrer">{company.website_url}</a> (copy icon)
-                {company.amazon_store_url && (
-                  <a href={company.amazon_store_url + '?tag=tabarnam-20'} target="_blank" rel="noopener noreferrer">
-                    Amazon Store
-                  </a>
-                )} (hover toast full URL)
-                Keywords: {company.company_keywords.join(', ')} (truncate, hover expand, clickable)
-                Industries: {company.industry_keywords.join(', ')}
-              </div>
-            )}
-          </div>
-        );
-      },
-    },
-    {
-      Header: () => <div><Pin className="inline mr-1" /> Home/HQ</div>,
-      accessor: 'headquarters',
-      Cell: ({ row }) => {
-        const company = row.original;
-        const isExpanded = expandedRows.includes(row.id);
-        const hq = company.headquarters_locations || [];
-        return (
-          <div>
-            {hq[0]?.city} (distance: {userLocation && calculateDistance(userLocation.lat, userLocation.long, hq[0].lat, hq[0].long, hq[0].country)})
-            {isExpanded && hq.slice(1).map((loc, i) => <div key={i}>{loc.city} (distance)</div>)}
-            {hq.length > 2 && <span>More...</span>}
-          </div>
-        );
-      },
-    },
-    {
-      Header: () => <div><Pin className="inline mr-1" /> Manufacturing</div>,
-      accessor: 'manufacturing_locations',
-      Cell: ({ row }) => {
-        const company = row.original;
-        const isExpanded = expandedRows.includes(row.id);
-        const manuf = company.manufacturing_locations || [];
-        return (
-          <div>
-            {manuf[0]?.city} (distance: {userLocation && calculateDistance(userLocation.lat, userLocation.long, manuf[0].lat, manuf[0].long, manuf[0].country)})
-            {isExpanded && manuf.slice(1).map((loc, i) => <div key={i}>{loc.city} (distance)</div>)}
-            {manuf.length > 2 && <span>More...</span>}
-          </div>
-        );
-      },
-    },
-    {
-      Header: 'Stars',
-      accessor: 'star_rating',
-      Cell: ({ row }) => {
-        const company = row.original;
-        if (company.star_rating < 4) return <div onMouseOver={() => toast(company.star_explanation)}>Hover for explanation</div>;
-        return <div>{company.star_rating} stars (hover: {company.star_explanation})</div>;
-      },
-    },
-  ];
+  const headerClassFor = (key) =>
+    `p-2 select-none cursor-pointer border-l ${
+      sortBy === key
+        ? "bg-amber-100 text-amber-900 font-semibold border-amber-200"
+        : "bg-gray-100 text-gray-800"
+    }`;
+  const cellClassFor = (key) => `p-2 ${sortBy === key ? "bg-amber-50 text-gray-900" : ""}`;
 
-  const toggleExpand = (rowId) => {
-    setExpandedRows((prev) => prev.includes(rowId) ? prev.filter(id => id !== rowId) : [...prev, rowId]);
+  const clickSort = (key) => {
+    if (key === "manu") setSortBy("manu");
+    else if (key === "hq") setSortBy("hq");
+    else setSortBy("stars");
   };
 
   return (
-    <div>
-      {/* Homepage search fields */}
-      <div>
-        <Input placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <Select value={country} onChange={setCountry} /> {/* Options from scope */}
-        <Select value={state} onChange={setState} />
-        <Input placeholder="City/Postal" value={city} onChange={setCity} />
-        <Select value={sortBy} onChange={setSortBy} defaultValue="Nearest Manufacturing" />
-        <Button onClick={fetchResults}>Search</Button>
+    <div className="px-4 pb-10 max-w-6xl mx-auto">
+      {/* Two-row search under the site header */}
+      <div className="mt-6 mb-4">
+        <SearchCard onSubmitParams={handleInlineSearch} />
       </div>
 
-      {/* Translation Toggle */}
-      <Select value={translationLang} onChange={setTranslationLang} /> {/* Top right */}
+      <div className="text-sm text-gray-700 mb-3">{status}</div>
 
-      {loading ? <div>Loading...</div> : (
-        <ReactTable
-          data={results}
-          columns={columns}
-          defaultPageSize={10}
-          className="border"
-        />
-      )}
+      {/* Results Table */}
+      <div className="overflow-auto border rounded mb-4">
+        <table className="min-w-full text-sm">
+          <thead className="text-left">
+            <tr>
+              <th className="p-2 bg-gray-100">Company</th>
+              <th className="p-2 bg-gray-100">Industries</th>
+              <th className="p-2 bg-gray-100">Keywords</th>
+              <th className="p-2 bg-gray-100">Website</th>
+              <th className="p-2 bg-gray-100">Amazon</th>
+              {rightColsOrder.map((key) => (
+                <th
+                  key={key}
+                  className={headerClassFor(key)}
+                  onClick={() => clickSort(key)}
+                  aria-sort={sortBy === key ? (key === "stars" ? "descending" : "ascending") : "none"}
+                  title={`Sort by ${labelFor(key)}`}
+                >
+                  {labelFor(key)} {sortBy === key ? "▾" : ""}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((c, i) => (
+              <tr key={(c.id || c.company_name || "row") + "-" + i} className="border-t">
+                {/* NAME + social + reviews */}
+                <td className="p-2">
+                  <div className="font-medium">{c.company_name || "—"}</div>
+                  <div className="text-gray-600">{c.company_tagline || ""}</div>
+                  <SocialBadges links={c.social} className="mt-1" brandColors variant="solid" />
+                  <div className="mt-2"><ReviewsWidget companyName={c.company_name} /></div>
+                </td>
 
-      {results.length < 20 && <Button onClick={handleDigDeep}>Dig Deep (hover: Refine your search...)</Button>}
+                {/* Industries */}
+                <td className="p-2">
+                  {Array.isArray(c.industries) ? c.industries.join(", ") : (c.industries || "—")}
+                </td>
+
+                {/* Keywords */}
+                <td className="p-2">
+                  {String(c.product_keywords || "")
+                    .split(",")
+                    .map(s => s.trim())
+                    .filter(Boolean)
+                    .slice(0, 8)
+                    .join(", ")}
+                </td>
+
+                {/* Website */}
+                <td className="p-2">
+                  {c.url ? (
+                    <a href={c.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                      {c.url}
+                    </a>
+                  ) : "—"}
+                </td>
+
+                {/* Amazon */}
+                <td className="p-2">
+                  {c.amazon_url ? (
+                    <a href={c.amazon_url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                      Amazon
+                    </a>
+                  ) : "—"}
+                </td>
+
+                {/* Dynamic right-most trio: location + distance or stars */}
+                {rightColsOrder.map((key) => (
+                  <td key={key} className={cellClassFor(key)}>
+                    {key === "manu" && (
+                      <>
+                        {nearestManufacturingLocation(c) || "—"}
+                        <div className="text-xs text-gray-500">{formatDist(c._nearestManuDist, unit)}</div>
+                      </>
+                    )}
+                    {key === "hq" && (
+                      <>
+                        {formatHQ(c) || "—"}
+                        <div className="text-xs text-gray-500">{formatDist(c._hqDist, unit)}</div>
+                      </>
+                    )}
+                    {key === "stars" && <>{renderStars(getStarScore(c))}</>}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {!sorted.length && !loading && (
+              <tr><td className="p-4 text-gray-500" colSpan={10}>No results yet.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
-};
+}
 
-export default ResultsPage;
+/* ---------- helpers ---------- */
+function nearestManufacturingLocation(c) {
+  const list = Array.isArray(c.manufacturing_geocodes) ? c.manufacturing_geocodes : [];
+  if (!list.length) return null;
+  const first = list
+    .filter(m => isNum(m.lat) && isNum(m.lng))
+    .sort((a, b) => (a.dist ?? Infinity) - (b.dist ?? Infinity))[0];
+  if (!first) return null;
+  return first.formatted_address || cityStateCountry(first) || "Manufacturing";
+}
+function formatHQ(c) {
+  if (!c.headquarters_location) return null;
+  return c.headquarters_location;
+}
+function cityStateCountry(obj) {
+  const parts = [obj.city, obj.state, obj.country].filter(Boolean);
+  return parts.join(", ");
+}
+function attachDistances(c, userLoc, unit) {
+  const out = { ...c, _hqDist: null, _nearestManuDist: null, _manuDists: [] };
+
+  // HQ
+  if (userLoc && isNum(c.hq_lat) && isNum(c.hq_lng)) {
+    const km = haversine(userLoc.lat, userLoc.lng, c.hq_lat, c.hq_lng);
+    out._hqDist = unit === "mi" ? km * 0.621371 : km;
+  }
+
+  // Manufacturing
+  if (userLoc && Array.isArray(c.manufacturing_geocodes) && c.manufacturing_geocodes.length) {
+    const dists = c.manufacturing_geocodes
+      .filter(m => isNum(m.lat) && isNum(m.lng))
+      .map(m => {
+        const km = haversine(userLoc.lat, userLoc.lng, m.lat, m.lng);
+        const d = unit === "mi" ? km * 0.621371 : km;
+        return { ...m, dist: d };
+      })
+      .sort((a, b) => a.dist - b.dist);
+    out._manuDists = dists;
+    out._nearestManuDist = dists.length ? dists[0].dist : null;
+  }
+  return out;
+}
+function normalizeStars(c) {
+  if (isNum(c.star_score)) return c;
+  if (isNum(c.star_rating)) return { ...c, star_score: clamp(c.star_rating, 0, 5) };
+  if (isNum(c.confidence_score)) return { ...c, star_score: clamp(c.confidence_score * 5, 0, 5) };
+  return { ...c, star_score: null };
+}
+function getStarScore(c) {
+  return isNum(c.star_score) ? c.star_score
+    : isNum(c.star_rating) ? clamp(c.star_rating, 0, 5)
+    : isNum(c.confidence_score) ? clamp(c.confidence_score * 5, 0, 5)
+    : null;
+}
+function renderStars(score) { if (!isNum(score)) return "—"; return `${score.toFixed(1)}★`; }
+function labelFor(key) { if (key === "manu") return "Manufacturing"; if (key === "hq") return "HQ"; return "Stars"; }
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function formatDist(d, unit) { return typeof d === "number" ? `${d.toFixed(1)} ${unit}` : "—"; }
+function haversine(lat1, lon1, lat2, lon2) {
+  const toRad = d => (d*Math.PI)/180, R=6371;
+  const dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+function isNum(v){ return Number.isFinite(v); }

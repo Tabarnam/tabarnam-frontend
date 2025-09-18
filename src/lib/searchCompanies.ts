@@ -1,53 +1,99 @@
 // src/lib/searchCompanies.ts
-const API_BASE =
-  (import.meta.env.VITE_API_BASE?.trim()) ||
-  (import.meta.env.VITE_FUNCTIONS_URL?.trim()) ||
-  "http://127.0.0.1:7071";
+const FUNCTIONS_BASE =
+  import.meta.env.VITE_FUNCTIONS_BASE ?? "http://localhost:7071";
 
-type SearchParams = {
-  query?: string;
-  limit?: number;
-  debug?: boolean;
-  raw?: boolean;
-};
+type Sort = "recent" | "name" | "manu";
 
-export async function searchCompanies({ query = "", limit = 50, debug = false, raw = false }: SearchParams = {}) {
-  const res = await fetch(`${API_BASE}/api/search-companies`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, limit, debug, raw }),
-  });
-  if (!res.ok) {
-    const msg = await res.text().catch(() => "");
-    throw new Error(`search-companies failed (${res.status}): ${msg}`);
-  }
-  return res.json(); // { companies } or debug payload
+function asStr(v: unknown): string {
+  return typeof v === "string" ? v : v == null ? "" : String(v);
 }
 
-// Lightweight suggestions from current data (companies/industries/keywords)
-export async function getSuggestions(prefix: string, take = 8): Promise<Array<{ value: string; type: string }>> {
-  const q = String(prefix || "").trim();
-  if (!q) return [];
-  const data = await searchCompanies({ query: q, limit: 32, debug: false, raw: false });
-  const set = new Map<string, string>();
+function normalizeSort(s: unknown): Sort {
+  const m = asStr(s).toLowerCase();
+  if (m === "name") return "name";
+  if (m === "manu" || m === "manufacturing" || m === "manufacturing_first") return "manu";
+  // Any number or unknown value falls back to recent
+  return "recent";
+}
 
-  const add = (v: string | undefined, t: string) => {
-    if (!v) return;
-    const s = v.trim();
-    if (!s) return;
-    if (!s.toLowerCase().includes(q.toLowerCase())) return; // simple prefix bias
-    if (!set.has(s.toLowerCase())) set.set(s.toLowerCase(), JSON.stringify({ value: s, type: t }));
-  };
+export interface SearchOptions {
+  q: unknown;
+  sort?: Sort | string | number;
+  take?: number;
+  country?: unknown;
+  state?: unknown;
+  city?: unknown;
+}
 
-  for (const c of (data?.companies || [])) {
-    add(c.company_name, "company");
-    if (Array.isArray(c.industries)) c.industries.forEach((i: string) => add(i, "industry"));
-    String(c.product_keywords || "")
-      .split(",")
-      .map((s: string) => s.trim())
-      .filter(Boolean)
-      .forEach((k: string) => add(k, "keyword"));
+export interface Company {
+  id: string;
+  company_name: string;
+  industries?: string[];
+  url?: string;
+  amazon_url?: string;
+  normalized_domain?: string;
+  manufacturing_locations?: string[];
+  // intentionally omit created_at from the public shape
+}
+
+export async function searchCompanies(opts: SearchOptions) {
+  const q = asStr(opts.q).trim();
+  if (!q) throw new Error("Please enter a search term.");
+
+  const sort = normalizeSort(opts.sort);
+  const take = Math.max(1, Math.min(Number(opts.take ?? 25) || 25, 200));
+
+  const params = new URLSearchParams({
+    q,
+    sort,
+    take: String(take),
+  });
+
+  const country = asStr(opts.country).trim();
+  const state = asStr(opts.state).trim();
+  const city = asStr(opts.city).trim();
+  if (country) params.set("country", country);
+  if (state) params.set("state", state);
+  if (city) params.set("city", city);
+
+  const url = `${FUNCTIONS_BASE}/api/search-companies?${params.toString()}`;
+  const resp = await fetch(url, { headers: { accept: "application/json" } });
+
+  if (!resp.ok) {
+    const msg = await readError(resp);
+    throw new Error(`search-companies failed (${resp.status}): ${msg}`);
   }
 
-  return Array.from(set.values()).slice(0, take).map(s => JSON.parse(s));
+  const data = await resp.json();
+  const items: Company[] = Array.isArray(data?.items) ? data.items : [];
+  return {
+    items,
+    count: Number(data?.count) || items.length,
+    meta: data?.meta ?? { q, sort },
+  };
+}
+
+export async function getSuggestions(qLike: unknown) {
+  const q = asStr(qLike).trim();
+  if (!q) return [];
+  const out = await searchCompanies({ q, sort: "recent", take: 10 });
+  return out.items.map((i) => ({
+    id: i.id,
+    title: i.company_name,
+    subtitle: i.normalized_domain || i.url || i.amazon_url || "",
+  }));
+}
+
+async function readError(resp: Response) {
+  try {
+    const t = await resp.text();
+    try {
+      const j = JSON.parse(t);
+      return j?.error || t;
+    } catch {
+      return t;
+    }
+  } catch {
+    return "unknown error";
+  }
 }

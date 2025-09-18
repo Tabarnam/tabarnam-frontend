@@ -1,0 +1,15 @@
+:root {
+  --tab-blue: rgb(177,221,227);         /* fill */
+  --tab-blue-stroke: rgb(101,188,200);  /* outline */
+}
+
+.tab-chip {
+  background: color-mix(in srgb, var(--tab-blue) 30%, transparent);
+  color: color-mix(in srgb, var(--tab-blue-stroke) 80%, black);
+  border: 1px solid var(--tab-blue-stroke);
+}
+
+.tab-tooltip {
+  border: 1px solid var(--tab-blue-stroke);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+}

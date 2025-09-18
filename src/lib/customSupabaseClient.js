@@ -1,12 +1,4 @@
 // src/lib/customSupabaseClient.js
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Supabase configuration missing. Check .env.local for VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
-  throw new Error('Supabase URL or Anon Key is required.');
-}
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Supabase has been removed from this project.
+// This stub prevents runtime errors if any older imports still exist.
+export const supabase = null;

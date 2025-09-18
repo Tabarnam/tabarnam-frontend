@@ -1,2 +1,13 @@
 node_modules
 .env.local
+# Local env & secrets
+.env
+.env.*
+!.env.example
+api/local.settings.json
+local.settings.json
+
+# Builds & tooling
+dist/
+node_modules/
+.swa/
