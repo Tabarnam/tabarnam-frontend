@@ -1,49 +1,60 @@
+// src/hooks/useUserLocation.js
+import { useEffect, useState } from 'react';
+import { geocode } from '@/lib/google';
 
-import { useState, useEffect } from 'react';
-import { useSearchCache } from './useSearchCache';
+const FALLBACK = { latitude: 34.0983, longitude: -117.8076, label: 'San Dimas, CA 91773', source: 'default' };
 
-const useUserLocation = () => {
-    const { getCachedLocation, setCachedLocation } = useSearchCache();
-    const [location, setLocation] = useState(getCachedLocation());
-    const [error, setError] = useState(null);
+export default function useUserLocation() {
+  const [location, setLocation] = useState(null);     // { latitude, longitude, label? }
+  const [source, setSource]   = useState(null);       // 'device' | 'ip' | 'default'
+  const [error, setError]     = useState(null);
 
-    useEffect(() => {
-        if (location) return; // Already have location from cache
+  useEffect(() => {
+    let cancelled = false;
 
-        if (!navigator.geolocation) {
-            setError("Geolocation is not supported by your browser.");
-            const defaultLocation = { latitude: 34.0983, longitude: -117.8076, country: 'US' }; // San Dimas, CA
-            setLocation(defaultLocation);
-            setCachedLocation(defaultLocation);
-            return;
+    const viaDevice = () =>
+      new Promise((resolve, reject) => {
+        if (!navigator.geolocation) return reject(new Error('no geolocation'));
+        navigator.geolocation.getCurrentPosition(
+          pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          err => reject(err),
+          { enableHighAccuracy: false, timeout: 6000 }
+        );
+      });
+
+    (async () => {
+      try {
+        // 1) Device
+        const dev = await viaDevice();
+        if (cancelled) return;
+        const r = await geocode({ lat: dev.lat, lng: dev.lng });
+        if (cancelled) return;
+        setLocation({ latitude: dev.lat, longitude: dev.lng, label: r?.best?.formatted_address || '' });
+        setSource('device');
+        return;
+      } catch { /* continue */ }
+
+      try {
+        // 2) IP
+        const r = await geocode({ ip: true });
+        if (cancelled) return;
+        const loc = r?.best?.location;
+        if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
+          setLocation({ latitude: loc.lat, longitude: loc.lng, label: r?.best?.formatted_address || '' });
+          setSource('ip');
+          return;
         }
+      } catch { /* continue */ }
 
-        const handleSuccess = (position) => {
-            const newLocation = {
-                latitude: position.coords.latitude,
-                longitude: position.coords.longitude,
-                country: 'US', // Placeholder, would need reverse geocoding for accuracy
-            };
-            setLocation(newLocation);
-            setCachedLocation(newLocation);
-        };
+      // 3) Default San Dimas
+      if (!cancelled) {
+        setLocation({ latitude: FALLBACK.latitude, longitude: FALLBACK.longitude, label: FALLBACK.label });
+        setSource('default');
+      }
+    })();
 
-        const handleError = (err) => {
-            setError("Unable to retrieve your location. Defaulting to San Dimas, CA.");
-            const defaultLocation = { latitude: 34.0983, longitude: -117.8076, country: 'US' }; // San Dimas, CA 91773
-            setLocation(defaultLocation);
-            setCachedLocation(defaultLocation);
-        };
+    return () => { cancelled = true; };
+  }, []);
 
-        navigator.geolocation.getCurrentPosition(handleSuccess, handleError, {
-            enableHighAccuracy: true,
-            timeout: 5000,
-            maximumAge: 0
-        });
-
-    }, [location, getCachedLocation, setCachedLocation]);
-
-    return { location, error };
-};
-
-export default useUserLocation;
+  return { location, source, error };
+}

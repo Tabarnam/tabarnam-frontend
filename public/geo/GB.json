@@ -1,0 +1,6 @@
+[
+  { "code": "ENG", "name": "England" },
+  { "code": "SCT", "name": "Scotland" },
+  { "code": "WLS", "name": "Wales" },
+  { "code": "NIR", "name": "Northern Ireland" }
+]

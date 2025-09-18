@@ -75,4 +75,17 @@ body {
   body {
     @apply bg-background text-foreground;
   }
+  
+  /* ----- Global UI tweaks ----- */
+body {
+  font-family: Arial, "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", sans-serif;
+}
+
+/* Light Tabarnam-blue highlight for matched text */
+mark {
+  background: rgba(72, 189, 232, 0.25); /* lighter Tabarnam blue */
+  padding: 0 .15em;
+  border-radius: .2em;
+}
+
 }

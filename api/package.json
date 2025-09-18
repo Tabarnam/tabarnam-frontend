@@ -1,1 +1,21 @@
-{}
+{
+  "name": "tabarnam-functions",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18.20 <23"
+  },
+  "scripts": {
+    "start": "func start --port 7071 --cors \"*\"",
+    "start:verbose": "func start --port 7071 --cors \"*\" --verbose",
+    "db:init": "node ./scripts/ensure-cosmos.js",
+    "dump:cosmos": "node ./scripts/dumpCompanies.mjs"
+  },
+  "dependencies": {
+    "@azure/cosmos": "^4.5.0",
+    "@azure/functions": "^4.7.2",
+    "axios": "^1.11.0"
+  }
+}

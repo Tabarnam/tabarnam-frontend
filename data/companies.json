@@ -1,0 +1,21 @@
+﻿[
+    {
+        "industries":  [
+                           "home",
+                           "home fragrance"
+                       ],
+        "url":  "https://alpha.example/",
+        "company_name":  "Alpha Candle Co.",
+        "id":  "alpha-candle",
+        "red_flag":  false
+    },
+    {
+        "industries":  [
+                           "home"
+                       ],
+        "url":  "https://beta.example/",
+        "company_name":  "Beta Wax",
+        "id":  "beta-wax",
+        "red_flag":  false
+    }
+]

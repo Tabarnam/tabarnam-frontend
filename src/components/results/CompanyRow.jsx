@@ -1,234 +1,485 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Copy, Star, MapPin, Factory, Tag, FileText, ChevronDown, Globe, Loader2 } from 'lucide-react';
-import { useToast } from '@/components/ui/use-toast';
+import React, { useMemo, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Copy, MapPin, Factory, Tag, FileText, Star as LucideStar } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { calculateDistance, formatDistance } from '@/lib/location';
-import { cn } from '@/lib/utils';
-import useTranslation from '@/hooks/useTranslation';
+import { calculateDistance, formatDistance } from "@/lib/location";
+import { cn } from "@/lib/utils";
+import useTranslation from "@/hooks/useTranslation";
+import { CompanyStarsBlock } from "@/components/Results/CompanyStarsBlock";
+import { calcStars } from "@/lib/stars/calcStars";
+import { LogoUploadDialog } from "@/components/admin/LogoUploadDialog";
 
-// Small component for translated text with loading state
 const TranslatedText = ({ originalText, translation, loading }) => {
-    if (loading) {
-        return <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
-    }
-    return translation || originalText;
+  if (loading)
+    return (
+      <span className="inline-flex items-center">
+        <span className="h-4 w-4 animate-spin border-2 border-slate-300 border-t-transparent rounded-full mr-1" />
+      </span>
+    );
+  return translation || originalText;
 };
 
 const Keyword = ({ text, onKeywordSearch, language, viewTranslated }) => {
-    const { translatedText, loading } = useTranslation(text, language, viewTranslated);
+  const { translatedText, loading } = useTranslation(text, language, viewTranslated);
+  const displayText = viewTranslated ? translatedText : text;
 
-    const displayText = viewTranslated ? translatedText : text;
-    
-    return (
-        <TooltipProvider>
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <button 
-                        onClick={(e) => { e.stopPropagation(); onKeywordSearch(text); }} 
-                        className="bg-gray-100 text-gray-700 text-xs font-medium px-2.5 py-1 rounded-full hover:bg-gray-200 transition-colors truncate"
-                    >
-                         {loading && viewTranslated ? <Loader2 className="h-3 w-3 animate-spin inline-block mr-1" /> : ''}
-                         {displayText}
-                    </button>
-                </TooltipTrigger>
-                <TooltipContent className="bg-gray-800 border-gray-700 text-white">
-                    <p>Search for "{text}"</p>
-                </TooltipContent>
-            </Tooltip>
-        </TooltipProvider>
-    );
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onKeywordSearch(text);
+            }}
+            className="bg-gray-100 text-gray-700 text-xs font-medium px-2.5 py-1 rounded-full hover:bg-gray-200 transition-colors truncate"
+          >
+            {loading && viewTranslated ? (
+              <span className="h-3 w-3 animate-spin border-2 border-slate-300 border-t-transparent rounded-full inline-block mr-1" />
+            ) : null}
+            {displayText}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="bg-gray-800 border-gray-700 text-white">
+          <p>Search for "{text}"</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 };
 
-const CompanyRow = ({ company, userLocation, isExpanded, onToggle, onKeywordSearch, language, viewTranslated }) => {
-    const { toast } = useToast();
+function renderDistance(loc, userLocation) {
+  if (!loc || !userLocation || !userLocation.latitude || !loc.latitude || !loc.longitude) return null;
+  const d = calculateDistance(userLocation.latitude, userLocation.longitude, loc.latitude, loc.longitude);
+  return formatDistance(d, userLocation.country);
+}
 
-    // Use translation hook for relevant fields
-    const { translatedText: translatedName, loading: nameLoading } = useTranslation(company.name, language, viewTranslated, company.id, 'name');
-    const { translatedText: translatedTagline, loading: taglineLoading } = useTranslation(company.tagline, language, viewTranslated, company.id, 'tagline');
-    const { translatedText: translatedStarExplanation, loading: starExplanationLoading } = useTranslation(company.star_explanation, language, viewTranslated, company.id, 'star_explanation');
-    const { translatedText: translatedNotes, loading: notesLoading } = useTranslation(company.notes, language, viewTranslated, company.id, 'notes');
+const CompanyRow = ({
+  company,
+  userLocation,
+  isExpanded,
+  onToggle,
+  onKeywordSearch,
+  language,
+  viewTranslated,
+  dynamicOrder = ["star_rating", "hq_distance", "mfg_distance"],
+  isAdmin = false,
+}) => {
+  const { toast } = useToast();
 
-    const copyToClipboard = (text) => {
-        navigator.clipboard.writeText(text);
-        toast({ title: "Copied!", description: "Website URL copied to clipboard." });
-    };
+  const { translatedText: translatedName, loading: nameLoading } = useTranslation(
+    company.name,
+    language,
+    viewTranslated,
+    company.id,
+    "name"
+  );
+  const { translatedText: translatedTagline, loading: taglineLoading } = useTranslation(
+    company.tagline,
+    language,
+    viewTranslated,
+    company.id,
+    "tagline"
+  );
+  const { translatedText: translatedNotes, loading: notesLoading } = useTranslation(
+    company.notes,
+    language,
+    viewTranslated,
+    company.id,
+    "notes"
+  );
 
-    const getClosestLocation = (locations) => {
-        if (!locations || locations.length === 0 || !userLocation || !userLocation.latitude) return null;
-        
-        return locations.reduce((closest, loc) => {
-            if (!loc || !loc.latitude || !loc.longitude) return closest;
-            const distance = calculateDistance(userLocation.latitude, userLocation.longitude, loc.latitude, loc.longitude);
-            if (distance < closest.distance) {
-                return { ...loc, distance };
-            }
-            return closest;
-        }, { distance: Infinity });
-    };
-    
-    const closestHq = getClosestLocation(company.headquarters);
-    const closestMfg = getClosestLocation(company.manufacturing_sites);
+  const [logoUrl, setLogoUrl] = useState(company.logo_url || "");
+  const [showLogoDialog, setShowLogoDialog] = useState(false);
 
-    const renderLocationDesktop = (loc) => {
-        if (!loc || loc.distance === Infinity) return <span className="text-gray-400">N/A</span>;
-        
-        const formattedDist = formatDistance(loc.distance, userLocation.country);
+  const hqs = company.headquarters || [];
+  const mfgs = company.manufacturing_sites || [];
+  const hq1 = hqs[0],
+    hq2 = hqs[1];
+  const mfg1 = mfgs[0],
+    mfg2 = mfgs[1];
 
-        return (
-            <div className="flex items-center gap-2">
-                <MapPin size={16} className="text-gray-400" />
-                <div>
-                    <p className="text-gray-800">{loc.city}, {loc.state || loc.country}</p>
-                    {formattedDist && <p className="text-xs text-gray-500">{formattedDist}</p>}
-                </div>
+  const starBundle = useMemo(
+    () =>
+      calcStars({
+        hqEligible: !!(hqs && hqs.length),
+        manufacturingEligible: !!(mfgs && mfgs.length),
+        approvedUserReviews: company.review_count_approved || 0,
+        approvedEditorialReviews: company.editorial_review_count || 0,
+        overrides: company.star_overrides ?? null,
+        manualExtra: company.admin_manual_extra ?? 0,
+        notes: company.star_notes ?? [],
+      }),
+    [company, hqs, mfgs]
+  );
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    toast({ title: "Copied!", description: "Link copied to clipboard." });
+  };
+
+  return (
+    <>
+      <tr
+        onClick={onToggle}
+        className={cn(
+          "cursor-pointer transition-colors",
+          isExpanded ? "bg-[#B1DDE3] border-2 border-[#3A7D8A] rounded-lg" : "hover:bg-gray-50"
+        )}
+      >
+        {/* Company column */}
+        <td className="p-4 align-top">
+          <p className="font-bold text-lg text-gray-800 truncate">
+            <TranslatedText
+              originalText={company.name}
+              translation={translatedName}
+              loading={nameLoading && viewTranslated}
+            />
+          </p>
+        </td>
+
+        {/* Logo column with admin Add button if missing */}
+        <td className="p-4 align-top">
+          {logoUrl ? (
+            <img
+              src={logoUrl}
+              alt={`${company.name || "Company"} logo`}
+              className="w-16 h-16 md:w-20 md:h-20 rounded-md object-contain bg-gray-100"
+              loading="lazy"
+              decoding="async"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <div className="w-16 h-16 md:w-20 md:h-20 rounded-md bg-gray-100 flex items-center justify-center text-xs text-gray-400 relative">
+              No logo
+              {isAdmin && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowLogoDialog(true);
+                  }}
+                  className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-md bg-white border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 shadow-sm hover:bg-slate-50"
+                  title="Add logo"
+                >
+                  Add logo
+                </button>
+              )}
             </div>
-        );
-    };
+          )}
+        </td>
 
-    const renderStars = () => {
-        const rating = company.star_rating;
-        // Strict rule: Only render stars if rating is 4 or higher.
-        if (!rating || rating < 4) {
-            return null;
-        }
-
-        const explanation = viewTranslated ? translatedStarExplanation : company.star_explanation;
-        const isLoading = viewTranslated && starExplanationLoading;
-
-        return (
-             <TooltipProvider>
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <div className="flex items-center gap-1">
-                            {Array.from({ length: 5 }, (_, i) => (
-                                <Star
-                                    key={i}
-                                    className={cn(
-                                        "w-4 h-4 text-tabarnam-blue transition-colors",
-                                        i < Math.floor(rating) ? 'fill-tabarnam-blue' : 'fill-none stroke-current'
-                                    )}
-                                    style={{height: '1em', width: '1em'}}
-                                />
-                            ))}
+        {/* Dynamic columns */}
+        {dynamicOrder.map((colKey) => {
+          if (colKey === "star_rating") {
+            return (
+              <td key={colKey} className="p-4 align-top text-right">
+                <CompanyStarsBlock company={{ ...company, logo_url: logoUrl }} />
+              </td>
+            );
+          } else if (colKey === "hq_distance") {
+            return (
+              <td key={colKey} className="p-4 align-top">
+                {hq1 ? (
+                  <div className="text-sm">
+                    <div className="flex items-start gap-2">
+                      <MapPin size={16} className="text-gray-500 mt-0.5" />
+                      <div>
+                        <div className="text-gray-800">
+                          {hq1.city}
+                          {hq1.state ? `, ${hq1.state}` : hq1.country ? `, ${hq1.country}` : ""}
                         </div>
-                    </TooltipTrigger>
-                    {explanation && (
-                        <TooltipContent className="bg-gray-800 border-gray-700 text-white max-w-xs">
-                           {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <p>{explanation}</p>}
-                        </TooltipContent>
-                    )}
-                </Tooltip>
-            </TooltipProvider>
-        );
-    };
-
-    const allKeywords = [...(company.product_keywords || []), ...(company.industries || [])];
-    const uniqueKeywords = Array.from(new Set(allKeywords.map(k => k.keyword || k.name || k))).filter(Boolean);
-
-    return (
-        <>
-            <tr onClick={onToggle} className={cn("cursor-pointer hover:bg-gray-50 transition-colors", isExpanded && "bg-[#B1DDE3] border-2 border-[#3A7D8A] rounded-lg")}>
-                <td colSpan="4" className={cn("p-0", isExpanded ? "rounded-lg" : "")}>
-                    <div className="p-4">
-                        <div className="grid grid-cols-[minmax(0,_2fr)_minmax(0,_1fr)_minmax(0,_1fr)_max-content] gap-6 items-start">
-                            {/* Column 1: Company Info */}
-                            <div className="flex items-start gap-4 flex-grow min-w-0">
-                                <motion.div whileHover={{ scale: 1.1 }} className="flex-shrink-0">
-                                    <a href={company.website_url || '#'} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
-                                        <img-replace src={company.logo_url} alt={`${company.name} logo`} className="w-12 h-12 rounded-md object-contain bg-gray-100" />
-                                    </a>
-                                </motion.div>
-                                <div className="flex-grow min-w-0">
-                                    <p className="font-bold text-lg text-gray-800 truncate">
-                                        <TranslatedText originalText={company.name} translation={translatedName} loading={nameLoading && viewTranslated}/>
-                                    </p>
-                                    {company.website_url && (
-                                        <div className="flex items-center gap-2 text-sm text-blue-600">
-                                            <a href={company.website_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="hover:underline truncate max-w-[200px]">{company.website_url.replace(/^(https?:\/\/)?(www\.)?/, '')}</a>
-                                            <TooltipProvider><Tooltip><TooltipTrigger asChild>
-                                                <Copy size={14} className="cursor-pointer text-gray-400 hover:text-gray-800 transition-colors flex-shrink-0" onClick={(e) => { e.stopPropagation(); copyToClipboard(company.website_url); }} />
-                                            </TooltipTrigger><TooltipContent><p>Copy URL</p></TooltipContent></Tooltip></TooltipProvider>
-                                        </div>
-                                    )}
-                                    <p className="text-sm text-gray-600 mt-1 truncate">
-                                        <TranslatedText originalText={company.tagline} translation={translatedTagline} loading={taglineLoading && viewTranslated}/>
-                                    </p>
-                                    <div className="flex flex-wrap gap-1.5 mt-2">
-                                        {uniqueKeywords.slice(0, 4).map((kw, i) => (
-                                            <Keyword key={i} text={kw} onKeywordSearch={onKeywordSearch} language={language} viewTranslated={viewTranslated} />
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            {/* Column 2: HQ Location */}
-                            <div className="hidden md:flex items-start text-sm">
-                                {renderLocationDesktop(closestHq)}
-                            </div>
-                            
-                            {/* Column 3: Mfg Location */}
-                            <div className="hidden md:flex items-start text-sm">
-                                {renderLocationDesktop(closestMfg)}
-                            </div>
-                            
-                            {/* Column 4: Stars */}
-                            <div className="hidden md:flex items-start justify-end">
-                                <div className="w-24 text-right">{renderStars()}</div>
-                            </div>
-
-                        </div>
+                        <div className="text-xs text-gray-500 mt-0.5">{renderDistance(hq1, userLocation)}</div>
+                      </div>
                     </div>
+                  </div>
+                ) : (
+                  <span className="text-gray-400 text-sm">N/A</span>
+                )}
+              </td>
+            );
+          } else if (colKey === "mfg_distance") {
+            return (
+              <td key={colKey} className="p-4 align-top">
+                {mfg1 ? (
+                  <div className="text-sm">
+                    <div className="flex items-start gap-2">
+                      <Factory size={16} className="text-gray-500 mt-0.5" />
+                      <div>
+                        <div className="text-gray-800">
+                          {mfg1.city}
+                          {mfg1.state ? `, ${mfg1.state}` : mfg1.country ? `, ${mfg1.country}` : ""}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-0.5">{renderDistance(mfg1, userLocation)}</div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <span className="text-gray-400 text-sm">N/A</span>
+                )}
+              </td>
+            );
+          }
+          return (
+            <td key={colKey} className="p-4 align-top" />
+          );
+        })}
+      </tr>
 
-                    <AnimatePresence>
-                        {isExpanded && (
-                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.3, ease: "easeInOut" }} className="overflow-hidden">
-                                <div className="p-4 pt-0">
-                                    <div className="p-4 bg-transparent rounded-lg">
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                                            <div className="md:hidden space-y-3">
-                                                {closestHq && closestHq.distance !== Infinity && <div className="flex items-center gap-2 text-sm"><MapPin size={16} className="text-gray-500"/> <div><span className="font-semibold">HQ:</span> {closestHq.city}, {closestHq.state} {formatDistance(closestHq.distance, userLocation.country)}</div></div>}
-                                                {closestMfg && closestMfg.distance !== Infinity && <div className="flex items-center gap-2 text-sm"><Factory size={16} className="text-gray-500"/> <div><span className="font-semibold">Mfg:</span> {closestMfg.city}, {closestMfg.state} {formatDistance(closestMfg.distance, userLocation.country)}</div></div>}
-                                                {company.star_rating >= 4 && <div className="flex items-center gap-2 text-sm"><Star size={16} className="text-gray-500"/> <div><span className="font-semibold">Rating:</span> {renderStars()}</div></div>}
-                                            </div>
-                                            <div>
-                                                <h4 className="font-bold text-gray-800 mb-2 flex items-center gap-2"><Tag size={16} /> Keywords & Industries</h4>
-                                                <div className="flex flex-wrap gap-2">
-                                                    {uniqueKeywords.map((kw, i) => (
-                                                        <Keyword key={i} text={kw} onKeywordSearch={onKeywordSearch} language={language} viewTranslated={viewTranslated} />
-                                                    ))}
-                                                </div>
-                                            </div>
-                                            {company.headquarters && company.headquarters.length > 0 && <div>
-                                                <h4 className="font-bold text-gray-800 mb-2 flex items-center gap-2"><MapPin size={16} /> All Headquarters</h4>
-                                                <ul className="space-y-1 text-sm text-gray-600">{company.headquarters.map((loc, i) => <li key={i}>{loc.full_address}</li>)}</ul>
-                                            </div>}
-                                            {company.manufacturing_sites && company.manufacturing_sites.length > 0 && <div>
-                                                <h4 className="font-bold text-gray-800 mb-2 flex items-center gap-2"><Factory size={16} /> All Manufacturing</h4>
-                                                <ul className="space-y-1 text-sm text-gray-600">{company.manufacturing_sites.map((loc, i) => <li key={i}>{loc.full_address}</li>)}</ul>
-                                            </div>}
-                                            {(viewTranslated ? translatedStarExplanation : company.star_explanation) && (
-                                                <div className="md:col-span-2">
-                                                    <h4 className="font-bold text-gray-800 mb-2 flex items-center gap-2"><Star size={16} /> Rating Explanation</h4>
-                                                    <p className="text-sm text-gray-600"><TranslatedText originalText={company.star_explanation} translation={translatedStarExplanation} loading={starExplanationLoading && viewTranslated} /></p>
-                                                </div>
-                                            )}
-                                            {(viewTranslated ? translatedNotes : company.notes) && (
-                                                <div className="md:col-span-2">
-                                                    <h4 className="font-bold text-gray-800 mb-2 flex items-center gap-2"><FileText size={16} /> Notes</h4>
-                                                    <p className="text-sm text-gray-600 whitespace-pre-wrap"><TranslatedText originalText={company.notes} translation={translatedNotes} loading={notesLoading && viewTranslated} /></p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </td>
-            </tr>
-        </>
-    );
+      {/* Expanded grid */}
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.tr
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="bg-transparent"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <td colSpan={5} className="px-4 pb-4">
+              <div className="grid grid-cols-[minmax(0,_2fr)_96px_minmax(0,_1fr)_minmax(0,_1fr)_minmax(0,_1fr)] gap-x-6 gap-y-2">
+                {/* Row 1 */}
+                <div className="col-[1] row-[1] font-semibold text-gray-900 text-base">
+                  <TranslatedText
+                    originalText={company.name}
+                    translation={translatedName}
+                    loading={nameLoading && viewTranslated}
+                  />
+                </div>
+                <div className="col-[2] row-[1]/row-[span_3] flex items-start">
+                  {logoUrl ? (
+                    <img
+                      src={logoUrl}
+                      alt={`${company.name || "Company"} logo`}
+                      className="w-20 h-20 rounded-md object-contain bg-gray-100"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-20 h-20 rounded-md bg-gray-100 flex items-center justify-center text-xs text-gray-400 relative">
+                      No logo
+                      {isAdmin && (
+                        <button
+                          onClick={() => setShowLogoDialog(true)}
+                          className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-md bg-white border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 shadow-sm hover:bg-slate-50"
+                        >
+                          Add logo
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="col-[3] row-[1]">
+                  {hq1 ? (
+                    <div className="text-sm">
+                      <div className="font-medium">Home/HQ 1</div>
+                      <div>
+                        {hq1.full_address ||
+                          `${hq1.city || ""}${hq1.state ? ", " + hq1.state : ""}${hq1.country ? ", " + hq1.country : ""}`}
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="text-gray-400 text-sm">N/A</span>
+                  )}
+                </div>
+                <div className="col-[4] row-[1]">
+                  {mfg1 ? (
+                    <div className="text-sm">
+                      <div className="font-medium">Manufacturing 1</div>
+                      <div>
+                        {mfg1.full_address ||
+                          `${mfg1.city || ""}${mfg1.state ? ", " + mfg1.state : ""}${mfg1.country ? ", " + mfg1.country : ""}`}
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="text-gray-400 text-sm">N/A</span>
+                  )}
+                </div>
+                <div className="col-[5] row-[1]"></div>
+
+                {/* Row 2 */}
+                <div className="col-[1] row-[2]">
+                  {company.website_url && (
+                    <div className="flex items-center gap-2 text-sm text-blue-600">
+                      <a
+                        href={company.website_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="hover:underline truncate"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {company.website_url}
+                      </a>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                copyToClipboard(company.website_url);
+                              }}
+                              className="text-xs text-gray-500 underline"
+                            >
+                              Copy
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>Copy full URL</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                  )}
+                </div>
+                <div className="col-[2] row-[2]"></div>
+                <div className="col-[3] row-[2]">
+                  {hq1 && <div className="text-xs text-gray-500">{renderDistance(hq1, userLocation)}</div>}
+                </div>
+                <div className="col-[4] row-[2]">
+                  {mfg1 && <div className="text-xs text-gray-500">{renderDistance(mfg1, userLocation)}</div>}
+                </div>
+                <div className="col-[5] row-[2] flex justify-end">
+                  <CompanyStarsBlock company={{ ...company, logo_url: logoUrl }} />
+                </div>
+
+                {/* Row 3 */}
+                <div className="col-[1] row-[3]">
+                  {company.amazon_store_url && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <a
+                              href={company.amazon_store_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Amazon Store
+                            </a>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs break-words">
+                            {company.amazon_store_url}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      <button
+                        className="text-xs text-gray-500 underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copyToClipboard(company.amazon_store_url);
+                        }}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="col-[2] row-[3]"></div>
+                <div className="col-[3] row-[3]">
+                  {hq2 ? (
+                    <div className="text-sm">
+                      <div className="font-medium">Home/HQ 2</div>
+                      <div>
+                        {hq2.full_address ||
+                          `${hq2.city || ""}${hq2.state ? ", " + hq2.state : ""}${hq2.country ? ", " + hq2.country : ""}`}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="col-[4] row-[3]">
+                  {mfg2 ? (
+                    <div className="text-sm">
+                      <div className="font-medium">Manufacturing 2</div>
+                      <div>
+                        {mfg2.full_address ||
+                          `${mfg2.city || ""}${mfg2.state ? ", " + mfg2.state : ""}${mfg2.country ? ", " + mfg2.country : ""}`}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="col-[5] row-[3]"></div>
+
+                {/* Row 4 */}
+                <div className="col-[1]/col-[span_2] row-[4]">
+                  {(viewTranslated ? translatedTagline : company.tagline) && (
+                    <div className="text-sm text-gray-700">
+                      <TranslatedText
+                        originalText={company.tagline}
+                        translation={translatedTagline}
+                        loading={taglineLoading && viewTranslated}
+                      />
+                    </div>
+                  )}
+                  {(viewTranslated ? translatedNotes : company.notes) && (
+                    <div className="text-sm text-gray-600 whitespace-pre-wrap mt-1">
+                      <TranslatedText
+                        originalText={company.notes}
+                        translation={translatedNotes}
+                        loading={notesLoading && viewTranslated}
+                      />
+                    </div>
+                  )}
+                </div>
+                <div className="col-[3] row-[4]">
+                  {hq2 && <div className="text-xs text-gray-500">{renderDistance(hq2, userLocation)}</div>}
+                  {hqs.length > 2 && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button className="text-xs text-blue-600 underline mt-1">More…</button>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-sm">
+                          <ul className="text-xs text-gray-800 space-y-1">
+                            {hqs.slice(2).map((loc, i) => (
+                              <li key={i}>
+                                {loc.full_address ||
+                                  `${loc.city || ""}${loc.state ? ", " + loc.state : ""}${loc.country ? ", " + loc.country : ""}`}
+                              </li>
+                            ))}
+                          </ul>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                </div>
+                <div className="col-[4] row-[4]">
+                  {mfg2 && <div className="text-xs text-gray-500">{renderDistance(mfg2, userLocation)}</div>}
+                  {mfgs.length > 2 && (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button className="text-xs text-blue-600 underline mt-1">More…</button>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-sm">
+                          <ul className="text-xs text-gray-800 space-y-1">
+                            {mfgs.slice(2).map((loc, i) => (
+                              <li key={i}>
+                                {loc.full_address ||
+                                  `${loc.city || ""}${loc.state ? ", " + loc.state : ""}${loc.country ? ", " + loc.country : ""}`}
+                              </li>
+                            ))}
+                          </ul>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
+                </div>
+                <div className="col-[5] row-[4]"></div>
+              </div>
+            </td>
+          </motion.tr>
+        )}
+      </AnimatePresence>
+
+      {showLogoDialog && (
+        <LogoUploadDialog
+          companyId={company.id}
+          onClose={() => setShowLogoDialog(false)}
+          onSaved={(newUrl) => setLogoUrl(newUrl)}
+        />
+      )}
+    </>
+  );
 };
 
 export default CompanyRow;
