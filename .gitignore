@@ -11,3 +11,6 @@ local.settings.json
 dist/
 node_modules/
 .swa/
+
+# ignore accidental nested repo
+tabarnam-frontend/
