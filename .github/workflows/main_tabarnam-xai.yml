@@ -1,101 +1,81 @@
-# Docs for the Azure Web Apps Deploy action: https://github.com/azure/functions-action
-# More GitHub Actions for Azure: https://github.com/Azure/actions
-
 name: Build and deploy Node.js project to Azure Function App - tabarnam-xai
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 env:
-  AZURE_FUNCTIONAPP_PACKAGE_PATH: './api' # Directory containing xai.js
-  NODE_VERSION: '20.x' # Matches Function App runtime
+  AZURE_FUNCTIONAPP_PACKAGE_PATH: './api'
+  NODE_VERSION: '20.x'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read # Required for actions/checkout
+      contents: read
 
     steps:
-      - name: 'Checkout GitHub Action'
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node ${{ env.NODE_VERSION }} Environment
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: 'Check Directory Structure'
-        shell: bash
-        run: |
-          ls -la ./${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-          if [ ! -f ./${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/xai.js ]; then
-            echo "Error: xai.js not found in ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}"
-            exit 1
-          fi
-
-      - name: 'Create or Update package.json'
-        shell: bash
-        run: |
-          pushd './${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
-          if [ ! -f package.json ]; then
-            echo '{"name": "xai-function", "version": "1.0.0", "type": "module", "scripts": {"build": "echo Built"}}' > package.json
-          else
-            jq '.scripts.build = "echo Built" | .type = "module"' package.json > temp.json && mv temp.json package.json
-          fi
-          popd
-
-      - name: 'Resolve Project Dependencies Using Npm'
-        shell: bash
-        run: |
-          pushd './${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
-          npm install axios zod @azure/functions --save --force
-          npm run build
-          popd
-
-      - name: Zip artifact for deployment
+      - name: Ensure package.json (Functions)
         run: |
           cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-          zip -r release.zip . -x "*.git*"
-          cd ../..
-          ls -la
+          if [ ! -f package.json ]; then
+            echo '{"name":"xai-functions","version":"1.0.0","type":"module","dependencies":{"@azure/functions":"^4.4.0","axios":"^1.7.0","@azure/cosmos":"^4.2.0"}}' > package.json
+          else
+            node -e "let p=require('./package.json'); p.type='module'; p.dependencies=p.dependencies||{}; p.dependencies['@azure/functions']=p.dependencies['@azure/functions']||'^4.4.0'; p.dependencies['axios']=p.dependencies['axios']||'^1.7.0'; p.dependencies['@azure/cosmos']=p.dependencies['@azure/cosmos']||'^4.2.0'; require('fs').writeFileSync('package.json', JSON.stringify(p,null,2));"
+          fi
 
-      - name: Upload artifact for deployment job
+      - name: Install deps (Functions)
+        run: |
+          cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+          npm ci || npm install
+
+      - name: Zip artifact
+        run: |
+          cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+          zip -r ../release.zip . -x "*.git*"
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: node-app
-          path: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/release.zip
+          name: functions-package
+          path: release.zip
 
   deploy:
     runs-on: ubuntu-latest
     needs: build
     permissions:
-      id-token: write # Required for requesting the JWT
-      contents: read # Required for actions/checkout
+      id-token: write
+      contents: read
 
     steps:
-      - name: Download artifact from build job
+      - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: node-app
-          path: ./deployed
+          name: functions-package
+          path: .
 
-      - name: Unzip artifact for deployment
-        run: unzip ./deployed/release.zip -d ./deployed
+      - name: Unzip
+        run: unzip -o release.zip -d ./deployed
 
-      - name: Azure Login
+      - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_FEDERATED_CREDENTIALS_FUNCTION }}
-          auth-type: workload-identity
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: 'Run Azure Functions Action'
+      - name: Deploy to Function App
         uses: Azure/functions-action@v1
-        id: fa
         with:
-          app-name: 'tabarnam-xai'
+          app-name: 'tabarnam-xai-dedicated'
           slot-name: 'Production'
           package: './deployed'

@@ -1,4 +1,13 @@
+// src/components/ReviewsWidget.jsx
 import React, { useEffect, useState } from "react";
+
+// Resolve Functions base:
+// - Prefer VITE_FUNCTIONS_BASE (your .env.local already sets http://127.0.0.1:7071)
+// - Else, if running Vite on port 5173, default to http://127.0.0.1:7071
+// - Else, same-origin ("")
+const DEV_DEFAULT = (typeof window !== "undefined" && window.location.port === "5173")
+  ? "http://127.0.0.1:7071" : "";
+const API_BASE = (import.meta?.env?.VITE_FUNCTIONS_BASE || DEV_DEFAULT || "").replace(/\/+$/, "");
 
 export default function ReviewsWidget({ companyName }) {
   const [list, setList] = useState([]);
@@ -12,31 +21,34 @@ export default function ReviewsWidget({ companyName }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const load = async () => {
+  async function load() {
+    if (!companyName) return;
     setLoading(true);
+    setError("");
     try {
-      const r = await fetch(`/api/get-reviews?company=${encodeURIComponent(companyName)}`);
-      const data = await r.json();
-      if (!r.ok) throw new Error(data?.error || r.statusText);
-      setList(data.reviews || []);
+      const r = await fetch(`${API_BASE}/api/get-reviews?company=${encodeURIComponent(companyName)}`);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.error || r.statusText || "Failed to load");
+      setList(Array.isArray(data.reviews) ? data.reviews : []);
     } catch (e) {
-      setError(e.message);
+      setError(e?.message || "Failed to load reviews");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  useEffect(() => { if (companyName) load(); }, [companyName]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [companyName]);
 
-  const submit = async () => {
+  async function submit() {
     setError("");
+    if (!companyName) { setError("No company selected."); return; }
     if (!text.trim() || text.trim().length < 10) {
       setError("Please write a longer review (at least 10 characters).");
       return;
     }
     setSubmitting(true);
     try {
-      const r = await fetch("/api/submit-review", {
+      const r = await fetch(`${API_BASE}/api/submit-review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -47,8 +59,8 @@ export default function ReviewsWidget({ companyName }) {
           user_location: userLocation.trim() || null
         })
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data?.error || r.statusText);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data?.ok) throw new Error(data?.error || r.statusText || "Submit failed");
       // Prepend newest
       setList(prev => [data.review, ...prev]);
       // reset
@@ -57,11 +69,11 @@ export default function ReviewsWidget({ companyName }) {
       setUserLocation("");
       setRating(5);
     } catch (e) {
-      setError(e.message);
+      setError(e?.message || "Submit failed");
     } finally {
       setSubmitting(false);
     }
-  };
+  }
 
   return (
     <div className="mt-3 border rounded p-3 bg-gray-50">
@@ -109,7 +121,8 @@ export default function ReviewsWidget({ companyName }) {
                   <div className="font-medium">{r.rating} ★</div>
                   <div className="text-xs text-gray-500">{new Date(r.created_at).toLocaleString()}</div>
                 </div>
-                <div className="mt-2 whitespace-pre-wrap">{r.text}{" "}
+                <div className="mt-2 whitespace-pre-wrap">
+                  {r.text}{" "}
                   {(r.user_name || r.user_location) && (
                     <strong>— {r.user_name || "Anonymous"}{r.user_location ? `, ${r.user_location}` : ""}</strong>
                   )}
