@@ -1,4 +1,4 @@
-// api/proxy-xai/index.js
+// api/proxy-xai/index.js (Azure Functions v4 programming model)
 import { app } from "@azure/functions";
 import axios from "axios";
 import { CosmosClient } from "@azure/cosmos";
@@ -154,11 +154,18 @@ app.http("proxyXai", {
     const funcKey = (vals.FUNCTION_KEY || "").trim();
 
     if (req.method === "GET") {
-      return json({ ok: true, route: "/api/proxy-xai", configured: { FUNCTION_URL: !!baseUrl, FUNCTION_KEY: !!funcKey, XAI_STUB: XAI_STUB === true }, build: BUILD_STAMP, now: new Date().toISOString() }, 200, req);
+      return json({
+        ok: true,
+        route: "/api/proxy-xai",
+        configured: { FUNCTION_URL: !!baseUrl, FUNCTION_KEY: !!funcKey, XAI_STUB: XAI_STUB === true },
+        build: BUILD_STAMP,
+        now: new Date().toISOString()
+      }, 200, req);
     }
 
-    let inbound = {}; try { inbound = await req.json(); } catch {}
-    const expandIfFew = inbound.expand_if_few !== false;   // <-- RESPECT UI TOGGLE (default true)
+    let inbound = {};
+    try { inbound = await req.json(); } catch {}
+    const expandIfFew = inbound.expand_if_few !== false;   // default true
 
     const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
     const envDefault = Number(vals.XAI_TIMEOUT_MS);
@@ -177,7 +184,16 @@ app.http("proxyXai", {
         { company_name: "Taylor Company", industries: ["food & beverage","equipment"], hq_lat: 41.9, hq_lng: -88.3, amazon_url: "", url: "https://www.taylor-company.com" },
       ].map((c) => enrichCompany(c, center));
       await writeDoneLog(sessionId, { saved: demo.length, mode: "stub" });
-      return json({ companies: demo, meta: { request_id: `stub_${Date.now()}`, session_id: sessionId, model: "stub", latency_ms: Date.now() - started, proxy: { status: "stub", timeout_ms: timeoutMs, build: BUILD_STAMP } } }, 200, req);
+      return json({
+        companies: demo,
+        meta: {
+          request_id: `stub_${Date.now()}`,
+          session_id: sessionId,
+          model: "stub",
+          latency_ms: Date.now() - started,
+          proxy: { status: "stub", timeout_ms: timeoutMs, build: BUILD_STAMP }
+        }
+      }, 200, req);
     }
 
     if (!baseUrl || !funcKey) {
@@ -193,9 +209,16 @@ app.http("proxyXai", {
 
     const callUpstream = async (body, perCallTimeout) => {
       const res = await axios.post(baseUrl, body, {
-        headers: { "Content-Type": "application/json", "x-functions-key": funcKey, "x-client-request-id": clientId, "x-session-id": sessionId },
+        headers: {
+          "Content-Type": "application/json",
+          "x-functions-key": funcKey,
+          "x-client-request-id": clientId,
+          "x-session-id": sessionId
+        },
         timeout: perCallTimeout,
-        maxBodyLength: Infinity, maxContentLength: Infinity, validateStatus: () => true,
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+        validateStatus: () => true,
       });
       if (res.status < 200 || res.status >= 300) throw new Error(`upstream ${res.status}`);
       const data = res.data || {};
@@ -233,7 +256,7 @@ app.http("proxyXai", {
                 if (key && !seen.has(key)) seen.set(key, e);
                 if (seen.size >= desired) break;
               }
-            } catch { /* ignore single node failure */ }
+            } catch { /* ignore */ }
           }
         }
       }

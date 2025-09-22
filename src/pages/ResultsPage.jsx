@@ -1,4 +1,5 @@
 // src/pages/ResultsPage.jsx
+import { xaiImport } from "@/lib/api/xaiImport";
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { geocode } from "@/lib/google";
@@ -176,6 +177,37 @@ export default function ResultsPage() {
       <div className="mt-6 mb-4">
         <SearchCard onSubmitParams={handleInlineSearch} />
       </div>
+
+      {/* --- XAI Import Debug (dev-only; safe to remove later) --- */}
+      {import.meta.env.DEV && (
+        <div className="p-3 mb-4 border rounded">
+          <div className="text-sm mb-2">XAI Import Debug</div>
+          <button
+            className="px-3 py-2 rounded text-black"
+            style={{ background: "#B1DDE3" }}
+            onClick={async () => {
+              try {
+                setStatus("Running XAI import…");
+                const resp = await xaiImport({
+                  queryType: "product_keyword",
+                  query: qParam || "candles",
+                  limit: 10,
+                  center: userLoc || undefined
+                });
+                const enriched = (resp.companies || []).map((c) =>
+                  normalizeStars(attachDistances(c, userLoc, unit))
+                );
+                setResults(enriched);
+                setStatus(`XAI import returned ${enriched.length} companies`);
+              } catch (e) {
+                setStatus(`❌ ${e?.message || "XAI import failed"}`);
+              }
+            }}
+          >
+            Run Import (XAI)
+          </button>
+        </div>
+      )}
 
       <div className="text-sm text-gray-700 mb-3">{status}</div>
 
