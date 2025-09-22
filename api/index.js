@@ -1,26 +1,28 @@
-/* eslint-disable no-console */
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+// Single entry for Node v4 model (@azure/functions).
+// Tries to import each function module; logs if any are missing.
 
-// This file only auto-loads sub-function folders (e.g. proxy-xai, import-progress, etc).
-// DO NOT register a /proxy-xai handler here; it lives in /api/proxy-xai/index.js.
+const modules = [
+  "./get-reviews/index.js",
+  "./submit-review/index.js",
+  "./search-companies/index.js",
+  "./save-companies/index.js",
+  "./save-import-log/index.js",
+  "./import-progress/index.js",
+  "./google-geocode/index.js",
+  "./google-translate/index.js",
+  "./logo-scrape/index.js",
+  "./proxy-xai/index.js",
+  "./reviews-debug/index.js",
+];
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const EXCLUDE = new Set(["node_modules", "scripts", "bin", ".git", ".vscode"]);
-
-for (const entry of fs.readdirSync(__dirname, { withFileTypes: true })) {
-  if (!entry.isDirectory() || EXCLUDE.has(entry.name)) continue;
-  const abs = path.join(__dirname, entry.name, "index.js");
-  if (!fs.existsSync(abs)) continue;
-
-  try {
-    const spec = new URL(`./${entry.name}/index.js`, import.meta.url);
-    await import(spec);
-    console.log(`Loaded function: ${entry.name}`);
-  } catch (e) {
-    console.warn(`Failed to load ./${entry.name}/index.js → ${e.message}`);
+(async () => {
+  for (const m of modules) {
+    try {
+      await import(new URL(m, import.meta.url));
+      console.log("Loaded function:", m);
+    } catch (err) {
+      console.warn("Skipping", m, "-", err?.message || err);
+    }
   }
-}
-
-console.log("Function modules imported.");
+  console.log("Function modules imported.");
+})();
