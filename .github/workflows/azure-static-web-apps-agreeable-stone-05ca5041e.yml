@@ -17,6 +17,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,6 +29,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20.x"
+          cache: "npm"
 
       - name: Install & Build (Vite)
         run: |
@@ -39,10 +41,9 @@ jobs:
         uses: Azure/static-web-apps-deploy@v1
         with:
           action: "upload"
-          # REQUIRED inputs (fix VS Code diagnostic)
-          app_location: "/"           # repo root where package.json lives
-          output_location: "dist"     # Vite output dir
-          # no api_location because you use a dedicated Function App
+          app_location: "/"           # repo root (package.json lives here)
+          output_location: "dist"     # Vite build output
+          # No api_location (Functions are on a dedicated app)
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_AGREEABLE_STONE_05CA5041E }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -56,6 +57,5 @@ jobs:
         uses: Azure/static-web-apps-deploy@v1
         with:
           action: "close"
-          # Include these to satisfy required inputs checkers
           app_location: "/"
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_AGREEABLE_STONE_05CA5041E }}
