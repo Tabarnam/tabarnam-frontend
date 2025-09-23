@@ -2,74 +2,72 @@ name: Azure Static Web Apps CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
     types: [opened, synchronize, reopened, closed]
-    branches: [main]
+    branches: [ main ]
 
 jobs:
   build_and_deploy_job:
-    # Only run deploy on push, or PRs that are not closed
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
     runs-on: ubuntu-latest
     name: Build and Deploy Job
-
-    # IMPORTANT: no id-token here (prevents OIDC path). We only need to read the repo.
     permissions:
       contents: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: false
-          lfs: false
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
-          cache: 'npm'
+          node-version: "20.x"
+          cache: "npm"
 
       - name: Install & Build (Vite)
         run: |
           npm ci || npm install
           npm run build
 
-      # (Optional) sanity check that the token secret exists
-      - name: Check SWA token present
-        run: |
-          if [ -z "${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_AGREEABLE_STONE_05CA5041E }}" ]; then
-            echo "SWA token secret is missing"; exit 1;
-          else
-            echo "SWA token present";
-          fi
-
-      - name: Build And Deploy (SWA via deployment token)
-        id: builddeploy
-        uses: Azure/static-web-apps-deploy@v1
+      # --- Token sanity check (no secret value is printed) ---
+      - name: Validate SWA token (length + no whitespace)
+        shell: bash
         env:
-          # Force token path (not OIDC). The action accepts this env var.
-          AZURE_STATIC_WEB_APPS_API_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_AGREEABLE_STONE_05CA5041E }}
+          SWA_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_AGREEABLE_STONE_05CA5041E }}
+        run: |
+          if [ -z "${SWA_TOKEN}" ]; then
+            echo "Missing AZURE_STATIC_WEB_APPS_API_TOKEN_AGREEABLE_STONE_05CA5041E"; exit 1; fi
+          LEN=${#SWA_TOKEN}
+          # SWA tokens vary, but should be comfortably >100 chars
+          if [ "$LEN" -lt 100 ]; then
+            echo "Token length ($LEN) looks too short; check the secret."; exit 1; fi
+          if printf '%s' "$SWA_TOKEN" | grep -qE '[[:space:]]'; then
+            echo "Token contains whitespace (leading/trailing or internal). Update the secret."; exit 1; fi
+          echo "SWA token length OK: $LEN"
+
+      - name: Build And Deploy (SWA)
+        uses: Azure/static-web-apps-deploy@v1
         with:
-          action: 'upload'
-          app_location: '/'        # repo root where package.json lives
-          output_location: 'dist'  # Vite build output
-          # We also pass the token as an input for older action versions (belt & suspenders).
+          action: upload
+          app_location: "/"           # repo root
+          output_location: "dist"     # Vite output
+          skip_app_build: true        # we already built above
+          # Not strictly required, but harmless:
+          config_file_location: "public"
+          routes_location: "public"
+          production_branch: "main"
+          deployment_environment: "Production"
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_AGREEABLE_STONE_05CA5041E }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
-    name: Close Pull Request Job
     steps:
-      - name: Close Pull Request (SWA)
-        id: closepullrequest
+      - name: Close PR Environment
         uses: Azure/static-web-apps-deploy@v1
-        env:
-          AZURE_STATIC_WEB_APPS_API_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_AGREEABLE_STONE_05CA5041E }}
         with:
-          action: 'close'
-          app_location: '/'
+          action: close
+          app_location: "/"
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_AGREEABLE_STONE_05CA5041E }}
