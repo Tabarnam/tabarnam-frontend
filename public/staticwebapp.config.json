@@ -22,7 +22,7 @@
       "rewrite": "/index.html"
     },
     {
-      "route": "/results",
+      "route": "/results*",
       "rewrite": "/index.html"
     }
   ],
