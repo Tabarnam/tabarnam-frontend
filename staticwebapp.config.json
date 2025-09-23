@@ -1,0 +1,37 @@
+{
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/api/*",
+      "/assets/*",
+      "/favicon.ico",
+      "/tabarnam-icon.png",
+      "/tabarnam.png",
+      "/*.css",
+      "/*.js",
+      "/*.map"
+    ]
+  },
+  "routes": [
+    {
+      "route": "/admin/xai-bulk-import*",
+      "rewrite": "/index.html"
+    },
+    {
+      "route": "/admin/*",
+      "rewrite": "/index.html"
+    },
+    {
+      "route": "/results",
+      "rewrite": "/index.html"
+    }
+  ],
+  "globalHeaders": {
+    "X-Frame-Options": "SAMEORIGIN",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin"
+  },
+  "mimeTypes": {
+    ".json": "text/json"
+  }
+}
