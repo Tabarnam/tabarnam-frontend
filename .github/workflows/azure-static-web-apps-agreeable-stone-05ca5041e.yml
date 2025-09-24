@@ -30,20 +30,16 @@ jobs:
           npm ci || npm install
           npm run build
 
-      # --- Token sanity check (no secret value is printed) ---
-      - name: Validate SWA token (length + no whitespace)
+      # Sanity check the secret (doesn't print it)
+      - name: Validate SWA token
         shell: bash
         env:
           SWA_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_AGREEABLE_STONE_05CA5041E }}
         run: |
-          if [ -z "${SWA_TOKEN}" ]; then
-            echo "Missing AZURE_STATIC_WEB_APPS_API_TOKEN_AGREEABLE_STONE_05CA5041E"; exit 1; fi
+          if [ -z "${SWA_TOKEN}" ]; then echo "Missing SWA token secret"; exit 1; fi
           LEN=${#SWA_TOKEN}
-          # SWA tokens vary, but should be comfortably >100 chars
-          if [ "$LEN" -lt 100 ]; then
-            echo "Token length ($LEN) looks too short; check the secret."; exit 1; fi
-          if printf '%s' "$SWA_TOKEN" | grep -qE '[[:space:]]'; then
-            echo "Token contains whitespace (leading/trailing or internal). Update the secret."; exit 1; fi
+          if [ "$LEN" -lt 100 ]; then echo "Token too short ($LEN)"; exit 1; fi
+          if printf '%s' "$SWA_TOKEN" | grep -qE '[[:space:]]'; then echo "Token contains whitespace"; exit 1; fi
           echo "SWA token length OK: $LEN"
 
       - name: Build And Deploy (SWA)
@@ -52,10 +48,8 @@ jobs:
           action: upload
           app_location: "/"           # repo root
           output_location: "dist"     # Vite output
-          skip_app_build: true        # we already built above
-          # Not strictly required, but harmless:
-          config_file_location: "public"
-          routes_location: "public"
+          skip_app_build: true        # we already built
+          config_file_location: "public"  # where staticwebapp.config.json lives
           production_branch: "main"
           deployment_environment: "Production"
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_AGREEABLE_STONE_05CA5041E }}
