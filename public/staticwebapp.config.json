@@ -13,10 +13,16 @@
     ]
   },
   "routes": [
-    { "route": "/admin/xai-bulk-import*","rewrite": "/index.html" },
-    { "route": "/admin/*","rewrite": "/index.html" },
-    { "route": "/results*","rewrite": "/index.html" }
-  ],
+  { "route": "/results", "rewrite": "/index.html" },
+  { "route": "/results/*", "rewrite": "/index.html" },
+
+  { "route": "/admin", "rewrite": "/index.html" },
+  { "route": "/admin/*", "rewrite": "/index.html" },
+
+  { "route": "/admin/xai-bulk-import", "rewrite": "/index.html" },
+  { "route": "/admin/xai-bulk-import/*", "rewrite": "/index.html" }
+  ]
+,
   "responseOverrides": {
     "404": { "rewrite": "/index.html", "statusCode": 200 }
   },
