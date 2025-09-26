@@ -1,16 +1,26 @@
-node_modules
-.env.local
-# Local env & secrets
+# === Dependencies & builds ===
+node_modules/
+dist/
+.swa/
+
+# === Local env & secrets (never commit) ===
 .env
 .env.*
 !.env.example
+.env.local
 api/local.settings.json
 local.settings.json
+swa-token.txt
 
-# Builds & tooling
-dist/
-node_modules/
-.swa/
+# Test/diagnostic probe files you created
+public/ping.txt
+public/proof.txt
+public/deploy-proof.txt
+public/health.txt
 
-# ignore accidental nested repo
+# === OS/Editor noise ===
+.DS_Store
+Thumbs.db
+
+# Guard against accidental nested repo
 tabarnam-frontend/
