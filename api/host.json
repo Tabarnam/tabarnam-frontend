@@ -1,6 +1,6 @@
 {
-  "version": "2.0",
-  "functionTimeout": "00:10:00",
+  "version": "4.0",
+  "functionTimeout": "00:60:00",
   "extensions": {
     "http": {
       "routePrefix": "api"

@@ -1,5 +1,5 @@
 {
-  "name": "tabarnam-functions",
+  "name": "tabarnam-api",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@azure/cosmos": "^4.5.0",
-    "@azure/functions": "^4.7.2",
-    "axios": "^1.12.2"
+    "@azure/functions": "^4.4.0",
+    "axios": "^1.7.7"
   }
 }
