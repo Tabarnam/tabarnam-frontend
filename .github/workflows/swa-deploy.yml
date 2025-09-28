@@ -5,12 +5,16 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   build_and_deploy_job:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
+    concurrency:
+      group: swa-production
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,21 +30,36 @@ jobs:
           npm ci || npm install
           npm run build
 
+      # Quick sanity: prove the API folder is in the repo and host.json is present
+      - name: Sanity — list repo and api folder
+        run: |
+          echo "== repo root =="
+          ls -la
+          echo "== api =="
+          ls -la api || true
+          echo "== api/host.json =="
+          cat api/host.json || true
+          echo "node: $(node -v)  npm: $(npm -v)"
+
+      # The SWA deployment token must match your SWA (Production) environment
       - name: Preflight token
         env:
           SWA_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
         run: |
-          if [ -z "$SWA_TOKEN" ]; then echo "Missing AZURE_STATIC_WEB_APPS_API_TOKEN secret"; exit 1; fi
+          test -n "$SWA_TOKEN" || (echo "Missing AZURE_STATIC_WEB_APPS_API_TOKEN secret"; exit 1)
           echo "SWA token present."
 
+      # Upload both the built app and the Functions API (api_location)
       - name: Upload to Azure Static Web Apps (app + api)
         uses: Azure/static-web-apps-deploy@v1
         with:
           action: upload
-          app_location: "/"
-          app_artifact_location: "dist"
-          skip_app_build: true         # we already ran npm run build
-          api_location: "api"          # <-- THIS makes it deploy /api
-          # do NOT skip API build so the action packs the functions
+          app_location: "/"              # frontend lives at repo root
+          app_artifact_location: "dist"  # Vite output
+          api_location: "api"            # <-- IMPORTANT: deploy our Functions
+          # keep API build enabled (do NOT set skip_api_build)
+          skip_app_build: true           # we already ran npm run build
+          production_branch: "main"
+          deployment_environment: "Production"
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
