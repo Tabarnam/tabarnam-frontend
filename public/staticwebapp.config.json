@@ -1,3 +1,7 @@
 {
-  "routes": [ { "route": "/*", "rewrite": "/index.html" } ]
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/assets/*", "/api/*"]
+  },
+  "responseOverrides": { "404": { "rewrite": "/index.html" } }
 }
