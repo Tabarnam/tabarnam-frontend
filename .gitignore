@@ -24,3 +24,7 @@ Thumbs.db
 
 # Guard against accidental nested repo
 tabarnam-frontend/
+
+.python_packages
+__pycache__
+.venv

@@ -1,11 +1,14 @@
 {
-  "name": "web-app",
+  "name": "xai-upstream",
+  "version": "1.0.0",
   "type": "module",
-  "version": "0.0.0",
-  "private": true,
+  "dependencies": {
+    "@azure/functions": "^4.7.2",
+    "private": true
+  },
+   
   "scripts": {
-    "dev": "vite",
-    "dev:ipv6": "vite --host ::1 --port 5173 --strictPort",
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "dev:ipv4": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "build": "vite build",
     "preview": "vite preview --host ::1 --port 5173"
@@ -60,23 +63,18 @@
     "@babel/parser": "^7.27.0",
     "@babel/traverse": "^7.27.0",
     "@babel/types": "^7.27.0",
-    "@testing-library/jest-dom": "^6.8.0",
-    "@testing-library/react": "^16.3.0",
-    "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^20.19.15",
+    "@types/node": "^20.8.3",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
     "eslint": "^8.57.1",
     "eslint-config-react-app": "^7.0.1",
-    "jsdom": "^27.0.0",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.3",
     "terser": "^5.39.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.5.4",
-    "vite": "^7.1.1",
-    "vitest": "^3.2.4"
+    "vite": "^7.1.1"
   }
 }
