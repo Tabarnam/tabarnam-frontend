@@ -1,21 +1,21 @@
 {
-  "name": "tabarnam-api",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "main": "index.js",
-  "engines": {
-    "node": ">=18.20 <23"
-  },
-  "scripts": {
-    "start": "func start --port 7071 --cors \"*\"",
-    "start:verbose": "func start --port 7071 --cors \"*\" --verbose",
-    "db:init": "node ./scripts/ensure-cosmos.js",
-    "dump:cosmos": "node ./scripts/dumpCompanies.mjs"
-  },
-  "dependencies": {
-    "@azure/cosmos": "^4.5.0",
-    "@azure/functions": "^4.4.0",
-    "axios": "^1.7.7"
-  }
+    "name":  "tabarnam-api",
+    "version":  "1.0.0",
+    "private":  true,
+    "type":  "module",
+    "main":  "index.js",
+    "engines":  {
+                    "node":  "\u003e=18.20 \u003c23"
+                },
+    "scripts":  {
+                    "start":  "func start --port 7071 --cors \"*\"",
+                    "start:verbose":  "func start --port 7071 --cors \"*\" --verbose",
+                    "db:init":  "node ./scripts/ensure-cosmos.js",
+                    "dump:cosmos":  "node ./scripts/dumpCompanies.mjs"
+                },
+    "dependencies":  {
+                         "@azure/cosmos":  "^4.5.1",
+                         "@azure/functions":  "^4.8.0",
+                         "axios":  "^1.12.2"
+                     }
 }
