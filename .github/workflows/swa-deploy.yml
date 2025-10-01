@@ -12,6 +12,9 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      RG_NAME: tabarnam-mvp-rg
+      SWA_NAME: tabarnam-frontend
 
     steps:
       - uses: actions/checkout@v4
@@ -33,21 +36,33 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # (Optional) sanity print
-      - name: Whoami
+      - name: Who am I (debug)
         run: az account show --query "{tenantId:tenantId, subscription:id, user:user.name}"
 
-      - name: Get SWA deployment token (via OIDC)
-        run: echo "SWA_TOKEN=$(az staticwebapp secrets list -g tabarnam-mvp-rg -n tabarnam-frontend --query properties.apiKey -o tsv)" >> $GITHUB_ENV
+      - name: Fetch SWA deployment token and export for action
+        run: |
+          TOKEN=$(az staticwebapp secrets list -g "$RG_NAME" -n "$SWA_NAME" --query properties.apiKey -o tsv)
+          echo "AZURE_STATIC_WEB_APPS_API_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
-      # Use the official SWA deploy action, but feed it the token we just fetched
-      - name: Upload to Static Web Apps (app + api)
+      - name: Deploy to Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
         with:
-          action: upload
-          app_location: "/"
-          app_artifact_location: "dist"
+          action: "upload"
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          app_location: /
+          output_location: dist
+          api_location: api
           skip_app_build: true
-          api_location: "api"
-          azure_static_web_apps_api_token: ${{ env.SWA_TOKEN }}
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          production_branch: main
+
+      - name: Post-deploy health check (non-fatal)
+        run: |
+          HOST=$(az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" --query defaultHostname -o tsv)
+          echo "Host: https://$HOST"
+          echo "Home page ping:"
+          curl -sS --retry 5 --retry-delay 5 "https://$HOST" | head -c 200 || true
+          echo
+          echo "Proxy smoke test:"
+          curl -sS -X POST "https://$HOST/api/proxy-xai" \
+               -H "Content-Type: application/json" \
+               -d '{"queryType":"product_keyword","query":"gelato machine","limit":1}' || true
