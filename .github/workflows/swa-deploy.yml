@@ -39,7 +39,7 @@ jobs:
       - name: Who am I (debug)
         run: az account show --query "{tenantId:tenantId, subscription:id, user:user.name}"
 
-      # === replacement block begins ===
+      # === token + debug ===
       - name: Fetch SWA deployment token
         id: swa_token
         run: |
@@ -59,17 +59,22 @@ jobs:
           az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" \
             --query "{name:name, id:id, host:defaultHostname, location:location}" -o tsv
 
-      - name: Deploy to Static Web Apps
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          action: upload
-          azure_static_web_apps_api_token: ${{ steps.swa_token.outputs.token }}
-          app_location: /
-          output_location: dist
-          api_location: api
-          skip_app_build: true
-          production_branch: main
-      # === replacement block ends ===
+      # === deploy via SWA CLI (token-based) ===
+      - name: Install SWA CLI
+        run: npm i -g @azure/static-web-apps-cli
+
+      # We only deploy static assets from dist; your API is a separate Function App.
+      - name: Deploy (swa deploy)
+        env:
+          TOKEN: ${{ steps.swa_token.outputs.token }}
+        run: |
+          swa --version
+          swa deploy ./dist \
+            --deployment-token "$TOKEN" \
+            --env production
+          # Notes:
+          # - No api upload here (your backend lives in tabarnam-xai-dedicated)
+          # - If you later add managed functions, add: --api-location api
 
       - name: Post-deploy health check (non-fatal)
         run: |
