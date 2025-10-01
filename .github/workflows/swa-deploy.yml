@@ -39,21 +39,37 @@ jobs:
       - name: Who am I (debug)
         run: az account show --query "{tenantId:tenantId, subscription:id, user:user.name}"
 
-      - name: Fetch SWA deployment token and export for action
+      # === replacement block begins ===
+      - name: Fetch SWA deployment token
+        id: swa_token
         run: |
           TOKEN=$(az staticwebapp secrets list -g "$RG_NAME" -n "$SWA_NAME" --query properties.apiKey -o tsv)
-          echo "AZURE_STATIC_WEB_APPS_API_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          echo "::add-mask::$TOKEN"
+          echo "token=${TOKEN}" >> "$GITHUB_OUTPUT"
+
+      - name: "Debug: token length & hash (masked)"
+        env:
+          TOKEN: ${{ steps.swa_token.outputs.token }}
+        run: |
+          echo "Token length: ${#TOKEN}"
+          printf "%s" "$TOKEN" | sha256sum | cut -c1-12 | xargs echo "sha256 prefix:"
+
+      - name: "Debug: SWA identity"
+        run: |
+          az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" \
+            --query "{name:name, id:id, host:defaultHostname, location:location}" -o tsv
 
       - name: Deploy to Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
         with:
-          action: "upload"
-          azure_static_web_apps_api_token: ${{ env.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          azure_static_web_apps_api_token: ${{ steps.swa_token.outputs.token }}
           app_location: /
           output_location: dist
           api_location: api
           skip_app_build: true
           production_branch: main
+      # === replacement block ends ===
 
       - name: Post-deploy health check (non-fatal)
         run: |
