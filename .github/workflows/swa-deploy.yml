@@ -33,14 +33,21 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Ensure SWA CLI extension
-        run: az extension add --name staticwebapp -y || az extension update --name staticwebapp
+      # (Optional) sanity print
+      - name: Whoami
+        run: az account show --query "{tenantId:tenantId, subscription:id, user:user.name}"
 
+      - name: Get SWA deployment token (via OIDC)
+        run: echo "SWA_TOKEN=$(az staticwebapp secrets list -g tabarnam-mvp-rg -n tabarnam-frontend --query properties.apiKey -o tsv)" >> $GITHUB_ENV
+
+      # Use the official SWA deploy action, but feed it the token we just fetched
       - name: Upload to Static Web Apps (app + api)
-        run: |
-          az staticwebapp upload \
-            --name tabarnam-frontend \
-            --resource-group tabarnam-mvp-rg \
-            --app-location . \
-            --output-location dist \
-            --api-location api
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          action: upload
+          app_location: "/"
+          app_artifact_location: "dist"
+          skip_app_build: true
+          api_location: "api"
+          azure_static_web_apps_api_token: ${{ env.SWA_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
