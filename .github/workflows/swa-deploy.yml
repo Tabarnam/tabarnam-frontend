@@ -29,7 +29,6 @@ jobs:
           npm ci || npm i
           npm run build
 
-      # OIDC login (kept for az ops / identity dump)
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
@@ -40,42 +39,24 @@ jobs:
       - name: Who am I (debug)
         run: az account show --query "{tenantId:tenantId, subscription:id, user:user.name}"
 
-      - name: Select deployment token (prefer repo secret)
-        id: pick_token
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -n "${{ secrets.SWA_DEPLOYMENT_TOKEN }}" ]]; then
-            echo "source=repo_secret" | tee -a "$GITHUB_STEP_SUMMARY"
-            TOKEN="${{ secrets.SWA_DEPLOYMENT_TOKEN }}"
-          else
-            echo "source=arm_listSecrets" | tee -a "$GITHUB_STEP_SUMMARY"
-            SUB_ID="$(az account show --query id -o tsv)"
-            TOKEN="$(az rest \
-              --method post \
-              --uri "https://management.azure.com/subscriptions/${SUB_ID}/resourceGroups/${RG_NAME}/providers/Microsoft.Web/staticSites/${SWA_NAME}/listSecrets?api-version=2023-12-01" \
-              --query properties.apiKey -o tsv || true)"
-            if [[ -z "${TOKEN:-}" ]]; then
-              echo "listSecrets returned empty; falling back to 'az staticwebapp secrets list'"
-              TOKEN="$(az staticwebapp secrets list -g "$RG_NAME" -n "$SWA_NAME" --query properties.apiKey -o tsv)"
-            fi
-          fi
-          # Mask and expose
-          echo "::add-mask::$TOKEN"
-          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
-          echo "Token length: ${#TOKEN}"
-          printf "%s" "$TOKEN" | sha256sum | cut -c1-12 | xargs echo "sha256 prefix:"
+      - name: Ensure az staticwebapp extension
+        run: az extension add --name staticwebapp -y || az extension update --name staticwebapp
 
-      - name: Deploy to Static Web Apps (official action)
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          action: upload
-          azure_static_web_apps_api_token: ${{ steps.pick_token.outputs.token }}
-          app_location: /
-          output_location: dist
-          api_location: api
-          skip_app_build: true
-          production_branch: main
+      - name: Dump SWA identity & host (triple-check targeting)
+        run: |
+          az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" \
+            --query "{name:name, id:id, region:location, host:defaultHostname}" -o tsv
+
+      - name: Deploy via Azure CLI (no token)
+        run: |
+          set -euxo pipefail
+          # Push built site + API to the SWA resource you logged into via OIDC
+          az staticwebapp upload \
+            -g "$RG_NAME" \
+            -n "$SWA_NAME" \
+            --app-artifact-location "dist" \
+            --api-location "api" \
+            --verbose
 
       - name: Post-deploy health check (non-fatal)
         run: |
@@ -85,4 +66,10 @@ jobs:
           curl -sS --retry 5 --retry-delay 3 "https://$HOST" | head -c 200 || true
           echo
           echo "GET /api/proxy-xai ->"
-          curl -sS --retry 2 --retry-delay 2 "https://$HOST/api/proxy-xai" | head -c 200 || true
+          curl -sS --retry 3 --retry-delay 2 "https://$HOST/api/proxy-xai" | head -c 300 || true
+          echo
+          echo "POST /api/proxy-xai (stub body) ->"
+          curl -sS -X POST "https://$HOST/api/proxy-xai" \
+               -H "Content-Type: application/json" \
+               -d '{"queryType":"product_keyword","query":"gelato machine","limit":1}' \
+               | head -c 400 || true
