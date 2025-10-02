@@ -46,3 +46,13 @@ __pycache__/
 __blobstorage__
 __queuestorage__
 __azurite_db*__.json
+
+# Azurite (local Azure Storage emulator)
+AzuriteConfig
+api/AzuriteConfig
+__azurite_db_*.json
+__azurite_db_*_extent__.json
+__blobstorage__/
+
+# Azure Functions local config
+api/local.settings.json
