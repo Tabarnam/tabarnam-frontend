@@ -1,5 +1,5 @@
 ﻿# .github/workflows/swa-deploy.yml
-name: SWA Deploy (CLI)
+name: SWA Deploy (az upload)
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  id-token: write
   contents: read
 
 concurrency:
@@ -16,6 +17,9 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      RG_NAME: tabarnam-mvp-rg
+      SWA_NAME: tabarnam-frontend
 
     steps:
       - uses: actions/checkout@v4
@@ -30,16 +34,37 @@ jobs:
           npm ci || npm i
           npm run build
 
-      - name: Install SWA CLI
-        run: npm i -g @azure/static-web-apps-cli
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:  ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Deploy with SWA CLI (force Production)
-        env:
-          SWA_DEPLOYMENT_TOKEN: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
+      - name: Upload to Static Web Apps (az)
+        shell: bash
         run: |
-          swa deploy \
-            --env production \
-            --deployment-token "$SWA_DEPLOYMENT_TOKEN" \
-            --app-location . \
-            --output-location dist \
+          az extension add --name staticwebapp --upgrade -y
+          az staticwebapp upload \
+            --name "$SWA_NAME" \
+            --resource-group "$RG_NAME" \
+            --source . \
+            --app-artifact-location dist \
             --api-location api
+
+      - name: Post-deploy health checks (non-fatal)
+        shell: bash
+        run: |
+          HOST=$(az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" --query defaultHostname -o tsv)
+          echo "Host: https://$HOST"
+          echo "GET / ->"
+          curl -sS --retry 5 --retry-delay 3 "https://$HOST" | head -c 200 || true
+          echo
+          echo "GET /api/proxy-xai ->"
+          curl -sS --retry 3 --retry-delay 2 "https://$HOST/api/proxy-xai" | head -c 300 || true
+          echo
+          echo "POST /api/proxy-xai (stub body) ->"
+          curl -sS -X POST "https://$HOST/api/proxy-xai" \
+            -H "Content-Type: application/json" \
+            -d '{"queryType":"product_keyword","query":"gelato machine","limit":1}' \
+            | head -c 400 || true
