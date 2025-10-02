@@ -1,4 +1,5 @@
-﻿name: SWA Deploy (OIDC)
+﻿# .github/workflows/swa-deploy.yml
+name: SWA Deploy (OIDC)
 
 on:
   push:
@@ -49,16 +50,18 @@ jobs:
       - name: Ensure SWA az extension (latest)
         run: az extension add --name staticwebapp -y || az extension update --name staticwebapp
 
-      # Try to rotate; if the service returns nothing, fall back to listing the current token
-      - name: Get SWA deployment token (reset or list)
+      # --- NEW: get a fresh deployment token reliably via ARM REST ---
+      - name: Get SWA deployment token (ARM regenerate or list)
         id: token
         shell: bash
         run: |
           set -euo pipefail
-          echo "Attempting token reset..."
-          NEW="$(az staticwebapp secrets reset-api-key -g "$RG_NAME" -n "$SWA_NAME" --query properties.apiKey -o tsv || true)"
+          SITE_ID="$(az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" --query id -o tsv)"
+          API="https://management.azure.com${SITE_ID}/regenerateApiKey?api-version=2022-03-01"
+          echo "Regenerating token via ARM: $API"
+          NEW="$(az rest --method post --uri "$API" --query properties.apiKey -o tsv || true)"
           if [ -z "${NEW:-}" ]; then
-            echo "Reset returned empty; falling back to list..."
+            echo "Regenerate returned empty; falling back to list..."
             NEW="$(az staticwebapp secrets list -g "$RG_NAME" -n "$SWA_NAME" --query properties.apiKey -o tsv || true)"
           fi
           if [ -z "${NEW:-}" ]; then
@@ -79,6 +82,7 @@ jobs:
           api_location: api
           skip_app_build: true
           production_branch: main
+          deployment_environment: production
 
       - name: Post-deploy health check (non-fatal)
         run: |
