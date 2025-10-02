@@ -1,5 +1,4 @@
-﻿# .github/workflows/swa-deploy.yml
-name: SWA Deploy (OIDC)
+﻿name: SWA Deploy (OIDC)
 
 on:
   push:
@@ -28,6 +27,7 @@ jobs:
 
       - name: Install & Build (Vite)
         run: |
+          set -euo pipefail
           npm ci || npm i
           npm run build
           test -d dist || (echo "dist/ missing" && exit 1)
@@ -50,25 +50,37 @@ jobs:
       - name: Ensure SWA az extension (latest)
         run: az extension add --name staticwebapp -y || az extension update --name staticwebapp
 
-      # --- NEW: get a fresh deployment token reliably via ARM REST ---
-      - name: Get SWA deployment token (ARM regenerate or list)
+      # Robust token acquisition: try ARM listSecrets across API versions, then CLI fallback.
+      - name: Get SWA deployment token (ARM listSecrets)
         id: token
         shell: bash
         run: |
           set -euo pipefail
           SITE_ID="$(az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" --query id -o tsv)"
-          API="https://management.azure.com${SITE_ID}/regenerateApiKey?api-version=2022-03-01"
-          echo "Regenerating token via ARM: $API"
-          NEW="$(az rest --method post --uri "$API" --query properties.apiKey -o tsv || true)"
+          NEW=""
+          for API in 2023-12-01 2022-09-01 2022-03-01 2021-03-01; do
+            echo "Trying listSecrets api-version=$API"
+            NEW="$(az rest --method post \
+              --uri "https://management.azure.com${SITE_ID}/listSecrets?api-version=$API" \
+              --query properties.apiKey -o tsv || true)"
+            if [ -n "${NEW:-}" ]; then
+              echo "Got token via listSecrets ($API)"
+              break
+            fi
+          done
           if [ -z "${NEW:-}" ]; then
-            echo "Regenerate returned empty; falling back to list..."
+            echo "listSecrets failed; falling back to 'az staticwebapp secrets list'..."
             NEW="$(az staticwebapp secrets list -g "$RG_NAME" -n "$SWA_NAME" --query properties.apiKey -o tsv || true)"
           fi
           if [ -z "${NEW:-}" ]; then
             echo "Failed to obtain deployment token"; exit 1
           fi
           echo "::add-mask::$NEW"
-          echo "value=$NEW" >> "$GITHUB_OUTPUT"
+          {
+            echo "value<<EOF"
+            echo "$NEW"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
           echo "Token length: ${#NEW}"
           printf "%s" "$NEW" | sha256sum | cut -c1-12 | xargs echo "sha256 prefix:"
 
