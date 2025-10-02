@@ -46,18 +46,29 @@ jobs:
           az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" \
             --query "{name:name, id:id, host:defaultHostname, location:location}" -o tsv
 
-      # Rotate the deployment token (ensures it’s valid)
-      - name: Rotate SWA deployment token
+      - name: Ensure SWA az extension (latest)
+        run: az extension add --name staticwebapp -y || az extension update --name staticwebapp
+
+      # Try to rotate; if the service returns nothing, fall back to listing the current token
+      - name: Get SWA deployment token (reset or list)
         id: token
+        shell: bash
         run: |
-          NEW=$(az staticwebapp secrets reset-api-key -g "$RG_NAME" -n "$SWA_NAME" --query properties.apiKey -o tsv)
-          if [ -z "$NEW" ]; then
+          set -euo pipefail
+          echo "Attempting token reset..."
+          NEW="$(az staticwebapp secrets reset-api-key -g "$RG_NAME" -n "$SWA_NAME" --query properties.apiKey -o tsv || true)"
+          if [ -z "${NEW:-}" ]; then
+            echo "Reset returned empty; falling back to list..."
+            NEW="$(az staticwebapp secrets list -g "$RG_NAME" -n "$SWA_NAME" --query properties.apiKey -o tsv || true)"
+          fi
+          if [ -z "${NEW:-}" ]; then
             echo "Failed to obtain deployment token"; exit 1
           fi
           echo "::add-mask::$NEW"
           echo "value=$NEW" >> "$GITHUB_OUTPUT"
+          echo "Token length: ${#NEW}"
+          printf "%s" "$NEW" | sha256sum | cut -c1-12 | xargs echo "sha256 prefix:"
 
-      # Official deploy action with the fresh token
       - name: Deploy to Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
         with:
@@ -71,10 +82,10 @@ jobs:
 
       - name: Post-deploy health check (non-fatal)
         run: |
-          HOST=$(az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" --query defaultHostname -o tsv)
-          echo "Host: https://$HOST"
+          SwaHost=$(az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" --query defaultHostname -o tsv)
+          echo "Host: https://$SwaHost"
           echo "Home page ping:"
-          curl -sS --retry 5 --retry-delay 5 "https://$HOST" | head -c 200 || true
+          curl -sS --retry 5 --retry-delay 5 "https://$SwaHost" | head -c 200 || true
           echo
           echo "Proxy smoke test (GET /api/proxy-xai):"
-          curl -sS "https://$HOST/api/proxy-xai" || true
+          curl -sS "https://$SwaHost/api/proxy-xai" || true
