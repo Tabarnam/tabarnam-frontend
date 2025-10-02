@@ -35,32 +35,44 @@ jobs:
           npm ci || npm i
           npm run build
 
-      # DEBUG: make sure the runner is actually seeing your portal token
-      - name: Show token SHA256 prefix (debug)
+      # Quick sanity: show the hash prefix of the repo secret
+      - name: Show token SHA256 prefix (repo secret)
         shell: bash
         run: |
-          printf "token sha256 prefix: "
+          printf "repo secret sha256: "
+          echo -n '${{ secrets.SWA_DEPLOYMENT_TOKEN }}' | sha256sum | cut -c1-12
+
+      # Login just to compare Azure's token vs your repo secret (hashes only)
+      - name: Azure login (OIDC) for token compare + health checks
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:  ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Compare token with Azure listSecrets (hash only)
+        shell: bash
+        run: |
+          AZ_TOKEN=$(az rest --method post \
+            --url "https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${RG_NAME}/providers/Microsoft.Web/staticSites/${SWA_NAME}/listSecrets?api-version=2023-12-01" \
+            --query "properties.apiKey" -o tsv)
+          printf "azure listSecrets sha256: "
+          echo -n "$AZ_TOKEN" | sha256sum | cut -c1-12
+          printf "repo secret sha256:    "
           echo -n '${{ secrets.SWA_DEPLOYMENT_TOKEN }}' | sha256sum | cut -c1-12
 
       # Deploy using the official SWA action with your portal token
       - name: Deploy to Static Web Apps (token)
         uses: Azure/static-web-apps-deploy@v1
         with:
-          action: "upload"                       # <-- required input name
+          action: "upload"
           azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
-          app_location: "."                      # repo root
-          output_location: "dist"                # built Vite output
-          api_location: "api"                    # your Functions folder
-          skip_app_build: true                   # we already built above
-          skip_api_build: false                  # let SWA action package the API
-
-      # Optional: Login only to fetch the hostname for health checks
-      - name: Azure login (OIDC) for health checks
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id:  ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          app_location: "."               # repo root
+          output_location: "dist"         # built Vite output
+          api_location: "api"             # Functions folder
+          skip_app_build: true            # already built
+          skip_api_build: false           # package API
+          production_branch: "main"
 
       - name: Post-deploy health checks (non-fatal)
         shell: bash
