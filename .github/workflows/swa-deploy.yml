@@ -46,12 +46,13 @@ jobs:
       - name: Deploy to Static Web Apps (token)
         uses: Azure/static-web-apps-deploy@v1
         with:
+          action: "upload"                       # <-- required input name
           azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
-          app_location: "/"            # repo root
-          output_location: "dist"      # built Vite output
-          api_location: "api"          # your Functions folder
-          skip_app_build: true         # we already built above
-          skip_api_build: false        # let SWA action build the API
+          app_location: "."                      # repo root
+          output_location: "dist"                # built Vite output
+          api_location: "api"                    # your Functions folder
+          skip_app_build: true                   # we already built above
+          skip_api_build: false                  # let SWA action package the API
 
       # Optional: Login only to fetch the hostname for health checks
       - name: Azure login (OIDC) for health checks
