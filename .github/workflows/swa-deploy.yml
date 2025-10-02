@@ -1,5 +1,4 @@
-﻿# .github/workflows/swa-deploy.yml
-name: SWA Deploy (OIDC)
+﻿name: SWA Deploy (OIDC)
 
 on:
   push:
@@ -24,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Build the Vite app up-front to keep the SWA action simple
+      # Build the Vite app up-front
       - uses: actions/setup-node@v4
         with:
           node-version: "20.x"
@@ -35,46 +34,50 @@ jobs:
           npm ci || npm i
           npm run build
 
-      # Quick sanity: show the hash prefix of the repo secret
-      - name: Show token SHA256 prefix (repo secret)
+      # DEBUG: show the repo secret hash (detect stale/newlines)
+      - name: Show token SHA256 prefix (debug)
         shell: bash
         run: |
           printf "repo secret sha256: "
-          echo -n '${{ secrets.SWA_DEPLOYMENT_TOKEN }}' | sha256sum | cut -c1-12
+          echo -n "${{ secrets.SWA_DEPLOYMENT_TOKEN }}" | sha256sum | cut -c1-12
 
-      # Login just to compare Azure's token vs your repo secret (hashes only)
-      - name: Azure login (OIDC) for token compare + health checks
+      # (Optional) Compare to live portal value via ARM (sanity check)
+      - name: Azure login (OIDC) for listSecrets check
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id:  ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Compare token with Azure listSecrets (hash only)
+      - name: Compare to listSecrets (debug)
         shell: bash
         run: |
+          set -euo pipefail
           AZ_TOKEN=$(az rest --method post \
-            --url "https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${RG_NAME}/providers/Microsoft.Web/staticSites/${SWA_NAME}/listSecrets?api-version=2023-12-01" \
+            --uri "https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.RG_NAME }}/providers/Microsoft.Web/staticSites/${{ env.SWA_NAME }}/listSecrets?api-version=2023-12-01" \
             --query "properties.apiKey" -o tsv)
           printf "azure listSecrets sha256: "
           echo -n "$AZ_TOKEN" | sha256sum | cut -c1-12
-          printf "repo secret sha256:    "
-          echo -n '${{ secrets.SWA_DEPLOYMENT_TOKEN }}' | sha256sum | cut -c1-12
+          # Export the token env var the action can read by default
+          echo "AZURE_STATIC_WEB_APPS_API_TOKEN=$AZ_TOKEN" >> $GITHUB_ENV
 
-      # Deploy using the official SWA action with your portal token
+      # Deploy using the official SWA action (explicit branch/env)
       - name: Deploy to Static Web Apps (token)
         uses: Azure/static-web-apps-deploy@v1
         with:
           action: "upload"
+          # Prefer the repo secret; the env var above is a fallback
           azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
-          app_location: "."               # repo root
-          output_location: "dist"         # built Vite output
-          api_location: "api"             # Functions folder
-          skip_app_build: true            # already built
-          skip_api_build: false           # package API
+          app_location: "."
+          output_location: "dist"
+          api_location: "api"
+          skip_app_build: true
+          skip_api_build: false
           production_branch: "main"
+          deployment_environment: "production"
 
-      - name: Post-deploy health checks (non-fatal)
+      # Post-deploy health checks (non-fatal)
+      - name: Post-deploy health checks
         shell: bash
         run: |
           HOST=$(az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" --query defaultHostname -o tsv)
@@ -87,6 +90,6 @@ jobs:
           echo
           echo "POST /api/proxy-xai (stub body) ->"
           curl -sS -X POST "https://$HOST/api/proxy-xai" \
-               -H "Content-Type: application/json" \
-               -d '{"queryType":"product_keyword","query":"gelato machine","limit":1}' \
-               | head -c 400 || true
+            -H "Content-Type: application/json" \
+            -d '{"queryType":"product_keyword","query":"gelato machine","limit":1}' \
+            | head -c 400 || true
