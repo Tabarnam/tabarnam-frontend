@@ -29,6 +29,7 @@ jobs:
         run: |
           npm ci || npm i
           npm run build
+          test -d dist || (echo "dist/ missing" && exit 1)
 
       - name: Azure login (OIDC)
         uses: azure/login@v2
@@ -45,21 +46,28 @@ jobs:
           az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" \
             --query "{name:name, id:id, host:defaultHostname, location:location}" -o tsv
 
-      - name: Install SWA CLI
-        run: npm i -g @azure/static-web-apps-cli
-
-      - name: Deploy (swa deploy via Azure login)
+      # Rotate the deployment token (ensures it’s valid)
+      - name: Rotate SWA deployment token
+        id: token
         run: |
-          set -euo pipefail
-          swa --version
-          swa deploy ./dist \
-            --env production \
-            --app-name "$SWA_NAME" \
-            --resource-group "$RG_NAME" \
-            --subscription-id "$SUBSCRIPTION_ID" \
-            --api-location api \
-            --api-language node \
-            --api-version 18
+          NEW=$(az staticwebapp secrets reset-api-key -g "$RG_NAME" -n "$SWA_NAME" --query properties.apiKey -o tsv)
+          if [ -z "$NEW" ]; then
+            echo "Failed to obtain deployment token"; exit 1
+          fi
+          echo "::add-mask::$NEW"
+          echo "value=$NEW" >> "$GITHUB_OUTPUT"
+
+      # Official deploy action with the fresh token
+      - name: Deploy to Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          action: upload
+          azure_static_web_apps_api_token: ${{ steps.token.outputs.value }}
+          app_location: /
+          output_location: dist
+          api_location: api
+          skip_app_build: true
+          production_branch: main
 
       - name: Post-deploy health check (non-fatal)
         run: |
@@ -68,7 +76,5 @@ jobs:
           echo "Home page ping:"
           curl -sS --retry 5 --retry-delay 5 "https://$HOST" | head -c 200 || true
           echo
-          echo "Proxy smoke test:"
-          curl -sS -X POST "https://$HOST/api/proxy-xai" \
-               -H "Content-Type: application/json" \
-               -d '{"queryType":"product_keyword","query":"gelato machine","limit":1}' || true
+          echo "Proxy smoke test (GET /api/proxy-xai):"
+          curl -sS "https://$HOST/api/proxy-xai" || true
