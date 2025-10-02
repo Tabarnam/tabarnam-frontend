@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write   # needed for azure/login OIDC (health checks + listSecrets)
 
 concurrency:
   group: swa-deploy-prod
@@ -36,24 +37,42 @@ jobs:
       - name: Install SWA CLI
         run: npm i -g @azure/static-web-apps-cli@2.0.7
 
-      - name: Deploy with SWA CLI (force Production)
-        env:
-          SWA_DEPLOYMENT_TOKEN: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
-        run: |
-          swa deploy \
-            --env production \
-            --deployment-token "$SWA_DEPLOYMENT_TOKEN" \
-            --app-location . \
-            --output-location dist \
-            --api-location api
-
-      # Optional: health checks (needs az login)
-      - name: Azure login (for health checks)
+      # Login so we can pull the live (current) deployment token from ARM
+      - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id:  ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get production deployment token via listSecrets (debug + export)
+        id: token
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIVE_TOKEN=$(az rest --method post \
+            --uri "https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${RG_NAME}/providers/Microsoft.Web/staticSites/${SWA_NAME}/listSecrets?api-version=2023-12-01" \
+            --query "properties.apiKey" -o tsv)
+
+          # Debug (safe): show SHA prefixes for repo secret vs. live token
+          printf "repo secret sha256: "
+          echo -n "${{ secrets.SWA_DEPLOYMENT_TOKEN }}" | sha256sum | cut -c1-12
+          printf "live token sha256: "
+          echo -n "$LIVE_TOKEN" | sha256sum | cut -c1-12
+
+          # Export for next steps
+          echo "LIVE_TOKEN=$LIVE_TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy with SWA CLI (use live token)
+        env:
+          LIVE_TOKEN: ${{ steps.token.outputs.LIVE_TOKEN }}
+        run: |
+          # Let the token choose the environment; no --env flag
+          swa deploy \
+            --deployment-token "$LIVE_TOKEN" \
+            --app-location . \
+            --output-location dist \
+            --api-location api
 
       - name: Post-deploy health checks (non-fatal)
         shell: bash
