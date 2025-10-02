@@ -15,7 +15,6 @@ jobs:
     env:
       RG_NAME: tabarnam-mvp-rg
       SWA_NAME: tabarnam-frontend
-      SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     steps:
       - uses: actions/checkout@v4
@@ -27,11 +26,10 @@ jobs:
 
       - name: Install & Build (Vite)
         run: |
-          set -euo pipefail
           npm ci || npm i
           npm run build
-          test -d dist || (echo "dist/ missing" && exit 1)
 
+      # OIDC login (kept for az ops / identity dump)
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
@@ -42,66 +40,49 @@ jobs:
       - name: Who am I (debug)
         run: az account show --query "{tenantId:tenantId, subscription:id, user:user.name}"
 
-      - name: "Debug: SWA identity"
-        run: |
-          az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" \
-            --query "{name:name, id:id, host:defaultHostname, location:location}" -o tsv
-
-      - name: Ensure SWA az extension (latest)
-        run: az extension add --name staticwebapp -y || az extension update --name staticwebapp
-
-      # Robust token acquisition: try ARM listSecrets across API versions, then CLI fallback.
-      - name: Get SWA deployment token (ARM listSecrets)
-        id: token
+      - name: Select deployment token (prefer repo secret)
+        id: pick_token
         shell: bash
         run: |
           set -euo pipefail
-          SITE_ID="$(az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" --query id -o tsv)"
-          NEW=""
-          for API in 2023-12-01 2022-09-01 2022-03-01 2021-03-01; do
-            echo "Trying listSecrets api-version=$API"
-            NEW="$(az rest --method post \
-              --uri "https://management.azure.com${SITE_ID}/listSecrets?api-version=$API" \
+          if [[ -n "${{ secrets.SWA_DEPLOYMENT_TOKEN }}" ]]; then
+            echo "source=repo_secret" | tee -a "$GITHUB_STEP_SUMMARY"
+            TOKEN="${{ secrets.SWA_DEPLOYMENT_TOKEN }}"
+          else
+            echo "source=arm_listSecrets" | tee -a "$GITHUB_STEP_SUMMARY"
+            SUB_ID="$(az account show --query id -o tsv)"
+            TOKEN="$(az rest \
+              --method post \
+              --uri "https://management.azure.com/subscriptions/${SUB_ID}/resourceGroups/${RG_NAME}/providers/Microsoft.Web/staticSites/${SWA_NAME}/listSecrets?api-version=2023-12-01" \
               --query properties.apiKey -o tsv || true)"
-            if [ -n "${NEW:-}" ]; then
-              echo "Got token via listSecrets ($API)"
-              break
+            if [[ -z "${TOKEN:-}" ]]; then
+              echo "listSecrets returned empty; falling back to 'az staticwebapp secrets list'"
+              TOKEN="$(az staticwebapp secrets list -g "$RG_NAME" -n "$SWA_NAME" --query properties.apiKey -o tsv)"
             fi
-          done
-          if [ -z "${NEW:-}" ]; then
-            echo "listSecrets failed; falling back to 'az staticwebapp secrets list'..."
-            NEW="$(az staticwebapp secrets list -g "$RG_NAME" -n "$SWA_NAME" --query properties.apiKey -o tsv || true)"
           fi
-          if [ -z "${NEW:-}" ]; then
-            echo "Failed to obtain deployment token"; exit 1
-          fi
-          echo "::add-mask::$NEW"
-          {
-            echo "value<<EOF"
-            echo "$NEW"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-          echo "Token length: ${#NEW}"
-          printf "%s" "$NEW" | sha256sum | cut -c1-12 | xargs echo "sha256 prefix:"
+          # Mask and expose
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+          echo "Token length: ${#TOKEN}"
+          printf "%s" "$TOKEN" | sha256sum | cut -c1-12 | xargs echo "sha256 prefix:"
 
-      - name: Deploy to Static Web Apps
+      - name: Deploy to Static Web Apps (official action)
         uses: Azure/static-web-apps-deploy@v1
         with:
           action: upload
-          azure_static_web_apps_api_token: ${{ steps.token.outputs.value }}
+          azure_static_web_apps_api_token: ${{ steps.pick_token.outputs.token }}
           app_location: /
           output_location: dist
           api_location: api
           skip_app_build: true
           production_branch: main
-          deployment_environment: production
 
       - name: Post-deploy health check (non-fatal)
         run: |
-          SwaHost=$(az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" --query defaultHostname -o tsv)
-          echo "Host: https://$SwaHost"
-          echo "Home page ping:"
-          curl -sS --retry 5 --retry-delay 5 "https://$SwaHost" | head -c 200 || true
+          HOST=$(az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" --query defaultHostname -o tsv)
+          echo "Host: https://$HOST"
+          echo "GET / ->"
+          curl -sS --retry 5 --retry-delay 3 "https://$HOST" | head -c 200 || true
           echo
-          echo "Proxy smoke test (GET /api/proxy-xai):"
-          curl -sS "https://$SwaHost/api/proxy-xai" || true
+          echo "GET /api/proxy-xai ->"
+          curl -sS --retry 2 --retry-delay 2 "https://$HOST/api/proxy-xai" | head -c 200 || true
