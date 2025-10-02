@@ -3,14 +3,14 @@ import { app } from "@azure/functions";
 import axios from "axios";
 import { CosmosClient } from "@azure/cosmos";
 
-const BUILD_STAMP = "proxy-xai build 2025-09-28T23:35Z";
+const BUILD_STAMP = "proxy-xai build 2025-10-01T02:55Z";
 
 // ----- helpers -----
 function cors(req) {
   const origin = req.headers.get("origin") || "*";
   return {
     "Access-Control-Allow-Origin": origin,
-    "Vary": "Origin",
+    Vary: "Origin",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers":
       "Content-Type, Authorization, x-client-request-id, x-session-id",
@@ -81,9 +81,7 @@ function haversineMiles(lat1, lon1, lat2, lon2) {
     dLon = toRad(lon2 - lon1);
   const a =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      Math.sin(dLon / 2) ** 2;
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 function enrichCompany(company, center) {
@@ -101,21 +99,13 @@ function enrichCompany(company, center) {
     );
   }
   c.social = c.social || {};
-  for (const k of [
-    "linkedin",
-    "instagram",
-    "x",
-    "twitter",
-    "facebook",
-    "tiktok",
-    "youtube",
-  ]) {
+  for (const k of ["linkedin", "instagram", "x", "twitter", "facebook", "tiktok", "youtube"]) {
     if (typeof c.social[k] !== "string") c.social[k] = c.social[k] || "";
   }
   return c;
 }
 
-// cosmos log (optional)
+// ----- optional Cosmos logging -----
 let cosmosClient = null;
 function getLogsContainer() {
   const ep = (process.env.COSMOS_DB_ENDPOINT || "").trim();
@@ -138,20 +128,16 @@ async function writeDoneLog(sessionId, payload = {}) {
       ts: new Date().toISOString(),
       ...payload,
     };
-    await c.items.upsert(doc, { partitionKey: sessionId });
+    await c.items.upsert(doc, { partitionKey: sessionId || "default" });
   } catch {}
 }
 
+// ----- upstream request shaping -----
 function toUpstreamBody(input) {
   const center = safeCenter(input.center);
   if (input.queryType && input.query) {
     const limit = Number(input.limit || input.maxImports) || 5;
-    return {
-      queryType: String(input.queryType),
-      query: String(input.query),
-      limit,
-      ...(center ? { center } : {}),
-    };
+    return { queryType: String(input.queryType), query: String(input.query), limit, ...(center ? { center } : {}) };
   }
   if (input.search && typeof input.search === "object") {
     const [field, value] = Object.entries(input.search)[0] || [];
@@ -159,32 +145,15 @@ function toUpstreamBody(input) {
     const limit = Number(input.maxImports) || 5;
     let queryType = "product_keyword";
     switch (String(field || "").toLowerCase()) {
-      case "product_keywords":
-        queryType = "product_keyword";
-        break;
-      case "industries":
-        queryType = "industry";
-        break;
-      case "company_name":
-        queryType = "company_name";
-        break;
-      case "headquarters_location":
-        queryType = "hq_location";
-        break;
-      case "manufacturing_locations":
-        queryType = "manufacturing_location";
-        break;
-      case "email_address":
-        queryType = "email";
-        break;
-      case "url":
-        queryType = "url";
-        break;
-      case "amazon_url":
-        queryType = "amazon_url";
-        break;
-      default:
-        queryType = "product_keyword";
+      case "product_keywords": queryType = "product_keyword"; break;
+      case "industries": queryType = "industry"; break;
+      case "company_name": queryType = "company_name"; break;
+      case "headquarters_location": queryType = "hq_location"; break;
+      case "manufacturing_locations": queryType = "manufacturing_location"; break;
+      case "email_address": queryType = "email"; break;
+      case "url": queryType = "url"; break;
+      case "amazon_url": queryType = "amazon_url"; break;
+      default: queryType = "product_keyword";
     }
     return { queryType, query: q, limit, ...(center ? { center } : {}) };
   }
@@ -199,15 +168,14 @@ function toUpstreamBody(input) {
 function withCodeParam(baseUrl, key) {
   try {
     const url = new URL(baseUrl);
-    // Always include the key as a query parameter too (resilient to header stripping)
-    url.searchParams.set("code", key);
+    url.searchParams.set("code", key); // also add in query for resilience
     return url.toString();
   } catch {
-    return baseUrl; // if malformed, let axios throw and report
+    return baseUrl;
   }
 }
 
-// proxy function
+// ----- function entrypoint -----
 app.http("proxyXai", {
   route: "proxy-xai",
   methods: ["GET", "POST", "OPTIONS"],
@@ -216,21 +184,16 @@ app.http("proxyXai", {
     if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
 
     const started = Date.now();
-    const vals = process.env || {};
-    const XAI_STUB = (vals.XAI_STUB || "").trim() === "1";
-    const baseUrl = (vals.FUNCTION_URL || "").trim();
-    const funcKey = (vals.FUNCTION_KEY || "").trim();
+    const XAI_STUB = (process.env.XAI_STUB || "").trim() === "1";
+    const baseUrl = (process.env.FUNCTION_URL || "").trim();
+    const funcKey = (process.env.FUNCTION_KEY || "").trim();
 
     if (req.method === "GET") {
       return json(
         {
           ok: true,
           route: "/api/proxy-xai",
-          configured: {
-            FUNCTION_URL: !!baseUrl,
-            FUNCTION_KEY: !!funcKey,
-            XAI_STUB,
-          },
+          configured: { FUNCTION_URL: !!baseUrl, FUNCTION_KEY: !!funcKey, XAI_STUB },
           build: BUILD_STAMP,
           now: new Date().toISOString(),
         },
@@ -240,132 +203,59 @@ app.http("proxyXai", {
     }
 
     let inbound = {};
-    try {
-      inbound = await req.json();
-    } catch {}
+    try { inbound = await req.json(); } catch {}
+
     const center = safeCenter(inbound.center);
 
-    // STUB mode
+    // Stub mode (no upstream call)
     if (XAI_STUB) {
       const demo = [
-        {
-          company_name: "Carpigiani",
-          industries: ["food & beverage", "equipment"],
-          hq_lat: 44.5,
-          hq_lng: 11.3,
-          url: "https://www.carpigiani.com",
-        },
-        {
-          company_name: "Bunn",
-          industries: ["food & beverage", "equipment"],
-          hq_lat: 40.1,
-          hq_lng: -91.6,
-          amazon_url: "https://www.amazon.com/dp/B000",
-          url: "https://www.bunn.com",
-        },
+        { company_name: "Carpigiani", industries: ["food & beverage", "equipment"], hq_lat: 44.5, hq_lng: 11.3, url: "https://www.carpigiani.com" },
+        { company_name: "Bunn", industries: ["food & beverage", "equipment"], hq_lat: 40.1, hq_lng: -91.6, amazon_url: "https://www.amazon.com/dp/B000", url: "https://www.bunn.com" },
       ].map((c) => enrichCompany(c, center));
-      await writeDoneLog(inbound.session_id || "", {
-        saved: demo.length,
-        mode: "stub",
-      });
-      return json(
-        { companies: demo, meta: { proxy: { status: "stub", build: BUILD_STAMP } } },
-        200,
-        req
-      );
+      await writeDoneLog(inbound.session_id || "", { saved: demo.length, mode: "stub" });
+      return json({ companies: demo, meta: { proxy: { status: "stub", build: BUILD_STAMP } } }, 200, req);
     }
 
     if (!baseUrl || !funcKey) {
       return json(
-        {
-          error: "Server not configured (FUNCTION_URL / FUNCTION_KEY)",
-          proxy: { status: "misconfigured", build: BUILD_STAMP },
-        },
+        { error: "Server not configured (FUNCTION_URL / FUNCTION_KEY)", proxy: { status: "misconfigured", build: BUILD_STAMP } },
         500,
         req
       );
     }
 
-    const upstreamBody = {
-      ...toUpstreamBody(inbound),
-      session_id: inbound.session_id || "",
-    };
-
+    const upstreamBody = { ...toUpstreamBody(inbound), session_id: inbound.session_id || "" };
     const finalUrl = withCodeParam(baseUrl, funcKey);
 
     try {
       const res = await axios.post(finalUrl, upstreamBody, {
-        headers: {
-          "Content-Type": "application/json",
-          // Send header too; some hosts expect it, others ignore it.
-          "x-functions-key": funcKey,
-        },
-        timeout: Math.max(1000, Number(vals.XAI_TIMEOUT_MS) || 600000),
+        headers: { "Content-Type": "application/json", "x-functions-key": funcKey },
+        timeout: Math.max(1000, Number(process.env.XAI_TIMEOUT_MS) || 600000),
       });
 
-      // If upstream itself returned non-2xx, surface it (don’t silently swallow)
       if (res.status < 200 || res.status >= 300) {
         return json(
-          {
-            error: "Upstream returned non-2xx",
-            upstream: {
-              status: res.status,
-              data: res.data,
-              headers: res.headers,
-            },
-            request: { url: finalUrl, body: upstreamBody },
-            proxy: { status: "upstream_error", build: BUILD_STAMP },
-            duration_ms: Date.now() - started,
-          },
+          { error: "Upstream returned non-2xx", upstream: { status: res.status, data: res.data, headers: res.headers }, request: { url: finalUrl, body: upstreamBody }, proxy: { status: "upstream_error", build: BUILD_STAMP }, duration_ms: Date.now() - started },
           502,
           req
         );
       }
 
-      const companies = Array.isArray(res.data?.companies)
-        ? res.data.companies
-        : [];
+      const companies = Array.isArray(res.data?.companies) ? res.data.companies : [];
       const enriched = companies.map((c) => enrichCompany(c, center));
-      await writeDoneLog(upstreamBody.session_id || "", {
-        saved: enriched.length,
-        mode: "live",
-      });
+      await writeDoneLog(upstreamBody.session_id || "", { saved: enriched.length, mode: "live" });
       return json(
-        {
-          companies: enriched,
-          meta: {
-            proxy: { status: "ok", build: BUILD_STAMP },
-            upstream: { status: res.status },
-          },
-          duration_ms: Date.now() - started,
-        },
+        { companies: enriched, meta: { proxy: { status: "ok", build: BUILD_STAMP }, upstream: { status: res.status } }, duration_ms: Date.now() - started },
         200,
         req
       );
     } catch (e) {
-      // Capture as much as possible for diagnosis
-      const upstream =
-        e?.response
-          ? {
-              status: e.response.status,
-              data: e.response.data,
-              headers: e.response.headers,
-            }
-          : {
-              network: {
-                message: e?.message || String(e),
-                code: e?.code || null,
-                cause: e?.cause?.message || null,
-              },
-            };
+      const upstream = e?.response
+        ? { status: e.response.status, data: e.response.data, headers: e.response.headers }
+        : { network: { message: e?.message || String(e), code: e?.code || null, cause: e?.cause?.message || null } };
       return json(
-        {
-          error: "Upstream call failed",
-          upstream,
-          request: { url: finalUrl, body: upstreamBody },
-          proxy: { status: "error", build: BUILD_STAMP },
-          duration_ms: Date.now() - started,
-        },
+        { error: "Upstream call failed", upstream, request: { url: finalUrl, body: upstreamBody }, proxy: { status: "error", build: BUILD_STAMP }, duration_ms: Date.now() - started },
         502,
         req
       );

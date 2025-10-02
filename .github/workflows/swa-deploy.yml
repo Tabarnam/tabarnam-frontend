@@ -40,18 +40,14 @@ jobs:
       - name: Who am I (debug)
         run: az account show --query "{tenantId:tenantId, subscription:id, user:user.name}"
 
-      # keep the identity dump to triple-check targeting
       - name: "Debug: SWA identity"
         run: |
           az staticwebapp show -g "$RG_NAME" -n "$SWA_NAME" \
             --query "{name:name, id:id, host:defaultHostname, location:location}" -o tsv
 
-      # === deploy via SWA CLI using Azure login (no token) ===
       - name: Install SWA CLI
         run: npm i -g @azure/static-web-apps-cli
 
-      # If you want ONLY the front-end deployed (no managed Functions), drop --api-location
-      # Given your FE calls /api/proxy-xai, let's ship the managed API too with Node 18.
       - name: Deploy (swa deploy via Azure login)
         run: |
           set -euo pipefail
