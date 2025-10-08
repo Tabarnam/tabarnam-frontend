@@ -1,0 +1,24 @@
+module.exports = async function (context, req) {
+  if ((req.method || "").toUpperCase() === "OPTIONS") {
+    context.res = {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "content-type,x-functions-key"
+      }
+    };
+    return;
+  }
+
+  // minimal stub response
+  context.res = {
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+      "Access-Control-Allow-Headers": "content-type,x-functions-key"
+    },
+    body: JSON.stringify({ ok: true, started: true, ts: new Date().toISOString() })
+  };
+};

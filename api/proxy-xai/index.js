@@ -164,11 +164,10 @@ function toUpstreamBody(input) {
     ...(center ? { center } : {}),
   };
 }
-
 function withCodeParam(baseUrl, key) {
   try {
     const url = new URL(baseUrl);
-    url.searchParams.set("code", key); // also add in query for resilience
+    url.searchParams.set("code", key);
     return url.toString();
   } catch {
     return baseUrl;
@@ -207,7 +206,7 @@ app.http("proxyXai", {
 
     const center = safeCenter(inbound.center);
 
-    // Stub mode (no upstream call)
+    // Stub mode
     if (XAI_STUB) {
       const demo = [
         { company_name: "Carpigiani", industries: ["food & beverage", "equipment"], hq_lat: 44.5, hq_lng: 11.3, url: "https://www.carpigiani.com" },

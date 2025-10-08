@@ -1,58 +1,51 @@
-bin
-obj
-csx
-.vs
-edge
-Publish
+# Build artifacts / deps
+node_modules/
+dist/
 
+# Local config / secrets
+local.settings.json
+appsettings.json
+.secrets
+.secrets/
+secrets
+data/
+App_Data/
+
+# IDE
+.vscode/
+.vs/
 *.user
 *.suo
-*.cscfg
-*.Cache
-project.lock.json
 
-/packages
-/TestResults
-
-/tools/NuGet.exe
-/App_Data
-/secrets
-/data
-.secrets
-appsettings.json
-local.settings.json
-
-node_modules
-dist
-
-# Local python packages
+# Python (if used locally)
 .python_packages/
-
-# Python Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+.env
+.venv
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
 
-# Azurite artifacts
-__blobstorage__
-__queuestorage__
-__azurite_db*__.json
-
-# Azurite (local Azure Storage emulator)
-AzuriteConfig
-api/AzuriteConfig
-__azurite_db_*.json
-__azurite_db_*_extent__.json
+# Azurite (local storage emulator)
+AzuriteConfig/
 __blobstorage__/
+__queuestorage__/
+__azurite_db*.json
+__azurite_db*_extent__.json
 
-# Azure Functions local config
-api/local.settings.json
+# Legacy .NET bits (if they appear from old templates)
+bin/
+obj/
+csx/
+edge/
+Publish/
+project.lock.json
+/packages
+/TestResults
+
+# Function emulator transient
+host.json.lock

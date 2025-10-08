@@ -1,7 +1,22 @@
 {
+  "$schema": "https://www.azurestaticapps.net/staticwebapp.config.schema.json",
+  "routes": [
+    {
+      "route": "/xapi/ping",
+      "allowedRoles": ["anonymous"],
+      "rewrite": "https://tabarnam-xai-externalapi.azurewebsites.net/api/ping"
+    },
+    {
+      "route": "/xapi/*",
+      "allowedRoles": ["anonymous"],
+      "rewrite": "https://tabarnam-xai-externalapi.azurewebsites.net/api/{*path}"
+    }
+  ],
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/assets/*", "/api/*"]
+    "exclude": ["/xapi/*", "/assets/*", "/api/*"]
   },
-  "responseOverrides": { "404": { "rewrite": "/index.html" } }
+  "responseOverrides": {
+    "404": { "rewrite": "/index.html", "statusCode": 200 }
+  }
 }

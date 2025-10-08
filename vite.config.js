@@ -29,19 +29,17 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       proxy: {
         "/api": {
-          target: API_TARGET,
+          target: "http://127.0.0.1:7080", // local func core tools
           changeOrigin: true,
           secure: false,
           ws: true,
-          // keep /api prefix (Functions expects it)
-          // raise timeouts for long POSTs (10 minutes)
           timeout: 600000,
           proxyTimeout: 600000,
-          // no rewrite; preserve /api
-          rewrite: (p) => p,
-        },
-      },
-    },
+          rewrite: (p) => p // keep /api prefix because host.json uses routePrefix "api"
+        }
+      }
+    }
+,
     build: {
       chunkSizeWarningLimit: 1000,
       rollupOptions: {
