@@ -1,12 +1,11 @@
 {
   "name": "xai-upstream",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
-  "dependencies": {
-    "@azure/functions": "^4.7.2",
-    "private": true
+  "engines": {
+    "node": ">=20.19 <23"
   },
-   
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "dev:ipv4": "vite --host 127.0.0.1 --port 5173 --strictPort",
@@ -14,7 +13,6 @@
     "preview": "vite preview --host ::1 --port 5173"
   },
   "dependencies": {
-    "@azure/cosmos": "^4.5.0",
     "@emotion/is-prop-valid": "^1.2.1",
     "@radix-ui/react-alert-dialog": "^1.0.5",
     "@radix-ui/react-avatar": "^1.0.3",
@@ -29,7 +27,6 @@
     "@radix-ui/react-switch": "^1.0.3",
     "@radix-ui/react-tabs": "^1.0.4",
     "@radix-ui/react-toast": "^1.1.5",
-    "@radix-ui/react-tooltip": "^1.0.7",
     "@supabase/auth-helpers-react": "^0.5.0",
     "@supabase/supabase-js": "^2.52.1",
     "@tanstack/react-table": "^8.21.3",

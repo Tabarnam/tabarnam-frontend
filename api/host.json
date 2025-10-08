@@ -1,7 +1,9 @@
 {
   "version": "2.0",
-  "functionTimeout": "01:00:00",
-  "extensions": {
-    "http": { "routePrefix": "api" }
-  }
+  "functionTimeout": "00:10:00",
+  "extensionBundle": {
+    "id": "Microsoft.Azure.Functions.ExtensionBundle",
+    "version": "[4.*, 5.0.0)"
+  },
+  "extensions": { "http": { "routePrefix": "api" } }
 }
