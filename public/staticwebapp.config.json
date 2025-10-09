@@ -14,7 +14,7 @@
   ],
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/xapi/*", "/assets/*", "/api/*"]
+    "exclude": ["/xapi/*", "/assets/*"]
   },
   "responseOverrides": {
     "404": { "rewrite": "/index.html", "statusCode": 200 }

@@ -1,4 +1,4 @@
-name: Deploy Static Web App (token)
+name: Deploy SWA (token, v2)
 
 on:
   push:
@@ -13,18 +13,19 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
+          cache: "npm"
 
-      - name: Build app
+      - name: Build (Vite)
         run: |
           npm ci
           npm run build
 
-      - name: Upload to Azure Static Web Apps
+      - name: Deploy to Static Web Apps (token)
         uses: Azure/static-web-apps-deploy@v1
         with:
-          action: upload
-          azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
+          azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN_V2 }}
+          action: "upload"
           app_location: "/"
           output_location: "dist"
           skip_app_build: true
