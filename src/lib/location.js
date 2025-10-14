@@ -1,101 +1,94 @@
 // src/lib/location.js
-// Country/subdivision helpers + distance utilities
+// Lightweight loader for country/subdivision data with a tiny fallback.
+// Keeps BOTH new names (get*) and legacy names (load*).
 
-// ----- Minimal inline seeds so the UI isn't empty before the JSONs load -----
-const INLINE = {
-  countries: [
-    { code: 'US', name: 'United States' },
-    { code: 'CA', name: 'Canada' },
-    { code: 'GB', name: 'United Kingdom' },
-    { code: 'AU', name: 'Australia' }
+// ---- Tiny fallback so the UI still works even if JSON is missing ----
+const FALLBACK_COUNTRIES = [
+  { code: "US", name: "United States" },
+  { code: "CA", name: "Canada" },
+  { code: "GB", name: "United Kingdom" },
+];
+
+const FALLBACK_SUBDIVISIONS = {
+  US: [
+    { code: "CA", name: "California" },
+    { code: "NY", name: "New York" },
+    { code: "TX", name: "Texas" },
   ],
-  subdivisions: {
-    US: [
-      { code: 'AL', name: 'Alabama' }, { code: 'AK', name: 'Alaska' }, { code: 'AZ', name: 'Arizona' },
-      { code: 'AR', name: 'Arkansas' }, { code: 'CA', name: 'California' }, { code: 'CO', name: 'Colorado' },
-      { code: 'CT', name: 'Connecticut' }, { code: 'DE', name: 'Delaware' }, { code: 'FL', name: 'Florida' },
-      { code: 'GA', name: 'Georgia' }, { code: 'HI', name: 'Hawaii' }, { code: 'ID', name: 'Idaho' },
-      { code: 'IL', name: 'Illinois' }, { code: 'IN', name: 'Indiana' }, { code: 'IA', name: 'Iowa' },
-      { code: 'KS', name: 'Kansas' }, { code: 'KY', name: 'Kentucky' }, { code: 'LA', name: 'Louisiana' },
-      { code: 'ME', name: 'Maine' }, { code: 'MD', name: 'Maryland' }, { code: 'MA', name: 'Massachusetts' },
-      { code: 'MI', name: 'Michigan' }, { code: 'MN', name: 'Minnesota' }, { code: 'MS', name: 'Mississippi' },
-      { code: 'MO', name: 'Missouri' }, { code: 'MT', name: 'Montana' }, { code: 'NE', name: 'Nebraska' },
-      { code: 'NV', name: 'Nevada' }, { code: 'NH', name: 'New Hampshire' }, { code: 'NJ', name: 'New Jersey' },
-      { code: 'NM', name: 'New Mexico' }, { code: 'NY', name: 'New York' }, { code: 'NC', name: 'North Carolina' },
-      { code: 'ND', name: 'North Dakota' }, { code: 'OH', name: 'Ohio' }, { code: 'OK', name: 'Oklahoma' },
-      { code: 'OR', name: 'Oregon' }, { code: 'PA', name: 'Pennsylvania' }, { code: 'RI', name: 'Rhode Island' },
-      { code: 'SC', name: 'South Carolina' }, { code: 'SD', name: 'South Dakota' }, { code: 'TN', name: 'Tennessee' },
-      { code: 'TX', name: 'Texas' }, { code: 'UT', name: 'Utah' }, { code: 'VT', name: 'Vermont' },
-      { code: 'VA', name: 'Virginia' }, { code: 'WA', name: 'Washington' }, { code: 'WV', name: 'West Virginia' },
-      { code: 'WI', name: 'Wisconsin' }, { code: 'WY', name: 'Wyoming' }
-    ],
-    CA: [
-      { code: 'AB', name: 'Alberta' }, { code: 'BC', name: 'British Columbia' }, { code: 'MB', name: 'Manitoba' },
-      { code: 'NB', name: 'New Brunswick' }, { code: 'NL', name: 'Newfoundland and Labrador' },
-      { code: 'NS', name: 'Nova Scotia' }, { code: 'NT', name: 'Northwest Territories' },
-      { code: 'NU', name: 'Nunavut' }, { code: 'ON', name: 'Ontario' }, { code: 'PE', name: 'Prince Edward Island' },
-      { code: 'QC', name: 'Quebec' }, { code: 'SK', name: 'Saskatchewan' }, { code: 'YT', name: 'Yukon' }
-    ]
-  }
+  CA: [
+    { code: "ON", name: "Ontario" },
+    { code: "QC", name: "Québec" },
+    { code: "BC", name: "British Columbia" },
+  ],
+  GB: [
+    { code: "ENG", name: "England" },
+    { code: "SCT", name: "Scotland" },
+    { code: "WLS", name: "Wales" },
+  ],
 };
 
-// cache
-const memo = new Map();
+// ---- Caches ----
+let countriesCache = null;           // [{ code, name }]
+let subdivisionsCache = null;        // { [countryCode]: [{code, name}] }
+let countriesLoad;                   // inflight promise
+let subdivisionsLoad;                // inflight promise
 
-export async function loadCountries() {
-  if (memo.has('countries')) return memo.get('countries');
-  try {
-    const res = await fetch('/geo/countries.json');
-    if (res.ok) {
-      const list = await res.json();
-      memo.set('countries', list);
-      return list;
-    }
-  } catch {}
-  memo.set('countries', INLINE.countries);
-  return INLINE.countries;
+async function fetchJson(url) {
+  const r = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
+  if (!r.ok) throw new Error(`${url} -> ${r.status}`);
+  return r.json();
 }
 
-export async function loadSubdivisions(countryCode) {
-  if (!countryCode) return [];
-  if (memo.has(`sub:${countryCode}`)) return memo.get(`sub:${countryCode}`);
-
-  // Inline quick paths
-  if (INLINE.subdivisions[countryCode]) {
-    memo.set(`sub:${countryCode}`, INLINE.subdivisions[countryCode]);
-    return INLINE.subdivisions[countryCode];
+/**
+ * Load countries from /geo/countries.json with fallback.
+ * Put your full list in:  public/geo/countries.json
+ *   Shape: [{ "code": "US", "name": "United States" }, ...]
+ */
+export async function getCountries() {
+  if (countriesCache) return countriesCache;
+  if (!countriesLoad) {
+    countriesLoad = (async () => {
+      try {
+        // served from /public in both dev and prod builds
+        const data = await fetchJson("/geo/countries.json");
+        if (!Array.isArray(data)) throw new Error("countries: not an array");
+        countriesCache = data;
+      } catch {
+        countriesCache = FALLBACK_COUNTRIES;
+      }
+      return countriesCache;
+    })();
   }
-
-  // Lazy load from /public/geo/<country>.json
-  try {
-    const res = await fetch(`/geo/${countryCode}.json`);
-    if (res.ok) {
-      const list = await res.json();
-      memo.set(`sub:${countryCode}`, list);
-      return list;
-    }
-  } catch {}
-  memo.set(`sub:${countryCode}`, []);
-  return [];
+  return countriesLoad;
 }
 
-// ----- Distance helpers used by results table/components -----
-export function calculateDistance(lat1, lon1, lat2, lon2) {
-  const toRad = d => (d * Math.PI) / 180;
-  const R = 6371; // km
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  const km = 2 * R * Math.asin(Math.sqrt(a));
-  return km;
+/**
+ * Load subdivisions from /geo/subdivisions.json with fallback.
+ * Put your full map in:  public/geo/subdivisions.json
+ *   Shape: { "US":[{"code":"CA","name":"California"},...], "CA":[...], ... }
+ */
+export async function getSubdivisions(countryCode) {
+  const cc = String(countryCode || "").toUpperCase();
+  if (subdivisionsCache && subdivisionsCache[cc]) return subdivisionsCache[cc];
+
+  if (!subdivisionsLoad) {
+    subdivisionsLoad = (async () => {
+      try {
+        const data = await fetchJson("/geo/subdivisions.json");
+        if (!data || typeof data !== "object") throw new Error("subdivisions: not an object");
+        subdivisionsCache = data;
+      } catch {
+        subdivisionsCache = FALLBACK_SUBDIVISIONS;
+      }
+      return subdivisionsCache;
+    })();
+  }
+  const m = await subdivisionsLoad;
+  return m[cc] || [];
 }
 
-export function formatDistance(km, countryCode = "US") {
-  if (!Number.isFinite(km)) return "";
-  const useMiles = new Set(["US","GB","LR"]).has(countryCode);
-  const val = useMiles ? km * 0.621371 : km;
-  const unit = useMiles ? "mi" : "km";
-  return `${val.toFixed(1)} ${unit}`;
-}
+// Back-compat names used by older components
+export const loadCountries    = getCountries;
+export const loadSubdivisions = getSubdivisions;
+
+export default { getCountries, getSubdivisions, loadCountries, loadSubdivisions };

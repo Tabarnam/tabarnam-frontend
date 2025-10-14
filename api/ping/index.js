@@ -1,12 +1,22 @@
-// api/ping/index.js - simple health probe
-import { app } from "@azure/functions";
+﻿// api/ping/index.js
+module.exports = async function (context, req) {
+  if ((req.method || "").toUpperCase() === "OPTIONS") {
+    context.res = {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET,OPTIONS",
+        "Access-Control-Allow-Headers": "content-type,x-functions-key"
+      }
+    };
+    return;
+  }
 
-app.http("ping", {
-  route: "ping",
-  methods: ["GET"],
-  authLevel: "anonymous",
-  handler: async () => ({
-    status: 200,
-    jsonBody: { ok: true, name: "ping" }
-  })
-});
+  context.res = {
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*"
+    },
+    body: JSON.stringify({ ok: true, name: "ping", ts: new Date().toISOString() })
+  };
+};

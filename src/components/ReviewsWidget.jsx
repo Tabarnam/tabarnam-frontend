@@ -1,19 +1,10 @@
 // src/components/ReviewsWidget.jsx
 import React, { useEffect, useState } from "react";
-
-// Resolve Functions base:
-// - Prefer VITE_FUNCTIONS_BASE (your .env.local already sets http://127.0.0.1:7071)
-// - Else, if running Vite on port 5173, default to http://127.0.0.1:7071
-// - Else, same-origin ("")
-const DEV_DEFAULT = (typeof window !== "undefined" && window.location.port === "5173")
-  ? "http://127.0.0.1:7071" : "";
-const API_BASE = (import.meta?.env?.VITE_FUNCTIONS_BASE || DEV_DEFAULT || "").replace(/\/+$/, "");
+import { API_BASE } from "@/lib/api";
 
 export default function ReviewsWidget({ companyName }) {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
-
-  // form fields
   const [rating, setRating] = useState(5);
   const [text, setText] = useState("");
   const [userName, setUserName] = useState("");
@@ -23,32 +14,27 @@ export default function ReviewsWidget({ companyName }) {
 
   async function load() {
     if (!companyName) return;
-    setLoading(true);
-    setError("");
+    setLoading(true); setError("");
     try {
-      const r = await fetch(`${API_BASE}/api/get-reviews?company=${encodeURIComponent(companyName)}`);
+      const r = await fetch(`${API_BASE}/get-reviews?company=${encodeURIComponent(companyName)}`);
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data?.error || r.statusText || "Failed to load");
       setList(Array.isArray(data.reviews) ? data.reviews : []);
     } catch (e) {
       setError(e?.message || "Failed to load reviews");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
-
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [companyName]);
 
   async function submit() {
     setError("");
     if (!companyName) { setError("No company selected."); return; }
     if (!text.trim() || text.trim().length < 10) {
-      setError("Please write a longer review (at least 10 characters).");
-      return;
+      setError("Please write a longer review (at least 10 characters)."); return;
     }
     setSubmitting(true);
     try {
-      const r = await fetch(`${API_BASE}/api/submit-review`, {
+      const r = await fetch(`${API_BASE}/submit-review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -61,25 +47,16 @@ export default function ReviewsWidget({ companyName }) {
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data?.ok) throw new Error(data?.error || r.statusText || "Submit failed");
-      // Prepend newest
       setList(prev => [data.review, ...prev]);
-      // reset
-      setText("");
-      setUserName("");
-      setUserLocation("");
-      setRating(5);
-    } catch (e) {
-      setError(e?.message || "Submit failed");
-    } finally {
-      setSubmitting(false);
-    }
+      setText(""); setUserName(""); setUserLocation(""); setRating(5);
+    } catch (e) { setError(e?.message || "Submit failed"); }
+    finally { setSubmitting(false); }
   }
 
   return (
     <div className="mt-3 border rounded p-3 bg-gray-50">
       <div className="font-semibold mb-2">User Reviews</div>
 
-      {/* Form */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
         <div>
           <label className="block text-xs text-gray-600">Rating</label>
@@ -98,19 +75,15 @@ export default function ReviewsWidget({ companyName }) {
       </div>
       <div className="mb-2">
         <label className="block text-xs text-gray-600">Your review</label>
-        <textarea
-          className="w-full border rounded px-2 py-2 min-h-[120px]"
-          value={text}
-          onChange={e=>setText(e.target.value)}
-          placeholder="Share your experience. No images."
-        />
+        <textarea className="w-full border rounded px-2 py-2 min-h-[120px]" value={text}
+                  onChange={e=>setText(e.target.value)} placeholder="Share your experience. No images." />
       </div>
       {error && <div className="text-sm text-red-600 mb-2">❌ {error}</div>}
-      <button onClick={submit} disabled={submitting} className={`rounded px-4 py-2 text-white ${submitting ? "bg-gray-400" : "bg-emerald-600 hover:bg-emerald-700"}`}>
+      <button onClick={submit} disabled={submitting}
+              className={`rounded px-4 py-2 text-white ${submitting ? "bg-gray-400" : "bg-emerald-600 hover:bg-emerald-700"}`}>
         {submitting ? "Submitting…" : "Submit review"}
       </button>
 
-      {/* List */}
       <div className="mt-4">
         {loading ? <div className="text-sm text-gray-500">Loading reviews…</div> :
           !list.length ? <div className="text-sm text-gray-500">No reviews yet.</div> :

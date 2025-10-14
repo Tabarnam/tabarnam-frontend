@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "staticSiteName": { "type": "string" },
+    "functionAppId":  { "type": "string" },
+    "region":         { "type": "string",  "defaultValue": "West US 2" },
+    "routingPath":    { "type": "string",  "defaultValue": "/api" },
+    "linkName":       { "type": "string",  "defaultValue": "funcapi" }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/staticSites/linkedBackends",
+      "apiVersion": "2023-12-01",
+      "name": "[format('{0}/{1}', parameters('staticSiteName'), parameters('linkName'))]",
+      "location": "[parameters('region')]",
+      "properties": {
+        "backendResourceId": "[parameters('functionAppId')]",
+        "region":            "[parameters('region')]",
+        "routingPath":       "[parameters('routingPath')]",
+        "managedServiceIdentityType": "None"
+      }
+    }
+  ]
+}

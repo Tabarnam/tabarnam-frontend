@@ -1,11 +1,5 @@
 {
-  "name": "tabarnam-api",
-  "version": "1.0.0",
+  "name": "tabarnam-managed-api",
   "private": true,
-  "type": "commonjs",
-  "engines": { "node": ">=18.20 <23" },
-  "scripts": {},
-  "dependencies": {
-    "@azure/cosmos": "^4.5.1"
-  }
+  "type": "commonjs"
 }

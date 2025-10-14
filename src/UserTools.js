@@ -1,6 +1,7 @@
-// C:\Users\jatlas\OneDrive\Tabarnam Inc\MVP Do It Yourself\tabarnam-frontend\src\UserTools.js
+// src/UserTools.js
 import React, { useEffect, useState } from "react";
 import PinIcon from "@/assets/tabarnam-pin.jpg";
+import { API_BASE } from "@/lib/api";
 
 const UserTools = () => {
   const [companies, setCompanies] = useState([]);
@@ -18,16 +19,18 @@ const UserTools = () => {
 
     try {
       const session_id = (crypto?.randomUUID?.() || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`);
-      const res = await fetch("/api/proxy-xai", {
+      const res = await fetch(`${API_BASE}/import/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          maxImports: Number(maxImports) || 25,              // bump default
-          search: { product_keywords: q },
-          timeout_ms: 600000,                                // 10 minutes
-          session_id,                                        // enables streaming progress lookups
+          queryType: "product_keyword",
+          query: q,
+          limit: Math.max(1, Math.min(Number(maxImports) || 1, 25)),
+          session_id,
+          timeout_ms: 600000
         }),
       });
+
       if (!res.ok) throw new Error(`${res.status} ${res.statusText} – ${(await res.text()) || "Proxy error"}`);
       const data = await res.json();
       const items = Array.isArray(data?.companies) ? data.companies : [];
@@ -45,7 +48,7 @@ const UserTools = () => {
     if (!companies.length) { setStatus("Nothing to save."); return; }
     setSaving(true); setStatus("Saving…"); setSaveResult(null);
     try {
-      const res = await fetch("/api/save-companies", {
+      const res = await fetch(`${API_BASE}/save-companies`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ companies }),

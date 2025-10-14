@@ -7,11 +7,13 @@
     "node": ">=20.19 <23"
   },
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
-    "dev:ipv4": "vite --host 127.0.0.1 --port 5173 --strictPort",
-    "build": "vite build",
-    "preview": "vite preview --host ::1 --port 5173"
-  },
+  "build:geo": "node scripts/build-geo.mjs",
+  "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+  "dev:ipv4": "vite --host 127.0.0.1 --port 5173 --strictPort",
+  "build": "vite build",
+  "preview": "vite preview --host ::1 --port 5173"
+  }
+,
   "dependencies": {
     "@emotion/is-prop-valid": "^1.2.1",
     "@radix-ui/react-alert-dialog": "^1.0.5",
@@ -67,11 +69,13 @@
     "autoprefixer": "^10.4.16",
     "eslint": "^8.57.1",
     "eslint-config-react-app": "^7.0.1",
+    "iso-3166-2": "^1.0.0",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.3",
     "terser": "^5.39.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.5.4",
-    "vite": "^7.1.1"
+    "vite": "^7.1.1",
+    "world-countries": "^5.1.0"
   }
 }

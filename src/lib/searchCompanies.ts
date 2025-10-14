@@ -1,6 +1,5 @@
 // src/lib/searchCompanies.ts
-const FUNCTIONS_BASE =
-  import.meta.env.VITE_FUNCTIONS_BASE ?? "http://localhost:7071";
+import { apiFetch } from "./api";
 
 type Sort = "recent" | "name" | "manu";
 
@@ -12,7 +11,6 @@ function normalizeSort(s: unknown): Sort {
   const m = asStr(s).toLowerCase();
   if (m === "name") return "name";
   if (m === "manu" || m === "manufacturing" || m === "manufacturing_first") return "manu";
-  // Any number or unknown value falls back to recent
   return "recent";
 }
 
@@ -33,7 +31,6 @@ export interface Company {
   amazon_url?: string;
   normalized_domain?: string;
   manufacturing_locations?: string[];
-  // intentionally omit created_at from the public shape
 }
 
 export async function searchCompanies(opts: SearchOptions) {
@@ -43,12 +40,7 @@ export async function searchCompanies(opts: SearchOptions) {
   const sort = normalizeSort(opts.sort);
   const take = Math.max(1, Math.min(Number(opts.take ?? 25) || 25, 200));
 
-  const params = new URLSearchParams({
-    q,
-    sort,
-    take: String(take),
-  });
-
+  const params = new URLSearchParams({ q, sort, take: String(take) });
   const country = asStr(opts.country).trim();
   const state = asStr(opts.state).trim();
   const city = asStr(opts.city).trim();
@@ -56,15 +48,12 @@ export async function searchCompanies(opts: SearchOptions) {
   if (state) params.set("state", state);
   if (city) params.set("city", city);
 
-  const url = `${FUNCTIONS_BASE}/api/search-companies?${params.toString()}`;
-  const resp = await fetch(url, { headers: { accept: "application/json" } });
-
-  if (!resp.ok) {
-    const msg = await readError(resp);
-    throw new Error(`search-companies failed (${resp.status}): ${msg}`);
+  const r = await apiFetch(`/search-companies?${params.toString()}`, { headers: { accept: "application/json" } });
+  if (!r.ok) {
+    const msg = await readError(r);
+    throw new Error(`search-companies failed (${r.status}): ${msg}`);
   }
-
-  const data = await resp.json();
+  const data = await r.json();
   const items: Company[] = Array.isArray(data?.items) ? data.items : [];
   return {
     items,

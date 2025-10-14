@@ -1,4 +1,7 @@
-// Client helpers for /api/google/* with tiny LRU caches
+// src/lib/google.js
+// Client helpers for /google/* via API_BASE
+
+import { API_BASE } from "@/lib/api";
 
 const GEO_TTL = 10 * 60 * 1000; // 10m
 const GEO_MAX = 200;
@@ -20,25 +23,25 @@ export async function geocode({ address, lat, lng, ipLookup = true } = {}) {
   const hit = _get(key);
   if (hit) return hit;
 
-  const r = await fetch("/api/google/geocode", {
+  const r = await fetch(`${API_BASE}/google/geocode`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ address, lat, lng, ipLookup })
   });
-  const data = await r.json();
-  if (!r.ok) throw new Error(data?.error || r.statusText);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data?.error || r.statusText || "geocode failed");
   _set(key, data);
   return data;
 }
 
-// pass-through stub (kept because some pages import translate)
+// Pass-through stub kept for compatibility
 export async function translate({ text, target = "en" }) {
-  const r = await fetch("/api/google/translate", {
+  const r = await fetch(`${API_BASE}/google/translate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, target })
   });
-  const data = await r.json();
-  if (!r.ok) throw new Error(data?.error || r.statusText);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data?.error || r.statusText || "translate failed");
   return data;
 }

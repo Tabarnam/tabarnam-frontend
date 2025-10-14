@@ -1,22 +1,21 @@
 {
-  "$schema": "https://www.azurestaticapps.net/staticwebapp.config.schema.json",
-  "routes": [
-    {
-      "route": "/xapi/ping",
-      "allowedRoles": ["anonymous"],
-      "rewrite": "https://tabarnam-xai-externalapi.azurewebsites.net/api/ping"
-    },
-    {
-      "route": "/xapi/*",
-      "allowedRoles": ["anonymous"],
-      "rewrite": "https://tabarnam-xai-externalapi.azurewebsites.net/api/{*path}"
-    }
-  ],
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/xapi/*", "/assets/*"]
+    "exclude": [
+      "/api/*",
+      "/xapi/*",
+      "/assets/*",
+      "/favicon.ico",
+      "/robots.txt",
+      "/sitemap.xml"
+    ]
   },
-  "responseOverrides": {
-    "404": { "rewrite": "/index.html", "statusCode": 200 }
+  "routes": [
+    { "route": "/xapi",  "redirect": "/xapi/", "statusCode": 308 },
+    { "route": "/xapi/*", "allowedRoles": [ "anonymous" ], "rewrite": "/api/{*path}" }
+  ],
+  "globalHeaders": {
+    "/*":      { "x-swa-config": "v1-managed-api" },
+    "/xapi/*": { "x-swa-xapi": "yes" }
   }
 }

@@ -1,3 +1,4 @@
+// src/components/admin/LogoUploadDialog.tsx
 import React, { useRef, useState } from "react";
 import { setLogoUrl, uploadLogoFile } from "@/lib/api/adminLogos";
 
@@ -7,110 +8,81 @@ export function LogoUploadDialog({
   onSaved,
 }: {
   companyId: string;
-  onClose: () => void;
-  onSaved: (newUrl: string) => void;
+  onClose?: () => void;
+  onSaved?: (url: string) => void;
 }) {
-  const [tab, setTab] = useState<"file" | "url">("file");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [logoUrl, setLogoUrlState] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const urlInputRef = useRef<HTMLInputElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [err, setErr] = useState("");
 
-  async function handleSave() {
-    if (busy) return;
-    setError(null);
-    setBusy(true);
+  const saveUrl = async () => {
+    setErr("");
+    if (!logoUrl.trim()) { setErr("Enter a URL"); return; }
     try {
-      if (tab === "url") {
-        const url = urlInputRef.current?.value?.trim() || "";
-        if (!url) throw new Error("Please paste a logo URL.");
-        const { logo_url } = await setLogoUrl(companyId, url);
-        onSaved(logo_url);
-        onClose();
-      } else {
-        const f = fileInputRef.current?.files?.[0];
-        if (!f) throw new Error("Please choose an image file.");
-        const { logo_url } = await uploadLogoFile(companyId, f);
-        onSaved(logo_url);
-        onClose();
-      }
+      setBusy(true);
+      const r = await setLogoUrl(companyId, logoUrl.trim());
+      onSaved?.(r.logo_url);
+      onClose?.();
     } catch (e: any) {
-      setError(e?.message || "Failed to save logo.");
+      setErr(e?.message || "Failed to save logo URL");
     } finally {
       setBusy(false);
     }
-  }
+  };
 
-  function onFileChange() {
-    const f = fileInputRef.current?.files?.[0];
-    if (f) setPreview(URL.createObjectURL(f));
-    else setPreview(null);
-  }
+  const uploadFile = async (f: File) => {
+    setErr("");
+    try {
+      setBusy(true);
+      const r = await uploadLogoFile(companyId, f);
+      onSaved?.(r.logo_url);
+      onClose?.();
+    } catch (e: any) {
+      setErr(e?.message || "Upload failed");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Add Company Logo</h3>
-          <button onClick={onClose} className="text-sm text-slate-500 hover:text-slate-800" disabled={busy}>Close</button>
-        </div>
+    <div className="p-4">
+      <h3 className="font-semibold mb-2">Update Logo</h3>
 
-        <div className="mt-3 flex gap-2">
-          <button
-            className={`px-3 py-1.5 rounded-lg border ${tab === "file" ? "bg-slate-100 border-slate-300" : "border-slate-200"}`}
-            onClick={() => setTab("file")}
-            disabled={busy}
-          >
-            Upload file
-          </button>
-          <button
-            className={`px-3 py-1.5 rounded-lg border ${tab === "url" ? "bg-slate-100 border-slate-300" : "border-slate-200"}`}
-            onClick={() => setTab("url")}
-            disabled={busy}
-          >
-            Paste URL
-          </button>
-        </div>
+      <label className="block text-sm text-gray-700 mb-1">Logo URL</label>
+      <div className="flex gap-2 mb-3">
+        <input
+          className="flex-1 border rounded px-3 py-2"
+          placeholder="https://example.com/logo.png"
+          value={logoUrl}
+          onChange={(e) => setLogoUrlState(e.target.value)}
+        />
+        <button
+          onClick={saveUrl}
+          disabled={busy}
+          className={`px-4 py-2 rounded text-white ${busy ? "bg-gray-400" : "bg-emerald-600 hover:bg-emerald-700"}`}
+        >
+          {busy ? "Saving…" : "Save URL"}
+        </button>
+      </div>
 
-        {tab === "file" ? (
-          <div className="mt-4 space-y-3">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={onFileChange}
-              disabled={busy}
-              className="block w-full text-sm text-slate-700 file:mr-3 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-sm file:text-slate-700 hover:file:bg-slate-50"
-            />
-            {preview && (
-              <div className="rounded-md border border-slate-200 p-2">
-                <img src={preview} alt="Logo preview" className="h-20 w-20 object-contain" />
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="mt-4 space-y-2">
-            <input
-              ref={urlInputRef}
-              type="url"
-              placeholder="https://example.com/logo.png"
-              disabled={busy}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-            />
-            <p className="text-xs text-slate-500">Paste a direct image URL (PNG/JPG/SVG).</p>
-          </div>
-        )}
+      <div className="text-xs text-gray-500 mb-2">— or —</div>
 
-        {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
+      <label className="block text-sm text-gray-700 mb-1">Upload file</label>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f); }}
+      />
 
-        <div className="mt-4 flex justify-end gap-2">
-          <button onClick={onClose} disabled={busy} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm">Cancel</button>
-          <button onClick={handleSave} disabled={busy} className="rounded-md bg-[rgb(177,221,227)] px-3 py-1.5 text-sm text-slate-800 border border-[rgb(101,188,200)]">
-            {busy ? "Saving…" : "Save logo"}
-          </button>
-        </div>
+      {err && <div className="mt-3 text-sm text-red-600">❌ {err}</div>}
+
+      <div className="mt-4 flex gap-2">
+        <button onClick={onClose} className="px-3 py-2 border rounded">Close</button>
       </div>
     </div>
   );
 }
+
+export default LogoUploadDialog;
