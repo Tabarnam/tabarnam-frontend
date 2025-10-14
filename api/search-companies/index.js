@@ -1,36 +1,40 @@
-﻿// api/search-companies/index.js
-import { app } from "@azure/functions";
-import { CosmosClient } from "@azure/cosmos";
+﻿// api/search-companies/index.js  (CommonJS, function.json model)
+const { httpRequest } = require('../_http');
+const { getProxyBase, json } = require('../_shared');
 
-const E = (k, d = "") => (process.env[k] ?? d).toString().trim();
-
-const cors = (req) => {
-  const origin = req.headers.get("origin") || "*";
-  return {
-    "Access-Control-Allow-Origin": origin,
-    Vary: "Origin",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  };
-};
-const json = (obj, status = 200, req) => ({
-  status,
-  headers: { ...cors(req), "Content-Type": "application/json" },
-  body: JSON.stringify(obj),
-});
-
-let cosmosClient;
-function getCompaniesContainer() {
-  const endpoint = E("COSMOS_DB_ENDPOINT");
-  const key = E("COSMOS_DB_KEY");
-  const databaseId = E("COSMOS_DB_DATABASE", "tabarnam-db");
-  const containerId = E("COSMOS_DB_COMPANIES_CONTAINER", "companies");
-  if (!endpoint || !key) return null;
-  cosmosClient ||= new CosmosClient({ endpoint, key });
-  return cosmosClient.database(databaseId).container(containerId);
+function env(k, d = '') {
+  const v = process.env[k];
+  return (v == null ? d : String(v)).trim();
 }
 
-const textFilterSql = `
+// Lazy-load Cosmos only if present, so proxy/stub still work without it
+let CosmosClientCtor = null;
+function loadCosmosCtor() {
+  if (CosmosClientCtor !== null) return CosmosClientCtor;
+  try {
+    CosmosClientCtor = require('@azure/cosmos').CosmosClient;
+  } catch {
+    CosmosClientCtor = undefined; // explicitly “not available”
+  }
+  return CosmosClientCtor;
+}
+
+function getCompaniesContainer() {
+  const endpoint    = env('COSMOS_DB_ENDPOINT', '');
+  const key         = env('COSMOS_DB_KEY', '');
+  const databaseId  = env('COSMOS_DB_DATABASE', 'tabarnam-db');
+  const containerId = env('COSMOS_DB_COMPANIES_CONTAINER', 'companies');
+
+  if (!endpoint || !key) return null;
+  const C = loadCosmosCtor();
+  if (!C) return null;
+
+  const client = new C({ endpoint, key });
+  return client.database(databaseId).container(containerId);
+}
+
+// Single declaration (avoids the “Cannot redeclare block-scoped variable” error)
+const SQL_TEXT_FILTER = `
   (IS_DEFINED(c.company_name) AND CONTAINS(LOWER(c.company_name), @q)) OR
   (IS_DEFINED(c.product_keywords) AND CONTAINS(LOWER(c.product_keywords), @q)) OR
   (IS_DEFINED(c.industries) AND ARRAY_LENGTH(
@@ -40,30 +44,48 @@ const textFilterSql = `
   (IS_DEFINED(c.amazon_url) AND CONTAINS(LOWER(c.amazon_url), @q))
 `;
 
-app.http("searchCompanies", {
-  route: "search-companies",
-  methods: ["GET", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, ctx) => {
-    if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
+module.exports = async function (context, req) {
+  const method = String(req.method || '').toUpperCase();
+  if (method === 'OPTIONS') {
+    // CORS preflight
+    return json(context, 204, {}, { 'Access-Control-Max-Age': '86400' });
+  }
+  if (method !== 'GET') {
+    return json(context, 405, { ok: false, error: 'Method Not Allowed' });
+  }
 
-    const url = new URL(req.url);
-    const qRaw = (url.searchParams.get("q") || "").trim();
-    const qLower = qRaw.toLowerCase();
-    const sort = (url.searchParams.get("sort") || "recent").toLowerCase(); // recent | name | manu
-    const take = Math.min(200, Math.max(1, Number(url.searchParams.get("take") || 50)));
+  const url   = new URL(req.url);
+  const qRaw  = (url.searchParams.get('q') || '').trim();
+  const q     = qRaw.toLowerCase();
+  const sort  = (url.searchParams.get('sort') || 'recent').toLowerCase(); // recent | name | manu
+  const take  = Math.min(200, Math.max(1, Number(url.searchParams.get('take') || 50)));
 
-    const container = getCompaniesContainer();
-    if (!container) return json({ error: "Cosmos not configured" }, 500, req);
+  // 1) Proxy to upstream if configured
+  const base = getProxyBase();
+  if (base) {
+    try {
+      const proxyUrl =
+        `${base}/search-companies?q=${encodeURIComponent(qRaw)}&take=${encodeURIComponent(take)}&sort=${encodeURIComponent(sort)}`;
+      const out = await httpRequest('GET', proxyUrl);
+      let body = out.body;
+      try { body = JSON.parse(body); } catch {}
+      return json(context, out.status || 200, body);
+    } catch (e) {
+      context.log('search-companies proxy error:', e?.message || e);
+      // fall through to Cosmos/stub
+    }
+  }
 
+  // 2) Cosmos DB path (preserves your previous logic)
+  const container = getCompaniesContainer();
+  if (container) {
     try {
       let items = [];
-      const params = [{ name: "@take", value: take }];
+      const params = [{ name: '@take', value: take }];
+      if (q) params.push({ name: '@q', value: q });
 
-      if (qLower) params.push({ name: "@q", value: qLower });
-
-      if (sort === "manu") {
-        const whereText = qLower ? `AND (${textFilterSql})` : "";
+      if (sort === 'manu') {
+        const whereText = q ? `AND (${SQL_TEXT_FILTER})` : '';
 
         // A) With manufacturing locations
         const sqlA = `
@@ -75,10 +97,10 @@ app.http("searchCompanies", {
           ${whereText}
           ORDER BY c._ts DESC
         `;
-        const { resources: partA } = await container.items
+        const partA = await container.items
           .query({ query: sqlA, parameters: params }, { enableCrossPartitionQuery: true })
           .fetchAll();
-        items = partA || [];
+        items = (partA.resources || []);
 
         // B) Fill remainder without manufacturing data
         const remaining = Math.max(0, take - items.length);
@@ -92,22 +114,20 @@ app.http("searchCompanies", {
             ${whereText}
             ORDER BY c._ts DESC
           `;
-          const paramsB = params
-            .filter((p) => p.name !== "@take")
-            .concat({ name: "@take2", value: remaining });
-          const { resources: partB } = await container.items
+          const paramsB = params.filter(p => p.name !== '@take').concat({ name: '@take2', value: remaining });
+          const partB = await container.items
             .query({ query: sqlB, parameters: paramsB }, { enableCrossPartitionQuery: true })
             .fetchAll();
-          items = items.concat(partB || []);
+          items = items.concat(partB.resources || []);
         }
       } else {
-        const orderBy = sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
-        const sql = qLower
+        const orderBy = (sort === 'name') ? 'ORDER BY c.company_name ASC' : 'ORDER BY c._ts DESC';
+        const sql = q
           ? `
             SELECT TOP @take c.id, c.company_name, c.industries, c.url, c.amazon_url,
                              c.normalized_domain, c.created_at, c.session_id, c._ts
             FROM c
-            WHERE ${textFilterSql}
+            WHERE ${SQL_TEXT_FILTER}
             ${orderBy}
           `
           : `
@@ -116,25 +136,32 @@ app.http("searchCompanies", {
             FROM c
             ${orderBy}
           `;
-        const { resources } = await container.items
+        const res = await container.items
           .query({ query: sql, parameters: params }, { enableCrossPartitionQuery: true })
           .fetchAll();
-        items = resources || [];
+        items = res.resources || [];
       }
 
-      const normalized = items.map((r) => {
-        if (!r?.created_at && typeof r?._ts === "number") {
-          try {
-            r.created_at = new Date(r._ts * 1000).toISOString();
-          } catch {}
+      // Normalize created_at from _ts when missing
+      const normalized = items.map(r => {
+        if (!r?.created_at && typeof r?._ts === 'number') {
+          try { r.created_at = new Date(r._ts * 1000).toISOString(); } catch {}
         }
         return r;
       });
 
-      return json({ items: normalized, count: normalized.length, meta: { q: qRaw, sort } }, 200, req);
+      return json(context, 200, { items: normalized, count: normalized.length, meta: { q: qRaw, sort } });
     } catch (e) {
-      ctx.log("search-companies error:", e?.message || e);
-      return json({ error: e?.message || "query failed" }, 500, req);
+      context.log('search-companies cosmos error:', e?.message || e);
+      return json(context, 500, { ok: false, error: e?.message || 'query failed' });
     }
-  },
-});
+  }
+
+  // 3) Stub (no proxy and no cosmos)
+  const items = [
+    { id: 'stub1', company_name: 'Acme Candles', url: 'https://example.com', product_keywords: 'candles, wax', confidence_score: 0.9 },
+    { id: 'stub2', company_name: 'Glow Co.',     url: 'https://example.org', product_keywords: 'candles, aroma', confidence_score: 0.86 }
+  ].slice(0, take);
+
+  return json(context, 200, { ok: true, q: qRaw, take, items });
+};

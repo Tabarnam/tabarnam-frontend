@@ -1,62 +1,25 @@
 // src/components/BulkImportStream.jsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { API_BASE } from "@/lib/api";
 
-export default function BulkImportStream({
-  sessionId,
-  take = 400,
-  pollingMs = 1500,
-  onStats = () => {},
-}) {
+export default function BulkImportStream({ sessionId, take = 200, pollingMs = 1500, onStats = () => {} }) {
   const [items, setItems] = useState([]);
   const [steps, setSteps] = useState([]);
   const [stopped, setStopped] = useState(false);
   const [err, setErr] = useState("");
   const timerRef = useRef(null);
-  const MAX_SHOW = 50;
-
-  function toDateISO(r) {
-    if (r?.created_at) return r.created_at;
-    if (typeof r?._ts === "number") return new Date(r._ts * 1000).toISOString();
-    return "";
-  }
-
-  const sortedDesc = useMemo(() => {
-    const withDates = (items || []).map((r) => ({
-      ...r,
-      __iso: toDateISO(r),
-    }));
-    withDates.sort((a, b) => {
-      const da = a.__iso ? Date.parse(a.__iso) : 0;
-      const db = b.__iso ? Date.parse(b.__iso) : 0;
-      return db - da; // newest first
-    });
-    return withDates;
-  }, [items]);
-
-  const view = useMemo(() => sortedDesc.slice(0, MAX_SHOW), [sortedDesc]);
-
-  // publish stats upward
-  useEffect(() => {
-    const lastCreatedAt = sortedDesc[0]?.__iso || "";
-    onStats({
-      saved: items.length,
-      lastCreatedAt,
-      stopped,
-    });
-  }, [items, sortedDesc, stopped, onStats]);
 
   async function tick() {
     if (!sessionId) return;
     try {
-      const url = `/api/import-progress?session_id=${encodeURIComponent(
-        sessionId
-      )}&take=${encodeURIComponent(take)}`;
+      const url = `${API_BASE}/import-progress?session_id=${encodeURIComponent(sessionId)}&take=${encodeURIComponent(take)}`;
       const r = await fetch(url, { method: "GET" });
-      const j = await r.json();
+      const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error || r.statusText);
       setItems(j.items || []);
       setSteps(j.steps || []);
       setStopped(!!j.stopped);
+      onStats({ saved: j.saved || 0, lastCreatedAt: j.lastCreatedAt || "" });
       setErr("");
     } catch (e) {
       setErr(e?.message || "fetch failed");
@@ -67,66 +30,44 @@ export default function BulkImportStream({
 
   useEffect(() => {
     clearTimeout(timerRef.current);
-    tick();
+    if (sessionId) tick();
     return () => clearTimeout(timerRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, take, pollingMs]);
 
   return (
-    <div className="mt-4">
-      <div className="text-sm text-gray-700 mb-2">
-        {err ? (
-          <span className="text-red-600">Stream error: {err}</span>
-        ) : (
-          <>
-            Showing {view.length} of {items.length} streamed results (most recent first)
-            {stopped && <span className="ml-2 text-emerald-700">✅ Import complete</span>}
-          </>
-        )}
+    <div className="mt-4 border rounded p-3 bg-white">
+      <div className="flex items-center justify-between mb-2">
+        <div className="font-semibold">Streaming Results</div>
+        {stopped ? <span className="text-xs px-2 py-1 bg-gray-200 rounded">Stopped</span> : <span className="text-xs px-2 py-1 bg-emerald-100 text-emerald-800 rounded">Running</span>}
       </div>
-
-      <ul className="space-y-3">
-        {view.map((r, idx) => {
-          const when = r.__iso ? new Date(r.__iso) : null;
-          const whenText = when ? when.toLocaleString() : "—";
-          const industries = Array.isArray(r.industries)
-            ? r.industries.join(", ")
-            : r.industries || "—";
-          const key = r.id || `${r.company_name || "item"}-${idx}`;
-          return (
-            <li key={key} className="p-3 border rounded flex items-start justify-between gap-3">
-              <div>
-                <div className="font-medium">{r.company_name || "—"}</div>
-                <div className="text-sm text-gray-600">{industries}</div>
-                {r.amazon_url ? (
-                  <a
-                    href={r.amazon_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sm text-blue-600 hover:underline"
-                  >
-                    Amazon
-                  </a>
-                ) : (
-                  <span className="text-sm text-gray-400">—</span>
-                )}
-              </div>
-              <div className="text-xs text-gray-500 whitespace-nowrap">
-                Imported: {whenText}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-
-      {steps?.length ? (
-        <details className="mt-4">
-          <summary className="cursor-pointer text-sm text-gray-600">Logs ({steps.length})</summary>
-          <pre className="mt-2 bg-gray-50 p-2 rounded text-xs overflow-auto">
-            {JSON.stringify(steps, null, 2)}
-          </pre>
-        </details>
-      ) : null}
+      {err && <div className="text-sm text-red-600 mb-2">❌ {err}</div>}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <div className="text-xs text-gray-500 mb-1">Items</div>
+          <ul className="space-y-2 max-h-96 overflow-auto">
+            {items.map((it, i) => (
+              <li key={(it?.id || "row") + "-" + i} className="border rounded p-2">
+                <div className="font-medium">{it?.company_name || it?.name || "—"}</div>
+                <div className="text-xs text-gray-600">{it?.url || it?.website_url || ""}</div>
+              </li>
+            ))}
+            {!items.length && <li className="text-sm text-gray-500">No items yet…</li>}
+          </ul>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500 mb-1">Steps</div>
+          <ul className="space-y-2 max-h-96 overflow-auto">
+            {(steps || []).map((s, i) => (
+              <li key={i} className="border rounded p-2 text-xs">
+                <div><strong>{s.status}</strong> — {s.message || ""}</div>
+                {s.ts && <div className="text-gray-500">{new Date(s.ts).toLocaleString()}</div>}
+              </li>
+            ))}
+            {!steps.length && <li className="text-sm text-gray-500">Waiting for progress…</li>}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 }

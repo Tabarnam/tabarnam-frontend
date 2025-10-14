@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent } from '@/components/ui/popover';
-import { loadCountries, loadSubdivisions } from '@/lib/location';
+import { getCountries, getSubdivisions } from '@/lib/location';
 import { getSuggestions } from '@/lib/searchCompanies';
 
 const SORTS = [

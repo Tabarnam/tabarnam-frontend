@@ -1,6 +1,7 @@
 // src/pages/XAIBulkImportPage.jsx
 import React, { useEffect, useState } from "react";
 import BulkImportStream from "@/components/BulkImportStream";
+import { API_BASE } from "@/lib/api";
 
 export default function XAIBulkImportPage() {
   const [maxImports, setMaxImports] = useState(10);
@@ -9,7 +10,6 @@ export default function XAIBulkImportPage() {
   const [center, setCenter] = useState({ lat: "", lng: "" });
   const [expandIfFew, setExpandIfFew] = useState(true);
 
-  // Address inputs for geocoding
   const [postal, setPostal]   = useState("");
   const [city, setCity]       = useState("");
   const [stateR, setStateR]   = useState("");
@@ -19,18 +19,13 @@ export default function XAIBulkImportPage() {
   const [lastSessionId, setLastSessionId] = useState("");
   const [status, setStatus] = useState("");
   const [lastMeta, setLastMeta] = useState(null);
-  const [usedDirect, setUsedDirect] = useState(false);
+  const [usedDirect] = useState(false); // no longer needed with /xapi proxy
   const [saving, setSaving] = useState(false);
   const [manualList, setManualList] = useState("");
 
-  // tiny progress chip state
   const [savedSoFar, setSavedSoFar] = useState(0);
   const [lastRowTs, setLastRowTs] = useState("");
 
-  const FN_URL = import.meta.env.VITE_FUNCTIONS_URL || "http://127.0.0.1:7071";
-  const PREFER_DIRECT = import.meta.env.DEV; // ✅ prefer direct Functions in dev
-
-  // discover previous session
   useEffect(() => {
     const prev = localStorage.getItem("last_session_id") || "";
     setLastSessionId(prev);
@@ -42,99 +37,62 @@ export default function XAIBulkImportPage() {
     window.__xaiPingOnce = true;
     (async () => {
       try {
-        const r = await fetch("/api/proxy-xai");
-        if (!r.ok) throw new Error(`proxy ${r.status}`);
-        console.log("Proxy OK:", await r.json());
+        const r = await fetch(`${API_BASE}/ping`);
+        const body = await r.text().catch(() => "");
+        console.log("XAI ping:", r.status, body);
       } catch (e) {
-        console.warn("Proxy ping failed, trying direct Functions URL...", e);
-        try {
-          const r2 = await fetch(`${FN_URL}/api/proxy-xai`);
-          console.log("Direct Functions OK:", await r2.json());
-        } catch (e2) {
-          console.error("Direct Functions ping also failed:", e2);
-        }
+        console.warn("XAI ping failed:", e);
       }
     })();
-  }, [FN_URL]);
+  }, []);
 
   const fields = [
-    { value: "company_name", label: "Company Name" },
-    { value: "product_keywords", label: "Product Keywords" },
-    { value: "industries", label: "Industry" },
-    { value: "headquarters_location", label: "Headquarters Location" },
-    { value: "manufacturing_locations", label: "Manufacturing Location" },
-    { value: "email_address", label: "Email Address" },
-    { value: "url", label: "Website URL" },
-    { value: "amazon_url", label: "Amazon URL" },
+    { value: "company_name",           label: "Company Name" },
+    { value: "product_keywords",       label: "Product Keywords" },
+    { value: "industries",             label: "Industry" },
+    { value: "headquarters_location",  label: "Headquarters Location" },
+    { value: "manufacturing_locations",label: "Manufacturing Location" },
+    { value: "email_address",          label: "Email Address" },
+    { value: "url",                    label: "Website URL" },
+    { value: "amazon_url",             label: "Amazon URL" },
   ];
 
-  // ✅ Prefer direct Functions in dev; fall back to the other path on failure
-  async function postProxyXai(body) {
-    const directUrl = `${FN_URL}/api/proxy-xai`;
-    const relUrl = `/api/proxy-xai`;
-    const headers = { "Content-Type": "application/json" };
-
-    async function call(url) {
-      const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-      if (!r.ok) throw new Error(`${url.includes(FN_URL) ? "direct" : "proxy"} ${r.status} ${await r.text().catch(()=> "")}`);
-      return r.json();
-    }
-
-    try {
-      if (PREFER_DIRECT) {
-        const j = await call(directUrl);
-        setUsedDirect(true);
-        return j;
-      } else {
-        const j = await call(relUrl);
-        setUsedDirect(false);
-        return j;
-      }
-    } catch (e) {
-      // swap order on failure
-      try {
-        const j = await call(PREFER_DIRECT ? relUrl : directUrl);
-        setUsedDirect(!PREFER_DIRECT);
-        return j;
-      } catch (e2) {
-        throw e2;
-      }
-    }
+  function mapFieldToQueryType(val) {
+    const map = {
+      product_keywords: "product_keyword",
+      industries: "industry",
+      company_name: "company_name",
+      headquarters_location: "hq_location",
+      manufacturing_locations: "manufacturing_location",
+      email_address: "email",
+      url: "url",
+      amazon_url: "amazon_url",
+    };
+    return map[val] || "product_keyword";
   }
 
-  // Geocode helper — only runs if lat/lng are blank and any address parts exist
-  async function geocodeIfNeeded(currentCenter) {
+  async function postImportStart(body) {
+    const r = await fetch(`${API_BASE}/import/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      throw new Error(j?.error || r.statusText || "import/start failed");
+    }
+    return j;
+  }
+
+  // No server geocoding for now (external app does not expose it yet)
+  function resolveCenter(currentCenter) {
     const latNum = Number(currentCenter?.lat);
     const lngNum = Number(currentCenter?.lng);
-    const hasLatLng = Number.isFinite(latNum) && Number.isFinite(lngNum);
-    const hasAddress = [postal, city, stateR, country].some(Boolean);
-    if (hasLatLng || !hasAddress) return { lat: latNum, lng: lngNum };
-
-    const address = [postal, city, stateR, country].filter(Boolean).join(", ");
-    try {
-      // try relative first
-      let res = await fetch("/api/google/geocode", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address })
-      });
-      if (!res.ok) {
-        // fallback to direct Functions URL
-        res = await fetch(`${FN_URL}/api/google/geocode`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ address })
-        });
-      }
-      if (!res.ok) throw new Error(`geocode ${res.status}`);
-      const j = await res.json();
-      const glat = Number(j?.lat);
-      const glng = Number(j?.lng);
-      if (Number.isFinite(glat) && Number.isFinite(glng)) return { lat: glat, lng: glng };
-    } catch (e) {
-      console.warn("Geocode failed:", e?.message || e);
+    if (Number.isFinite(latNum) && Number.isFinite(lngNum)) {
+      return { lat: latNum, lng: lngNum };
     }
-    return { lat: latNum, lng: lngNum };
+    // If lat/lng blank, ignore postal/city/state/country here (placeholder for future)
+    return undefined;
   }
 
   const handleImport = async () => {
@@ -149,35 +107,20 @@ export default function XAIBulkImportPage() {
     setStatus("Starting import… (rows will stream in below)");
 
     try {
-      const fieldMap = {
-        product_keywords: "product_keyword",
-        industries: "industry",
-        company_name: "company_name",
-        headquarters_location: "hq_location",
-        manufacturing_locations: "manufacturing_location",
-        email_address: "email",
-        url: "url",
-        amazon_url: "amazon_url",
-      };
-      const queryType = fieldMap[searchField] || "product_keyword";
-
-      // resolve center via geocode if lat/lng missing
-      const resolved = await geocodeIfNeeded(center);
+      const queryType = mapFieldToQueryType(searchField);
+      const maybeCenter = resolveCenter(center);
 
       const body = {
         queryType,
         query: q,
-        limit: Number(maxImports) || 3,
+        limit: Math.max(1, Math.min(Number(maxImports) || 1, 25)),
         timeout_ms: 600000,
         session_id: sid,
         expand_if_few: !!expandIfFew,
+        ...(maybeCenter ? { center: maybeCenter } : {}),
       };
 
-      if (Number.isFinite(resolved.lat) && Number.isFinite(resolved.lng)) {
-        body.center = { lat: resolved.lat, lng: resolved.lng };
-      }
-
-      const j = await postProxyXai(body);
+      const j = await postImportStart(body);
       setLastMeta(j?.meta || null);
       setStatus("✅ Import started. Streaming…");
     } catch (err) {
@@ -194,7 +137,6 @@ export default function XAIBulkImportPage() {
     setStatus("Resumed previous stream.");
   };
 
-  // Manual save (unchanged)
   const handleQuickImportSave = async () => {
     const lines = manualList.split("\n").map((s) => s.trim()).filter(Boolean);
     if (!lines.length) { setStatus("Paste at least one company name or URL."); return; }
@@ -206,7 +148,8 @@ export default function XAIBulkImportPage() {
     });
     try {
       setSaving(true); setStatus("Saving…");
-      const r = await fetch("/api/save-companies", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companies }) });
+      // NOTE: This will 404 until your external app exposes /save-companies.
+      const r = await fetch(`${API_BASE}/save-companies`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companies }) });
       const j = await r.json().catch(() => ({}));
       if (r.ok) setStatus(`💾 Saved ${j.saved} companies${j.failed ? `, ${j.failed} failed` : ""}.`);
       else setStatus(`❌ Save failed: ${j?.error || r.statusText}`);
@@ -218,7 +161,7 @@ export default function XAIBulkImportPage() {
   const handleClear = () => {
     setSessionId(""); setStatus(""); setSearchValue("");
     setMaxImports(10); setLastMeta(null); setManualList("");
-    setSavedSoFar(0); setLastRowTs(""); setUsedDirect(false);
+    setSavedSoFar(0); setLastRowTs("");
     setCenter({ lat: "", lng: "" });
     setPostal(""); setCity(""); setStateR(""); setCountry("");
   };
@@ -235,11 +178,6 @@ export default function XAIBulkImportPage() {
             Saved so far: <strong>{savedSoFar}</strong>{lastRowTs ? ` · last at ${new Date(lastRowTs).toLocaleTimeString()}` : ""}
           </span>
         )}
-        {usedDirect && (
-          <span className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-900">
-            Using direct Functions URL
-          </span>
-        )}
         {!sessionId && lastSessionId && (
           <button onClick={handleResume} className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
             Resume last stream
@@ -247,7 +185,7 @@ export default function XAIBulkImportPage() {
         )}
       </div>
 
-      {/* Manual/CSV quick import */}
+      {/* Manual/CSV quick import (kept) */}
       <div className="mb-6 p-3 border rounded">
         <label className="block text-sm font-medium text-gray-700 mb-1">Manual/CSV Quick Import (one per line)</label>
         <textarea
@@ -265,7 +203,7 @@ export default function XAIBulkImportPage() {
           >
             {saving ? "Saving…" : "Save These Lines to DB"}
           </button>
-          <span className="text-xs text-gray-500">Calls <code>/api/save-companies</code> directly (no xAI).</span>
+          <span className="text-xs text-gray-500">Calls <code>{API_BASE}/save-companies</code> (wire up in external app).</span>
         </div>
       </div>
 
@@ -310,7 +248,7 @@ export default function XAIBulkImportPage() {
         </div>
       </div>
 
-      {/* Center + Address */}
+      {/* Center + Address (UI kept; geocode deferred) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
         <div>
           <label className="block text-sm font-medium text-gray-700">Center Latitude (optional)</label>
@@ -330,7 +268,7 @@ export default function XAIBulkImportPage() {
         </div>
       </div>
 
-      {/* Address fields to auto-geocode when lat/lng are blank */}
+      {/* Address inputs (for future geocode; no-op today) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
         <div>
           <label className="block text-sm font-medium text-gray-700">Postal Code</label>

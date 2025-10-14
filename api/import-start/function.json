@@ -1,18 +1,7 @@
 {
+  "scriptFile": "index.js",
   "bindings": [
-    {
-      "authLevel": "anonymous",
-      "type": "httpTrigger",
-      "direction": "in",
-      "name": "req",
-      "methods": ["get", "post", "options"],
-      "route": "import/start"
-    },
-    {
-      "type": "http",
-      "direction": "out",
-      "name": "res"
-    }
-  ],
-  "scriptFile": "index.cjs"
+    { "authLevel": "anonymous", "type": "httpTrigger", "direction": "in", "name": "req", "methods": ["post","options"], "route": "import/start" },
+    { "type": "http", "direction": "out", "name": "res" }
+  ]
 }

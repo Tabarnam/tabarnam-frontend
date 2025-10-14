@@ -1,9 +1,9 @@
+// src/hooks/useXAIImporter.js
 import { useState, useCallback } from 'react';
 import { useToast } from '@/components/ui/use-toast';
-import { supabase } from '@/lib/customSupabaseClient';
-import { getFunctionHeaders } from '@/lib/supabaseFunctionUtils';
 import { logError } from '@/lib/errorLogger';
 import { fetchCompanyLogo } from '@/lib/logo';
+import { apiFetch } from '@/lib/api';
 
 export const useXAIImporter = () => {
   const [queryType, setQueryType] = useState('company_list');
@@ -63,20 +63,19 @@ export const useXAIImporter = () => {
   };
   // -------------------------------------------------------------------------
 
-  // ------- Persist logs + logo_url to Cosmos via Function ------------------
+  // ------- Persist logs + logo_url to DB via API ---------------------------
   const persistImportResults = async (arr) => {
     try {
-      // small batches to keep payload tidy
       const chunks = [];
       const size = 20;
       for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
-
       await Promise.all(chunks.map(async (chunk) => {
-        await fetch("/api/save-import-log", {
+        const r = await apiFetch('/save-import-log', {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ results: chunk })
         });
+        if (!r.ok) throw new Error(`save-import-log ${r.status}`);
       }));
     } catch (e) {
       logError({ type: 'Bulk Import', message: `save-import-log failed: ${e.message}` });
@@ -105,13 +104,13 @@ export const useXAIImporter = () => {
     }
 
     try {
-      const headers = await getFunctionHeaders();
-      const { data, error } = await supabase.functions.invoke('xai-bulk-importer', {
-        body,
-        headers,
+      const r = await apiFetch('/xai-bulk-importer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       });
-
-      if (error) throw new Error(`Edge function invocation failed: ${error.message}`);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.error || `Edge function invocation failed: ${r.status}`);
       if (data?.error) throw new Error(`Task Failed: ${data.error}`);
       if (!data || !Array.isArray(data.results)) {
         toast({ variant: 'destructive', title: 'Invalid Response', description: 'Unexpected response shape.' });
@@ -140,23 +139,19 @@ export const useXAIImporter = () => {
           description: `${successCount} imported, ${errorCount} failed, ${skippedCount} skipped. ${dryRun ? '(Dry Run)' : ''}`
         });
       } else {
-        const r = enriched[0];
-        const finalMessage = r.status === 'Success'
+        const r0 = enriched[0];
+        const finalMessage = r0.status === 'Success'
           ? `Discovery successful. ${dryRun ? '(Dry Run)' : 'Company data was saved.'}`
-          : `Discovery failed: ${r.log?.find(l => l.status === 'error')?.message || 'Unknown reason.'}`;
-        toast({
-          variant: r.status === 'Success' ? 'default' : 'destructive',
-          title: 'Discovery Task Finished',
-          description: finalMessage
-        });
-        if (r.status !== 'Error') {
+          : `Discovery failed: ${r0.log?.find(l => l.status === 'error')?.message || 'Unknown reason.'}`;
+        toast({ variant: r0.status === 'Success' ? 'default' : 'destructive', title: 'Discovery Task Finished', description: finalMessage });
+        if (r0.status !== 'Error') {
           const newEntry = {
-            id: r.id || `discovery-${Date.now()}`,
-            company_name: r.company?.name || discoveryQuery,
-            url: r.company?.website_url || '',
-            logo_url: r.company?.logo_url || null,
-            status: r.status,
-            log: r.log
+            id: r0.id || `discovery-${Date.now()}`,
+            company_name: r0.company?.name || discoveryQuery,
+            url: r0.company?.website_url || '',
+            logo_url: r0.company?.logo_url || null,
+            status: r0.status,
+            log: r0.log
           };
           setEntries(prev => [newEntry, ...prev]);
         }
@@ -177,7 +172,6 @@ export const useXAIImporter = () => {
     toast({ title: 'Retrying...', description: `Re-processing entry for ${entryToRetry.company_name || entryToRetry.url}` });
 
     try {
-      const headers = await getFunctionHeaders();
       const body = {
         queryType: 'company_list',
         entries: [{ ...entryToRetry, status: 'Pending' }],
@@ -185,13 +179,13 @@ export const useXAIImporter = () => {
         forceOverwrite
       };
 
-      const { data, error } = await supabase.functions.invoke('xai-bulk-importer', {
-        body,
-        headers,
+      const r = await apiFetch('/xai-bulk-importer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       });
-
-      if (error) throw new Error(`Edge function invocation failed: ${error.message}`);
-      if (data?.error) throw new Error(`Function returned an error: ${data.error}`);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data?.error || `Edge function invocation failed: ${r.status}`);
 
       const [result] = data.results || [];
       if (result?.status === 'Success' && result.company && !result.company.logo_url) {

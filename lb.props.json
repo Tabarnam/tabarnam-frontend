@@ -1,0 +1,8 @@
+{
+    "properties":  {
+                       "region":  "West US 2",
+                       "managedServiceIdentityType":  "None",
+                       "routingPath":  "/api",
+                       "backendResourceId":  "/subscriptions/78b03a8f-1fcd-4944-8793-8371ed2c7f55/resourceGroups/tabarnam-mvp-rg/providers/Microsoft.Web/sites/tabarnam-xai-externalapi"
+                   }
+}
