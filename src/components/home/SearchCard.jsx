@@ -36,10 +36,10 @@ export default function SearchCard({ onSubmitParams }) {
 
   const inputRef = useRef(null);
 
-  useEffect(() => { loadCountries().then(setCountries); }, []);
+  useEffect(() => { getCountries().then(setCountries); }, []);
   useEffect(() => {
     setStateCode(''); setSubdivs([]);
-    if (country) loadSubdivisions(country).then(setSubdivs);
+    if (country) getSubdivisions(country).then(setSubdivs);
   }, [country]);
 
   // Hydrate from URL
