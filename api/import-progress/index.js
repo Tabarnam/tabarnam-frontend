@@ -24,13 +24,14 @@ app.http("importProgress", {
   handler: async (req, ctx) => {
     if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
 
-    const jobId = new URL(req.url).searchParams.get("jobId");
-    if (!jobId) return json({ error: "jobId is required" }, 400, req);
+    const sessionId = new URL(req.url).searchParams.get("session_id");
+    const take = Number(new URL(req.url).searchParams.get("take") || "200") || 200;
+    if (!sessionId) return json({ error: "session_id is required" }, 400, req);
 
     const endpoint   = (process.env.COSMOS_DB_ENDPOINT || "").trim();
     const key        = (process.env.COSMOS_DB_KEY || "").trim();
     const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
-    const containerId= (process.env.COSMOS_DB_LOGS_CONTAINER || "import_logs").trim();
+    const containerId= (process.env.COSMOS_DB_CONTAINER || "companies").trim();
 
     if (!endpoint || !key) return json({ error: "Cosmos not configured" }, 500, req);
 
@@ -38,19 +39,31 @@ app.http("importProgress", {
     const container = client.database(databaseId).container(containerId);
 
     try {
-      // last log for this job/session
+      // Get companies imported in this session
       const q = {
         query: `
-          SELECT TOP 1 c.id, c.step, c.msg, c.ts, c.saved, c.page
+          SELECT TOP @take c.id, c.company_name, c.name, c.url, c.website_url, c.industries, c.product_keywords, c.created_at
           FROM c
           WHERE c.session_id = @sid
-          ORDER BY c._ts DESC
+          ORDER BY c.created_at DESC
         `,
-        parameters: [{ name: "@sid", value: jobId }],
+        parameters: [
+          { name: "@sid", value: sessionId },
+          { name: "@take", value: take }
+        ],
       };
       const { resources } = await container.items.query(q, { enableCrossPartitionQuery: true }).fetchAll();
-      const last = resources?.[0] || null;
-      return json({ ok: true, jobId, last }, 200, req);
+      const saved = resources.length || 0;
+      const lastCreatedAt = resources?.[0]?.created_at || "";
+      return json({
+        ok: true,
+        session_id: sessionId,
+        items: resources,
+        steps: [],
+        stopped: false,
+        saved,
+        lastCreatedAt
+      }, 200, req);
     } catch (e) {
       return json({ error: "query failed", detail: e?.message || String(e) }, 500, req);
     }
