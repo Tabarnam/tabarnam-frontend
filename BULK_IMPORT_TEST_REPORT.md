@@ -194,7 +194,7 @@ Check tabarnam container in tabarnam-db for documents with session_id like "manu
 ## Files Modified
 
 1. src/components/BulkImportStream.jsx
-   - Fixed endpoint path in tick() function
+   - Fixed endpoint path from /import-progress to /import/progress
 
 2. api/import-progress/index.js
    - Changed parameter from jobId to session_id
@@ -206,13 +206,19 @@ Check tabarnam container in tabarnam-db for documents with session_id like "manu
    - Added fallback to proxy if available
    - Added proper validation and error handling
 
+4. src/lib/searchCompanies.ts
+   - Fixed getSuggestions return format from { id, title, subtitle } to { value, type, id }
+   - Added optional _take parameter to getSuggestions function
+
 ## Summary
 
 All critical issues have been fixed:
-✓ API parameter mismatches resolved
+✓ API parameter mismatches resolved (jobId → session_id)
 ✓ Endpoint implementations aligned
 ✓ Direct Cosmos DB write capability added
 ✓ CORS configured for all endpoints
 ✓ Error handling and validation in place
+✓ SearchCard suggestions format corrected
+✓ getSuggestions parameter handling fixed
 
-The feature should now work end-to-end: users can enter company data in the textarea, save it via API, and it persists to Cosmos DB where it can be queried and displayed in the frontend.
+The feature should now work end-to-end: users can enter company data in the textarea, save it via API, and it persists to Cosmos DB where it can be queried and displayed in the frontend with proper suggestions.
