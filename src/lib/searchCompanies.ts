@@ -62,14 +62,15 @@ export async function searchCompanies(opts: SearchOptions) {
   };
 }
 
-export async function getSuggestions(qLike: unknown) {
+export async function getSuggestions(qLike: unknown, _take?: number) {
   const q = asStr(qLike).trim();
   if (!q) return [];
-  const out = await searchCompanies({ q, sort: "recent", take: 10 });
+  const take = _take || 10;
+  const out = await searchCompanies({ q, sort: "recent", take });
   return out.items.map((i) => ({
+    value: i.company_name,
+    type: "Company",
     id: i.id,
-    title: i.company_name,
-    subtitle: i.normalized_domain || i.url || i.amazon_url || "",
   }));
 }
 
