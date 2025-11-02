@@ -66,10 +66,15 @@ Expected parsing:
 **Impact:** Manual import button did nothing, data never persisted
 **Status:** FIXED
 
-### Issue 4: No Response Validation in Frontend
-**Root Cause:** Frontend doesn't validate API response format
-**Impact:** Silently fails if backend response structure is wrong
-**Status:** Code works but no user feedback on structure mismatch
+### Issue 4: getSuggestions Return Format Mismatch
+**Root Cause:** getSuggestions returns { id, title, subtitle } but SearchCard expects { value, type }
+**Impact:** Search suggestions don't render properly; s.type is undefined causing rendering errors
+**Status:** FIXED - Updated getSuggestions to return { value, type, id }
+
+### Issue 5: getSuggestions Parameter Ignored
+**Root Cause:** Function signature expects (qLike) but SearchCard calls it with (q, 8)
+**Impact:** The take parameter was silently ignored, always using default 10
+**Status:** FIXED - Added optional _take parameter
 
 ## Expected Behavior Flow
 
