@@ -17,8 +17,6 @@ import XAIBulkImportPage from "@pages/XAIBulkImportPage";
 
 import SiteHeader from "@/components/SiteHeader";
 import FeedbackWidget from "@/components/FeedbackWidget";
-import { SupabaseAuthProvider } from "@/contexts/SupabaseAuthProvider";
-import { UserRoleProvider } from "@/contexts/UserRoleProvider";
 
 // Simple error boundary
 class ErrorBoundary extends React.Component {
@@ -55,10 +53,8 @@ export default function App() {
   return (
     <HelmetProvider>
       <ErrorBoundary>
-        <SupabaseAuthProvider>
-          <UserRoleProvider>
-            <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-              <Layout>
+        <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <Layout>
             <Routes>
               {/* public */}
               <Route path="/" element={<HomePage />} />
@@ -77,12 +73,10 @@ export default function App() {
 
               {/* fallback */}
               <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-              </Layout>
-            </Router>
-            <Toaster />
-          </UserRoleProvider>
-        </SupabaseAuthProvider>
+            </Routes>
+          </Layout>
+        </Router>
+        <Toaster />
       </ErrorBoundary>
     </HelmetProvider>
   );
