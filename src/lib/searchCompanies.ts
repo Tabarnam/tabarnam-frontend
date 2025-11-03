@@ -48,18 +48,28 @@ export async function searchCompanies(opts: SearchOptions) {
   if (state) params.set("state", state);
   if (city) params.set("city", city);
 
-  const r = await apiFetch(`/search-companies?${params.toString()}`, { headers: { accept: "application/json" } });
-  if (!r.ok) {
-    const msg = await readError(r);
-    throw new Error(`search-companies failed (${r.status}): ${msg}`);
+  try {
+    const r = await apiFetch(`/search-companies?${params.toString()}`, { headers: { accept: "application/json" } });
+    if (!r.ok) {
+      const msg = await readError(r);
+      throw new Error(`search-companies failed (${r.status}): ${msg}`);
+    }
+    const data = await r.json();
+    const items: Company[] = Array.isArray(data?.items) ? data.items : [];
+    return {
+      items,
+      count: Number(data?.count) || items.length,
+      meta: data?.meta ?? { q, sort },
+    };
+  } catch (e) {
+    // If API is unavailable, return empty results with error message
+    console.warn("Search API unavailable:", e?.message);
+    return {
+      items: [],
+      count: 0,
+      meta: { q, sort, error: e?.message || "Search API unavailable" },
+    };
   }
-  const data = await r.json();
-  const items: Company[] = Array.isArray(data?.items) ? data.items : [];
-  return {
-    items,
-    count: Number(data?.count) || items.length,
-    meta: data?.meta ?? { q, sort },
-  };
 }
 
 export async function getSuggestions(qLike: unknown, _take?: number) {
