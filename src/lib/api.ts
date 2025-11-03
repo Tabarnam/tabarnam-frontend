@@ -24,7 +24,20 @@ export function join(base: string, path: string) {
 
 export async function apiFetch(path: string, init?: RequestInit) {
   const url = join(API_BASE, path);
-  return fetch(url, init);
+  try {
+    const response = await fetch(url, init);
+    if (!response.ok) {
+      console.warn(`API ${url} returned ${response.status}:`, response.statusText);
+    }
+    return response;
+  } catch (e) {
+    console.error(`API fetch failed for ${url}:`, e?.message);
+    // Return a fake 503 error response instead of throwing
+    return new Response(JSON.stringify({ error: 'API unavailable', detail: e?.message }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 }
 
 // Health check (optional)
