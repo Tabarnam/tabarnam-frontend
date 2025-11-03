@@ -17,6 +17,8 @@ import XAIBulkImportPage from "@pages/XAIBulkImportPage";
 
 import SiteHeader from "@/components/SiteHeader";
 import FeedbackWidget from "@/components/FeedbackWidget";
+import { SupabaseAuthProvider } from "@/contexts/SupabaseAuthProvider";
+import { UserRoleProvider } from "@/contexts/UserRoleProvider";
 
 // Simple error boundary
 class ErrorBoundary extends React.Component {
