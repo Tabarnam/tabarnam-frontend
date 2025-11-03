@@ -55,8 +55,10 @@ export default function App() {
   return (
     <HelmetProvider>
       <ErrorBoundary>
-        <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <Layout>
+        <SupabaseAuthProvider>
+          <UserRoleProvider>
+            <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+              <Layout>
             <Routes>
               {/* public */}
               <Route path="/" element={<HomePage />} />
@@ -75,10 +77,12 @@ export default function App() {
 
               {/* fallback */}
               <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Layout>
-        </Router>
-        <Toaster />
+              </Routes>
+              </Layout>
+            </Router>
+            <Toaster />
+          </UserRoleProvider>
+        </SupabaseAuthProvider>
       </ErrorBoundary>
     </HelmetProvider>
   );
