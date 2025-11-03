@@ -1,28 +1,9 @@
 // src/pages/XAIBulkImportPage.jsx
 import React, { useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
 import BulkImportStream from "@/components/BulkImportStream";
 import { API_BASE } from "@/lib/api";
-import { useSupabaseAuth } from "@/contexts/useSupabaseAuth";
-import { useUserRole } from "@/contexts/useUserRole";
 
 export default function XAIBulkImportPage() {
-  const { user, loading: authLoading } = useSupabaseAuth();
-  const { userRole, loading: roleLoading } = useUserRole();
-
-  // Redirect to home if not authenticated or not admin
-  if (!authLoading && !roleLoading && (!user || userRole !== "admin")) {
-    return <Navigate to="/" replace />;
-  }
-
-  // Show loading while checking auth
-  if (authLoading || roleLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    );
-  }
   const [maxImports, setMaxImports] = useState(10);
   const [searchField, setSearchField] = useState("product_keywords");
   const [searchValue, setSearchValue] = useState("");
