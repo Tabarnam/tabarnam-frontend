@@ -56,9 +56,15 @@ export default function SearchCard({ onSubmitParams }) {
     const t = setTimeout(async () => {
       const s = q.trim();
       if (s.length < 2) { setSuggestions([]); setOpenSuggest(false); return; }
-      const list = await getSuggestions(s, 8);
-      setSuggestions(list);
-      setOpenSuggest(list.length > 0);
+      try {
+        const list = await getSuggestions(s, 8);
+        setSuggestions(list);
+        setOpenSuggest(list.length > 0);
+      } catch (e) {
+        console.warn("Failed to load suggestions:", e?.message);
+        setSuggestions([]);
+        setOpenSuggest(false);
+      }
     }, 250);
     return () => clearTimeout(t);
   }, [q]);
