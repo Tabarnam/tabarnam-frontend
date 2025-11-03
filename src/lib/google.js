@@ -48,12 +48,17 @@ export async function geocode({ address, lat, lng, ipLookup = true } = {}) {
 
 // Pass-through stub kept for compatibility
 export async function translate({ text, target = "en" }) {
-  const r = await fetch(`${API_BASE}/google/translate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, target })
-  });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data?.error || r.statusText || "translate failed");
-  return data;
+  try {
+    const r = await fetch(`${API_BASE}/google/translate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, target })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data?.error || r.statusText || "translate failed");
+    return data;
+  } catch (e) {
+    console.warn("Translation failed (returning original text):", e?.message);
+    return { text, target, translatedText: text };
+  }
 }
