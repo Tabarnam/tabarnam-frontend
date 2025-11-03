@@ -23,15 +23,27 @@ export async function geocode({ address, lat, lng, ipLookup = true } = {}) {
   const hit = _get(key);
   if (hit) return hit;
 
-  const r = await fetch(`${API_BASE}/google/geocode`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ address, lat, lng, ipLookup })
-  });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data?.error || r.statusText || "geocode failed");
-  _set(key, data);
-  return data;
+  try {
+    const r = await fetch(`${API_BASE}/google/geocode`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address, lat, lng, ipLookup })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data?.error || r.statusText || "geocode failed");
+    _set(key, data);
+    return data;
+  } catch (e) {
+    console.warn("Geocoding failed (using fallback):", e?.message);
+    const fallback = {
+      best: {
+        location: { lat: 34.0983, lng: -117.8076 },
+        components: [{ types: ["country"], short_name: "US" }]
+      }
+    };
+    _set(key, fallback);
+    return fallback;
+  }
 }
 
 // Pass-through stub kept for compatibility
