@@ -76,12 +76,17 @@ export async function getSuggestions(qLike: unknown, _take?: number) {
   const q = asStr(qLike).trim();
   if (!q) return [];
   const take = _take || 10;
-  const out = await searchCompanies({ q, sort: "recent", take });
-  return out.items.map((i) => ({
-    value: i.company_name,
-    type: "Company",
-    id: i.id,
-  }));
+  try {
+    const out = await searchCompanies({ q, sort: "recent", take });
+    return out.items.map((i) => ({
+      value: i.company_name,
+      type: "Company",
+      id: i.id,
+    }));
+  } catch (e) {
+    console.warn("Failed to get suggestions:", e?.message);
+    return [];
+  }
 }
 
 async function readError(resp: Response) {
