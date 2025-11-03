@@ -127,10 +127,17 @@ export default function ResultsPage() {
     setLoading(true);
     setStatus("Searching…");
     try {
-      const { items = [], count } = await searchCompanies({ q, sort, country, state, city, take });
+      const { items = [], count, meta } = await searchCompanies({ q, sort, country, state, city, take });
       const enriched = items.map((c) => normalizeStars(attachDistances(c, userLoc, unit)));
       setResults(enriched);
-      setStatus(`Found ${typeof count === "number" ? count : enriched.length} companies`);
+
+      if (meta?.error) {
+        setStatus(`⚠️ Search API unavailable - showing 0 results. Error: ${meta.error}`);
+      } else if (count === 0) {
+        setStatus("No companies found matching your criteria.");
+      } else {
+        setStatus(`Found ${typeof count === "number" ? count : enriched.length} companies`);
+      }
     } catch (e) {
       setStatus(`❌ ${e?.message || "Search failed"}`);
     } finally {
