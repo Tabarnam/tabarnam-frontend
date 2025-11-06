@@ -17,6 +17,7 @@ import XAIBulkImportPage from "@pages/XAIBulkImportPage";
 
 import SiteHeader from "@/components/SiteHeader";
 import FeedbackWidget from "@/components/FeedbackWidget";
+import Footer from "@/components/Footer";
 
 // Simple error boundary
 class ErrorBoundary extends React.Component {
@@ -41,11 +42,12 @@ function Layout({ children }) {
   const { pathname } = useLocation();
   const isAdmin = pathname.startsWith("/admin");
   return (
-    <>
+    <div className="flex flex-col min-h-screen">
       {!isAdmin && <SiteHeader />}
-      <div className="min-h-screen">{children}</div>
+      <div className="flex-grow">{children}</div>
       {!isAdmin && <FeedbackWidget />}
-    </>
+      {!isAdmin && <Footer />}
+    </div>
   );
 }
 
