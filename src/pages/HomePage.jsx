@@ -15,15 +15,13 @@ export default function HomePage() {
 
       <main className="min-h-[calc(100vh-2rem)] flex flex-col items-center pt-12 pb-16 px-4">
         {/* Upper 1/3 logo */}
-        <Link to="/" className="mb-6 inline-block">
+        <Link to="/" className="mb-8 inline-block">
           <img
             src={Logo}
-            alt="Tabarnam"
+            alt="Tabarnam™"
             className="h-16 sm:h-20 md:h-24 transition-transform duration-150 hover:scale-[1.04]"
           />
         </Link>
-
-        <p className="text-gray-600 mb-8 text-lg">…but where was it made?</p>
 
         {/* Two-row search bar */}
         <SearchCard />
