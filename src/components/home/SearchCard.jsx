@@ -79,54 +79,8 @@ export default function SearchCard({ onSubmitParams }) {
 
   return (
     <div className="w-full max-w-5xl bg-white border border-gray-200 rounded-2xl p-5 md:p-6 shadow">
-      {/* Row 1 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-        <div className="relative">
-          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <Input
-            value={city}
-            onChange={(e)=>setCity(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder="City / Postal Code"
-            className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
-          />
-        </div>
-        <div className="relative">
-          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <Select value={stateCode} onValueChange={setStateCode}>
-            <SelectTrigger className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900">
-              <SelectValue placeholder="State / Province" />
-            </SelectTrigger>
-            <SelectContent className="max-h-72 overflow-auto">
-              {subdivs.map(s => <SelectItem key={s.code} value={s.code}>{s.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="relative">
-          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <Select value={country} onValueChange={setCountry}>
-            <SelectTrigger className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900">
-              <SelectValue placeholder="Country" />
-            </SelectTrigger>
-            <SelectContent className="max-h-72 overflow-auto">
-              {countries.map(c => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {/* Row 2 */}
-      <div className="grid grid-cols-1 md:grid-cols-[260px_1fr_auto] gap-3">
-        <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="h-11 bg-gray-50 border-gray-300 text-gray-900">
-            <ListFilter className="text-gray-400 mr-2" size={18} />
-            <SelectValue placeholder="Sort Options" />
-          </SelectTrigger>
-          <SelectContent>
-            {SORTS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-          </SelectContent>
-        </Select>
-
+      {/* Row 1: Search field and button spanning full width */}
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 mb-3">
         <div className="relative">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
           {q && (
@@ -178,6 +132,54 @@ export default function SearchCard({ onSubmitParams }) {
           {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />}
           <span className="ml-2">Search</span>
         </Button>
+      </div>
+
+      {/* Row 2: Sort Results, City/Postal Code, State/Province, Country */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="h-11 bg-gray-50 border-gray-300 text-gray-900">
+            <ListFilter className="text-gray-400 mr-2" size={18} />
+            <SelectValue placeholder="Sort Results" />
+          </SelectTrigger>
+          <SelectContent>
+            {SORTS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+
+        <div className="relative">
+          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <Input
+            value={city}
+            onChange={(e)=>setCity(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder="City / Postal Code"
+            className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
+          />
+        </div>
+
+        <div className="relative">
+          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <Select value={stateCode} onValueChange={setStateCode}>
+            <SelectTrigger className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900">
+              <SelectValue placeholder="State / Province" />
+            </SelectTrigger>
+            <SelectContent className="max-h-72 overflow-auto">
+              {subdivs.map(s => <SelectItem key={s.code} value={s.code}>{s.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="relative">
+          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <Select value={country} onValueChange={setCountry}>
+            <SelectTrigger className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900">
+              <SelectValue placeholder="Country" />
+            </SelectTrigger>
+            <SelectContent className="max-h-72 overflow-auto">
+              {countries.map(c => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
     </div>
   );
