@@ -153,12 +153,18 @@ export default function ExpandableCompanyRow({
 
           {/* Column 2: Logo & Keywords */}
           <div>
-            {company.logo_url && (
+            {company.logo_url ? (
               <img
                 src={company.logo_url}
                 alt={company.company_name}
                 className="w-full h-24 object-contain mb-3"
+                onError={(e) => { e.target.style.display = 'none'; }}
               />
+            ) : null}
+            {!company.logo_url && (
+              <div className="w-full h-24 mb-3 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-2xl">
+                {company.company_name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
+              </div>
             )}
             <div className="text-sm font-semibold text-gray-700">Keywords</div>
             <div className="text-sm text-gray-600 mt-1 flex flex-wrap gap-1">
