@@ -2,18 +2,21 @@
 // Admin interface for managing curated reviews on companies
 // Supports: add/edit/delete reviews, bulk exclude sources
 
-const { CosmosClient } = require("@azure/cosmos");
-const { randomUUID } = require("crypto");
+import { app } from "@azure/functions";
+import { CosmosClient } from "@azure/cosmos";
+import { randomUUID } from "node:crypto";
 
-function E(key, def = "") {
-  return (process.env[key] ?? def).toString().trim();
-}
+const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
-const cors = (req) => ({
-  "Access-Control-Allow-Origin": req.headers.get("origin") || "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-});
+const cors = (req) => {
+  const origin = req.headers.get("origin") || "*";
+  return {
+    "Access-Control-Allow-Origin": origin,
+    Vary: "Origin",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+};
 
 const json = (obj, status = 200, req) => ({
   status,
@@ -46,183 +49,206 @@ function isExcludedSource(source) {
   return false;
 }
 
-module.exports = async function (context, req) {
-  const method = String(req.method || "").toUpperCase();
+app.http("adminReviews", {
+  route: "admin/reviews",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req, context) => {
+    const method = String(req.method || "").toUpperCase();
 
-  if (method === "OPTIONS") {
-    return json({}, 204, req);
-  }
-
-  const url = new URL(req.url);
-  const action = url.searchParams.get("action") || "";
-  const company = url.searchParams.get("company") || "";
-
-  const container = getCompaniesContainer();
-  if (!container) {
-    return json({ error: "Cosmos DB not configured" }, 500, req);
-  }
-
-  try {
-    // GET: Fetch reviews for a company
-    if (method === "GET") {
-      if (!company) return json({ error: "company parameter required" }, 400, req);
-
-      const sql = `SELECT c.company_name, c.curated_reviews FROM c WHERE c.company_name = @company`;
-      const { resources } = await container.items
-        .query({ query: sql, parameters: [{ name: "@company", value: company }] }, { enableCrossPartitionQuery: true })
-        .fetchAll();
-
-      if (!resources || !resources.length) {
-        return json({ company, reviews: [] }, 200, req);
-      }
-
-      const companyRecord = resources[0];
-      const reviews = Array.isArray(companyRecord.curated_reviews) ? companyRecord.curated_reviews : [];
-
-      return json({ company, reviews }, 200, req);
+    if (method === "OPTIONS") {
+      return json({}, 204, req);
     }
 
-    // POST: Add or update a review
-    if (method === "POST") {
-      let body = {};
-      try {
-        body = await req.json();
-      } catch {
-        return json({ error: "Invalid JSON" }, 400, req);
-      }
+    const url = new URL(req.url);
+    const company = url.searchParams.get("company") || "";
 
-      const { company: companyName, source, abstract, url, rating } = body;
-
-      if (!companyName) return json({ error: "company required" }, 400, req);
-      if (!source) return json({ error: "source required" }, 400, req);
-      if (!abstract) return json({ error: "abstract required" }, 400, req);
-
-      if (isExcludedSource(source)) {
-        return json({ error: `Source "${source}" is excluded (Amazon/Google/Facebook)` }, 400, req);
-      }
-
-      // Fetch company record
-      const sql = `SELECT * FROM c WHERE c.company_name = @company`;
-      const { resources } = await container.items
-        .query({ query: sql, parameters: [{ name: "@company", value: companyName }] }, { enableCrossPartitionQuery: true })
-        .fetchAll();
-
-      if (!resources || !resources.length) {
-        return json({ error: "Company not found" }, 404, req);
-      }
-
-      const companyRecord = resources[0];
-      if (!Array.isArray(companyRecord.curated_reviews)) {
-        companyRecord.curated_reviews = [];
-      }
-
-      // Create new review
-      const newReview = {
-        id: randomUUID(),
-        source: source.trim(),
-        abstract: abstract.trim(),
-        url: url ? url.trim() : null,
-        rating: rating ? Number(rating) : null,
-        created_at: new Date().toISOString(),
-        last_updated_at: new Date().toISOString(),
-      };
-
-      // Add to front (most recent first)
-      companyRecord.curated_reviews.unshift(newReview);
-
-      // Keep only 10 most recent
-      companyRecord.curated_reviews = companyRecord.curated_reviews.slice(0, 10);
-
-      // Update company
-      await container.items.upsert(companyRecord);
-
-      return json({ ok: true, review: newReview }, 200, req);
+    const container = getCompaniesContainer();
+    if (!container) {
+      return json({ error: "Cosmos DB not configured" }, 500, req);
     }
 
-    // PUT: Update an existing review
-    if (method === "PUT") {
-      let body = {};
-      try {
-        body = await req.json();
-      } catch {
-        return json({ error: "Invalid JSON" }, 400, req);
+    try {
+      // GET: Fetch reviews for a company
+      if (method === "GET") {
+        if (!company) return json({ error: "company parameter required" }, 400, req);
+
+        const sql = `SELECT c.company_name, c.curated_reviews FROM c WHERE c.company_name = @company`;
+        const { resources } = await container.items
+          .query(
+            { query: sql, parameters: [{ name: "@company", value: company }] },
+            { enableCrossPartitionQuery: true }
+          )
+          .fetchAll();
+
+        if (!resources || !resources.length) {
+          return json({ company, reviews: [] }, 200, req);
+        }
+
+        const companyRecord = resources[0];
+        const reviews = Array.isArray(companyRecord.curated_reviews) ? companyRecord.curated_reviews : [];
+
+        return json({ company, reviews }, 200, req);
       }
 
-      const { company: companyName, review_id, source, abstract, url, rating } = body;
+      // POST: Add a new review
+      if (method === "POST") {
+        let body = {};
+        try {
+          body = await req.json();
+        } catch {
+          return json({ error: "Invalid JSON" }, 400, req);
+        }
 
-      if (!companyName || !review_id) {
-        return json({ error: "company and review_id required" }, 400, req);
+        const { company: companyName, source, abstract, url, rating } = body;
+
+        if (!companyName) return json({ error: "company required" }, 400, req);
+        if (!source) return json({ error: "source required" }, 400, req);
+        if (!abstract) return json({ error: "abstract required" }, 400, req);
+
+        if (isExcludedSource(source)) {
+          return json({ error: `Source "${source}" is excluded (Amazon/Google/Facebook)` }, 400, req);
+        }
+
+        // Fetch company record
+        const sql = `SELECT * FROM c WHERE c.company_name = @company`;
+        const { resources } = await container.items
+          .query(
+            { query: sql, parameters: [{ name: "@company", value: companyName }] },
+            { enableCrossPartitionQuery: true }
+          )
+          .fetchAll();
+
+        if (!resources || !resources.length) {
+          return json({ error: "Company not found" }, 404, req);
+        }
+
+        const companyRecord = resources[0];
+        if (!Array.isArray(companyRecord.curated_reviews)) {
+          companyRecord.curated_reviews = [];
+        }
+
+        // Create new review
+        const newReview = {
+          id: randomUUID(),
+          source: source.trim(),
+          abstract: abstract.trim(),
+          url: url ? url.trim() : null,
+          rating: rating ? Number(rating) : null,
+          created_at: new Date().toISOString(),
+          last_updated_at: new Date().toISOString(),
+        };
+
+        // Add to front (most recent first)
+        companyRecord.curated_reviews.unshift(newReview);
+
+        // Keep only 10 most recent
+        companyRecord.curated_reviews = companyRecord.curated_reviews.slice(0, 10);
+
+        // Update company
+        await container.items.upsert(companyRecord);
+
+        return json({ ok: true, review: newReview }, 200, req);
       }
 
-      const sql = `SELECT * FROM c WHERE c.company_name = @company`;
-      const { resources } = await container.items
-        .query({ query: sql, parameters: [{ name: "@company", value: companyName }] }, { enableCrossPartitionQuery: true })
-        .fetchAll();
+      // PUT: Update an existing review
+      if (method === "PUT") {
+        let body = {};
+        try {
+          body = await req.json();
+        } catch {
+          return json({ error: "Invalid JSON" }, 400, req);
+        }
 
-      if (!resources || !resources.length) {
-        return json({ error: "Company not found" }, 404, req);
+        const { company: companyName, review_id, source, abstract, url, rating } = body;
+
+        if (!companyName || !review_id) {
+          return json({ error: "company and review_id required" }, 400, req);
+        }
+
+        const sql = `SELECT * FROM c WHERE c.company_name = @company`;
+        const { resources } = await container.items
+          .query(
+            { query: sql, parameters: [{ name: "@company", value: companyName }] },
+            { enableCrossPartitionQuery: true }
+          )
+          .fetchAll();
+
+        if (!resources || !resources.length) {
+          return json({ error: "Company not found" }, 404, req);
+        }
+
+        const companyRecord = resources[0];
+        const reviews = Array.isArray(companyRecord.curated_reviews) ? companyRecord.curated_reviews : [];
+
+        const reviewIndex = reviews.findIndex((r) => r.id === review_id);
+        if (reviewIndex === -1) {
+          return json({ error: "Review not found" }, 404, req);
+        }
+
+        if (source && isExcludedSource(source)) {
+          return json({ error: `Source "${source}" is excluded` }, 400, req);
+        }
+
+        // Update review
+        const updated = {
+          ...reviews[reviewIndex],
+          ...(source && { source: source.trim() }),
+          ...(abstract && { abstract: abstract.trim() }),
+          ...(url && { url: url.trim() }),
+          ...(rating !== undefined && { rating: Number(rating) }),
+          last_updated_at: new Date().toISOString(),
+        };
+
+        reviews[reviewIndex] = updated;
+        companyRecord.curated_reviews = reviews;
+
+        await container.items.upsert(companyRecord);
+
+        return json({ ok: true, review: updated }, 200, req);
       }
 
-      const companyRecord = resources[0];
-      const reviews = Array.isArray(companyRecord.curated_reviews) ? companyRecord.curated_reviews : [];
+      // DELETE: Remove a review
+      if (method === "DELETE") {
+        let body = {};
+        try {
+          body = await req.json();
+        } catch {
+          return json({ error: "Invalid JSON" }, 400, req);
+        }
 
-      const reviewIndex = reviews.findIndex((r) => r.id === review_id);
-      if (reviewIndex === -1) {
-        return json({ error: "Review not found" }, 404, req);
+        const { company: companyName, review_id } = body;
+
+        if (!companyName || !review_id) {
+          return json({ error: "company and review_id required" }, 400, req);
+        }
+
+        const sql = `SELECT * FROM c WHERE c.company_name = @company`;
+        const { resources } = await container.items
+          .query(
+            { query: sql, parameters: [{ name: "@company", value: companyName }] },
+            { enableCrossPartitionQuery: true }
+          )
+          .fetchAll();
+
+        if (!resources || !resources.length) {
+          return json({ error: "Company not found" }, 404, req);
+        }
+
+        const companyRecord = resources[0];
+        const reviews = Array.isArray(companyRecord.curated_reviews) ? companyRecord.curated_reviews : [];
+
+        companyRecord.curated_reviews = reviews.filter((r) => r.id !== review_id);
+
+        await container.items.upsert(companyRecord);
+
+        return json({ ok: true, deleted: review_id }, 200, req);
       }
 
-      if (source && isExcludedSource(source)) {
-        return json({ error: `Source "${source}" is excluded` }, 400, req);
-      }
-
-      // Update review
-      const updated = {
-        ...reviews[reviewIndex],
-        ...(source && { source: source.trim() }),
-        ...(abstract && { abstract: abstract.trim() }),
-        ...(url && { url: url.trim() }),
-        ...(rating !== undefined && { rating: Number(rating) }),
-        last_updated_at: new Date().toISOString(),
-      };
-
-      reviews[reviewIndex] = updated;
-      companyRecord.curated_reviews = reviews;
-
-      await container.items.upsert(companyRecord);
-
-      return json({ ok: true, review: updated }, 200, req);
+      return json({ error: "Method not supported" }, 405, req);
+    } catch (e) {
+      context.log("Error in admin-reviews:", e?.message || e);
+      return json({ error: e?.message || "Internal error" }, 500, req);
     }
-
-    // DELETE: Remove a review
-    if (method === "DELETE") {
-      const { company: companyName, review_id } = await req.json().catch(() => ({}));
-
-      if (!companyName || !review_id) {
-        return json({ error: "company and review_id required" }, 400, req);
-      }
-
-      const sql = `SELECT * FROM c WHERE c.company_name = @company`;
-      const { resources } = await container.items
-        .query({ query: sql, parameters: [{ name: "@company", value: companyName }] }, { enableCrossPartitionQuery: true })
-        .fetchAll();
-
-      if (!resources || !resources.length) {
-        return json({ error: "Company not found" }, 404, req);
-      }
-
-      const companyRecord = resources[0];
-      const reviews = Array.isArray(companyRecord.curated_reviews) ? companyRecord.curated_reviews : [];
-
-      companyRecord.curated_reviews = reviews.filter((r) => r.id !== review_id);
-
-      await container.items.upsert(companyRecord);
-
-      return json({ ok: true, deleted: review_id }, 200, req);
-    }
-
-    return json({ error: "Method not supported" }, 405, req);
-  } catch (e) {
-    context.log("Error in admin-reviews:", e?.message || e);
-    return json({ error: e?.message || "Internal error" }, 500, req);
-  }
-};
+  },
+});
