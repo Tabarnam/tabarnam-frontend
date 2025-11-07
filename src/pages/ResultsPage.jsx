@@ -16,9 +16,10 @@ const milesCountries = new Set([
 
 export default function ResultsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const qParam = (searchParams.get("q") ?? "").toString();
-  const sortParam = (searchParams.get("sort") ?? "manu").toString(); // for server sort
+  const sortParam = (searchParams.get("sort") ?? "manu").toString();
   const countryParam = (searchParams.get("country") ?? "").toString();
   const stateParam = (searchParams.get("state") ?? "").toString();
   const cityParam = (searchParams.get("city") ?? "").toString();
@@ -28,13 +29,9 @@ export default function ResultsPage() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
-
-  // Location + units
-  const [userLoc, setUserLoc] = useState(null); // {lat,lng}
+  const [userLoc, setUserLoc] = useState(null);
   const [unit, setUnit] = useState("mi");
-
-  // Secondary, client-side sort of visible columns
-  const [sortBy, setSortBy] = useState("manu"); // "manu" | "hq" | "stars"
+  const [sortBy, setSortBy] = useState("manu");
 
   // Resolve a center location (from lat/lng or geocoding) and run the search
   useEffect(() => {
