@@ -33,12 +33,30 @@ export default function ResultsPage() {
   const [unit, setUnit] = useState("mi");
   const [sortBy, setSortBy] = useState("manu");
 
+  // Load reviews for companies
+  async function loadReviews(companies) {
+    const enriched = await Promise.all(
+      companies.map(async (c) => {
+        try {
+          const r = await fetch(`${API_BASE}/get-reviews?company=${encodeURIComponent(c.company_name)}`);
+          const data = await r.json().catch(() => ({ reviews: [] }));
+          return {
+            ...c,
+            _reviews: Array.isArray(data.reviews) ? data.reviews : [],
+          };
+        } catch {
+          return { ...c, _reviews: [] };
+        }
+      })
+    );
+    return enriched;
+  }
+
   // Resolve a center location (from lat/lng or geocoding) and run the search
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
-      // infer location
       let loc = null;
       try {
         if (latParam && lngParam && !Number.isNaN(Number(latParam)) && !Number.isNaN(Number(lngParam))) {
@@ -50,25 +68,22 @@ export default function ResultsPage() {
           const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
           if (cc) setUnit(milesCountries.has(cc) ? "mi" : "km");
         } else {
-          // server does IP lookup when ipLookup:true
           const r = await geocode({ ipLookup: true });
-          loc = r?.best?.location || { lat: 34.0983, lng: -117.8076 }; // harmless fallback
+          loc = r?.best?.location || { lat: 34.0983, lng: -117.8076 };
           const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
           if (cc) setUnit(milesCountries.has(cc) ? "mi" : "km");
         }
       } catch {
-        // ignore geocode errors; we can still search
+        // ignore geocode errors
       }
       if (!cancelled && loc) setUserLoc({ lat: loc.lat, lng: loc.lng });
 
-      // normalize secondary sort selector
       setSortBy(sortParam === "hq" || sortParam === "stars" ? sortParam : "manu");
 
-      // run search
       if (!cancelled && qParam) {
         await doSearch({
           q: qParam,
-          sort: sortParam,        // server sort: "recent" | "name" | "manu"
+          sort: sortParam,
           country: countryParam,
           state: stateParam,
           city: cityParam,
@@ -81,7 +96,6 @@ export default function ResultsPage() {
     })();
 
     return () => { cancelled = true; };
-    // Re-run whenever URL params change
   }, [qParam, sortParam, countryParam, stateParam, cityParam, latParam, lngParam]);
 
   // Called by the top search bar
