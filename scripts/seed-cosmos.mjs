@@ -152,6 +152,118 @@ const TEST_COMPANIES = [
     confidence_score: 0.91,
     created_at: new Date().toISOString(),
     session_id: "seed-01"
+  },
+  {
+    id: "microsoft-corp",
+    company_name: "Microsoft Corporation",
+    industries: ["Software", "Cloud Computing", "Technology"],
+    product_keywords: "operating systems, productivity software, cloud services, gaming",
+    url: "https://www.microsoft.com",
+    amazon_url: "https://www.amazon.com/s?k=microsoft",
+    logo_url: "/logos/microsoft.svg",
+    headquarters_location: "Redmond, Washington, USA",
+    hq_lat: 47.6740,
+    hq_lng: -122.1215,
+    manufacturing_locations: [
+      "Redmond, Washington, USA",
+      "Dublin, Ireland",
+      "Mountain View, California, USA"
+    ],
+    manufacturing_geocodes: [
+      { city: "Redmond", country: "USA", lat: 47.6740, lng: -122.1215, formatted_address: "Redmond, Washington, USA" },
+      { city: "Dublin", country: "Ireland", lat: 53.3498, lng: -6.2603, formatted_address: "Dublin, Ireland" },
+      { city: "Mountain View", country: "USA", lat: 37.3854, lng: -122.0848, formatted_address: "Mountain View, California, USA" }
+    ],
+    company_tagline: "Empower Every Person and Organization",
+    star_score: 4.6,
+    star_rating: 4.6,
+    confidence_score: 0.94,
+    created_at: new Date().toISOString(),
+    session_id: "seed-01"
+  },
+  {
+    id: "google-llc",
+    company_name: "Google LLC",
+    industries: ["Technology", "Search", "Advertising"],
+    product_keywords: "search engine, cloud services, analytics, advertising platform",
+    url: "https://www.google.com",
+    amazon_url: "https://www.amazon.com/s?k=google",
+    logo_url: "/logos/google.svg",
+    headquarters_location: "Mountain View, California, USA",
+    hq_lat: 37.4220,
+    hq_lng: -122.0841,
+    manufacturing_locations: [
+      "Mountain View, California, USA",
+      "Sunnyvale, California, USA",
+      "London, United Kingdom"
+    ],
+    manufacturing_geocodes: [
+      { city: "Mountain View", country: "USA", lat: 37.3854, lng: -122.0848, formatted_address: "Mountain View, California, USA" },
+      { city: "Sunnyvale", country: "USA", lat: 37.3688, lng: -122.0363, formatted_address: "Sunnyvale, California, USA" },
+      { city: "London", country: "United Kingdom", lat: 51.5074, lng: -0.1278, formatted_address: "London, United Kingdom" }
+    ],
+    company_tagline: "Do No Evil",
+    star_score: 4.7,
+    star_rating: 4.7,
+    confidence_score: 0.96,
+    created_at: new Date().toISOString(),
+    session_id: "seed-01"
+  },
+  {
+    id: "intel-corp",
+    company_name: "Intel Corporation",
+    industries: ["Semiconductors", "Electronics", "Technology"],
+    product_keywords: "microprocessors, computer chips, data center hardware",
+    url: "https://www.intel.com",
+    amazon_url: "https://www.amazon.com/s?k=intel",
+    logo_url: "/logos/intel.svg",
+    headquarters_location: "Santa Clara, California, USA",
+    hq_lat: 37.3860,
+    hq_lng: -122.0288,
+    manufacturing_locations: [
+      "Santa Clara, California, USA",
+      "Chandler, Arizona, USA",
+      "Fab 30 Korea"
+    ],
+    manufacturing_geocodes: [
+      { city: "Santa Clara", country: "USA", lat: 37.3860, lng: -122.0288, formatted_address: "Santa Clara, California, USA" },
+      { city: "Chandler", country: "USA", lat: 33.3062, lng: -111.8413, formatted_address: "Chandler, Arizona, USA" },
+      { city: "Icheon", country: "South Korea", lat: 37.2756, lng: 127.1080, formatted_address: "Icheon, South Korea" }
+    ],
+    company_tagline: "Experience Amazing",
+    star_score: 4.1,
+    star_rating: 4.1,
+    confidence_score: 0.85,
+    created_at: new Date().toISOString(),
+    session_id: "seed-01"
+  },
+  {
+    id: "tesla-inc",
+    company_name: "Tesla Inc.",
+    industries: ["Automotive", "Energy", "Technology"],
+    product_keywords: "electric vehicles, batteries, energy storage, solar panels",
+    url: "https://www.tesla.com",
+    amazon_url: "https://www.amazon.com/s?k=tesla",
+    logo_url: "/logos/tesla.svg",
+    headquarters_location: "Austin, Texas, USA",
+    hq_lat: 30.2672,
+    hq_lng: -97.7431,
+    manufacturing_locations: [
+      "Austin, Texas, USA",
+      "Fremont, California, USA",
+      "Shanghai, China"
+    ],
+    manufacturing_geocodes: [
+      { city: "Austin", country: "USA", lat: 30.2672, lng: -97.7431, formatted_address: "Austin, Texas, USA" },
+      { city: "Fremont", country: "USA", lat: 37.5485, lng: -121.9886, formatted_address: "Fremont, California, USA" },
+      { city: "Shanghai", country: "China", lat: 31.2304, lng: 121.4737, formatted_address: "Shanghai, China" }
+    ],
+    company_tagline: "Accelerating the World's Transition to Sustainable Energy",
+    star_score: 4.4,
+    star_rating: 4.4,
+    confidence_score: 0.90,
+    created_at: new Date().toISOString(),
+    session_id: "seed-01"
   }
 ];
 
