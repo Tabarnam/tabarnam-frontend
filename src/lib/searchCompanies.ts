@@ -33,6 +33,58 @@ export interface Company {
   manufacturing_locations?: string[];
 }
 
+const STUB_DATA: Company[] = [
+  {
+    id: "apple-inc",
+    company_name: "Apple Inc.",
+    industries: ["Electronics", "Technology", "Consumer Electronics"],
+    url: "https://www.apple.com",
+    amazon_url: "https://www.amazon.com/s?k=apple",
+    normalized_domain: "apple.com",
+  },
+  {
+    id: "samsung-electronics",
+    company_name: "Samsung Electronics",
+    industries: ["Electronics", "Technology", "Semiconductor"],
+    url: "https://www.samsung.com",
+    amazon_url: "https://www.amazon.com/s?k=samsung",
+    normalized_domain: "samsung.com",
+  },
+  {
+    id: "sony-corporation",
+    company_name: "Sony Corporation",
+    industries: ["Electronics", "Entertainment", "Technology"],
+    url: "https://www.sony.com",
+    amazon_url: "https://www.amazon.com/s?k=sony",
+    normalized_domain: "sony.com",
+  },
+  {
+    id: "nike-inc",
+    company_name: "Nike Inc.",
+    industries: ["Apparel", "Footwear", "Sports Equipment"],
+    url: "https://www.nike.com",
+    amazon_url: "https://www.amazon.com/s?k=nike",
+    normalized_domain: "nike.com",
+  },
+  {
+    id: "amazon-com",
+    company_name: "Amazon.com Inc.",
+    industries: ["E-commerce", "Cloud Computing", "Technology"],
+    url: "https://www.amazon.com",
+    amazon_url: "https://www.amazon.com",
+    normalized_domain: "amazon.com",
+  },
+];
+
+function matchesQuery(company: Company, q: string): boolean {
+  const queryLower = q.toLowerCase();
+  return (
+    company.company_name?.toLowerCase().includes(queryLower) ||
+    company.industries?.some((ind) => ind.toLowerCase().includes(queryLower)) ||
+    company.normalized_domain?.toLowerCase().includes(queryLower)
+  );
+}
+
 export async function searchCompanies(opts: SearchOptions) {
   const q = asStr(opts.q).trim();
   if (!q) throw new Error("Please enter a search term.");
@@ -62,8 +114,18 @@ export async function searchCompanies(opts: SearchOptions) {
       meta: data?.meta ?? { q, sort },
     };
   } catch (e) {
-    // If API is unavailable, return empty results with error message
-    console.warn("Search API unavailable:", e?.message);
+    // If API is unavailable, try stub data
+    console.warn("Search API unavailable, using stub data:", e?.message);
+    const stubMatches = STUB_DATA.filter((c) => matchesQuery(c, q)).slice(0, take);
+
+    if (stubMatches.length > 0) {
+      return {
+        items: stubMatches,
+        count: stubMatches.length,
+        meta: { q, sort, usingStubData: true },
+      };
+    }
+
     return {
       items: [],
       count: 0,
