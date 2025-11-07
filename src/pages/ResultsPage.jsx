@@ -350,10 +350,7 @@ function getStarScore(c) {
     : isNum(c.confidence_score) ? clamp(c.confidence_score * 5, 0, 5)
     : null;
 }
-function renderStars(score) { if (!isNum(score)) return "—"; return `${score.toFixed(1)}★`; }
-function labelFor(key) { if (key === "manu") return "Manufacturing"; if (key === "hq") return "HQ"; return "Stars"; }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-function formatDist(d, unit) { return typeof d === "number" ? `${d.toFixed(1)} ${unit}` : "—"; }
 function haversine(lat1, lon1, lat2, lon2) {
   const toRad = d => (d*Math.PI)/180, R=6371;
   const dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
