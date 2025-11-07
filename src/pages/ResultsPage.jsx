@@ -247,112 +247,47 @@ export default function ResultsPage() {
         )}
       </div>
 
-      {/* Results Table */}
-      <div className="border rounded-lg overflow-hidden mb-4 bg-white">
+      {/* Dig Deep Button */}
+      {results.length < 50 && results.length > 0 && (
+        <div className="mb-4 flex justify-center">
+          <button
+            className="text-xs px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-gray-700 font-medium transition-colors"
+            title="Refine your search and we'll go find more companies but it will take a minute."
+            disabled={loading}
+          >
+            Dig Deeper
+          </button>
+        </div>
+      )}
+
+      {/* Translation Toggle */}
+      {results.length > 0 && (
+        <div className="mb-4 flex justify-end">
+          <select className="text-xs border border-gray-300 rounded px-2 py-1.5 bg-white text-gray-700 font-medium hover:border-gray-400 transition-colors" defaultValue="en">
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="fr">Français</option>
+            <option value="de">Deutsch</option>
+            <option value="zh">中文</option>
+            <option value="ja">日本語</option>
+          </select>
+        </div>
+      )}
+
+      {/* Results List */}
+      <div className="mb-4">
         {sorted.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-gradient-to-r from-gray-50 to-gray-100">
-                  <th className="p-4 text-left font-semibold text-gray-900">Company</th>
-                  <th className="p-4 text-left font-semibold text-gray-900 hidden sm:table-cell">Industries</th>
-                  <th className="p-4 text-left font-semibold text-gray-900 hidden md:table-cell">Keywords</th>
-                  <th className="p-4 text-left font-semibold text-gray-900 hidden lg:table-cell">Links</th>
-                  {rightColsOrder.map((key) => (
-                    <th
-                      key={key}
-                      className={`p-4 text-left font-semibold cursor-pointer transition-colors ${
-                        sortBy === key
-                          ? "bg-amber-50 text-amber-900"
-                          : "text-gray-900 hover:bg-gray-50"
-                      }`}
-                      onClick={() => clickSort(key)}
-                      title={`Sort by ${labelFor(key)}`}
-                    >
-                      <div className="flex items-center gap-1">
-                        {labelFor(key)}
-                        {sortBy === key && <span className="text-amber-600">▾</span>}
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((c, i) => (
-                  <tr key={(c.id || c.company_name || "row") + "-" + i} className="border-b hover:bg-gray-50 transition-colors">
-                    {/* NAME + social + reviews */}
-                    <td className="p-4">
-                      <div className="font-semibold text-gray-900">{c.company_name || "—"}</div>
-                      {c.company_tagline && <div className="text-xs text-gray-500 mt-1">{c.company_tagline}</div>}
-                      <div className="mt-2">
-                        <SocialBadges links={c.social} className="mt-1" brandColors variant="solid" />
-                        <ReviewsWidget companyName={c.company_name} />
-                      </div>
-                    </td>
-
-                    {/* Industries */}
-                    <td className="p-4 hidden sm:table-cell">
-                      <div className="text-gray-700">
-                        {Array.isArray(c.industries) ? c.industries.join(", ") : (c.industries || "—")}
-                      </div>
-                    </td>
-
-                    {/* Keywords */}
-                    <td className="p-4 hidden md:table-cell">
-                      <div className="text-gray-600 text-xs">
-                        {String(c.product_keywords || "")
-                          .split(",")
-                          .map(s => s.trim())
-                          .filter(Boolean)
-                          .slice(0, 5)
-                          .map((kw, idx) => (
-                            <span key={idx} className="inline-block bg-gray-200 text-gray-700 px-2 py-1 rounded mr-1 mb-1">
-                              {kw}
-                            </span>
-                          ))}
-                      </div>
-                    </td>
-
-                    {/* Links */}
-                    <td className="p-4 hidden lg:table-cell">
-                      <div className="space-y-1">
-                        {c.url && (
-                          <a href={c.url} target="_blank" rel="noreferrer" className="block text-blue-600 hover:underline text-xs truncate">
-                            Website
-                          </a>
-                        )}
-                        {c.amazon_url && (
-                          <a href={c.amazon_url} target="_blank" rel="noreferrer" className="block text-blue-600 hover:underline text-xs truncate">
-                            Amazon
-                          </a>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Dynamic right-most trio: location + distance or stars */}
-                    {rightColsOrder.map((key) => (
-                      <td key={key} className={`p-4 ${sortBy === key ? "bg-amber-50" : ""}`}>
-                        {key === "manu" && (
-                          <div className="text-sm">
-                            <div className="font-medium text-gray-900">{nearestManufacturingLocation(c) || "—"}</div>
-                            <div className="text-xs text-gray-500">{formatDist(c._nearestManuDist, unit)}</div>
-                          </div>
-                        )}
-                        {key === "hq" && (
-                          <div className="text-sm">
-                            <div className="font-medium text-gray-900">{formatHQ(c) || "—"}</div>
-                            <div className="text-xs text-gray-500">{formatDist(c._hqDist, unit)}</div>
-                          </div>
-                        )}
-                        {key === "stars" && (
-                          <div className="text-lg font-semibold text-amber-600">{renderStars(getStarScore(c))}</div>
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-0">
+            {sorted.map((company) => (
+              <ExpandableCompanyRow
+                key={company.id || company.company_name}
+                company={company}
+                sortBy={sortBy}
+                unit={unit}
+                onKeywordSearch={handleKeywordSearch}
+                rightColsOrder={rightColsOrder}
+              />
+            ))}
           </div>
         ) : (
           <div className="p-8 text-center">
@@ -379,23 +314,6 @@ export default function ResultsPage() {
 }
 
 /* ---------- helpers ---------- */
-function nearestManufacturingLocation(c) {
-  const list = Array.isArray(c.manufacturing_geocodes) ? c.manufacturing_geocodes : [];
-  if (!list.length) return null;
-  const first = list
-    .filter(m => isNum(m.lat) && isNum(m.lng))
-    .sort((a, b) => (a.dist ?? Infinity) - (b.dist ?? Infinity))[0];
-  if (!first) return null;
-  return first.formatted_address || cityStateCountry(first) || "Manufacturing";
-}
-function formatHQ(c) {
-  if (!c.headquarters_location) return null;
-  return c.headquarters_location;
-}
-function cityStateCountry(obj) {
-  const parts = [obj.city, obj.state, obj.country].filter(Boolean);
-  return parts.join(", ");
-}
 function attachDistances(c, userLoc, unit) {
   const out = { ...c, _hqDist: null, _nearestManuDist: null, _manuDists: [] };
 
