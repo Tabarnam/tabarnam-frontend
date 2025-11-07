@@ -1,0 +1,6 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <rect width="100" height="100" fill="#f5f5f5" rx="10"/>
+  <circle cx="50" cy="35" r="12" fill="#555"/>
+  <path d="M 50 47 Q 40 55 40 65 Q 40 75 50 75 Q 60 75 60 65 Q 60 55 50 47" fill="#555"/>
+  <text x="50" y="88" font-size="10" text-anchor="middle" fill="#333" font-weight="bold">Apple</text>
+</svg>
