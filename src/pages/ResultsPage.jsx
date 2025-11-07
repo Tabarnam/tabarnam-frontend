@@ -219,97 +219,131 @@ export default function ResultsPage() {
       <div className="text-sm text-gray-700 mb-3">{status}</div>
 
       {/* Results Table */}
-      <div className="overflow-auto border rounded mb-4">
-        <table className="min-w-full text-sm">
-          <thead className="text-left">
-            <tr>
-              <th className="p-2 bg-gray-100">Company</th>
-              <th className="p-2 bg-gray-100">Industries</th>
-              <th className="p-2 bg-gray-100">Keywords</th>
-              <th className="p-2 bg-gray-100">Website</th>
-              <th className="p-2 bg-gray-100">Amazon</th>
-              {rightColsOrder.map((key) => (
-                <th
-                  key={key}
-                  className={headerClassFor(key)}
-                  onClick={() => clickSort(key)}
-                  aria-sort={sortBy === key ? (key === "stars" ? "descending" : "ascending") : "none"}
-                  title={`Sort by ${labelFor(key)}`}
-                >
-                  {labelFor(key)} {sortBy === key ? "▾" : ""}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((c, i) => (
-              <tr key={(c.id || c.company_name || "row") + "-" + i} className="border-t">
-                {/* NAME + social + reviews */}
-                <td className="p-2">
-                  <div className="font-medium">{c.company_name || "—"}</div>
-                  <div className="text-gray-600">{c.company_tagline || ""}</div>
-                  <SocialBadges links={c.social} className="mt-1" brandColors variant="solid" />
-                  <div className="mt-2"><ReviewsWidget companyName={c.company_name} /></div>
-                </td>
+      <div className="border rounded-lg overflow-hidden mb-4 bg-white">
+        {sorted.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gradient-to-r from-gray-50 to-gray-100">
+                  <th className="p-4 text-left font-semibold text-gray-900">Company</th>
+                  <th className="p-4 text-left font-semibold text-gray-900 hidden sm:table-cell">Industries</th>
+                  <th className="p-4 text-left font-semibold text-gray-900 hidden md:table-cell">Keywords</th>
+                  <th className="p-4 text-left font-semibold text-gray-900 hidden lg:table-cell">Links</th>
+                  {rightColsOrder.map((key) => (
+                    <th
+                      key={key}
+                      className={`p-4 text-left font-semibold cursor-pointer transition-colors ${
+                        sortBy === key
+                          ? "bg-amber-50 text-amber-900"
+                          : "text-gray-900 hover:bg-gray-50"
+                      }`}
+                      onClick={() => clickSort(key)}
+                      title={`Sort by ${labelFor(key)}`}
+                    >
+                      <div className="flex items-center gap-1">
+                        {labelFor(key)}
+                        {sortBy === key && <span className="text-amber-600">▾</span>}
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((c, i) => (
+                  <tr key={(c.id || c.company_name || "row") + "-" + i} className="border-b hover:bg-gray-50 transition-colors">
+                    {/* NAME + social + reviews */}
+                    <td className="p-4">
+                      <div className="font-semibold text-gray-900">{c.company_name || "—"}</div>
+                      {c.company_tagline && <div className="text-xs text-gray-500 mt-1">{c.company_tagline}</div>}
+                      <div className="mt-2">
+                        <SocialBadges links={c.social} className="mt-1" brandColors variant="solid" />
+                        <ReviewsWidget companyName={c.company_name} />
+                      </div>
+                    </td>
 
-                {/* Industries */}
-                <td className="p-2">
-                  {Array.isArray(c.industries) ? c.industries.join(", ") : (c.industries || "—")}
-                </td>
+                    {/* Industries */}
+                    <td className="p-4 hidden sm:table-cell">
+                      <div className="text-gray-700">
+                        {Array.isArray(c.industries) ? c.industries.join(", ") : (c.industries || "—")}
+                      </div>
+                    </td>
 
-                {/* Keywords */}
-                <td className="p-2">
-                  {String(c.product_keywords || "")
-                    .split(",")
-                    .map(s => s.trim())
-                    .filter(Boolean)
-                    .slice(0, 8)
-                    .join(", ")}
-                </td>
+                    {/* Keywords */}
+                    <td className="p-4 hidden md:table-cell">
+                      <div className="text-gray-600 text-xs">
+                        {String(c.product_keywords || "")
+                          .split(",")
+                          .map(s => s.trim())
+                          .filter(Boolean)
+                          .slice(0, 5)
+                          .map((kw, idx) => (
+                            <span key={idx} className="inline-block bg-gray-200 text-gray-700 px-2 py-1 rounded mr-1 mb-1">
+                              {kw}
+                            </span>
+                          ))}
+                      </div>
+                    </td>
 
-                {/* Website */}
-                <td className="p-2">
-                  {c.url ? (
-                    <a href={c.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
-                      {c.url}
-                    </a>
-                  ) : "—"}
-                </td>
+                    {/* Links */}
+                    <td className="p-4 hidden lg:table-cell">
+                      <div className="space-y-1">
+                        {c.url && (
+                          <a href={c.url} target="_blank" rel="noreferrer" className="block text-blue-600 hover:underline text-xs truncate">
+                            Website
+                          </a>
+                        )}
+                        {c.amazon_url && (
+                          <a href={c.amazon_url} target="_blank" rel="noreferrer" className="block text-blue-600 hover:underline text-xs truncate">
+                            Amazon
+                          </a>
+                        )}
+                      </div>
+                    </td>
 
-                {/* Amazon */}
-                <td className="p-2">
-                  {c.amazon_url ? (
-                    <a href={c.amazon_url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
-                      Amazon
-                    </a>
-                  ) : "—"}
-                </td>
-
-                {/* Dynamic right-most trio: location + distance or stars */}
-                {rightColsOrder.map((key) => (
-                  <td key={key} className={cellClassFor(key)}>
-                    {key === "manu" && (
-                      <>
-                        {nearestManufacturingLocation(c) || "—"}
-                        <div className="text-xs text-gray-500">{formatDist(c._nearestManuDist, unit)}</div>
-                      </>
-                    )}
-                    {key === "hq" && (
-                      <>
-                        {formatHQ(c) || "—"}
-                        <div className="text-xs text-gray-500">{formatDist(c._hqDist, unit)}</div>
-                      </>
-                    )}
-                    {key === "stars" && <>{renderStars(getStarScore(c))}</>}
-                  </td>
+                    {/* Dynamic right-most trio: location + distance or stars */}
+                    {rightColsOrder.map((key) => (
+                      <td key={key} className={`p-4 ${sortBy === key ? "bg-amber-50" : ""}`}>
+                        {key === "manu" && (
+                          <div className="text-sm">
+                            <div className="font-medium text-gray-900">{nearestManufacturingLocation(c) || "—"}</div>
+                            <div className="text-xs text-gray-500">{formatDist(c._nearestManuDist, unit)}</div>
+                          </div>
+                        )}
+                        {key === "hq" && (
+                          <div className="text-sm">
+                            <div className="font-medium text-gray-900">{formatHQ(c) || "—"}</div>
+                            <div className="text-xs text-gray-500">{formatDist(c._hqDist, unit)}</div>
+                          </div>
+                        )}
+                        {key === "stars" && (
+                          <div className="text-lg font-semibold text-amber-600">{renderStars(getStarScore(c))}</div>
+                        )}
+                      </td>
+                    ))}
+                  </tr>
                 ))}
-              </tr>
-            ))}
-            {!sorted.length && !loading && (
-              <tr><td className="p-4 text-gray-500" colSpan={10}>No results yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="p-8 text-center">
+            {loading ? (
+              <div className="flex items-center justify-center gap-2">
+                <div className="animate-spin text-tabarnam-blue">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </div>
+                <span className="text-gray-600">Searching…</span>
+              </div>
+            ) : (
+              <div className="text-gray-500">
+                <p className="text-lg font-medium mb-1">No companies found</p>
+                <p className="text-sm">Try adjusting your search terms or filters</p>
+              </div>
             )}
-          </tbody>
-        </table>
+          </div>
+        )}
       </div>
     </div>
   );
