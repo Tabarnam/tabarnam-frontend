@@ -216,7 +216,18 @@ export default function ResultsPage() {
         </div>
       )}
 
-      <div className="text-sm text-gray-700 mb-3">{status}</div>
+      <div className="text-sm mb-3">
+        {status && (
+          <div className={`px-4 py-2 rounded ${
+            status.includes("❌") ? "bg-red-50 text-red-700" :
+            status.includes("⚠️") ? "bg-yellow-50 text-yellow-700" :
+            status.includes("Found") ? "bg-green-50 text-green-700" :
+            "text-gray-700"
+          }`}>
+            {status}
+          </div>
+        )}
+      </div>
 
       {/* Results Table */}
       <div className="border rounded-lg overflow-hidden mb-4 bg-white">
