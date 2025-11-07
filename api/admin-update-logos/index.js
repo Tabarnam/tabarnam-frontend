@@ -12,6 +12,10 @@ const logoMapping = {
   "sony-corporation": "/logos/sony.svg",
   "nike-inc": "/logos/nike.svg",
   "amazon-com": "/logos/amazon.svg",
+  "microsoft-corp": "/logos/microsoft.svg",
+  "google-llc": "/logos/google.svg",
+  "intel-corp": "/logos/intel.svg",
+  "tesla-inc": "/logos/tesla.svg",
 };
 
 async function updateLogos() {
