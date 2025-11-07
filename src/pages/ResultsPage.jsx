@@ -1,12 +1,12 @@
 // src/pages/ResultsPage.jsx
 import { xaiImport } from "@/lib/api/xaiImport";
 import React, { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { geocode } from "@/lib/google";
-import SocialBadges from "@/components/SocialBadges";
-import ReviewsWidget from "@/components/ReviewsWidget";
 import SearchCard from "@/components/home/SearchCard";
+import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
 import { searchCompanies } from "@/lib/searchCompanies";
+import { API_BASE } from "@/lib/api";
 
 // Countries that use miles (for distance unit inference)
 const milesCountries = new Set([
