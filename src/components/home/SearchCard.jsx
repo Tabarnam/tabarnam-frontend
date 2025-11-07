@@ -139,7 +139,7 @@ export default function SearchCard({ onSubmitParams }) {
         <Select value={sortBy} onValueChange={setSortBy}>
           <SelectTrigger className="h-11 bg-gray-50 border-gray-300 text-gray-900">
             <ListFilter className="text-gray-400 mr-2" size={18} />
-            <SelectValue placeholder="Sort Results" />
+            <span className="text-gray-900">Sort Results</span>
           </SelectTrigger>
           <SelectContent>
             {SORTS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
