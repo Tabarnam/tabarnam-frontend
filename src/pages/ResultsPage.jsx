@@ -190,6 +190,12 @@ export default function ResultsPage() {
     else setSortBy("stars");
   };
 
+  function handleKeywordSearch(keyword) {
+    const next = new URLSearchParams(searchParams);
+    next.set("q", keyword);
+    setSearchParams(next, { replace: true });
+  }
+
   return (
     <div className="px-4 pb-10 max-w-6xl mx-auto">
       {/* Two-row search under the site header */}
