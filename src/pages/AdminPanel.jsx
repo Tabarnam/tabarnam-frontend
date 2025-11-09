@@ -310,7 +310,7 @@ const AdminPanel = () => {
           />
         )}
 
-        <Link to="/admin/xai-bulk-import">Bulk Import Tool</Link>
+        <Link to="/admin/xai-bulk-import">Deep Dive Tool</Link>
       </div>
     </>
   );
