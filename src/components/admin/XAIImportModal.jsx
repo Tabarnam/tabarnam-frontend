@@ -20,25 +20,9 @@ const XAIImportModal = ({ isOpen, onClose, onSuccess }) => {
         setIsImporting(true);
 
         try {
-            const headers = await getFunctionHeaders();
-            const body = {
-                queryType: 'product_keyword',
-                query: query,
-                dryRun: false, 
-                forceOverwrite: false,
-            };
-
-            // Supabase removed - using Azure Functions instead
+            // Supabase removed - XAI import functionality disabled
             console.log('XAI import stub - Supabase removed');
-            const data = { error: 'XAI import functionality disabled - Supabase removed.' };
-
-            if (error) {
-                throw new Error(`Edge function invocation failed: ${error.message}`);
-            }
-
-            if (data.error) {
-                throw new Error(`Import process failed: ${data.error}`);
-            }
+            throw new Error('XAI import functionality disabled - Supabase removed.');
 
             const result = data.results?.[0];
             if (!result) {
