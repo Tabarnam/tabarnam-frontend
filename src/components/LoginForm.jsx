@@ -11,14 +11,9 @@ const LoginForm = () => {
   const { toast } = useToast();
 
   const handleLogin = async (e) => {
-    if (e) e.preventDefault(); // Prevent form submit refresh
+    if (e) e.preventDefault();
     setIsSubmitting(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (!error) {
-      toast({ title: 'Success!', description: 'Successfully signed in.' });
-    } else {
-      toast({ variant: 'destructive', title: 'Error', description: error.message });
-    }
+    toast({ variant: 'destructive', title: 'Error', description: 'Use /login instead of this form. Supabase auth has been removed.' });
     setIsSubmitting(false);
   };
 
