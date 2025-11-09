@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { supabase } from '@/lib/customSupabaseClient';
-import { logError } from '@/lib/errorLogger';
+// Translation functionality disabled - was using Supabase functions
 
 const useTranslation = (originalText, targetLanguage, isEnabled, companyId, fieldName) => {
     const [translatedText, setTranslatedText] = useState(null);
