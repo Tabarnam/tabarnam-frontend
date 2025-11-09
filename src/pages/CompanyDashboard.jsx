@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import Head from 'next/head';
 import { AnimatePresence, motion } from 'framer-motion';
-import { supabase } from '@/lib/customSupabaseClient';
-import { useSupabaseAuth } from '@/contexts/useSupabaseAuth';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2 } from 'lucide-react';
+// Supabase removed - use Cosmos DB instead
 
 import DashboardHeader from '@/components/DashboardHeader';
 import CompanyCard from '@/components/CompanyCard';
