@@ -13,8 +13,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
+// Supabase removed
 
 const CompanyCard = ({ company, index, onEdit, onDelete }) => {
   const { toast } = useToast();
