@@ -197,8 +197,10 @@ const AdminPanel = () => {
         <title>Admin Panel - Tabarnam</title>
       </Helmet>
 
+      <AdminHeader />
+
       <div className="p-6 space-y-6" style={{ backgroundColor: 'rgb(177, 221, 227)' }}>
-        <h1 className="text-3xl font-bold">Admin Panel</h1>
+        <h2 className="text-2xl font-bold">Administration</h2>
 
         <div className="p-4 border" style={{ borderColor: 'rgb(100, 150, 180)' }}>
           Last Import Count: {lastImportCount}
