@@ -7,15 +7,23 @@
       "/assets/*",
       "/favicon.ico",
       "/robots.txt",
-      "/sitemap.xml"
+      "/sitemap.xml",
+      "*.svg"
     ]
   },
   "routes": [
+    {
+      "route": "/api/*",
+      "allowedRoles": ["authenticated", "anonymous"],
+      "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+    },
     { "route": "/xapi",  "redirect": "/xapi/", "statusCode": 308 },
     { "route": "/xapi/*", "allowedRoles": [ "anonymous" ], "rewrite": "/api/{*path}" }
   ],
   "globalHeaders": {
     "/*":      { "x-swa-config": "v1-managed-api" },
+    "/api/*":  { "Content-Type": "application/json" },
     "/xapi/*": { "x-swa-xapi": "yes" }
-  }
+  },
+  "missionControl": []
 }
