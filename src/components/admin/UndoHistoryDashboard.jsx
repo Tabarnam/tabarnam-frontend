@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
+// Supabase removed
 import { Loader2, Undo2, CheckCircle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
