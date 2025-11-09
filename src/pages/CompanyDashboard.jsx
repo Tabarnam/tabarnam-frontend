@@ -22,17 +22,13 @@ const CompanyDashboard = () => {
       setLoading(true);
 
       try {
-        const { data, error } = await supabase
-          .from('companies')
-          .select('id, name, about, website_url, industries, rating')
-          .limit(12);
-
-        if (error) throw error;
-        setCompanies(data);
+        // Supabase removed - functionality disabled
+        console.log('Company dashboard stub - Supabase removed');
+        setCompanies([]);
       } catch (error) {
         toast({
           title: 'Error loading companies',
-          description: error.message,
+          description: 'Company dashboard disabled - Supabase removed.',
           variant: 'destructive',
         });
       } finally {

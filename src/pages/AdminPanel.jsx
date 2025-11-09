@@ -57,18 +57,17 @@ const AdminPanel = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: companyData, error: companyError } = await supabase.from('companies').select('*');
-      if (companyError) throw companyError;
-      setCompanies(companyData || []);
-      setFilteredCompanies(companyData || []);
-
-      const { data: userData, error: userError } = await supabase.from('profiles').select('id, email, role');
-      if (userError) throw userError;
-      setUsers(userData || []);
-
-      const { data: configData, error: configError } = await supabase.from('star_config').select('*').single();
-      if (configError) throw configError;
-      if (configData) setStarConfig(configData);
+      // Supabase has been removed. This is a stub.
+      console.log('Admin data fetch stub - Supabase removed');
+      setCompanies([]);
+      setFilteredCompanies([]);
+      setUsers([]);
+      setStarConfig({
+        hq_weight: 1,
+        manufacturing_weight: 1,
+        review_threshold: 4,
+        min_reviews: 3
+      });
     } catch (error) {
       toast.error('Fetch Error', error.message);
     } finally {
@@ -86,11 +85,10 @@ const AdminPanel = () => {
       return;
     }
     try {
-      const { error } = await supabase.from('profiles').upsert({ email: newAdminEmail, role: 'admin' });
-      if (error) throw error;
-      toast.success('Success', 'Admin added.');
+      // Supabase removed - functionality disabled
+      console.log('Add admin stub - Supabase removed');
+      toast.success('Success', 'Admin management disabled - Supabase removed.');
       setNewAdminEmail('');
-      fetchData();
     } catch (error) {
       toast.error('Error', error.message);
     }
@@ -99,10 +97,9 @@ const AdminPanel = () => {
   const handleDeleteUser = async (userId) => {
     if (!isSuperAdmin) return;
     try {
-      const { error } = await supabase.from('profiles').delete().eq('id', userId);
-      if (error) throw error;
-      toast.success('Success', 'User deleted.');
-      fetchData();
+      // Supabase removed - functionality disabled
+      console.log('Delete user stub - Supabase removed');
+      toast.success('Success', 'User deletion disabled - Supabase removed.');
     } catch (error) {
       toast.error('Error', error.message);
     }
@@ -110,11 +107,9 @@ const AdminPanel = () => {
 
   const handleRecalcStars = async () => {
     try {
-      await supabase.from('star_config').upsert(starConfig);
-      const { error } = await supabase.rpc('recalc_star_ratings');
-      if (error) throw error;
-      toast.success('Success', 'Stars recalculated.');
-      fetchData();
+      // Supabase removed - functionality disabled
+      console.log('Recalc stars stub - Supabase removed');
+      toast.success('Success', 'Star recalculation disabled - Supabase removed.');
     } catch (error) {
       toast.error('Error', error.message);
     }
