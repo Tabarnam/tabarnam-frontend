@@ -1,13 +1,11 @@
-
 import React, { useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Loader2, Wand2 } from 'lucide-react';
-import { supabase } from '@/lib/customSupabaseClient';
 import { logError } from '@/lib/errorLogger';
-import { getFunctionHeaders } from '@/lib/supabaseFunctionUtils';
+// Supabase removed
 
 const XAIImportModal = ({ isOpen, onClose, onSuccess }) => {
     const { toast } = useToast();
