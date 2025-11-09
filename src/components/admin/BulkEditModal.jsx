@@ -27,13 +27,12 @@ const BulkEditModal = ({ isOpen, onClose, onSuccess, companies }) => {
 
     useEffect(() => {
         const fetchDropdownData = async () => {
-            const { data: industriesData } = await supabase.from('industries').select('id, name');
-            setAllIndustries(industriesData || []);
-            
-            const { data: keywordsData } = await supabase.from('product_keywords').select('id, keyword');
-            setAllKeywords(keywordsData || []);
+            // Supabase removed - functionality disabled
+            console.log('Fetch dropdown data stub - Supabase removed');
+            setAllIndustries([]);
+            setAllKeywords([]);
         };
-        
+
         if (isOpen) {
             fetchDropdownData();
             // Reset state on open
@@ -46,7 +45,9 @@ const BulkEditModal = ({ isOpen, onClose, onSuccess, companies }) => {
     
     const handleKeywordAdd = async () => {
         if (newKeyword.trim() === '') return;
-        let { data: existing } = await supabase.from('product_keywords').select('id').ilike('keyword', newKeyword.trim()).single();
+        // Supabase removed - functionality disabled
+        console.log('Add keyword stub - Supabase removed');
+        return;
 
         if (!existing) {
             const { data, error } = await supabase.from('product_keywords').insert({ keyword: newKeyword.trim() }).select().single();

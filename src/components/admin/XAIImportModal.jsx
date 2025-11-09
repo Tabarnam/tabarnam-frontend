@@ -28,11 +28,9 @@ const XAIImportModal = ({ isOpen, onClose, onSuccess }) => {
                 forceOverwrite: false,
             };
 
-            // Reverting to supabase.functions.invoke with explicit headers
-            const { data, error } = await supabase.functions.invoke('xai-bulk-importer', {
-                body: body,
-                headers: headers,
-            });
+            // Supabase removed - using Azure Functions instead
+            console.log('XAI import stub - Supabase removed');
+            const data = { error: 'XAI import functionality disabled - Supabase removed.' };
 
             if (error) {
                 throw new Error(`Edge function invocation failed: ${error.message}`);

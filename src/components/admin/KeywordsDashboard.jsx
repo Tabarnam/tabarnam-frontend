@@ -15,11 +15,11 @@ const KeywordsDashboard = () => {
     const fetchSynonyms = useCallback(async () => {
         setLoading(true);
         try {
-            const { data, error } = await supabase.from('search_synonyms').select('*').order('term');
-            if (error) throw error;
-            setSynonyms(data.map(item => ({ ...item, synonyms: item.synonyms.join(', ') })));
+            // Supabase removed - functionality disabled
+            console.log('Fetch synonyms stub - Supabase removed');
+            setSynonyms([]);
         } catch (error) {
-            toast({ variant: 'destructive', title: 'Failed to fetch keywords', description: error.message });
+            toast({ variant: 'destructive', title: 'Failed to fetch keywords', description: 'Keywords dashboard disabled - Supabase removed.' });
         } finally {
             setLoading(false);
         }
@@ -32,10 +32,9 @@ const KeywordsDashboard = () => {
     const handleUpdate = async (id, term, synonymStr) => {
         const synonymArray = synonymStr.split(',').map(s => s.trim()).filter(Boolean);
         try {
-            const { error } = await supabase.from('search_synonyms').update({ term, synonyms: synonymArray }).eq('id', id);
-            if (error) throw error;
-            toast({ title: 'Success', description: `Updated term: ${term}` });
-            fetchSynonyms();
+            // Supabase removed - functionality disabled
+            console.log('Update synonym stub - Supabase removed');
+            toast({ title: 'Success', description: `Keyword update disabled - Supabase removed.` });
         } catch (error) {
             toast({ variant: 'destructive', title: 'Update failed', description: error.message });
         }
@@ -48,12 +47,11 @@ const KeywordsDashboard = () => {
         }
         const synonymArray = newSynonyms.split(',').map(s => s.trim()).filter(Boolean);
         try {
-            const { error } = await supabase.from('search_synonyms').insert({ term: newTerm, synonyms: synonymArray });
-            if (error) throw error;
-            toast({ title: 'Success', description: 'New keyword added.' });
+            // Supabase removed - functionality disabled
+            console.log('Add keyword stub - Supabase removed');
+            toast({ title: 'Success', description: 'Keyword addition disabled - Supabase removed.' });
             setNewTerm('');
             setNewSynonyms('');
-            fetchSynonyms();
         } catch (error) {
             toast({ variant: 'destructive', title: 'Failed to add keyword', description: error.message });
         }
@@ -61,10 +59,9 @@ const KeywordsDashboard = () => {
 
     const handleDelete = async (id) => {
         try {
-            const { error } = await supabase.from('search_synonyms').delete().eq('id', id);
-            if (error) throw error;
-            toast({ title: 'Success', description: 'Keyword deleted.' });
-            fetchSynonyms();
+            // Supabase removed - functionality disabled
+            console.log('Delete keyword stub - Supabase removed');
+            toast({ title: 'Success', description: 'Keyword deletion disabled - Supabase removed.' });
         } catch (error) {
             toast({ variant: 'destructive', title: 'Failed to delete keyword', description: error.message });
         }
