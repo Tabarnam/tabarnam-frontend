@@ -3,9 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { supabase } from '@/lib/customSupabaseClient';
-import { useSupabaseAuth } from '@/contexts/useSupabaseAuth';
-import { useUserRole } from '@/contexts/useUserRole';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
@@ -16,10 +13,11 @@ import {
   flexRender,
 } from '@tanstack/react-table';
 import CompanyForm from '@/components/admin/CompanyForm';
+import AdminHeader from '@/components/AdminHeader';
+import { getAdminUser } from '@/lib/azureAuth';
 
 const AdminPanel = () => {
-  const { user } = useSupabaseAuth();
-  const { userRole } = useUserRole();
+  const user = getAdminUser();
 
   const [companies, setCompanies] = useState([]);
   const [filteredCompanies, setFilteredCompanies] = useState([]);
