@@ -4,8 +4,8 @@ import { useForm } from 'react-hook-form';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
+// Supabase removed - use Cosmos DB instead
 
 const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
   const { toast } = useToast();
