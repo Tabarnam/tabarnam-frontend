@@ -10,14 +10,13 @@ import CompanyCard from '@/components/CompanyCard';
 import LoginForm from '@/components/LoginForm';
 
 const CompanyDashboard = () => {
-  const { user, loading: authLoading } = useAuth();
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [authLoading] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     const fetchCompanies = async () => {
-      if (!user) return;
 
       setLoading(true);
 
@@ -37,7 +36,7 @@ const CompanyDashboard = () => {
     };
 
     fetchCompanies();
-  }, [user, toast]);
+  }, [toast]);
 
   if (authLoading) {
     return (
