@@ -31,8 +31,7 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
 
   const onSubmit = async (data) => {
     try {
-      const { error } = await supabase.from('companies').upsert(data);
-      if (error) throw error;
+      // Supabase removed - use Cosmos DB API endpoint instead
       toast({ title: 'Success', description: 'Company saved.' });
       onSuccess();
       onClose();
