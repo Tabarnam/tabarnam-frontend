@@ -48,18 +48,6 @@ const BulkEditModal = ({ isOpen, onClose, onSuccess, companies }) => {
         // Supabase removed - functionality disabled
         console.log('Add keyword stub - Supabase removed');
         return;
-
-        if (!existing) {
-            const { data, error } = await supabase.from('product_keywords').insert({ keyword: newKeyword.trim() }).select().single();
-            if (error) { toast({ variant: "destructive", title: "Error", description: error.message }); return; }
-            existing = data;
-            setAllKeywords(prev => [...prev, existing]);
-        }
-        
-        if (!keywordsToAdd.includes(existing.id)) {
-            setKeywordsToAdd(prev => [...prev, existing.id]);
-        }
-        setNewKeyword('');
     };
 
     const handleSubmit = async () => {
@@ -67,17 +55,9 @@ const BulkEditModal = ({ isOpen, onClose, onSuccess, companies }) => {
         const companyIds = companies.map(c => c.id);
 
         try {
-            const { error } = await supabase.rpc('bulk_edit_companies', {
-                p_company_ids: companyIds,
-                p_industries_to_add: industriesToAdd,
-                p_industries_to_remove: industriesToRemove,
-                p_keywords_to_add: keywordsToAdd,
-                p_keywords_to_remove: keywordsToRemove
-            });
-
-            if (error) throw error;
-
-            toast({ title: "Bulk Edit Successful", description: `Updated ${companyCount} companies.` });
+            // Supabase removed - functionality disabled
+            console.log('Bulk edit stub - Supabase removed');
+            toast({ title: "Bulk Edit Successful", description: 'Bulk edit disabled - Supabase removed.' });
             onSuccess();
 
         } catch (error) {
