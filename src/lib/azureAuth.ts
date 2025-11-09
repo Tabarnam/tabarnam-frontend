@@ -3,8 +3,8 @@
 // In production, replace with Azure AD B2C or Microsoft Authentication Library (MSAL)
 
 const ADMIN_USERS = [
-  'duh@tabarnam.com',
-  'admin@tabarnam.com'
+  'jon@tabarnam.com',
+  'ben@tabarnam.com'
 ];
 
 const ADMIN_TOKEN_KEY = 'tabarnam_admin_token';
