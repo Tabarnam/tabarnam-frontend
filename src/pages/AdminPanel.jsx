@@ -36,7 +36,7 @@ const AdminPanel = () => {
   const [editingCompany, setEditingCompany] = useState(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
 
-  const isSuperAdmin = user?.email === 'jon@tabarnam.com';
+  const isSuperAdmin = user?.email === 'duh@tabarnam.com' || user?.email === 'admin@tabarnam.com';
 
   useEffect(() => {
     fetchData();
