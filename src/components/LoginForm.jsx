@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { supabase } from '@/lib/customSupabaseClient'; // Use the Supabase client for auth functions
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
+// Supabase auth removed - use src/pages/Login.jsx instead
 
 const LoginForm = () => {
   const [email, setEmail] = useState('');
