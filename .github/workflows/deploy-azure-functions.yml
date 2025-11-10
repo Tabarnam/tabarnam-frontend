@@ -1,0 +1,30 @@
+﻿name: Deploy Azure Functions
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+      - name: Install & Build Functions
+        working-directory: ./api
+        run: |
+          npm ci
+          npm run build || true
+      - name: Deploy to Azure Functions
+        uses: azure/functions-action@v1
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+          package: ./api
