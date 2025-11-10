@@ -1,4 +1,21 @@
 {
+  "routes": [
+    {
+      "route": "/api/*",
+      "allowedRoles": ["authenticated", "anonymous"],
+      "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+    },
+    {
+      "route": "/xapi",
+      "redirect": "/xapi/",
+      "statusCode": 308
+    },
+    {
+      "route": "/xapi/*",
+      "allowedRoles": ["anonymous"],
+      "rewrite": "/api/{*path}"
+    }
+  ],
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": [
@@ -10,18 +27,19 @@
       "/sitemap.xml"
     ]
   },
-  "routes": [
-    {
-      "route": "/api/*",
-      "allowedRoles": ["authenticated", "anonymous"],
-      "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+  "responseOverrides": {
+    "401": {
+      "redirect": "/login",
+      "statusCode": 302
     },
-    { "route": "/xapi",  "redirect": "/xapi/", "statusCode": 308 },
-    { "route": "/xapi/*", "allowedRoles": [ "anonymous" ], "rewrite": "/api/{*path}" }
-  ],
+    "404": {
+      "rewrite": "/404.html"
+    }
+  },
   "globalHeaders": {
-    "/*":      { "x-swa-config": "v1-managed-api" },
-    "/api/*":  { "Content-Type": "application/json" },
-    "/xapi/*": { "x-swa-xapi": "yes" }
+    "content-security-policy": "default-src 'self' https://tabarnam.com"
+  },
+  "platform": {
+    "apiRuntime": "node:20"
   }
 }
