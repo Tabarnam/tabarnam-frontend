@@ -7,8 +7,7 @@
       "/assets/*",
       "/favicon.ico",
       "/robots.txt",
-      "/sitemap.xml",
-      "*.svg"
+      "/sitemap.xml"
     ]
   },
   "routes": [
@@ -24,6 +23,5 @@
     "/*":      { "x-swa-config": "v1-managed-api" },
     "/api/*":  { "Content-Type": "application/json" },
     "/xapi/*": { "x-swa-xapi": "yes" }
-  },
-  "missionControl": []
+  }
 }
