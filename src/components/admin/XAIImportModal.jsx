@@ -1,13 +1,11 @@
-
 import React, { useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Loader2, Wand2 } from 'lucide-react';
-import { supabase } from '@/lib/customSupabaseClient';
 import { logError } from '@/lib/errorLogger';
-import { getFunctionHeaders } from '@/lib/supabaseFunctionUtils';
+// Supabase removed
 
 const XAIImportModal = ({ isOpen, onClose, onSuccess }) => {
     const { toast } = useToast();
@@ -22,53 +20,9 @@ const XAIImportModal = ({ isOpen, onClose, onSuccess }) => {
         setIsImporting(true);
 
         try {
-            const headers = await getFunctionHeaders();
-            const body = {
-                queryType: 'product_keyword',
-                query: query,
-                dryRun: false, 
-                forceOverwrite: false,
-            };
-
-            // Reverting to supabase.functions.invoke with explicit headers
-            const { data, error } = await supabase.functions.invoke('xai-bulk-importer', {
-                body: body,
-                headers: headers,
-            });
-
-            if (error) {
-                throw new Error(`Edge function invocation failed: ${error.message}`);
-            }
-
-            if (data.error) {
-                throw new Error(`Import process failed: ${data.error}`);
-            }
-
-            const result = data.results?.[0];
-            if (!result) {
-                throw new Error("Invalid response from the import function.");
-            }
-
-            if (result.status === 'Success' && result.company) {
-                 const companyName = result.company.name || "the company";
-                toast({
-                    title: "Import Complete",
-                    description: `Successfully imported "${companyName}".`
-                });
-                onSuccess();
-                onClose();
-            } else if (result.status === 'Skipped') {
-                toast({
-                    title: "Import Skipped",
-                    description: `Company "${result.company.name}" already exists. Use bulk import with 'Force Overwrite' to update.`
-                });
-                onClose();
-            }
-            else {
-                const failureReason = result?.log?.find(l => l.status === 'error')?.message || 'The AI could not find a relevant company or the data failed validation.';
-                throw new Error(failureReason);
-            }
-
+            // Supabase removed - XAI import functionality disabled
+            console.log('XAI import stub - Supabase removed');
+            throw new Error('XAI import functionality disabled - Supabase removed.');
         } catch (error) {
             toast({ variant: 'destructive', title: 'Import Failed', description: error.message });
             await logError({

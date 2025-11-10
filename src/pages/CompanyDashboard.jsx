@@ -1,39 +1,33 @@
 import React, { useEffect, useState } from 'react';
 import Head from 'next/head';
 import { AnimatePresence, motion } from 'framer-motion';
-import { supabase } from '@/lib/customSupabaseClient';
-import { useSupabaseAuth } from '@/contexts/useSupabaseAuth';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2 } from 'lucide-react';
+// Supabase removed - use Cosmos DB instead
 
 import DashboardHeader from '@/components/DashboardHeader';
 import CompanyCard from '@/components/CompanyCard';
 import LoginForm from '@/components/LoginForm';
 
 const CompanyDashboard = () => {
-  const { user, loading: authLoading } = useAuth();
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [authLoading] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     const fetchCompanies = async () => {
-      if (!user) return;
 
       setLoading(true);
 
       try {
-        const { data, error } = await supabase
-          .from('companies')
-          .select('id, name, about, website_url, industries, rating')
-          .limit(12);
-
-        if (error) throw error;
-        setCompanies(data);
+        // Supabase removed - functionality disabled
+        console.log('Company dashboard stub - Supabase removed');
+        setCompanies([]);
       } catch (error) {
         toast({
           title: 'Error loading companies',
-          description: error.message,
+          description: 'Company dashboard disabled - Supabase removed.',
           variant: 'destructive',
         });
       } finally {
@@ -42,7 +36,7 @@ const CompanyDashboard = () => {
     };
 
     fetchCompanies();
-  }, [user, toast]);
+  }, [toast]);
 
   if (authLoading) {
     return (

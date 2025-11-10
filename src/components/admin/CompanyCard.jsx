@@ -13,8 +13,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
+// Supabase removed
 
 const CompanyCard = ({ company, index, onEdit, onDelete }) => {
   const { toast } = useToast();
@@ -25,17 +25,12 @@ const CompanyCard = ({ company, index, onEdit, onDelete }) => {
 
   const handleDelete = async () => {
     try {
-        // First, delete related records if necessary, depending on cascade settings.
-        // Supabase foreign keys are set to cascade delete, so this should be enough:
-        const { error } = await supabase.from('companies').delete().eq('id', company.id);
-        
-        if (error) throw error;
-        
+        // Supabase removed - functionality disabled
+        console.log('Delete company stub - Supabase removed');
         toast({
             title: "Success",
-            description: "Company deleted successfully."
+            description: "Company deletion disabled - Supabase removed."
         });
-        onDelete(); // Refresh the list
     } catch (error) {
         toast({
             variant: "destructive",

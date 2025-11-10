@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
+// Supabase removed
 import { Loader2, RefreshCw, AlertTriangle, CheckCircle, Combine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -13,25 +12,11 @@ const DuplicatesDashboard = () => {
     const findDuplicates = useCallback(async () => {
         setLoading(true);
         try {
-            const { data, error } = await supabase.rpc('find_company_duplicates_rpc');
-            if (error) throw error;
-            
-            if (data && data.length > 0) {
-                const enrichedDuplicates = await Promise.all(data.map(async (group) => {
-                    const { data: companies, error: companiesError } = await supabase
-                        .from('companies')
-                        .select('id, name, website_url, created_at')
-                        .in('id', group.company_ids);
-                    if (companiesError) return { ...group, companies: [] };
-                    return { ...group, companies };
-                }));
-                setDuplicates(enrichedDuplicates);
-            } else {
-                setDuplicates([]);
-            }
-
+            // Supabase removed - functionality disabled
+            console.log('Find duplicates stub - Supabase removed');
+            setDuplicates([]);
         } catch (error) {
-            toast({ variant: 'destructive', title: 'Failed to find duplicates', description: error.message });
+            toast({ variant: 'destructive', title: 'Failed to find duplicates', description: 'Duplicates dashboard disabled - Supabase removed.' });
         } finally {
             setLoading(false);
         }
@@ -39,14 +24,9 @@ const DuplicatesDashboard = () => {
 
     const handleMerge = async (masterId, duplicateIds) => {
         try {
-            const { error } = await supabase.rpc('merge_company_duplicates_rpc', {
-                master_company_id: masterId,
-                duplicate_company_ids: duplicateIds,
-            });
-
-            if (error) throw error;
-            toast({ title: "Merge Successful", description: "Companies have been merged." });
-            findDuplicates();
+            // Supabase removed - functionality disabled
+            console.log('Merge duplicates stub - Supabase removed');
+            toast({ title: "Merge Successful", description: "Company merging disabled - Supabase removed." });
         } catch (error) {
             toast({ variant: 'destructive', title: 'Merge Failed', description: error.message });
         }

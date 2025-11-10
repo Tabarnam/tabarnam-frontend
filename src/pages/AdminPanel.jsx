@@ -3,9 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { supabase } from '@/lib/customSupabaseClient';
-import { useSupabaseAuth } from '@/contexts/useSupabaseAuth';
-import { useUserRole } from '@/contexts/useUserRole';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from 'lucide-react';
@@ -16,10 +13,11 @@ import {
   flexRender,
 } from '@tanstack/react-table';
 import CompanyForm from '@/components/admin/CompanyForm';
+import AdminHeader from '@/components/AdminHeader';
+import { getAdminUser } from '@/lib/azureAuth';
 
 const AdminPanel = () => {
-  const { user } = useSupabaseAuth();
-  const { userRole } = useUserRole();
+  const user = getAdminUser();
 
   const [companies, setCompanies] = useState([]);
   const [filteredCompanies, setFilteredCompanies] = useState([]);
@@ -38,7 +36,7 @@ const AdminPanel = () => {
   const [editingCompany, setEditingCompany] = useState(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
 
-  const isSuperAdmin = user?.email === 'jon@tabarnam.com';
+  const isSuperAdmin = user?.email === 'jon@tabarnam.com' || user?.email === 'ben@tabarnam.com';
 
   useEffect(() => {
     fetchData();
@@ -59,18 +57,17 @@ const AdminPanel = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: companyData, error: companyError } = await supabase.from('companies').select('*');
-      if (companyError) throw companyError;
-      setCompanies(companyData || []);
-      setFilteredCompanies(companyData || []);
-
-      const { data: userData, error: userError } = await supabase.from('profiles').select('id, email, role');
-      if (userError) throw userError;
-      setUsers(userData || []);
-
-      const { data: configData, error: configError } = await supabase.from('star_config').select('*').single();
-      if (configError) throw configError;
-      if (configData) setStarConfig(configData);
+      // Supabase has been removed. This is a stub.
+      console.log('Admin data fetch stub - Supabase removed');
+      setCompanies([]);
+      setFilteredCompanies([]);
+      setUsers([]);
+      setStarConfig({
+        hq_weight: 1,
+        manufacturing_weight: 1,
+        review_threshold: 4,
+        min_reviews: 3
+      });
     } catch (error) {
       toast.error('Fetch Error', error.message);
     } finally {
@@ -88,11 +85,10 @@ const AdminPanel = () => {
       return;
     }
     try {
-      const { error } = await supabase.from('profiles').upsert({ email: newAdminEmail, role: 'admin' });
-      if (error) throw error;
-      toast.success('Success', 'Admin added.');
+      // Supabase removed - functionality disabled
+      console.log('Add admin stub - Supabase removed');
+      toast.success('Success', 'Admin management disabled - Supabase removed.');
       setNewAdminEmail('');
-      fetchData();
     } catch (error) {
       toast.error('Error', error.message);
     }
@@ -101,10 +97,9 @@ const AdminPanel = () => {
   const handleDeleteUser = async (userId) => {
     if (!isSuperAdmin) return;
     try {
-      const { error } = await supabase.from('profiles').delete().eq('id', userId);
-      if (error) throw error;
-      toast.success('Success', 'User deleted.');
-      fetchData();
+      // Supabase removed - functionality disabled
+      console.log('Delete user stub - Supabase removed');
+      toast.success('Success', 'User deletion disabled - Supabase removed.');
     } catch (error) {
       toast.error('Error', error.message);
     }
@@ -112,11 +107,9 @@ const AdminPanel = () => {
 
   const handleRecalcStars = async () => {
     try {
-      await supabase.from('star_config').upsert(starConfig);
-      const { error } = await supabase.rpc('recalc_star_ratings');
-      if (error) throw error;
-      toast.success('Success', 'Stars recalculated.');
-      fetchData();
+      // Supabase removed - functionality disabled
+      console.log('Recalc stars stub - Supabase removed');
+      toast.success('Success', 'Star recalculation disabled - Supabase removed.');
     } catch (error) {
       toast.error('Error', error.message);
     }
@@ -199,8 +192,10 @@ const AdminPanel = () => {
         <title>Admin Panel - Tabarnam</title>
       </Helmet>
 
+      <AdminHeader />
+
       <div className="p-6 space-y-6" style={{ backgroundColor: 'rgb(177, 221, 227)' }}>
-        <h1 className="text-3xl font-bold">Admin Panel</h1>
+        <h2 className="text-2xl font-bold">Administration</h2>
 
         <div className="p-4 border" style={{ borderColor: 'rgb(100, 150, 180)' }}>
           Last Import Count: {lastImportCount}
@@ -310,7 +305,7 @@ const AdminPanel = () => {
           />
         )}
 
-        <Link to="/admin/xai-bulk-import">Bulk Import Tool</Link>
+        <Link to="/admin/xai-bulk-import">Deep Dive Tool</Link>
       </div>
     </>
   );

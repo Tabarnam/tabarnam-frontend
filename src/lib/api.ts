@@ -1,12 +1,20 @@
 // src/lib/api.ts
 // Single source of truth for the front-end API base.
-// DEV:   Vite dev server can proxy or call local functions
-// PROD:  Use the SWA managed API at /api
+// Uses relative path /api so it works with:
+// - Local dev: proxied to func start --port 7073
+// - Deployed: SWA managed API at /api
+// - Environment override: VITE_API_BASE env variable
 
-const DEV_BASE = '/api';   // works with "swa start" or no-proxy setup
-const PROD_BASE = '/api';  // <— key change: use /api directly, not /xapi
+const getAPIBase = () => {
+  // Check for environment variable override (set via .env or deployment config)
+  if (typeof import.meta !== 'undefined' && import.meta.env.VITE_API_BASE) {
+    return import.meta.env.VITE_API_BASE;
+  }
+  // Default: use relative path so dev server and SWA can proxy correctly
+  return '/api';
+};
 
-export const API_BASE = "https://tabarnam-xai-externalapi.azurewebsites.net/api";
+export const API_BASE = getAPIBase();
 
 // Small helpers
 export function join(base: string, path: string) {
@@ -16,7 +24,20 @@ export function join(base: string, path: string) {
 
 export async function apiFetch(path: string, init?: RequestInit) {
   const url = join(API_BASE, path);
-  return fetch(url, init);
+  try {
+    const response = await fetch(url, init);
+    if (!response.ok) {
+      console.warn(`API ${url} returned ${response.status}:`, response.statusText);
+    }
+    return response;
+  } catch (e) {
+    console.error(`API fetch failed for ${url}:`, e?.message);
+    // Return a fake 503 error response instead of throwing
+    return new Response(JSON.stringify({ error: 'API unavailable', detail: e?.message }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 }
 
 // Health check (optional)
