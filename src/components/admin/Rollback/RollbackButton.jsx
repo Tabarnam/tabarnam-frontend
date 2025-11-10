@@ -1,37 +1,24 @@
 // src/components/admin/Rollback/RollbackButton.jsx
 import { useState } from 'react';
 import toast from 'react-hot-toast';
-import { API_BASE } from '@/lib/api';
 
 export default function RollbackButton() {
   const [loading, setLoading] = useState(false);
 
   const handleRollback = async () => {
-    const confirmed = window.confirm('Are you sure you want to rollback to the last failed deploy?');
+    const confirmed = window.confirm('Rollback via Vercel is disabled. Open Azure Static Web Apps or Azure Front Door to manage deployments. Open portal now?');
     if (!confirmed) return;
-
     setLoading(true);
-    const tId = toast.loading('Attempting rollback...');
-
+    const tId = toast.loading('Opening Azure portal...');
     try {
-      const res = await fetch(`${API_BASE}/vercel/rollback`);
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        throw new Error(data?.error || res.statusText || `HTTP ${res.status}`);
-      }
-
-      if (data.message) {
-        toast.success(data.message, { id: tId, duration: 4000 });
-        localStorage.setItem('lastRollback', JSON.stringify({
-          user: 'You',
-          time: new Date().toLocaleString()
-        }));
-      } else {
-        toast.success('Rollback completed.', { id: tId, duration: 4000 });
-      }
+      window.open('https://portal.azure.com/#view/Microsoft_Azure_StaticWebApps/StaticWebAppMenuBlade/~/overview', '_blank', 'noopener');
+      toast.success('Azure portal opened.', { id: tId, duration: 3000 });
+      localStorage.setItem('lastRollback', JSON.stringify({
+        user: 'You',
+        time: new Date().toLocaleString()
+      }));
     } catch (e) {
-      toast.error(`Rollback failed: ${e?.message || 'Unknown error'}`, { id: tId });
+      toast.error(`Could not open Azure portal: ${e?.message || 'Unknown error'}`, { id: tId });
     } finally {
       setLoading(false);
     }
@@ -42,9 +29,10 @@ export default function RollbackButton() {
       <button
         onClick={handleRollback}
         disabled={loading}
-        className="bg-red-600 text-white px-4 py-2 rounded disabled:opacity-60"
+        className="bg-gray-600 text-white px-4 py-2 rounded disabled:opacity-60"
+        title="Vercel rollback removed. Use Azure portal to manage deployments."
       >
-        {loading ? 'Rolling back...' : 'Trigger Rollback'}
+        {loading ? 'Opening Azure…' : 'Manage Deployments (Azure)'}
       </button>
     </div>
   );
