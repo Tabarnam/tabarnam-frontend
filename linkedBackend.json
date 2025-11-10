@@ -1,6 +1,6 @@
-﻿{
+{
   "properties": {
-    "backendResourceId": "/subscriptions/78b03a8f-1fcd-4944-8793-8371ed2c7f55/resourceGroups/tabarnam-mvp-rg/providers/Microsoft.Web/sites/tabarnam-xai-externalapi",
+    "backendResourceId": "/subscriptions/78b03a8f-1fcd-4944-8793-8371ed2c7f55/resourceGroups/tabarnam-mvp-rg/providers/Microsoft.Web/sites/tabarnam-xai-dedicated",
     "region": "westus2",
     "routingPath": "/api",
     "managedServiceIdentityType": "None"

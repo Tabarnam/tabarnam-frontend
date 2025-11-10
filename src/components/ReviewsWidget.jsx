@@ -85,30 +85,66 @@ export default function ReviewsWidget({ companyName }) {
       </button>
 
       <div className="mt-4">
-        {loading ? <div className="text-sm text-gray-500">Loading reviews…</div> :
-          !list.length ? <div className="text-sm text-gray-500">No reviews yet.</div> :
+        {loading ? (
+          <div className="text-sm text-gray-500">Loading reviews…</div>
+        ) : !list.length ? (
+          <div className="text-sm text-gray-500">No reviews yet.</div>
+        ) : (
           <ul className="space-y-3">
-            {list.map(r => (
-              <li key={r.id} className="bg-white border rounded p-3">
-                <div className="flex items-center justify-between">
-                  <div className="font-medium">{r.rating} ★</div>
-                  <div className="text-xs text-gray-500">{new Date(r.created_at).toLocaleString()}</div>
-                </div>
-                <div className="mt-2 whitespace-pre-wrap">
-                  {r.text}{" "}
-                  {(r.user_name || r.user_location) && (
-                    <strong>— {r.user_name || "Anonymous"}{r.user_location ? `, ${r.user_location}` : ""}</strong>
-                  )}
-                </div>
-                {r.flagged_bot && (
-                  <div className="mt-2 text-xs text-amber-700 bg-amber-50 inline-block px-2 py-1 rounded">
-                    Flagged for review: {r.bot_reason || "possible automated content"}
+            {list.map((r) => {
+              const truncateUrl = (url, maxLen = 40) => {
+                if (!url) return null;
+                return url.length > maxLen ? url.substring(0, maxLen) + "…" : url;
+              };
+
+              return (
+                <li key={r.id} className="bg-white border rounded p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium text-amber-600">{r.source}</div>
+                    <div className="text-xs text-gray-500">
+                      {r.created_at ? new Date(r.created_at).toLocaleString() : ""}
+                    </div>
                   </div>
-                )}
-              </li>
-            ))}
+
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-700 mb-2">{r.abstract}</p>
+
+                    {r.rating && (
+                      <div className="text-sm font-medium text-amber-600 mb-2">
+                        {r.rating}★
+                      </div>
+                    )}
+
+                    {r.url && (
+                      <div className="text-xs">
+                        <a
+                          href={r.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-600 hover:underline inline-flex items-center gap-1"
+                          title={r.url}
+                        >
+                          {truncateUrl(r.url)}
+                          <span className="text-gray-400">↗</span>
+                        </a>
+                      </div>
+                    )}
+                  </div>
+
+                  {r.type === "user" && r.source.includes("(") && (
+                    <div className="mt-2 text-xs text-gray-500">User submitted</div>
+                  )}
+
+                  {r.flagged_bot && (
+                    <div className="mt-2 text-xs text-amber-700 bg-amber-50 inline-block px-2 py-1 rounded">
+                      Flagged: {r.bot_reason || "possible automated content"}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
-        }
+        )}
       </div>
     </div>
   );

@@ -1,8 +1,7 @@
-// src/pages/Login.jsx
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { supabase } from '@/lib/customSupabaseClient';
+import { loginAdmin, getAuthorizedAdminEmails } from '@/lib/azureAuth';
 import { useToast } from '@/components/ui/use-toast';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -14,21 +13,27 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
+  const authorizedEmails = getAuthorizedAdminEmails();
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+    const result = loginAdmin(email, password);
     setLoading(false);
 
-    if (error) {
+    if (result.success) {
+      toast({
+        title: 'Login Successful',
+        description: `Welcome, ${email}!`,
+      });
+      navigate('/admin');
+    } else {
       toast({
         title: 'Login Failed',
-        description: error.message,
+        description: result.error || 'An error occurred',
         variant: 'destructive',
       });
-    } else {
-      navigate('/admin');
     }
   };
 
@@ -51,17 +56,28 @@ export default function Login() {
           <div className="text-center">
             <Lock className="w-8 h-8 text-white mx-auto mb-1" />
             <h2 className="text-white text-xl font-semibold">Admin Login</h2>
+            <p className="text-gray-400 text-sm mt-2">Tabarnam Administration</p>
           </div>
+
+          <div className="bg-slate-700/50 border border-slate-600 rounded p-3 text-sm">
+            <p className="text-gray-300 font-semibold mb-2">Authorized Emails:</p>
+            <ul className="text-gray-400 space-y-1">
+              {authorizedEmails.map((e) => (
+                <li key={e}>• {e}</li>
+              ))}
+            </ul>
+          </div>
+
           <div>
             <label className="block text-sm text-gray-300 mb-1">Email</label>
             <Input
               type="email"
-              placeholder="you@example.com"
+              placeholder="jon@tabarnam.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="bg-slate-700 text-white"
-              onKeyDown={handleKeyDown} // Optional redundancy for Enter
+              className="bg-slate-700 text-white border-slate-600"
+              onKeyDown={handleKeyDown}
             />
           </div>
           <div>
@@ -72,14 +88,30 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="bg-slate-700 text-white"
-              onKeyDown={handleKeyDown} // Optional redundancy for Enter
+              className="bg-slate-700 text-white border-slate-600"
+              onKeyDown={handleKeyDown}
             />
+            <p className="text-gray-500 text-xs mt-2">
+              (Temporary: any password works for authorized emails)
+            </p>
           </div>
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? <Loader2 className="animate-spin w-5 h-5 mr-2" /> : <LogIn className="w-5 h-5 mr-2" />}
-            {loading ? 'Logging in...' : 'Log In'}
+            {loading ? (
+              <>
+                <Loader2 className="animate-spin w-5 h-5 mr-2" />
+                Logging in...
+              </>
+            ) : (
+              <>
+                <LogIn className="w-5 h-5 mr-2" />
+                Log In
+              </>
+            )}
           </Button>
+
+          <p className="text-gray-400 text-xs text-center mt-4">
+            💡 For production, integrate with Azure AD or Microsoft Entra ID
+          </p>
         </form>
       </div>
     </>

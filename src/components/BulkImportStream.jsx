@@ -12,7 +12,7 @@ export default function BulkImportStream({ sessionId, take = 200, pollingMs = 15
   async function tick() {
     if (!sessionId) return;
     try {
-      const url = `${API_BASE}/import-progress?session_id=${encodeURIComponent(sessionId)}&take=${encodeURIComponent(take)}`;
+      const url = `${API_BASE}/import/progress?session_id=${encodeURIComponent(sessionId)}&take=${encodeURIComponent(take)}`;
       const r = await fetch(url, { method: "GET" });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error || r.statusText);

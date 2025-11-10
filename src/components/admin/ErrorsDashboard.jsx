@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
+// Supabase removed
 import { Loader2, AlertTriangle, RefreshCw, Trash2, CheckCircle, Filter, X, Link, Bot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -36,18 +36,14 @@ const ErrorsDashboard = () => {
     const fetchErrors = useCallback(async () => {
         setLoading(true);
         try {
-            const { data, error } = await supabase
-                .from('errors')
-                .select('*, company:companies(name)')
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
-            setAllErrors(data || []);
+            // Supabase removed - functionality disabled
+            console.log('Fetch errors stub - Supabase removed');
+            setAllErrors([]);
         } catch (error) {
             toast({
                 variant: 'destructive',
                 title: 'Failed to fetch errors',
-                description: error.message,
+                description: 'Errors dashboard disabled - Supabase removed.',
             });
         } finally {
             setLoading(false);
@@ -74,10 +70,9 @@ const ErrorsDashboard = () => {
 
     const handleResolve = async (errorId) => {
         try {
-            const { error } = await supabase.from('errors').update({ resolved: true }).eq('id', errorId);
-            if (error) throw error;
-            toast({ title: 'Success', description: 'Error marked as resolved.' });
-            fetchErrors();
+            // Supabase removed - functionality disabled
+            console.log('Resolve error stub - Supabase removed');
+            toast({ title: 'Success', description: 'Error resolution disabled - Supabase removed.' });
         } catch (error) {
             toast({ variant: 'destructive', title: 'Action failed', description: error.message });
         }
@@ -85,10 +80,9 @@ const ErrorsDashboard = () => {
 
     const handleDelete = async (errorId) => {
         try {
-            const { error } = await supabase.from('errors').delete().eq('id', errorId);
-            if (error) throw error;
-            toast({ title: 'Success', description: 'Error deleted.' });
-            fetchErrors();
+            // Supabase removed - functionality disabled
+            console.log('Delete error stub - Supabase removed');
+            toast({ title: 'Success', description: 'Error deletion disabled - Supabase removed.' });
         } catch (error) {
             toast({ variant: 'destructive', title: 'Action failed', description: error.message });
         }

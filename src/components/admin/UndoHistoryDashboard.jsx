@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/lib/customSupabaseClient';
 import { useToast } from '@/components/ui/use-toast';
+// Supabase removed
 import { Loader2, Undo2, CheckCircle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -12,19 +12,14 @@ const UndoHistoryDashboard = () => {
     const fetchHistory = useCallback(async () => {
         setLoading(true);
         try {
-            const { data, error } = await supabase
-                .from('action_history')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(20);
-
-            if (error) throw error;
-            setHistory(data || []);
+            // Supabase removed - functionality disabled
+            console.log('Fetch history stub - Supabase removed');
+            setHistory([]);
         } catch (error) {
             toast({
                 variant: 'destructive',
                 title: 'Failed to fetch action history',
-                description: error.message,
+                description: 'History dashboard disabled - Supabase removed.',
             });
         } finally {
             setLoading(false);
@@ -42,14 +37,12 @@ const UndoHistoryDashboard = () => {
         }
 
         try {
-            const { error } = await supabase.rpc('undo_action', { p_action_id: action.id });
-            if (error) throw error;
-            
+            // Supabase removed - functionality disabled
+            console.log('Undo action stub - Supabase removed');
             toast({
                 title: 'Action Undone!',
-                description: `Successfully reverted: ${action.description}`,
+                description: 'Undo functionality disabled - Supabase removed.',
             });
-            fetchHistory(); // Refresh the list
         } catch (error) {
             toast({
                 variant: 'destructive',

@@ -1,10 +1,11 @@
 import React from 'react';
-import { UserRoleContext } from '@/contexts/UserRoleContext'; // New import
+
+// Dummy context - user role functionality disabled
+export const UserRoleContext = React.createContext(null);
 
 export const useUserRole = () => {
-  const context = React.useContext(UserRoleContext);
-  if (context === undefined) {
-    throw new Error('useUserRole must be used within a UserRoleProvider');
-  }
-  return context;
+  return {
+    userRole: 'admin', // Default to admin since we're using localStorage auth
+    loading: false,
+  };
 };
