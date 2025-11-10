@@ -8,7 +8,7 @@
     {
       "route": "/xapi",
       "redirect": "/xapi/",
-      "statusCode": 308
+      "statusCode": 301
     },
     {
       "route": "/xapi/*",
