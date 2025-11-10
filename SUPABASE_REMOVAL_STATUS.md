@@ -100,10 +100,10 @@ To completely remove Supabase and use only Cosmos DB requires:
 
 ## Cosmos DB Configuration
 
-All necessary environment variables are already set:
+All necessary environment variables are set in your deployment environment (do not commit secrets):
 ```
-COSMOS_DB_ENDPOINT=https://tabarnamcosmos2356.documents.azure.com:443/
-COSMOS_DB_KEY=ebji0Ask2VIBv48H8LLv1yfH4sLMtMBD7z42HM8iYkcmnl2NBbauQ38BAY0ab0mPG75yQbKx4qmXACDbRNtQWQ==
+COSMOS_DB_ENDPOINT=<your-cosmos-endpoint>
+COSMOS_DB_KEY=<set in deployment secrets>
 COSMOS_DB_DATABASE=tabarnam-db
 COSMOS_DB_CONTAINER=companies
 ```
