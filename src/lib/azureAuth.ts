@@ -5,8 +5,7 @@
 const ADMIN_USERS = [
   'jon@tabarnam.com',
   'ben@tabarnam.com',
-  'kels@tabarnam.com',
-  'duh@tabarnam.com'
+  'kels@tabarnam.com'
 ];
 
 const ADMIN_TOKEN_KEY = 'tabarnam_admin_token';
