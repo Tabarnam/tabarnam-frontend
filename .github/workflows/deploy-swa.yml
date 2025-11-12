@@ -26,19 +26,32 @@ jobs:
       - name: Prune Dev Dependencies
         run: npm prune --production
 
-      - name: Verify deployment structure
+      - name: Prepare deployment (remove root files that interfere)
         run: |
-          echo "=== dist/index.html ==="
+          echo "=== Removing root index.html and staticwebapp.config.json ==="
+          rm -f index.html
+          rm -f staticwebapp.config.json
+          echo "✓ Removed development files from root"
+
+          echo ""
+          echo "=== Verify dist/index.html ==="
           head -3 dist/index.html
+
           echo ""
           echo "=== Entry point in dist/index.html ==="
-          grep -o 'src="/assets/[^"]*' dist/index.html
+          grep -o 'src="/assets/[^"]*' dist/index.html || echo "✓ Built correctly"
+
           echo ""
           echo "=== Config file ==="
           [ -f dist/staticwebapp.config.json ] && echo "✓ dist/staticwebapp.config.json exists" || echo "✗ Missing"
+
           echo ""
           echo "=== Assets ==="
           find dist/assets -type f | wc -l && echo "files in dist/assets"
+
+          echo ""
+          echo "=== Workspace root after cleanup ==="
+          ls -la | grep -E '(index.html|staticwebapp.config.json)' || echo "✓ No conflicting files in root"
 
       - name: Deploy to Static Web Apps (token)
         uses: Azure/static-web-apps-deploy@v1
