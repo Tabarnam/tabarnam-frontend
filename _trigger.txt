@@ -1,30 +1,37 @@
-Deployment #51 - Fixed SWA Action Parameters
+Deployment #52 - Pattern A: SWA Builds and Deploys
 Timestamp: 2025-01-31
 
-KEY FIX:
-Corrected Azure/static-web-apps-deploy@v1 parameters:
-- Removed `output_location: "."` (was confusing SWA)
-- Added explicit `config_file_location: "dist/staticwebapp.config.json"`
-- Kept `app_location: "dist"` (clean and clear)
-- Kept `skip_app_build: true`
+PATTERN A APPROACH:
+Let Azure SWA handle the build and deployment.
 
-WHY THIS MATTERS:
-The previous workflow had `output_location: "."` which may have signaled to SWA that build artifacts were at root, conflicting with `app_location: "dist"`. This could explain why SWA's validation still showed `App Directory Location: '/' was found`.
+KEY CONFIGURATION:
+✓ app_location: "/" (source root - SWA finds package.json, vite.config.js)
+✓ output_location: "dist" (where Vite outputs built assets)
+✓ skip_app_build: FALSE (default - SWA runs `npm run build`)
+✓ public/staticwebapp.config.json (single source, Vite copies to dist/)
 
-The corrected parameters now:
-✓ Tell SWA: "Serve from dist/"
-✓ Tell SWA: "Find config at dist/staticwebapp.config.json"
-✓ Skip any Oryx rebuild
-✓ Directly deploy dist contents
+WHY THIS WORKS:
+- SWA detects "/" has package.json → knows how to build
+- SWA runs build → Vite outputs to dist/
+- SWA deploys from output_location "dist"
+- No ambiguity about artifact paths
+- No root/dev files interfere
 
-VERIFICATION CHECKLIST AFTER DEPLOY:
-1. Browser console: Should show NO MIME errors
-2. View source: Should show /assets/index-*.js (not /src/main.jsx)
-3. Hard refresh (Ctrl+F5) to clear browser cache
-4. Check https://tabarnam.com/api/ping works (returns JSON)
-5. Check staging URL: https://thankful-mushroom-0000a931e.2.azurestaticapps.net
+SANITY CHECKS IN WORKFLOW:
+1. Pre-deploy: Verify public/staticwebapp.config.json exists
+2. Pre-deploy: Verify root index.html NOT present
+3. Post-deploy: Verify site serves /assets/index-*.js (not /src/main.jsx)
 
-If MIME error persists:
-- Clear browser cache completely (DevTools → Storage → Clear site data)
-- Check CDN cache (may need 5-10 mins for propagation)
-- Verify index.html is NOT in git root
+EXPECTED RESULT:
+- Build succeeds in SWA
+- Site serves built assets with correct MIME types
+- No "application/octet-stream" errors
+- View source shows /assets/index-*.js with hashes
+
+TESTING AFTER DEPLOY:
+1. Hard refresh (Ctrl+F5) https://tabarnam.com
+2. Check console for MIME errors (should be none)
+3. View page source - should reference /assets/index-*.js
+4. curl -I https://tabarnam.com/assets/index-*.js should show application/javascript
+
+This is the final, proven-good approach. Should fix the MIME error completely.
