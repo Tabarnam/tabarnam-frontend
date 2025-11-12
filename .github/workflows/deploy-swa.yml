@@ -26,39 +26,40 @@ jobs:
       - name: Prune Dev Dependencies
         run: npm prune --production
 
-      - name: Prepare deployment (remove root files that interfere)
+      - name: Prepare deployment (copy dist to root)
         run: |
-          echo "=== Removing root index.html and staticwebapp.config.json ==="
+          echo "=== Removing old root index.html ==="
           rm -f index.html
           rm -f staticwebapp.config.json
-          echo "✓ Removed development files from root"
+          echo "✓ Cleaned root directory"
 
           echo ""
-          echo "=== Verify dist/index.html ==="
-          head -3 dist/index.html
+          echo "=== Copying dist/* to root ==="
+          cp -r dist/* .
+          echo "✓ dist/* copied to root"
 
           echo ""
-          echo "=== Entry point in dist/index.html ==="
-          grep -o 'src="/assets/[^"]*' dist/index.html || echo "✓ Built correctly"
+          echo "=== Verify root/index.html ==="
+          head -3 index.html
 
           echo ""
-          echo "=== Config file ==="
-          [ -f dist/staticwebapp.config.json ] && echo "✓ dist/staticwebapp.config.json exists" || echo "✗ Missing"
+          echo "=== Verify entry point ==="
+          grep -o 'src="/assets/[^"]*' index.html || echo "✓ Built correctly"
 
           echo ""
-          echo "=== Assets ==="
-          find dist/assets -type f | wc -l && echo "files in dist/assets"
+          echo "=== Verify config ==="
+          [ -f staticwebapp.config.json ] && echo "✓ staticwebapp.config.json at root" || echo "✗ Missing"
 
           echo ""
-          echo "=== Workspace root after cleanup ==="
-          ls -la | grep -E '(index.html|staticwebapp.config.json)' || echo "✓ No conflicting files in root"
+          echo "=== Verify assets ==="
+          [ -d assets ] && find assets -type f | wc -l && echo "files in assets" || echo "✗ No assets"
 
       - name: Deploy to Static Web Apps (token)
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN_V2 }}
           action: "upload"
-          app_location: "dist"
+          app_location: "/"
           output_location: "."
           skip_app_build: true
           api_location: "api"
