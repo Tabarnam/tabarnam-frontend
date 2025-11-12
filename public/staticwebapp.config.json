@@ -1,10 +1,27 @@
 {
+  "mimeTypes": {
+    ".js": "application/javascript",
+    ".mjs": "application/javascript",
+    ".css": "text/css",
+    ".svg": "image/svg+xml",
+    ".json": "application/json",
+    ".wasm": "application/wasm"
+  },
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": [
       "/api/*",
-      "/xapi/*",
       "/assets/*",
+      "/*.js",
+      "/*.css",
+      "/*.map",
+      "/*.png",
+      "/*.jpg",
+      "/*.svg",
+      "/*.ico",
+      "/*.webp",
+      "/*.woff",
+      "/*.woff2",
       "/favicon.ico",
       "/robots.txt",
       "/sitemap.xml"
@@ -27,18 +44,6 @@
       "rewrite": "/api/{*path}"
     }
   ],
-  "mimeTypes": {
-    ".js": "application/javascript",
-    ".mjs": "application/javascript",
-    ".css": "text/css"
-  },
-  "globalHeaders": {
-    "/*": {
-      "x-content-type-options": "nosniff",
-      "x-frame-options": "DENY",
-      "x-xss-protection": "1; mode=block"
-    }
-  },
   "platform": {
     "apiRuntime": "node:20"
   }
