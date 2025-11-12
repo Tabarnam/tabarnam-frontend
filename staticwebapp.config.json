@@ -19,31 +19,48 @@
       "/llms.txt"
     ]
   },
+  "responseOverrides": {
+    "404": {
+      "rewrite": "/index.html"
+    }
+  },
   "routes": [
+    {
+      "route": "/assets/*.js",
+      "serve": "/assets/*.js",
+      "statusCode": 200
+    },
+    {
+      "route": "/assets/*.css",
+      "serve": "/assets/*.css",
+      "statusCode": 200
+    },
+    {
+      "route": "/assets/*.wasm",
+      "serve": "/assets/*.wasm",
+      "statusCode": 200
+    },
     {
       "route": "/api/*",
       "allowedRoles": ["authenticated", "anonymous"],
       "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
     },
-    {
-      "route": "/assets/*.js",
-      "headers": { "Content-Type": "application/javascript; charset=utf-8" }
-    },
-    {
-      "route": "/assets/*.css",
-      "headers": { "Content-Type": "text/css; charset=utf-8" }
-    },
-    {
-      "route": "/assets/*.json",
-      "headers": { "Content-Type": "application/json; charset=utf-8" }
-    },
-    {
-      "route": "/assets/*.wasm",
-      "headers": { "Content-Type": "application/wasm" }
-    },
     { "route": "/xapi",  "redirect": "/xapi/", "statusCode": 308 },
     { "route": "/xapi/*", "allowedRoles": [ "anonymous" ], "rewrite": "/api/{*path}" }
   ],
+  "mimeTypes": {
+    ".js": "application/javascript",
+    ".mjs": "application/javascript",
+    ".css": "text/css",
+    ".wasm": "application/wasm",
+    ".json": "application/json",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+    ".eot": "application/vnd.ms-fontobject"
+  },
   "globalHeaders": {
     "/*": {
       "x-content-type-options": "nosniff",
