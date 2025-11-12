@@ -1,0 +1,65 @@
+{
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/api/*",
+      "/xapi/*",
+      "/assets/*",
+      "/geo/*",
+      "/logos/*",
+      "/*.png",
+      "/*.svg",
+      "/*.ico",
+      "/*.woff*",
+      "/*.ttf",
+      "/*.eot",
+      "/favicon.ico",
+      "/robots.txt",
+      "/sitemap.xml",
+      "/llms.txt"
+    ]
+  },
+  "mimeTypes": {
+    ".js": "application/javascript",
+    ".jsx": "application/javascript",
+    ".mjs": "application/javascript",
+    ".css": "text/css",
+    ".wasm": "application/wasm",
+    ".json": "application/json",
+    ".svg": "image/svg+xml",
+    ".png": "image/png"
+  },
+  "routes": [
+    {
+      "route": "/api/*",
+      "allowedRoles": ["authenticated", "anonymous"],
+      "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+    },
+    {
+      "route": "/xapi",
+      "redirect": "/xapi/",
+      "statusCode": 308
+    },
+    {
+      "route": "/xapi/*",
+      "allowedRoles": ["anonymous"],
+      "rewrite": "/api/{*path}"
+    }
+  ],
+  "globalHeaders": {
+    "/*": {
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY",
+      "x-xss-protection": "1; mode=block"
+    },
+    "/api/*": {
+      "Content-Type": "application/json"
+    },
+    "/xapi/*": {
+      "x-swa-xapi": "yes"
+    }
+  },
+  "platform": {
+    "apiRuntime": "node:20"
+  }
+}
