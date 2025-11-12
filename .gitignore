@@ -2,6 +2,7 @@
 node_modules/
 dist/
 .swa/
+index.html  # Development entry point - keep locally, don't deploy
 
 # === Local env & secrets (never commit) ===
 .env
