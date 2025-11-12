@@ -38,4 +38,3 @@ jobs:
           output_location: "dist"
           skip_app_build: true
           api_location: "api"
-          config_file_location: "dist"
