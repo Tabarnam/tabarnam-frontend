@@ -17,31 +17,34 @@ jobs:
           node-version: "20"
           cache: "npm"
 
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: Build (Vite)
-        run: npm run build
-
-      - name: Verify Build Output
+      - name: Sanity check - verify dist will not be deployed
         run: |
-          echo "=== Checking dist/index.html ==="
-          head -3 dist/index.html
-
-          echo ""
-          echo "=== Checking for built assets ==="
-          find dist/assets -type f | head -5
-
-          echo ""
-          echo "=== Checking staticwebapp.config.json ==="
-          [ -f dist/staticwebapp.config.json ] && echo "✓ Found dist/staticwebapp.config.json" || echo "✗ Missing"
+          echo "=== Pre-deployment checks ==="
+          [ -f public/staticwebapp.config.json ] && echo "✓ public/staticwebapp.config.json exists" || echo "✗ Missing"
+          [ ! -f index.html ] && echo "✓ Root index.html not present (good)" || echo "✗ Root index.html exists (will interfere)"
+          [ ! -f staticwebapp.config.json ] && echo "✓ Root staticwebapp.config.json not tracked" || echo "✗ Root config found"
 
       - name: Deploy to Static Web Apps (token)
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN_V2 }}
           action: "upload"
-          app_location: "dist"
-          skip_app_build: true
+          app_location: "/"
+          output_location: "dist"
           api_location: "api"
-          config_file_location: "dist/staticwebapp.config.json"
+
+      - name: Post-deployment verification
+        run: |
+          echo "=== Waiting for deployment to stabilize (30s) ==="
+          sleep 30
+          
+          echo ""
+          echo "=== Checking deployed site ==="
+          if curl -s https://tabarnam.com/ | grep -q "/assets/index-"; then
+            echo "✓ Site serves built assets (index-*.js found)"
+          elif curl -s https://tabarnam.com/ | grep -q "/src/main.jsx"; then
+            echo "✗ ERROR: Site still serves dev version (/src/main.jsx found)"
+            exit 1
+          else
+            echo "? Could not determine - manual check needed"
+          fi
