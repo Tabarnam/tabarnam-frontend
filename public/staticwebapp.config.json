@@ -21,10 +21,7 @@
       "/*.ico",
       "/*.webp",
       "/*.woff",
-      "/*.woff2",
-      "/favicon.ico",
-      "/robots.txt",
-      "/sitemap.xml"
+      "/*.woff2"
     ]
   },
   "routes": [
