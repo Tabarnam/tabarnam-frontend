@@ -1,14 +1,33 @@
-Deployment #48 - MIME type fix
+Deployment #49 - Complete MIME Type Fix (Final)
 Timestamp: 2025-01-31
 
-FIX APPLIED:
-- Workflow now removes root index.html and staticwebapp.config.json before deployment
-- This ensures Azure SWA only detects the app in dist/ folder
-- Root staticwebapp.config.json removed from repository
-- dist/staticwebapp.config.json has correct MIME headers for JavaScript modules
+ROOT CAUSE ANALYSIS:
+- Deployment #48 failed because workflow used wrong SWA parameters (app_location: "dist")
+- Azure SWA was still conflicted about app root, showing "App Directory Location: '/' was found"
+- Need both: explicit copy (dist/* to root) AND correct SWA parameters (app_location: "/")
+
+FIXES APPLIED:
+
+1. Updated staticwebapp.config.json (root, public/, and dist/)
+   - Added explicit "mimeTypes" section mapping file extensions to MIME types
+   - Removed verbose responseHeaders from routes (not reliable)
+   - Kept core routes for /api/* and /xapi/*
+
+2. Fixed .github/workflows/deploy-swa.yml
+   - Step now removes old files then copies dist/* to root (cleaner approach)
+   - Changed SWA deploy to use app_location: "/" (correct for copied structure)
+   - Removed app_location: "dist" which was causing confusion
+
+3. Ensured consistency across all config sources
+   - public/staticwebapp.config.json (source for future builds)
+   - dist/staticwebapp.config.json (for this build)
+   - staticwebapp.config.json (root, copied to deployment)
 
 EXPECTED RESULT:
-- SWA will deploy from dist/ folder (not root)
-- dist/index.html (built version) will be served
-- JavaScript modules will have correct application/javascript MIME type
+- SWA sees clear app root at "/"
+- staticwebapp.config.json with mimeTypes directive processed
+- JavaScript files served with application/javascript MIME type
 - No more "application/octet-stream" errors
+- Both tabarnam.com and staging URL fixed
+
+Ready for push to main → auto-trigger build/deploy
