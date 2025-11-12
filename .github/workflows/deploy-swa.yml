@@ -26,6 +26,9 @@ jobs:
       - name: Prune Dev Dependencies
         run: npm prune --production
 
+      - name: Remove root index.html (source file, not for deployment)
+        run: rm -f index.html
+
       - name: Deploy to Static Web Apps (token)
         uses: Azure/static-web-apps-deploy@v1
         with:
