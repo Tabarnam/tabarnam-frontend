@@ -26,6 +26,20 @@ jobs:
       - name: Prune Dev Dependencies
         run: npm prune --production
 
+      - name: Verify deployment structure
+        run: |
+          echo "=== dist/index.html ==="
+          head -3 dist/index.html
+          echo ""
+          echo "=== Entry point in dist/index.html ==="
+          grep -o 'src="/assets/[^"]*' dist/index.html
+          echo ""
+          echo "=== Config file ==="
+          [ -f dist/staticwebapp.config.json ] && echo "✓ dist/staticwebapp.config.json exists" || echo "✗ Missing"
+          echo ""
+          echo "=== Assets ==="
+          find dist/assets -type f | wc -l && echo "files in dist/assets"
+
       - name: Deploy to Static Web Apps (token)
         uses: Azure/static-web-apps-deploy@v1
         with:
