@@ -28,8 +28,10 @@ jobs:
 
       - name: Copy dist to Root for SWA
         run: |
-          rm -f index.html  # Remove old root index.html if exists
-          cp -r dist/* .    # Copy dist contents to root
+          cp -r dist/* .    # Copy dist contents to root (overwrites index.html with built version)
+          # Verify deployment structure
+          echo "=== Deployment structure ==="
+          ls -la index.html staticwebapp.config.json assets/ | head -20
 
       - name: Deploy to Static Web Apps (token)
         uses: Azure/static-web-apps-deploy@v1
