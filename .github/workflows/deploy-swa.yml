@@ -28,23 +28,17 @@ jobs:
 
       - name: Prepare for deployment
         run: |
-          echo "=== Before cleanup ==="
-          head -3 index.html
-          echo ""
-          echo "=== Removing root index.html ==="
-          rm -f index.html && echo "✓ Deleted" || echo "✗ Failed"
-          ls -la index.html 2>&1 | head -1 || echo "✓ Confirmed removed"
-          echo ""
-          echo "=== Copying dist to root ==="
-          cp -r dist/* . && echo "✓ Copied" || echo "✗ Failed"
-          echo ""
-          echo "=== After copy ==="
-          echo "index.html exists:" && [ -f index.html ] && echo "YES" || echo "NO"
-          echo "Script reference:"
-          grep -o 'src="[^"]*"' index.html | head -1
-          echo ""
-          echo "=== Assets available ==="
-          find assets -type f | wc -l
+          set -x  # Enable debug output
+          # Remove root index.html (development version)
+          rm -f index.html
+          # Copy built files from dist to root
+          cp dist/index.html index.html
+          cp -r dist/assets assets
+          cp dist/staticwebapp.config.json staticwebapp.config.json
+          # Verify
+          [ -f index.html ] && echo "✓ index.html deployed"
+          [ -d assets ] && echo "✓ assets/ deployed" && ls assets | wc -l && echo "files"
+          echo "index.html script reference:" && grep 'src=' index.html | head -1
 
       - name: Deploy to Static Web Apps (token)
         uses: Azure/static-web-apps-deploy@v1
