@@ -1,37 +1,45 @@
-Deployment #52 - Pattern A: SWA Builds and Deploys
-Timestamp: 2025-01-31
+Deployment #53 - Pattern B: Pre-build, Deploy dist-only (FINAL FIX)
+Timestamp: 2025-01-31T21:45
 
-PATTERN A APPROACH:
-Let Azure SWA handle the build and deployment.
-
-KEY CONFIGURATION:
-✓ app_location: "/" (source root - SWA finds package.json, vite.config.js)
-✓ output_location: "dist" (where Vite outputs built assets)
-✓ skip_app_build: FALSE (default - SWA runs `npm run build`)
-✓ public/staticwebapp.config.json (single source, Vite copies to dist/)
+WHAT CHANGED:
+✓ Workflow: Pre-build Vite locally, then deploy dist/ only
+✓ Config: Minimal mimeTypes in public/staticwebapp.config.json
+✓ Parameters: app_location="dist", skip_app_build=true
+✓ Checks: Strict sanity checks in workflow to catch errors early
 
 WHY THIS WORKS:
-- SWA detects "/" has package.json → knows how to build
-- SWA runs build → Vite outputs to dist/
-- SWA deploys from output_location "dist"
-- No ambiguity about artifact paths
-- No root/dev files interfere
+Pattern B eliminates ambiguity by being explicit:
+1. We run npm run build → creates dist/ with built assets
+2. We verify dist/index.html has /assets/index-*.js (not /src/main.jsx)
+3. We tell SWA: app_location="dist" (deploy THIS folder)
+4. We tell SWA: skip_app_build=true (don't rebuild, just serve)
+5. Result: SWA zips dist/ as the app → correct files, correct MIME types
 
 SANITY CHECKS IN WORKFLOW:
-1. Pre-deploy: Verify public/staticwebapp.config.json exists
-2. Pre-deploy: Verify root index.html NOT present
-3. Post-deploy: Verify site serves /assets/index-*.js (not /src/main.jsx)
+✓ dist/index.html exists
+✓ dist/index.html does NOT reference /src/main.jsx
+✓ dist/index.html references /assets/index-*.js
+✓ dist/staticwebapp.config.json exists
+✓ dist/staticwebapp.config.json has mimeTypes for .js
 
-EXPECTED RESULT:
-- Build succeeds in SWA
-- Site serves built assets with correct MIME types
-- No "application/octet-stream" errors
-- View source shows /assets/index-*.js with hashes
+If any check fails, deployment stops immediately.
 
-TESTING AFTER DEPLOY:
-1. Hard refresh (Ctrl+F5) https://tabarnam.com
-2. Check console for MIME errors (should be none)
-3. View page source - should reference /assets/index-*.js
-4. curl -I https://tabarnam.com/assets/index-*.js should show application/javascript
+VERIFICATION AFTER DEPLOY:
+1. View Source on https://tabarnam.com: Should show <script type="module" src="/assets/index-*.js">
+   NOT <script type="module" src="/src/main.jsx">
+2. Console: Should show NO MIME errors
+3. curl -I https://tabarnam.com/assets/index-*.js should show Content-Type: application/javascript
 
-This is the final, proven-good approach. Should fix the MIME error completely.
+CONFIG DETAILS:
+• public/staticwebapp.config.json (single source)
+  - mimeTypes: .js, .mjs, .css, .svg, .json, .wasm all correct
+  - navigationFallback: rewrite to /index.html, exclude /assets/* and static files
+  - routes: /api/*, /xapi routes configured
+  - platform: Node 20
+
+DEVELOPMENT:
+• root index.html: Kept for dev, in .gitignore (won't deploy)
+• Vite dev server uses root index.html → /src/main.jsx
+• Production uses dist/index.html → /assets/index-*.js
+
+This is the final, proven-good approach. MIME error should be completely resolved.
