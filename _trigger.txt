@@ -1,1 +1,14 @@
-2025-09-25T17:10:04.8587425-07:00
+Deployment #48 - MIME type fix
+Timestamp: 2025-01-31
+
+FIX APPLIED:
+- Workflow now removes root index.html and staticwebapp.config.json before deployment
+- This ensures Azure SWA only detects the app in dist/ folder
+- Root staticwebapp.config.json removed from repository
+- dist/staticwebapp.config.json has correct MIME headers for JavaScript modules
+
+EXPECTED RESULT:
+- SWA will deploy from dist/ folder (not root)
+- dist/index.html (built version) will be served
+- JavaScript modules will have correct application/javascript MIME type
+- No more "application/octet-stream" errors
