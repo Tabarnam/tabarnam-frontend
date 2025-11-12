@@ -3,6 +3,7 @@ node_modules/
 dist/
 .swa/
 index.html  # Development entry point - keep locally, don't deploy
+staticwebapp.config.json  # Keep only in public/ for Vite to copy to dist/
 
 # === Local env & secrets (never commit) ===
 .env
