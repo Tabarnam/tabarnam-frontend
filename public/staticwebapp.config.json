@@ -5,29 +5,10 @@
       "/api/*",
       "/xapi/*",
       "/assets/*",
-      "/geo/*",
-      "/logos/*",
-      "/*.png",
-      "/*.svg",
-      "/*.ico",
-      "/*.woff*",
-      "/*.ttf",
-      "/*.eot",
       "/favicon.ico",
       "/robots.txt",
-      "/sitemap.xml",
-      "/llms.txt"
+      "/sitemap.xml"
     ]
-  },
-  "mimeTypes": {
-    ".js": "application/javascript",
-    ".jsx": "application/javascript",
-    ".mjs": "application/javascript",
-    ".css": "text/css",
-    ".wasm": "application/wasm",
-    ".json": "application/json",
-    ".svg": "image/svg+xml",
-    ".png": "image/png"
   },
   "routes": [
     {
@@ -46,17 +27,16 @@
       "rewrite": "/api/{*path}"
     }
   ],
+  "mimeTypes": {
+    ".js": "application/javascript",
+    ".mjs": "application/javascript",
+    ".css": "text/css"
+  },
   "globalHeaders": {
     "/*": {
       "x-content-type-options": "nosniff",
       "x-frame-options": "DENY",
       "x-xss-protection": "1; mode=block"
-    },
-    "/api/*": {
-      "Content-Type": "application/json"
-    },
-    "/xapi/*": {
-      "x-swa-xapi": "yes"
     }
   },
   "platform": {
