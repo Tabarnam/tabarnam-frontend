@@ -1,41 +1,30 @@
-Deployment #50 - Option B Clean Setup (Final)
+Deployment #51 - Fixed SWA Action Parameters
 Timestamp: 2025-01-31
 
-IMPLEMENTATION: Option B (Recommended)
-Deploy prebuilt dist folder directly without ambiguity.
+KEY FIX:
+Corrected Azure/static-web-apps-deploy@v1 parameters:
+- Removed `output_location: "."` (was confusing SWA)
+- Added explicit `config_file_location: "dist/staticwebapp.config.json"`
+- Kept `app_location: "dist"` (clean and clear)
+- Kept `skip_app_build: true`
 
-STRUCTURE:
-- public/staticwebapp.config.json (single source) → Vite copies to dist/
-- No staticwebapp.config.json at root (ignored by git)
-- No copying dist to root in workflow
-- Workflow deploys from dist/ directly
+WHY THIS MATTERS:
+The previous workflow had `output_location: "."` which may have signaled to SWA that build artifacts were at root, conflicting with `app_location: "dist"`. This could explain why SWA's validation still showed `App Directory Location: '/' was found`.
 
-KEY CHANGES:
+The corrected parameters now:
+✓ Tell SWA: "Serve from dist/"
+✓ Tell SWA: "Find config at dist/staticwebapp.config.json"
+✓ Skip any Oryx rebuild
+✓ Directly deploy dist contents
 
-1. public/staticwebapp.config.json
-   ✓ Simplified and clean
-   ✓ Added mimeTypes for .js → application/javascript
-   ✓ Kept core routes (/api/*, /xapi/*)
-   ✓ Kept navigationFallback with proper excludes
+VERIFICATION CHECKLIST AFTER DEPLOY:
+1. Browser console: Should show NO MIME errors
+2. View source: Should show /assets/index-*.js (not /src/main.jsx)
+3. Hard refresh (Ctrl+F5) to clear browser cache
+4. Check https://tabarnam.com/api/ping works (returns JSON)
+5. Check staging URL: https://thankful-mushroom-0000a931e.2.azurestaticapps.net
 
-2. .github/workflows/deploy-swa.yml
-   ✓ Removed dist→root copy step (clean approach)
-   ✓ Changed app_location to "dist" (correct for Option B)
-   ✓ Added verification step to confirm build output
-   ✓ Direct deploy from dist folder
-
-3. .gitignore
-   ✓ Added staticwebapp.config.json to ensure only public/ version is tracked
-
-EXPECTED RESULT:
-- SWA deploys from dist/ (no confusion about app root)
-- Vite builds public/staticwebapp.config.json into dist/
-- JavaScript files served with application/javascript MIME type
-- No more "application/octet-stream" errors
-- Clean, maintainable setup
-
-Testing steps after deploy:
-1. Hard refresh https://tabarnam.com (Ctrl+F5)
-2. Check browser console for MIME error
-3. View source to confirm /assets/index-*.js references (not /src/main.jsx)
-4. curl -I https://tabarnam.com/assets/index-*.js should show application/javascript
+If MIME error persists:
+- Clear browser cache completely (DevTools → Storage → Clear site data)
+- Check CDN cache (may need 5-10 mins for propagation)
+- Verify index.html is NOT in git root
