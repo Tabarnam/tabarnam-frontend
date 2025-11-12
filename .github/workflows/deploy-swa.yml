@@ -23,43 +23,25 @@ jobs:
       - name: Build (Vite)
         run: npm run build
 
-      - name: Prune Dev Dependencies
-        run: npm prune --production
-
-      - name: Prepare deployment (copy dist to root)
+      - name: Verify Build Output
         run: |
-          echo "=== Removing old root index.html ==="
-          rm -f index.html
-          rm -f staticwebapp.config.json
-          echo "✓ Cleaned root directory"
+          echo "=== Checking dist/index.html ==="
+          head -3 dist/index.html
 
           echo ""
-          echo "=== Copying dist/* to root ==="
-          cp -r dist/* .
-          echo "✓ dist/* copied to root"
+          echo "=== Checking for built assets ==="
+          find dist/assets -type f | head -5
 
           echo ""
-          echo "=== Verify root/index.html ==="
-          head -3 index.html
-
-          echo ""
-          echo "=== Verify entry point ==="
-          grep -o 'src="/assets/[^"]*' index.html || echo "✓ Built correctly"
-
-          echo ""
-          echo "=== Verify config ==="
-          [ -f staticwebapp.config.json ] && echo "✓ staticwebapp.config.json at root" || echo "✗ Missing"
-
-          echo ""
-          echo "=== Verify assets ==="
-          [ -d assets ] && find assets -type f | wc -l && echo "files in assets" || echo "✗ No assets"
+          echo "=== Checking staticwebapp.config.json ==="
+          [ -f dist/staticwebapp.config.json ] && echo "✓ Found dist/staticwebapp.config.json" || echo "✗ Missing"
 
       - name: Deploy to Static Web Apps (token)
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN_V2 }}
           action: "upload"
-          app_location: "/"
+          app_location: "dist"
           output_location: "."
           skip_app_build: true
           api_location: "api"
