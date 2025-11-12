@@ -26,12 +26,17 @@ jobs:
       - name: Prune Dev Dependencies
         run: npm prune --production
 
-      - name: Copy dist to Root for SWA
+      - name: Prepare for deployment
         run: |
-          cp -r dist/* .    # Copy dist contents to root (overwrites index.html with built version)
-          # Verify deployment structure
+          # Remove the root index.html (development entry point with src/ reference)
+          rm -f index.html
+          # Copy ONLY the built dist contents to root
+          cp -r dist/* .
+          # Verify the deployment structure
           echo "=== Deployment structure ==="
-          ls -la index.html staticwebapp.config.json assets/ | head -20
+          head -20 index.html
+          echo "=== Assets available ==="
+          ls dist/assets/ | wc -l
 
       - name: Deploy to Static Web Apps (token)
         uses: Azure/static-web-apps-deploy@v1
