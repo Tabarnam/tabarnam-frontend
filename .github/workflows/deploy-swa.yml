@@ -59,5 +59,4 @@ jobs:
           action: "upload"
           app_location: "dist"
           skip_app_build: true
-          config_file_location: "dist/staticwebapp.config.json"
           api_location: "api"
