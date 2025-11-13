@@ -51,6 +51,10 @@ export default defineConfig(({ mode }) => {
               if (id.includes("/@radix-ui/")) return "vendor-radix";
               if (id.includes("/framer-motion/")) return "vendor-framer";
               if (id.includes("/sonner/")) return "vendor-sonner";
+              if (id.includes("/react-hook-form/")) return "vendor-rhf";
+              if (id.includes("/lucide-react/")) return "vendor-lucide";
+              if (id.includes("/react-helmet-async/")) return "vendor-helmet";
+              if (id.includes("/react-data-table-component/")) return "vendor-rdtc";
               return "vendor-other";
             }
           },
