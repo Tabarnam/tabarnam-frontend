@@ -37,7 +37,7 @@
     },
     {
       "route": "/xapi/*",
-      "allowedRoles": ["anonymous"],
+      "allowedRoles": [ "anonymous" ],
       "rewrite": "/api/{*path}"
     }
   ],
