@@ -30,3 +30,4 @@ tabarnam-frontend/
 .python_packages
 __pycache__
 .venv
+index.html
