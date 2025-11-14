@@ -18,6 +18,7 @@ export interface SearchOptions {
   q: unknown;
   sort?: Sort | string | number;
   take?: number;
+  skip?: number;
   country?: unknown;
   state?: unknown;
   city?: unknown;
@@ -150,8 +151,10 @@ export async function searchCompanies(opts: SearchOptions) {
 
   const sort = normalizeSort(opts.sort);
   const take = Math.max(1, Math.min(Number(opts.take ?? 25) || 25, 200));
+  const skip = Math.max(0, Number(opts.skip ?? 0) || 0);
 
   const params = new URLSearchParams({ q, sort, take: String(take) });
+  if (skip > 0) params.set("skip", String(skip));
   const country = asStr(opts.country).trim();
   const state = asStr(opts.state).trim();
   const city = asStr(opts.city).trim();
