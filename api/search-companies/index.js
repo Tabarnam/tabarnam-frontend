@@ -59,6 +59,9 @@ module.exports = async function (context, req) {
   const q     = qRaw.toLowerCase();
   const sort  = (url.searchParams.get('sort') || 'recent').toLowerCase(); // recent | name | manu
   const take  = Math.min(200, Math.max(1, Number(url.searchParams.get('take') || 50)));
+  const rawSkip = url.searchParams.get('skip');
+  const skip = Math.max(0, Number(rawSkip || 0) || 0);
+  const limit = Math.min(500, skip + take || take);
 
   // 1) Proxy to upstream if configured
   const base = getProxyBase();
@@ -81,7 +84,7 @@ module.exports = async function (context, req) {
   if (container) {
     try {
       let items = [];
-      const params = [{ name: '@take', value: take }];
+      const params = [{ name: '@take', value: limit }];
       if (q) params.push({ name: '@q', value: q });
 
       if (sort === 'manu') {
@@ -103,7 +106,7 @@ module.exports = async function (context, req) {
         items = (partA.resources || []);
 
         // B) Fill remainder without manufacturing data
-        const remaining = Math.max(0, take - items.length);
+        const remaining = Math.max(0, limit - items.length);
         if (remaining > 0) {
           const sqlB = `
             SELECT TOP @take2 c.id, c.company_name, c.industries, c.url, c.amazon_url,
@@ -150,7 +153,9 @@ module.exports = async function (context, req) {
         return r;
       });
 
-      return json(context, 200, { ok: true, success: true, items: normalized, count: normalized.length, meta: { q: qRaw, sort } });
+      const paged = normalized.slice(skip, skip + take);
+
+      return json(context, 200, { ok: true, success: true, items: paged, count: normalized.length, meta: { q: qRaw, sort, skip, take } });
     } catch (e) {
       context.log('search-companies cosmos error:', e?.message || e);
       return json(context, 500, { ok: false, success: false, error: e?.message || 'query failed' });
@@ -158,10 +163,11 @@ module.exports = async function (context, req) {
   }
 
   // 3) Stub (no proxy and no cosmos)
-  const items = [
+  const baseItems = [
     { id: 'stub1', company_name: 'Acme Candles', url: 'https://example.com', product_keywords: 'candles, wax', confidence_score: 0.9 },
     { id: 'stub2', company_name: 'Glow Co.',     url: 'https://example.org', product_keywords: 'candles, aroma', confidence_score: 0.86 }
-  ].slice(0, take);
+  ];
+  const items = baseItems.slice(skip, skip + take);
 
-  return json(context, 200, { ok: true, success: true, q: qRaw, take, items });
+  return json(context, 200, { ok: true, success: true, q: qRaw, skip, take, count: baseItems.length, items });
 };
