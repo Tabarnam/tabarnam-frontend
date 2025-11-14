@@ -136,15 +136,6 @@ const STUB_DATA: Company[] = [
   },
 ];
 
-function matchesQuery(company: Company, q: string): boolean {
-  const queryLower = q.toLowerCase();
-  return (
-    company.company_name?.toLowerCase().includes(queryLower) ||
-    company.industries?.some((ind) => ind.toLowerCase().includes(queryLower)) ||
-    company.normalized_domain?.toLowerCase().includes(queryLower)
-  );
-}
-
 export async function searchCompanies(opts: SearchOptions) {
   const q = asStr(opts.q).trim();
   if (!q) throw new Error("Please enter a search term.");
