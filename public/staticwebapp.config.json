@@ -42,17 +42,17 @@
     },
     {
       "route": "/admin",
-      "allowedRoles": ["authenticated"],
+      "allowedRoles": ["authenticated", "admin"],
       "headers": { "X-Robots-Tag": "noindex, nofollow" }
     },
     {
       "route": "/admin/*",
-      "allowedRoles": ["authenticated"],
+      "allowedRoles": ["authenticated", "admin"],
       "headers": { "X-Robots-Tag": "noindex, nofollow" }
     },
     {
       "route": "/bulk-import",
-      "allowedRoles": ["authenticated"],
+      "allowedRoles": ["admin"],
       "headers": { "X-Robots-Tag": "noindex, nofollow" }
     },
     {
