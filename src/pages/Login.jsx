@@ -19,7 +19,7 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
 
-    const result = loginAdmin(email, password);
+    const result = await loginAdmin(email, password);
     setLoading(false);
 
     if (result.success) {
@@ -91,9 +91,6 @@ export default function Login() {
               className="bg-slate-700 text-white border-slate-600"
               onKeyDown={handleKeyDown}
             />
-            <p className="text-gray-500 text-xs mt-2">
-              (Temporary: any password works for authorized emails)
-            </p>
           </div>
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? (
