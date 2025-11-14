@@ -2,9 +2,14 @@ import React from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Button } from '@/components/ui/button';
 import { LogIn } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 
 export default function Login() {
-  const loginHref = `/.auth/login/aad?post_login_redirect_uri=${encodeURIComponent('/admin')}`;
+  const { search } = useLocation();
+  const params = React.useMemo(() => new URLSearchParams(search), [search]);
+  const requested = params.get('next') || params.get('returnTo') || '/admin';
+  const safePath = requested.startsWith('/') ? requested : '/admin';
+  const loginHref = `/.auth/login/aad?post_login_redirect_uri=${encodeURIComponent(safePath)}`;
 
   return (
     <>
