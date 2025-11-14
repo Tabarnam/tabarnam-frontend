@@ -176,32 +176,8 @@ export async function searchCompanies(opts: SearchOptions) {
       meta: data?.meta ?? { q, sort },
     };
   } catch (e) {
-    // If API is unavailable, try stub data
-    console.warn("Search API unavailable, using stub data:", e?.message);
-    const stubMatches = STUB_DATA.filter((c) => matchesQuery(c, q)).slice(0, take);
-
-    if (stubMatches.length > 0) {
-      return {
-        items: stubMatches,
-        count: stubMatches.length,
-        meta: {
-          q,
-          sort,
-          usingStubData: true,
-          error: e?.message || "Search API unavailable",
-        },
-      };
-    }
-
-    return {
-      items: [],
-      count: 0,
-      meta: {
-        q,
-        sort,
-        error: e?.message || "Search API unavailable",
-      },
-    };
+    console.warn("Search API failed:", e?.message);
+    throw new Error(e?.message || "API unavailabletry later");
   }
 }
 
