@@ -42,11 +42,12 @@ export default defineConfig(({ mode }) => {
 ,
     build: {
       chunkSizeWarningLimit: 1000,
+      sourcemap: true, // help trace prod errors (disabled by default in Vite)
       rollupOptions: {
         output: {
           manualChunks(id) {
             if (id.includes("node_modules")) {
-              // Ensure all core React ecosystem libs share a stable chunk to avoid TDZ issues in prod
+              // Keep only well-known groups; let Rollup handle the rest to avoid TDZ from over-aggregating
               if (
                 id.includes("/react/") ||
                 id.includes("/react-dom/") ||
@@ -59,7 +60,6 @@ export default defineConfig(({ mode }) => {
               if (id.includes("/@radix-ui/")) return "vendor-radix";
               if (id.includes("/framer-motion/")) return "vendor-framer";
               if (id.includes("/sonner/")) return "vendor-sonner";
-              return "vendor-other";
             }
           },
         },
