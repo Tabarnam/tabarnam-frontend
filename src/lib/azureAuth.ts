@@ -37,29 +37,30 @@ export function getAdminUser(): AdminUser | null {
   return null;
 }
 
-export function loginAdmin(email: string, password: string): { success: boolean; error?: string } {
-  // Simple validation - in production use Azure AD
+export async function loginAdmin(email: string, password: string): Promise<{ success: boolean; error?: string }> {
   if (!email || !password) {
     return { success: false, error: 'Email and password are required' };
   }
-
   if (!ADMIN_USERS.includes(email)) {
     return { success: false, error: 'Email not authorized as admin' };
   }
-
-  // For now, accept any password (replace with real auth)
-  // In production, use Azure AD B2C or MSAL
-  if (password.length < 4) {
-    return { success: false, error: 'Password must be at least 4 characters' };
-  }
-
   try {
-    const token = `admin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const res = await fetch('/api/admin-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json().catch(() => ({} as any));
+    if (!res.ok || !data?.success) {
+      return { success: false, error: data?.error || 'Login failed' };
+    }
+    const token = String(data.token || '');
+    if (!token) return { success: false, error: 'Missing token from server' };
     localStorage.setItem(ADMIN_TOKEN_KEY, token);
     localStorage.setItem(ADMIN_EMAIL_KEY, email);
     return { success: true };
-  } catch {
-    return { success: false, error: 'Failed to save login state' };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Network error' };
   }
 }
 
