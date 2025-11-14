@@ -1,4 +1,4 @@
-﻿// api/search-companies/index.js  (CommonJS, function.json model)
+// api/search-companies/index.js  (CommonJS, function.json model)
 const { httpRequest } = require('../_http');
 const { getProxyBase, json } = require('../_shared');
 
@@ -51,7 +51,7 @@ module.exports = async function (context, req) {
     return json(context, 204, {}, { 'Access-Control-Max-Age': '86400' });
   }
   if (method !== 'GET') {
-    return json(context, 405, { ok: false, error: 'Method Not Allowed' });
+    return json(context, 405, { ok: false, success: false, error: 'Method Not Allowed' });
   }
 
   const url   = new URL(req.url);
@@ -150,10 +150,10 @@ module.exports = async function (context, req) {
         return r;
       });
 
-      return json(context, 200, { items: normalized, count: normalized.length, meta: { q: qRaw, sort } });
+      return json(context, 200, { ok: true, success: true, items: normalized, count: normalized.length, meta: { q: qRaw, sort } });
     } catch (e) {
       context.log('search-companies cosmos error:', e?.message || e);
-      return json(context, 500, { ok: false, error: e?.message || 'query failed' });
+      return json(context, 500, { ok: false, success: false, error: e?.message || 'query failed' });
     }
   }
 
@@ -163,5 +163,5 @@ module.exports = async function (context, req) {
     { id: 'stub2', company_name: 'Glow Co.',     url: 'https://example.org', product_keywords: 'candles, aroma', confidence_score: 0.86 }
   ].slice(0, take);
 
-  return json(context, 200, { ok: true, q: qRaw, take, items });
+  return json(context, 200, { ok: true, success: true, q: qRaw, take, items });
 };
