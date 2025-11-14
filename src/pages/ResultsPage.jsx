@@ -89,10 +89,13 @@ export default function ResultsPage() {
           state: stateParam,
           city: cityParam,
           take: 50,
+          skip: 0,
+          append: false,
         });
       } else if (!cancelled) {
         setResults([]);
         setStatus("");
+        setTotalCount(null);
       }
     })();
 
@@ -132,33 +135,35 @@ export default function ResultsPage() {
     }
 
     setSortBy(sort === "hq" || sort === "stars" ? sort : "manu");
-    await doSearch({ q, sort, country, state, city, take: 50 });
+    await doSearch({ q, sort, country, state, city, take: 50, skip: 0, append: false });
   }
 
-  async function doSearch({ q, sort, country, state, city, take = 50 }) {
+  async function doSearch({ q, sort, country, state, city, take = 50, skip = 0, append = false }) {
     setLoading(true);
     setStatus("Searching…");
     try {
-      const { items = [], count, meta } = await searchCompanies({ q, sort, country, state, city, take });
+      const { items = [], meta } = await searchCompanies({ q, sort, country, state, city, take, skip });
       const withDistances = items.map((c) => normalizeStars(attachDistances(c, userLoc, unit)));
       const withReviews = await loadReviews(withDistances);
-      setResults(withReviews);
 
-      const total = typeof count === "number" ? count : withReviews.length;
-      setTotalCount(total);
+      const pageCount = withReviews.length;
+      const newTotal = append ? results.length + pageCount : pageCount;
+
+      setResults((prev) => (append ? [...prev, ...withReviews] : withReviews));
+      setTotalCount(newTotal);
 
       if (meta?.usingStubData) {
-        if (total === 0) {
+        if (newTotal === 0) {
           setStatus("⚠️ Search API unavailable and no sample companies matched your search.");
         } else {
-          setStatus(`⚠️ Search API unavailable – showing ${total} sample companies.`);
+          setStatus(`⚠️ Search API unavailable – showing ${newTotal} sample companies.`);
         }
-      } else if (total === 0) {
+      } else if (!append && newTotal === 0) {
         setStatus("No companies found matching your criteria.");
       } else if (meta?.error) {
         setStatus(`⚠️ ${meta.error}`);
       } else {
-        setStatus(`Found ${total} companies`);
+        setStatus(`Found ${newTotal} companies`);
       }
     } catch (e) {
       setStatus(`❌ ${e?.message || "Search failed"}`);
@@ -320,7 +325,9 @@ export default function ResultsPage() {
                 country: countryParam,
                 state: stateParam,
                 city: cityParam,
-                take: results.length + 50,
+                take: 50,
+                skip: results.length,
+                append: true,
               })
             }
           >
