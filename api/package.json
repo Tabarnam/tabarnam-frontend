@@ -1,5 +1,8 @@
 {
   "name": "tabarnam-managed-api",
   "private": true,
-  "type": "commonjs"
+  "type": "commonjs",
+  "dependencies": {
+    "bcryptjs": "^2.4.3"
+  }
 }
