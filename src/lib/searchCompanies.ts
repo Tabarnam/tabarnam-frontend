@@ -181,14 +181,23 @@ export async function searchCompanies(opts: SearchOptions) {
       return {
         items: stubMatches,
         count: stubMatches.length,
-        meta: { q, sort, usingStubData: true },
+        meta: {
+          q,
+          sort,
+          usingStubData: true,
+          error: e?.message || "Search API unavailable",
+        },
       };
     }
 
     return {
       items: [],
       count: 0,
-      meta: { q, sort, error: e?.message || "Search API unavailable" },
+      meta: {
+        q,
+        sort,
+        error: e?.message || "Search API unavailable",
+      },
     };
   }
 }
