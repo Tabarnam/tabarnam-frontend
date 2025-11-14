@@ -16,7 +16,7 @@ This app uses Azure Static Web Apps built-in auth with Microsoft Entra ID for th
 ### Route protection and roles
 - `public/staticwebapp.config.json` protects:
   - `/admin` and `/admin/*` with `allowedRoles: ["authenticated", "admin"]`
-  - `/bulk-import` with `allowedRoles: ["authenticated"]`
+  - `/bulk-import` with `allowedRoles: ["admin"]`
 - To use the `admin` role based on an Entra group:
   1. Create an Entra security group (e.g., "Tabarnam Admins"). Add the appropriate users.
   2. In Azure Portal → Static Web Apps → Your app → Authentication → Roles: add a role named `admin` and assign the Entra group (by object ID).

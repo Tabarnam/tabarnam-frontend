@@ -52,7 +52,7 @@
     },
     {
       "route": "/bulk-import",
-      "allowedRoles": ["authenticated"],
+      "allowedRoles": ["admin"],
       "headers": { "X-Robots-Tag": "noindex, nofollow" }
     },
     {
