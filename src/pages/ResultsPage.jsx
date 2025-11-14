@@ -29,6 +29,7 @@ export default function ResultsPage() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
+  const [totalCount, setTotalCount] = useState(null);
   const [userLoc, setUserLoc] = useState(null);
   const [unit, setUnit] = useState("mi");
   const [sortBy, setSortBy] = useState("manu");
@@ -88,10 +89,13 @@ export default function ResultsPage() {
           state: stateParam,
           city: cityParam,
           take: 50,
+          skip: 0,
+          append: false,
         });
       } else if (!cancelled) {
         setResults([]);
         setStatus("");
+        setTotalCount(null);
       }
     })();
 
@@ -131,24 +135,35 @@ export default function ResultsPage() {
     }
 
     setSortBy(sort === "hq" || sort === "stars" ? sort : "manu");
-    await doSearch({ q, sort, country, state, city, take: 50 });
+    await doSearch({ q, sort, country, state, city, take: 50, skip: 0, append: false });
   }
 
-  async function doSearch({ q, sort, country, state, city, take = 50 }) {
+  async function doSearch({ q, sort, country, state, city, take = 50, skip = 0, append = false }) {
     setLoading(true);
     setStatus("Searching…");
     try {
-      const { items = [], count, meta } = await searchCompanies({ q, sort, country, state, city, take });
+      const { items = [], meta } = await searchCompanies({ q, sort, country, state, city, take, skip });
       const withDistances = items.map((c) => normalizeStars(attachDistances(c, userLoc, unit)));
       const withReviews = await loadReviews(withDistances);
-      setResults(withReviews);
 
-      if (meta?.error) {
-        setStatus(`⚠️ Search API unavailable - showing 0 results. Error: ${meta.error}`);
-      } else if (count === 0) {
+      const pageCount = withReviews.length;
+      const newTotal = append ? results.length + pageCount : pageCount;
+
+      setResults((prev) => (append ? [...prev, ...withReviews] : withReviews));
+      setTotalCount(newTotal);
+
+      if (meta?.usingStubData) {
+        if (newTotal === 0) {
+          setStatus("⚠️ Search API unavailable and no sample companies matched your search.");
+        } else {
+          setStatus(`⚠️ Search API unavailable – showing ${newTotal} sample companies.`);
+        }
+      } else if (!append && newTotal === 0) {
         setStatus("No companies found matching your criteria.");
+      } else if (meta?.error) {
+        setStatus(`⚠️ ${meta.error}`);
       } else {
-        setStatus(`Found ${typeof count === "number" ? count : withReviews.length} companies`);
+        setStatus(`Found ${newTotal} companies`);
       }
     } catch (e) {
       setStatus(`❌ ${e?.message || "Search failed"}`);
@@ -247,19 +262,6 @@ export default function ResultsPage() {
         )}
       </div>
 
-      {/* Dig Deep Button */}
-      {results.length < 50 && results.length > 0 && (
-        <div className="mb-4 flex justify-center">
-          <button
-            className="text-xs px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 text-gray-700 font-medium transition-colors"
-            title="Refine your search and we'll go find more companies but it will take a minute."
-            disabled={loading}
-          >
-            Dig Deeper
-          </button>
-        </div>
-      )}
-
       {/* Translation Toggle */}
       {results.length > 0 && (
         <div className="mb-4 flex justify-end">
@@ -309,6 +311,30 @@ export default function ResultsPage() {
           </div>
         )}
       </div>
+
+      {totalCount != null && results.length > 0 && results.length < totalCount && (
+        <div className="mt-2 flex justify-center">
+          <button
+            type="button"
+            className="text-xs px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 text-gray-700 font-medium transition-colors disabled:opacity-60"
+            disabled={loading}
+            onClick={() =>
+              doSearch({
+                q: qParam,
+                sort: sortParam,
+                country: countryParam,
+                state: stateParam,
+                city: cityParam,
+                take: 50,
+                skip: results.length,
+                append: true,
+              })
+            }
+          >
+            Load more results
+          </button>
+        </div>
+      )}
     </div>
   );
 }
