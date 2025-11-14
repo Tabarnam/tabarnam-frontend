@@ -37,8 +37,27 @@
     },
     {
       "route": "/xapi/*",
-      "allowedRoles": [ "anonymous" ],
+      "allowedRoles": ["anonymous"],
       "rewrite": "/api/{*path}"
+    },
+    {
+      "route": "/admin",
+      "allowedRoles": ["authenticated"],
+      "headers": { "X-Robots-Tag": "noindex, nofollow" }
+    },
+    {
+      "route": "/admin/*",
+      "allowedRoles": ["authenticated"],
+      "headers": { "X-Robots-Tag": "noindex, nofollow" }
+    },
+    {
+      "route": "/bulk-import",
+      "allowedRoles": ["authenticated"],
+      "headers": { "X-Robots-Tag": "noindex, nofollow" }
+    },
+    {
+      "route": "/login",
+      "headers": { "X-Robots-Tag": "noindex, nofollow" }
     }
   ],
   "platform": {
