@@ -73,6 +73,7 @@ export default function App() {
     <HelmetProvider>
       <ErrorBoundary>
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <AuthKeepAlive />
           <Layout>
             <Routes>
               {/* public */}
