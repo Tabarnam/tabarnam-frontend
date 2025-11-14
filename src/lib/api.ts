@@ -6,12 +6,8 @@
 // - Environment override: VITE_API_BASE env variable
 
 const getAPIBase = () => {
-  // Check for environment variable override (set via .env or deployment config)
-  if (typeof import.meta !== 'undefined' && import.meta.env.VITE_API_BASE) {
-    return import.meta.env.VITE_API_BASE;
-  }
-  // Default: use relative path so dev server and SWA can proxy correctly
-  return '/api';
+  // Always use relative /api so SWA can proxy to Azure Functions and avoid CORS issues
+  return "/api";
 };
 
 export const API_BASE = getAPIBase();
