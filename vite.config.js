@@ -46,7 +46,15 @@ export default defineConfig(({ mode }) => {
         output: {
           manualChunks(id) {
             if (id.includes("node_modules")) {
-              if (id.includes("/react/") || id.includes("/react-dom/")) return "vendor-react";
+              // Ensure all core React ecosystem libs share a stable chunk to avoid TDZ issues in prod
+              if (
+                id.includes("/react/") ||
+                id.includes("/react-dom/") ||
+                id.includes("/react-router/") ||
+                id.includes("/react-router-dom/")
+              ) {
+                return "vendor-react";
+              }
               if (id.includes("/@tanstack/")) return "vendor-tanstack";
               if (id.includes("/@radix-ui/")) return "vendor-radix";
               if (id.includes("/framer-motion/")) return "vendor-framer";
