@@ -19,6 +19,7 @@ import SiteHeader from "@/components/SiteHeader";
 import FeedbackWidget from "@/components/FeedbackWidget";
 import Footer from "@/components/Footer";
 import AdminRoute from "@/components/AdminRoute";
+import AuthKeepAlive from "@/components/AuthKeepAlive";
 
 // Simple error boundary
 class ErrorBoundary extends React.Component {
@@ -72,6 +73,7 @@ export default function App() {
     <HelmetProvider>
       <ErrorBoundary>
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <AuthKeepAlive />
           <Layout>
             <Routes>
               {/* public */}
