@@ -2,6 +2,61 @@ import React, { useState } from "react";
 import { MapPin } from "lucide-react";
 import ReviewsWidget from "@/components/ReviewsWidget";
 
+function normalizeAffiliateLinks(company) {
+  if (!company) return [];
+  const links = [];
+
+  if (Array.isArray(company.affiliate_links)) {
+    for (const entry of company.affiliate_links) {
+      if (!entry) continue;
+      if (typeof entry === "string") {
+        links.push({ label: "", url: entry });
+      } else if (typeof entry === "object" && entry.url) {
+        links.push({ label: entry.label || "", url: entry.url });
+      }
+    }
+  }
+
+  if (Array.isArray(company.affiliate_link_urls)) {
+    for (const url of company.affiliate_link_urls) {
+      if (url) links.push({ label: "", url });
+    }
+  }
+
+  for (let i = 1; i <= 5; i += 1) {
+    const url =
+      company[`affiliate_link_${i}`] ||
+      company[`affiliate_link_${i}_url`] ||
+      company[`affiliate${i}_url`];
+    if (url) links.push({ label: "", url });
+  }
+
+  const seen = new Set();
+  const deduped = [];
+  for (const link of links) {
+    const key = (link.url || "").trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(link);
+    if (deduped.length >= 5) break;
+  }
+  return deduped;
+}
+
+function inferAffiliateLabel(link, fallbackPrefix = "Affiliate") {
+  const explicit = (link?.label || "").trim();
+  if (explicit) return explicit;
+  const rawUrl = (link?.url || "").trim();
+  if (!rawUrl) return fallbackPrefix;
+  try {
+    const u = new URL(rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`);
+    const host = u.hostname.replace(/^www\./i, "");
+    return host || fallbackPrefix;
+  } catch {
+    return rawUrl || fallbackPrefix;
+  }
+}
+
 export default function ExpandableCompanyRow({
   company,
   sortBy,
@@ -11,18 +66,21 @@ export default function ExpandableCompanyRow({
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
+  const affiliateLinks = normalizeAffiliateLinks(company);
+  const amazonLink = company.amazon_store_url || company.amazon_url || "";
+
   const truncateText = (text, length = 60) => {
     if (!text) return "—";
     return text.length > length ? text.substring(0, length) + "…" : text;
   };
 
-  const formatDistance = (dist, unit) => {
-    return typeof dist === "number" ? `${dist.toFixed(1)} ${unit}` : "—";
+  const formatDistance = (dist, unitLabel) => {
+    return typeof dist === "number" ? `${dist.toFixed(1)} ${unitLabel}` : "—";
   };
 
   const getLocationsList = (locations, geocodes, isManu = false) => {
     if (!geocodes || !Array.isArray(geocodes)) return [];
-    return geocodes.slice(0, 5).map((geo, idx) => ({
+    return geocodes.slice(0, 5).map((geo) => ({
       formatted: geo.formatted_address || `${geo.city}, ${geo.country}`,
       distance: isManu ? geo.dist : null,
     }));
@@ -49,6 +107,9 @@ export default function ExpandableCompanyRow({
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm">
               <div className="text-gray-900">{loc.formatted}</div>
+              {typeof loc.distance === "number" && (
+                <div className="text-xs text-gray-500">{formatDistance(loc.distance, unit)}</div>
+              )}
             </div>
           ))}
           {manuLocations.length === 0 && <div className="text-sm text-gray-500">—</div>}
@@ -73,19 +134,16 @@ export default function ExpandableCompanyRow({
       const reviews = getReviewsPreviews();
       return (
         <div className="space-y-1">
-          {/* Row 2, 3, 4: Review snippets */}
           {reviews.map((review, idx) => (
             <div key={idx} className="text-xs text-gray-600 border-b pb-1 line-clamp-2">
               {review.abstract || review.text || "—"}
             </div>
           ))}
 
-          {/* Fill remaining rows */}
           {[...Array(Math.max(0, 3 - reviews.length))].map((_, idx) => (
-            <div key={`empty-${idx}`} className="text-xs text-gray-400 pb-1 h-5"></div>
+            <div key={`empty-${idx}`} className="text-xs text-gray-400 pb-1 h-5" />
           ))}
 
-          {/* Row 5: Expand reviews link */}
           {reviews.length > 0 && (
             <button
               onClick={() => setIsExpanded(true)}
@@ -106,7 +164,7 @@ export default function ExpandableCompanyRow({
   };
 
   const handleExpandedClick = (e) => {
-    if (e.target.closest("a, button")) return; // Don't collapse on link/button clicks
+    if (e.target.closest("a, button")) return;
     setIsExpanded(false);
   };
 
@@ -117,9 +175,7 @@ export default function ExpandableCompanyRow({
         className="border-2 border-gray-400 rounded-lg mb-4 p-6 bg-white cursor-pointer"
         style={{ borderWidth: "2px" }}
       >
-        {/* Collapsed view (same as below, but inside expanded container) */}
         <div className="grid grid-cols-5 gap-4 mb-6 pb-6 border-b">
-          {/* Column 1: Company Info (1.75x width) */}
           <div className="col-span-2">
             <div className="font-bold text-lg text-gray-900">{company.company_name}</div>
             {company.company_tagline && (
@@ -132,6 +188,38 @@ export default function ExpandableCompanyRow({
                 </a>
               </div>
             )}
+
+            {(affiliateLinks.length > 0 || amazonLink) && (
+              <div className="mt-3 space-y-1">
+                {affiliateLinks.map((link, idx) => (
+                  <div key={link.url || idx} className="text-sm">
+                    <a
+                      href={link.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 hover:underline"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {inferAffiliateLabel(link, `Affiliate ${idx + 1}`)}
+                    </a>
+                  </div>
+                ))}
+                {amazonLink && (
+                  <div className="text-sm">
+                    <a
+                      href={amazonLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 hover:underline"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Amazon Store
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="text-sm font-semibold text-gray-700 mt-3">Industries</div>
             <div className="text-sm text-gray-600 mt-1 flex flex-wrap gap-1">
               {Array.isArray(company.industries) &&
@@ -151,19 +239,24 @@ export default function ExpandableCompanyRow({
             </div>
           </div>
 
-          {/* Column 2: Logo & Keywords */}
           <div>
             {company.logo_url ? (
               <img
                 src={company.logo_url}
                 alt={company.company_name}
                 className="w-full h-24 object-contain mb-3"
-                onError={(e) => { e.target.style.display = 'none'; }}
+                onError={(e) => {
+                  e.target.style.display = "none";
+                }}
               />
-            ) : null}
-            {!company.logo_url && (
+            ) : (
               <div className="w-full h-24 mb-3 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-2xl">
-                {company.company_name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
+                {company.company_name
+                  .split(" ")
+                  .map((w) => w[0])
+                  .join("")
+                  .substring(0, 2)
+                  .toUpperCase()}
               </div>
             )}
             <div className="text-sm font-semibold text-gray-700">Keywords</div>
@@ -187,7 +280,6 @@ export default function ExpandableCompanyRow({
             </div>
           </div>
 
-          {/* Columns 3-5: Location/Stars (expanded) */}
           {rightColsOrder.map((colKey) => (
             <div key={colKey}>
               <div className="text-sm font-semibold text-gray-700 mb-2">
@@ -198,34 +290,46 @@ export default function ExpandableCompanyRow({
           ))}
         </div>
 
-        {/* Full Reviews Section at Bottom */}
         <div className="mt-6 col-span-5">
           <div className="text-lg font-bold text-gray-900 mb-4">Reviews</div>
           <ReviewsWidget companyName={company.company_name} />
         </div>
 
-        <div className="text-xs text-gray-500 mt-4 text-center">
-          Click anywhere to collapse
-        </div>
+        <div className="text-xs text-gray-500 mt-4 text-center">Click anywhere to collapse</div>
       </div>
     );
   }
 
-  // COLLAPSED VIEW
   return (
     <div
       onClick={handleRowClick}
       className="grid grid-cols-12 gap-3 border rounded-lg p-4 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors"
     >
-      {/* Column 1: Company Info (spans 4 cols out of 12 for 1.75x width) */}
       <div className="col-span-4">
         <div className="font-bold text-gray-900">{company.company_name}</div>
         {company.company_tagline && (
           <div className="text-xs text-gray-600 mt-1">{company.company_tagline}</div>
         )}
         {company.url && (
-          <div className="text-xs text-blue-600 mt-1 truncate">
-            {truncateText(company.url, 40)}
+          <div className="text-xs text-blue-600 mt-1 truncate">{truncateText(company.url, 40)}</div>
+        )}
+
+        {(affiliateLinks.length > 0 || amazonLink) && (
+          <div className="mt-2 space-y-0.5 text-xs">
+            {affiliateLinks.map((link, idx) => (
+              <div key={link.url || idx} className="truncate">
+                <span className="font-semibold text-gray-700 mr-1">Aff.</span>
+                <span className="text-blue-600 hover:underline">
+                  {inferAffiliateLabel(link, `Affiliate ${idx + 1}`)}
+                </span>
+              </div>
+            ))}
+            {amazonLink && (
+              <div className="truncate">
+                <span className="font-semibold text-gray-700 mr-1">Aff.</span>
+                <span className="text-blue-600 hover:underline">Amazon Store</span>
+              </div>
+            )}
           </div>
         )}
 
@@ -250,19 +354,24 @@ export default function ExpandableCompanyRow({
         </div>
       </div>
 
-      {/* Column 2: Logo & Keywords (spans 2 cols) */}
       <div className="col-span-2">
         {company.logo_url ? (
           <img
             src={company.logo_url}
             alt={company.company_name}
             className="w-full h-20 object-contain mb-2"
-            onError={(e) => { e.target.style.display = 'none'; }}
+            onError={(e) => {
+              e.target.style.display = "none";
+            }}
           />
-        ) : null}
-        {!company.logo_url && (
+        ) : (
           <div className="w-full h-20 mb-2 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-lg">
-            {company.company_name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
+            {company.company_name
+              .split(" ")
+              .map((w) => w[0])
+              .join("")
+              .substring(0, 2)
+              .toUpperCase()}
           </div>
         )}
         <div className="text-xs font-semibold text-gray-700">Keywords</div>
@@ -287,7 +396,6 @@ export default function ExpandableCompanyRow({
         </div>
       </div>
 
-      {/* Columns 3-5: Dynamic (Manufacturing/HQ/Stars based on sort) */}
       {rightColsOrder.map((colKey, colIdx) => (
         <div key={colKey} className="col-span-2">
           <div className="text-xs font-semibold text-gray-700 flex items-center gap-1 mb-2">

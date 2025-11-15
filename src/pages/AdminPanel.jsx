@@ -1,7 +1,6 @@
 // src/pages/AdminPanel.jsx
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
-import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -304,8 +303,6 @@ const AdminPanel = () => {
             onSuccess={fetchData}
           />
         )}
-
-        <Link to="/admin/xai-bulk-import">Deep Dive Tool</Link>
       </div>
     </>
   );
