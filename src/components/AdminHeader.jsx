@@ -14,19 +14,19 @@ export default function AdminHeader() {
   };
 
   return (
-    <div className="bg-slate-900 border-b border-slate-800 p-4 flex items-center justify-between">
-      <div className="flex items-center">
-        <Link to="/" className="flex items-center" aria-label="Tabarnam home">
+    <div className="bg-slate-900 border-b border-slate-800 p-4 flex items-end justify-between">
+      <div className="flex items-end justify-between w-full">
+        <Link to="/" className="flex items-end" aria-label="Tabarnam home">
           <img
             src={Logo}
             alt="Tabarnam"
-            className="h-12 w-auto mr-2"
+            className="h-[10rem] w-auto mr-4"
           />
-          <span className="text-2xl font-bold text-white">Admin</span>
         </Link>
+        <span className="relative left-5 -top-1 text-2xl font-bold text-white">Admin</span>
         <Link
           to="/admin/xai-bulk-import"
-          className="ml-10 text-sm text-teal-200 hover:text-white underline"
+          className="text-sm text-teal-200 hover:text-white underline"
         >
           Deep Dive Tool
         </Link>
