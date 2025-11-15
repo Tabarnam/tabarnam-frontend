@@ -1,6 +1,6 @@
 // api/import-progress/index.js
-import { app } from "@azure/functions";
-import { CosmosClient } from "@azure/cosmos";
+const { app } = require("@azure/functions");
+const { CosmosClient } = require("@azure/cosmos");
 
 const cors = (req) => {
   const origin = req.headers.get("origin") || "*";
