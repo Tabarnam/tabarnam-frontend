@@ -15,15 +15,17 @@ export default function AdminHeader() {
 
   return (
     <div className="bg-slate-900 border-b border-slate-800 p-4 flex items-center justify-between">
-      <div className="flex items-end">
-        <Link to="/" className="flex items-center" aria-label="Tabarnam home">
+      <div className="flex flex-1 items-end">
+        <Link to="/" className="flex items-end" aria-label="Tabarnam home">
           <img
             src={Logo}
             alt="Tabarnam"
-            className="h-16 w-auto mr-2"
+            className="h-20 w-auto mr-2"
           />
-          <span className="text-2xl font-bold text-white">Admin</span>
         </Link>
+        <div className="flex-1 flex justify-center items-end">
+          <span className="text-2xl font-bold text-white">Admin</span>
+        </div>
         <Link
           to="/admin/xai-bulk-import"
           className="ml-10 text-sm text-teal-200 hover:text-white underline"
