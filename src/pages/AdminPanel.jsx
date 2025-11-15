@@ -1,4 +1,3 @@
-// src/pages/AdminPanel.jsx
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { motion } from 'framer-motion';
@@ -21,21 +20,17 @@ const AdminPanel = () => {
   const [companies, setCompanies] = useState([]);
   const [filteredCompanies, setFilteredCompanies] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [newAdminEmail, setNewAdminEmail] = useState('');
   const [lastImportCount, setLastImportCount] = useState(0);
   const [starConfig, setStarConfig] = useState({
     hq_weight: 1,
     manufacturing_weight: 1,
     review_threshold: 4,
-    min_reviews: 3
+    min_reviews: 3,
   });
 
   const [editingCompany, setEditingCompany] = useState(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
-
-  const isSuperAdmin = user?.email === 'jon@tabarnam.com' || user?.email === 'ben@tabarnam.com';
 
   useEffect(() => {
     fetchData();
@@ -44,7 +39,6 @@ const AdminPanel = () => {
   }, []);
 
   useEffect(() => {
-    // Filter companies by search query on any field
     const filtered = companies.filter((company) =>
       Object.values(company).some((value) =>
         value && value.toString().toLowerCase().includes(searchQuery.toLowerCase())
@@ -56,16 +50,14 @@ const AdminPanel = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Supabase has been removed. This is a stub.
       console.log('Admin data fetch stub - Supabase removed');
       setCompanies([]);
       setFilteredCompanies([]);
-      setUsers([]);
       setStarConfig({
         hq_weight: 1,
         manufacturing_weight: 1,
         review_threshold: 4,
-        min_reviews: 3
+        min_reviews: 3,
       });
     } catch (error) {
       toast.error('Fetch Error', error.message);
@@ -74,39 +66,8 @@ const AdminPanel = () => {
     }
   };
 
-  const handleAddAdmin = async () => {
-    if (!isSuperAdmin) {
-      toast.error('Permission Denied', 'Only jon@tabarnam.com can manage users.');
-      return;
-    }
-    if (!newAdminEmail) {
-      toast.error('Invalid Email', 'Enter a valid email.');
-      return;
-    }
-    try {
-      // Supabase removed - functionality disabled
-      console.log('Add admin stub - Supabase removed');
-      toast.success('Success', 'Admin management disabled - Supabase removed.');
-      setNewAdminEmail('');
-    } catch (error) {
-      toast.error('Error', error.message);
-    }
-  };
-
-  const handleDeleteUser = async (userId) => {
-    if (!isSuperAdmin) return;
-    try {
-      // Supabase removed - functionality disabled
-      console.log('Delete user stub - Supabase removed');
-      toast.success('Success', 'User deletion disabled - Supabase removed.');
-    } catch (error) {
-      toast.error('Error', error.message);
-    }
-  };
-
   const handleRecalcStars = async () => {
     try {
-      // Supabase removed - functionality disabled
       console.log('Recalc stars stub - Supabase removed');
       toast.success('Success', 'Star recalculation disabled - Supabase removed.');
     } catch (error) {
@@ -150,35 +111,6 @@ const AdminPanel = () => {
     []
   );
 
-  const userColumns = React.useMemo(
-    () => [
-      {
-        accessorKey: 'email',
-        header: 'Email',
-      },
-      {
-        accessorKey: 'role',
-        header: 'Role',
-      },
-      {
-        id: 'actions',
-        header: 'Actions',
-        cell: ({ row }) => (
-          <Button onClick={() => handleDeleteUser(row.original.id)} disabled={!isSuperAdmin}>
-            Delete
-          </Button>
-        ),
-      },
-    ],
-    []
-  );
-
-  const userTable = useReactTable({
-    data: users,
-    columns: userColumns,
-    getCoreRowModel: getCoreRowModel(),
-  });
-
   const companyTable = useReactTable({
     data: filteredCompanies,
     columns: companyColumns,
@@ -200,44 +132,16 @@ const AdminPanel = () => {
           Last Import Count: {lastImportCount}
         </div>
 
-        <div className="p-4 border" style={{ borderColor: 'rgb(100, 150, 180)' }}>
-          <h2 className="text-xl">User Management</h2>
-          <Input value={newAdminEmail} onChange={(e) => setNewAdminEmail(e.target.value)} placeholder="Email" />
-          <Button onClick={handleAddAdmin} disabled={!isSuperAdmin}>
-            Add Admin
-          </Button>
-          <table className="w-full border-collapse table-auto">
-            <thead>
-              {userTable.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => (
-                    <th key={header.id} className="p-2 border">
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                    </th>
-                  ))}
-                </tr>
-              ))}
-            </thead>
-            <tbody>
-              {userTable.getRowModel().rows.map((row) => (
-                <tr key={row.id}>
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="p-2 border">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
         {loading ? (
           <Loader2 className="animate-spin" />
         ) : (
           <div className="p-4 border" style={{ borderColor: 'rgb(100, 150, 180)' }}>
             <h2 className="text-xl">Companies</h2>
-            <Input placeholder="Search companies by any field..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+            <Input
+              placeholder="Search companies by any field..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
             <table className="w-full border-collapse table-auto">
               <thead>
                 {companyTable.getHeaderGroups().map((headerGroup) => (
@@ -276,13 +180,17 @@ const AdminPanel = () => {
           <Input
             type="number"
             value={starConfig.manufacturing_weight}
-            onChange={(e) => setStarConfig({ ...starConfig, manufacturing_weight: parseFloat(e.target.value) })}
+            onChange={(e) =>
+              setStarConfig({ ...starConfig, manufacturing_weight: parseFloat(e.target.value) })
+            }
             placeholder="Manufacturing Weight"
           />
           <Input
             type="number"
             value={starConfig.review_threshold}
-            onChange={(e) => setStarConfig({ ...starConfig, review_threshold: parseFloat(e.target.value) })}
+            onChange={(e) =>
+              setStarConfig({ ...starConfig, review_threshold: parseFloat(e.target.value) })
+            }
             placeholder="Review Threshold"
           />
           <Input
@@ -294,7 +202,6 @@ const AdminPanel = () => {
           <Button onClick={handleRecalcStars}>Recalculate Stars</Button>
         </div>
 
-        {/* Company Form Modal */}
         {isFormOpen && (
           <CompanyForm
             isOpen={isFormOpen}

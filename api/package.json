@@ -3,6 +3,9 @@
   "private": true,
   "type": "commonjs",
   "dependencies": {
+    "@azure/functions": "^4.6.0",
+    "@azure/cosmos": "^4.2.0",
+    "axios": "^1.7.7",
     "bcryptjs": "^2.4.3"
   }
 }

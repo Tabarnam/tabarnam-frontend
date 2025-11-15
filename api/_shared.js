@@ -1,7 +1,11 @@
 function getProxyBase() {
-  // Read from SWA app settings (you already set XAI_PROXY_BASE)
-  const v = process.env.XAI_PROXY_BASE || '';
-  return v.trim() || '';
+  const primary = (process.env.XAI_PROXY_BASE || '').trim();
+  if (primary) return primary;
+
+  const external = (process.env.XAI_EXTERNAL_BASE || '').trim();
+  if (external) return external;
+
+  return '';
 }
 
 function json(context, status, obj, extraHeaders) {
