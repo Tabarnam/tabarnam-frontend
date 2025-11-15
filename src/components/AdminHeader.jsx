@@ -1,7 +1,8 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import Logo from '@/assets/tabarnam.png';
 
 export default function AdminHeader() {
   const navigate = useNavigate();
@@ -14,8 +15,21 @@ export default function AdminHeader() {
 
   return (
     <div className="bg-slate-900 border-b border-slate-800 p-4 flex items-center justify-between">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Tabarnam Admin</h1>
+      <div className="flex items-center">
+        <Link to="/" className="flex items-center" aria-label="Tabarnam home">
+          <img
+            src={Logo}
+            alt="Tabarnam"
+            className="h-8 w-auto mr-2"
+          />
+          <span className="text-2xl font-bold text-white">Admin</span>
+        </Link>
+        <Link
+          to="/admin/xai-bulk-import"
+          className="ml-10 text-sm text-teal-200 hover:text-white underline"
+        >
+          Deep Dive Tool
+        </Link>
       </div>
       <Button
         onClick={handleLogout}
