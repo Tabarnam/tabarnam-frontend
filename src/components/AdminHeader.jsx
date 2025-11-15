@@ -20,7 +20,7 @@ export default function AdminHeader() {
           <img
             src={Logo}
             alt="Tabarnam"
-            className="h-8 w-auto mr-2"
+            className="h-12 w-auto mr-2"
           />
           <span className="text-2xl font-bold text-white">Admin</span>
         </Link>
