@@ -20,10 +20,10 @@ export default function AdminHeader() {
           <img
             src={Logo}
             alt="Tabarnam"
-            className="h-[6rem] w-auto mr-4"
+            className="h-[7rem] w-auto mr-4"
           />
         </Link>
-        <span className="relative left-2 -top-1 text-2xl font-bold text-white">Admin</span>
+        <span className="relative left-5 -top-1 text-2xl font-bold text-white">Admin</span>
         <Link
           to="/admin/xai-bulk-import"
           className="text-sm text-teal-200 hover:text-white underline"
