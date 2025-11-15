@@ -15,12 +15,12 @@ export default function AdminHeader() {
 
   return (
     <div className="bg-slate-900 border-b border-slate-800 p-4 flex items-center justify-between">
-      <div className="flex items-center">
+      <div className="flex items-end">
         <Link to="/" className="flex items-center" aria-label="Tabarnam home">
           <img
             src={Logo}
             alt="Tabarnam"
-            className="h-12 w-auto mr-2"
+            className="h-16 w-auto mr-2"
           />
           <span className="text-2xl font-bold text-white">Admin</span>
         </Link>
