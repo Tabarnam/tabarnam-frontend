@@ -1,20 +1,19 @@
-// Entry point for Azure Functions v4 (new programming model)
-// Importing each module registers its HTTP handlers via app.http().
+// api/index.js  register all functions (new programming model, CommonJS)
 
-import "./proxy-xai/index.js";
-import "./submit-review/index.js";
-import "./get-reviews/index.js";
-import "./admin-reviews/index.js";
-import "./admin-update-logos/index.js";
-import "./search-companies/index.js";
-import "./import-start/index.js";
-import "./import-status/index.js";
-import "./import-progress/index.js";
-import "./ping/index.js";
-import "./google/geocode/index.js";
-import "./google/translate/index.js";
-import "./admin-companies/index.js";
-import "./admin-star-config/index.js";
-import "./admin-undo-history/index.js";
-import "./admin-notes/index.js";
-import "./admin-login/index.js";
+require("./proxy-xai/index.js");
+require("./submit-review/index.js");
+require("./get-reviews/index.js");
+require("./admin-reviews/index.js");
+require("./admin-update-logos/index.js");
+require("./search-companies/index.js");
+require("./import-start/index.js");
+require("./import-status/index.js");
+require("./import-progress/index.js");
+require("./ping/index.js");
+require("./google/geocode/index.js");
+require("./google/translate/index.js");
+require("./admin-companies/index.js");
+require("./admin-star-config/index.js");
+require("./admin-undo-history/index.js");
+require("./admin-notes/index.js");
+require("./admin-login/index.js");
