@@ -1,7 +1,18 @@
-import { app } from "@azure/functions";
+function getHeader(req, name) {
+  if (!req || !req.headers) return "";
+  const headers = req.headers;
+  if (typeof headers.get === "function") {
+    try {
+      return headers.get(name) || headers.get(name.toLowerCase()) || "";
+    } catch {
+      return "";
+    }
+  }
+  return headers[name] || headers[name.toLowerCase()] || "";
+}
 
 function cors(req) {
-  const origin = req.headers.get("origin") || "*";
+  const origin = getHeader(req, "origin") || "*";
   return {
     "Access-Control-Allow-Origin": origin,
     Vary: "Origin",
@@ -88,52 +99,70 @@ async function googleGeocode({ address, lat, lng }) {
   };
 }
 
-app.http("googleGeocode", {
-  route: "google/geocode",
-  methods: ["POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req) => {
-    if (req.method === "OPTIONS") {
-      return { status: 204, headers: cors(req) };
-    }
-
-    let body = {};
+async function getJson(req) {
+  if (!req) return {};
+  if (typeof req.json === "function") {
     try {
-      body = (await req.json()) || {};
-    } catch {
-      body = {};
-    }
-
-    const address = typeof body.address === "string" ? body.address.trim() : "";
-    const lat = Number(body.lat);
-    const lng = Number(body.lng);
-    const hasLatLng = Number.isFinite(lat) && Number.isFinite(lng);
-    const ipLookup = body.ipLookup === true || body.ipLookup === "true";
-
-    let result = null;
-
+      const val = await req.json();
+      if (val && typeof val === "object") return val;
+    } catch {}
+  }
+  if (req.body && typeof req.body === "object") return req.body;
+  if (typeof req.rawBody === "string" && req.rawBody) {
     try {
-      if (hasLatLng || address) {
-        result = await googleGeocode({ address, lat: hasLatLng ? lat : undefined, lng: hasLatLng ? lng : undefined });
-      }
+      const parsed = JSON.parse(req.rawBody);
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {}
+  }
+  return {};
+}
 
-      if (!result && ipLookup) {
-        result = await lookupIpLocation();
-      }
-    } catch {
-      result = null;
+async function handle(req) {
+  if (req.method === "OPTIONS") {
+    return { status: 204, headers: cors(req) };
+  }
+
+  let body = await getJson(req);
+  body = body || {};
+
+  const address = typeof body.address === "string" ? body.address.trim() : "";
+  const lat = Number(body.lat);
+  const lng = Number(body.lng);
+  const hasLatLng = Number.isFinite(lat) && Number.isFinite(lng);
+  const ipLookup = body.ipLookup === true || body.ipLookup === "true";
+
+  let result = null;
+
+  try {
+    if (hasLatLng || address) {
+      result = await googleGeocode({
+        address,
+        lat: hasLatLng ? lat : undefined,
+        lng: hasLatLng ? lng : undefined,
+      });
     }
 
-    if (!result) {
-      result = {
-        best: {
-          location: { lat: 34.0983, lng: -117.8076 },
-          components: [{ types: ["country"], short_name: "US" }],
-        },
-        source: "fallback",
-      };
+    if (!result && ipLookup) {
+      result = await lookupIpLocation();
     }
+  } catch {
+    result = null;
+  }
 
-    return json(result, 200, req);
-  },
-});
+  if (!result) {
+    result = {
+      best: {
+        location: { lat: 34.0983, lng: -117.8076 },
+        components: [{ types: ["country"], short_name: "US" }],
+      },
+      source: "fallback",
+    };
+  }
+
+  return json(result, 200, req);
+}
+
+module.exports = async function (context, req) {
+  const res = await handle(req, context);
+  context.res = res;
+};
