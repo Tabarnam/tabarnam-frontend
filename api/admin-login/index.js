@@ -1,5 +1,4 @@
 import { app } from "@azure/functions";
-import { app } from "@azure/functions";
 import bcrypt from "bcryptjs";
 
 // ------- helpers -------
