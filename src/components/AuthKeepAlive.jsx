@@ -2,30 +2,12 @@ import React from 'react';
 
 export default function AuthKeepAlive({ intervalMs = 5 * 60 * 1000 }) {
   const timerRef = React.useRef(null);
-  const [isSWAEnabled, setIsSWAEnabled] = React.useState(false);
 
-  React.useEffect(() => {
-    // Check if /.auth/me endpoint is available (Azure Static Web Apps)
-    const checkSWA = async () => {
-      try {
-        const res = await fetch('/.auth/me', {
-          method: 'GET',
-          credentials: 'include',
-          cache: 'no-store',
-          headers: { 'Cache-Control': 'no-store' },
-        });
-        setIsSWAEnabled(res.ok || res.status === 401); // 401 means auth is configured but not logged in
-      } catch {
-        // /.auth/me endpoint doesn't exist; not a SWA environment
-        setIsSWAEnabled(false);
-      }
-    };
-
-    checkSWA();
-  }, []);
+  // Only run keep-alive in production (not on localhost)
+  const isSWAEnvironment = !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1');
 
   const ping = React.useCallback(() => {
-    if (!isSWAEnabled) return;
+    if (!isSWAEnvironment) return;
     // Fire-and-forget; keep session warm without blocking UI
     fetch('/.auth/me', {
       method: 'GET',
@@ -35,10 +17,10 @@ export default function AuthKeepAlive({ intervalMs = 5 * 60 * 1000 }) {
     }).catch(() => {
       // ignore network/auth errors; this is a best-effort keep-alive
     });
-  }, [isSWAEnabled]);
+  }, [isSWAEnvironment]);
 
   React.useEffect(() => {
-    if (!isSWAEnabled) return;
+    if (!isSWAEnvironment) return;
 
     // initial ping shortly after mount
     const id = setTimeout(ping, 1000);
@@ -80,7 +62,7 @@ export default function AuthKeepAlive({ intervalMs = 5 * 60 * 1000 }) {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('online', onOnline);
     };
-  }, [intervalMs, ping, isSWAEnabled]);
+  }, [intervalMs, ping, isSWAEnvironment]);
 
   return null;
 }
