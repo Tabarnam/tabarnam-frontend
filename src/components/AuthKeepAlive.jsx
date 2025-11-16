@@ -3,7 +3,11 @@ import React from 'react';
 export default function AuthKeepAlive({ intervalMs = 5 * 60 * 1000 }) {
   const timerRef = React.useRef(null);
 
+  // Only run keep-alive in production (not on localhost)
+  const isSWAEnvironment = !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1');
+
   const ping = React.useCallback(() => {
+    if (!isSWAEnvironment) return;
     // Fire-and-forget; keep session warm without blocking UI
     fetch('/.auth/me', {
       method: 'GET',
@@ -13,9 +17,11 @@ export default function AuthKeepAlive({ intervalMs = 5 * 60 * 1000 }) {
     }).catch(() => {
       // ignore network/auth errors; this is a best-effort keep-alive
     });
-  }, []);
+  }, [isSWAEnvironment]);
 
   React.useEffect(() => {
+    if (!isSWAEnvironment) return;
+
     // initial ping shortly after mount
     const id = setTimeout(ping, 1000);
 
@@ -56,7 +62,7 @@ export default function AuthKeepAlive({ intervalMs = 5 * 60 * 1000 }) {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('online', onOnline);
     };
-  }, [intervalMs, ping]);
+  }, [intervalMs, ping, isSWAEnvironment]);
 
   return null;
 }
