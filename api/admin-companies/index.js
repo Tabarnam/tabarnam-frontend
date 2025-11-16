@@ -1,3 +1,4 @@
+const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
@@ -295,7 +296,11 @@ async function handle(req, context) {
   }
 }
 
-module.exports = async function (context, req) {
-  const res = await handle(req, context);
-  context.res = res;
-};
+app.http("adminCompanies", {
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "admin/companies",
+  handler: async (req, context) => {
+    return await handle(req, context);
+  },
+});
