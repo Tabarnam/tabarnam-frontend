@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/components/ui/use-toast';
-// Supabase removed
 import { Loader2, Undo2, CheckCircle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { apiFetch } from '@/lib/api';
 
 const UndoHistoryDashboard = () => {
     const [history, setHistory] = useState([]);
@@ -12,14 +12,22 @@ const UndoHistoryDashboard = () => {
     const fetchHistory = useCallback(async () => {
         setLoading(true);
         try {
-            // Supabase removed - functionality disabled
-            console.log('Fetch history stub - Supabase removed');
-            setHistory([]);
+            const res = await apiFetch('/admin/undo-history');
+            const data = await res.json().catch(() => null);
+            if (res.ok && data && Array.isArray(data.items)) {
+                setHistory(data.items);
+            } else {
+                toast({
+                    variant: 'destructive',
+                    title: 'Failed to fetch action history',
+                    description: data?.error || 'Unable to load history from server.',
+                });
+            }
         } catch (error) {
             toast({
                 variant: 'destructive',
                 title: 'Failed to fetch action history',
-                description: 'History dashboard disabled - Supabase removed.',
+                description: error?.message || 'Network error while loading history.',
             });
         } finally {
             setLoading(false);
@@ -37,17 +45,25 @@ const UndoHistoryDashboard = () => {
         }
 
         try {
-            // Supabase removed - functionality disabled
-            console.log('Undo action stub - Supabase removed');
-            toast({
-                title: 'Action Undone!',
-                description: 'Undo functionality disabled - Supabase removed.',
+            const res = await apiFetch('/admin/undo-history', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action_ids: [action.id] }),
             });
+            const data = await res.json().catch(() => null);
+            if (!res.ok || data?.error) {
+                throw new Error(data?.error || 'Failed to undo action');
+            }
+            toast({
+                title: 'Action undone',
+                description: 'The change has been reverted.',
+            });
+            fetchHistory();
         } catch (error) {
             toast({
                 variant: 'destructive',
                 title: 'Undo Failed',
-                description: error.message,
+                description: error?.message || 'Unable to undo action.',
             });
         }
     };

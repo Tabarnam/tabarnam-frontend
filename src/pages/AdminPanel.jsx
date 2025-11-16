@@ -3,8 +3,9 @@ import { Helmet } from 'react-helmet-async';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { ClipLoader } from 'react-spinners';
+import { apiFetch } from '@/lib/api';
 import {
   useReactTable,
   getCoreRowModel,
@@ -50,17 +51,31 @@ const AdminPanel = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      console.log('Admin data fetch stub - Supabase removed');
-      setCompanies([]);
-      setFilteredCompanies([]);
-      setStarConfig({
-        hq_weight: 1,
-        manufacturing_weight: 1,
-        review_threshold: 4,
-        min_reviews: 3,
-      });
+      const [companiesRes, starRes] = await Promise.all([
+        apiFetch('/admin/companies'),
+        apiFetch('/admin/star-config'),
+      ]);
+
+      const companiesJson = await companiesRes.json().catch(() => null);
+      const starJson = await starRes.json().catch(() => null);
+
+      if (companiesRes.ok && companiesJson && Array.isArray(companiesJson.items)) {
+        setCompanies(companiesJson.items);
+        setFilteredCompanies(companiesJson.items);
+      } else {
+        toast.error('Failed to load companies');
+      }
+
+      if (starRes.ok && starJson && starJson.config) {
+        setStarConfig({
+          hq_weight: Number(starJson.config.hq_weight ?? 1),
+          manufacturing_weight: Number(starJson.config.manufacturing_weight ?? 1),
+          review_threshold: Number(starJson.config.review_threshold ?? 4),
+          min_reviews: Number(starJson.config.min_reviews ?? 3),
+        });
+      }
     } catch (error) {
-      toast.error('Fetch Error', error.message);
+      toast.error(error?.message || 'Failed to load admin data');
     } finally {
       setLoading(false);
     }
@@ -68,10 +83,18 @@ const AdminPanel = () => {
 
   const handleRecalcStars = async () => {
     try {
-      console.log('Recalc stars stub - Supabase removed');
-      toast.success('Success', 'Star recalculation disabled - Supabase removed.');
+      const res = await apiFetch('/admin/star-config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: starConfig }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || 'Failed to save star configuration');
+      }
+      toast.success('Star configuration saved');
     } catch (error) {
-      toast.error('Error', error.message);
+      toast.error(error?.message || 'Failed to save star configuration');
     }
   };
 
@@ -133,7 +156,9 @@ const AdminPanel = () => {
         </div>
 
         {loading ? (
-          <Loader2 className="animate-spin" />
+          <div className="flex items-center justify-center py-12" aria-busy="true" aria-label="Loading admin data">
+            <ClipLoader color="#B1DDE3" size={32} />
+          </div>
         ) : (
           <div className="p-4 border" style={{ borderColor: 'rgb(100, 150, 180)' }}>
             <h2 className="text-xl">Companies</h2>
@@ -199,7 +224,12 @@ const AdminPanel = () => {
             onChange={(e) => setStarConfig({ ...starConfig, min_reviews: parseInt(e.target.value) })}
             placeholder="Min Reviews"
           />
-          <Button onClick={handleRecalcStars}>Recalculate Stars</Button>
+          <Button
+            onClick={handleRecalcStars}
+            className="mt-4 bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]"
+          >
+            Save Star Configuration
+          </Button>
         </div>
 
         {isFormOpen && (
