@@ -1,4 +1,5 @@
 import { app } from "@azure/functions";
+import { app } from "@azure/functions";
 import { CosmosClient } from "@azure/cosmos";
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
