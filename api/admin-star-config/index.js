@@ -131,7 +131,11 @@ async function handle(req, context) {
   }
 }
 
-module.exports = async function (context, req) {
-  const res = await handle(req, context);
-  context.res = res;
-};
+app.http("adminStarConfig", {
+  methods: ["GET", "PUT", "OPTIONS"],
+  authLevel: "anonymous",
+  route: "admin/star-config",
+  handler: async (req, context) => {
+    return await handle(req, context);
+  },
+});
