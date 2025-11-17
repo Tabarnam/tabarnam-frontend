@@ -1,4 +1,4 @@
-function getProxyBase() {
+export function getProxyBase() {
   const primary = (process.env.XAI_PROXY_BASE || '').trim();
   if (primary) return primary;
 
@@ -8,7 +8,7 @@ function getProxyBase() {
   return '';
 }
 
-function json(context, status, obj, extraHeaders) {
+export function json(context, status, obj, extraHeaders) {
   context.res = {
     status,
     headers: Object.assign(
@@ -24,5 +24,3 @@ function json(context, status, obj, extraHeaders) {
   };
   return context.res;
 }
-
-module.exports = { getProxyBase, json };
