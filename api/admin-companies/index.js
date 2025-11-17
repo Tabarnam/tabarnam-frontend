@@ -1,4 +1,3 @@
-const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
@@ -137,9 +136,9 @@ async function logUndoAction(undoContainer, { companyId, oldDoc, newDoc, actor, 
 
     await undoContainer.items.create(historyDoc);
   } catch (e) {
-    // Best-effort: do not block main write on undo logging
-    // eslint-disable-next-line no-console
-    console.warn("Failed to log undo action", e?.message || e);
+    if (context && typeof context.log === "function") {
+      context.log("Failed to log undo action", e?.message || e);
+    }
   }
 }
 
@@ -209,7 +208,8 @@ async function handle(req, context) {
         .fetchAll();
 
       const items = (resources || []).map((doc) => normalizeCompany(doc));
-      return json({ items, count: items.length }, 200, req);
+      context.res = json({ items, count: items.length }, 200, req);
+      return;
     }
 
     if (method === "POST" || method === "PUT") {
@@ -220,7 +220,8 @@ async function handle(req, context) {
       const now = new Date().toISOString();
 
       if (!incoming) {
-        return json({ error: "company payload required" }, 400, req);
+        context.res = json({ error: "company payload required" }, 400, req);
+        return;
       }
 
       let id = incoming.id || incoming.company_id || incoming.company_name || null;
@@ -250,7 +251,8 @@ async function handle(req, context) {
         actionType,
       });
 
-      return json({ ok: true, company: merged }, existing ? 200 : 201, req);
+      context.res = json({ ok: true, company: merged }, existing ? 200 : 201, req);
+      return;
     }
 
     if (method === "DELETE") {
@@ -258,13 +260,15 @@ async function handle(req, context) {
 
       const id = body.id || body.company_id;
       if (!id) {
-        return json({ error: "id required" }, 400, req);
+        context.res = json({ error: "id required" }, 400, req);
+        return;
       }
 
       const actor = getActorFromRequest(req, body);
       const existing = await findCompanyById(companiesContainer, id);
       if (!existing) {
-        return json({ error: "Company not found" }, 404, req);
+        context.res = json({ error: "Company not found" }, 404, req);
+        return;
       }
 
       const now = new Date().toISOString();
@@ -284,23 +288,19 @@ async function handle(req, context) {
         actionType: "delete",
       });
 
-      return json({ ok: true, company: softDeleted }, 200, req);
+      context.res = json({ ok: true, company: softDeleted }, 200, req);
+      return;
     }
 
-    return json({ error: "Method not allowed" }, 405, req);
+    context.res = json({ error: "Method not allowed" }, 405, req);
   } catch (e) {
     if (context && typeof context.log === "function") {
       context.log("Error in admin-companies:", e?.message || e);
     }
-    return json({ error: e?.message || "Internal error" }, 500, req);
+    context.res = json({ error: e?.message || "Internal error" }, 500, req);
   }
 }
 
-app.http("adminCompanies", {
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  authLevel: "anonymous",
-  route: "admin/companies",
-  handler: async (req, context) => {
-    return await handle(req, context);
-  },
-});
+module.exports = async function (context, req) {
+  await handle(req, context);
+};
