@@ -21,3 +21,4 @@ require("./admin-star-config/index.js");
 require("./admin-undo-history/index.js");
 require("./admin-notes/index.js");
 require("./admin-login/index.js");
+require("./admin-debug/index.js");
