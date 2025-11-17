@@ -1,5 +1,5 @@
 // api/ping/index.js
-import { app } from "@azure/functions";
+const { app } = require("@azure/functions");
 
 app.http("ping", {
   route: "ping",
