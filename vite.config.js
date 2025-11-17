@@ -2,6 +2,24 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "path";
+import fs from "fs";
+import path from "path";
+
+// Custom plugin to copy staticwebapp.config.json to dist/
+const copyStaticWebAppConfig = {
+  name: "copy-staticwebapp-config",
+  apply: "build",
+  writeBundle() {
+    const src = resolve(__dirname, "public/staticwebapp.config.json");
+    const dest = resolve(__dirname, "dist/staticwebapp.config.json");
+    if (fs.existsSync(src)) {
+      fs.copyFileSync(src, dest);
+      console.log(`✓ Copied staticwebapp.config.json to dist/`);
+    } else {
+      console.warn(`⚠ staticwebapp.config.json not found in public/`);
+    }
+  },
+};
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -12,7 +30,7 @@ export default defineConfig(({ mode }) => {
     "http://127.0.0.1:7071"; // Azure Functions Core Tools default
 
   return {
-    plugins: [react()],
+    plugins: [react(), copyStaticWebAppConfig],
     resolve: {
       alias: {
         "@": resolve(__dirname, "src"),
