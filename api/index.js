@@ -1,5 +1,7 @@
 // api/index.js  register all functions (new programming model, CommonJS)
 
+require("./health/index.js");
+require("./ping/index.js");
 require("./proxy-xai/index.js");
 require("./submit-review/index.js");
 require("./get-reviews/index.js");
@@ -9,7 +11,6 @@ require("./search-companies/index.js");
 require("./import-start/index.js");
 require("./import-status/index.js");
 require("./import-progress/index.js");
-require("./ping/index.js");
 require("./google/geocode/index.js");
 require("./google/translate/index.js");
 require("./admin-companies/index.js");
