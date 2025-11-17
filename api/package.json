@@ -1,7 +1,7 @@
 {
   "name": "tabarnam-managed-api",
   "private": true,
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
     "@azure/functions": "^4.6.0",
     "@azure/cosmos": "^4.2.0",
