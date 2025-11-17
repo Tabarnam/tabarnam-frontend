@@ -1,7 +1,7 @@
 const { app } = require("@azure/functions");
 
-app.http("hello", {
-  route: "hello",
+app.http("health", {
+  route: "health",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
@@ -24,7 +24,11 @@ app.http("hello", {
         "Content-Type": "application/json",
         "Access-Control-Allow-Origin": "*",
       },
-      body: JSON.stringify({ ok: true, message: "hello" }),
+      body: JSON.stringify({
+        ok: true,
+        name: "health",
+        ts: new Date().toISOString(),
+      }),
     };
   },
 });
