@@ -164,7 +164,8 @@ async function handle(req, context) {
   const method = String(req.method || "").toUpperCase();
 
   if (method === "OPTIONS") {
-    return { status: 204, headers: cors(req) };
+    context.res = { status: 204, headers: cors(req) };
+    return;
   }
 
   const companiesContainer = getCompaniesContainer();
