@@ -1,5 +1,5 @@
-import { app } from "@azure/functions";
-import { CosmosClient } from "@azure/cosmos";
+const { app } = require("@azure/functions");
+const { CosmosClient } = require("@azure/cosmos");
 
 const COSMOS_ENDPOINT = process.env.COSMOS_DB_ENDPOINT || "";
 const COSMOS_KEY = process.env.COSMOS_DB_KEY || "";
@@ -53,8 +53,9 @@ async function updateLogos() {
 }
 
 app.http("admin-update-logos", {
-  methods: ["POST"],
+  methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
+  route: "admin/update-logos",
   handler: async (request, context) => {
     try {
       const result = await updateLogos();
