@@ -1,7 +1,3 @@
-// api/admin-reviews/index.js
-// Admin interface for managing curated reviews on companies
-// Supports: add/edit/delete reviews, bulk exclude sources
-
 const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
 const { randomUUID } = require("node:crypto");
@@ -37,7 +33,6 @@ function getCompaniesContainer() {
   return cosmosClient.database(databaseId).container(containerId);
 }
 
-// EXCLUDED_SOURCES: sources to always filter out
 const EXCLUDED_SOURCES = new Set(["amazon", "google", "facebook"]);
 
 function isExcludedSource(source) {
@@ -49,6 +44,24 @@ function isExcludedSource(source) {
   return false;
 }
 
+async function getJson(req) {
+  if (!req) return {};
+  if (typeof req.json === "function") {
+    try {
+      const val = await req.json();
+      if (val && typeof val === "object") return val;
+    } catch {}
+  }
+  if (req.body && typeof req.body === "object") return req.body;
+  if (typeof req.rawBody === "string" && req.rawBody) {
+    try {
+      const parsed = JSON.parse(req.rawBody);
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {}
+  }
+  return {};
+}
+
 app.http("adminReviews", {
   route: "admin/reviews",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -57,7 +70,7 @@ app.http("adminReviews", {
     const method = String(req.method || "").toUpperCase();
 
     if (method === "OPTIONS") {
-      return json({}, 204, req);
+      return { status: 204, headers: cors(req) };
     }
 
     const url = new URL(req.url);
@@ -69,7 +82,6 @@ app.http("adminReviews", {
     }
 
     try {
-      // GET: Fetch reviews for a company
       if (method === "GET") {
         if (!company) return json({ error: "company parameter required" }, 400, req);
 
@@ -91,11 +103,10 @@ app.http("adminReviews", {
         return json({ company, reviews }, 200, req);
       }
 
-      // POST: Add a new review
       if (method === "POST") {
         let body = {};
         try {
-          body = await req.json();
+          body = await getJson(req);
         } catch {
           return json({ error: "Invalid JSON" }, 400, req);
         }
@@ -110,7 +121,6 @@ app.http("adminReviews", {
           return json({ error: `Source "${source}" is excluded (Amazon/Google/Facebook)` }, 400, req);
         }
 
-        // Fetch company record
         const sql = `SELECT * FROM c WHERE c.company_name = @company`;
         const { resources } = await container.items
           .query(
@@ -128,7 +138,6 @@ app.http("adminReviews", {
           companyRecord.curated_reviews = [];
         }
 
-        // Create new review
         const newReview = {
           id: randomUUID(),
           source: source.trim(),
@@ -139,23 +148,18 @@ app.http("adminReviews", {
           last_updated_at: new Date().toISOString(),
         };
 
-        // Add to front (most recent first)
         companyRecord.curated_reviews.unshift(newReview);
-
-        // Keep only 10 most recent
         companyRecord.curated_reviews = companyRecord.curated_reviews.slice(0, 10);
 
-        // Update company
         await container.items.upsert(companyRecord);
 
         return json({ ok: true, review: newReview }, 200, req);
       }
 
-      // PUT: Update an existing review
       if (method === "PUT") {
         let body = {};
         try {
-          body = await req.json();
+          body = await getJson(req);
         } catch {
           return json({ error: "Invalid JSON" }, 400, req);
         }
@@ -190,7 +194,6 @@ app.http("adminReviews", {
           return json({ error: `Source "${source}" is excluded` }, 400, req);
         }
 
-        // Update review
         const updated = {
           ...reviews[reviewIndex],
           ...(source && { source: source.trim() }),
@@ -208,11 +211,10 @@ app.http("adminReviews", {
         return json({ ok: true, review: updated }, 200, req);
       }
 
-      // DELETE: Remove a review
       if (method === "DELETE") {
         let body = {};
         try {
-          body = await req.json();
+          body = await getJson(req);
         } catch {
           return json({ error: "Invalid JSON" }, 400, req);
         }
@@ -247,7 +249,9 @@ app.http("adminReviews", {
 
       return json({ error: "Method not supported" }, 405, req);
     } catch (e) {
-      context.log("Error in admin-reviews:", e?.message || e);
+      if (context && typeof context.log === "function") {
+        context.log("Error in admin-reviews:", e?.message || e);
+      }
       return json({ error: e?.message || "Internal error" }, 500, req);
     }
   },
