@@ -1,6 +1,8 @@
 {
   "name": "tabarnam-managed-api",
+  "version": "1.0.0",
   "private": true,
+  "main": "index.js",
   "type": "commonjs",
   "dependencies": {
     "@azure/functions": "^4.6.0",
