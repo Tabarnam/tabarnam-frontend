@@ -1,22 +1,10 @@
+const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
-function getHeader(req, name) {
-  if (!req || !req.headers) return "";
-  const headers = req.headers;
-  if (typeof headers.get === "function") {
-    try {
-      return headers.get(name) || headers.get(name.toLowerCase()) || "";
-    } catch {
-      return "";
-    }
-  }
-  return headers[name] || headers[name.toLowerCase()] || "";
-}
-
 const cors = (req) => {
-  const origin = getHeader(req, "origin") || "*";
+  const origin = req.headers.get("origin") || "*";
   return {
     "Access-Control-Allow-Origin": origin,
     Vary: "Origin",
@@ -97,7 +85,7 @@ function getActorFromRequest(req, body) {
   const override = body && typeof body.actor === "string" && body.actor.trim();
   if (override) return override.trim();
 
-  const header = getHeader(req, "x-ms-client-principal") || "";
+  const header = req.headers.get("x-ms-client-principal") || "";
   if (!header) return null;
   try {
     const decoded = Buffer.from(header, "base64").toString("utf8");
@@ -136,172 +124,155 @@ async function logUndoAction(undoContainer, { companyId, oldDoc, newDoc, actor, 
 
     await undoContainer.items.create(historyDoc);
   } catch (e) {
-    if (context && typeof context.log === "function") {
-      context.log("Failed to log undo action", e?.message || e);
-    }
+    console.warn("Failed to log undo action", e?.message || e);
   }
 }
 
-async function getJson(req) {
-  if (!req) return {};
-  if (typeof req.json === "function") {
+app.http("adminCompanies", {
+  route: "admin/companies",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req, context) => {
+    context.log("adminCompanies handler called");
+    const method = String(req.method || "").toUpperCase();
+
+    if (method === "OPTIONS") {
+      return { status: 204, headers: cors(req) };
+    }
+
+    const companiesContainer = getCompaniesContainer();
+    if (!companiesContainer) {
+      return json({ error: "Cosmos DB not configured" }, 500, req);
+    }
+
+    const undoContainer = getUndoContainer();
+
     try {
-      const val = await req.json();
-      if (val && typeof val === "object") return val;
-    } catch {}
-  }
-  if (req.body && typeof req.body === "object") return req.body;
-  if (typeof req.rawBody === "string" && req.rawBody) {
-    try {
-      const parsed = JSON.parse(req.rawBody);
-      if (parsed && typeof parsed === "object") return parsed;
-    } catch {}
-  }
-  return {};
-}
+      if (method === "GET") {
+        const url = new URL(req.url);
+        const search = (url.searchParams.get("search") || "").toLowerCase().trim();
+        const take = Math.min(500, Math.max(1, Number(url.searchParams.get("take") || "200")));
 
-async function handle(req, context) {
-  const method = String(req.method || "").toUpperCase();
+        const parameters = [{ name: "@take", value: take }];
+        let whereClause = "";
 
-  if (method === "OPTIONS") {
-    context.res = { status: 204, headers: cors(req) };
-    return;
-  }
+        if (search) {
+          parameters.push({ name: "@q", value: search });
+          whereClause =
+            "WHERE (" +
+            [
+              "(IS_DEFINED(c.company_name) AND CONTAINS(LOWER(c.company_name), @q))",
+              "(IS_DEFINED(c.name) AND CONTAINS(LOWER(c.name), @q))",
+              "(IS_DEFINED(c.product_keywords) AND CONTAINS(LOWER(c.product_keywords), @q))",
+              "(IS_DEFINED(c.industries) AND ARRAY_LENGTH(ARRAY(SELECT VALUE i FROM i IN c.industries WHERE CONTAINS(LOWER(i), @q))) > 0)",
+              "(IS_DEFINED(c.normalized_domain) AND CONTAINS(LOWER(c.normalized_domain), @q))",
+              "(IS_DEFINED(c.amazon_url) AND CONTAINS(LOWER(c.amazon_url), @q))",
+            ].join(" OR ") +
+            ")";
+        }
 
-  const companiesContainer = getCompaniesContainer();
-  if (!companiesContainer) {
-    return json({ error: "Cosmos DB not configured" }, 500, req);
-  }
+        const sql =
+          "SELECT TOP @take * FROM c " +
+          whereClause +
+          " ORDER BY c._ts DESC";
 
-  const undoContainer = getUndoContainer();
+        const { resources } = await companiesContainer.items
+          .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
+          .fetchAll();
 
-  try {
-    if (method === "GET") {
-      const url = new URL(req.url);
-      const search = (url.searchParams.get("search") || "").toLowerCase().trim();
-      const take = Math.min(500, Math.max(1, Number(url.searchParams.get("take") || "200")));
-
-      const parameters = [{ name: "@take", value: take }];
-      let whereClause = "";
-
-      if (search) {
-        parameters.push({ name: "@q", value: search });
-        whereClause =
-          "WHERE (" +
-          [
-            "(IS_DEFINED(c.company_name) AND CONTAINS(LOWER(c.company_name), @q))",
-            "(IS_DEFINED(c.name) AND CONTAINS(LOWER(c.name), @q))",
-            "(IS_DEFINED(c.product_keywords) AND CONTAINS(LOWER(c.product_keywords), @q))",
-            "(IS_DEFINED(c.industries) AND ARRAY_LENGTH(ARRAY(SELECT VALUE i FROM i IN c.industries WHERE CONTAINS(LOWER(i), @q))) > 0)",
-            "(IS_DEFINED(c.normalized_domain) AND CONTAINS(LOWER(c.normalized_domain), @q))",
-            "(IS_DEFINED(c.amazon_url) AND CONTAINS(LOWER(c.amazon_url), @q))",
-          ].join(" OR ") +
-          ")";
+        const items = (resources || []).map((doc) => normalizeCompany(doc));
+        return json({ items, count: items.length }, 200, req);
       }
 
-      const sql =
-        "SELECT TOP @take * FROM c " +
-        whereClause +
-        " ORDER BY c._ts DESC";
+      if (method === "POST" || method === "PUT") {
+        let body = {};
+        try {
+          body = await req.json();
+        } catch {
+          return json({ error: "Invalid JSON" }, 400, req);
+        }
 
-      const { resources } = await companiesContainer.items
-        .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
-        .fetchAll();
+        const actor = getActorFromRequest(req, body);
+        const incoming = body.company || body;
+        const now = new Date().toISOString();
 
-      const items = (resources || []).map((doc) => normalizeCompany(doc));
-      context.res = json({ items, count: items.length }, 200, req);
-      return;
-    }
+        if (!incoming) {
+          return json({ error: "company payload required" }, 400, req);
+        }
 
-    if (method === "POST" || method === "PUT") {
-      const body = await getJson(req);
+        let id = incoming.id || incoming.company_id || incoming.company_name || null;
+        if (!id) {
+          id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        }
 
-      const actor = getActorFromRequest(req, body);
-      const incoming = body.company || body;
-      const now = new Date().toISOString();
+        const existing = await findCompanyById(companiesContainer, id);
+        const actionType = existing ? "update" : "create";
 
-      if (!incoming) {
-        context.res = json({ error: "company payload required" }, 400, req);
-        return;
+        const merged = normalizeCompany({
+          ...existing,
+          ...incoming,
+          id,
+          company_name: incoming.company_name || incoming.name || existing?.company_name || "",
+          name: incoming.name || incoming.company_name || existing?.name || "",
+          updated_at: now,
+          created_at: existing?.created_at || incoming.created_at || now,
+        });
+
+        await companiesContainer.items.upsert(merged);
+        await logUndoAction(undoContainer, {
+          companyId: id,
+          oldDoc: existing || null,
+          newDoc: merged,
+          actor,
+          actionType,
+        });
+
+        return json({ ok: true, company: merged }, existing ? 200 : 201, req);
       }
 
-      let id = incoming.id || incoming.company_id || incoming.company_name || null;
-      if (!id) {
-        id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      if (method === "DELETE") {
+        let body = {};
+        try {
+          body = await req.json();
+        } catch {
+          return json({ error: "Invalid JSON" }, 400, req);
+        }
+
+        const id = body.id || body.company_id;
+        if (!id) {
+          return json({ error: "id required" }, 400, req);
+        }
+
+        const actor = getActorFromRequest(req, body);
+        const existing = await findCompanyById(companiesContainer, id);
+        if (!existing) {
+          return json({ error: "Company not found" }, 404, req);
+        }
+
+        const now = new Date().toISOString();
+        const softDeleted = {
+          ...existing,
+          is_deleted: true,
+          deleted_at: now,
+          updated_at: now,
+        };
+
+        await companiesContainer.items.upsert(softDeleted);
+        await logUndoAction(undoContainer, {
+          companyId: id,
+          oldDoc: existing,
+          newDoc: softDeleted,
+          actor,
+          actionType: "delete",
+        });
+
+        return json({ ok: true, company: softDeleted }, 200, req);
       }
 
-      const existing = await findCompanyById(companiesContainer, id);
-      const actionType = existing ? "update" : "create";
-
-      const merged = normalizeCompany({
-        ...existing,
-        ...incoming,
-        id,
-        company_name: incoming.company_name || incoming.name || existing?.company_name || "",
-        name: incoming.name || incoming.company_name || existing?.name || "",
-        updated_at: now,
-        created_at: existing?.created_at || incoming.created_at || now,
-      });
-
-      await companiesContainer.items.upsert(merged);
-      await logUndoAction(undoContainer, {
-        companyId: id,
-        oldDoc: existing || null,
-        newDoc: merged,
-        actor,
-        actionType,
-      });
-
-      context.res = json({ ok: true, company: merged }, existing ? 200 : 201, req);
-      return;
-    }
-
-    if (method === "DELETE") {
-      const body = await getJson(req);
-
-      const id = body.id || body.company_id;
-      if (!id) {
-        context.res = json({ error: "id required" }, 400, req);
-        return;
-      }
-
-      const actor = getActorFromRequest(req, body);
-      const existing = await findCompanyById(companiesContainer, id);
-      if (!existing) {
-        context.res = json({ error: "Company not found" }, 404, req);
-        return;
-      }
-
-      const now = new Date().toISOString();
-      const softDeleted = {
-        ...existing,
-        is_deleted: true,
-        deleted_at: now,
-        updated_at: now,
-      };
-
-      await companiesContainer.items.upsert(softDeleted);
-      await logUndoAction(undoContainer, {
-        companyId: id,
-        oldDoc: existing,
-        newDoc: softDeleted,
-        actor,
-        actionType: "delete",
-      });
-
-      context.res = json({ ok: true, company: softDeleted }, 200, req);
-      return;
-    }
-
-    context.res = json({ error: "Method not allowed" }, 405, req);
-  } catch (e) {
-    if (context && typeof context.log === "function") {
+      return json({ error: "Method not allowed" }, 405, req);
+    } catch (e) {
       context.log("Error in admin-companies:", e?.message || e);
+      return json({ error: e?.message || "Internal error" }, 500, req);
     }
-    context.res = json({ error: e?.message || "Internal error" }, 500, req);
-  }
-}
-
-module.exports = async function (context, req) {
-  await handle(req, context);
-};
+  },
+});

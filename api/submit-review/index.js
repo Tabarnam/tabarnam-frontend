@@ -1,7 +1,7 @@
 // api/submit-review/index.js
-import { app } from "@azure/functions";
-import { CosmosClient } from "@azure/cosmos";
-import { randomUUID, randomBytes } from "node:crypto";
+const { app } = require("@azure/functions");
+const { CosmosClient } = require("@azure/cosmos");
+const { randomUUID, randomBytes } = require("node:crypto");
 
 // -------- helpers ----------
 const E = (k, d = "") => (process.env[k] ?? d).toString().trim();

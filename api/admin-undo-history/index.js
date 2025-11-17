@@ -1,3 +1,4 @@
+const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
@@ -75,142 +76,142 @@ async function getJson(req) {
   return {};
 }
 
-async function handle(req, context) {
-  const method = String(req.method || "").toUpperCase();
+app.http("adminUndoHistory", {
+  route: "admin/undo-history",
+  methods: ["GET", "POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req, context) => {
+    const method = String(req.method || "").toUpperCase();
 
-  if (method === "OPTIONS") {
-    return { status: 204, headers: cors(req) };
-  }
-
-  const undoContainer = getUndoContainer();
-  if (!undoContainer) {
-    return json({ error: "Cosmos DB not configured" }, 500, req);
-  }
-
-  try {
-    if (method === "GET") {
-      const url = new URL(req.url);
-      const companyId = (url.searchParams.get("company_id") || "").trim();
-      const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") || "100")));
-
-      const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-
-      const parameters = [{ name: "@cutoff", value: cutoff }];
-
-      let where = "WHERE c.created_at >= @cutoff";
-      if (companyId) {
-        where += " AND c.company_id = @companyId";
-        parameters.push({ name: "@companyId", value: companyId });
-      }
-
-      const query = {
-        query: `SELECT TOP @limit * FROM c ${where} ORDER BY c.created_at DESC`,
-        parameters: [...parameters, { name: "@limit", value: limit }],
-      };
-
-      const { resources } = await undoContainer.items
-        .query(query, { enableCrossPartitionQuery: true })
-        .fetchAll();
-
-      return json({ items: resources || [] }, 200, req);
+    if (method === "OPTIONS") {
+      return { status: 204, headers: cors(req) };
     }
 
-    if (method === "POST") {
-      const body = await getJson(req);
+    const undoContainer = getUndoContainer();
+    if (!undoContainer) {
+      return json({ error: "Cosmos DB not configured" }, 500, req);
+    }
 
-      const ids = Array.isArray(body.action_ids) ? body.action_ids : [];
-      if (!ids.length) {
-        return json({ error: "action_ids array required" }, 400, req);
-      }
+    try {
+      if (method === "GET") {
+        const url = new URL(req.url);
+        const companyId = (url.searchParams.get("company_id") || "").trim();
+        const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") || "100")));
 
-      const companiesContainer = getCompaniesContainer();
-      if (!companiesContainer) {
-        return json({ error: "Companies container not configured" }, 500, req);
-      }
+        const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 
-      const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+        const parameters = [{ name: "@cutoff", value: cutoff }];
 
-      let undone = 0;
-      let skipped = 0;
-
-      for (const id of ids) {
-        try {
-          const query = {
-            query: "SELECT * FROM c WHERE c.id = @id AND c.created_at >= @cutoff",
-            parameters: [
-              { name: "@id", value: id },
-              { name: "@cutoff", value: cutoff },
-            ],
-          };
-          const { resources } = await undoContainer.items
-            .query(query, { enableCrossPartitionQuery: true })
-            .fetchAll();
-
-          if (!resources || resources.length === 0) {
-            skipped += 1;
-            continue;
-          }
-
-          const action = resources[0];
-          if (action.is_undone) {
-            skipped += 1;
-            continue;
-          }
-
-          const companyId = action.company_id;
-          const oldDoc = action.old_doc;
-          const newDoc = action.new_doc;
-
-          if (!companyId) {
-            skipped += 1;
-            continue;
-          }
-
-          if (action.action_type === "create") {
-            if (newDoc && typeof newDoc === "object") {
-              const softDeleted = {
-                ...newDoc,
-                is_deleted: true,
-                deleted_at: new Date().toISOString(),
-              };
-              await companiesContainer.items.upsert(softDeleted);
-            }
-          } else if (oldDoc && typeof oldDoc === "object") {
-            const restored = {
-              ...oldDoc,
-              updated_at: new Date().toISOString(),
-            };
-            await companiesContainer.items.upsert(restored);
-          } else {
-            skipped += 1;
-            continue;
-          }
-
-          action.is_undone = true;
-          action.undone_at = new Date().toISOString();
-          await undoContainer.items.upsert(action);
-          undone += 1;
-        } catch (e) {
-          if (context && typeof context.log === "function") {
-            context.log("Failed to undo action", id, e?.message || e);
-          }
-          skipped += 1;
+        let where = "WHERE c.created_at >= @cutoff";
+        if (companyId) {
+          where += " AND c.company_id = @companyId";
+          parameters.push({ name: "@companyId", value: companyId });
         }
+
+        const query = {
+          query: `SELECT TOP @limit * FROM c ${where} ORDER BY c.created_at DESC`,
+          parameters: [...parameters, { name: "@limit", value: limit }],
+        };
+
+        const { resources } = await undoContainer.items
+          .query(query, { enableCrossPartitionQuery: true })
+          .fetchAll();
+
+        return json({ items: resources || [] }, 200, req);
       }
 
-      return json({ ok: true, undone, skipped }, 200, req);
-    }
+      if (method === "POST") {
+        const body = await getJson(req);
 
-    return json({ error: "Method not allowed" }, 405, req);
-  } catch (e) {
-    if (context && typeof context.log === "function") {
-      context.log("Error in admin-undo-history:", e?.message || e);
-    }
-    return json({ error: e?.message || "Internal error" }, 500, req);
-  }
-}
+        const ids = Array.isArray(body.action_ids) ? body.action_ids : [];
+        if (!ids.length) {
+          return json({ error: "action_ids array required" }, 400, req);
+        }
 
-module.exports = async function (context, req) {
-  const res = await handle(req, context);
-  context.res = res;
-};
+        const companiesContainer = getCompaniesContainer();
+        if (!companiesContainer) {
+          return json({ error: "Companies container not configured" }, 500, req);
+        }
+
+        const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
+        let undone = 0;
+        let skipped = 0;
+
+        for (const id of ids) {
+          try {
+            const query = {
+              query: "SELECT * FROM c WHERE c.id = @id AND c.created_at >= @cutoff",
+              parameters: [
+                { name: "@id", value: id },
+                { name: "@cutoff", value: cutoff },
+              ],
+            };
+            const { resources } = await undoContainer.items
+              .query(query, { enableCrossPartitionQuery: true })
+              .fetchAll();
+
+            if (!resources || resources.length === 0) {
+              skipped += 1;
+              continue;
+            }
+
+            const action = resources[0];
+            if (action.is_undone) {
+              skipped += 1;
+              continue;
+            }
+
+            const companyId = action.company_id;
+            const oldDoc = action.old_doc;
+            const newDoc = action.new_doc;
+
+            if (!companyId) {
+              skipped += 1;
+              continue;
+            }
+
+            if (action.action_type === "create") {
+              if (newDoc && typeof newDoc === "object") {
+                const softDeleted = {
+                  ...newDoc,
+                  is_deleted: true,
+                  deleted_at: new Date().toISOString(),
+                };
+                await companiesContainer.items.upsert(softDeleted);
+              }
+            } else if (oldDoc && typeof oldDoc === "object") {
+              const restored = {
+                ...oldDoc,
+                updated_at: new Date().toISOString(),
+              };
+              await companiesContainer.items.upsert(restored);
+            } else {
+              skipped += 1;
+              continue;
+            }
+
+            action.is_undone = true;
+            action.undone_at = new Date().toISOString();
+            await undoContainer.items.upsert(action);
+            undone += 1;
+          } catch (e) {
+            if (context && typeof context.log === "function") {
+              context.log("Failed to undo action", id, e?.message || e);
+            }
+            skipped += 1;
+          }
+        }
+
+        return json({ ok: true, undone, skipped }, 200, req);
+      }
+
+      return json({ error: "Method not allowed" }, 405, req);
+    } catch (e) {
+      if (context && typeof context.log === "function") {
+        context.log("Error in admin-undo-history:", e?.message || e);
+      }
+      return json({ error: e?.message || "Internal error" }, 500, req);
+    }
+  },
+});
