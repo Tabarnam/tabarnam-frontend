@@ -1,3 +1,5 @@
+const { app } = require("@azure/functions");
+
 function getHeader(req, name) {
   if (!req || !req.headers) return "";
   const headers = req.headers;
@@ -61,7 +63,12 @@ async function handle(req) {
   return json({ text, target, translatedText: text }, 200, req);
 }
 
-module.exports = async function (context, req) {
-  const res = await handle(req, context);
-  context.res = res;
-};
+app.http("googleTranslate", {
+  route: "google/translate",
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req, context) => {
+    const res = await handle(req);
+    return res;
+  },
+});
