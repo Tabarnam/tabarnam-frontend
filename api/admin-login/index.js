@@ -1,4 +1,6 @@
-const bcrypt = require("bcryptjs");
+import { app } from "@azure/functions";
+import bcrypt from "bcryptjs";
+import crypto from "node:crypto";
 
 const E = (k, d = "") => (process.env[k] ?? d).toString().trim();
 
@@ -21,8 +23,7 @@ const cors = (req) => {
     "Access-Control-Allow-Origin": origin,
     Vary: "Origin",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, x-client-request-id, x-session-id",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, x-client-request-id, x-session-id",
   };
 };
 
@@ -53,11 +54,8 @@ function parseAdminCredentials() {
 }
 
 function signToken(payload, secret) {
-  const h = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString(
-    "base64url"
-  );
+  const h = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
   const p = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const crypto = require("node:crypto");
   const sig = crypto
     .createHmac("sha256", secret)
     .update(`${h}.${p}`)
@@ -83,64 +81,59 @@ async function getJson(req) {
   return {};
 }
 
-async function handle(req, ctx) {
-  const method = String(req.method || "").toUpperCase();
-  if (method === "OPTIONS") return { status: 204, headers: cors(req) };
+app.http("adminLogin", {
+  route: "admin/login",
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req, ctx) => {
+    const method = String(req.method || "").toUpperCase();
+    if (method === "OPTIONS") return { status: 204, headers: cors(req) };
 
-  let body = await getJson(req);
+    let body = await getJson(req);
 
-  const email = String(body?.email || "").trim().toLowerCase();
-  const password = String(body?.password || "");
-  if (!email || !password) {
-    return json({ success: false, error: "Email and password are required" }, 400, req);
-  }
-
-  const creds = parseAdminCredentials();
-  const configured = Object.keys(creds).length > 0;
-  if (!configured) {
-    return json(
-      {
-        success: false,
-        error:
-          "Admin credentials are not configured. Set ADMIN_CREDENTIALS (JSON of email->bcrypt hash) or ADMIN_PLAIN_CREDENTIALS.",
-      },
-      500,
-      req
-    );
-  }
-
-  const stored = creds[email];
-  if (!stored) {
-    return json({ success: false, error: "Email not authorized as admin" }, 401, req);
-  }
-
-  let ok = false;
-  try {
-    if (
-      stored.startsWith("$2a$") ||
-      stored.startsWith("$2b$") ||
-      stored.startsWith("$2y$")
-    ) {
-      ok = await bcrypt.compare(password, stored);
-    } else {
-      ok = stored === password;
+    const email = String(body?.email || "").trim().toLowerCase();
+    const password = String(body?.password || "");
+    if (!email || !password) {
+      return json({ success: false, error: "Email and password are required" }, 400, req);
     }
-  } catch (e) {
-    return json({ success: false, error: "Password verification failed" }, 500, req);
-  }
 
-  if (!ok) {
-    return json({ success: false, error: "Invalid password" }, 401, req);
-  }
+    const creds = parseAdminCredentials();
+    const configured = Object.keys(creds).length > 0;
+    if (!configured) {
+      return json(
+        {
+          success: false,
+          error: "Admin credentials are not configured. Set ADMIN_CREDENTIALS (JSON of email->bcrypt hash) or ADMIN_PLAIN_CREDENTIALS.",
+        },
+        500,
+        req
+      );
+    }
 
-  const secret = E("ADMIN_JWT_SECRET", "tabarnam_admin_secret");
-  const now = Math.floor(Date.now() / 1000);
-  const token = signToken({ sub: email, iat: now, exp: now + 60 * 60 * 8 }, secret);
+    const stored = creds[email];
+    if (!stored) {
+      return json({ success: false, error: "Email not authorized as admin" }, 401, req);
+    }
 
-  return json({ success: true, token }, 200, req);
-}
+    let ok = false;
+    try {
+      if (stored.startsWith("$2a$") || stored.startsWith("$2b$") || stored.startsWith("$2y$")) {
+        ok = await bcrypt.compare(password, stored);
+      } else {
+        ok = stored === password;
+      }
+    } catch (e) {
+      return json({ success: false, error: "Password verification failed" }, 500, req);
+    }
 
-module.exports = async function (context, req) {
-  const res = await handle(req, context);
-  context.res = res;
-};
+    if (!ok) {
+      return json({ success: false, error: "Invalid password" }, 401, req);
+    }
+
+    const secret = E("ADMIN_JWT_SECRET", "tabarnam_admin_secret");
+    const now = Math.floor(Date.now() / 1000);
+    const token = signToken({ sub: email, iat: now, exp: now + 60 * 60 * 8 }, secret);
+
+    return json({ success: true, token }, 200, req);
+  },
+});
