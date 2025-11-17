@@ -1,8 +1,8 @@
 // api/get-reviews/index.js
 // Fetch reviews for a company (user-submitted + curated reviews)
 
-import { app } from "@azure/functions";
-import { CosmosClient } from "@azure/cosmos";
+const { app } = require("@azure/functions");
+const { CosmosClient } = require("@azure/cosmos");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 

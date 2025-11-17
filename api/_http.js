@@ -1,5 +1,5 @@
 const https = require('https');
-const http  = require('http');
+const http = require('http');
 const { URL } = require('url');
 
 function httpRequest(method, urlStr, options = {}) {

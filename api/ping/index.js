@@ -1,22 +1,33 @@
-﻿// api/ping/index.js
-module.exports = async function (context, req) {
-  if ((req.method || "").toUpperCase() === "OPTIONS") {
-    context.res = {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET,OPTIONS",
-        "Access-Control-Allow-Headers": "content-type,x-functions-key"
-      }
-    };
-    return;
-  }
+// api/ping/index.js
+const { app } = require("@azure/functions");
 
-  context.res = {
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*"
-    },
-    body: JSON.stringify({ ok: true, name: "ping", ts: new Date().toISOString() })
-  };
-};
+app.http("ping", {
+  route: "ping",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req, context) => {
+    if ((req.method || "").toUpperCase() === "OPTIONS") {
+      return {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,OPTIONS",
+          "Access-Control-Allow-Headers": "content-type,x-functions-key",
+        },
+      };
+    }
+
+    return {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      },
+      body: JSON.stringify({
+        ok: true,
+        name: "ping",
+        ts: new Date().toISOString(),
+      }),
+    };
+  },
+});

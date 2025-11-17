@@ -1,4 +1,4 @@
-// api/index.js  register all functions (new programming model, CommonJS)
+// api/index.js  register all functions (new programming model, CommonJS)
 
 require("./proxy-xai/index.js");
 require("./submit-review/index.js");
