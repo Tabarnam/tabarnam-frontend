@@ -79,12 +79,14 @@ async function handle(req, context) {
   const method = String(req.method || "").toUpperCase();
 
   if (method === "OPTIONS") {
-    return { status: 204, headers: cors(req) };
+    context.res = { status: 204, headers: cors(req) };
+    return;
   }
 
   const container = getStarConfigContainer();
   if (!container) {
-    return json({ error: "Cosmos DB not configured" }, 500, req);
+    context.res = json({ error: "Cosmos DB not configured" }, 500, req);
+    return;
   }
 
   try {
@@ -96,11 +98,13 @@ async function handle(req, context) {
 
       if (!resources || resources.length === 0) {
         await container.items.upsert(DEFAULT_CONFIG);
-        return json({ config: DEFAULT_CONFIG }, 200, req);
+        context.res = json({ config: DEFAULT_CONFIG }, 200, req);
+        return;
       }
 
       const cfg = resources[0];
-      return json({ config: cfg }, 200, req);
+      context.res = json({ config: cfg }, 200, req);
+      return;
     }
 
     if (method === "PUT") {
@@ -108,7 +112,8 @@ async function handle(req, context) {
 
       const incoming = body.config || body;
       if (!incoming || typeof incoming !== "object") {
-        return json({ error: "config payload required" }, 400, req);
+        context.res = json({ error: "config payload required" }, 400, req);
+        return;
       }
 
       const merged = {
@@ -118,19 +123,19 @@ async function handle(req, context) {
       };
 
       await container.items.upsert(merged);
-      return json({ ok: true, config: merged }, 200, req);
+      context.res = json({ ok: true, config: merged }, 200, req);
+      return;
     }
 
-    return json({ error: "Method not allowed" }, 405, req);
+    context.res = json({ error: "Method not allowed" }, 405, req);
   } catch (e) {
     if (context && typeof context.log === "function") {
       context.log("Error in admin-star-config:", e?.message || e);
     }
-    return json({ error: e?.message || "Internal error" }, 500, req);
+    context.res = json({ error: e?.message || "Internal error" }, 500, req);
   }
 }
 
 module.exports = async function (context, req) {
-  const res = await handle(req, context);
-  context.res = res;
+  await handle(req, context);
 };
