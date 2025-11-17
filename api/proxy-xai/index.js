@@ -1,7 +1,7 @@
-// api/proxy-xai/index.js  (Azure Functions v4, ES modules)
-import { app } from "@azure/functions";
-import axios from "axios";
-import { CosmosClient } from "@azure/cosmos";
+// api/proxy-xai/index.js  (Azure Functions v4, CommonJS)
+const { app } = require("@azure/functions");
+const axios = require("axios");
+const { CosmosClient } = require("@azure/cosmos");
 
 const BUILD_STAMP = "proxy-xai build 2025-10-01T02:55Z";
 
