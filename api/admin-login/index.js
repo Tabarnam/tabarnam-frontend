@@ -1,6 +1,6 @@
-import { app } from "@azure/functions";
-import bcrypt from "bcryptjs";
-import crypto from "node:crypto";
+const { app } = require("@azure/functions");
+const bcrypt = require("bcryptjs");
+const crypto = require("node:crypto");
 
 const E = (k, d = "") => (process.env[k] ?? d).toString().trim();
 
