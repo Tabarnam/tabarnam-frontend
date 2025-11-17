@@ -1,14 +1,17 @@
 // api/search-companies/index.js
-import { app } from "@azure/functions";
-import { httpRequest } from "../_http.js";
-import { getProxyBase } from "../_shared.js";
+const { app } = require("@azure/functions");
+const { httpRequest } = require("../_http");
+const { getProxyBase } = require("../_shared");
 
 let CosmosClientCtor = null;
-try {
-  const cosmos = await import("@azure/cosmos");
-  CosmosClientCtor = cosmos.CosmosClient;
-} catch {
-  CosmosClientCtor = undefined;
+function loadCosmosCtor() {
+  if (CosmosClientCtor !== null) return CosmosClientCtor;
+  try {
+    CosmosClientCtor = require("@azure/cosmos").CosmosClient;
+  } catch {
+    CosmosClientCtor = undefined;
+  }
+  return CosmosClientCtor;
 }
 
 function env(k, d = "") {
@@ -36,9 +39,10 @@ function getCompaniesContainer() {
   const containerId = env("COSMOS_DB_COMPANIES_CONTAINER", "companies");
 
   if (!endpoint || !key) return null;
-  if (!CosmosClientCtor) return null;
+  const C = loadCosmosCtor();
+  if (!C) return null;
 
-  const client = new CosmosClientCtor({ endpoint, key });
+  const client = new C({ endpoint, key });
   return client.database(databaseId).container(containerId);
 }
 
