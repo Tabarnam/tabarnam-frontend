@@ -1,7 +1,0 @@
-{
-  "scriptFile": "index.js",
-  "bindings": [
-    { "authLevel": "anonymous", "type": "httpTrigger", "direction": "in", "name": "req", "methods": ["post","options"], "route": "save-companies" },
-    { "type": "http", "direction": "out", "name": "res" }
-  ]
-}
