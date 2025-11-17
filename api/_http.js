@@ -1,8 +1,8 @@
-import https from 'https';
-import http from 'http';
-import { URL } from 'url';
+const https = require('https');
+const http = require('http');
+const { URL } = require('url');
 
-export function httpRequest(method, urlStr, options = {}) {
+function httpRequest(method, urlStr, options = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(urlStr);
     const lib = u.protocol === 'https:' ? https : http;
@@ -43,3 +43,5 @@ export function httpRequest(method, urlStr, options = {}) {
     req.end();
   });
 }
+
+module.exports = { httpRequest };
