@@ -2,9 +2,9 @@
 // Admin interface for managing curated reviews on companies
 // Supports: add/edit/delete reviews, bulk exclude sources
 
-const { app } = require("@azure/functions");
-const { CosmosClient } = require("@azure/cosmos");
-const { randomUUID } = require("node:crypto");
+import { app } from "@azure/functions";
+import { CosmosClient } from "@azure/cosmos";
+import { randomUUID } from "node:crypto";
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
