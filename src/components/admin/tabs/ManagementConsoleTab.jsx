@@ -59,7 +59,7 @@ const ManagementConsoleTab = ({ companies, onUpdate }) => {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/batch-update', {
+      const res = await fetch('/api/admin-batch-update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
