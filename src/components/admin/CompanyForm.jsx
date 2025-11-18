@@ -319,28 +319,18 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
                       <div className="flex gap-1">
                         <Button
                           type="button"
-                          variant={field.icon === 'heart' ? 'outline' : 'default'}
-                          onClick={() => {
-                            const current = field.icon || 'star';
-                            const newIcon = current === 'star' ? 'star' : 'star';
-                            const form = document.querySelector(`input[name="star_explanation.${index}.icon"]`);
-                            if (form) form.value = newIcon;
-                          }}
-                          className={field.icon !== 'heart' ? "bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]" : "border-slate-200 text-slate-900 hover:bg-slate-100"}
+                          variant={(field.icon || 'star') !== 'heart' ? 'default' : 'outline'}
+                          onClick={() => setValue(`star_explanation.${index}.icon`, 'star')}
+                          className={(field.icon || 'star') !== 'heart' ? "bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]" : "border-slate-200 text-slate-900 hover:bg-slate-100"}
                           title="Star icon"
                         >
                           ★
                         </Button>
                         <Button
                           type="button"
-                          variant={field.icon === 'heart' ? 'default' : 'outline'}
-                          onClick={() => {
-                            const current = field.icon || 'star';
-                            const newIcon = current === 'heart' ? 'star' : 'heart';
-                            const form = document.querySelector(`input[name="star_explanation.${index}.icon"]`);
-                            if (form) form.value = newIcon;
-                          }}
-                          className={field.icon === 'heart' ? "bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]" : "border-slate-200 text-slate-900 hover:bg-slate-100"}
+                          variant={(field.icon || 'star') === 'heart' ? 'default' : 'outline'}
+                          onClick={() => setValue(`star_explanation.${index}.icon`, 'heart')}
+                          className={(field.icon || 'star') === 'heart' ? "bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]" : "border-slate-200 text-slate-900 hover:bg-slate-100"}
                           title="Heart icon"
                         >
                           ♥
@@ -349,7 +339,6 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
                       <input
                         type="hidden"
                         {...register(`star_explanation.${index}.icon`)}
-                        defaultValue={field.icon || 'star'}
                       />
                     </div>
                     <div className="flex flex-col items-start gap-2">
