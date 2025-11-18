@@ -39,6 +39,8 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
     handleSubmit,
     control,
     reset,
+    setValue,
+    watch,
     formState: { isSubmitting },
   } = useForm({
     defaultValues: getInitialValues(company),
