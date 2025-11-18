@@ -8,7 +8,7 @@ const cors = (req) => {
   return {
     "Access-Control-Allow-Origin": origin,
     Vary: "Origin",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };
 };
@@ -29,24 +29,16 @@ function getCosmosClient() {
   return cosmosClient;
 }
 
-function getConfigContainer() {
+function getKeywordsContainer() {
   const client = getCosmosClient();
   if (!client) return null;
   const databaseId = E("COSMOS_DB_DATABASE", "tabarnam-db");
-  const containerId = "star_config";
+  const containerId = "keywords";
   return client.database(databaseId).container(containerId);
 }
 
-const DEFAULT_CONFIG = {
-  id: "default",
-  hq_weight: 1,
-  manufacturing_weight: 1,
-  review_threshold: 4,
-  min_reviews: 3,
-};
-
-app.http("adminStarConfig", {
-  route: "admin/star-config",
+app.http("adminKeywords", {
+  route: "admin/keywords",
   methods: ["GET", "PUT", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
@@ -56,7 +48,7 @@ app.http("adminStarConfig", {
       return { status: 204, headers: cors(req) };
     }
 
-    const container = getConfigContainer();
+    const container = getKeywordsContainer();
     if (!container) {
       return json({ error: "Cosmos DB not configured" }, 500, req);
     }
@@ -64,10 +56,10 @@ app.http("adminStarConfig", {
     try {
       if (method === "GET") {
         try {
-          const { resource } = await container.item("default", "default").read();
-          return json({ config: resource }, 200, req);
+          const { resource } = await container.item("industries", "industries").read();
+          return json({ keywords: resource.list || [] }, 200, req);
         } catch (e) {
-          return json({ config: DEFAULT_CONFIG }, 200, req);
+          return json({ keywords: [] }, 200, req);
         }
       }
 
@@ -79,28 +71,22 @@ app.http("adminStarConfig", {
           return json({ error: "Invalid JSON" }, 400, req);
         }
 
-        const incoming = body.config || body;
-        if (!incoming) {
-          return json({ error: "config required" }, 400, req);
-        }
-
-        const config = {
-          id: "default",
-          hq_weight: Number(incoming.hq_weight ?? 1),
-          manufacturing_weight: Number(incoming.manufacturing_weight ?? 1),
-          review_threshold: Number(incoming.review_threshold ?? 4),
-          min_reviews: Number(incoming.min_reviews ?? 3),
+        const keywords = Array.isArray(body.keywords) ? body.keywords : [];
+        const doc = {
+          id: "industries",
+          type: "industry",
+          list: keywords.filter(k => typeof k === "string" && k.trim()).map(k => k.trim()),
           updated_at: new Date().toISOString(),
           actor: body.actor || null,
         };
 
-        await container.items.upsert(config);
-        return json({ ok: true, config }, 200, req);
+        await container.items.upsert(doc);
+        return json({ ok: true, keywords: doc.list }, 200, req);
       }
 
       return json({ error: "Method not allowed" }, 405, req);
     } catch (e) {
-      context.log("Error in admin-star-config:", e?.message || e);
+      context.log("Error in admin-keywords:", e?.message || e);
       return json({ error: e?.message || "Internal error" }, 500, req);
     }
   },
