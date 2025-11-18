@@ -12,7 +12,7 @@ app.http("adminDebug", {
       body: JSON.stringify({
         ok: true,
         message: "admin-debug endpoint is working!",
-        route: "admin/debug",
+        route: "admin-debug",
         timestamp: new Date().toISOString(),
       }),
     };
