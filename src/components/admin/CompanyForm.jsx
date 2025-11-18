@@ -33,6 +33,7 @@ const getInitialValues = (company) => {
 const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
   const { toast } = useToast();
   const adminUser = getAdminUser();
+  const [iconStates, setIconStates] = React.useState({});
 
   const {
     register,
@@ -45,6 +46,16 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
   } = useForm({
     defaultValues: getInitialValues(company),
   });
+
+  React.useEffect(() => {
+    if (company && Array.isArray(company.star_explanation)) {
+      const states = {};
+      company.star_explanation.forEach((exp, idx) => {
+        states[idx] = exp.icon || 'star';
+      });
+      setIconStates(states);
+    }
+  }, [company]);
 
   const {
     fields: affiliateFields,
