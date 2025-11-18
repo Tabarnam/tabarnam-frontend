@@ -1,4 +1,5 @@
 // api/index.js  register all functions (new programming model, CommonJS)
+const { app } = require("@azure/functions");
 
 console.log("[api/index.js] Starting handler registration...");
 
@@ -212,3 +213,5 @@ try {
 }
 
 console.log("[api/index.js] ✅ All handler registration complete!");
+
+module.exports = app;
