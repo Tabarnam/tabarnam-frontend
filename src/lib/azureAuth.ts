@@ -52,6 +52,13 @@ export async function initializeAzureUser(): Promise<AdminUser | null> {
     const res = await fetch('/.auth/me', { credentials: 'include' });
     if (!res.ok) return null;
 
+    // Check content type to ensure we're getting JSON (not HTML error pages)
+    const contentType = res.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      console.debug('[azureAuth] Non-JSON response from /.auth/me (development environment?)');
+      return null;
+    }
+
     const data = await res.json();
     const principal = data?.clientPrincipal;
 
@@ -69,7 +76,8 @@ export async function initializeAzureUser(): Promise<AdminUser | null> {
 
     return cachedUser;
   } catch (e) {
-    console.error('[azureAuth] Failed to initialize user:', e);
+    // Silently handle errors in development (/.auth/me doesn't exist locally)
+    console.debug('[azureAuth] Failed to initialize user:', e);
     return null;
   }
 }
