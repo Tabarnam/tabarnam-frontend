@@ -29,7 +29,7 @@ const AnalyticsViewerTab = () => {
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/admin/analytics?start=${startDate.toISOString()}&end=${endDate.toISOString()}`
+        `/api/admin-analytics?start=${startDate.toISOString()}&end=${endDate.toISOString()}`
       );
       if (res.ok) {
         const data = await res.json();

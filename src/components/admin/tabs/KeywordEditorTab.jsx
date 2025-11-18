@@ -19,7 +19,7 @@ const KeywordEditorTab = () => {
   const fetchKeywords = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/keywords');
+      const res = await fetch('/api/admin-keywords');
       if (res.ok) {
         const data = await res.json();
         setKeywords(data.keywords || []);
@@ -51,7 +51,7 @@ const KeywordEditorTab = () => {
   const handleSave = async (updatedKeywords) => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/keywords', {
+      const res = await fetch('/api/admin-keywords', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keywords: updatedKeywords, actor: user?.email }),
