@@ -84,7 +84,7 @@ const UndoHistoryTab = () => {
           className="border-slate-300"
         >
           <Trash2 className="mr-2 h-4 w-4" />
-          Clear Old History (>48h)
+          Clear Old History (&gt;48h)
         </Button>
       </div>
 
