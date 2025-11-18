@@ -11,6 +11,7 @@ export interface StarsTooltipProps {
   bundle: StarBundle;
   notes?: StarSignals["notes"];
   maxLines?: number; // default 6
+  starIcons?: Record<number, 'star' | 'heart'>; // icons for each star level 1-5
 }
 
 export const StarsTooltip: React.FC<StarsTooltipProps> = ({
