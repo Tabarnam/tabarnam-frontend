@@ -8,6 +8,7 @@ export interface StarsProps {
   /** Star glyph size expressed in CSS pixels (fallback); actual SVG uses 1em to track text size */
   size?: number;
   className?: string;
+  starIcons?: Record<number, 'star' | 'heart'>; // icons for each star level 1-5
 }
 
 function StarIcon({ filled }: { filled: boolean }) {
@@ -24,6 +25,25 @@ function StarIcon({ filled }: { filled: boolean }) {
       <path
         strokeWidth="1.2"
         d="M12 17.27L18.18 21l-1.64-7.03L22 9.245l-7.19-.62L12 2 9.19 8.625 2 9.245l5.46 4.725L5.82 21z"
+      />
+    </svg>
+  );
+}
+
+function HeartIcon({ filled }: { filled: boolean }) {
+  // Heart icon with Tabarnam colors
+  return (
+    <svg
+      width="1em"
+      height="1em"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      style={{ verticalAlign: "text-bottom" }}
+      className={filled ? "fill-[rgb(177,221,227)] stroke-[rgb(101,188,200)]" : "fill-slate-100 stroke-[rgb(101,188,200)]"}
+    >
+      <path
+        strokeWidth="1.2"
+        d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
       />
     </svg>
   );
