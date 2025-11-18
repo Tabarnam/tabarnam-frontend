@@ -163,4 +163,52 @@ try {
   console.error(e);
 }
 
+try {
+  console.log("[api] Registering: admin-recalc-stars");
+  require("./admin-recalc-stars/index.js");
+  console.log("[api] ✓ admin-recalc-stars registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-recalc-stars:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-import-stats");
+  require("./admin-import-stats/index.js");
+  console.log("[api] ✓ admin-import-stats registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-import-stats:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-keywords");
+  require("./admin-keywords/index.js");
+  console.log("[api] ✓ admin-keywords registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-keywords:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-undo");
+  require("./admin-undo/index.js");
+  console.log("[api] ✓ admin-undo registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-undo:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-analytics");
+  require("./admin-analytics/index.js");
+  console.log("[api] ✓ admin-analytics registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-analytics:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-batch-update");
+  require("./admin-batch-update/index.js");
+  console.log("[api] ✓ admin-batch-update registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-batch-update:", e?.message || e);
+}
+
 console.log("[api/index.js] ✅ All handler registration complete!");

@@ -41,20 +41,25 @@ function getUndoContainer() {
   const client = getCosmosClient();
   if (!client) return null;
   const databaseId = E("COSMOS_DB_DATABASE", "tabarnam-db");
-  const containerId = E("COSMOS_DB_UNDO_CONTAINER", "undo_history");
+  const containerId = "undo_history";
   return client.database(databaseId).container(containerId);
 }
 
 async function findCompanyById(container, id) {
   if (!container || !id) return null;
-  const query = {
-    query: "SELECT * FROM c WHERE c.id = @id",
-    parameters: [{ name: "@id", value: id }],
-  };
-  const { resources } = await container.items
-    .query(query, { enableCrossPartitionQuery: true })
-    .fetchAll();
-  return resources && resources.length > 0 ? resources[0] : null;
+  try {
+    const query = {
+      query: "SELECT * FROM c WHERE c.id = @id",
+      parameters: [{ name: "@id", value: id }],
+    };
+    const { resources } = await container.items
+      .query(query, { enableCrossPartitionQuery: true })
+      .fetchAll();
+    return resources && resources.length > 0 ? resources[0] : null;
+  } catch (e) {
+    console.error("Error finding company:", e?.message || e);
+    return null;
+  }
 }
 
 function normalizeCompany(doc) {
@@ -163,6 +168,7 @@ app.http("adminCompanies", {
             [
               "(IS_DEFINED(c.company_name) AND CONTAINS(LOWER(c.company_name), @q))",
               "(IS_DEFINED(c.name) AND CONTAINS(LOWER(c.name), @q))",
+              "(IS_DEFINED(c.tagline) AND CONTAINS(LOWER(c.tagline), @q))",
               "(IS_DEFINED(c.product_keywords) AND CONTAINS(LOWER(c.product_keywords), @q))",
               "(IS_DEFINED(c.industries) AND ARRAY_LENGTH(ARRAY(SELECT VALUE i FROM i IN c.industries WHERE CONTAINS(LOWER(i), @q))) > 0)",
               "(IS_DEFINED(c.normalized_domain) AND CONTAINS(LOWER(c.normalized_domain), @q))",
