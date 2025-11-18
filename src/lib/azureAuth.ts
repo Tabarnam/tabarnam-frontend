@@ -1,74 +1,77 @@
-// Simple admin authentication for local development
-// Uses localStorage to persist admin state
-// In production, replace with Azure AD B2C or Microsoft Authentication Library (MSAL)
+// Authentication via Azure Entra ID (Microsoft Authenticator)
+// Checks /.auth/me endpoint provided by Azure Static Web Apps
+// No local authentication system - all auth is delegated to Azure
 
 const ADMIN_USERS = [
   'jon@tabarnam.com',
   'ben@tabarnam.com',
-  'kels@tabarnam.com'
+  'kels@tabarnam.com',
+  'duh@tabarnam.com'
 ];
-
-const ADMIN_TOKEN_KEY = 'tabarnam_admin_token';
-const ADMIN_EMAIL_KEY = 'tabarnam_admin_email';
 
 export interface AdminUser {
   email: string;
-  token: string;
 }
 
-export function isAdminLoggedIn(): boolean {
-  try {
-    const token = localStorage.getItem(ADMIN_TOKEN_KEY);
-    const email = localStorage.getItem(ADMIN_EMAIL_KEY);
-    return !!(token && email && ADMIN_USERS.includes(email));
-  } catch {
-    return false;
-  }
-}
+let cachedUser: AdminUser | null = null;
+let cacheTime: number = 0;
+const CACHE_DURATION = 60000; // 1 minute cache
 
+/**
+ * Get current admin user from Azure Entra ID
+ * Reads from /.auth/me which is provided by Azure Static Web Apps
+ */
 export function getAdminUser(): AdminUser | null {
+  // Return cached user if still fresh
+  const now = Date.now();
+  if (cachedUser && now - cacheTime < CACHE_DURATION) {
+    return cachedUser;
+  }
+
+  // Fetch from Azure endpoint synchronously (blocking for initial load)
   try {
-    const token = localStorage.getItem(ADMIN_TOKEN_KEY);
-    const email = localStorage.getItem(ADMIN_EMAIL_KEY);
-    if (token && email && ADMIN_USERS.includes(email)) {
-      return { email, token };
+    // Note: In production, consider making this async
+    // For now, we use localStorage as a fallback during initial page load
+    const storedEmail = sessionStorage.getItem('azure_user_email');
+    if (storedEmail && ADMIN_USERS.includes(storedEmail)) {
+      cachedUser = { email: storedEmail };
+      cacheTime = now;
+      return cachedUser;
     }
   } catch {}
+
   return null;
 }
 
-export async function loginAdmin(email: string, password: string): Promise<{ success: boolean; error?: string }> {
-  if (!email || !password) {
-    return { success: false, error: 'Email and password are required' };
-  }
-  if (!ADMIN_USERS.includes(email)) {
-    return { success: false, error: 'Email not authorized as admin' };
-  }
+/**
+ * Fetch and cache the current user from Azure Entra ID
+ * Should be called on page load to populate the user cache
+ */
+export async function initializeAzureUser(): Promise<AdminUser | null> {
   try {
-    const res = await fetch('/api/admin-login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    const data = await res.json().catch(() => ({} as any));
-    if (!res.ok || !data?.success) {
-      return { success: false, error: data?.error || 'Login failed' };
-    }
-    const token = String(data.token || '');
-    if (!token) return { success: false, error: 'Missing token from server' };
-    localStorage.setItem(ADMIN_TOKEN_KEY, token);
-    localStorage.setItem(ADMIN_EMAIL_KEY, email);
-    return { success: true };
-  } catch (e: any) {
-    return { success: false, error: e?.message || 'Network error' };
-  }
-}
+    const res = await fetch('/.auth/me', { credentials: 'include' });
+    if (!res.ok) return null;
 
-export function logoutAdmin(): void {
-  try {
-    localStorage.removeItem(ADMIN_TOKEN_KEY);
-    localStorage.removeItem(ADMIN_EMAIL_KEY);
-  } catch {}
+    const data = await res.json();
+    const principal = data?.clientPrincipal;
+
+    if (!principal) return null;
+
+    const email = principal.userDetails || principal.claims?.find((c: any) => c.typ === 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress')?.val;
+
+    if (!email) return null;
+
+    // Cache the user in sessionStorage (cleared on browser close)
+    sessionStorage.setItem('azure_user_email', email);
+
+    cachedUser = { email };
+    cacheTime = Date.now();
+
+    return cachedUser;
+  } catch (e) {
+    console.error('[azureAuth] Failed to initialize user:', e);
+    return null;
+  }
 }
 
 export function getAuthorizedAdminEmails(): string[] {
