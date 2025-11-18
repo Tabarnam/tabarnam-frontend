@@ -33,16 +33,29 @@ const getInitialValues = (company) => {
 const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
   const { toast } = useToast();
   const adminUser = getAdminUser();
+  const [iconStates, setIconStates] = React.useState({});
 
   const {
     register,
     handleSubmit,
     control,
     reset,
+    setValue,
+    watch,
     formState: { isSubmitting },
   } = useForm({
     defaultValues: getInitialValues(company),
   });
+
+  React.useEffect(() => {
+    if (company && Array.isArray(company.star_explanation)) {
+      const states = {};
+      company.star_explanation.forEach((exp, idx) => {
+        states[idx] = exp.icon || 'star';
+      });
+      setIconStates(states);
+    }
+  }, [company]);
 
   const {
     fields: affiliateFields,
@@ -96,6 +109,7 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
                 : Number(entry.star_level),
             note: (entry.note || '').trim(),
             is_public: Boolean(entry.is_public ?? true),
+            icon: (entry.icon || 'star').toLowerCase() === 'heart' ? 'heart' : 'star',
           }))
           .filter((entry) => entry.note),
       };
@@ -126,7 +140,9 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
   };
 
   const handleAddStarNote = () => {
-    appendStar({ star_level: '', note: '', is_public: true });
+    const newIndex = starFields.length;
+    appendStar({ star_level: '', note: '', is_public: true, icon: 'star' });
+    setIconStates({ ...iconStates, [newIndex]: 'star' });
   };
 
   return (
@@ -295,7 +311,7 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
                   className="rounded-md border border-slate-200 p-3 space-y-2 bg-white"
                   aria-label={`Star note ${index + 1}`}
                 >
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-center">
                     <div className="space-y-1">
                       <label className="block text-xs font-medium text-slate-700">Star Level</label>
                       <Input
@@ -310,6 +326,41 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
                       <Input
                         {...register(`star_explanation.${index}.note`)}
                         placeholder="Explanation for this star"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-slate-700">Icon</label>
+                      <div className="flex gap-1">
+                        <Button
+                          type="button"
+                          variant={(iconStates[index] || 'star') !== 'heart' ? 'default' : 'outline'}
+                          onClick={() => {
+                            const newIcon = 'star';
+                            setIconStates({ ...iconStates, [index]: newIcon });
+                            setValue(`star_explanation.${index}.icon`, newIcon);
+                          }}
+                          className={(iconStates[index] || 'star') !== 'heart' ? "bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]" : "border-slate-200 text-slate-900 hover:bg-slate-100"}
+                          title="Star icon"
+                        >
+                          ★
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={(iconStates[index] || 'star') === 'heart' ? 'default' : 'outline'}
+                          onClick={() => {
+                            const newIcon = 'heart';
+                            setIconStates({ ...iconStates, [index]: newIcon });
+                            setValue(`star_explanation.${index}.icon`, newIcon);
+                          }}
+                          className={(iconStates[index] || 'star') === 'heart' ? "bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]" : "border-slate-200 text-slate-900 hover:bg-slate-100"}
+                          title="Heart icon"
+                        >
+                          ♥
+                        </Button>
+                      </div>
+                      <input
+                        type="hidden"
+                        {...register(`star_explanation.${index}.icon`)}
                       />
                     </div>
                     <div className="flex flex-col items-start gap-2">

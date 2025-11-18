@@ -8,6 +8,7 @@ export interface StarsProps {
   /** Star glyph size expressed in CSS pixels (fallback); actual SVG uses 1em to track text size */
   size?: number;
   className?: string;
+  starIcons?: Record<number, 'star' | 'heart'>; // icons for each star level 1-5
 }
 
 function StarIcon({ filled }: { filled: boolean }) {
@@ -29,11 +30,31 @@ function StarIcon({ filled }: { filled: boolean }) {
   );
 }
 
+function HeartIcon({ filled }: { filled: boolean }) {
+  // Heart icon with Tabarnam colors
+  return (
+    <svg
+      width="1em"
+      height="1em"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      style={{ verticalAlign: "text-bottom" }}
+      className={filled ? "fill-[rgb(177,221,227)] stroke-[rgb(101,188,200)]" : "fill-slate-100 stroke-[rgb(101,188,200)]"}
+    >
+      <path
+        strokeWidth="1.2"
+        d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
+      />
+    </svg>
+  );
+}
+
 export const Stars: React.FC<StarsProps> = ({
   bundle,
   notes = [],
   size = 18,
   className = "",
+  starIcons = {},
 }) => {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -60,6 +81,14 @@ export const Stars: React.FC<StarsProps> = ({
 
   const full = Math.max(0, Math.min(5, Math.round(bundle.final))); // ensure 0..5 int
 
+  const renderIcon = (starLevel: number, filled: boolean) => {
+    const iconType = starIcons[starLevel] || 'star';
+    if (iconType === 'heart') {
+      return <HeartIcon key={starLevel} filled={filled} />;
+    }
+    return <StarIcon key={starLevel} filled={filled} />;
+  };
+
   return (
     <div className={`relative inline-flex ${className}`} style={{ fontSize: `${size}px`, lineHeight: 1 }}>
       {/* Trigger */}
@@ -80,9 +109,7 @@ export const Stars: React.FC<StarsProps> = ({
         }}
       >
         <div className="flex">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <StarIcon key={i} filled={i < full} />
-          ))}
+          {Array.from({ length: 5 }).map((_, i) => renderIcon(i + 1, i < full))}
         </div>
         <span className="sr-only">{full} out of 5 stars</span>
       </button>
@@ -97,7 +124,7 @@ export const Stars: React.FC<StarsProps> = ({
           onMouseEnter={() => setOpen(true)}
           onMouseLeave={() => setOpen(false)}
         >
-          <StarsTooltip bundle={bundle} notes={notes} />
+          <StarsTooltip bundle={bundle} notes={notes} starIcons={starIcons} />
         </div>
       )}
     </div>

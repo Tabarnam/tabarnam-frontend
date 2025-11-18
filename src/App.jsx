@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { HelmetProvider } from "react-helmet-async";
 import {
   BrowserRouter as Router,
@@ -8,6 +8,7 @@ import {
   useLocation,
 } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
+import { initializeAzureUser } from "@/lib/azureAuth";
 
 import AdminPanel from "@pages/AdminPanel";
 import ResultsPage from "@pages/ResultsPage";
@@ -69,6 +70,13 @@ function Layout({ children }) {
 }
 
 export default function App() {
+  useEffect(() => {
+    // Initialize Azure Entra ID user on app load
+    initializeAzureUser().catch(err => {
+      console.error('[App] Failed to initialize Azure user:', err);
+    });
+  }, []);
+
   return (
     <HelmetProvider>
       <ErrorBoundary>
