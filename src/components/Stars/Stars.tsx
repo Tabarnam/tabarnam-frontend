@@ -54,6 +54,7 @@ export const Stars: React.FC<StarsProps> = ({
   notes = [],
   size = 18,
   className = "",
+  starIcons = {},
 }) => {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -80,6 +81,14 @@ export const Stars: React.FC<StarsProps> = ({
 
   const full = Math.max(0, Math.min(5, Math.round(bundle.final))); // ensure 0..5 int
 
+  const renderIcon = (starLevel: number, filled: boolean) => {
+    const iconType = starIcons[starLevel] || 'star';
+    if (iconType === 'heart') {
+      return <HeartIcon key={starLevel} filled={filled} />;
+    }
+    return <StarIcon key={starLevel} filled={filled} />;
+  };
+
   return (
     <div className={`relative inline-flex ${className}`} style={{ fontSize: `${size}px`, lineHeight: 1 }}>
       {/* Trigger */}
@@ -100,9 +109,7 @@ export const Stars: React.FC<StarsProps> = ({
         }}
       >
         <div className="flex">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <StarIcon key={i} filled={i < full} />
-          ))}
+          {Array.from({ length: 5 }).map((_, i) => renderIcon(i + 1, i < full))}
         </div>
         <span className="sr-only">{full} out of 5 stars</span>
       </button>
@@ -117,7 +124,7 @@ export const Stars: React.FC<StarsProps> = ({
           onMouseEnter={() => setOpen(true)}
           onMouseLeave={() => setOpen(false)}
         >
-          <StarsTooltip bundle={bundle} notes={notes} />
+          <StarsTooltip bundle={bundle} notes={notes} starIcons={starIcons} />
         </div>
       )}
     </div>
