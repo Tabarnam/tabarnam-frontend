@@ -1,245 +1,107 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Helmet } from 'react-helmet-async';
-import { motion } from 'framer-motion';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { ClipLoader } from 'react-spinners';
-import { apiFetch } from '@/lib/api';
-import {
-  useReactTable,
-  getCoreRowModel,
-  flexRender,
-} from '@tanstack/react-table';
-import CompanyForm from '@/components/admin/CompanyForm';
 import AdminHeader from '@/components/AdminHeader';
 import { getAdminUser } from '@/lib/azureAuth';
+import CompaniesTableTab from '@/components/admin/tabs/CompaniesTableTab';
+import StarRatingDashboard from '@/components/admin/tabs/StarRatingDashboard';
+import UserManagementTab from '@/components/admin/tabs/UserManagementTab';
+import ImportToolsTab from '@/components/admin/tabs/ImportToolsTab';
+import KeywordEditorTab from '@/components/admin/tabs/KeywordEditorTab';
+import UndoHistoryTab from '@/components/admin/tabs/UndoHistoryTab';
+import AnalyticsViewerTab from '@/components/admin/tabs/AnalyticsViewerTab';
+import ManagementConsoleTab from '@/components/admin/tabs/ManagementConsoleTab';
 
 const AdminPanel = () => {
   const user = getAdminUser();
-
   const [companies, setCompanies] = useState([]);
-  const [filteredCompanies, setFilteredCompanies] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [lastImportCount, setLastImportCount] = useState(0);
-  const [starConfig, setStarConfig] = useState({
-    hq_weight: 1,
-    manufacturing_weight: 1,
-    review_threshold: 4,
-    min_reviews: 3,
-  });
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('companies');
 
-  const [editingCompany, setEditingCompany] = useState(null);
-  const [isFormOpen, setIsFormOpen] = useState(false);
-
-  useEffect(() => {
-    fetchData();
-    const savedImport = localStorage.getItem('lastImportCount');
-    if (savedImport) setLastImportCount(parseInt(savedImport));
-  }, []);
-
-  useEffect(() => {
-    const filtered = companies.filter((company) =>
-      Object.values(company).some((value) =>
-        value && value.toString().toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    );
-    setFilteredCompanies(filtered);
-  }, [searchQuery, companies]);
-
-  const fetchData = async () => {
+  const fetchCompanies = useCallback(async () => {
     setLoading(true);
     try {
-      const [companiesRes, starRes] = await Promise.all([
-        apiFetch('/admin/companies'),
-        apiFetch('/admin/star-config'),
-      ]);
-
-      const companiesJson = await companiesRes.json().catch(() => null);
-      const starJson = await starRes.json().catch(() => null);
-
-      if (companiesRes.ok && companiesJson && Array.isArray(companiesJson.items)) {
-        setCompanies(companiesJson.items);
-        setFilteredCompanies(companiesJson.items);
-      } else {
-        toast.error('Failed to load companies');
-      }
-
-      if (starRes.ok && starJson && starJson.config) {
-        setStarConfig({
-          hq_weight: Number(starJson.config.hq_weight ?? 1),
-          manufacturing_weight: Number(starJson.config.manufacturing_weight ?? 1),
-          review_threshold: Number(starJson.config.review_threshold ?? 4),
-          min_reviews: Number(starJson.config.min_reviews ?? 3),
-        });
-      }
+      const res = await fetch('/api/admin/companies');
+      if (!res.ok) throw new Error('Failed to load companies');
+      const data = await res.json();
+      setCompanies(data.items || []);
     } catch (error) {
-      toast.error(error?.message || 'Failed to load admin data');
+      toast.error(error?.message || 'Failed to load companies');
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    fetchCompanies();
+  }, [fetchCompanies]);
+
+  const handleCompaniesUpdate = () => {
+    fetchCompanies();
   };
-
-  const handleRecalcStars = async () => {
-    try {
-      const res = await apiFetch('/admin/star-config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: starConfig }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error || 'Failed to save star configuration');
-      }
-      toast.success('Star configuration saved');
-    } catch (error) {
-      toast.error(error?.message || 'Failed to save star configuration');
-    }
-  };
-
-  const handleEditCompany = (company) => {
-    setEditingCompany(company);
-    setIsFormOpen(true);
-  };
-
-  const companyColumns = React.useMemo(
-    () => [
-      {
-        accessorKey: 'company_name',
-        header: 'Name',
-      },
-      {
-        accessorKey: 'star_rating',
-        header: 'Star Rating',
-      },
-      {
-        accessorKey: 'headquarters_location',
-        header: 'HQ',
-      },
-      {
-        accessorKey: 'manufacturing_locations',
-        header: 'Manufacturing',
-      },
-      {
-        id: 'actions',
-        header: 'Actions',
-        cell: ({ row }) => (
-          <Button onClick={() => handleEditCompany(row.original)} className="bg-blue-600">
-            Edit
-          </Button>
-        ),
-      },
-    ],
-    []
-  );
-
-  const companyTable = useReactTable({
-    data: filteredCompanies,
-    columns: companyColumns,
-    getCoreRowModel: getCoreRowModel(),
-  });
 
   return (
     <>
       <Helmet>
-        <title>Admin Panel - Tabarnam</title>
+        <title>Tabarnam Admin Panel</title>
+        <meta name="robots" content="noindex, nofollow" />
       </Helmet>
-
-      <AdminHeader />
-
-      <div className="p-6 space-y-6" style={{ backgroundColor: 'rgb(177, 221, 227)' }}>
-        <h2 className="text-2xl font-bold">Administration</h2>
-
-        <div className="p-4 border" style={{ borderColor: 'rgb(100, 150, 180)' }}>
-          Last Import Count: {lastImportCount}
-        </div>
-
-        {loading ? (
-          <div className="flex items-center justify-center py-12" aria-busy="true" aria-label="Loading admin data">
-            <ClipLoader color="#B1DDE3" size={32} />
+      <div className="min-h-screen bg-slate-50">
+        <AdminHeader user={user} />
+        <main className="container mx-auto py-6 px-4">
+          <div className="mb-6">
+            <h1 className="text-3xl font-bold text-slate-900">Admin Dashboard</h1>
+            <p className="text-slate-600 mt-1">Manage companies, configurations, and system data</p>
           </div>
-        ) : (
-          <div className="p-4 border" style={{ borderColor: 'rgb(100, 150, 180)' }}>
-            <h2 className="text-xl">Companies</h2>
-            <Input
-              placeholder="Search companies by any field..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            <table className="w-full border-collapse table-auto">
-              <thead>
-                {companyTable.getHeaderGroups().map((headerGroup) => (
-                  <tr key={headerGroup.id}>
-                    {headerGroup.headers.map((header) => (
-                      <th key={header.id} className="p-2 border">
-                        {flexRender(header.column.columnDef.header, header.getContext())}
-                      </th>
-                    ))}
-                  </tr>
-                ))}
-              </thead>
-              <tbody>
-                {companyTable.getRowModel().rows.map((row) => (
-                  <tr key={row.id}>
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="p-2 border">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
 
-        <div className="p-4 border" style={{ borderColor: 'rgb(100, 150, 180)' }}>
-          <h2 className="text-xl">Star Rating Config</h2>
-          <Input
-            type="number"
-            value={starConfig.hq_weight}
-            onChange={(e) => setStarConfig({ ...starConfig, hq_weight: parseFloat(e.target.value) })}
-            placeholder="HQ Weight"
-          />
-          <Input
-            type="number"
-            value={starConfig.manufacturing_weight}
-            onChange={(e) =>
-              setStarConfig({ ...starConfig, manufacturing_weight: parseFloat(e.target.value) })
-            }
-            placeholder="Manufacturing Weight"
-          />
-          <Input
-            type="number"
-            value={starConfig.review_threshold}
-            onChange={(e) =>
-              setStarConfig({ ...starConfig, review_threshold: parseFloat(e.target.value) })
-            }
-            placeholder="Review Threshold"
-          />
-          <Input
-            type="number"
-            value={starConfig.min_reviews}
-            onChange={(e) => setStarConfig({ ...starConfig, min_reviews: parseInt(e.target.value) })}
-            placeholder="Min Reviews"
-          />
-          <Button
-            onClick={handleRecalcStars}
-            className="mt-4 bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]"
-          >
-            Save Star Configuration
-          </Button>
-        </div>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+            <TabsList className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-1 bg-white border border-slate-200 p-1 rounded-lg">
+              <TabsTrigger value="companies" className="text-xs md:text-sm">Companies</TabsTrigger>
+              <TabsTrigger value="stars" className="text-xs md:text-sm">Star Rating</TabsTrigger>
+              <TabsTrigger value="users" className="text-xs md:text-sm">Users</TabsTrigger>
+              <TabsTrigger value="imports" className="text-xs md:text-sm">Imports</TabsTrigger>
+              <TabsTrigger value="keywords" className="text-xs md:text-sm">Keywords</TabsTrigger>
+              <TabsTrigger value="undo" className="text-xs md:text-sm">Undo</TabsTrigger>
+              <TabsTrigger value="analytics" className="text-xs md:text-sm">Analytics</TabsTrigger>
+              <TabsTrigger value="console" className="text-xs md:text-sm">Console</TabsTrigger>
+            </TabsList>
 
-        {isFormOpen && (
-          <CompanyForm
-            isOpen={isFormOpen}
-            onClose={() => setIsFormOpen(false)}
-            company={editingCompany}
-            onSuccess={fetchData}
-          />
-        )}
+            <div className="bg-white rounded-lg border border-slate-200 p-6">
+              <TabsContent value="companies" className="space-y-4">
+                <CompaniesTableTab companies={companies} loading={loading} onUpdate={handleCompaniesUpdate} />
+              </TabsContent>
+
+              <TabsContent value="stars" className="space-y-4">
+                <StarRatingDashboard companies={companies} onUpdate={handleCompaniesUpdate} />
+              </TabsContent>
+
+              <TabsContent value="users" className="space-y-4">
+                <UserManagementTab />
+              </TabsContent>
+
+              <TabsContent value="imports" className="space-y-4">
+                <ImportToolsTab />
+              </TabsContent>
+
+              <TabsContent value="keywords" className="space-y-4">
+                <KeywordEditorTab />
+              </TabsContent>
+
+              <TabsContent value="undo" className="space-y-4">
+                <UndoHistoryTab />
+              </TabsContent>
+
+              <TabsContent value="analytics" className="space-y-4">
+                <AnalyticsViewerTab />
+              </TabsContent>
+
+              <TabsContent value="console" className="space-y-4">
+                <ManagementConsoleTab companies={companies} onUpdate={handleCompaniesUpdate} />
+              </TabsContent>
+            </div>
+          </Tabs>
+        </main>
       </div>
     </>
   );
