@@ -331,18 +331,26 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
                       <div className="flex gap-1">
                         <Button
                           type="button"
-                          variant={(field.icon || 'star') !== 'heart' ? 'default' : 'outline'}
-                          onClick={() => setValue(`star_explanation.${index}.icon`, 'star')}
-                          className={(field.icon || 'star') !== 'heart' ? "bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]" : "border-slate-200 text-slate-900 hover:bg-slate-100"}
+                          variant={(iconStates[index] || 'star') !== 'heart' ? 'default' : 'outline'}
+                          onClick={() => {
+                            const newIcon = 'star';
+                            setIconStates({ ...iconStates, [index]: newIcon });
+                            setValue(`star_explanation.${index}.icon`, newIcon);
+                          }}
+                          className={(iconStates[index] || 'star') !== 'heart' ? "bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]" : "border-slate-200 text-slate-900 hover:bg-slate-100"}
                           title="Star icon"
                         >
                           ★
                         </Button>
                         <Button
                           type="button"
-                          variant={(field.icon || 'star') === 'heart' ? 'default' : 'outline'}
-                          onClick={() => setValue(`star_explanation.${index}.icon`, 'heart')}
-                          className={(field.icon || 'star') === 'heart' ? "bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]" : "border-slate-200 text-slate-900 hover:bg-slate-100"}
+                          variant={(iconStates[index] || 'star') === 'heart' ? 'default' : 'outline'}
+                          onClick={() => {
+                            const newIcon = 'heart';
+                            setIconStates({ ...iconStates, [index]: newIcon });
+                            setValue(`star_explanation.${index}.icon`, newIcon);
+                          }}
+                          className={(iconStates[index] || 'star') === 'heart' ? "bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]" : "border-slate-200 text-slate-900 hover:bg-slate-100"}
                           title="Heart icon"
                         >
                           ♥
