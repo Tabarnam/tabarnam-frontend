@@ -134,7 +134,7 @@ async function logUndoAction(undoContainer, { companyId, oldDoc, newDoc, actor, 
 }
 
 app.http("adminCompanies", {
-  route: "admin/companies",
+  route: "admin-companies",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {

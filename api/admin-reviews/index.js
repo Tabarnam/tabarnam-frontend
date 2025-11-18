@@ -50,7 +50,7 @@ function isExcludedSource(source) {
 }
 
 app.http("adminReviews", {
-  route: "admin/reviews",
+  route: "admin-reviews",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {

@@ -71,7 +71,7 @@ async function getJson(req) {
 }
 
 app.http("adminNotes", {
-  route: "admin/notes",
+  route: "admin-notes",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
