@@ -1,7 +1,7 @@
 const { app } = require("@azure/functions");
 
 app.http("adminDebug", {
-  route: "admin/debug",
+  route: "admin-debug",
   methods: ["GET"],
   authLevel: "anonymous",
   handler: async (req, context) => {
