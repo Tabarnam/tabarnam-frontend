@@ -140,7 +140,9 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
   };
 
   const handleAddStarNote = () => {
-    appendStar({ star_level: '', note: '', is_public: true });
+    const newIndex = starFields.length;
+    appendStar({ star_level: '', note: '', is_public: true, icon: 'star' });
+    setIconStates({ ...iconStates, [newIndex]: 'star' });
   };
 
   return (
