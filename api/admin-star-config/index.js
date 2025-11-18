@@ -8,7 +8,7 @@ const cors = (req) => {
   return {
     "Access-Control-Allow-Origin": origin,
     Vary: "Origin",
-    "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };
 };
@@ -29,16 +29,16 @@ function getCosmosClient() {
   return cosmosClient;
 }
 
-function getStarConfigContainer() {
+function getConfigContainer() {
   const client = getCosmosClient();
   if (!client) return null;
   const databaseId = E("COSMOS_DB_DATABASE", "tabarnam-db");
-  const containerId = E("COSMOS_DB_STAR_CONFIG_CONTAINER", "star_config");
+  const containerId = "star_config";
   return client.database(databaseId).container(containerId);
 }
 
 const DEFAULT_CONFIG = {
-  id: "star-config",
+  id: "default",
   hq_weight: 1,
   manufacturing_weight: 1,
   review_threshold: 4,
@@ -50,32 +50,25 @@ app.http("adminStarConfig", {
   methods: ["GET", "PUT", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
-    context.log("adminStarConfig handler called");
     const method = String(req.method || "").toUpperCase();
 
     if (method === "OPTIONS") {
       return { status: 204, headers: cors(req) };
     }
 
-    const container = getStarConfigContainer();
+    const container = getConfigContainer();
     if (!container) {
       return json({ error: "Cosmos DB not configured" }, 500, req);
     }
 
     try {
       if (method === "GET") {
-        const query = { query: "SELECT TOP 1 * FROM c", parameters: [] };
-        const { resources } = await container.items
-          .query(query, { enableCrossPartitionQuery: true })
-          .fetchAll();
-
-        if (!resources || resources.length === 0) {
-          await container.items.upsert(DEFAULT_CONFIG);
+        try {
+          const { resource } = await container.item("default", "default").read();
+          return json({ config: resource }, 200, req);
+        } catch (e) {
           return json({ config: DEFAULT_CONFIG }, 200, req);
         }
-
-        const cfg = resources[0];
-        return json({ config: cfg }, 200, req);
       }
 
       if (method === "PUT") {
@@ -87,18 +80,22 @@ app.http("adminStarConfig", {
         }
 
         const incoming = body.config || body;
-        if (!incoming || typeof incoming !== "object") {
-          return json({ error: "config payload required" }, 400, req);
+        if (!incoming) {
+          return json({ error: "config required" }, 400, req);
         }
 
-        const merged = {
-          ...DEFAULT_CONFIG,
-          ...incoming,
-          id: DEFAULT_CONFIG.id,
+        const config = {
+          id: "default",
+          hq_weight: Number(incoming.hq_weight ?? 1),
+          manufacturing_weight: Number(incoming.manufacturing_weight ?? 1),
+          review_threshold: Number(incoming.review_threshold ?? 4),
+          min_reviews: Number(incoming.min_reviews ?? 3),
+          updated_at: new Date().toISOString(),
+          actor: body.actor || null,
         };
 
-        await container.items.upsert(merged);
-        return json({ ok: true, config: merged }, 200, req);
+        await container.items.upsert(config);
+        return json({ ok: true, config }, 200, req);
       }
 
       return json({ error: "Method not allowed" }, 405, req);
