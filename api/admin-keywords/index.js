@@ -38,7 +38,7 @@ function getKeywordsContainer() {
 }
 
 app.http("adminKeywords", {
-  route: "admin/keywords",
+  route: "admin-keywords",
   methods: ["GET", "PUT", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
