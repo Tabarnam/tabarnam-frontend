@@ -55,7 +55,7 @@ async function updateLogos() {
 app.http("admin-update-logos", {
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  route: "admin/update-logos",
+  route: "admin-update-logos",
   handler: async (request, context) => {
     try {
       const result = await updateLogos();
