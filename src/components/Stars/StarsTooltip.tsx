@@ -18,6 +18,7 @@ export const StarsTooltip: React.FC<StarsTooltipProps> = ({
   bundle,
   notes = [],
   maxLines = 6,
+  starIcons = {},
 }) => {
   const lines = useMemo(() => {
     const base: string[] = [];
