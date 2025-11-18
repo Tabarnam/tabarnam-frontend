@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { HelmetProvider } from "react-helmet-async";
 import {
   BrowserRouter as Router,
@@ -8,6 +8,7 @@ import {
   useLocation,
 } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
+import { initializeAzureUser } from "@/lib/azureAuth";
 
 import AdminPanel from "@pages/AdminPanel";
 import ResultsPage from "@pages/ResultsPage";
