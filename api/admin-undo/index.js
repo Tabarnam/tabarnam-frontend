@@ -46,7 +46,7 @@ function getUndoContainer() {
 }
 
 app.http("adminUndo", {
-  route: "admin/undo",
+  route: "admin-undo",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
