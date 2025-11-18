@@ -70,6 +70,13 @@ function Layout({ children }) {
 }
 
 export default function App() {
+  useEffect(() => {
+    // Initialize Azure Entra ID user on app load
+    initializeAzureUser().catch(err => {
+      console.error('[App] Failed to initialize Azure user:', err);
+    });
+  }, []);
+
   return (
     <HelmetProvider>
       <ErrorBoundary>
