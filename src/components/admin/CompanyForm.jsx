@@ -98,6 +98,7 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
                 : Number(entry.star_level),
             note: (entry.note || '').trim(),
             is_public: Boolean(entry.is_public ?? true),
+            icon: (entry.icon || 'star').toLowerCase() === 'heart' ? 'heart' : 'star',
           }))
           .filter((entry) => entry.note),
       };
