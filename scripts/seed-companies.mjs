@@ -19,7 +19,7 @@ const container = database.container(containerId);
 
 const sampleCompanies = [
   {
-    id: "acme-corp",
+    id: "test-acme-corp",
     company_name: "ACME Corp",
     name: "ACME Corp",
     tagline: "Leading innovation in industrial solutions",
@@ -27,10 +27,11 @@ const sampleCompanies = [
     amazon_store_url: "https://amazon.com/s?k=acme",
     amazon_url: "https://amazon.com/s?k=acme",
     logo_url: "https://via.placeholder.com/150?text=ACME",
+    product_keywords: "industrial equipment, manufacturing test, heavy machinery",
+    normalized_domain: "acme.example.com",
     industries: ["Manufacturing", "Industrial"],
     star_rating: 4,
     auto_star_rating: 3,
-    tagline: "Industrial solutions provider",
     notes: "High-quality manufacturing",
     contact_email: "sales@acme.example.com",
     contact_page_url: "https://acme.example.com/contact",
@@ -38,6 +39,12 @@ const sampleCompanies = [
       { address: "123 Main St, New York, NY", lat: 40.7128, lng: -74.006, is_hq: true },
       { address: "456 Oak Ave, Los Angeles, CA", lat: 34.0522, lng: -118.2437, is_hq: false },
     ],
+    manufacturing_geocodes: [
+      { address: "123 Main St, New York, NY", lat: 40.7128, lng: -74.006 },
+      { address: "456 Oak Ave, Los Angeles, CA", lat: 34.0522, lng: -118.2437 },
+    ],
+    hq_lat: 40.7128,
+    hq_lng: -74.006,
     affiliate_links: [
       {
         url: "https://example.com/acme",
@@ -58,7 +65,7 @@ const sampleCompanies = [
     updated_at: new Date().toISOString(),
   },
   {
-    id: "techvision-inc",
+    id: "test-techvision-inc",
     company_name: "TechVision Inc",
     name: "TechVision Inc",
     tagline: "Cutting-edge technology solutions",
@@ -66,6 +73,8 @@ const sampleCompanies = [
     amazon_store_url: "https://amazon.com/s?k=techvision",
     amazon_url: "https://amazon.com/s?k=techvision",
     logo_url: "https://via.placeholder.com/150?text=TechVision",
+    product_keywords: "software solutions, test automation, tech innovations",
+    normalized_domain: "techvision.example.com",
     industries: ["Technology", "Software"],
     star_rating: 5,
     auto_star_rating: 3,
@@ -74,6 +83,11 @@ const sampleCompanies = [
     manufacturing_locations: [
       { address: "789 Tech Blvd, San Francisco, CA", lat: 37.7749, lng: -122.4194, is_hq: true },
     ],
+    manufacturing_geocodes: [
+      { address: "789 Tech Blvd, San Francisco, CA", lat: 37.7749, lng: -122.4194 },
+    ],
+    hq_lat: 37.7749,
+    hq_lng: -122.4194,
     affiliate_links: [
       {
         url: "https://example.com/techvision",
@@ -99,7 +113,7 @@ const sampleCompanies = [
     updated_at: new Date().toISOString(),
   },
   {
-    id: "ecogreen-products",
+    id: "test-ecogreen-products",
     company_name: "EcoGreen Products",
     name: "EcoGreen Products",
     tagline: "Sustainable and eco-friendly solutions",
@@ -107,6 +121,8 @@ const sampleCompanies = [
     amazon_store_url: "https://amazon.com/s?k=ecogreen",
     amazon_url: "https://amazon.com/s?k=ecogreen",
     logo_url: "https://via.placeholder.com/150?text=EcoGreen",
+    product_keywords: "eco-friendly products, sustainable test solutions, organic goods",
+    normalized_domain: "ecogreen.example.com",
     industries: ["Sustainability", "Consumer Goods"],
     star_rating: 4,
     auto_star_rating: 3,
@@ -115,6 +131,12 @@ const sampleCompanies = [
       { address: "321 Green St, Portland, OR", lat: 45.5152, lng: -122.6784, is_hq: true },
       { address: "654 Forest Ave, Seattle, WA", lat: 47.6062, lng: -122.3321, is_hq: false },
     ],
+    manufacturing_geocodes: [
+      { address: "321 Green St, Portland, OR", lat: 45.5152, lng: -122.6784 },
+      { address: "654 Forest Ave, Seattle, WA", lat: 47.6062, lng: -122.3321 },
+    ],
+    hq_lat: 45.5152,
+    hq_lng: -122.6784,
     affiliate_links: [
       {
         url: "https://example.com/ecogreen",
@@ -133,7 +155,7 @@ const sampleCompanies = [
     updated_at: new Date().toISOString(),
   },
   {
-    id: "premier-luxury-goods",
+    id: "test-premier-luxury-goods",
     company_name: "Premier Luxury Goods",
     name: "Premier Luxury Goods",
     tagline: "Premium quality luxury items",
@@ -141,6 +163,8 @@ const sampleCompanies = [
     amazon_store_url: "https://amazon.com/s?k=premier+luxury",
     amazon_url: "https://amazon.com/s?k=premier+luxury",
     logo_url: "https://via.placeholder.com/150?text=Premier",
+    product_keywords: "luxury goods, premium test products, exclusive items",
+    normalized_domain: "premierluxury.example.com",
     industries: ["Luxury", "Retail"],
     star_rating: 5,
     auto_star_rating: 3,
@@ -149,6 +173,12 @@ const sampleCompanies = [
       { address: "999 Luxury Ln, Miami, FL", lat: 25.7617, lng: -80.1918, is_hq: true },
       { address: "111 Elite Way, Beverly Hills, CA", lat: 34.0822, lng: -118.4065, is_hq: false },
     ],
+    manufacturing_geocodes: [
+      { address: "999 Luxury Ln, Miami, FL", lat: 25.7617, lng: -80.1918 },
+      { address: "111 Elite Way, Beverly Hills, CA", lat: 34.0822, lng: -118.4065 },
+    ],
+    hq_lat: 25.7617,
+    hq_lng: -80.1918,
     affiliate_links: [
       {
         url: "https://example.com/premier",
@@ -166,7 +196,7 @@ const sampleCompanies = [
     updated_at: new Date().toISOString(),
   },
   {
-    id: "healthfirst-wellness",
+    id: "test-healthfirst-wellness",
     company_name: "HealthFirst Wellness",
     name: "HealthFirst Wellness",
     tagline: "Your path to optimal health",
@@ -174,6 +204,8 @@ const sampleCompanies = [
     amazon_store_url: "https://amazon.com/s?k=healthfirst",
     amazon_url: "https://amazon.com/s?k=healthfirst",
     logo_url: "https://via.placeholder.com/150?text=HealthFirst",
+    product_keywords: "wellness supplements, test products, health vitamins",
+    normalized_domain: "healthfirst.example.com",
     industries: ["Health & Wellness", "Supplements"],
     star_rating: 4,
     auto_star_rating: 2,
@@ -181,6 +213,11 @@ const sampleCompanies = [
     manufacturing_locations: [
       { address: "555 Health Ave, Austin, TX", lat: 30.2672, lng: -97.7431, is_hq: true },
     ],
+    manufacturing_geocodes: [
+      { address: "555 Health Ave, Austin, TX", lat: 30.2672, lng: -97.7431 },
+    ],
+    hq_lat: 30.2672,
+    hq_lng: -97.7431,
     affiliate_links: [
       {
         url: "https://example.com/healthfirst",
@@ -198,7 +235,7 @@ const sampleCompanies = [
     updated_at: new Date().toISOString(),
   },
   {
-    id: "smarttech-solutions",
+    id: "test-smarttech-solutions",
     company_name: "SmartTech Solutions",
     name: "SmartTech Solutions",
     tagline: "Smart technology for modern living",
@@ -206,6 +243,8 @@ const sampleCompanies = [
     amazon_store_url: "https://amazon.com/s?k=smarttech",
     amazon_url: "https://amazon.com/s?k=smarttech",
     logo_url: "https://via.placeholder.com/150?text=SmartTech",
+    product_keywords: "smart home devices, test IoT solutions, connected technology",
+    normalized_domain: "smarttech.example.com",
     industries: ["IoT", "Smart Home"],
     star_rating: 4,
     auto_star_rating: 3,
@@ -214,6 +253,12 @@ const sampleCompanies = [
       { address: "777 Smart St, Boston, MA", lat: 42.3601, lng: -71.0589, is_hq: true },
       { address: "888 Connected Ct, Denver, CO", lat: 39.7392, lng: -104.9903, is_hq: false },
     ],
+    manufacturing_geocodes: [
+      { address: "777 Smart St, Boston, MA", lat: 42.3601, lng: -71.0589 },
+      { address: "888 Connected Ct, Denver, CO", lat: 39.7392, lng: -104.9903 },
+    ],
+    hq_lat: 42.3601,
+    hq_lng: -71.0589,
     affiliate_links: [
       {
         url: "https://example.com/smarttech",
@@ -233,7 +278,7 @@ const sampleCompanies = [
     updated_at: new Date().toISOString(),
   },
   {
-    id: "gourmet-treats",
+    id: "test-gourmet-treats",
     company_name: "Gourmet Treats",
     name: "Gourmet Treats",
     tagline: "Artisanal food products",
@@ -241,6 +286,8 @@ const sampleCompanies = [
     amazon_store_url: "https://amazon.com/s?k=gourmet+treats",
     amazon_url: "https://amazon.com/s?k=gourmet+treats",
     logo_url: "https://via.placeholder.com/150?text=Gourmet",
+    product_keywords: "artisanal food, test products, gourmet treats",
+    normalized_domain: "gourmetreats.example.com",
     industries: ["Food & Beverage", "Gourmet"],
     star_rating: 3,
     auto_star_rating: 2,
@@ -248,6 +295,11 @@ const sampleCompanies = [
     manufacturing_locations: [
       { address: "333 Culinary Ct, Napa, CA", lat: 38.2919, lng: -122.2580, is_hq: true },
     ],
+    manufacturing_geocodes: [
+      { address: "333 Culinary Ct, Napa, CA", lat: 38.2919, lng: -122.2580 },
+    ],
+    hq_lat: 38.2919,
+    hq_lng: -122.2580,
     affiliate_links: [
       {
         url: "https://example.com/gourmet",
@@ -265,7 +317,7 @@ const sampleCompanies = [
     updated_at: new Date().toISOString(),
   },
   {
-    id: "fitlife-equipment",
+    id: "test-fitlife-equipment",
     company_name: "FitLife Equipment",
     name: "FitLife Equipment",
     tagline: "Professional fitness equipment",
@@ -273,6 +325,8 @@ const sampleCompanies = [
     amazon_store_url: "https://amazon.com/s?k=fitlife",
     amazon_url: "https://amazon.com/s?k=fitlife",
     logo_url: "https://via.placeholder.com/150?text=FitLife",
+    product_keywords: "fitness equipment, test gym machines, sports gear",
+    normalized_domain: "fitlife.example.com",
     industries: ["Fitness", "Sports"],
     star_rating: 4,
     auto_star_rating: 3,
@@ -281,6 +335,12 @@ const sampleCompanies = [
       { address: "444 Gym Blvd, Houston, TX", lat: 29.7604, lng: -95.3698, is_hq: true },
       { address: "555 Fitness Way, Phoenix, AZ", lat: 33.4484, lng: -112.074, is_hq: false },
     ],
+    manufacturing_geocodes: [
+      { address: "444 Gym Blvd, Houston, TX", lat: 29.7604, lng: -95.3698 },
+      { address: "555 Fitness Way, Phoenix, AZ", lat: 33.4484, lng: -112.074 },
+    ],
+    hq_lat: 29.7604,
+    hq_lng: -95.3698,
     affiliate_links: [
       {
         url: "https://example.com/fitlife",
@@ -300,7 +360,7 @@ const sampleCompanies = [
     updated_at: new Date().toISOString(),
   },
   {
-    id: "eduvision-solutions",
+    id: "test-eduvision-solutions",
     company_name: "EduVision Solutions",
     name: "EduVision Solutions",
     tagline: "Educational technology platform",
@@ -308,6 +368,8 @@ const sampleCompanies = [
     amazon_store_url: "https://amazon.com/s?k=eduvision",
     amazon_url: "https://amazon.com/s?k=eduvision",
     logo_url: "https://via.placeholder.com/150?text=EduVision",
+    product_keywords: "education platforms, test learning systems, EdTech solutions",
+    normalized_domain: "eduvision.example.com",
     industries: ["Education", "EdTech"],
     star_rating: 4,
     auto_star_rating: 1,
@@ -315,6 +377,11 @@ const sampleCompanies = [
     manufacturing_locations: [
       { address: "666 Education Ln, Chicago, IL", lat: 41.8781, lng: -87.6298, is_hq: true },
     ],
+    manufacturing_geocodes: [
+      { address: "666 Education Ln, Chicago, IL", lat: 41.8781, lng: -87.6298 },
+    ],
+    hq_lat: 41.8781,
+    hq_lng: -87.6298,
     affiliate_links: [
       {
         url: "https://example.com/eduvision",
@@ -332,7 +399,7 @@ const sampleCompanies = [
     updated_at: new Date().toISOString(),
   },
   {
-    id: "globaltrade-export",
+    id: "test-globaltrade-export",
     company_name: "GlobalTrade Export",
     name: "GlobalTrade Export",
     tagline: "International trade solutions",
@@ -340,6 +407,8 @@ const sampleCompanies = [
     amazon_store_url: "https://amazon.com/s?k=globaltrade",
     amazon_url: "https://amazon.com/s?k=globaltrade",
     logo_url: "https://via.placeholder.com/150?text=GlobalTrade",
+    product_keywords: "import export, test logistics, international trade",
+    normalized_domain: "globaltrade.example.com",
     industries: ["Import/Export", "Logistics"],
     star_rating: 3,
     auto_star_rating: 3,
@@ -348,6 +417,12 @@ const sampleCompanies = [
       { address: "888 Trade St, New York, NY", lat: 40.7128, lng: -74.006, is_hq: true },
       { address: "999 Export Way, Long Beach, CA", lat: 33.7701, lng: -118.1937, is_hq: false },
     ],
+    manufacturing_geocodes: [
+      { address: "888 Trade St, New York, NY", lat: 40.7128, lng: -74.006 },
+      { address: "999 Export Way, Long Beach, CA", lat: 33.7701, lng: -118.1937 },
+    ],
+    hq_lat: 40.7128,
+    hq_lng: -74.006,
     affiliate_links: [
       {
         url: "https://example.com/globaltrade",
