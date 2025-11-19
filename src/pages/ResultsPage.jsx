@@ -140,12 +140,13 @@ export default function ResultsPage() {
     await doSearch({ q, sort, country, state, city, take: 50, skip: 0, append: false });
   }
 
-  async function doSearch({ q, sort, country, state, city, take = 50, skip = 0, append = false }) {
+  async function doSearch({ q, sort, country, state, city, take = 50, skip = 0, append = false, location = null }) {
     setLoading(true);
     setStatus("Searching…");
     try {
       const { items = [], meta } = await searchCompanies({ q, sort, country, state, city, take, skip });
-      const withDistances = items.map((c) => normalizeStars(attachDistances(c, userLoc, unit)));
+      const effectiveLocation = location || userLoc;
+      const withDistances = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
       const withReviews = await loadReviews(withDistances);
 
       const pageCount = withReviews.length;
