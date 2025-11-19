@@ -321,7 +321,7 @@ export default function ExpandableCompanyRow({
   return (
     <div
       onClick={handleRowClick}
-      className="grid grid-cols-12 gap-3 border rounded-lg p-4 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors"
+      className="grid grid-cols-12 gap-3 border rounded-lg p-2 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors"
     >
       <div className="col-span-4">
         <div className="font-bold text-gray-900">{company.company_name}</div>
