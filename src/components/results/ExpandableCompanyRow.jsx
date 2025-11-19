@@ -150,6 +150,24 @@ export default function ExpandableCompanyRow({
       );
     }
 
+    if (colKey === "manu-expanded") {
+      return (
+        <div className="space-y-2">
+          {manuLocations.map((loc, idx) => (
+            <div key={idx} className="text-sm flex items-start gap-1">
+              {typeof loc.distance === "number" && (
+                <div className="text-xs text-gray-600 font-medium whitespace-nowrap pt-0.5">
+                  {formatDistance(loc.distance, unit)}
+                </div>
+              )}
+              <div className="text-gray-900">{loc.formatted}</div>
+            </div>
+          ))}
+          {manuLocations.length === 0 && <div className="text-sm text-gray-500">—</div>}
+        </div>
+      );
+    }
+
     if (colKey === "stars") {
       const reviews = getReviewsPreviews();
       return (
