@@ -99,7 +99,7 @@ const ResultsTable = ({ companies, userLocation, onKeywordSearch, language, view
       <div className="md:hidden sticky top-4 z-10 p-2">
         <MultiToggle
           options={[
-            { value: 'hq_distance', label: 'HQ', icon: <MapPin size={16} /> },
+            { value: 'hq_distance', label: 'Home', icon: <MapPin size={16} /> },
             { value: 'mfg_distance', label: 'Mfg', icon: <Factory size={16} /> },
             { value: 'star_rating', label: 'Stars', icon: <Star size={16} /> },
           ]}
