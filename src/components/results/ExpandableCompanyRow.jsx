@@ -78,11 +78,20 @@ export default function ExpandableCompanyRow({
     return typeof dist === "number" ? `${dist.toFixed(1)} ${unitLabel}` : "—";
   };
 
+  const formatLocationDisplayName = (geo) => {
+    // Format as "City, State/Province, Country" without street address
+    const parts = [];
+    if (geo.city) parts.push(geo.city);
+    if (geo.state) parts.push(geo.state);
+    if (geo.country) parts.push(geo.country);
+    return parts.length > 0 ? parts.join(", ") : "—";
+  };
+
   const getLocationsList = (locations, geocodes, isManu = false) => {
     const sourceArray = Array.isArray(geocodes) && geocodes.length > 0 ? geocodes : (Array.isArray(locations) ? locations : []);
     if (!sourceArray || !Array.isArray(sourceArray)) return [];
     return sourceArray.slice(0, 5).map((geo) => ({
-      formatted: geo.formatted_address || geo.address || `${geo.city}, ${geo.country}`,
+      formatted: formatLocationDisplayName(geo),
       distance: isManu ? geo.dist : null,
     }));
   };
