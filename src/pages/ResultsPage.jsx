@@ -212,7 +212,7 @@ export default function ResultsPage() {
   }
 
   return (
-    <div className="px-4 pb-10 max-w-6xl mx-auto">
+    <div className="px-2 pb-10 max-w-6xl mx-auto">
       {/* Two-row search under the site header */}
       <div className="mt-6 mb-4">
         <SearchCard onSubmitParams={handleInlineSearch} />
