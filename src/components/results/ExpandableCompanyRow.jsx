@@ -88,11 +88,19 @@ export default function ExpandableCompanyRow({
   };
 
   const getLocationsList = (locations, geocodes, distances = [], isManu = false) => {
+    // For manufacturing, prefer the pre-calculated distances array which already has geo data with distances
+    if (isManu && Array.isArray(distances) && distances.length > 0) {
+      return distances.slice(0, 5).map((geo) => ({
+        formatted: formatLocationDisplayName(geo),
+        distance: typeof geo.dist === "number" ? geo.dist : null,
+      }));
+    }
+    // Otherwise use geocodes or locations
     const sourceArray = Array.isArray(geocodes) && geocodes.length > 0 ? geocodes : (Array.isArray(locations) ? locations : []);
     if (!sourceArray || !Array.isArray(sourceArray)) return [];
-    return sourceArray.slice(0, 5).map((geo, idx) => ({
+    return sourceArray.slice(0, 5).map((geo) => ({
       formatted: formatLocationDisplayName(geo),
-      distance: isManu && Array.isArray(distances) && distances[idx] ? distances[idx].dist : null,
+      distance: null,
     }));
   };
 
