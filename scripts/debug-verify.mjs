@@ -12,7 +12,7 @@ const client = new CosmosClient({ endpoint, key });
 const container = client.database(databaseId).container(containerId);
 
 async function check() {
-  const sql = `SELECT c.id, c.company_name, c.headquarters, c.manufacturing_locations FROM c WHERE CONTAINS(LOWER(c.company_name), 'test company') ORDER BY c.company_name LIMIT 3`;
+  const sql = `SELECT TOP 3 c.id, c.company_name, c.headquarters, c.manufacturing_locations FROM c WHERE CONTAINS(LOWER(c.company_name), 'test company') ORDER BY c.company_name`;
   const { resources } = await container.items.query(sql, { enableCrossPartitionQuery: true }).fetchAll();
   
   resources.forEach((c) => {
