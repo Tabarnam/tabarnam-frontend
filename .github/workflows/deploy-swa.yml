@@ -26,29 +26,29 @@ jobs:
         run: |
           echo "=== Critical pre-deployment checks ==="
           echo ""
-          
+
           test -f dist/index.html || (echo "❌ FATAL: dist/index.html missing" && exit 1)
           echo "✓ dist/index.html exists"
-          
+
           if grep -q "/src/main.jsx" dist/index.html; then
             echo "❌ FATAL: dist/index.html still references /src/main.jsx (dev version)"
             exit 1
           fi
           echo "✓ dist/index.html does NOT reference /src/main.jsx (built version confirmed)"
-          
+
           grep -q "/assets/index-" dist/index.html || (echo "❌ FATAL: dist/index.html doesn't reference /assets/index-*.js" && exit 1)
           echo "✓ dist/index.html references /assets/index-*.js (built correctly)"
-          
+
           test -f dist/staticwebapp.config.json || (echo "❌ FATAL: dist/staticwebapp.config.json missing" && exit 1)
           echo "✓ dist/staticwebapp.config.json exists"
-          
+
           grep -q "application/javascript" dist/staticwebapp.config.json || (echo "⚠ Warning: mimeTypes.js not found in config" && exit 1)
           echo "✓ dist/staticwebapp.config.json has mimeTypes for .js"
-          
+
           echo ""
           echo "=== dist/ folder contents ==="
           ls -lh dist/ | head -20
-          
+
           echo ""
           echo "✅ All pre-deployment checks passed"
 
@@ -60,3 +60,11 @@ jobs:
           app_location: "dist"
           skip_app_build: true
           api_location: "api"
+
+      - name: Seed test companies
+        env:
+          COSMOS_DB_ENDPOINT: ${{ secrets.COSMOS_DB_ENDPOINT }}
+          COSMOS_DB_KEY: ${{ secrets.COSMOS_DB_KEY }}
+          COSMOS_DB_DATABASE: tabarnam-db
+          COSMOS_DB_COMPANIES_CONTAINER: companies
+        run: node scripts/seed-test-companies.mjs
