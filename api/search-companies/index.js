@@ -118,7 +118,9 @@ app.http("searchCompanies", {
           const sqlA = `
             SELECT TOP @take c.id, c.company_name, c.industries, c.url, c.amazon_url,
                              c.normalized_domain, c.created_at, c.session_id, c._ts,
-                             c.manufacturing_locations
+                             c.manufacturing_locations, c.manufacturing_geocodes,
+                             c.hq_lat, c.hq_lng, c.product_keywords, c.star_rating,
+                             c.star_score, c.confidence_score
             FROM c
             WHERE IS_DEFINED(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
             ${whereText}
@@ -135,7 +137,9 @@ app.http("searchCompanies", {
             const sqlB = `
               SELECT TOP @take2 c.id, c.company_name, c.industries, c.url, c.amazon_url,
                                 c.normalized_domain, c.created_at, c.session_id, c._ts,
-                                c.manufacturing_locations
+                                c.manufacturing_locations, c.manufacturing_geocodes,
+                                c.hq_lat, c.hq_lng, c.product_keywords, c.star_rating,
+                                c.star_score, c.confidence_score
               FROM c
               WHERE (NOT IS_DEFINED(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
               ${whereText}
@@ -152,14 +156,20 @@ app.http("searchCompanies", {
           const sql = q
             ? `
               SELECT TOP @take c.id, c.company_name, c.industries, c.url, c.amazon_url,
-                               c.normalized_domain, c.created_at, c.session_id, c._ts
+                               c.normalized_domain, c.created_at, c.session_id, c._ts,
+                               c.manufacturing_locations, c.manufacturing_geocodes,
+                               c.hq_lat, c.hq_lng, c.product_keywords, c.star_rating,
+                               c.star_score, c.confidence_score
               FROM c
               WHERE ${SQL_TEXT_FILTER}
               ${orderBy}
             `
             : `
               SELECT TOP @take c.id, c.company_name, c.industries, c.url, c.amazon_url,
-                               c.normalized_domain, c.created_at, c.session_id, c._ts
+                               c.normalized_domain, c.created_at, c.session_id, c._ts,
+                               c.manufacturing_locations, c.manufacturing_geocodes,
+                               c.hq_lat, c.hq_lng, c.product_keywords, c.star_rating,
+                               c.star_score, c.confidence_score
               FROM c
               ${orderBy}
             `;
