@@ -34,12 +34,12 @@ async function verifyLocations() {
 
     let allValid = true;
     resources.forEach((c, idx) => {
-      const hqCount = c.hq_count || 0;
-      const manuCount = c.manu_count || 0;
+      const hqCount = (c.headquarters && Array.isArray(c.headquarters)) ? c.headquarters.length : 0;
+      const manuCount = (c.manufacturing_locations && Array.isArray(c.manufacturing_locations)) ? c.manufacturing_locations.length : 0;
       const valid = hqCount >= 2 && manuCount >= 3;
-      
+
       if (!valid) allValid = false;
-      
+
       const status = valid ? "✓" : "✗";
       console.log(`${status} ${c.company_name}: ${hqCount} HQ, ${manuCount} Manufacturing`);
     });
