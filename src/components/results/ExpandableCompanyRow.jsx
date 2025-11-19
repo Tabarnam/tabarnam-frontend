@@ -79,8 +79,9 @@ export default function ExpandableCompanyRow({
   };
 
   const getLocationsList = (locations, geocodes, isManu = false) => {
-    if (!geocodes || !Array.isArray(geocodes)) return [];
-    return geocodes.slice(0, 5).map((geo) => ({
+    const sourceArray = Array.isArray(geocodes) && geocodes.length > 0 ? geocodes : (Array.isArray(locations) ? locations : []);
+    if (!sourceArray || !Array.isArray(sourceArray)) return [];
+    return sourceArray.slice(0, 5).map((geo) => ({
       formatted: geo.formatted_address || geo.address || `${geo.city}, ${geo.country}`,
       distance: isManu ? geo.dist : null,
     }));
