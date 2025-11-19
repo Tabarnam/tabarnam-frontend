@@ -112,12 +112,12 @@ export default function ExpandableCompanyRow({
   );
 
   const hqLocations = company.headquarters && Array.isArray(company.headquarters)
-    ? company.headquarters.slice(0, 5).map((hq) => ({
+    ? company.headquarters.slice(0, 5).map((hq, idx) => ({
         formatted: formatLocationDisplayName(hq),
-        distance: null,
+        distance: idx === 0 ? company._hqDist : null,
       }))
     : company.headquarters_location
-    ? [{ formatted: company.headquarters_location, distance: null }]
+    ? [{ formatted: company.headquarters_location, distance: company._hqDist }]
     : [];
 
   const hqLocation = hqLocations;
@@ -134,7 +134,7 @@ export default function ExpandableCompanyRow({
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
               {typeof loc.distance === "number" && (
-                <div className="text-xs text-gray-600 font-medium whitespace-nowrap pt-0.5">
+                <div className="text-xs font-medium whitespace-nowrap pt-0.5" style={{ color: "#B1DDE3" }}>
                   {formatDistance(loc.distance, unit)}
                 </div>
               )}
@@ -150,8 +150,13 @@ export default function ExpandableCompanyRow({
       return (
         <div className="space-y-1">
           {hqLocation.map((loc, idx) => (
-            <div key={idx} className="text-sm text-gray-900">
-              {loc.formatted}
+            <div key={idx} className="text-sm flex items-start gap-1">
+              {typeof loc.distance === "number" && (
+                <div className="text-xs font-medium whitespace-nowrap pt-0.5" style={{ color: "#B1DDE3" }}>
+                  {formatDistance(loc.distance, unit)}
+                </div>
+              )}
+              <div className="text-gray-900">{loc.formatted}</div>
             </div>
           ))}
           {hqLocation.length === 0 && <div className="text-sm text-gray-500">—</div>}
@@ -165,7 +170,7 @@ export default function ExpandableCompanyRow({
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
               {typeof loc.distance === "number" && (
-                <div className="text-xs text-gray-600 font-medium whitespace-nowrap pt-0.5">
+                <div className="text-xs font-medium whitespace-nowrap pt-0.5" style={{ color: "#B1DDE3" }}>
                   {formatDistance(loc.distance, unit)}
                 </div>
               )}
@@ -365,7 +370,6 @@ export default function ExpandableCompanyRow({
           <div className="mt-2 space-y-0.5 text-xs">
             {affiliateLinks.map((link, idx) => (
               <div key={link.url || idx} className="truncate">
-                <span className="font-semibold text-gray-700 mr-1">Aff.</span>
                 <span className="text-blue-600 hover:underline">
                   {inferAffiliateLabel(link, `Affiliate ${idx + 1}`)}
                 </span>
@@ -373,7 +377,6 @@ export default function ExpandableCompanyRow({
             ))}
             {amazonLink && (
               <div className="truncate">
-                <span className="font-semibold text-gray-700 mr-1">Aff.</span>
                 <span className="text-blue-600 hover:underline">Amazon Store</span>
               </div>
             )}
