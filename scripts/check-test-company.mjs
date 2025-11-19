@@ -17,13 +17,26 @@ async function check() {
   
   if (resources.length > 0) {
     const c = resources[0];
-    console.log(JSON.stringify({
-      id: c.id,
-      company_name: c.company_name,
-      headquarters: c.headquarters,
-      headquarters_location: c.headquarters_location,
-      manufacturing_locations: c.manufacturing_locations ? c.manufacturing_locations.slice(0, 1) : undefined,
-    }, null, 2));
+    const hqCount = c.headquarters ? c.headquarters.length : 0;
+    const manuCount = c.manufacturing_locations ? c.manufacturing_locations.length : 0;
+
+    console.log(`✅ TEST Company 1 Location Data:`);
+    console.log(`   Headquarters: ${hqCount} locations`);
+    console.log(`   Manufacturing: ${manuCount} locations`);
+
+    if (hqCount > 0) {
+      console.log(`\n   HQ Locations:`);
+      c.headquarters.forEach((hq, i) => {
+        console.log(`   ${i + 1}. ${hq.address} (${hq.city}, ${hq.postal_code})`);
+      });
+    }
+
+    if (manuCount > 0) {
+      console.log(`\n   Manufacturing Locations:`);
+      c.manufacturing_locations.forEach((manu, i) => {
+        console.log(`   ${i + 1}. ${manu.address} (${manu.city}, ${manu.postal_code})`);
+      });
+    }
   }
   process.exit(0);
 }
