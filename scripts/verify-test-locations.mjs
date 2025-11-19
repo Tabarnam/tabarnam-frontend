@@ -19,10 +19,8 @@ async function verifyLocations() {
     const container = client.database(databaseId).container(containerId);
 
     const sql = `
-      SELECT c.id, c.company_name, 
-             ARRAY_LENGTH(c.headquarters) as hq_count,
-             ARRAY_LENGTH(c.manufacturing_locations) as manu_count
-      FROM c 
+      SELECT c.id, c.company_name, c.headquarters, c.manufacturing_locations
+      FROM c
       WHERE CONTAINS(LOWER(c.company_name), 'test company')
       ORDER BY c.company_name
     `;
