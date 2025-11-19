@@ -81,7 +81,7 @@ export default function ExpandableCompanyRow({
   const getLocationsList = (locations, geocodes, isManu = false) => {
     if (!geocodes || !Array.isArray(geocodes)) return [];
     return geocodes.slice(0, 5).map((geo) => ({
-      formatted: geo.formatted_address || `${geo.city}, ${geo.country}`,
+      formatted: geo.formatted_address || geo.address || `${geo.city}, ${geo.country}`,
       distance: isManu ? geo.dist : null,
     }));
   };
@@ -91,9 +91,17 @@ export default function ExpandableCompanyRow({
     company.manufacturing_geocodes,
     true
   );
-  const hqLocation = company.headquarters_location
+
+  const hqLocations = company.headquarters && Array.isArray(company.headquarters)
+    ? company.headquarters.slice(0, 5).map((hq) => ({
+        formatted: hq.address || `${hq.city}, ${hq.country}`,
+        distance: null,
+      }))
+    : company.headquarters_location
     ? [{ formatted: company.headquarters_location, distance: null }]
     : [];
+
+  const hqLocation = hqLocations;
 
   const getReviewsPreviews = () => {
     if (!company._reviews) return [];
