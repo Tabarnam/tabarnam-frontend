@@ -3,6 +3,7 @@ import { xaiImport } from "@/lib/api/xaiImport";
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { geocode } from "@/lib/google";
+import { calculateDistance, usesMiles } from "@/lib/distance";
 import SearchCard from "@/components/home/SearchCard";
 import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
 import { searchCompanies } from "@/lib/searchCompanies";
@@ -156,7 +157,7 @@ export default function ResultsPage() {
         if (newTotal === 0) {
           setStatus("⚠️ Search API unavailable and no sample companies matched your search.");
         } else {
-          setStatus(`⚠️ Search API unavailable – showing ${newTotal} sample companies.`);
+          setStatus(`⚠️ Search API unavailable ��� showing ${newTotal} sample companies.`);
         }
       } else if (!append && newTotal === 0) {
         setStatus("No companies found matching your criteria.");
