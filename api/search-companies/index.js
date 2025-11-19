@@ -184,12 +184,16 @@ app.http("searchCompanies", {
         }
 
         // Normalize created_at from _ts when missing
+        // Also ensure headquarters and manufacturing locations are included
         const normalized = items.map((r) => {
           if (!r?.created_at && typeof r?._ts === "number") {
             try {
               r.created_at = new Date(r._ts * 1000).toISOString();
             } catch {}
           }
+          // Ensure these fields exist (for backward compatibility)
+          if (!r.headquarters) r.headquarters = [];
+          if (!r.manufacturing_locations) r.manufacturing_locations = [];
           return r;
         });
 
