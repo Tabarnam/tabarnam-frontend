@@ -157,7 +157,7 @@ export default function ResultsPage() {
         if (newTotal === 0) {
           setStatus("⚠️ Search API unavailable and no sample companies matched your search.");
         } else {
-          setStatus(`⚠️ Search API unavailable ��� showing ${newTotal} sample companies.`);
+          setStatus(`⚠️ Search API unavailable – showing ${newTotal} sample companies.`);
         }
       } else if (!append && newTotal === 0) {
         setStatus("No companies found matching your criteria.");
@@ -359,7 +359,7 @@ function attachDistances(c, userLoc, unit) {
       hqLng = c.hq_lng;
     }
     if (hqLat !== null && hqLng !== null) {
-      const km = haversine(userLoc.lat, userLoc.lng, hqLat, hqLng);
+      const km = calculateDistance(userLoc.lat, userLoc.lng, hqLat, hqLng);
       out._hqDist = unit === "mi" ? km * 0.621371 : km;
     }
   }
@@ -376,7 +376,7 @@ function attachDistances(c, userLoc, unit) {
       const dists = manuGeoList
         .filter(m => isNum(m.lat) && isNum(m.lng))
         .map(m => {
-          const km = haversine(userLoc.lat, userLoc.lng, m.lat, m.lng);
+          const km = calculateDistance(userLoc.lat, userLoc.lng, m.lat, m.lng);
           const d = unit === "mi" ? km * 0.621371 : km;
           return { ...m, dist: d };
         })
