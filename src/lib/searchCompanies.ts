@@ -24,6 +24,17 @@ export interface SearchOptions {
   city?: unknown;
 }
 
+export interface LocationData {
+  address?: string;
+  city?: string;
+  postal_code?: string;
+  lat?: number;
+  lng?: number;
+  formatted_address?: string;
+  is_hq?: boolean;
+  dist?: number;
+}
+
 export interface Company {
   id: string;
   company_name: string;
@@ -31,7 +42,13 @@ export interface Company {
   url?: string;
   amazon_url?: string;
   normalized_domain?: string;
-  manufacturing_locations?: string[];
+  headquarters?: LocationData[];
+  headquarters_location?: string;
+  manufacturing_locations?: LocationData[];
+  manufacturing_geocodes?: LocationData[];
+  product_keywords?: string;
+  star_rating?: number;
+  confidence_score?: number;
 }
 
 export async function searchCompanies(opts: SearchOptions) {
