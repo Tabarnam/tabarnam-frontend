@@ -3,6 +3,7 @@ import { xaiImport } from "@/lib/api/xaiImport";
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { geocode } from "@/lib/google";
+import { calculateDistance, usesMiles } from "@/lib/distance";
 import SearchCard from "@/components/home/SearchCard";
 import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
 import { searchCompanies } from "@/lib/searchCompanies";
@@ -212,7 +213,7 @@ export default function ResultsPage() {
   }
 
   return (
-    <div className="px-4 pb-10 max-w-6xl mx-auto">
+    <div className="px-2 pb-10 max-w-6xl mx-auto">
       {/* Two-row search under the site header */}
       <div className="mt-6 mb-4">
         <SearchCard onSubmitParams={handleInlineSearch} />
@@ -358,7 +359,7 @@ function attachDistances(c, userLoc, unit) {
       hqLng = c.hq_lng;
     }
     if (hqLat !== null && hqLng !== null) {
-      const km = haversine(userLoc.lat, userLoc.lng, hqLat, hqLng);
+      const km = calculateDistance(userLoc.lat, userLoc.lng, hqLat, hqLng);
       out._hqDist = unit === "mi" ? km * 0.621371 : km;
     }
   }
@@ -375,7 +376,7 @@ function attachDistances(c, userLoc, unit) {
       const dists = manuGeoList
         .filter(m => isNum(m.lat) && isNum(m.lng))
         .map(m => {
-          const km = haversine(userLoc.lat, userLoc.lng, m.lat, m.lng);
+          const km = calculateDistance(userLoc.lat, userLoc.lng, m.lat, m.lng);
           const d = unit === "mi" ? km * 0.621371 : km;
           return { ...m, dist: d };
         })
@@ -399,10 +400,4 @@ function getStarScore(c) {
     : null;
 }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-function haversine(lat1, lon1, lat2, lon2) {
-  const toRad = d => (d*Math.PI)/180, R=6371;
-  const dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
-  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
-  return 2*R*Math.asin(Math.sqrt(a));
-}
 function isNum(v){ return Number.isFinite(v); }

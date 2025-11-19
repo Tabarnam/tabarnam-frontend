@@ -78,11 +78,20 @@ export default function ExpandableCompanyRow({
     return typeof dist === "number" ? `${dist.toFixed(1)} ${unitLabel}` : "—";
   };
 
+  const formatLocationDisplayName = (geo) => {
+    // Format as "City, State/Province, Country" without street address
+    const parts = [];
+    if (geo.city) parts.push(geo.city);
+    if (geo.state) parts.push(geo.state);
+    if (geo.country) parts.push(geo.country);
+    return parts.length > 0 ? parts.join(", ") : "—";
+  };
+
   const getLocationsList = (locations, geocodes, isManu = false) => {
     const sourceArray = Array.isArray(geocodes) && geocodes.length > 0 ? geocodes : (Array.isArray(locations) ? locations : []);
     if (!sourceArray || !Array.isArray(sourceArray)) return [];
     return sourceArray.slice(0, 5).map((geo) => ({
-      formatted: geo.formatted_address || geo.address || `${geo.city}, ${geo.country}`,
+      formatted: formatLocationDisplayName(geo),
       distance: isManu ? geo.dist : null,
     }));
   };
@@ -112,13 +121,15 @@ export default function ExpandableCompanyRow({
   const renderRightColumn = (colKey) => {
     if (colKey === "manu") {
       return (
-        <div className="space-y-1">
+        <div className="space-y-2">
           {manuLocations.map((loc, idx) => (
-            <div key={idx} className="text-sm">
-              <div className="text-gray-900">{loc.formatted}</div>
+            <div key={idx} className="text-sm flex items-start gap-1">
               {typeof loc.distance === "number" && (
-                <div className="text-xs text-gray-500">{formatDistance(loc.distance, unit)}</div>
+                <div className="text-xs text-gray-600 font-medium whitespace-nowrap pt-0.5">
+                  {formatDistance(loc.distance, unit)}
+                </div>
               )}
+              <div className="text-gray-900">{loc.formatted}</div>
             </div>
           ))}
           {manuLocations.length === 0 && <div className="text-sm text-gray-500">—</div>}
@@ -135,6 +146,24 @@ export default function ExpandableCompanyRow({
             </div>
           ))}
           {hqLocation.length === 0 && <div className="text-sm text-gray-500">—</div>}
+        </div>
+      );
+    }
+
+    if (colKey === "manu-expanded") {
+      return (
+        <div className="space-y-2">
+          {manuLocations.map((loc, idx) => (
+            <div key={idx} className="text-sm flex items-start gap-1">
+              {typeof loc.distance === "number" && (
+                <div className="text-xs text-gray-600 font-medium whitespace-nowrap pt-0.5">
+                  {formatDistance(loc.distance, unit)}
+                </div>
+              )}
+              <div className="text-gray-900">{loc.formatted}</div>
+            </div>
+          ))}
+          {manuLocations.length === 0 && <div className="text-sm text-gray-500">—</div>}
         </div>
       );
     }
@@ -312,7 +341,7 @@ export default function ExpandableCompanyRow({
   return (
     <div
       onClick={handleRowClick}
-      className="grid grid-cols-12 gap-3 border rounded-lg p-4 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors"
+      className="grid grid-cols-12 gap-3 border rounded-lg p-2 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors"
     >
       <div className="col-span-4">
         <div className="font-bold text-gray-900">{company.company_name}</div>
