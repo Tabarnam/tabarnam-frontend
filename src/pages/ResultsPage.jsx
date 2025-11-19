@@ -83,7 +83,7 @@ export default function ResultsPage() {
       setSortBy(sortParam === "hq" || sortParam === "stars" ? sortParam : "manu");
 
       if (!cancelled && qParam) {
-        await doSearch({
+        await doSearchWithLocation({
           q: qParam,
           sort: sortParam,
           country: countryParam,
@@ -92,6 +92,7 @@ export default function ResultsPage() {
           take: 50,
           skip: 0,
           append: false,
+          location: loc,
         });
       } else if (!cancelled) {
         setResults([]);
