@@ -403,7 +403,7 @@ async function seedTestLocations() {
         manufacturing_geocodes: manuLocations,
       };
 
-      await container.item(company.id, company.id).replace(updatedCompany);
+      await container.items.upsert(updatedCompany);
 
       companyIndex++;
       process.stdout.write(`\r✓ Updated ${companyIndex}/${resources.length} companies...`);
