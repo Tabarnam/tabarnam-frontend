@@ -7,14 +7,14 @@
     "node": ">=20.19 <23"
   },
   "scripts": {
-  "build:geo": "node scripts/build-geo.mjs",
-  "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
-  "dev:ipv4": "vite --host 127.0.0.1 --port 5173 --strictPort",
-  "build": "vite build",
-  "preview": "vite preview --host ::1 --port 5173"
-  }
-,
+    "build:geo": "node scripts/build-geo.mjs",
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "dev:ipv4": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview --host ::1 --port 5173"
+  },
   "dependencies": {
+    "@azure/cosmos": "^4.7.0",
     "@emotion/is-prop-valid": "^1.2.1",
     "@radix-ui/react-alert-dialog": "^1.0.5",
     "@radix-ui/react-avatar": "^1.0.3",
@@ -33,6 +33,7 @@
     "axios": "^1.7.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "dotenv": "^17.2.3",
     "framer-motion": "^10.16.4",
     "leaflet": "1.9",
     "lucide-react": "^0.285.0",
@@ -45,10 +46,10 @@
     "react-dropzone": "^14.2.3",
     "react-helmet-async": "^2.0.5",
     "react-hook-form": "^7.61.1",
-    "react-spinners": "^0.13.8",
     "react-hot-toast": "^2.5.2",
     "react-leaflet": "^4.2.1",
     "react-router-dom": "^6.16.0",
+    "react-spinners": "^0.13.8",
     "react-table": "^7.8.0",
     "resend": "^2.0.0",
     "sonner": "^2.0.6",

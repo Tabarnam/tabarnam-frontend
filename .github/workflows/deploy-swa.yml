@@ -63,8 +63,13 @@ jobs:
 
       - name: Seed test companies
         env:
-          COSMOS_DB_ENDPOINT: ${{ secrets.COSMOS_DB_ENDPOINT }}
-          COSMOS_DB_KEY: ${{ secrets.COSMOS_DB_KEY }}
+          COSMOS_DB_ENDPOINT: ${{ secrets.COSMOS_DB_ENDPOINT }} # yamllint disable-line rule:truthy
+          COSMOS_DB_KEY: ${{ secrets.COSMOS_DB_KEY }} # yamllint disable-line rule:truthy
           COSMOS_DB_DATABASE: tabarnam-db
           COSMOS_DB_COMPANIES_CONTAINER: companies
-        run: node scripts/seed-test-companies.mjs
+        run: |
+          if [ -z "$COSMOS_DB_ENDPOINT" ] || [ -z "$COSMOS_DB_KEY" ]; then
+            echo "⚠️ Warning: Cosmos DB secrets not set, skipping seeding"
+            exit 0
+          fi
+          node scripts/seed-test-companies.mjs
