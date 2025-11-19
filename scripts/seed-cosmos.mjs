@@ -7,8 +7,8 @@
 
 import { CosmosClient } from "@azure/cosmos";
 
-const COSMOS_ENDPOINT = process.env.COSMOS_DB_ENDPOINT || "https://tabarnamcosmos2356.documents.azure.com:443/";
-const COSMOS_KEY = process.env.COSMOS_DB_KEY || "";
+const COSMOS_ENDPOINT = process.env.COSMOS_DB_ENDPOINT;
+const COSMOS_KEY = process.env.COSMOS_DB_KEY;
 const DATABASE_ID = process.env.COSMOS_DB_DATABASE || "tabarnam-db";
 const CONTAINER_ID = process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies";
 
