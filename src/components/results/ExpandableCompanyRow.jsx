@@ -87,24 +87,33 @@ export default function ExpandableCompanyRow({
     return parts.length > 0 ? parts.join(", ") : "—";
   };
 
-  const getLocationsList = (locations, geocodes, isManu = false) => {
+  const getLocationsList = (locations, geocodes, distances = [], isManu = false) => {
+    // For manufacturing, prefer the pre-calculated distances array which already has geo data with distances
+    if (isManu && Array.isArray(distances) && distances.length > 0) {
+      return distances.slice(0, 5).map((geo) => ({
+        formatted: formatLocationDisplayName(geo),
+        distance: typeof geo.dist === "number" ? geo.dist : null,
+      }));
+    }
+    // Otherwise use geocodes or locations
     const sourceArray = Array.isArray(geocodes) && geocodes.length > 0 ? geocodes : (Array.isArray(locations) ? locations : []);
     if (!sourceArray || !Array.isArray(sourceArray)) return [];
     return sourceArray.slice(0, 5).map((geo) => ({
       formatted: formatLocationDisplayName(geo),
-      distance: isManu ? geo.dist : null,
+      distance: null,
     }));
   };
 
   const manuLocations = getLocationsList(
     company.manufacturing_locations,
     company.manufacturing_geocodes,
+    company._manuDists || [],
     true
   );
 
   const hqLocations = company.headquarters && Array.isArray(company.headquarters)
     ? company.headquarters.slice(0, 5).map((hq) => ({
-        formatted: hq.address || `${hq.city}, ${hq.country}`,
+        formatted: formatLocationDisplayName(hq),
         distance: null,
       }))
     : company.headquarters_location

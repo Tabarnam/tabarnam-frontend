@@ -92,6 +92,7 @@ export default function ResultsPage() {
           take: 50,
           skip: 0,
           append: false,
+          location: loc,
         });
       } else if (!cancelled) {
         setResults([]);
@@ -121,11 +122,13 @@ export default function ResultsPage() {
     setSearchParams(next, { replace: true });
 
     // Resolve typed location if present
+    let searchLocation = null;
     try {
       if (city || state || country) {
         const r = await geocode({ address: [city, state, country].filter(Boolean).join(", ") });
         const loc = r?.best?.location;
         if (loc) {
+          searchLocation = loc;
           setUserLoc({ lat: loc.lat, lng: loc.lng });
           const cc = r?.best?.components?.find(c => c.types?.includes("country"))?.short_name;
           if (cc) setUnit(milesCountries.has(cc) ? "mi" : "km");
@@ -136,15 +139,16 @@ export default function ResultsPage() {
     }
 
     setSortBy(sort === "hq" || sort === "stars" ? sort : "manu");
-    await doSearch({ q, sort, country, state, city, take: 50, skip: 0, append: false });
+    await doSearch({ q, sort, country, state, city, take: 50, skip: 0, append: false, location: searchLocation });
   }
 
-  async function doSearch({ q, sort, country, state, city, take = 50, skip = 0, append = false }) {
+  async function doSearch({ q, sort, country, state, city, take = 50, skip = 0, append = false, location = null }) {
     setLoading(true);
     setStatus("Searching…");
     try {
       const { items = [], meta } = await searchCompanies({ q, sort, country, state, city, take, skip });
-      const withDistances = items.map((c) => normalizeStars(attachDistances(c, userLoc, unit)));
+      const effectiveLocation = location || userLoc;
+      const withDistances = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
       const withReviews = await loadReviews(withDistances);
 
       const pageCount = withReviews.length;
