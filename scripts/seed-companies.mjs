@@ -39,6 +39,12 @@ const sampleCompanies = [
       { address: "123 Main St, New York, NY", lat: 40.7128, lng: -74.006, is_hq: true },
       { address: "456 Oak Ave, Los Angeles, CA", lat: 34.0522, lng: -118.2437, is_hq: false },
     ],
+    manufacturing_geocodes: [
+      { address: "123 Main St, New York, NY", lat: 40.7128, lng: -74.006 },
+      { address: "456 Oak Ave, Los Angeles, CA", lat: 34.0522, lng: -118.2437 },
+    ],
+    hq_lat: 40.7128,
+    hq_lng: -74.006,
     affiliate_links: [
       {
         url: "https://example.com/acme",
@@ -77,6 +83,11 @@ const sampleCompanies = [
     manufacturing_locations: [
       { address: "789 Tech Blvd, San Francisco, CA", lat: 37.7749, lng: -122.4194, is_hq: true },
     ],
+    manufacturing_geocodes: [
+      { address: "789 Tech Blvd, San Francisco, CA", lat: 37.7749, lng: -122.4194 },
+    ],
+    hq_lat: 37.7749,
+    hq_lng: -122.4194,
     affiliate_links: [
       {
         url: "https://example.com/techvision",
@@ -120,6 +131,12 @@ const sampleCompanies = [
       { address: "321 Green St, Portland, OR", lat: 45.5152, lng: -122.6784, is_hq: true },
       { address: "654 Forest Ave, Seattle, WA", lat: 47.6062, lng: -122.3321, is_hq: false },
     ],
+    manufacturing_geocodes: [
+      { address: "321 Green St, Portland, OR", lat: 45.5152, lng: -122.6784 },
+      { address: "654 Forest Ave, Seattle, WA", lat: 47.6062, lng: -122.3321 },
+    ],
+    hq_lat: 45.5152,
+    hq_lng: -122.6784,
     affiliate_links: [
       {
         url: "https://example.com/ecogreen",
@@ -156,6 +173,12 @@ const sampleCompanies = [
       { address: "999 Luxury Ln, Miami, FL", lat: 25.7617, lng: -80.1918, is_hq: true },
       { address: "111 Elite Way, Beverly Hills, CA", lat: 34.0822, lng: -118.4065, is_hq: false },
     ],
+    manufacturing_geocodes: [
+      { address: "999 Luxury Ln, Miami, FL", lat: 25.7617, lng: -80.1918 },
+      { address: "111 Elite Way, Beverly Hills, CA", lat: 34.0822, lng: -118.4065 },
+    ],
+    hq_lat: 25.7617,
+    hq_lng: -80.1918,
     affiliate_links: [
       {
         url: "https://example.com/premier",
@@ -190,6 +213,11 @@ const sampleCompanies = [
     manufacturing_locations: [
       { address: "555 Health Ave, Austin, TX", lat: 30.2672, lng: -97.7431, is_hq: true },
     ],
+    manufacturing_geocodes: [
+      { address: "555 Health Ave, Austin, TX", lat: 30.2672, lng: -97.7431 },
+    ],
+    hq_lat: 30.2672,
+    hq_lng: -97.7431,
     affiliate_links: [
       {
         url: "https://example.com/healthfirst",
@@ -225,6 +253,12 @@ const sampleCompanies = [
       { address: "777 Smart St, Boston, MA", lat: 42.3601, lng: -71.0589, is_hq: true },
       { address: "888 Connected Ct, Denver, CO", lat: 39.7392, lng: -104.9903, is_hq: false },
     ],
+    manufacturing_geocodes: [
+      { address: "777 Smart St, Boston, MA", lat: 42.3601, lng: -71.0589 },
+      { address: "888 Connected Ct, Denver, CO", lat: 39.7392, lng: -104.9903 },
+    ],
+    hq_lat: 42.3601,
+    hq_lng: -71.0589,
     affiliate_links: [
       {
         url: "https://example.com/smarttech",
@@ -261,6 +295,11 @@ const sampleCompanies = [
     manufacturing_locations: [
       { address: "333 Culinary Ct, Napa, CA", lat: 38.2919, lng: -122.2580, is_hq: true },
     ],
+    manufacturing_geocodes: [
+      { address: "333 Culinary Ct, Napa, CA", lat: 38.2919, lng: -122.2580 },
+    ],
+    hq_lat: 38.2919,
+    hq_lng: -122.2580,
     affiliate_links: [
       {
         url: "https://example.com/gourmet",
@@ -296,6 +335,12 @@ const sampleCompanies = [
       { address: "444 Gym Blvd, Houston, TX", lat: 29.7604, lng: -95.3698, is_hq: true },
       { address: "555 Fitness Way, Phoenix, AZ", lat: 33.4484, lng: -112.074, is_hq: false },
     ],
+    manufacturing_geocodes: [
+      { address: "444 Gym Blvd, Houston, TX", lat: 29.7604, lng: -95.3698 },
+      { address: "555 Fitness Way, Phoenix, AZ", lat: 33.4484, lng: -112.074 },
+    ],
+    hq_lat: 29.7604,
+    hq_lng: -95.3698,
     affiliate_links: [
       {
         url: "https://example.com/fitlife",
@@ -332,6 +377,11 @@ const sampleCompanies = [
     manufacturing_locations: [
       { address: "666 Education Ln, Chicago, IL", lat: 41.8781, lng: -87.6298, is_hq: true },
     ],
+    manufacturing_geocodes: [
+      { address: "666 Education Ln, Chicago, IL", lat: 41.8781, lng: -87.6298 },
+    ],
+    hq_lat: 41.8781,
+    hq_lng: -87.6298,
     affiliate_links: [
       {
         url: "https://example.com/eduvision",
@@ -367,6 +417,12 @@ const sampleCompanies = [
       { address: "888 Trade St, New York, NY", lat: 40.7128, lng: -74.006, is_hq: true },
       { address: "999 Export Way, Long Beach, CA", lat: 33.7701, lng: -118.1937, is_hq: false },
     ],
+    manufacturing_geocodes: [
+      { address: "888 Trade St, New York, NY", lat: 40.7128, lng: -74.006 },
+      { address: "999 Export Way, Long Beach, CA", lat: 33.7701, lng: -118.1937 },
+    ],
+    hq_lat: 40.7128,
+    hq_lng: -74.006,
     affiliate_links: [
       {
         url: "https://example.com/globaltrade",
