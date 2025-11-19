@@ -3,8 +3,8 @@ import * as dotenv from "dotenv";
 
 dotenv.config();
 
-const endpoint = process.env.COSMOS_DB_ENDPOINT || process.env.VITE_COSMOS_ENDPOINT;
-const key = process.env.COSMOS_DB_KEY || process.env.VITE_COSMOS_KEY;
+const endpoint = process.env.COSMOS_DB_ENDPOINT;
+const key = process.env.COSMOS_DB_KEY;
 const databaseId = process.env.COSMOS_DB_DATABASE || "tabarnam-db";
 const containerId = process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies";
 
