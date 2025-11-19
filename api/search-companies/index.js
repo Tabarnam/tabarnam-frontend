@@ -119,6 +119,7 @@ app.http("searchCompanies", {
             SELECT TOP @take c.id, c.company_name, c.industries, c.url, c.amazon_url,
                              c.normalized_domain, c.created_at, c.session_id, c._ts,
                              c.manufacturing_locations, c.manufacturing_geocodes,
+                             c.headquarters, c.headquarters_location,
                              c.hq_lat, c.hq_lng, c.product_keywords, c.star_rating,
                              c.star_score, c.confidence_score
             FROM c
@@ -138,6 +139,7 @@ app.http("searchCompanies", {
               SELECT TOP @take2 c.id, c.company_name, c.industries, c.url, c.amazon_url,
                                 c.normalized_domain, c.created_at, c.session_id, c._ts,
                                 c.manufacturing_locations, c.manufacturing_geocodes,
+                                c.headquarters, c.headquarters_location,
                                 c.hq_lat, c.hq_lng, c.product_keywords, c.star_rating,
                                 c.star_score, c.confidence_score
               FROM c
@@ -158,6 +160,7 @@ app.http("searchCompanies", {
               SELECT TOP @take c.id, c.company_name, c.industries, c.url, c.amazon_url,
                                c.normalized_domain, c.created_at, c.session_id, c._ts,
                                c.manufacturing_locations, c.manufacturing_geocodes,
+                               c.headquarters, c.headquarters_location,
                                c.hq_lat, c.hq_lng, c.product_keywords, c.star_rating,
                                c.star_score, c.confidence_score
               FROM c
@@ -168,6 +171,7 @@ app.http("searchCompanies", {
               SELECT TOP @take c.id, c.company_name, c.industries, c.url, c.amazon_url,
                                c.normalized_domain, c.created_at, c.session_id, c._ts,
                                c.manufacturing_locations, c.manufacturing_geocodes,
+                               c.headquarters, c.headquarters_location,
                                c.hq_lat, c.hq_lng, c.product_keywords, c.star_rating,
                                c.star_score, c.confidence_score
               FROM c

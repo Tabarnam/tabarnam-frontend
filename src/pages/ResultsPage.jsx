@@ -343,24 +343,46 @@ export default function ResultsPage() {
 function attachDistances(c, userLoc, unit) {
   const out = { ...c, _hqDist: null, _nearestManuDist: null, _manuDists: [] };
 
-  // HQ
-  if (userLoc && isNum(c.hq_lat) && isNum(c.hq_lng)) {
-    const km = haversine(userLoc.lat, userLoc.lng, c.hq_lat, c.hq_lng);
-    out._hqDist = unit === "mi" ? km * 0.621371 : km;
+  // HQ - try headquarters array first, then fall back to hq_lat/hq_lng
+  if (userLoc) {
+    let hqLat = null, hqLng = null;
+    if (Array.isArray(c.headquarters) && c.headquarters.length > 0) {
+      const firstHq = c.headquarters[0];
+      if (isNum(firstHq.lat) && isNum(firstHq.lng)) {
+        hqLat = firstHq.lat;
+        hqLng = firstHq.lng;
+      }
+    }
+    if (hqLat === null && isNum(c.hq_lat) && isNum(c.hq_lng)) {
+      hqLat = c.hq_lat;
+      hqLng = c.hq_lng;
+    }
+    if (hqLat !== null && hqLng !== null) {
+      const km = haversine(userLoc.lat, userLoc.lng, hqLat, hqLng);
+      out._hqDist = unit === "mi" ? km * 0.621371 : km;
+    }
   }
 
   // Manufacturing
-  if (userLoc && Array.isArray(c.manufacturing_geocodes) && c.manufacturing_geocodes.length) {
-    const dists = c.manufacturing_geocodes
-      .filter(m => isNum(m.lat) && isNum(m.lng))
-      .map(m => {
-        const km = haversine(userLoc.lat, userLoc.lng, m.lat, m.lng);
-        const d = unit === "mi" ? km * 0.621371 : km;
-        return { ...m, dist: d };
-      })
-      .sort((a, b) => a.dist - b.dist);
-    out._manuDists = dists;
-    out._nearestManuDist = dists.length ? dists[0].dist : null;
+  if (userLoc) {
+    // Try manufacturing_geocodes first, then manufacturing_locations
+    let manuGeoList = c.manufacturing_geocodes;
+    if (!Array.isArray(manuGeoList) || !manuGeoList.length) {
+      manuGeoList = c.manufacturing_locations;
+    }
+
+    if (Array.isArray(manuGeoList) && manuGeoList.length) {
+      const dists = manuGeoList
+        .filter(m => isNum(m.lat) && isNum(m.lng))
+        .map(m => {
+          const km = haversine(userLoc.lat, userLoc.lng, m.lat, m.lng);
+          const d = unit === "mi" ? km * 0.621371 : km;
+          return { ...m, dist: d };
+        })
+        .sort((a, b) => a.dist - b.dist);
+      out._manuDists = dists;
+      out._nearestManuDist = dists.length ? dists[0].dist : null;
+    }
   }
   return out;
 }
