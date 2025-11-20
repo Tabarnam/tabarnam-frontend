@@ -57,9 +57,25 @@ export default function SearchCard({ onSubmitParams }) {
       const s = q.trim();
       if (s.length < 2) { setSuggestions([]); setOpenSuggest(false); return; }
       try {
-        const list = await getSuggestions(s, 8);
-        setSuggestions(list);
-        setOpenSuggest(list.length > 0);
+        // Fetch both company suggestions and keyword/industry refinements
+        const [companySuggestions, refinementSuggestions] = await Promise.all([
+          getSuggestions(s, 8),
+          getRefinements(s, country, stateCode, city, 12),
+        ]);
+
+        // Merge: limit to 12 total, prioritize companies first, then keywords/industries
+        const merged = [...companySuggestions];
+        for (const ref of refinementSuggestions) {
+          if (merged.length >= 12) break;
+          // Avoid duplicates
+          const isDuplicate = merged.some((m) => m.value.toLowerCase() === ref.value.toLowerCase());
+          if (!isDuplicate) {
+            merged.push(ref);
+          }
+        }
+
+        setSuggestions(merged.slice(0, 12));
+        setOpenSuggest(merged.length > 0);
       } catch (e) {
         console.warn("Failed to load suggestions:", e?.message);
         setSuggestions([]);
@@ -67,7 +83,7 @@ export default function SearchCard({ onSubmitParams }) {
       }
     }, 250);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, country, stateCode, city]);
 
   const onKeyDown = (e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } };
 
