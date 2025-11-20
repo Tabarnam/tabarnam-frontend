@@ -284,43 +284,41 @@ export default function ResultsPage() {
 
       {/* Column Headers */}
       {results.length > 0 && (
-        <div className="grid grid-cols-12 gap-3 mb-4">
+        <div className="grid grid-cols-12 gap-3 mb-6">
           <div className="col-span-4"></div>
           <div className="col-span-2"></div>
-          <div className="col-span-2 pr-3">
-            <div className="text-right text-xs font-semibold" style={{ color: "#649BA0" }}>Sort Results:</div>
+          <div className="col-span-2">
+            <div className="text-right text-sm font-bold" style={{ color: "#649BA0" }}>Sort Results:</div>
           </div>
           {rightColsOrder.map((colKey, idx) => {
             const colLabel =
               colKey === "manu" ? "Manufacturing" :
-              colKey === "hq" ? "Home" :
+              colKey === "hq" ? "HQ" :
               "Stars";
             const isSelected = sortBy === colKey;
             return (
               <div
                 key={colKey}
-                className="col-span-2 text-center"
+                className="col-span-2 text-center flex flex-col items-center"
               >
-                <div className="flex items-center justify-center gap-1">
-                  {idx === 0 && (
-                    <img
-                      src={PinIcon}
-                      alt="location"
-                      style={{ width: "1.1em", height: "1.1em" }}
-                    />
-                  )}
-                  <button
-                    onClick={() => clickSort(colKey)}
-                    className="text-xs font-semibold px-2 py-1 rounded transition-colors"
-                    style={{
-                      backgroundColor: isSelected ? "#B1DDE3" : "transparent",
-                      color: isSelected ? "#374151" : "#649BA0",
-                      border: `1px solid ${isSelected ? "#B1DDE3" : "#649BA0"}`
-                    }}
-                  >
-                    {colLabel}
-                  </button>
-                </div>
+                {idx === 0 && (
+                  <img
+                    src={PinIcon}
+                    alt="location"
+                    style={{ width: "1.1em", height: "1.1em", marginBottom: "0.25rem" }}
+                  />
+                )}
+                <button
+                  onClick={() => clickSort(colKey)}
+                  className="text-sm font-bold px-2 py-1.5 rounded transition-colors"
+                  style={{
+                    backgroundColor: isSelected ? "#B1DDE3" : "transparent",
+                    color: isSelected ? "#374151" : "#649BA0",
+                    border: `1px solid ${isSelected ? "#B1DDE3" : "#649BA0"}`
+                  }}
+                >
+                  {colLabel}
+                </button>
               </div>
             );
           })}
