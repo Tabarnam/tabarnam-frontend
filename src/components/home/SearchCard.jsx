@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent } from '@/components/ui/popover';
 import { getCountries, getSubdivisions } from '@/lib/location';
-import { getSuggestions } from '@/lib/searchCompanies';
+import { getSuggestions, getRefinements } from '@/lib/searchCompanies';
 
 const SORTS = [
   { value: 'manu',  label: 'Nearest Manufacturing' },
