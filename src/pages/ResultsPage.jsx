@@ -287,7 +287,7 @@ export default function ResultsPage() {
         <div className="grid grid-cols-12 gap-3 mb-4">
           <div className="col-span-4"></div>
           <div className="col-span-2">
-            <div className="text-right text-xs font-semibold" style={{ color: "#649BA0" }}>Sort Results:</div>
+            <div className="text-right font-semibold" style={{ color: "#649BA0", fontSize: "15px" }}>Sort Results:</div>
           </div>
           {rightColsOrder.map((colKey, idx) => {
             const colLabel =
@@ -310,8 +310,10 @@ export default function ResultsPage() {
                   )}
                   <button
                     onClick={() => clickSort(colKey)}
-                    className="text-xs font-semibold px-2 py-1 rounded transition-colors"
+                    className="font-semibold rounded transition-colors"
                     style={{
+                      fontSize: "15px",
+                      padding: "6.25px 10px",
                       backgroundColor: isSelected ? "#B1DDE3" : "transparent",
                       color: isSelected ? "#374151" : "#649BA0",
                       border: `1px solid ${isSelected ? "#B1DDE3" : "#649BA0"}`
