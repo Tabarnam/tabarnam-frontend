@@ -219,7 +219,7 @@ export default function ExpandableCompanyRow({
     return (
       <div
         onClick={handleExpandedClick}
-        className="border-2 rounded-lg mb-4 p-6 bg-white cursor-pointer font-bold"
+        className="border-2 rounded-lg mb-4 p-6 bg-white cursor-pointer"
         style={{ borderColor: "#B1DDE3", borderWidth: "2px" }}
       >
         <div className="grid grid-cols-5 gap-4 mb-6 pb-6 border-b">
