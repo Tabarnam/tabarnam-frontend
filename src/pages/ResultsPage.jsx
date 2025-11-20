@@ -287,7 +287,7 @@ export default function ResultsPage() {
         <div className="grid grid-cols-12 gap-3 mb-4">
           <div className="col-span-4"></div>
           <div className="col-span-2">
-            <div className="text-right text-xs font-semibold" style={{ color: "#649BA0" }}>Sort Results:</div>
+            <div className="text-right font-semibold" style={{ color: "#649BA0", fontSize: "15px" }}>Sort Results:</div>
           </div>
           {rightColsOrder.map((colKey, idx) => {
             const colLabel =
