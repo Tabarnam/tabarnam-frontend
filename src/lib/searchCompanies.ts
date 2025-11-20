@@ -87,6 +87,54 @@ export async function getSuggestions(qLike: unknown, _take?: number) {
   }
 }
 
+export interface RefinementSuggestion {
+  value: string;
+  type: "Company" | "Keyword" | "Industry";
+  id?: string;
+  count?: number;
+}
+
+export async function getRefinements(
+  qLike: unknown,
+  countryCode?: string,
+  stateCode?: string,
+  city?: string,
+  _take?: number
+): Promise<RefinementSuggestion[]> {
+  const q = asStr(qLike).trim();
+  if (!q || q.length < 2) return [];
+
+  try {
+    const params = new URLSearchParams({ q });
+    if (countryCode) params.set("country", countryCode);
+    if (stateCode) params.set("state", stateCode);
+    if (city) params.set("city", city);
+
+    const r = await apiFetch(`/suggest-refinements?${params.toString()}`, {
+      headers: { accept: "application/json" },
+    });
+
+    if (!r.ok) {
+      console.warn(`suggest-refinements returned ${r.status}`);
+      return [];
+    }
+
+    const data = await r.json();
+    const suggestions: RefinementSuggestion[] = Array.isArray(data?.suggestions)
+      ? data.suggestions.map((s: any) => ({
+          value: String(s.value || ""),
+          type: s.type === "Industry" ? "Industry" : s.type === "Keyword" ? "Keyword" : "Company",
+          count: s.count,
+        }))
+      : [];
+
+    return suggestions.slice(0, _take || 12);
+  } catch (e) {
+    console.warn("Failed to get refinements:", e?.message);
+    return [];
+  }
+}
+
 async function readError(resp: Response) {
   try {
     const t = await resp.text();
