@@ -2,6 +2,7 @@
 import { xaiImport } from "@/lib/api/xaiImport";
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import PinIcon from "@/assets/tabarnam-pin.jpg";
 import { geocode } from "@/lib/google";
 import { calculateDistance, usesMiles } from "@/lib/distance";
 import SearchCard from "@/components/home/SearchCard";
@@ -217,7 +218,7 @@ export default function ResultsPage() {
   }
 
   return (
-    <div className="px-2 pb-10 max-w-6xl mx-auto">
+    <div className="px-1 pb-10 max-w-6xl mx-auto">
       {/* Two-row search under the site header */}
       <div className="mt-6 mb-4">
         <SearchCard onSubmitParams={handleInlineSearch} />
@@ -278,6 +279,51 @@ export default function ResultsPage() {
             <option value="zh">中文</option>
             <option value="ja">日本語</option>
           </select>
+        </div>
+      )}
+
+      {/* Column Headers */}
+      {results.length > 0 && (
+        <div className="grid grid-cols-12 gap-3 mb-4">
+          <div className="col-span-4"></div>
+          <div className="col-span-2"></div>
+          <div className="col-span-2 pr-3">
+            <div className="text-right text-xs font-semibold" style={{ color: "#649BA0" }}>Sort Results:</div>
+          </div>
+          {rightColsOrder.map((colKey, idx) => {
+            const colLabel =
+              colKey === "manu" ? "Manufacturing" :
+              colKey === "hq" ? "Home" :
+              "Stars";
+            const isSelected = sortBy === colKey;
+            return (
+              <div
+                key={colKey}
+                className="col-span-2 text-center"
+              >
+                <div className="flex items-center justify-center gap-1">
+                  {idx === 0 && (
+                    <img
+                      src={PinIcon}
+                      alt="location"
+                      style={{ width: "1.1em", height: "1.1em" }}
+                    />
+                  )}
+                  <button
+                    onClick={() => clickSort(colKey)}
+                    className="text-xs font-semibold px-2 py-1 rounded transition-colors"
+                    style={{
+                      backgroundColor: isSelected ? "#B1DDE3" : "transparent",
+                      color: isSelected ? "#374151" : "#649BA0",
+                      border: `1px solid ${isSelected ? "#B1DDE3" : "#649BA0"}`
+                    }}
+                  >
+                    {colLabel}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 

@@ -52,6 +52,7 @@ module.exports = {
   			},
   			'tabarnam-blue': '#B1DDE3',
   			'tabarnam-blue-dark': '#005f73',
+  			'tabarnam-blue-bold': '#649BA0',
   			chart: {
   				'1': 'hsl(var(--chart-1))',
   				'2': 'hsl(var(--chart-2))',
