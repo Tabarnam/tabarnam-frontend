@@ -153,10 +153,15 @@ export default function ExpandableCompanyRow({
 
     if (colKey === "hq") {
       return (
-        <div className="space-y-1">
+        <div className="space-y-2">
           {hqLocation.map((loc, idx) => (
-            <div key={idx} className="text-sm text-gray-900">
-              {loc.formatted}
+            <div key={idx} className="text-sm flex items-start gap-1">
+              {typeof loc.distance === "number" && (
+                <div className="text-xs font-medium whitespace-nowrap pt-0.5" style={{ color: "#B1DDE3" }}>
+                  {formatDistance(loc.distance, unit)}
+                </div>
+              )}
+              <div className="text-gray-900">{loc.formatted}</div>
             </div>
           ))}
           {hqLocation.length === 0 && <div className="text-sm text-gray-500">—</div>}
