@@ -303,7 +303,7 @@ export default function ResultsPage() {
                 <div className="flex items-center justify-center gap-1">
                   {idx === 0 && (
                     <img
-                      src="/assets/tabarnam-pin.jpg"
+                      src={PinIcon}
                       alt="location"
                       className="w-4 h-4"
                       style={{ width: "calc(1em * 1.1)" }}
