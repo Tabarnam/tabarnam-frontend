@@ -1,6 +1,4 @@
 const { app } = require("@azure/functions");
-const { httpRequest } = require("../_http");
-const { getProxyBase, json: sharedJson } = require("../_shared");
 
 function json(obj, status = 200) {
   return {
@@ -35,32 +33,6 @@ app.http("saveCompanies", {
 
     if (method !== "POST") {
       return json({ ok: false, error: "Method not allowed" }, 405);
-    }
-
-    const base = getProxyBase();
-
-    if (base) {
-      try {
-        const bodyObj = await req.json().catch(() => ({}));
-        const out = await httpRequest("POST", `${base}/save-companies`, {
-          headers: { "content-type": "application/json" },
-          body: bodyObj || {},
-        });
-        let body = out.body;
-        try {
-          body = JSON.parse(out.body);
-        } catch {}
-        if (out.status >= 200 && out.status < 300) return json(body, out.status);
-        return json(
-          { ok: false, error: body || "Upstream error" },
-          out.status || 502
-        );
-      } catch (e) {
-        return json(
-          { ok: false, error: `Proxy error: ${e.message || String(e)}` },
-          502
-        );
-      }
     }
 
     try {
