@@ -125,17 +125,25 @@ export default function SearchCard({ onSubmitParams }) {
               align="start"
               onOpenAutoFocus={(e)=>e.preventDefault()}
             >
-              {suggestions.map((s, i) => (
-                <button
-                  key={`${s.value}-${i}`}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex items-center justify-between"
-                  onMouseDown={(e)=>e.preventDefault()}
-                  onClick={()=>{ setQ(s.value); }}
-                >
-                  <span>{s.value}</span>
-                  <span className="text-xs text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded-sm">{s.type}</span>
-                </button>
-              ))}
+              {suggestions.map((s, i) => {
+                const badgeColors = {
+                  Company: "bg-blue-100 text-blue-700",
+                  Keyword: "bg-purple-100 text-purple-700",
+                  Industry: "bg-green-100 text-green-700",
+                };
+                const badgeClass = badgeColors[s.type] || "bg-gray-200 text-gray-700";
+                return (
+                  <button
+                    key={`${s.value}-${i}`}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex items-center justify-between"
+                    onMouseDown={(e)=>e.preventDefault()}
+                    onClick={()=>{ setQ(s.value); }}
+                  >
+                    <span>{s.value}</span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded-sm font-medium ${badgeClass}`}>{s.type}</span>
+                  </button>
+                );
+              })}
             </PopoverContent>
           </Popover>
         </div>
