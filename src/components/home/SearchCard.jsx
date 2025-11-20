@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent } from '@/components/ui/popover';
 import { getCountries, getSubdivisions } from '@/lib/location';
-import { getSuggestions } from '@/lib/searchCompanies';
+import { getSuggestions, getRefinements } from '@/lib/searchCompanies';
 
 const SORTS = [
   { value: 'manu',  label: 'Nearest Manufacturing' },
@@ -57,9 +57,25 @@ export default function SearchCard({ onSubmitParams }) {
       const s = q.trim();
       if (s.length < 2) { setSuggestions([]); setOpenSuggest(false); return; }
       try {
-        const list = await getSuggestions(s, 8);
-        setSuggestions(list);
-        setOpenSuggest(list.length > 0);
+        // Fetch both company suggestions and keyword/industry refinements
+        const [companySuggestions, refinementSuggestions] = await Promise.all([
+          getSuggestions(s, 8),
+          getRefinements(s, country, stateCode, city, 12),
+        ]);
+
+        // Merge: limit to 12 total, prioritize companies first, then keywords/industries
+        const merged = [...companySuggestions];
+        for (const ref of refinementSuggestions) {
+          if (merged.length >= 12) break;
+          // Avoid duplicates
+          const isDuplicate = merged.some((m) => m.value.toLowerCase() === ref.value.toLowerCase());
+          if (!isDuplicate) {
+            merged.push(ref);
+          }
+        }
+
+        setSuggestions(merged.slice(0, 12));
+        setOpenSuggest(merged.length > 0);
       } catch (e) {
         console.warn("Failed to load suggestions:", e?.message);
         setSuggestions([]);
@@ -67,7 +83,7 @@ export default function SearchCard({ onSubmitParams }) {
       }
     }, 250);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, country, stateCode, city]);
 
   const onKeyDown = (e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } };
 
@@ -109,17 +125,25 @@ export default function SearchCard({ onSubmitParams }) {
               align="start"
               onOpenAutoFocus={(e)=>e.preventDefault()}
             >
-              {suggestions.map((s, i) => (
-                <button
-                  key={`${s.value}-${i}`}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex items-center justify-between"
-                  onMouseDown={(e)=>e.preventDefault()}
-                  onClick={()=>{ setQ(s.value); }}
-                >
-                  <span>{s.value}</span>
-                  <span className="text-xs text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded-sm">{s.type}</span>
-                </button>
-              ))}
+              {suggestions.map((s, i) => {
+                const badgeColors = {
+                  Company: "bg-blue-100 text-blue-700",
+                  Keyword: "bg-purple-100 text-purple-700",
+                  Industry: "bg-green-100 text-green-700",
+                };
+                const badgeClass = badgeColors[s.type] || "bg-gray-200 text-gray-700";
+                return (
+                  <button
+                    key={`${s.value}-${i}`}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex items-center justify-between"
+                    onMouseDown={(e)=>e.preventDefault()}
+                    onClick={()=>{ setQ(s.value); }}
+                  >
+                    <span>{s.value}</span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded-sm font-medium ${badgeClass}`}>{s.type}</span>
+                  </button>
+                );
+              })}
             </PopoverContent>
           </Popover>
         </div>
