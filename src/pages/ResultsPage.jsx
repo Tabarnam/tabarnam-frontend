@@ -286,8 +286,7 @@ export default function ResultsPage() {
       {results.length > 0 && (
         <div className="grid grid-cols-12 gap-3 mb-4">
           <div className="col-span-4"></div>
-          <div className="col-span-2"></div>
-          <div className="col-span-2 pr-3">
+          <div className="col-span-2">
             <div className="text-right text-xs font-semibold" style={{ color: "#649BA0" }}>Sort Results:</div>
           </div>
           {rightColsOrder.map((colKey, idx) => {
