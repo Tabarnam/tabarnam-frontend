@@ -111,7 +111,12 @@ export default function ExpandableCompanyRow({
     true
   );
 
-  const hqLocations = company.headquarters && Array.isArray(company.headquarters)
+  const hqLocations = Array.isArray(company._hqDists) && company._hqDists.length > 0
+    ? company._hqDists.slice(0, 5).map((hq) => ({
+        formatted: formatLocationDisplayName(hq),
+        distance: typeof hq.dist === "number" ? hq.dist : null,
+      }))
+    : company.headquarters && Array.isArray(company.headquarters)
     ? company.headquarters.slice(0, 5).map((hq) => ({
         formatted: formatLocationDisplayName(hq),
         distance: null,
