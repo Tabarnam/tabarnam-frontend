@@ -392,24 +392,28 @@ export default function ResultsPage() {
 
 /* ---------- helpers ---------- */
 function attachDistances(c, userLoc, unit) {
-  const out = { ...c, _hqDist: null, _nearestManuDist: null, _manuDists: [] };
+  const out = { ...c, _hqDist: null, _nearestManuDist: null, _manuDists: [], _hqDists: [] };
 
   // HQ - try headquarters array first, then fall back to hq_lat/hq_lng
   if (userLoc) {
-    let hqLat = null, hqLng = null;
+    let hqList = [];
     if (Array.isArray(c.headquarters) && c.headquarters.length > 0) {
-      const firstHq = c.headquarters[0];
-      if (isNum(firstHq.lat) && isNum(firstHq.lng)) {
-        hqLat = firstHq.lat;
-        hqLng = firstHq.lng;
-      }
+      hqList = c.headquarters;
     }
-    if (hqLat === null && isNum(c.hq_lat) && isNum(c.hq_lng)) {
-      hqLat = c.hq_lat;
-      hqLng = c.hq_lng;
-    }
-    if (hqLat !== null && hqLng !== null) {
-      const km = calculateDistance(userLoc.lat, userLoc.lng, hqLat, hqLng);
+
+    if (hqList.length > 0) {
+      const dists = hqList
+        .filter(h => isNum(h.lat) && isNum(h.lng))
+        .map(h => {
+          const km = calculateDistance(userLoc.lat, userLoc.lng, h.lat, h.lng);
+          const d = unit === "mi" ? km * 0.621371 : km;
+          return { ...h, dist: d };
+        })
+        .sort((a, b) => a.dist - b.dist);
+      out._hqDists = dists;
+      out._hqDist = dists.length ? dists[0].dist : null;
+    } else if (isNum(c.hq_lat) && isNum(c.hq_lng)) {
+      const km = calculateDistance(userLoc.lat, userLoc.lng, c.hq_lat, c.hq_lng);
       out._hqDist = unit === "mi" ? km * 0.621371 : km;
     }
   }
