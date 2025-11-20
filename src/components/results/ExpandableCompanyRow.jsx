@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { MapPin } from "lucide-react";
 import ReviewsWidget from "@/components/ReviewsWidget";
 
 function normalizeAffiliateLinks(company) {
