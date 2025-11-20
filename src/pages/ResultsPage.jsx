@@ -281,6 +281,47 @@ export default function ResultsPage() {
         </div>
       )}
 
+      {/* Column Headers */}
+      {results.length > 0 && (
+        <div className="grid grid-cols-12 gap-3 mb-4">
+          <div className="col-span-4"></div>
+          <div className="col-span-2"></div>
+          <div className="col-span-2 pr-3">
+            <div className="text-right text-xs font-semibold text-gray-700">Sort Results:</div>
+          </div>
+          {rightColsOrder.map((colKey, idx) => {
+            const colLabel =
+              colKey === "manu" ? "Manufacturing" :
+              colKey === "hq" ? "Home" :
+              "Stars";
+            return (
+              <div
+                key={colKey}
+                className="col-span-2 text-center"
+              >
+                <div className="flex items-center justify-center gap-1">
+                  {idx === 0 && (
+                    <img
+                      src="/assets/tabarnam-pin.jpg"
+                      alt="location"
+                      className="w-4 h-4"
+                      style={{ width: "calc(1em * 1.1)" }}
+                    />
+                  )}
+                  <button
+                    onClick={() => clickSort(colKey)}
+                    className="text-xs font-semibold text-gray-700 hover:text-gray-900 transition-colors"
+                    style={{ color: sortBy === colKey ? "#649BA0" : "#374151" }}
+                  >
+                    {colLabel}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Results List */}
       <div className="mb-4">
         {sorted.length > 0 ? (
