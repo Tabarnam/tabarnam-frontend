@@ -21,8 +21,8 @@ const json = (obj, status = 200, req) => ({
 
 async function saveCompaniesToCosmos(companies, sessionId) {
   try {
-    const endpoint = (process.env.COSMOS_DB_ENDPOINT || "").trim();
-    const key = (process.env.COSMOS_DB_KEY || "").trim();
+    const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+    const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
     const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
     const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
@@ -89,8 +89,8 @@ app.http("importProgress", {
     const take = Number(new URL(req.url).searchParams.get("take") || "200") || 200;
     if (!sessionId) return json({ error: "session_id is required" }, 400, req);
 
-    const endpoint   = (process.env.COSMOS_DB_ENDPOINT || "").trim();
-    const key        = (process.env.COSMOS_DB_KEY || "").trim();
+    const endpoint   = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+    const key        = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
     const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
     const containerId= (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
