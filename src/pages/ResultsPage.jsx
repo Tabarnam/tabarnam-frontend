@@ -305,8 +305,7 @@ export default function ResultsPage() {
                     <img
                       src={PinIcon}
                       alt="location"
-                      className="w-4 h-4"
-                      style={{ width: "calc(1em * 1.1)" }}
+                      style={{ width: "1.1em", height: "1.1em" }}
                     />
                   )}
                   <button
