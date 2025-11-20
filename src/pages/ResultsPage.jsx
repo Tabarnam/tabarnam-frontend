@@ -288,13 +288,14 @@ export default function ResultsPage() {
           <div className="col-span-4"></div>
           <div className="col-span-2"></div>
           <div className="col-span-2 pr-3">
-            <div className="text-right text-xs font-semibold text-gray-700">Sort Results:</div>
+            <div className="text-right text-xs font-semibold" style={{ color: "#649BA0" }}>Sort Results:</div>
           </div>
           {rightColsOrder.map((colKey, idx) => {
             const colLabel =
               colKey === "manu" ? "Manufacturing" :
               colKey === "hq" ? "Home" :
               "Stars";
+            const isSelected = sortBy === colKey;
             return (
               <div
                 key={colKey}
@@ -310,8 +311,12 @@ export default function ResultsPage() {
                   )}
                   <button
                     onClick={() => clickSort(colKey)}
-                    className="text-xs font-semibold text-gray-700 hover:text-gray-900 transition-colors"
-                    style={{ color: sortBy === colKey ? "#649BA0" : "#374151" }}
+                    className="text-xs font-semibold px-2 py-1 rounded transition-colors"
+                    style={{
+                      backgroundColor: isSelected ? "#B1DDE3" : "transparent",
+                      color: isSelected ? "#374151" : "#649BA0",
+                      border: `1px solid ${isSelected ? "#B1DDE3" : "#649BA0"}`
+                    }}
                   >
                     {colLabel}
                   </button>
