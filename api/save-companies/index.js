@@ -1,6 +1,4 @@
 const { app } = require("@azure/functions");
-const { httpRequest } = require("../_http");
-const { getProxyBase, json: sharedJson } = require("../_shared");
 
 function json(obj, status = 200) {
   return {
