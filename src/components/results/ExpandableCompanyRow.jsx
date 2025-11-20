@@ -139,7 +139,7 @@ export default function ExpandableCompanyRow({
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
               {typeof loc.distance === "number" && (
-                <div className="text-xs text-gray-600 font-medium whitespace-nowrap pt-0.5">
+                <div className="text-xs font-bold whitespace-nowrap pt-0.5" style={{ color: "#B1DDE3" }}>
                   {formatDistance(loc.distance, unit)}
                 </div>
               )}
@@ -157,7 +157,7 @@ export default function ExpandableCompanyRow({
           {hqLocation.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
               {typeof loc.distance === "number" && (
-                <div className="text-xs font-medium whitespace-nowrap pt-0.5" style={{ color: "#B1DDE3" }}>
+                <div className="text-xs font-bold whitespace-nowrap pt-0.5" style={{ color: "#B1DDE3" }}>
                   {formatDistance(loc.distance, unit)}
                 </div>
               )}
@@ -175,7 +175,7 @@ export default function ExpandableCompanyRow({
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
               {typeof loc.distance === "number" && (
-                <div className="text-xs text-gray-600 font-medium whitespace-nowrap pt-0.5">
+                <div className="text-xs font-bold whitespace-nowrap pt-0.5" style={{ color: "#B1DDE3" }}>
                   {formatDistance(loc.distance, unit)}
                 </div>
               )}
@@ -340,7 +340,7 @@ export default function ExpandableCompanyRow({
           {rightColsOrder.map((colKey) => (
             <div key={colKey}>
               <div className="text-sm font-semibold text-gray-700 mb-2">
-                {colKey === "manu" ? "Manufacturing" : colKey === "hq" ? "HQ" : "Reviews"}
+                {colKey === "manu" ? "Manufacturing" : colKey === "hq" ? "HQ" : ""}
               </div>
               {renderRightColumn(colKey)}
             </div>
@@ -458,7 +458,7 @@ export default function ExpandableCompanyRow({
         <div key={colKey} className="col-span-2">
           <div className="text-xs font-semibold text-gray-700 flex items-center gap-1 mb-2">
             {colIdx === 0 && <MapPin size={14} />}
-            {colKey === "manu" ? "Manufacturing" : colKey === "hq" ? "HQ" : "Reviews"}
+            {colKey === "manu" ? "Manufacturing" : colKey === "hq" ? "HQ" : ""}
           </div>
           {renderRightColumn(colKey)}
         </div>
