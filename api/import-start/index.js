@@ -160,23 +160,13 @@ app.http("importStart", {
     const startTime = Date.now();
 
     try {
-      // Get XAI configuration from multiple sources
-      let XAI_FUNCTION_URL = (process.env.FUNCTION_URL || "").trim();
-      let XAI_FUNCTION_KEY = (process.env.FUNCTION_KEY || "").trim();
+      // Get XAI configuration
+      const XAI_FUNCTION_URL = (process.env.FUNCTION_URL || "").trim();
+      const XAI_FUNCTION_KEY = (process.env.FUNCTION_KEY || "").trim();
 
-      // Fallback to external API if available
-      if (!XAI_FUNCTION_URL) {
-        const externalBase = (process.env.XAI_EXTERNAL_BASE || "").trim();
-        const externalKey = (process.env.XAI_EXTERNAL_KEY || "").trim();
-        if (externalBase && externalKey) {
-          // Use external API as the XAI function endpoint
-          XAI_FUNCTION_URL = externalBase.replace(/\/api\/?$/, "") + "/api"; // Normalize path
-          XAI_FUNCTION_KEY = externalKey;
-          console.log(`[import-start] Using XAI_EXTERNAL_BASE as function URL`);
-        }
-      }
-
-      console.log(`[import-start] XAI configured: ${!!XAI_FUNCTION_URL && !!XAI_FUNCTION_KEY}`);
+      console.log(`[import-start] Checking XAI config...`);
+      console.log(`[import-start] FUNCTION_URL: ${XAI_FUNCTION_URL ? "configured" : "missing"}`);
+      console.log(`[import-start] FUNCTION_KEY: ${XAI_FUNCTION_KEY ? "configured" : "missing"}`);
 
       // If XAI is configured, call it directly
       if (XAI_FUNCTION_URL && XAI_FUNCTION_KEY) {
