@@ -160,112 +160,90 @@ app.http("importStart", {
     const startTime = Date.now();
 
     try {
-      // Get XAI configuration
-      const XAI_FUNCTION_URL = (process.env.FUNCTION_URL || "").trim();
-      const XAI_FUNCTION_KEY = (process.env.FUNCTION_KEY || "").trim();
+      const center = safeCenter(bodyObj.center);
+      const xaiPayload = {
+        queryType: bodyObj.queryType || "product_keyword",
+        query: bodyObj.query || "",
+        limit: Math.max(1, Math.min(Number(bodyObj.limit) || 10, 25)),
+        expand_if_few: bodyObj.expand_if_few ?? true,
+        session_id: sessionId,
+        ...(center ? { center } : {}),
+      };
 
-      console.log(`[import-start] Checking XAI config...`);
-      console.log(`[import-start] FUNCTION_URL: ${XAI_FUNCTION_URL ? "configured" : "missing"}`);
-      console.log(`[import-start] FUNCTION_KEY: ${XAI_FUNCTION_KEY ? "configured" : "missing"}`);
+      console.log(`[import-start] XAI Payload:`, JSON.stringify(xaiPayload));
 
-      // If XAI is configured, call it directly
-      if (XAI_FUNCTION_URL && XAI_FUNCTION_KEY) {
-        console.log(`[import-start] Calling XAI at: ${XAI_FUNCTION_URL}`);
+      const timeout = Math.max(1000, Number(bodyObj.timeout_ms) || 600000);
+      console.log(`[import-start] Request timeout: ${timeout}ms`);
 
-        const center = safeCenter(bodyObj.center);
-        const xaiPayload = {
-          queryType: bodyObj.queryType || "product_keyword",
-          query: bodyObj.query || "",
-          limit: Math.max(1, Math.min(Number(bodyObj.limit) || 10, 25)),
-          expand_if_few: bodyObj.expand_if_few ?? true,
-          session_id: sessionId,
-          ...(center ? { center } : {}),
-        };
+      // Call local proxy-xai endpoint
+      const localApiBase = String(process.env.VITE_API_BASE || process.env.API_BASE || "").trim();
+      const proxyUrl = localApiBase
+        ? `${localApiBase}/proxy-xai`
+        : "http://localhost:7071/api/proxy-xai";
 
-        console.log(`[import-start] XAI Payload:`, JSON.stringify(xaiPayload));
+      console.log(`[import-start] Calling XAI via proxy at: ${proxyUrl}`);
 
-        const timeout = Math.max(1000, Number(bodyObj.timeout_ms) || 600000);
-        console.log(`[import-start] Request timeout: ${timeout}ms`);
+      try {
+        const xaiResponse = await axios.post(proxyUrl, xaiPayload, {
+          headers: {
+            "Content-Type": "application/json",
+          },
+          timeout: timeout,
+        });
 
-        try {
-          const xaiUrl = new URL(XAI_FUNCTION_URL);
-          xaiUrl.searchParams.set("code", XAI_FUNCTION_KEY);
-          const xaiUrlWithCode = xaiUrl.toString();
+        const elapsed = Date.now() - startTime;
+        console.log(`[import-start] XAI response received after ${elapsed}ms, status: ${xaiResponse.status}`);
+        console.log(`[import-start] XAI response data:`, JSON.stringify(xaiResponse.data).substring(0, 500));
 
-          const xaiResponse = await axios.post(xaiUrlWithCode, xaiPayload, {
-            headers: {
-              "Content-Type": "application/json",
-              "x-functions-key": XAI_FUNCTION_KEY,
-            },
-            timeout: timeout,
-          });
+        if (xaiResponse.status >= 200 && xaiResponse.status < 300) {
+          // Extract companies from XAI response
+          const companies = Array.isArray(xaiResponse.data?.companies) ? xaiResponse.data.companies : [];
+          console.log(`[import-start] Found ${companies.length} companies in XAI response`);
 
-          const elapsed = Date.now() - startTime;
-          console.log(`[import-start] XAI response received after ${elapsed}ms, status: ${xaiResponse.status}`);
-          console.log(`[import-start] XAI response data:`, JSON.stringify(xaiResponse.data).substring(0, 500));
+          // Enrich companies
+          const center = safeCenter(bodyObj.center);
+          const enriched = companies.map((c) => enrichCompany(c, center));
 
-          if (xaiResponse.status >= 200 && xaiResponse.status < 300) {
-            // Extract companies from XAI response
-            const companies = Array.isArray(xaiResponse.data?.companies) ? xaiResponse.data.companies : [];
-            console.log(`[import-start] Found ${companies.length} companies in XAI response`);
-
-            // Enrich companies
-            const center = safeCenter(bodyObj.center);
-            const enriched = companies.map((c) => enrichCompany(c, center));
-
-            // Save to Cosmos DB
-            if (enriched.length > 0) {
-              const saveResult = await saveCompaniesToCosmos(enriched, sessionId);
-              console.log(`[import-start] Saved ${saveResult.saved} companies, failed: ${saveResult.failed}`);
-            }
-
-            // Return success
-            return json({
-              ok: true,
-              session_id: sessionId,
-              companies: enriched,
-              meta: xaiResponse.data?.meta || {},
-              saved: companies.length,
-            }, 200);
-          } else {
-            console.error(`[import-start] XAI error status: ${xaiResponse.status}`);
-            return json(
-              {
-                ok: false,
-                error: `XAI returned ${xaiResponse.status}`,
-                session_id: sessionId,
-                detail: xaiResponse.data,
-              },
-              502
-            );
+          // Save to Cosmos DB
+          if (enriched.length > 0) {
+            const saveResult = await saveCompaniesToCosmos(enriched, sessionId);
+            console.log(`[import-start] Saved ${saveResult.saved} companies, failed: ${saveResult.failed}`);
           }
-        } catch (xaiError) {
-          const elapsed = Date.now() - startTime;
-          console.error(`[import-start] XAI request failed after ${elapsed}ms:`, xaiError.message);
-          console.error(`[import-start] Error details:`, xaiError.response?.data || xaiError.toString());
 
+          // Return success
+          return json({
+            ok: true,
+            session_id: sessionId,
+            companies: enriched,
+            meta: xaiResponse.data?.meta || {},
+            saved: companies.length,
+          }, 200);
+        } else {
+          console.error(`[import-start] XAI error status: ${xaiResponse.status}`);
           return json(
             {
               ok: false,
-              error: `XAI call failed: ${xaiError.message}`,
+              error: `XAI returned ${xaiResponse.status}`,
               session_id: sessionId,
+              detail: xaiResponse.data,
             },
             502
           );
         }
-      }
+      } catch (xaiError) {
+        const elapsed = Date.now() - startTime;
+        console.error(`[import-start] XAI request failed after ${elapsed}ms:`, xaiError.message);
+        console.error(`[import-start] Error details:`, xaiError.response?.data || xaiError.toString());
 
-      // If XAI is not configured, return stub response
-      console.warn(`[import-start] XAI not configured, returning stub response`);
-      return json(
-        {
-          ok: true,
-          session_id: sessionId,
-          companies: [],
-          note: "XAI not configured (FUNCTION_URL / FUNCTION_KEY)",
-        },
-        200
-      );
+        return json(
+          {
+            ok: false,
+            error: `XAI call failed: ${xaiError.message}`,
+            session_id: sessionId,
+          },
+          502
+        );
+      }
     } catch (e) {
       console.error(`[import-start] Unexpected error:`, e.message);
       console.error(`[import-start] Full error:`, e);
