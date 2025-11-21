@@ -41,7 +41,7 @@ app.http("saveCompanies", {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || "").trim();
       const key = (process.env.COSMOS_DB_KEY || "").trim();
       const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
-      const containerId = (process.env.COSMOS_DB_CONTAINER || "companies").trim();
+      const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
       if (!endpoint || !key) {
         return json({ ok: false, error: "Cosmos DB not configured" }, 500);
