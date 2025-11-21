@@ -95,21 +95,42 @@ app.http("importStart", {
     const bodyObj = await req.json().catch(() => ({}));
     const sessionId = bodyObj.session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
+    console.log(`[import-start] Received request with session_id: ${sessionId}`);
+    console.log(`[import-start] Request body:`, JSON.stringify(bodyObj));
+
     const base = getProxyBase();
+    console.log(`[import-start] XAI_PROXY_BASE: '${process.env.XAI_PROXY_BASE || ''}'`);
+    console.log(`[import-start] XAI_EXTERNAL_BASE: '${process.env.XAI_EXTERNAL_BASE || ''}'`);
+    console.log(`[import-start] Using base: '${base}'`);
 
     if (base) {
+      const proxyUrl = `${base}/import/start`;
+      console.log(`[import-start] Proxying POST to: ${proxyUrl}`);
+      console.log(`[import-start] Request timeout: 30000ms`);
+
       try {
-        const out = await httpRequest("POST", `${base}/import/start`, {
+        const startTime = Date.now();
+        const out = await httpRequest("POST", proxyUrl, {
           headers: { "content-type": "application/json" },
           body: { ...bodyObj, session_id: sessionId },
         });
+        const elapsed = Date.now() - startTime;
+
+        console.log(`[import-start] Response received after ${elapsed}ms, status: ${out.status}`);
+        console.log(`[import-start] Response headers:`, JSON.stringify(out.headers));
+        console.log(`[import-start] Response body length: ${out.body?.length || 0} chars`);
+        console.log(`[import-start] Response body (first 500 chars):`, out.body?.substring(0, 500) || '');
+
         let body = out.body;
         try {
           body = JSON.parse(out.body);
-        } catch {}
+        } catch (parseErr) {
+          console.warn(`[import-start] Failed to parse JSON response: ${parseErr.message}`);
+        }
 
         if (out.status >= 200 && out.status < 300) {
           const companies = body?.companies || body?.results || [];
+          console.log(`[import-start] Found ${companies.length} companies in response`);
 
           if (Array.isArray(companies) && companies.length > 0) {
             const saveResult = await saveCompaniesToCosmos(companies, sessionId);
@@ -118,9 +139,12 @@ app.http("importStart", {
 
           return json({ ...body, session_id: sessionId, ok: true }, out.status);
         }
+
+        console.error(`[import-start] Error response status: ${out.status}, body:`, body);
         return json({ ok: false, error: body || "Upstream error", session_id: sessionId }, out.status || 502);
       } catch (e) {
-        console.error("[import-start] Proxy error:", e.message);
+        console.error(`[import-start] Proxy error after ${Date.now() - startTime}ms:`, e.message);
+        console.error(`[import-start] Full error:`, e);
         return json(
           { ok: false, error: `Proxy error: ${e.message || String(e)}`, session_id: sessionId },
           502
@@ -128,6 +152,7 @@ app.http("importStart", {
       }
     }
 
+    console.warn(`[import-start] No proxy base configured, returning stub response`);
     return json(
       { ok: true, session_id: sessionId, note: "XAI_PROXY_BASE not set; stub mode." },
       200
