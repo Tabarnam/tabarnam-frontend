@@ -1,6 +1,5 @@
 const { app } = require("@azure/functions");
-const { httpRequest } = require("../_http");
-const { getProxyBase, json: sharedJson } = require("../_shared");
+const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
 
 function json(obj, status = 200) {
@@ -16,6 +15,66 @@ function json(obj, status = 200) {
   };
 }
 
+// Helper: normalize industries array
+function normalizeIndustries(input) {
+  if (Array.isArray(input))
+    return [...new Set(input.map((s) => String(s).trim()).filter(Boolean))];
+  if (typeof input === "string")
+    return [
+      ...new Set(
+        input
+          .split(/[,;|]/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+      ),
+    ];
+  return [];
+}
+
+// Helper: normalize keywords
+function normalizeKeywords(value, industries) {
+  let kws = [];
+  if (Array.isArray(value)) for (const v of value) kws.push(...String(v).split(","));
+  else if (typeof value === "string") kws.push(...value.split(","));
+  kws = kws.map((s) => s.trim()).filter(Boolean);
+  const merged = [...new Set([...(kws || []), ...(industries || [])])].filter(Boolean);
+  while (merged.length && merged.length < 5) merged.push(merged[merged.length - 1]);
+  return merged.join(", ");
+}
+
+// Helper: get safe number
+const safeNum = (n) => (Number.isFinite(Number(n)) ? Number(n) : undefined);
+
+// Helper: parse center coordinates
+function safeCenter(c) {
+  const lat = safeNum(c?.lat),
+    lng = safeNum(c?.lng);
+  return lat !== undefined && lng !== undefined ? { lat, lng } : undefined;
+}
+
+// Helper: get normalized domain
+const toNormalizedDomain = (s = "") => {
+  try {
+    const u = s.startsWith("http") ? new URL(s) : new URL(`https://${s}`);
+    let h = u.hostname.toLowerCase();
+    if (h.startsWith("www.")) h = h.slice(4);
+    return h || "unknown";
+  } catch {
+    return "unknown";
+  }
+};
+
+// Helper: enrich company data
+function enrichCompany(company, center) {
+  const c = { ...(company || {}) };
+  c.industries = normalizeIndustries(c.industries);
+  c.product_keywords = normalizeKeywords(c.product_keywords, c.industries);
+  const urlForDomain = c.canonical_url || c.url || "";
+  c.normalized_domain = toNormalizedDomain(urlForDomain);
+  return c;
+}
+
+// Save companies to Cosmos DB
 async function saveCompaniesToCosmos(companies, sessionId) {
   try {
     const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
@@ -98,64 +157,124 @@ app.http("importStart", {
     console.log(`[import-start] Received request with session_id: ${sessionId}`);
     console.log(`[import-start] Request body:`, JSON.stringify(bodyObj));
 
-    const base = getProxyBase();
-    console.log(`[import-start] XAI_PROXY_BASE: '${process.env.XAI_PROXY_BASE || ''}'`);
-    console.log(`[import-start] XAI_EXTERNAL_BASE: '${process.env.XAI_EXTERNAL_BASE || ''}'`);
-    console.log(`[import-start] Using base: '${base}'`);
+    const startTime = Date.now();
 
-    if (base) {
-      const proxyUrl = `${base}/import/start`;
-      console.log(`[import-start] Proxying POST to: ${proxyUrl}`);
-      console.log(`[import-start] Request timeout: 30000ms`);
+    try {
+      // Get XAI configuration
+      const XAI_FUNCTION_URL = (process.env.FUNCTION_URL || "").trim();
+      const XAI_FUNCTION_KEY = (process.env.FUNCTION_KEY || "").trim();
 
-      try {
-        const startTime = Date.now();
-        const out = await httpRequest("POST", proxyUrl, {
-          headers: { "content-type": "application/json" },
-          body: { ...bodyObj, session_id: sessionId },
-        });
-        const elapsed = Date.now() - startTime;
+      console.log(`[import-start] XAI configured: ${!!XAI_FUNCTION_URL && !!XAI_FUNCTION_KEY}`);
 
-        console.log(`[import-start] Response received after ${elapsed}ms, status: ${out.status}`);
-        console.log(`[import-start] Response headers:`, JSON.stringify(out.headers));
-        console.log(`[import-start] Response body length: ${out.body?.length || 0} chars`);
-        console.log(`[import-start] Response body (first 500 chars):`, out.body?.substring(0, 500) || '');
+      // If XAI is configured, call it directly
+      if (XAI_FUNCTION_URL && XAI_FUNCTION_KEY) {
+        console.log(`[import-start] Calling XAI at: ${XAI_FUNCTION_URL}`);
 
-        let body = out.body;
+        const center = safeCenter(bodyObj.center);
+        const xaiPayload = {
+          queryType: bodyObj.queryType || "product_keyword",
+          query: bodyObj.query || "",
+          limit: Math.max(1, Math.min(Number(bodyObj.limit) || 10, 25)),
+          expand_if_few: bodyObj.expand_if_few ?? true,
+          session_id: sessionId,
+          ...(center ? { center } : {}),
+        };
+
+        console.log(`[import-start] XAI Payload:`, JSON.stringify(xaiPayload));
+
+        const timeout = Math.max(1000, Number(bodyObj.timeout_ms) || 600000);
+        console.log(`[import-start] Request timeout: ${timeout}ms`);
+
         try {
-          body = JSON.parse(out.body);
-        } catch (parseErr) {
-          console.warn(`[import-start] Failed to parse JSON response: ${parseErr.message}`);
-        }
+          const xaiUrl = new URL(XAI_FUNCTION_URL);
+          xaiUrl.searchParams.set("code", XAI_FUNCTION_KEY);
+          const xaiUrlWithCode = xaiUrl.toString();
 
-        if (out.status >= 200 && out.status < 300) {
-          const companies = body?.companies || body?.results || [];
-          console.log(`[import-start] Found ${companies.length} companies in response`);
+          const xaiResponse = await axios.post(xaiUrlWithCode, xaiPayload, {
+            headers: {
+              "Content-Type": "application/json",
+              "x-functions-key": XAI_FUNCTION_KEY,
+            },
+            timeout: timeout,
+          });
 
-          if (Array.isArray(companies) && companies.length > 0) {
-            const saveResult = await saveCompaniesToCosmos(companies, sessionId);
-            console.log(`[import-start] Saved ${saveResult.saved} companies from external API, failed: ${saveResult.failed}`);
+          const elapsed = Date.now() - startTime;
+          console.log(`[import-start] XAI response received after ${elapsed}ms, status: ${xaiResponse.status}`);
+          console.log(`[import-start] XAI response data:`, JSON.stringify(xaiResponse.data).substring(0, 500));
+
+          if (xaiResponse.status >= 200 && xaiResponse.status < 300) {
+            // Extract companies from XAI response
+            const companies = Array.isArray(xaiResponse.data?.companies) ? xaiResponse.data.companies : [];
+            console.log(`[import-start] Found ${companies.length} companies in XAI response`);
+
+            // Enrich companies
+            const center = safeCenter(bodyObj.center);
+            const enriched = companies.map((c) => enrichCompany(c, center));
+
+            // Save to Cosmos DB
+            if (enriched.length > 0) {
+              const saveResult = await saveCompaniesToCosmos(enriched, sessionId);
+              console.log(`[import-start] Saved ${saveResult.saved} companies, failed: ${saveResult.failed}`);
+            }
+
+            // Return success
+            return json({
+              ok: true,
+              session_id: sessionId,
+              companies: enriched,
+              meta: xaiResponse.data?.meta || {},
+              saved: companies.length,
+            }, 200);
+          } else {
+            console.error(`[import-start] XAI error status: ${xaiResponse.status}`);
+            return json(
+              {
+                ok: false,
+                error: `XAI returned ${xaiResponse.status}`,
+                session_id: sessionId,
+                detail: xaiResponse.data,
+              },
+              502
+            );
           }
+        } catch (xaiError) {
+          const elapsed = Date.now() - startTime;
+          console.error(`[import-start] XAI request failed after ${elapsed}ms:`, xaiError.message);
+          console.error(`[import-start] Error details:`, xaiError.response?.data || xaiError.toString());
 
-          return json({ ...body, session_id: sessionId, ok: true }, out.status);
+          return json(
+            {
+              ok: false,
+              error: `XAI call failed: ${xaiError.message}`,
+              session_id: sessionId,
+            },
+            502
+          );
         }
-
-        console.error(`[import-start] Error response status: ${out.status}, body:`, body);
-        return json({ ok: false, error: body || "Upstream error", session_id: sessionId }, out.status || 502);
-      } catch (e) {
-        console.error(`[import-start] Proxy error after ${Date.now() - startTime}ms:`, e.message);
-        console.error(`[import-start] Full error:`, e);
-        return json(
-          { ok: false, error: `Proxy error: ${e.message || String(e)}`, session_id: sessionId },
-          502
-        );
       }
-    }
 
-    console.warn(`[import-start] No proxy base configured, returning stub response`);
-    return json(
-      { ok: true, session_id: sessionId, note: "XAI_PROXY_BASE not set; stub mode." },
-      200
-    );
+      // If XAI is not configured, return stub response
+      console.warn(`[import-start] XAI not configured, returning stub response`);
+      return json(
+        {
+          ok: true,
+          session_id: sessionId,
+          companies: [],
+          note: "XAI not configured (FUNCTION_URL / FUNCTION_KEY)",
+        },
+        200
+      );
+    } catch (e) {
+      console.error(`[import-start] Unexpected error:`, e.message);
+      console.error(`[import-start] Full error:`, e);
+      return json(
+        {
+          ok: false,
+          error: `Server error: ${e.message}`,
+          session_id: sessionId,
+        },
+        500
+      );
+    }
   },
 });
