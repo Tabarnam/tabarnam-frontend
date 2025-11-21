@@ -89,12 +89,17 @@ app.http("importProgress", {
     const take = Number(new URL(req.url).searchParams.get("take") || "200") || 200;
     if (!sessionId) return json({ error: "session_id is required" }, 400, req);
 
+    console.log(`[import-progress] Polling for session_id: ${sessionId}, take: ${take}`);
+
     const endpoint   = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
     const key        = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
     const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
     const containerId= (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
-    if (!endpoint || !key) return json({ error: "Cosmos not configured" }, 500, req);
+    if (!endpoint || !key) {
+      console.error("[import-progress] Cosmos DB not configured");
+      return json({ error: "Cosmos not configured" }, 500, req);
+    }
 
     const client    = new CosmosClient({ endpoint, key });
     const container = client.database(databaseId).container(containerId);
@@ -117,25 +122,39 @@ app.http("importProgress", {
       const saved = resources.length || 0;
       const lastCreatedAt = resources?.[0]?.created_at || "";
 
+      console.log(`[import-progress] Found ${saved} companies in Cosmos DB for session ${sessionId}`);
+
       // If no results in Cosmos, try to fetch from external API's /import/status endpoint
       if (saved === 0) {
         const base = getProxyBase();
+        console.log(`[import-progress] No Cosmos results, checking external API. Base: '${base}'`);
+
         if (base) {
           try {
             const statusUrl = `${base}/import/status?session_id=${encodeURIComponent(sessionId)}&take=${encodeURIComponent(take)}`;
+            console.log(`[import-progress] Fetching from external API: ${statusUrl}`);
+            const startTime = Date.now();
             const out = await httpRequest("GET", statusUrl);
+            const elapsed = Date.now() - startTime;
+            console.log(`[import-progress] External API response after ${elapsed}ms, status: ${out.status}`);
+            console.log(`[import-progress] Response body length: ${out.body?.length || 0} chars`);
+            console.log(`[import-progress] Response body (first 500 chars):`, out.body?.substring(0, 500) || '');
+
             if (out.status >= 200 && out.status < 300) {
               let statusBody;
               try {
                 statusBody = JSON.parse(out.body);
-              } catch {
+              } catch (parseErr) {
+                console.warn(`[import-progress] Failed to parse JSON: ${parseErr.message}`);
                 statusBody = {};
               }
 
               const companies = statusBody?.companies || statusBody?.results || statusBody?.items || [];
+              console.log(`[import-progress] Found ${companies.length} companies in external API response`);
+
               if (Array.isArray(companies) && companies.length > 0) {
                 const saveResult = await saveCompaniesToCosmos(companies, sessionId);
-                console.log(`[import-progress] Fetched ${companies.length} companies from external API and saved ${saveResult.saved}, failed: ${saveResult.failed}`);
+                console.log(`[import-progress] Saved ${saveResult.saved} companies from external API, failed: ${saveResult.failed}`);
                 return json({
                   ok: true,
                   session_id: sessionId,
@@ -146,9 +165,12 @@ app.http("importProgress", {
                   lastCreatedAt: companies[0]?.created_at || ""
                 }, 200, req);
               }
+            } else {
+              console.warn(`[import-progress] External API error status: ${out.status}`);
             }
           } catch (e) {
             console.warn(`[import-progress] Failed to fetch from external API: ${e.message}`);
+            console.error(`[import-progress] Full error:`, e);
           }
         }
       }
@@ -164,6 +186,7 @@ app.http("importProgress", {
       }, 200, req);
     } catch (e) {
       console.error("[import-progress] Query error:", e.message);
+      console.error("[import-progress] Full error:", e);
       return json({ error: "query failed", detail: e?.message || String(e) }, 500, req);
     }
   },
