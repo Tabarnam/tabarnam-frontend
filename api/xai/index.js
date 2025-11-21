@@ -1,5 +1,4 @@
 const { app } = require("@azure/functions");
-const axios = require("axios");
 
 function cors(req) {
   const origin = req.headers.get("origin") || "*";
@@ -31,35 +30,22 @@ app.http("xai", {
     const bodyObj = await req.json().catch(() => ({}));
     console.log(`[xai] Received XAI request:`, JSON.stringify(bodyObj));
 
-    const apiBase = String(process.env.VITE_API_BASE || process.env.API_BASE || "").trim();
-    const proxyUrl = apiBase
-      ? `${apiBase}/proxy-xai`
-      : "http://localhost:7071/api/proxy-xai";
+    console.warn(`[xai] ERROR: This endpoint (/api/xai) is not implemented!`);
+    console.warn(`[xai] FUNCTION_URL is currently pointing to this endpoint, which creates a loop.`);
+    console.warn(`[xai] Please update FUNCTION_URL to point to the actual XAI API endpoint.`);
 
-    console.log(`[xai] Proxying to: ${proxyUrl}`);
-
-    try {
-      const response = await axios.post(proxyUrl, bodyObj, {
-        headers: {
-          "Content-Type": "application/json",
+    return json(
+      {
+        error: "XAI endpoint not implemented",
+        message: "The /api/xai endpoint is not configured properly. FUNCTION_URL should point to the actual XAI service, not to this local endpoint.",
+        note: "Update FUNCTION_URL environment variable to point to your XAI API endpoint (e.g., external API or XAI service)",
+        configuration: {
+          FUNCTION_URL: (process.env.FUNCTION_URL || "").trim() || "not set",
+          FUNCTION_KEY: (process.env.FUNCTION_KEY || "").trim() ? "configured" : "not set",
         },
-        timeout: 600000,
-      });
-
-      console.log(`[xai] Proxy response received with status: ${response.status}`);
-      return json(response.data, response.status, req);
-    } catch (err) {
-      console.error(`[xai] Proxy request failed:`, err.message);
-      console.error(`[xai] Error details:`, err.response?.data || err.toString());
-
-      return json(
-        {
-          error: `XAI proxy failed: ${err.message}`,
-          detail: err.response?.data,
-        },
-        err.response?.status || 502,
-        req
-      );
-    }
+      },
+      501,
+      req
+    );
   },
 });
