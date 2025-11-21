@@ -175,13 +175,15 @@ app.http("importStart", {
       const timeout = Math.max(1000, Number(bodyObj.timeout_ms) || 600000);
       console.log(`[import-start] Request timeout: ${timeout}ms`);
 
-      // Call local proxy-xai endpoint
+      // Determine proxy URL - use local proxy-xai endpoint
       const localApiBase = String(process.env.VITE_API_BASE || process.env.API_BASE || "").trim();
       const proxyUrl = localApiBase
         ? `${localApiBase}/proxy-xai`
         : "http://localhost:7071/api/proxy-xai";
 
       console.log(`[import-start] Calling XAI via proxy at: ${proxyUrl}`);
+      console.log(`[import-start] FUNCTION_URL: ${(process.env.FUNCTION_URL || "").trim() || "NOT SET"}`);
+      console.log(`[import-start] XAI_EXTERNAL_BASE: ${(process.env.XAI_EXTERNAL_BASE || "").trim() || "NOT SET"}`);
 
       try {
         const xaiResponse = await axios.post(proxyUrl, xaiPayload, {
@@ -240,6 +242,7 @@ app.http("importStart", {
             ok: false,
             error: `XAI call failed: ${xaiError.message}`,
             session_id: sessionId,
+            detail: xaiError.response?.data,
           },
           502
         );
