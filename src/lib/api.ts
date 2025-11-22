@@ -1,12 +1,18 @@
 // src/lib/api.ts
 // Single source of truth for the front-end API base.
-// Uses relative path /api so it works with:
-// - Local dev: proxied to func start --port 7073
-// - Deployed: SWA managed API at /api
-// - Environment override: VITE_API_BASE env variable
+// Supports:
+// - Local dev: proxied via vite config to http://127.0.0.1:7080
+// - Deployed: uses VITE_API_BASE env variable pointing to Azure Functions
+// - Fallback: relative /api path
 
 const getAPIBase = () => {
-  // Always use relative /api so SWA can proxy to Azure Functions and avoid CORS issues
+  // Use environment variable if provided (production Azure Functions endpoint)
+  if (import.meta.env.VITE_API_BASE) {
+    const base = import.meta.env.VITE_API_BASE.trim();
+    if (base) return base;
+  }
+
+  // Fallback to relative path for local dev with proxy
   return "/api";
 };
 
