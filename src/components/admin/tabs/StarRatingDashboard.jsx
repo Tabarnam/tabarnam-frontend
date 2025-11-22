@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ClipLoader } from 'react-spinners';
 import { Save, RotateCcw } from 'lucide-react';
 import { getAdminUser } from '@/lib/azureAuth';
+import { apiFetch } from '@/lib/api';
 
 const StarRatingDashboard = ({ companies, onUpdate }) => {
   const user = getAdminUser();
@@ -23,7 +24,7 @@ const StarRatingDashboard = ({ companies, onUpdate }) => {
 
   const fetchStarConfig = async () => {
     try {
-      const res = await fetch('/api/admin-star-config');
+      const res = await apiFetch('admin-star-config');
       if (!res.ok) throw new Error('Failed to load star config');
       const data = await res.json();
       if (data.config) {
@@ -37,7 +38,7 @@ const StarRatingDashboard = ({ companies, onUpdate }) => {
   const handleSaveConfig = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin-star-config', {
+      const res = await apiFetch('admin-star-config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config: starConfig, actor: user?.email }),
@@ -55,7 +56,7 @@ const StarRatingDashboard = ({ companies, onUpdate }) => {
   const handleRecalculateStars = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin-recalc-stars', {
+      const res = await apiFetch('admin-recalc-stars', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ actor: user?.email }),

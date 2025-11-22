@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ClipLoader } from 'react-spinners';
 import { Edit2, Trash2, Plus, Download, Search } from 'lucide-react';
+import { apiFetch } from '@/lib/api';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,7 +51,7 @@ const CompaniesTableTab = ({ companies, loading, onUpdate }) => {
 
   const handleDelete = async (companyId) => {
     try {
-      const res = await fetch('/api/admin-companies', {
+      const res = await apiFetch('admin-companies', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: companyId, actor: user?.email }),

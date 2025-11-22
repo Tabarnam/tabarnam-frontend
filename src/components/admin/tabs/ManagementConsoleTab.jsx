@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { apiFetch } from '@/lib/api';
 import {
   Select,
   SelectContent,
@@ -59,7 +60,7 @@ const ManagementConsoleTab = ({ companies, onUpdate }) => {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/admin-batch-update', {
+      const res = await apiFetch('admin-batch-update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
