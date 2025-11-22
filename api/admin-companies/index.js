@@ -177,9 +177,14 @@ app.http("adminCompanies", {
             ")";
         }
 
+        const deletedFilter = "WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
+        const combinedWhere = whereClause
+          ? `WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND (${whereClause.replace("WHERE (", "")})`
+          : deletedFilter;
+
         const sql =
           "SELECT TOP @take * FROM c " +
-          whereClause +
+          combinedWhere +
           " ORDER BY c._ts DESC";
 
         const { resources } = await companiesContainer.items
