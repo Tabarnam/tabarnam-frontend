@@ -296,7 +296,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           console.log(`[import-start] Found ${companies.length} companies in XAI response`);
 
           const center = safeCenter(bodyObj.center);
-          const enriched = companies.map((c) => enrichCompany(c, center));
+          let enriched = companies.map((c) => enrichCompany(c, center));
 
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
           if (enriched.length > 0) {
@@ -304,11 +304,85 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             console.log(`[import-start] Saved ${saveResult.saved} companies, skipped: ${saveResult.skipped}, failed: ${saveResult.failed}`);
           }
 
+          // If expand_if_few is enabled and we got very few results (or all were skipped), try alternative search
+          const minThreshold = Math.max(1, Math.ceil(xaiPayload.limit * 0.6));
+          if (xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold && companies.length > 0) {
+            console.log(`[import-start] Few results found (${saveResult.saved} saved, ${saveResult.skipped} skipped). Attempting expansion search.`);
+
+            try {
+              // Create a more general search prompt for related companies
+              const expansionMessage = {
+                role: "user",
+                content: `You previously found companies for "${xaiPayload.query}" (${xaiPayload.queryType}).
+Find ${xaiPayload.limit} MORE DIFFERENT companies that are related to "${xaiPayload.query}" but were not in the previous results.
+Focus on finding ALTERNATIVE options, competitors, or related companies in the same space.
+
+Format your response as a valid JSON array with the same structure:
+- company_name (string)
+- url (string)
+- industries (array)
+- product_keywords (string)
+- hq_lat, hq_lng, amazon_url, social (optional)
+
+Return ONLY the JSON array, no other text.`,
+              };
+
+              const expansionPayload = {
+                messages: [expansionMessage],
+                model: "grok-4-latest",
+                temperature: 0.3,
+                stream: false,
+              };
+
+              console.log(`[import-start] Making expansion search for "${xaiPayload.query}"`);
+              const expansionResponse = await axios.post(xaiUrl, expansionPayload, {
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${xaiKey}`,
+                },
+                timeout: Math.max(1000, Number(process.env.XAI_TIMEOUT_MS) || 60000),
+              });
+
+              if (expansionResponse.status >= 200 && expansionResponse.status < 300) {
+                const expansionText = expansionResponse.data?.choices?.[0]?.message?.content || "";
+                console.log(`[import-start] Expansion response preview: ${expansionText.substring(0, 100)}...`);
+
+                let expansionCompanies = [];
+                try {
+                  const jsonMatch = expansionText.match(/\[[\s\S]*\]/);
+                  if (jsonMatch) {
+                    expansionCompanies = JSON.parse(jsonMatch[0]);
+                    if (!Array.isArray(expansionCompanies)) expansionCompanies = [];
+                  }
+                } catch (parseErr) {
+                  console.warn(`[import-start] Failed to parse expansion companies: ${parseErr.message}`);
+                }
+
+                console.log(`[import-start] Found ${expansionCompanies.length} companies in expansion search`);
+
+                if (expansionCompanies.length > 0) {
+                  const enrichedExpansion = expansionCompanies.map((c) => enrichCompany(c, center));
+                  enriched = enriched.concat(enrichedExpansion);
+
+                  // Re-save with expansion results
+                  const expansionResult = await saveCompaniesToCosmos(enrichedExpansion, sessionId);
+                  saveResult.saved += expansionResult.saved;
+                  saveResult.skipped += expansionResult.skipped;
+                  saveResult.failed += expansionResult.failed;
+                  console.log(`[import-start] Expansion: saved ${expansionResult.saved}, skipped ${expansionResult.skipped}, failed ${expansionResult.failed}`);
+                }
+              }
+            } catch (expansionErr) {
+              console.warn(`[import-start] Expansion search failed: ${expansionErr.message}`);
+              // Continue without expansion results
+            }
+          }
+
           return json({
             ok: true,
             session_id: sessionId,
             companies: enriched,
-            meta: { mode: "direct" },
+            meta: { mode: "direct", expanded: xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold },
             saved: saveResult.saved,
             skipped: saveResult.skipped,
             failed: saveResult.failed,
