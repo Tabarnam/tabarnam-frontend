@@ -113,6 +113,7 @@ app.http("searchCompanies", {
 
         if (sort === "manu") {
           const whereText = q ? `AND (${SQL_TEXT_FILTER})` : "";
+          const deletedFilter = "AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
 
           // A) With manufacturing locations
           const sqlA = `
@@ -124,6 +125,7 @@ app.http("searchCompanies", {
                              c.star_score, c.confidence_score
             FROM c
             WHERE IS_DEFINED(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
+            ${deletedFilter}
             ${whereText}
             ORDER BY c._ts DESC
           `;
@@ -144,6 +146,7 @@ app.http("searchCompanies", {
                                 c.star_score, c.confidence_score
               FROM c
               WHERE (NOT IS_DEFINED(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
+              ${deletedFilter}
               ${whereText}
               ORDER BY c._ts DESC
             `;
@@ -155,6 +158,7 @@ app.http("searchCompanies", {
           }
         } else {
           const orderBy = sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
+          const deletedFilter = "AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
           const sql = q
             ? `
               SELECT TOP @take c.id, c.company_name, c.industries, c.url, c.amazon_url,
@@ -165,6 +169,7 @@ app.http("searchCompanies", {
                                c.star_score, c.confidence_score
               FROM c
               WHERE ${SQL_TEXT_FILTER}
+              ${deletedFilter}
               ${orderBy}
             `
             : `
@@ -175,6 +180,7 @@ app.http("searchCompanies", {
                                c.hq_lat, c.hq_lng, c.product_keywords, c.star_rating,
                                c.star_score, c.confidence_score
               FROM c
+              WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
               ${orderBy}
             `;
           const res = await container.items
