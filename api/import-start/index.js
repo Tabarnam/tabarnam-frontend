@@ -95,6 +95,38 @@ async function findExistingCompany(container, normalizedDomain, companyName) {
   }
 }
 
+// Helper: fetch logo for a company domain
+async function fetchLogo(domain) {
+  if (!domain || domain === "unknown") return null;
+
+  try {
+    const proxyBase = (process.env.XAI_EXTERNAL_BASE || process.env.XAI_PROXY_BASE || "").trim();
+    if (!proxyBase) {
+      // Fallback to Clearbit API
+      return `https://logo.clearbit.com/${encodeURIComponent(domain)}`;
+    }
+
+    // Use logo-scrape API if available
+    const xaiKey = (process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || "").trim();
+    const logoUrl = `${proxyBase}/logo-scrape`;
+
+    const response = await axios.post(logoUrl, { domain }, {
+      timeout: 5000,
+      headers: xaiKey ? { "Authorization": `Bearer ${xaiKey}` } : {}
+    });
+
+    if (response.data && response.data.logo_url) {
+      console.log(`[import-start] Fetched logo for ${domain}`);
+      return response.data.logo_url;
+    }
+  } catch (e) {
+    console.log(`[import-start] Could not fetch logo for ${domain}: ${e.message}`);
+  }
+
+  // Fallback to Clearbit
+  return `https://logo.clearbit.com/${encodeURIComponent(domain)}`;
+}
+
 // Save companies to Cosmos DB (skip duplicates)
 async function saveCompaniesToCosmos(companies, sessionId) {
   try {
@@ -129,6 +161,12 @@ async function saveCompaniesToCosmos(companies, sessionId) {
           continue;
         }
 
+        // Fetch logo for the company
+        let logoUrl = company.logo_url || null;
+        if (!logoUrl && normalizedDomain !== "unknown") {
+          logoUrl = await fetchLogo(normalizedDomain);
+        }
+
         const doc = {
           id: `company_${Date.now()}_${Math.random().toString(36).slice(2)}`,
           company_name: companyName,
@@ -138,6 +176,7 @@ async function saveCompaniesToCosmos(companies, sessionId) {
           industries: company.industries || [],
           product_keywords: company.product_keywords || "",
           normalized_domain: normalizedDomain,
+          logo_url: logoUrl || null,
           hq_lat: company.hq_lat,
           hq_lng: company.hq_lng,
           social: company.social || {},
