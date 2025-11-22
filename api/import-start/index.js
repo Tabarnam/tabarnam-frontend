@@ -164,39 +164,39 @@ app.http("importStart", {
 
       try {
         const center = safeCenter(bodyObj.center);
-      const xaiPayload = {
-        queryType: bodyObj.queryType || "product_keyword",
-        query: bodyObj.query || "",
-        limit: Math.max(1, Math.min(Number(bodyObj.limit) || 10, 25)),
-        expand_if_few: bodyObj.expand_if_few ?? true,
-        session_id: sessionId,
-        ...(center ? { center } : {}),
-      };
-
-      console.log(`[import-start] XAI Payload:`, JSON.stringify(xaiPayload));
-
-      const timeout = Math.max(1000, Number(bodyObj.timeout_ms) || 600000);
-      console.log(`[import-start] Request timeout: ${timeout}ms`);
-
-      // Get XAI configuration
-      const xaiUrl = (process.env.FUNCTION_URL || "").trim();
-      const xaiKey = (process.env.XAI_API_KEY || process.env.FUNCTION_KEY || "").trim();
-
-      console.log(`[import-start] XAI URL: ${xaiUrl ? "configured" : "NOT SET"}`);
-      console.log(`[import-start] XAI Key: ${xaiKey ? "configured" : "NOT SET"}`);
-
-      if (!xaiUrl || !xaiKey) {
-        return json({
-          ok: false,
-          error: "XAI not configured",
+        const xaiPayload = {
+          queryType: bodyObj.queryType || "product_keyword",
+          query: bodyObj.query || "",
+          limit: Math.max(1, Math.min(Number(bodyObj.limit) || 10, 25)),
+          expand_if_few: bodyObj.expand_if_few ?? true,
           session_id: sessionId,
-        }, 500);
-      }
+          ...(center ? { center } : {}),
+        };
 
-      // Build XAI request message
-      const xaiMessage = {
-        role: "user",
-        content: `You are a business research assistant. Find and return information about ${xaiPayload.limit} companies or products based on this search.
+        console.log(`[import-start] XAI Payload:`, JSON.stringify(xaiPayload));
+
+        const timeout = Math.max(1000, Number(bodyObj.timeout_ms) || 600000);
+        console.log(`[import-start] Request timeout: ${timeout}ms`);
+
+        // Get XAI configuration
+        const xaiUrl = (process.env.FUNCTION_URL || "").trim();
+        const xaiKey = (process.env.XAI_API_KEY || process.env.FUNCTION_KEY || "").trim();
+
+        console.log(`[import-start] XAI URL: ${xaiUrl ? "configured" : "NOT SET"}`);
+        console.log(`[import-start] XAI Key: ${xaiKey ? "configured" : "NOT SET"}`);
+
+        if (!xaiUrl || !xaiKey) {
+          return json({
+            ok: false,
+            error: "XAI not configured",
+            session_id: sessionId,
+          }, 500);
+        }
+
+        // Build XAI request message
+        const xaiMessage = {
+          role: "user",
+          content: `You are a business research assistant. Find and return information about ${xaiPayload.limit} companies or products based on this search.
 
 Search query: "${xaiPayload.query}"
 Search type: ${xaiPayload.queryType}
@@ -212,17 +212,17 @@ Format your response as a valid JSON array of company objects. Each object must 
 - social (object, optional): Social media URLs {linkedin, instagram, x, twitter, facebook, tiktok, youtube}
 
 Only return the JSON array, no other text.`,
-      };
+        };
 
-      const xaiRequestPayload = {
-        messages: [xaiMessage],
-        model: "grok-beta",
-        temperature: 0.1,
-        stream: false,
-      };
+        const xaiRequestPayload = {
+          messages: [xaiMessage],
+          model: "grok-beta",
+          temperature: 0.1,
+          stream: false,
+        };
 
-      try {
-        console.log(`[import-start] Calling XAI API at: ${xaiUrl}`);
+        try {
+          console.log(`[import-start] Calling XAI API at: ${xaiUrl}`);
         const xaiResponse = await axios.post(xaiUrl, xaiRequestPayload, {
           headers: {
             "Content-Type": "application/json",
