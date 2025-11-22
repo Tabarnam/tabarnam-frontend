@@ -236,11 +236,14 @@ Search query: "${xaiPayload.query}"
 Search type: ${xaiPayload.queryType}
 
 CRITICAL INSTRUCTIONS:
-1. Return DIVERSE companies - include major brands, mid-market players, smaller/emerging companies, and specialty manufacturers
-2. Do NOT just return one dominant brand (e.g., if searching "chocolate", include Hershey's, Barry Callebaut, Godiva, Lake Champlain, Endangered Species Chocolate, etc.)
-3. Prioritize finding DIFFERENT companies over finding more of the same type
-4. If searching for a product category, include companies of different sizes, regions, and specialization levels
-5. Verify each company URL is valid and returns a real website
+1. PRIORITIZE SMALLER, REGIONAL, AND LESSER-KNOWN COMPANIES - these should be the majority of results
+2. Include a diversity of company sizes: 40% small/regional/emerging, 35% mid-market, 25% major brands
+3. Return DIVERSE companies - include independent manufacturers, local producers, regional specialists, family-owned businesses, and emerging/niche players
+4. Do NOT just return major dominant brands - if searching "chocolate", prioritize smaller producers like Lake Champlain, Endangered Species Chocolate, Godiva, before returning Hershey's or Barry Callebaut
+5. Prioritize finding DIFFERENT companies over finding more of the same type
+6. Include regional and international companies, not just US-based ones
+7. Look for specialty manufacturers, craft producers, and companies with unique positioning
+8. Verify each company URL is valid and returns a real website
 
 Format your response as a valid JSON array of company objects. Each object must have:
 - company_name (string): The exact name of the company
