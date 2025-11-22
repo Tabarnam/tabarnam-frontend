@@ -159,12 +159,12 @@ app.http("adminCompanies", {
         const take = Math.min(500, Math.max(1, Number(url.searchParams.get("take") || "200")));
 
         const parameters = [{ name: "@take", value: take }];
-        let whereClause = "";
+        const conditions = ["(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)"];
 
         if (search) {
           parameters.push({ name: "@q", value: search });
-          whereClause =
-            "WHERE (" +
+          conditions.push(
+            "(" +
             [
               "(IS_DEFINED(c.company_name) AND CONTAINS(LOWER(c.company_name), @q))",
               "(IS_DEFINED(c.name) AND CONTAINS(LOWER(c.name), @q))",
@@ -174,17 +174,14 @@ app.http("adminCompanies", {
               "(IS_DEFINED(c.normalized_domain) AND CONTAINS(LOWER(c.normalized_domain), @q))",
               "(IS_DEFINED(c.amazon_url) AND CONTAINS(LOWER(c.amazon_url), @q))",
             ].join(" OR ") +
-            ")";
+            ")"
+          );
         }
 
-        const deletedFilter = "WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
-        const combinedWhere = whereClause
-          ? `WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND (${whereClause.replace("WHERE (", "")})`
-          : deletedFilter;
-
+        const whereClause = "WHERE " + conditions.join(" AND ");
         const sql =
           "SELECT TOP @take * FROM c " +
-          combinedWhere +
+          whereClause +
           " ORDER BY c._ts DESC";
 
         const { resources } = await companiesContainer.items
