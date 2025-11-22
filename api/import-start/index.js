@@ -95,6 +95,38 @@ async function findExistingCompany(container, normalizedDomain, companyName) {
   }
 }
 
+// Helper: fetch logo for a company domain
+async function fetchLogo(domain) {
+  if (!domain || domain === "unknown") return null;
+
+  try {
+    const proxyBase = (process.env.XAI_EXTERNAL_BASE || process.env.XAI_PROXY_BASE || "").trim();
+    if (!proxyBase) {
+      // Fallback to Clearbit API
+      return `https://logo.clearbit.com/${encodeURIComponent(domain)}`;
+    }
+
+    // Use logo-scrape API if available
+    const xaiKey = (process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || "").trim();
+    const logoUrl = `${proxyBase}/logo-scrape`;
+
+    const response = await axios.post(logoUrl, { domain }, {
+      timeout: 5000,
+      headers: xaiKey ? { "Authorization": `Bearer ${xaiKey}` } : {}
+    });
+
+    if (response.data && response.data.logo_url) {
+      console.log(`[import-start] Fetched logo for ${domain}`);
+      return response.data.logo_url;
+    }
+  } catch (e) {
+    console.log(`[import-start] Could not fetch logo for ${domain}: ${e.message}`);
+  }
+
+  // Fallback to Clearbit
+  return `https://logo.clearbit.com/${encodeURIComponent(domain)}`;
+}
+
 // Save companies to Cosmos DB (skip duplicates)
 async function saveCompaniesToCosmos(companies, sessionId) {
   try {
@@ -129,6 +161,12 @@ async function saveCompaniesToCosmos(companies, sessionId) {
           continue;
         }
 
+        // Fetch logo for the company
+        let logoUrl = company.logo_url || null;
+        if (!logoUrl && normalizedDomain !== "unknown") {
+          logoUrl = await fetchLogo(normalizedDomain);
+        }
+
         const doc = {
           id: `company_${Date.now()}_${Math.random().toString(36).slice(2)}`,
           company_name: companyName,
@@ -138,6 +176,7 @@ async function saveCompaniesToCosmos(companies, sessionId) {
           industries: company.industries || [],
           product_keywords: company.product_keywords || "",
           normalized_domain: normalizedDomain,
+          logo_url: logoUrl || null,
           hq_lat: company.hq_lat,
           hq_lng: company.hq_lng,
           social: company.social || {},
@@ -236,11 +275,14 @@ Search query: "${xaiPayload.query}"
 Search type: ${xaiPayload.queryType}
 
 CRITICAL INSTRUCTIONS:
-1. Return DIVERSE companies - include major brands, mid-market players, smaller/emerging companies, and specialty manufacturers
-2. Do NOT just return one dominant brand (e.g., if searching "chocolate", include Hershey's, Barry Callebaut, Godiva, Lake Champlain, Endangered Species Chocolate, etc.)
-3. Prioritize finding DIFFERENT companies over finding more of the same type
-4. If searching for a product category, include companies of different sizes, regions, and specialization levels
-5. Verify each company URL is valid and returns a real website
+1. PRIORITIZE SMALLER, REGIONAL, AND LESSER-KNOWN COMPANIES - these should be the majority of results
+2. Include a diversity of company sizes: 40% small/regional/emerging, 35% mid-market, 25% major brands
+3. Return DIVERSE companies - include independent manufacturers, local producers, regional specialists, family-owned businesses, and emerging/niche players
+4. Do NOT just return major dominant brands - if searching "chocolate", prioritize smaller producers like Lake Champlain, Endangered Species Chocolate, Godiva, before returning Hershey's or Barry Callebaut
+5. Prioritize finding DIFFERENT companies over finding more of the same type
+6. Include regional and international companies, not just US-based ones
+7. Look for specialty manufacturers, craft producers, and companies with unique positioning
+8. Verify each company URL is valid and returns a real website
 
 Format your response as a valid JSON array of company objects. Each object must have:
 - company_name (string): The exact name of the company
@@ -315,7 +357,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 role: "user",
                 content: `You previously found companies for "${xaiPayload.query}" (${xaiPayload.queryType}).
 Find ${xaiPayload.limit} MORE DIFFERENT companies that are related to "${xaiPayload.query}" but were not in the previous results.
-Focus on finding ALTERNATIVE options, competitors, or related companies in the same space.
+PRIORITIZE finding smaller, regional, and lesser-known companies that are alternatives to major brands.
+Focus on independent manufacturers, craft producers, specialty companies, and regional players that serve the same market.
 
 Format your response as a valid JSON array with the same structure:
 - company_name (string)
