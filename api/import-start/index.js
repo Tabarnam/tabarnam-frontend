@@ -74,7 +74,28 @@ function enrichCompany(company, center) {
   return c;
 }
 
-// Save companies to Cosmos DB
+// Check if company already exists by normalized domain
+async function findExistingCompany(container, normalizedDomain, companyName) {
+  if (!container) return null;
+  try {
+    const query = {
+      query: "SELECT c.id FROM c WHERE c.normalized_domain = @domain OR LOWER(c.company_name) = @name",
+      parameters: [
+        { name: "@domain", value: normalizedDomain },
+        { name: "@name", value: (companyName || "").toLowerCase() },
+      ],
+    };
+    const { resources } = await container.items
+      .query(query, { enableCrossPartitionQuery: true })
+      .fetchAll();
+    return resources && resources.length > 0 ? resources[0] : null;
+  } catch (e) {
+    console.warn(`[import-start] Error checking for existing company: ${e.message}`);
+    return null;
+  }
+}
+
+// Save companies to Cosmos DB (skip duplicates)
 async function saveCompaniesToCosmos(companies, sessionId) {
   try {
     const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
@@ -84,7 +105,7 @@ async function saveCompaniesToCosmos(companies, sessionId) {
 
     if (!endpoint || !key) {
       console.warn("[import-start] Cosmos DB not configured, skipping save");
-      return { saved: 0, failed: 0 };
+      return { saved: 0, failed: 0, skipped: 0 };
     }
 
     const client = new CosmosClient({ endpoint, key });
@@ -93,17 +114,30 @@ async function saveCompaniesToCosmos(companies, sessionId) {
 
     let saved = 0;
     let failed = 0;
+    let skipped = 0;
 
     for (const company of companies) {
       try {
+        const companyName = company.company_name || company.name || "";
+        const normalizedDomain = company.normalized_domain || "unknown";
+
+        // Check if company already exists
+        const existing = await findExistingCompany(container, normalizedDomain, companyName);
+        if (existing) {
+          console.log(`[import-start] Skipping duplicate company: ${companyName} (${normalizedDomain})`);
+          skipped++;
+          continue;
+        }
+
         const doc = {
           id: `company_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          company_name: company.company_name || company.name || "",
-          name: company.name || company.company_name || "",
+          company_name: companyName,
+          name: company.name || companyName,
           url: company.url || company.website_url || company.canonical_url || "",
           website_url: company.website_url || company.canonical_url || company.url || "",
           industries: company.industries || [],
           product_keywords: company.product_keywords || "",
+          normalized_domain: normalizedDomain,
           hq_lat: company.hq_lat,
           hq_lng: company.hq_lng,
           social: company.social || {},
@@ -127,10 +161,10 @@ async function saveCompaniesToCosmos(companies, sessionId) {
       }
     }
 
-    return { saved, failed };
+    return { saved, failed, skipped };
   } catch (e) {
     console.error("[import-start] Error in saveCompaniesToCosmos:", e.message);
-    return { saved: 0, failed: companies?.length || 0 };
+    return { saved: 0, failed: companies?.length || 0, skipped: 0 };
   }
 }
 
@@ -257,9 +291,10 @@ Only return the JSON array, no other text.`,
           const center = safeCenter(bodyObj.center);
           const enriched = companies.map((c) => enrichCompany(c, center));
 
+          let saveResult = { saved: 0, failed: 0, skipped: 0 };
           if (enriched.length > 0) {
-            const saveResult = await saveCompaniesToCosmos(enriched, sessionId);
-            console.log(`[import-start] Saved ${saveResult.saved} companies, failed: ${saveResult.failed}`);
+            saveResult = await saveCompaniesToCosmos(enriched, sessionId);
+            console.log(`[import-start] Saved ${saveResult.saved} companies, skipped: ${saveResult.skipped}, failed: ${saveResult.failed}`);
           }
 
           return json({
@@ -267,7 +302,9 @@ Only return the JSON array, no other text.`,
             session_id: sessionId,
             companies: enriched,
             meta: { mode: "direct" },
-            saved: enriched.length,
+            saved: saveResult.saved,
+            skipped: saveResult.skipped,
+            failed: saveResult.failed,
           }, 200);
         } else {
           console.error(`[import-start] XAI error status: ${xaiResponse.status}`);
