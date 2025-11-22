@@ -26,6 +26,10 @@
   },
   "routes": [
     {
+      "route": "/api/*",
+      "allowedRoles": ["anonymous"]
+    },
+    {
       "route": "/xapi",
       "redirect": "/xapi/",
       "statusCode": 301
