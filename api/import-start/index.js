@@ -190,33 +190,29 @@ app.http("importStart", {
       console.log(`[import-start] FUNCTION_KEY: ${(process.env.FUNCTION_KEY || "").trim().substring(0, 10)}...`);
 
       try {
+        console.log(`[import-start] Attempting to call proxy via: ${proxyUrl}`);
         const xaiResponse = await axios.post(proxyUrl, xaiPayload, {
           headers: {
             "Content-Type": "application/json",
           },
-          timeout: timeout,
+          timeout: 15000,
         });
 
         const elapsed = Date.now() - startTime;
         console.log(`[import-start] XAI response received after ${elapsed}ms, status: ${xaiResponse.status}`);
-        console.log(`[import-start] XAI response data:`, JSON.stringify(xaiResponse.data).substring(0, 500));
 
         if (xaiResponse.status >= 200 && xaiResponse.status < 300) {
-          // Extract companies from XAI response
           const companies = Array.isArray(xaiResponse.data?.companies) ? xaiResponse.data.companies : [];
           console.log(`[import-start] Found ${companies.length} companies in XAI response`);
 
-          // Enrich companies
           const center = safeCenter(bodyObj.center);
           const enriched = companies.map((c) => enrichCompany(c, center));
 
-          // Save to Cosmos DB
           if (enriched.length > 0) {
             const saveResult = await saveCompaniesToCosmos(enriched, sessionId);
             console.log(`[import-start] Saved ${saveResult.saved} companies, failed: ${saveResult.failed}`);
           }
 
-          // Return success
           return json({
             ok: true,
             session_id: sessionId,
@@ -231,22 +227,20 @@ app.http("importStart", {
               ok: false,
               error: `XAI returned ${xaiResponse.status}`,
               session_id: sessionId,
-              detail: xaiResponse.data,
             },
             502
           );
         }
       } catch (xaiError) {
         const elapsed = Date.now() - startTime;
-        console.error(`[import-start] XAI request failed after ${elapsed}ms:`, xaiError.message);
-        console.error(`[import-start] Error details:`, xaiError.response?.data || xaiError.toString());
+        console.error(`[import-start] Proxy call failed after ${elapsed}ms:`, xaiError.message);
+        console.error(`[import-start] Error code: ${xaiError.code}`);
 
         return json(
           {
             ok: false,
-            error: `XAI call failed: ${xaiError.message}`,
+            error: `Proxy call failed: ${xaiError.message}`,
             session_id: sessionId,
-            detail: xaiError.response?.data,
           },
           502
         );
