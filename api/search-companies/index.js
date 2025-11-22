@@ -1,7 +1,5 @@
 // api/search-companies/index.js
 const { app } = require("@azure/functions");
-const { httpRequest } = require("../_http");
-const { getProxyBase } = require("../_shared");
 
 let CosmosClientCtor = null;
 function loadCosmosCtor() {
@@ -87,23 +85,7 @@ app.http("searchCompanies", {
     const skip = Math.max(0, Number(rawSkip || 0) || 0);
     const limit = Math.min(500, skip + take || take);
 
-    // 1) Proxy to upstream if configured
-    const base = getProxyBase();
-    if (base) {
-      try {
-        const proxyUrl = `${base}/search-companies?q=${encodeURIComponent(qRaw)}&take=${encodeURIComponent(take)}&sort=${encodeURIComponent(sort)}`;
-        const out = await httpRequest("GET", proxyUrl);
-        let body = out.body;
-        try {
-          body = JSON.parse(body);
-        } catch {}
-        return json(body, out.status || 200, req);
-      } catch (e) {
-        context.log("search-companies proxy error:", e?.message || e);
-      }
-    }
-
-    // 2) Cosmos DB path
+    // 1) Cosmos DB path (prioritized - local data source first)
     const container = getCompaniesContainer();
     if (container) {
       try {
@@ -206,29 +188,7 @@ app.http("searchCompanies", {
       }
     }
 
-    // 3) Stub (no proxy and no cosmos)
-    const baseItems = [
-      {
-        id: "stub1",
-        company_name: "Acme Candles",
-        url: "https://example.com",
-        product_keywords: "candles, wax",
-        confidence_score: 0.9,
-      },
-      {
-        id: "stub2",
-        company_name: "Glow Co.",
-        url: "https://example.org",
-        product_keywords: "candles, aroma",
-        confidence_score: 0.86,
-      },
-    ];
-    const items = baseItems.slice(skip, skip + take);
-
-    return json(
-      { ok: true, success: true, q: qRaw, skip, take, count: baseItems.length, items },
-      200,
-      req
-    );
+    // 2) Error if no Cosmos DB available
+    return json({ ok: false, success: false, error: "Cosmos DB not configured" }, 503, req);
   },
 });
