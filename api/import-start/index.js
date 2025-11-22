@@ -318,7 +318,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 role: "user",
                 content: `You previously found companies for "${xaiPayload.query}" (${xaiPayload.queryType}).
 Find ${xaiPayload.limit} MORE DIFFERENT companies that are related to "${xaiPayload.query}" but were not in the previous results.
-Focus on finding ALTERNATIVE options, competitors, or related companies in the same space.
+PRIORITIZE finding smaller, regional, and lesser-known companies that are alternatives to major brands.
+Focus on independent manufacturers, craft producers, specialty companies, and regional players that serve the same market.
 
 Format your response as a valid JSON array with the same structure:
 - company_name (string)
