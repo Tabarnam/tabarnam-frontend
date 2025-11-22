@@ -291,9 +291,10 @@ Only return the JSON array, no other text.`,
           const center = safeCenter(bodyObj.center);
           const enriched = companies.map((c) => enrichCompany(c, center));
 
+          let saveResult = { saved: 0, failed: 0, skipped: 0 };
           if (enriched.length > 0) {
-            const saveResult = await saveCompaniesToCosmos(enriched, sessionId);
-            console.log(`[import-start] Saved ${saveResult.saved} companies, failed: ${saveResult.failed}`);
+            saveResult = await saveCompaniesToCosmos(enriched, sessionId);
+            console.log(`[import-start] Saved ${saveResult.saved} companies, skipped: ${saveResult.skipped}, failed: ${saveResult.failed}`);
           }
 
           return json({
@@ -301,7 +302,9 @@ Only return the JSON array, no other text.`,
             session_id: sessionId,
             companies: enriched,
             meta: { mode: "direct" },
-            saved: enriched.length,
+            saved: saveResult.saved,
+            skipped: saveResult.skipped,
+            failed: saveResult.failed,
           }, 200);
         } else {
           console.error(`[import-start] XAI error status: ${xaiResponse.status}`);
