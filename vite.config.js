@@ -1,4 +1,5 @@
 // vite.config.js
+// Configuration for building with Vite and React
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "path";
