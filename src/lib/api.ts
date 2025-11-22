@@ -7,12 +7,14 @@
 
 const getAPIBase = () => {
   // Use environment variable if provided (production Azure Functions endpoint)
+  // Note: In production, VITE_API_BASE should be empty to use relative /api paths
+  // Azure Static Web Apps will route /api/* to the backend via staticwebapp.config.json
   if (import.meta.env.VITE_API_BASE) {
     const base = import.meta.env.VITE_API_BASE.trim();
     if (base) return base;
   }
 
-  // Fallback to relative path for local dev with proxy
+  // Fallback to relative path for local dev with proxy and production routing
   return "/api";
 };
 
