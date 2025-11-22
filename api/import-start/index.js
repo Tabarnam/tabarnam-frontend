@@ -223,7 +223,7 @@ Only return the JSON array, no other text.`,
 
         try {
           console.log(`[import-start] Calling XAI API at: ${xaiUrl}`);
-        const xaiResponse = await axios.post(xaiUrl, xaiRequestPayload, {
+          const xaiResponse = await axios.post(xaiUrl, xaiRequestPayload, {
           headers: {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${xaiKey}`,
