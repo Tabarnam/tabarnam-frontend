@@ -163,7 +163,7 @@ app.http("importStart", {
       const startTime = Date.now();
 
       try {
-      const center = safeCenter(bodyObj.center);
+        const center = safeCenter(bodyObj.center);
       const xaiPayload = {
         queryType: bodyObj.queryType || "product_keyword",
         query: bodyObj.query || "",
