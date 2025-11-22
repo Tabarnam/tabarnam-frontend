@@ -26,12 +26,6 @@
   },
   "routes": [
     {
-      "route": "/api/*",
-      "allowedRoles": ["authenticated", "anonymous"],
-      "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-      "rewrite": "https://tabarnam-xai-dedicated-awe3h9bvcxckeja9.westus2-01.azurewebsites.net/api/*"
-    },
-    {
       "route": "/xapi",
       "redirect": "/xapi/",
       "statusCode": 301
