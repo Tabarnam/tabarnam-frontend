@@ -277,7 +277,7 @@ app.http("proxyXai", {
       messages: [
         buildXaiMessage(queryType, query, limit, center),
       ],
-      model: "grok-beta",
+      model: "grok-4-latest",
       temperature: 0.1,
       stream: false,
     };
