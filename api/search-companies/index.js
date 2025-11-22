@@ -190,29 +190,7 @@ app.http("searchCompanies", {
       }
     }
 
-    // 3) Stub (no proxy and no cosmos)
-    const baseItems = [
-      {
-        id: "stub1",
-        company_name: "Acme Candles",
-        url: "https://example.com",
-        product_keywords: "candles, wax",
-        confidence_score: 0.9,
-      },
-      {
-        id: "stub2",
-        company_name: "Glow Co.",
-        url: "https://example.org",
-        product_keywords: "candles, aroma",
-        confidence_score: 0.86,
-      },
-    ];
-    const items = baseItems.slice(skip, skip + take);
-
-    return json(
-      { ok: true, success: true, q: qRaw, skip, take, count: baseItems.length, items },
-      200,
-      req
-    );
+    // 2) Error if no Cosmos DB available
+    return json({ ok: false, success: false, error: "Cosmos DB not configured" }, 503, req);
   },
 });
