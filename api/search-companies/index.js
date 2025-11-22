@@ -87,23 +87,7 @@ app.http("searchCompanies", {
     const skip = Math.max(0, Number(rawSkip || 0) || 0);
     const limit = Math.min(500, skip + take || take);
 
-    // 1) Proxy to upstream if configured
-    const base = getProxyBase();
-    if (base) {
-      try {
-        const proxyUrl = `${base}/search-companies?q=${encodeURIComponent(qRaw)}&take=${encodeURIComponent(take)}&sort=${encodeURIComponent(sort)}`;
-        const out = await httpRequest("GET", proxyUrl);
-        let body = out.body;
-        try {
-          body = JSON.parse(body);
-        } catch {}
-        return json(body, out.status || 200, req);
-      } catch (e) {
-        context.log("search-companies proxy error:", e?.message || e);
-      }
-    }
-
-    // 2) Cosmos DB path
+    // 1) Cosmos DB path (prioritized - local data source first)
     const container = getCompaniesContainer();
     if (container) {
       try {
