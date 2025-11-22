@@ -139,27 +139,30 @@ app.http("importStart", {
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
-    const method = String(req.method || "").toUpperCase();
-    if (method === "OPTIONS") {
-      return {
-        status: 204,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-          "Access-Control-Allow-Headers": "content-type,x-functions-key",
-        },
-      };
-    }
-
-    const bodyObj = await req.json().catch(() => ({}));
-    const sessionId = bodyObj.session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-    console.log(`[import-start] Received request with session_id: ${sessionId}`);
-    console.log(`[import-start] Request body:`, JSON.stringify(bodyObj));
-
-    const startTime = Date.now();
+    console.log("[import-start] Function handler invoked");
 
     try {
+      const method = String(req.method || "").toUpperCase();
+      if (method === "OPTIONS") {
+        return {
+          status: 204,
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+            "Access-Control-Allow-Headers": "content-type,x-functions-key",
+          },
+        };
+      }
+
+      const bodyObj = await req.json().catch(() => ({}));
+      const sessionId = bodyObj.session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+      console.log(`[import-start] Received request with session_id: ${sessionId}`);
+      console.log(`[import-start] Request body:`, JSON.stringify(bodyObj));
+
+      const startTime = Date.now();
+
+      try {
       const center = safeCenter(bodyObj.center);
       const xaiPayload = {
         queryType: bodyObj.queryType || "product_keyword",
@@ -257,14 +260,24 @@ app.http("importStart", {
           502
         );
       }
+      } catch (e) {
+        console.error(`[import-start] Unexpected error:`, e.message);
+        console.error(`[import-start] Full error:`, e);
+        return json(
+          {
+            ok: false,
+            error: `Server error: ${e.message}`,
+            session_id: sessionId,
+          },
+          500
+        );
+      }
     } catch (e) {
-      console.error(`[import-start] Unexpected error:`, e.message);
-      console.error(`[import-start] Full error:`, e);
+      console.error("[import-start] Top-level error:", e.message || e);
       return json(
         {
           ok: false,
-          error: `Server error: ${e.message}`,
-          session_id: sessionId,
+          error: `Fatal error: ${e?.message || 'Unknown error'}`,
         },
         500
       );
