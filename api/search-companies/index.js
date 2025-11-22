@@ -1,7 +1,5 @@
 // api/search-companies/index.js
 const { app } = require("@azure/functions");
-const { httpRequest } = require("../_http");
-const { getProxyBase } = require("../_shared");
 
 let CosmosClientCtor = null;
 function loadCosmosCtor() {
