@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ExternalLink } from 'lucide-react';
+import { apiFetch } from '@/lib/api';
 
 const ImportToolsTab = () => {
   const [stats, setStats] = useState({ last24h: 0, last7d: 0, lastMonth: 0 });
@@ -14,7 +15,7 @@ const ImportToolsTab = () => {
   const fetchImportStats = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin-import-stats');
+      const res = await apiFetch('admin-import-stats');
       if (res.ok) {
         const data = await res.json();
         setStats(data);

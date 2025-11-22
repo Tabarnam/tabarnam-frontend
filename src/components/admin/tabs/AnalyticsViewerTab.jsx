@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
+import { apiFetch, join, API_BASE } from '@/lib/api';
 
 const AnalyticsViewerTab = () => {
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
@@ -28,9 +29,8 @@ const AnalyticsViewerTab = () => {
   const fetchMetrics = async (startDate, endDate) => {
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/admin-analytics?start=${startDate.toISOString()}&end=${endDate.toISOString()}`
-      );
+      const url = join(API_BASE, `admin-analytics?start=${startDate.toISOString()}&end=${endDate.toISOString()}`);
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setMetrics(data);

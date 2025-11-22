@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import AdminHeader from '@/components/AdminHeader';
 import { getAdminUser } from '@/lib/azureAuth';
+import { apiFetch } from '@/lib/api';
 import CompaniesTableTab from '@/components/admin/tabs/CompaniesTableTab';
 import StarRatingDashboard from '@/components/admin/tabs/StarRatingDashboard';
 import UserManagementTab from '@/components/admin/tabs/UserManagementTab';
@@ -22,7 +23,7 @@ const AdminPanel = () => {
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin-companies');
+      const res = await apiFetch('admin-companies');
       if (!res.ok) throw new Error('Failed to load companies');
       const data = await res.json();
       setCompanies(data.items || []);

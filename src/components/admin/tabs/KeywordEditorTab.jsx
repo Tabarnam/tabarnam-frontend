@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Trash2, Save } from 'lucide-react';
 import { getAdminUser } from '@/lib/azureAuth';
+import { apiFetch } from '@/lib/api';
 
 const KeywordEditorTab = () => {
   const user = getAdminUser();
@@ -19,7 +20,7 @@ const KeywordEditorTab = () => {
   const fetchKeywords = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin-keywords');
+      const res = await apiFetch('admin-keywords');
       if (res.ok) {
         const data = await res.json();
         setKeywords(data.keywords || []);
@@ -51,7 +52,7 @@ const KeywordEditorTab = () => {
   const handleSave = async (updatedKeywords) => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin-keywords', {
+      const res = await apiFetch('admin-keywords', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keywords: updatedKeywords, actor: user?.email }),
