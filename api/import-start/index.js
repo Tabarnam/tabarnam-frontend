@@ -230,22 +230,29 @@ app.http("importStart", {
         // Build XAI request message
         const xaiMessage = {
           role: "user",
-          content: `You are a business research assistant. Find and return information about ${xaiPayload.limit} companies or products based on this search.
+          content: `You are a business research assistant. Find and return information about ${xaiPayload.limit} DIFFERENT companies or products based on this search.
 
 Search query: "${xaiPayload.query}"
 Search type: ${xaiPayload.queryType}
 
+CRITICAL INSTRUCTIONS:
+1. Return DIVERSE companies - include major brands, mid-market players, smaller/emerging companies, and specialty manufacturers
+2. Do NOT just return one dominant brand (e.g., if searching "chocolate", include Hershey's, Barry Callebaut, Godiva, Lake Champlain, Endangered Species Chocolate, etc.)
+3. Prioritize finding DIFFERENT companies over finding more of the same type
+4. If searching for a product category, include companies of different sizes, regions, and specialization levels
+5. Verify each company URL is valid and returns a real website
+
 Format your response as a valid JSON array of company objects. Each object must have:
-- company_name (string): The name of the company
-- url (string): The company website URL
+- company_name (string): The exact name of the company
+- url (string): The valid company website URL (must be a working website)
 - industries (array): List of industry categories
-- product_keywords (string): Comma-separated product keywords
+- product_keywords (string): Comma-separated product keywords specific to this company
 - hq_lat (number, optional): Headquarters latitude
 - hq_lng (number, optional): Headquarters longitude
 - amazon_url (string, optional): Amazon storefront URL if applicable
 - social (object, optional): Social media URLs {linkedin, instagram, x, twitter, facebook, tiktok, youtube}
 
-Only return the JSON array, no other text.`,
+Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayload.limit)} diverse results if possible.`,
         };
 
         const xaiRequestPayload = {
