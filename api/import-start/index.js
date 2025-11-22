@@ -175,10 +175,21 @@ app.http("importStart", {
       const timeout = Math.max(1000, Number(bodyObj.timeout_ms) || 600000);
       console.log(`[import-start] Request timeout: ${timeout}ms`);
 
-      // Call proxy-xai endpoint directly (local to this function app)
-      // When running in Azure Functions, we can call other functions in the same app
-      const proxyUrl = "http://localhost:7071/api/proxy-xai";
+      // Determine proxy URL based on environment
+      // In production (Azure), use localhost for inter-function calls via Functions runtime
+      // In local dev, localhost:7071 is the Functions host
+      let proxyUrl = "http://localhost:7071/api/proxy-xai";
 
+      // Alternative: get the function app's own hostname from request context
+      // For Azure Static Web Apps, we might be called via the public endpoint
+      // but inter-function calls should use localhost
+      const isProduction = !process.env.WEBSITE_INSTANCE_ID?.includes("localhost");
+      if (isProduction) {
+        // In Azure, localhost still works for inter-function calls via the Functions runtime
+        proxyUrl = "http://localhost:7071/api/proxy-xai";
+      }
+
+      console.log(`[import-start] Environment: ${isProduction ? "Azure" : "Local"}`);
       console.log(`[import-start] Calling XAI via proxy at: ${proxyUrl}`);
       console.log(`[import-start] FUNCTION_URL: ${(process.env.FUNCTION_URL || "").trim() || "NOT SET"}`);
       console.log(`[import-start] XAI_API_KEY configured: ${!!(process.env.XAI_API_KEY || "").trim()}`);
