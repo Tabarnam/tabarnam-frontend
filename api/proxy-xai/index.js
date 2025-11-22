@@ -174,6 +174,50 @@ function withCodeParam(baseUrl, key) {
   }
 }
 
+// ----- XAI request formatting -----
+function buildXaiMessage(queryType, query, limit, center) {
+  const basePrompt = `You are a business research assistant. Find and return information about ${limit} companies or products based on this search.
+
+Search query: "${query}"
+Search type: ${queryType}
+
+Format your response as a valid JSON array of company objects. Each object must have:
+- company_name (string): The name of the company
+- url (string): The company website URL
+- industries (array): List of industry categories
+- product_keywords (string): Comma-separated product keywords
+- hq_lat (number, optional): Headquarters latitude
+- hq_lng (number, optional): Headquarters longitude
+- amazon_url (string, optional): Amazon storefront URL if applicable
+- social (object, optional): Social media URLs {linkedin, instagram, x, twitter, facebook, tiktok, youtube}
+
+Only return the JSON array, no other text.`;
+
+  return {
+    role: "user",
+    content: basePrompt,
+  };
+}
+
+function parseXaiResponse(responseText) {
+  try {
+    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      console.warn("[proxy-xai] No JSON array found in response");
+      return [];
+    }
+    const companies = JSON.parse(jsonMatch[0]);
+    if (!Array.isArray(companies)) {
+      console.warn("[proxy-xai] Parsed response is not an array");
+      return [];
+    }
+    return companies.filter((c) => c && typeof c === "object");
+  } catch (e) {
+    console.error("[proxy-xai] Failed to parse XAI response:", e.message);
+    return [];
+  }
+}
+
 // ----- function entrypoint -----
 app.http("proxyXai", {
   route: "proxy-xai",
@@ -185,14 +229,14 @@ app.http("proxyXai", {
     const started = Date.now();
     const XAI_STUB = (process.env.XAI_STUB || "").trim() === "1";
     const baseUrl = (process.env.FUNCTION_URL || "").trim();
-    const funcKey = (process.env.FUNCTION_KEY || "").trim();
+    const apiKey = (process.env.XAI_API_KEY || process.env.FUNCTION_KEY || "").trim();
 
     if (req.method === "GET") {
       return json(
         {
           ok: true,
           route: "/api/proxy-xai",
-          configured: { FUNCTION_URL: !!baseUrl, FUNCTION_KEY: !!funcKey, XAI_STUB },
+          configured: { FUNCTION_URL: !!baseUrl, XAI_API_KEY: !!apiKey, XAI_STUB },
           build: BUILD_STAMP,
           now: new Date().toISOString(),
         },
@@ -216,45 +260,77 @@ app.http("proxyXai", {
       return json({ companies: demo, meta: { proxy: { status: "stub", build: BUILD_STAMP } } }, 200, req);
     }
 
-    if (!baseUrl || !funcKey) {
+    if (!baseUrl || !apiKey) {
       return json(
-        { error: "Server not configured (FUNCTION_URL / FUNCTION_KEY)", proxy: { status: "misconfigured", build: BUILD_STAMP } },
+        { error: "Server not configured (FUNCTION_URL / XAI_API_KEY)", proxy: { status: "misconfigured", build: BUILD_STAMP } },
         500,
         req
       );
     }
 
-    const upstreamBody = { ...toUpstreamBody(inbound), session_id: inbound.session_id || "" };
-    const finalUrl = withCodeParam(baseUrl, funcKey);
+    const upstreamData = toUpstreamBody(inbound);
+    const queryType = upstreamData.queryType || "product_keyword";
+    const query = upstreamData.query || "";
+    const limit = upstreamData.limit || 5;
+
+    const xaiRequest = {
+      messages: [
+        buildXaiMessage(queryType, query, limit, center),
+      ],
+      model: "grok-beta",
+      temperature: 0.1,
+      stream: false,
+    };
+
+    const xaiUrl = baseUrl;
+    const headers = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    };
 
     try {
-      const res = await axios.post(finalUrl, upstreamBody, {
-        headers: { "Content-Type": "application/json", "x-functions-key": funcKey },
+      console.log("[proxy-xai] Calling XAI API at:", xaiUrl);
+      console.log("[proxy-xai] Request body:", JSON.stringify(xaiRequest).substring(0, 200) + "...");
+
+      const res = await axios.post(xaiUrl, xaiRequest, {
+        headers,
         timeout: Math.max(1000, Number(process.env.XAI_TIMEOUT_MS) || 600000),
       });
 
       if (res.status < 200 || res.status >= 300) {
         return json(
-          { error: "Upstream returned non-2xx", upstream: { status: res.status, data: res.data, headers: res.headers }, request: { url: finalUrl, body: upstreamBody }, proxy: { status: "upstream_error", build: BUILD_STAMP }, duration_ms: Date.now() - started },
+          { error: "XAI returned non-2xx", upstream: { status: res.status, message: res.statusText }, proxy: { status: "upstream_error", build: BUILD_STAMP }, duration_ms: Date.now() - started },
           502,
           req
         );
       }
 
-      const companies = Array.isArray(res.data?.companies) ? res.data.companies : [];
+      console.log("[proxy-xai] XAI response status:", res.status);
+
+      const responseText = res.data?.choices?.[0]?.message?.content || JSON.stringify(res.data);
+      console.log("[proxy-xai] XAI response text:", responseText.substring(0, 200) + "...");
+
+      const companies = parseXaiResponse(responseText);
+      console.log("[proxy-xai] Parsed", companies.length, "companies from response");
+
       const enriched = companies.map((c) => enrichCompany(c, center));
-      await writeDoneLog(upstreamBody.session_id || "", { saved: enriched.length, mode: "live" });
+      await writeDoneLog(inbound.session_id || "", { saved: enriched.length, mode: "live" });
+
       return json(
         { companies: enriched, meta: { proxy: { status: "ok", build: BUILD_STAMP }, upstream: { status: res.status } }, duration_ms: Date.now() - started },
         200,
         req
       );
     } catch (e) {
-      const upstream = e?.response
-        ? { status: e.response.status, data: e.response.data, headers: e.response.headers }
-        : { network: { message: e?.message || String(e), code: e?.code || null, cause: e?.cause?.message || null } };
+      const errorDetail = e?.response
+        ? { status: e.response.status, message: e.response.statusText, data: e.response.data }
+        : { message: e?.message || String(e), code: e?.code || null };
+
+      console.error("[proxy-xai] XAI call failed:", e.message);
+      console.error("[proxy-xai] Error detail:", errorDetail);
+
       return json(
-        { error: "Upstream call failed", upstream, request: { url: finalUrl, body: upstreamBody }, proxy: { status: "error", build: BUILD_STAMP }, duration_ms: Date.now() - started },
+        { error: "XAI call failed", detail: errorDetail, proxy: { status: "error", build: BUILD_STAMP }, duration_ms: Date.now() - started },
         502,
         req
       );
