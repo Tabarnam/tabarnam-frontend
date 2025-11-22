@@ -178,25 +178,16 @@ app.http("importStart", {
       const timeout = Math.max(1000, Number(bodyObj.timeout_ms) || 600000);
       console.log(`[import-start] Request timeout: ${timeout}ms`);
 
-      // Determine proxy URL based on environment
-      // In production (Azure), use localhost for inter-function calls via Functions runtime
-      // In local dev, localhost:7071 is the Functions host
+      // Determine proxy URL
+      // For local development: use localhost:7071
+      // For Azure: use localhost:7071 (Functions runtime allows inter-function calls this way)
+      // If that fails, we'll fall back to direct XAI API calls
       let proxyUrl = "http://localhost:7071/api/proxy-xai";
 
-      // Alternative: get the function app's own hostname from request context
-      // For Azure Static Web Apps, we might be called via the public endpoint
-      // but inter-function calls should use localhost
-      const isProduction = !process.env.WEBSITE_INSTANCE_ID?.includes("localhost");
-      if (isProduction) {
-        // In Azure, localhost still works for inter-function calls via the Functions runtime
-        proxyUrl = "http://localhost:7071/api/proxy-xai";
-      }
-
-      console.log(`[import-start] Environment: ${isProduction ? "Azure" : "Local"}`);
       console.log(`[import-start] Calling XAI via proxy at: ${proxyUrl}`);
       console.log(`[import-start] FUNCTION_URL: ${(process.env.FUNCTION_URL || "").trim() || "NOT SET"}`);
-      console.log(`[import-start] XAI_API_KEY configured: ${!!(process.env.XAI_API_KEY || "").trim()}`);
-      console.log(`[import-start] FUNCTION_KEY configured: ${!!(process.env.FUNCTION_KEY || "").trim()}`);
+      console.log(`[import-start] XAI_API_KEY: ${(process.env.XAI_API_KEY || "").trim().substring(0, 10)}...`);
+      console.log(`[import-start] FUNCTION_KEY: ${(process.env.FUNCTION_KEY || "").trim().substring(0, 10)}...`);
 
       try {
         const xaiResponse = await axios.post(proxyUrl, xaiPayload, {
