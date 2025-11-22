@@ -216,7 +216,7 @@ Only return the JSON array, no other text.`,
 
         const xaiRequestPayload = {
           messages: [xaiMessage],
-          model: "grok-beta",
+          model: "grok-4-latest",
           temperature: 0.1,
           stream: false,
         };
