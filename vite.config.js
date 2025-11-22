@@ -23,6 +23,8 @@ const copyStaticWebAppConfig = {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
+  // In production, VITE_API_BASE should be empty to use relative /api paths
+  // Azure Static Web Apps routes /api/* to the backend via staticwebapp.config.json
   const API_TARGET =
     (env.VITE_FUNCTIONS_URL && env.VITE_FUNCTIONS_URL.trim()) ||
     (env.VITE_API_BASE && env.VITE_API_BASE.trim()) ||
