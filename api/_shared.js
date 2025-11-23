@@ -53,4 +53,4 @@ function json(context, status, obj, extraHeaders) {
   return context.res;
 }
 
-module.exports = { getProxyBase, json };
+module.exports = { getXAIEndpoint, getXAIKey, getProxyBase, json };
