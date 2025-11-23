@@ -246,15 +246,20 @@ app.http("proxyXai", {
 
     const started = Date.now();
     const XAI_STUB = (process.env.XAI_STUB || "").trim() === "1";
-    const baseUrl = (process.env.FUNCTION_URL || "").trim();
-    const apiKey = (process.env.XAI_API_KEY || process.env.FUNCTION_KEY || "").trim();
+    const baseUrl = getXAIEndpoint();
+    const apiKey = getXAIKey();
 
     if (req.method === "GET") {
       return json(
         {
           ok: true,
           route: "/api/proxy-xai",
-          configured: { FUNCTION_URL: !!baseUrl, XAI_API_KEY: !!apiKey, XAI_STUB },
+          configured: {
+            XAI_EXTERNAL_BASE: !!baseUrl,
+            XAI_EXTERNAL_KEY: !!apiKey,
+            XAI_STUB,
+            note: "Using consolidated XAI_EXTERNAL_BASE configuration (FUNCTION_URL deprecated)"
+          },
           build: BUILD_STAMP,
           now: new Date().toISOString(),
         },
