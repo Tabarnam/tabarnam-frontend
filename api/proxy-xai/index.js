@@ -3,7 +3,25 @@ const { app } = require("@azure/functions");
 const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
 
-const BUILD_STAMP = "proxy-xai build 2025-10-01T02:55Z";
+const BUILD_STAMP = "proxy-xai build 2025-11-23T03:00Z";
+
+// Get the XAI endpoint URL from environment
+// Primary source: XAI_EXTERNAL_BASE (consistent consolidation)
+// Fallback: FUNCTION_URL (for backwards compatibility)
+function getXAIEndpoint() {
+  const external = (process.env.XAI_EXTERNAL_BASE || '').trim();
+  if (external) return external;
+
+  const fnUrl = (process.env.FUNCTION_URL || '').trim();
+  if (fnUrl && !fnUrl.includes('/api/xai')) return fnUrl;  // Avoid diagnostic endpoint loop
+
+  return '';
+}
+
+function getXAIKey() {
+  const key = (process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || '').trim();
+  return key;
+}
 
 // ----- helpers -----
 function cors(req) {
