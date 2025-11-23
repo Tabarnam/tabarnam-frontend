@@ -27,28 +27,29 @@ app.http("bulkImportConfig", {
       };
     }
 
+    // Consolidated configuration: XAI_EXTERNAL_BASE is now primary
+    const xaiBase = (process.env.XAI_EXTERNAL_BASE || "").trim();
+    const xaiKey = (process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || "").trim();
+    const legacyFunctionUrl = (process.env.FUNCTION_URL || "").trim();
+
     const config = {
       xai: {
-        function_url: {
-          configured: !!(process.env.FUNCTION_URL || "").trim(),
-          status: (process.env.FUNCTION_URL || "").trim() ? "✅ CONFIGURED" : "❌ MISSING",
-          note: "Should point to the XAI API endpoint (e.g., Azure Function URL)",
-        },
-        function_key: {
-          configured: !!(process.env.FUNCTION_KEY || "").trim(),
-          status: (process.env.FUNCTION_KEY || "").trim() ? "✅ CONFIGURED" : "❌ MISSING",
-          note: "API key or function code for authentication",
-        },
-      },
-      external_api: {
         external_base: {
-          configured: !!(process.env.XAI_EXTERNAL_BASE || "").trim(),
-          value: (process.env.XAI_EXTERNAL_BASE || "").trim(),
-          status: (process.env.XAI_EXTERNAL_BASE || "").trim() ? "✅ CONFIGURED" : "❌ MISSING",
+          configured: !!xaiBase,
+          value: xaiBase,
+          status: xaiBase ? "✅ CONFIGURED" : "❌ MISSING",
+          note: "Primary XAI search endpoint (consolidated configuration)",
         },
         external_key: {
-          configured: !!(process.env.XAI_EXTERNAL_KEY || "").trim(),
-          status: (process.env.XAI_EXTERNAL_KEY || "").trim() ? "✅ CONFIGURED" : "❌ MISSING",
+          configured: !!xaiKey,
+          status: xaiKey ? "✅ CONFIGURED" : "❌ MISSING",
+          note: "Authentication key for XAI endpoint",
+        },
+        legacy_function_url: {
+          configured: !!legacyFunctionUrl,
+          value: legacyFunctionUrl,
+          status: legacyFunctionUrl ? "⚠️ DEPRECATED - Use XAI_EXTERNAL_BASE instead" : "Not set (OK)",
+          note: "FUNCTION_URL is deprecated. Use XAI_EXTERNAL_BASE for new configurations",
         },
       },
       cosmos_db: {
