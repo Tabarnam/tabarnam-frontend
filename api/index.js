@@ -69,9 +69,11 @@ try {
 
 try {
   console.log("[api] Registering: suggest-refinements");
-  require("./suggest-refinements/index.js");
+  const suggestRefinements = require("./suggest-refinements/index.js");
+  console.log("[api] ✓ suggest-refinements registered");
 } catch (e) {
-  console.error("[api] Failed to load suggest-refinements:", e?.message || e);
+  console.error("[api] ❌ Failed to load suggest-refinements:", e?.message || e);
+  console.error("[api] Stack:", e?.stack || "no stack");
 }
 
 try {
