@@ -89,9 +89,10 @@ app.http("bulkImportConfig", {
     if (!config.status.xai_available) {
       config.recommendations.push({
         severity: "critical",
-        message: "FUNCTION_URL and FUNCTION_KEY are not configured",
-        action: "Set FUNCTION_URL to your XAI API endpoint and FUNCTION_KEY to the authentication key",
-        example: "FUNCTION_URL=https://your-xai-api.azurewebsites.net/api/query-companies",
+        message: "XAI search endpoint is not configured",
+        action: "Set XAI_EXTERNAL_BASE to your XAI API endpoint and XAI_EXTERNAL_KEY to the authentication key",
+        example: "XAI_EXTERNAL_BASE=https://your-xai-api.azurewebsites.net/api",
+        legacy_note: "Legacy FUNCTION_URL is deprecated. Use XAI_EXTERNAL_BASE instead",
       });
     }
 
