@@ -3,134 +3,25 @@ const { CosmosClient } = require("@azure/cosmos");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
-const cors = (req) => {
-  const origin = req.headers.get("origin") || "*";
-  return {
-    "Access-Control-Allow-Origin": origin,
-    Vary: "Origin",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  };
-};
-
-const json = (obj, status = 200, req) => ({
-  status,
-  headers: { ...cors(req), "Content-Type": "application/json" },
-  body: JSON.stringify(obj),
-});
-
-let cosmosClient = null;
-
-function getCosmosClient() {
+function getCompaniesContainer() {
   const endpoint = E("COSMOS_DB_ENDPOINT");
   const key = E("COSMOS_DB_KEY");
-  if (!endpoint || !key) return null;
-  cosmosClient ||= new CosmosClient({ endpoint, key });
-  return cosmosClient;
-}
-
-function getCompaniesContainer() {
-  const client = getCosmosClient();
-  if (!client) return null;
   const databaseId = E("COSMOS_DB_DATABASE", "tabarnam-db");
   const containerId = E("COSMOS_DB_COMPANIES_CONTAINER", "companies");
+
+  if (!endpoint || !key) return null;
+
+  const client = new CosmosClient({ endpoint, key });
   return client.database(databaseId).container(containerId);
 }
 
-function getUndoContainer() {
-  const client = getCosmosClient();
-  if (!client) return null;
-  const databaseId = E("COSMOS_DB_DATABASE", "tabarnam-db");
-  const containerId = "undo_history";
-  return client.database(databaseId).container(containerId);
-}
-
-async function findCompanyById(container, id) {
-  if (!container || !id) return null;
-  try {
-    const query = {
-      query: "SELECT * FROM c WHERE c.id = @id",
-      parameters: [{ name: "@id", value: id }],
-    };
-    const { resources } = await container.items
-      .query(query, { enableCrossPartitionQuery: true })
-      .fetchAll();
-    return resources && resources.length > 0 ? resources[0] : null;
-  } catch (e) {
-    console.error("Error finding company:", e?.message || e);
-    return null;
-  }
-}
-
-function normalizeCompany(doc) {
-  if (!doc) return doc;
-  const normalized = { ...doc };
-  if (!Array.isArray(normalized.industries)) normalized.industries = [];
-  if (!Array.isArray(normalized.manufacturing_locations)) normalized.manufacturing_locations = [];
-  if (!Array.isArray(normalized.affiliate_links)) normalized.affiliate_links = [];
-  if (!Array.isArray(normalized.star_explanation)) normalized.star_explanation = [];
-  return normalized;
-}
-
-function computeChangedFields(oldDoc, newDoc) {
-  if (!oldDoc || !newDoc) return [];
-  const keys = new Set([...Object.keys(oldDoc), ...Object.keys(newDoc)]);
-  const changed = [];
-  for (const key of keys) {
-    const beforeVal = oldDoc[key];
-    const afterVal = newDoc[key];
-    if (JSON.stringify(beforeVal) !== JSON.stringify(afterVal)) {
-      changed.push(key);
-    }
-  }
-  return changed;
-}
-
-function getActorFromRequest(req, body) {
-  const override = body && typeof body.actor === "string" && body.actor.trim();
-  if (override) return override.trim();
-
-  const header = req.headers.get("x-ms-client-principal") || "";
-  if (!header) return null;
-  try {
-    const decoded = Buffer.from(header, "base64").toString("utf8");
-    const principal = JSON.parse(decoded);
-    return principal?.userDetails || principal?.userId || null;
-  } catch {
-    return null;
-  }
-}
-
-async function logUndoAction(undoContainer, { companyId, oldDoc, newDoc, actor, actionType }) {
-  if (!undoContainer || !companyId) return;
-  try {
-    const now = new Date().toISOString();
-    const changedFields = computeChangedFields(oldDoc || {}, newDoc || {});
-    const descriptionParts = [];
-    if (actionType === "create") descriptionParts.push("Created company");
-    if (actionType === "update") descriptionParts.push("Updated company");
-    if (actionType === "delete") descriptionParts.push("Soft-deleted company");
-    if (changedFields.length > 0) {
-      descriptionParts.push(`Fields: ${changedFields.join(", ")}`);
-    }
-
-    const historyDoc = {
-      id: `undo_${companyId}_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-      company_id: companyId,
-      action_type: actionType,
-      description: descriptionParts.join(" - ") || actionType,
-      changed_fields: changedFields,
-      old_doc: oldDoc || null,
-      new_doc: newDoc || null,
-      actor: actor || null,
-      created_at: now,
-      is_undone: false,
-    };
-
-    await undoContainer.items.create(historyDoc);
-  } catch (e) {
-    console.warn("Failed to log undo action", e?.message || e);
-  }
+function getCorsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Content-Type": "application/json",
+  };
 }
 
 app.http("adminCompanies", {
@@ -138,19 +29,23 @@ app.http("adminCompanies", {
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
-    context.log("adminCompanies handler called");
     const method = String(req.method || "").toUpperCase();
 
     if (method === "OPTIONS") {
-      return { status: 204, headers: cors(req) };
+      return {
+        status: 204,
+        headers: getCorsHeaders(),
+      };
     }
 
-    const companiesContainer = getCompaniesContainer();
-    if (!companiesContainer) {
-      return json({ error: "Cosmos DB not configured" }, 500, req);
+    const container = getCompaniesContainer();
+    if (!container) {
+      return {
+        status: 500,
+        headers: getCorsHeaders(),
+        body: JSON.stringify({ error: "Cosmos DB not configured" }),
+      };
     }
-
-    const undoContainer = getUndoContainer();
 
     try {
       if (method === "GET") {
@@ -166,13 +61,10 @@ app.http("adminCompanies", {
           whereClause =
             "WHERE (" +
             [
-              "(IS_DEFINED(c.company_name) AND CONTAINS(LOWER(c.company_name), @q))",
-              "(IS_DEFINED(c.name) AND CONTAINS(LOWER(c.name), @q))",
-              "(IS_DEFINED(c.tagline) AND CONTAINS(LOWER(c.tagline), @q))",
-              "(IS_DEFINED(c.product_keywords) AND CONTAINS(LOWER(c.product_keywords), @q))",
-              "(IS_DEFINED(c.industries) AND ARRAY_LENGTH(ARRAY(SELECT VALUE i FROM i IN c.industries WHERE CONTAINS(LOWER(i), @q))) > 0)",
-              "(IS_DEFINED(c.normalized_domain) AND CONTAINS(LOWER(c.normalized_domain), @q))",
-              "(IS_DEFINED(c.amazon_url) AND CONTAINS(LOWER(c.amazon_url), @q))",
+              "CONTAINS(LOWER(c.company_name), @q)",
+              "CONTAINS(LOWER(c.name), @q)",
+              "CONTAINS(LOWER(c.product_keywords), @q)",
+              "CONTAINS(LOWER(c.normalized_domain), @q)",
             ].join(" OR ") +
             ")";
         }
@@ -182,12 +74,16 @@ app.http("adminCompanies", {
           whereClause +
           " ORDER BY c._ts DESC";
 
-        const { resources } = await companiesContainer.items
+        const { resources } = await container.items
           .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
           .fetchAll();
 
-        const items = (resources || []).map((doc) => normalizeCompany(doc));
-        return json({ items, count: items.length }, 200, req);
+        const items = (resources || []);
+        return {
+          status: 200,
+          headers: getCorsHeaders(),
+          body: JSON.stringify({ items, count: items.length }),
+        };
       }
 
       if (method === "POST" || method === "PUT") {
@@ -195,45 +91,44 @@ app.http("adminCompanies", {
         try {
           body = await req.json();
         } catch {
-          return json({ error: "Invalid JSON" }, 400, req);
+          return {
+            status: 400,
+            headers: getCorsHeaders(),
+            body: JSON.stringify({ error: "Invalid JSON" }),
+          };
         }
 
-        const actor = getActorFromRequest(req, body);
         const incoming = body.company || body;
-        const now = new Date().toISOString();
-
         if (!incoming) {
-          return json({ error: "company payload required" }, 400, req);
+          return {
+            status: 400,
+            headers: getCorsHeaders(),
+            body: JSON.stringify({ error: "company payload required" }),
+          };
         }
 
-        let id = incoming.id || incoming.company_id || incoming.company_name || null;
+        let id = incoming.id || incoming.company_id || incoming.company_name;
         if (!id) {
           id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
         }
 
-        const existing = await findCompanyById(companiesContainer, id);
-        const actionType = existing ? "update" : "create";
-
-        const merged = normalizeCompany({
-          ...existing,
+        const now = new Date().toISOString();
+        const doc = {
           ...incoming,
           id,
-          company_name: incoming.company_name || incoming.name || existing?.company_name || "",
-          name: incoming.name || incoming.company_name || existing?.name || "",
+          company_name: incoming.company_name || incoming.name || "",
+          name: incoming.name || incoming.company_name || "",
           updated_at: now,
-          created_at: existing?.created_at || incoming.created_at || now,
-        });
+          created_at: incoming.created_at || now,
+        };
 
-        await companiesContainer.items.upsert(merged);
-        await logUndoAction(undoContainer, {
-          companyId: id,
-          oldDoc: existing || null,
-          newDoc: merged,
-          actor,
-          actionType,
-        });
+        await container.items.upsert(doc);
 
-        return json({ ok: true, company: merged }, existing ? 200 : 201, req);
+        return {
+          status: 200,
+          headers: getCorsHeaders(),
+          body: JSON.stringify({ ok: true, company: doc }),
+        };
       }
 
       if (method === "DELETE") {
@@ -241,44 +136,50 @@ app.http("adminCompanies", {
         try {
           body = await req.json();
         } catch {
-          return json({ error: "Invalid JSON" }, 400, req);
+          return {
+            status: 400,
+            headers: getCorsHeaders(),
+            body: JSON.stringify({ error: "Invalid JSON" }),
+          };
         }
 
         const id = body.id || body.company_id;
         if (!id) {
-          return json({ error: "id required" }, 400, req);
+          return {
+            status: 400,
+            headers: getCorsHeaders(),
+            body: JSON.stringify({ error: "id required" }),
+          };
         }
 
-        const actor = getActorFromRequest(req, body);
-        const existing = await findCompanyById(companiesContainer, id);
-        if (!existing) {
-          return json({ error: "Company not found" }, 404, req);
+        try {
+          await container.item(id).delete();
+          return {
+            status: 200,
+            headers: getCorsHeaders(),
+            body: JSON.stringify({ ok: true }),
+          };
+        } catch (e) {
+          return {
+            status: 404,
+            headers: getCorsHeaders(),
+            body: JSON.stringify({ error: "Company not found" }),
+          };
         }
-
-        const now = new Date().toISOString();
-        const softDeleted = {
-          ...existing,
-          is_deleted: true,
-          deleted_at: now,
-          updated_at: now,
-        };
-
-        await companiesContainer.items.upsert(softDeleted);
-        await logUndoAction(undoContainer, {
-          companyId: id,
-          oldDoc: existing,
-          newDoc: softDeleted,
-          actor,
-          actionType: "delete",
-        });
-
-        return json({ ok: true, company: softDeleted }, 200, req);
       }
 
-      return json({ error: "Method not allowed" }, 405, req);
+      return {
+        status: 405,
+        headers: getCorsHeaders(),
+        body: JSON.stringify({ error: "Method not allowed" }),
+      };
     } catch (e) {
       context.log("Error in admin-companies:", e?.message || e);
-      return json({ error: e?.message || "Internal error" }, 500, req);
+      return {
+        status: 500,
+        headers: getCorsHeaders(),
+        body: JSON.stringify({ error: e?.message || "Internal error" }),
+      };
     }
   },
 });
