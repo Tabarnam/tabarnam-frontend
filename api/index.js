@@ -68,6 +68,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: suggest-refinements");
+  require("./suggest-refinements/index.js");
+} catch (e) {
+  console.error("[api] Failed to load suggest-refinements:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: save-companies");
   require("./save-companies/index.js");
 } catch (e) {
