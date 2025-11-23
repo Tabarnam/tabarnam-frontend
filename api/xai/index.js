@@ -27,24 +27,21 @@ app.http("xai", {
       return { status: 204, headers: cors(req) };
     }
 
-    const bodyObj = await req.json().catch(() => ({}));
-    console.log(`[xai] Received XAI request:`, JSON.stringify(bodyObj));
-
-    console.warn(`[xai] ERROR: This endpoint (/api/xai) is not implemented!`);
-    console.warn(`[xai] FUNCTION_URL is currently pointing to this endpoint, which creates a loop.`);
-    console.warn(`[xai] Please update FUNCTION_URL to point to the actual XAI API endpoint.`);
+    console.warn(`[xai] Deprecated endpoint: /api/xai should not be called directly`);
+    console.warn(`[xai] Use /api/admin/bulk-import-config for configuration diagnostics instead`);
 
     return json(
       {
-        error: "XAI endpoint not implemented",
-        message: "The /api/xai endpoint is not configured properly. FUNCTION_URL should point to the actual XAI service, not to this local endpoint.",
-        note: "Update FUNCTION_URL environment variable to point to your XAI API endpoint (e.g., external API or XAI service)",
+        error: "Endpoint deprecated",
+        message: "The /api/xai endpoint is deprecated and should not be used",
+        note: "Use /api/admin/bulk-import-config for configuration status or call /api/proxy-xai for XAI operations",
         configuration: {
-          FUNCTION_URL: (process.env.FUNCTION_URL || "").trim() || "not set",
-          FUNCTION_KEY: (process.env.FUNCTION_KEY || "").trim() ? "configured" : "not set",
+          XAI_EXTERNAL_BASE: (process.env.XAI_EXTERNAL_BASE || "").trim() || "not set",
+          XAI_EXTERNAL_KEY: (process.env.XAI_EXTERNAL_KEY || "").trim() ? "configured" : "not set",
+          FUNCTION_URL: (process.env.FUNCTION_URL || "").trim() ? "legacy (deprecated)" : "not set",
         },
       },
-      501,
+      410,
       req
     );
   },
