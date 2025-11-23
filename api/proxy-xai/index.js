@@ -3,7 +3,25 @@ const { app } = require("@azure/functions");
 const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
 
-const BUILD_STAMP = "proxy-xai build 2025-10-01T02:55Z";
+const BUILD_STAMP = "proxy-xai build 2025-11-23T03:00Z";
+
+// Get the XAI endpoint URL from environment
+// Primary source: XAI_EXTERNAL_BASE (consistent consolidation)
+// Fallback: FUNCTION_URL (for backwards compatibility)
+function getXAIEndpoint() {
+  const external = (process.env.XAI_EXTERNAL_BASE || '').trim();
+  if (external) return external;
+
+  const fnUrl = (process.env.FUNCTION_URL || '').trim();
+  if (fnUrl && !fnUrl.includes('/api/xai')) return fnUrl;  // Avoid diagnostic endpoint loop
+
+  return '';
+}
+
+function getXAIKey() {
+  const key = (process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || '').trim();
+  return key;
+}
 
 // ----- helpers -----
 function cors(req) {
@@ -228,15 +246,20 @@ app.http("proxyXai", {
 
     const started = Date.now();
     const XAI_STUB = (process.env.XAI_STUB || "").trim() === "1";
-    const baseUrl = (process.env.FUNCTION_URL || "").trim();
-    const apiKey = (process.env.XAI_API_KEY || process.env.FUNCTION_KEY || "").trim();
+    const baseUrl = getXAIEndpoint();
+    const apiKey = getXAIKey();
 
     if (req.method === "GET") {
       return json(
         {
           ok: true,
           route: "/api/proxy-xai",
-          configured: { FUNCTION_URL: !!baseUrl, XAI_API_KEY: !!apiKey, XAI_STUB },
+          configured: {
+            XAI_EXTERNAL_BASE: !!baseUrl,
+            XAI_EXTERNAL_KEY: !!apiKey,
+            XAI_STUB,
+            note: "Using consolidated XAI_EXTERNAL_BASE configuration (FUNCTION_URL deprecated)"
+          },
           build: BUILD_STAMP,
           now: new Date().toISOString(),
         },

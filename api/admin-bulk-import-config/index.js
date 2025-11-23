@@ -27,28 +27,29 @@ app.http("bulkImportConfig", {
       };
     }
 
+    // Consolidated configuration: XAI_EXTERNAL_BASE is now primary
+    const xaiBase = (process.env.XAI_EXTERNAL_BASE || "").trim();
+    const xaiKey = (process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || "").trim();
+    const legacyFunctionUrl = (process.env.FUNCTION_URL || "").trim();
+
     const config = {
       xai: {
-        function_url: {
-          configured: !!(process.env.FUNCTION_URL || "").trim(),
-          status: (process.env.FUNCTION_URL || "").trim() ? "✅ CONFIGURED" : "❌ MISSING",
-          note: "Should point to the XAI API endpoint (e.g., Azure Function URL)",
-        },
-        function_key: {
-          configured: !!(process.env.FUNCTION_KEY || "").trim(),
-          status: (process.env.FUNCTION_KEY || "").trim() ? "✅ CONFIGURED" : "❌ MISSING",
-          note: "API key or function code for authentication",
-        },
-      },
-      external_api: {
         external_base: {
-          configured: !!(process.env.XAI_EXTERNAL_BASE || "").trim(),
-          value: (process.env.XAI_EXTERNAL_BASE || "").trim(),
-          status: (process.env.XAI_EXTERNAL_BASE || "").trim() ? "✅ CONFIGURED" : "❌ MISSING",
+          configured: !!xaiBase,
+          value: xaiBase,
+          status: xaiBase ? "✅ CONFIGURED" : "❌ MISSING",
+          note: "Primary XAI search endpoint (consolidated configuration)",
         },
         external_key: {
-          configured: !!(process.env.XAI_EXTERNAL_KEY || "").trim(),
-          status: (process.env.XAI_EXTERNAL_KEY || "").trim() ? "✅ CONFIGURED" : "❌ MISSING",
+          configured: !!xaiKey,
+          status: xaiKey ? "✅ CONFIGURED" : "❌ MISSING",
+          note: "Authentication key for XAI endpoint",
+        },
+        legacy_function_url: {
+          configured: !!legacyFunctionUrl,
+          value: legacyFunctionUrl,
+          status: legacyFunctionUrl ? "⚠️ DEPRECATED - Use XAI_EXTERNAL_BASE instead" : "Not set (OK)",
+          note: "FUNCTION_URL is deprecated. Use XAI_EXTERNAL_BASE for new configurations",
         },
       },
       cosmos_db: {
@@ -71,17 +72,12 @@ app.http("bulkImportConfig", {
         },
       },
       status: {
-        xai_available: !!(
-          (process.env.FUNCTION_URL || "").trim() &&
-          (process.env.FUNCTION_KEY || "").trim()
-        ),
+        xai_available: !!(xaiBase && xaiKey),
         cosmos_available: !!(
           (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim() &&
           (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim()
         ),
-        import_ready: !!(
-          (process.env.FUNCTION_URL || "").trim() &&
-          (process.env.FUNCTION_KEY || "").trim() &&
+        import_ready: !!(xaiBase && xaiKey &&
           (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim() &&
           (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim()
         ),
@@ -93,9 +89,10 @@ app.http("bulkImportConfig", {
     if (!config.status.xai_available) {
       config.recommendations.push({
         severity: "critical",
-        message: "FUNCTION_URL and FUNCTION_KEY are not configured",
-        action: "Set FUNCTION_URL to your XAI API endpoint and FUNCTION_KEY to the authentication key",
-        example: "FUNCTION_URL=https://your-xai-api.azurewebsites.net/api/query-companies",
+        message: "XAI search endpoint is not configured",
+        action: "Set XAI_EXTERNAL_BASE to your XAI API endpoint and XAI_EXTERNAL_KEY to the authentication key",
+        example: "XAI_EXTERNAL_BASE=https://your-xai-api.azurewebsites.net/api",
+        legacy_note: "Legacy FUNCTION_URL is deprecated. Use XAI_EXTERNAL_BASE instead",
       });
     }
 

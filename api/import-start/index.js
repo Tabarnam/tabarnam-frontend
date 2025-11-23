@@ -1,6 +1,7 @@
 const { app } = require("@azure/functions");
 const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
+const { getXAIEndpoint, getXAIKey, getProxyBase } = require("./_shared");
 
 function json(obj, status = 200) {
   return {
@@ -251,17 +252,19 @@ app.http("importStart", {
         const timeout = Math.max(1000, Number(bodyObj.timeout_ms) || 600000);
         console.log(`[import-start] Request timeout: ${timeout}ms`);
 
-        // Get XAI configuration
-        const xaiUrl = (process.env.FUNCTION_URL || "").trim();
-        const xaiKey = (process.env.XAI_API_KEY || process.env.FUNCTION_KEY || "").trim();
+        // Get XAI configuration (consolidated to use XAI_EXTERNAL_BASE primarily)
+        const xaiUrl = getXAIEndpoint();
+        const xaiKey = getXAIKey();
 
-        console.log(`[import-start] XAI URL: ${xaiUrl ? "configured" : "NOT SET"}`);
+        console.log(`[import-start] XAI Endpoint: ${xaiUrl ? "configured" : "NOT SET"}`);
         console.log(`[import-start] XAI Key: ${xaiKey ? "configured" : "NOT SET"}`);
+        console.log(`[import-start] Config source: ${process.env.XAI_EXTERNAL_BASE ? "XAI_EXTERNAL_BASE" : process.env.FUNCTION_URL ? "FUNCTION_URL (legacy)" : "none"}`);
 
         if (!xaiUrl || !xaiKey) {
           return json({
             ok: false,
             error: "XAI not configured",
+            message: "Please set XAI_EXTERNAL_BASE and XAI_EXTERNAL_KEY environment variables",
             session_id: sessionId,
           }, 500);
         }
