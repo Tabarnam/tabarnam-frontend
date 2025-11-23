@@ -72,17 +72,12 @@ app.http("bulkImportConfig", {
         },
       },
       status: {
-        xai_available: !!(
-          (process.env.FUNCTION_URL || "").trim() &&
-          (process.env.FUNCTION_KEY || "").trim()
-        ),
+        xai_available: !!(xaiBase && xaiKey),
         cosmos_available: !!(
           (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim() &&
           (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim()
         ),
-        import_ready: !!(
-          (process.env.FUNCTION_URL || "").trim() &&
-          (process.env.FUNCTION_KEY || "").trim() &&
+        import_ready: !!(xaiBase && xaiKey &&
           (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim() &&
           (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim()
         ),
