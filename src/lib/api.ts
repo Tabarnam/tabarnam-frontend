@@ -7,6 +7,7 @@
 
 const getAPIBase = () => {
   const base = import.meta.env.VITE_API_BASE?.trim();
+  const isDev = import.meta.env.MODE === "development";
 
   // In production, never use absolute URLs - always route through same origin
   // Azure Static Web Apps routes /api/* to the linked backend function app
@@ -17,8 +18,8 @@ const getAPIBase = () => {
   // If VITE_API_BASE is set but is an absolute URL (contains :// or starts with http),
   // reject it and use relative path instead. This prevents cross-origin issues.
   if (base.includes("://") || base.startsWith("http")) {
-    // Log a warning about misconfiguration
-    if (typeof console !== "undefined" && console.warn) {
+    // Only warn in development - in production this is expected behavior
+    if (isDev && typeof console !== "undefined" && console.warn) {
       console.warn(
         `[API Config] VITE_API_BASE is set to an absolute URL: ${base}. ` +
         `Using relative /api path instead. ` +
