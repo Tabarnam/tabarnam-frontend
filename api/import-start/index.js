@@ -1,6 +1,7 @@
 const { app } = require("@azure/functions");
 const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
+const { getXAIEndpoint, getXAIKey, getProxyBase } = require("./_shared");
 
 function json(obj, status = 200) {
   return {
