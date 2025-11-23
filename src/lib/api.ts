@@ -1,19 +1,35 @@
 // src/lib/api.ts
 // Single source of truth for the front-end API base.
-// Supports:
-// - Local dev: proxied via vite config to http://127.0.0.1:7080
-// - Deployed: uses VITE_API_BASE env variable pointing to Azure Functions
-// - Fallback: relative /api path
+// Architecture:
+// - Production: Always use relative /api paths (routed through Azure Static Web Apps to backend)
+// - Local dev: Uses relative /api paths (proxied via vite.config.js)
+// - Never use absolute URLs to avoid cross-origin issues
 
 const getAPIBase = () => {
-  // Use environment variable if provided (production Azure Functions endpoint)
-  if (import.meta.env.VITE_API_BASE) {
-    const base = import.meta.env.VITE_API_BASE.trim();
-    if (base) return base;
+  const base = import.meta.env.VITE_API_BASE?.trim();
+
+  // In production, never use absolute URLs - always route through same origin
+  // Azure Static Web Apps routes /api/* to the linked backend function app
+  if (!base) {
+    return "/api";
   }
 
-  // Fallback to relative path for local dev with proxy
-  return "/api";
+  // If VITE_API_BASE is set but is an absolute URL (contains :// or starts with http),
+  // reject it and use relative path instead. This prevents cross-origin issues.
+  if (base.includes("://") || base.startsWith("http")) {
+    // Log a warning about misconfiguration
+    if (typeof console !== "undefined" && console.warn) {
+      console.warn(
+        `[API Config] VITE_API_BASE is set to an absolute URL: ${base}. ` +
+        `Using relative /api path instead. ` +
+        `Absolute URLs cause CORS issues and should not be used in production.`
+      );
+    }
+    return "/api";
+  }
+
+  // If it's a relative path, use it (for local dev scenarios)
+  return base;
 };
 
 export const API_BASE = getAPIBase();
