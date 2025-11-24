@@ -1,5 +1,7 @@
 // Admin companies API endpoint - v4 modern runtime with app.http()
+console.log("[admin-companies] Starting module load...");
 const { app } = require("@azure/functions");
+console.log("[admin-companies] @azure/functions imported, app object created");
 
 let CosmosClientCtor = null;
 function loadCosmosCtor() {
