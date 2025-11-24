@@ -165,3 +165,5 @@ app.http("adminCompanies", {
     }
   },
 });
+
+console.log("[admin-companies] ✅ Handler registered successfully with app.http");
