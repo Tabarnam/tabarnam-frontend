@@ -3,19 +3,18 @@ const { CosmosClient } = require("@azure/cosmos");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
-const cors = (req) => {
-  const origin = req.headers.get("origin") || "*";
+function getCorsHeaders() {
   return {
-    "Access-Control-Allow-Origin": origin,
-    Vary: "Origin",
+    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Content-Type": "application/json",
   };
-};
+}
 
-const json = (obj, status = 200, req) => ({
+const json = (obj, status = 200) => ({
   status,
-  headers: { ...cors(req), "Content-Type": "application/json" },
+  headers: getCorsHeaders(),
   body: JSON.stringify(obj),
 });
 
@@ -53,14 +52,17 @@ app.http("adminBatchUpdate", {
     const method = String(req.method || "").toUpperCase();
 
     if (method === "OPTIONS") {
-      return { status: 204, headers: cors(req) };
+      return {
+        status: 204,
+        headers: getCorsHeaders(),
+      };
     }
 
     const companiesContainer = getCompaniesContainer();
     const undoContainer = getUndoContainer();
 
     if (!companiesContainer) {
-      return json({ error: "Cosmos DB not configured" }, 500, req);
+      return json({ error: "Cosmos DB not configured" }, 500);
     }
 
     try {
@@ -68,12 +70,12 @@ app.http("adminBatchUpdate", {
       try {
         body = await req.json();
       } catch {
-        return json({ error: "Invalid JSON" }, 400, req);
+        return json({ error: "Invalid JSON" }, 400);
       }
 
       const { field, value, companyIds, actor } = body;
       if (!field || !value || !Array.isArray(companyIds) || companyIds.length === 0) {
-        return json({ error: "field, value, and companyIds required" }, 400, req);
+        return json({ error: "field, value, and companyIds required" }, 400);
       }
 
       let updated = 0;
@@ -120,10 +122,10 @@ app.http("adminBatchUpdate", {
         }
       }
 
-      return json({ ok: true, updated }, 200, req);
+      return json({ ok: true, updated }, 200);
     } catch (e) {
       context.log("Error in admin-batch-update:", e?.message || e);
-      return json({ error: e?.message || "Internal error" }, 500, req);
+      return json({ error: e?.message || "Internal error" }, 500);
     }
   },
 });
