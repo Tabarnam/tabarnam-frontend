@@ -1,4 +1,3 @@
-const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
 
 function env(key, defaultValue = "") {
@@ -34,158 +33,165 @@ function getCompaniesContainer() {
   }
 }
 
-app.http("adminCompanies", {
-  route: "admin-companies",
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
-    const method = (req.method || "").toUpperCase();
+module.exports = async function (context, req) {
+  context.log("admin-companies function invoked");
 
-    if (method === "OPTIONS") {
-      return {
-        status: 204,
+  const method = (req.method || "").toUpperCase();
+
+  if (method === "OPTIONS") {
+    context.res = {
+      status: 204,
+      headers: getCorsHeaders(),
+    };
+    return;
+  }
+
+  const container = getCompaniesContainer();
+  if (!container) {
+    context.res = {
+      status: 503,
+      headers: getCorsHeaders(),
+      body: JSON.stringify({ error: "Cosmos DB not configured" }),
+    };
+    return;
+  }
+
+  try {
+    if (method === "GET") {
+      const search = (req.query?.search || "").toString().toLowerCase().trim();
+      const take = Math.min(500, Math.max(1, parseInt((req.query?.take || "200").toString())));
+
+      const parameters = [{ name: "@take", value: take }];
+      let whereClause = "";
+
+      if (search) {
+        parameters.push({ name: "@q", value: search });
+        whereClause =
+          "WHERE (" +
+          [
+            "CONTAINS(LOWER(c.company_name), @q)",
+            "CONTAINS(LOWER(c.name), @q)",
+            "CONTAINS(LOWER(c.product_keywords), @q)",
+            "CONTAINS(LOWER(c.normalized_domain), @q)",
+          ].join(" OR ") +
+          ")";
+      }
+
+      const sql = "SELECT TOP @take * FROM c " + whereClause + " ORDER BY c._ts DESC";
+
+      const { resources } = await container.items
+        .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
+        .fetchAll();
+
+      const items = resources || [];
+      context.res = {
+        status: 200,
         headers: getCorsHeaders(),
+        body: JSON.stringify({ items, count: items.length }),
       };
+      return;
     }
 
-    const container = getCompaniesContainer();
-    if (!container) {
-      return {
-        status: 503,
-        headers: getCorsHeaders(),
-        body: JSON.stringify({ error: "Cosmos DB not configured" }),
+    if (method === "POST" || method === "PUT") {
+      let body = {};
+      try {
+        body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+      } catch {
+        context.res = {
+          status: 400,
+          headers: getCorsHeaders(),
+          body: JSON.stringify({ error: "Invalid JSON" }),
+        };
+        return;
+      }
+
+      const incoming = body.company || body;
+      if (!incoming) {
+        context.res = {
+          status: 400,
+          headers: getCorsHeaders(),
+          body: JSON.stringify({ error: "company payload required" }),
+        };
+        return;
+      }
+
+      let id = incoming.id || incoming.company_id || incoming.company_name;
+      if (!id) {
+        id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      }
+
+      const now = new Date().toISOString();
+      const doc = {
+        ...incoming,
+        id,
+        company_name: incoming.company_name || incoming.name || "",
+        name: incoming.name || incoming.company_name || "",
+        updated_at: now,
+        created_at: incoming.created_at || now,
       };
+
+      await container.items.upsert(doc);
+
+      context.res = {
+        status: 200,
+        headers: getCorsHeaders(),
+        body: JSON.stringify({ ok: true, company: doc }),
+      };
+      return;
     }
 
-    try {
-      if (method === "GET") {
-        const search = (req.query?.search || "").toString().toLowerCase().trim();
-        const take = Math.min(500, Math.max(1, parseInt((req.query?.take || "200").toString())));
+    if (method === "DELETE") {
+      let body = {};
+      try {
+        body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+      } catch {
+        context.res = {
+          status: 400,
+          headers: getCorsHeaders(),
+          body: JSON.stringify({ error: "Invalid JSON" }),
+        };
+        return;
+      }
 
-        const parameters = [{ name: "@take", value: take }];
-        let whereClause = "";
+      const id = body.id || body.company_id;
+      if (!id) {
+        context.res = {
+          status: 400,
+          headers: getCorsHeaders(),
+          body: JSON.stringify({ error: "id required" }),
+        };
+        return;
+      }
 
-        if (search) {
-          parameters.push({ name: "@q", value: search });
-          whereClause =
-            "WHERE (" +
-            [
-              "CONTAINS(LOWER(c.company_name), @q)",
-              "CONTAINS(LOWER(c.name), @q)",
-              "CONTAINS(LOWER(c.product_keywords), @q)",
-              "CONTAINS(LOWER(c.normalized_domain), @q)",
-            ].join(" OR ") +
-            ")";
-        }
-
-        const sql = "SELECT TOP @take * FROM c " + whereClause + " ORDER BY c._ts DESC";
-
-        const { resources } = await container.items
-          .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
-          .fetchAll();
-
-        const items = resources || [];
-        return {
+      try {
+        await container.item(id).delete();
+        context.res = {
           status: 200,
           headers: getCorsHeaders(),
-          body: JSON.stringify({ items, count: items.length }),
+          body: JSON.stringify({ ok: true }),
         };
-      }
-
-      if (method === "POST" || method === "PUT") {
-        let body = {};
-        try {
-          body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
-        } catch {
-          return {
-            status: 400,
-            headers: getCorsHeaders(),
-            body: JSON.stringify({ error: "Invalid JSON" }),
-          };
-        }
-
-        const incoming = body.company || body;
-        if (!incoming) {
-          return {
-            status: 400,
-            headers: getCorsHeaders(),
-            body: JSON.stringify({ error: "company payload required" }),
-          };
-        }
-
-        let id = incoming.id || incoming.company_id || incoming.company_name;
-        if (!id) {
-          id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-        }
-
-        const now = new Date().toISOString();
-        const doc = {
-          ...incoming,
-          id,
-          company_name: incoming.company_name || incoming.name || "",
-          name: incoming.name || incoming.company_name || "",
-          updated_at: now,
-          created_at: incoming.created_at || now,
-        };
-
-        await container.items.upsert(doc);
-
-        return {
-          status: 200,
+        return;
+      } catch (e) {
+        context.res = {
+          status: 404,
           headers: getCorsHeaders(),
-          body: JSON.stringify({ ok: true, company: doc }),
+          body: JSON.stringify({ error: "Company not found" }),
         };
+        return;
       }
-
-      if (method === "DELETE") {
-        let body = {};
-        try {
-          body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
-        } catch {
-          return {
-            status: 400,
-            headers: getCorsHeaders(),
-            body: JSON.stringify({ error: "Invalid JSON" }),
-          };
-        }
-
-        const id = body.id || body.company_id;
-        if (!id) {
-          return {
-            status: 400,
-            headers: getCorsHeaders(),
-            body: JSON.stringify({ error: "id required" }),
-          };
-        }
-
-        try {
-          await container.item(id).delete();
-          return {
-            status: 200,
-            headers: getCorsHeaders(),
-            body: JSON.stringify({ ok: true }),
-          };
-        } catch (e) {
-          return {
-            status: 404,
-            headers: getCorsHeaders(),
-            body: JSON.stringify({ error: "Company not found" }),
-          };
-        }
-      }
-
-      return {
-        status: 405,
-        headers: getCorsHeaders(),
-        body: JSON.stringify({ error: "Method not allowed" }),
-      };
-    } catch (e) {
-      context.log("[admin-companies] Error:", e?.message || e);
-      return {
-        status: 500,
-        headers: getCorsHeaders(),
-        body: JSON.stringify({ error: e?.message || "Internal error" }),
-      };
     }
-  },
-});
+
+    context.res = {
+      status: 405,
+      headers: getCorsHeaders(),
+      body: JSON.stringify({ error: "Method not allowed" }),
+    };
+  } catch (e) {
+    context.log("[admin-companies] Error:", e?.message || e);
+    context.res = {
+      status: 500,
+      headers: getCorsHeaders(),
+      body: JSON.stringify({ error: e?.message || "Internal error" }),
+    };
+  }
+};
