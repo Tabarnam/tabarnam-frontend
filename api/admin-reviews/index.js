@@ -1,26 +1,21 @@
-// api/admin-reviews/index.js
-// Admin interface for managing curated reviews on companies
-// Supports: add/edit/delete reviews, bulk exclude sources
-
 const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
 const { randomUUID } = require("node:crypto");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
-const cors = (req) => {
-  const origin = req.headers.get("origin") || "*";
+function getCorsHeaders() {
   return {
-    "Access-Control-Allow-Origin": origin,
-    Vary: "Origin",
+    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Content-Type": "application/json",
   };
-};
+}
 
-const json = (obj, status = 200, req) => ({
+const json = (obj, status = 200) => ({
   status,
-  headers: { ...cors(req), "Content-Type": "application/json" },
+  headers: getCorsHeaders(),
   body: JSON.stringify(obj),
 });
 
@@ -57,7 +52,10 @@ app.http("adminReviews", {
     const method = String(req.method || "").toUpperCase();
 
     if (method === "OPTIONS") {
-      return json({}, 204, req);
+      return {
+        status: 204,
+        headers: getCorsHeaders(),
+      };
     }
 
     const url = new URL(req.url);
@@ -65,13 +63,13 @@ app.http("adminReviews", {
 
     const container = getCompaniesContainer();
     if (!container) {
-      return json({ error: "Cosmos DB not configured" }, 500, req);
+      return json({ error: "Cosmos DB not configured" }, 500);
     }
 
     try {
       // GET: Fetch reviews for a company
       if (method === "GET") {
-        if (!company) return json({ error: "company parameter required" }, 400, req);
+        if (!company) return json({ error: "company parameter required" }, 400);
 
         const sql = `SELECT c.company_name, c.curated_reviews FROM c WHERE c.company_name = @company`;
         const { resources } = await container.items
@@ -82,13 +80,13 @@ app.http("adminReviews", {
           .fetchAll();
 
         if (!resources || !resources.length) {
-          return json({ company, reviews: [] }, 200, req);
+          return json({ company, reviews: [] }, 200);
         }
 
         const companyRecord = resources[0];
         const reviews = Array.isArray(companyRecord.curated_reviews) ? companyRecord.curated_reviews : [];
 
-        return json({ company, reviews }, 200, req);
+        return json({ company, reviews }, 200);
       }
 
       // POST: Add a new review
@@ -97,17 +95,17 @@ app.http("adminReviews", {
         try {
           body = await req.json();
         } catch {
-          return json({ error: "Invalid JSON" }, 400, req);
+          return json({ error: "Invalid JSON" }, 400);
         }
 
         const { company: companyName, source, abstract, url, rating } = body;
 
-        if (!companyName) return json({ error: "company required" }, 400, req);
-        if (!source) return json({ error: "source required" }, 400, req);
-        if (!abstract) return json({ error: "abstract required" }, 400, req);
+        if (!companyName) return json({ error: "company required" }, 400);
+        if (!source) return json({ error: "source required" }, 400);
+        if (!abstract) return json({ error: "abstract required" }, 400);
 
         if (isExcludedSource(source)) {
-          return json({ error: `Source "${source}" is excluded (Amazon/Google/Facebook)` }, 400, req);
+          return json({ error: `Source "${source}" is excluded (Amazon/Google/Facebook)` }, 400);
         }
 
         // Fetch company record
@@ -120,7 +118,7 @@ app.http("adminReviews", {
           .fetchAll();
 
         if (!resources || !resources.length) {
-          return json({ error: "Company not found" }, 404, req);
+          return json({ error: "Company not found" }, 404);
         }
 
         const companyRecord = resources[0];
@@ -148,7 +146,7 @@ app.http("adminReviews", {
         // Update company
         await container.items.upsert(companyRecord);
 
-        return json({ ok: true, review: newReview }, 200, req);
+        return json({ ok: true, review: newReview }, 200);
       }
 
       // PUT: Update an existing review
@@ -157,13 +155,13 @@ app.http("adminReviews", {
         try {
           body = await req.json();
         } catch {
-          return json({ error: "Invalid JSON" }, 400, req);
+          return json({ error: "Invalid JSON" }, 400);
         }
 
         const { company: companyName, review_id, source, abstract, url, rating } = body;
 
         if (!companyName || !review_id) {
-          return json({ error: "company and review_id required" }, 400, req);
+          return json({ error: "company and review_id required" }, 400);
         }
 
         const sql = `SELECT * FROM c WHERE c.company_name = @company`;
@@ -175,7 +173,7 @@ app.http("adminReviews", {
           .fetchAll();
 
         if (!resources || !resources.length) {
-          return json({ error: "Company not found" }, 404, req);
+          return json({ error: "Company not found" }, 404);
         }
 
         const companyRecord = resources[0];
@@ -183,11 +181,11 @@ app.http("adminReviews", {
 
         const reviewIndex = reviews.findIndex((r) => r.id === review_id);
         if (reviewIndex === -1) {
-          return json({ error: "Review not found" }, 404, req);
+          return json({ error: "Review not found" }, 404);
         }
 
         if (source && isExcludedSource(source)) {
-          return json({ error: `Source "${source}" is excluded` }, 400, req);
+          return json({ error: `Source "${source}" is excluded` }, 400);
         }
 
         // Update review
@@ -205,7 +203,7 @@ app.http("adminReviews", {
 
         await container.items.upsert(companyRecord);
 
-        return json({ ok: true, review: updated }, 200, req);
+        return json({ ok: true, review: updated }, 200);
       }
 
       // DELETE: Remove a review
@@ -214,13 +212,13 @@ app.http("adminReviews", {
         try {
           body = await req.json();
         } catch {
-          return json({ error: "Invalid JSON" }, 400, req);
+          return json({ error: "Invalid JSON" }, 400);
         }
 
         const { company: companyName, review_id } = body;
 
         if (!companyName || !review_id) {
-          return json({ error: "company and review_id required" }, 400, req);
+          return json({ error: "company and review_id required" }, 400);
         }
 
         const sql = `SELECT * FROM c WHERE c.company_name = @company`;
@@ -232,7 +230,7 @@ app.http("adminReviews", {
           .fetchAll();
 
         if (!resources || !resources.length) {
-          return json({ error: "Company not found" }, 404, req);
+          return json({ error: "Company not found" }, 404);
         }
 
         const companyRecord = resources[0];
@@ -242,13 +240,13 @@ app.http("adminReviews", {
 
         await container.items.upsert(companyRecord);
 
-        return json({ ok: true, deleted: review_id }, 200, req);
+        return json({ ok: true, deleted: review_id }, 200);
       }
 
-      return json({ error: "Method not supported" }, 405, req);
+      return json({ error: "Method not supported" }, 405);
     } catch (e) {
       context.log("Error in admin-reviews:", e?.message || e);
-      return json({ error: e?.message || "Internal error" }, 500, req);
+      return json({ error: e?.message || "Internal error" }, 500);
     }
   },
 });

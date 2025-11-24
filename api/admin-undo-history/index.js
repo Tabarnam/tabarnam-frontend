@@ -3,19 +3,18 @@ const { CosmosClient } = require("@azure/cosmos");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
-const cors = (req) => {
-  const origin = req.headers.get("origin") || "*";
+function getCorsHeaders() {
   return {
-    "Access-Control-Allow-Origin": origin,
-    Vary: "Origin",
+    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Content-Type": "application/json",
   };
-};
+}
 
-const json = (obj, status = 200, req) => ({
+const json = (obj, status = 200) => ({
   status,
-  headers: { ...cors(req), "Content-Type": "application/json" },
+  headers: getCorsHeaders(),
   body: JSON.stringify(obj),
 });
 
@@ -45,12 +44,15 @@ app.http("adminUndoHistory", {
     const method = String(req.method || "").toUpperCase();
 
     if (method === "OPTIONS") {
-      return { status: 204, headers: cors(req) };
+      return {
+        status: 204,
+        headers: getCorsHeaders(),
+      };
     }
 
     const container = getUndoContainer();
     if (!container) {
-      return json({ error: "Cosmos DB not configured" }, 500, req);
+      return json({ error: "Cosmos DB not configured" }, 500);
     }
 
     try {
@@ -70,7 +72,7 @@ app.http("adminUndoHistory", {
           is_undone: h.is_undone || false,
         }));
 
-        return json({ history }, 200, req);
+        return json({ history }, 200);
       }
 
       if (method === "DELETE") {
@@ -89,13 +91,13 @@ app.http("adminUndoHistory", {
           deleted += 1;
         }
 
-        return json({ ok: true, deleted }, 200, req);
+        return json({ ok: true, deleted }, 200);
       }
 
-      return json({ error: "Method not allowed" }, 405, req);
+      return json({ error: "Method not allowed" }, 405);
     } catch (e) {
       context.log("Error in admin-undo-history:", e?.message || e);
-      return json({ error: e?.message || "Internal error" }, 500, req);
+      return json({ error: e?.message || "Internal error" }, 500);
     }
   },
 });

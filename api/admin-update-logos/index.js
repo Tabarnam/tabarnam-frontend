@@ -18,6 +18,15 @@ const logoMapping = {
   "tesla-inc": "/logos/tesla.svg",
 };
 
+function getCorsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Content-Type": "application/json",
+  };
+}
+
 async function updateLogos() {
   try {
     if (!COSMOS_KEY) {
@@ -52,23 +61,32 @@ async function updateLogos() {
   }
 }
 
-app.http("admin-update-logos", {
+app.http("adminUpdateLogos", {
+  route: "admin-update-logos",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  route: "admin-update-logos",
-  handler: async (request, context) => {
+  handler: async (req, context) => {
+    const method = String(req.method || "").toUpperCase();
+
+    if (method === "OPTIONS") {
+      return {
+        status: 204,
+        headers: getCorsHeaders(),
+      };
+    }
+
     try {
       const result = await updateLogos();
       return {
         status: result.success ? 200 : 400,
         body: JSON.stringify(result),
-        headers: { "Content-Type": "application/json" },
+        headers: getCorsHeaders(),
       };
     } catch (e) {
       return {
         status: 500,
         body: JSON.stringify({ error: e.message }),
-        headers: { "Content-Type": "application/json" },
+        headers: getCorsHeaders(),
       };
     }
   },

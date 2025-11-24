@@ -3,19 +3,18 @@ const { CosmosClient } = require("@azure/cosmos");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
-const cors = (req) => {
-  const origin = req.headers.get("origin") || "*";
+function getCorsHeaders() {
   return {
-    "Access-Control-Allow-Origin": origin,
-    Vary: "Origin",
+    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Content-Type": "application/json",
   };
-};
+}
 
-const json = (obj, status = 200, req) => ({
+const json = (obj, status = 200) => ({
   status,
-  headers: { ...cors(req), "Content-Type": "application/json" },
+  headers: getCorsHeaders(),
   body: JSON.stringify(obj),
 });
 
@@ -45,7 +44,10 @@ app.http("adminAnalytics", {
     const method = String(req.method || "").toUpperCase();
 
     if (method === "OPTIONS") {
-      return { status: 204, headers: cors(req) };
+      return {
+        status: 204,
+        headers: getCorsHeaders(),
+      };
     }
 
     const container = getAnalyticsContainer();
@@ -58,8 +60,7 @@ app.http("adminAnalytics", {
           affiliateClicks: 0,
           amazonConversions: 0,
         },
-        200,
-        req
+        200
       );
     }
 
@@ -104,8 +105,7 @@ app.http("adminAnalytics", {
           affiliateClicks,
           amazonConversions,
         },
-        200,
-        req
+        200
       );
     } catch (e) {
       context.log("Error in admin-analytics:", e?.message || e);
@@ -117,8 +117,7 @@ app.http("adminAnalytics", {
           affiliateClicks: 0,
           amazonConversions: 0,
         },
-        200,
-        req
+        200
       );
     }
   },

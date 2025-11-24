@@ -3,19 +3,18 @@ const { CosmosClient } = require("@azure/cosmos");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
-const cors = (req) => {
-  const origin = req.headers.get("origin") || "*";
+function getCorsHeaders() {
   return {
-    "Access-Control-Allow-Origin": origin,
-    Vary: "Origin",
+    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Content-Type": "application/json",
   };
-};
+}
 
-const json = (obj, status = 200, req) => ({
+const json = (obj, status = 200) => ({
   status,
-  headers: { ...cors(req), "Content-Type": "application/json" },
+  headers: getCorsHeaders(),
   body: JSON.stringify(obj),
 });
 
@@ -53,14 +52,17 @@ app.http("adminUndo", {
     const method = String(req.method || "").toUpperCase();
 
     if (method === "OPTIONS") {
-      return { status: 204, headers: cors(req) };
+      return {
+        status: 204,
+        headers: getCorsHeaders(),
+      };
     }
 
     const companiesContainer = getCompaniesContainer();
     const undoContainer = getUndoContainer();
 
     if (!companiesContainer || !undoContainer) {
-      return json({ error: "Cosmos DB not configured" }, 500, req);
+      return json({ error: "Cosmos DB not configured" }, 500);
     }
 
     try {
@@ -68,21 +70,21 @@ app.http("adminUndo", {
       try {
         body = await req.json();
       } catch {
-        return json({ error: "Invalid JSON" }, 400, req);
+        return json({ error: "Invalid JSON" }, 400);
       }
 
       const { id } = body;
       if (!id) {
-        return json({ error: "id required" }, 400, req);
+        return json({ error: "id required" }, 400);
       }
 
       const historyRecord = await undoContainer.item(id, id).read().then(r => r.resource).catch(() => null);
       if (!historyRecord) {
-        return json({ error: "History record not found" }, 404, req);
+        return json({ error: "History record not found" }, 404);
       }
 
       if (historyRecord.is_undone) {
-        return json({ error: "Already undone" }, 400, req);
+        return json({ error: "Already undone" }, 400);
       }
 
       if (historyRecord.action_type === "delete" && historyRecord.old_doc) {
@@ -102,10 +104,10 @@ app.http("adminUndo", {
       historyRecord.undone_by = body.actor || null;
       await undoContainer.items.upsert(historyRecord);
 
-      return json({ ok: true, message: "Action undone" }, 200, req);
+      return json({ ok: true, message: "Action undone" }, 200);
     } catch (e) {
       context.log("Error in admin-undo:", e?.message || e);
-      return json({ error: e?.message || "Internal error" }, 500, req);
+      return json({ error: e?.message || "Internal error" }, 500);
     }
   },
 });
