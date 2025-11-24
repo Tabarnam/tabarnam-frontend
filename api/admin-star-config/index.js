@@ -3,19 +3,18 @@ const { CosmosClient } = require("@azure/cosmos");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
-const cors = (req) => {
-  const origin = req.headers.get("origin") || "*";
+function getCorsHeaders() {
   return {
-    "Access-Control-Allow-Origin": origin,
-    Vary: "Origin",
+    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Content-Type": "application/json",
   };
-};
+}
 
-const json = (obj, status = 200, req) => ({
+const json = (obj, status = 200) => ({
   status,
-  headers: { ...cors(req), "Content-Type": "application/json" },
+  headers: getCorsHeaders(),
   body: JSON.stringify(obj),
 });
 
@@ -53,21 +52,24 @@ app.http("adminStarConfig", {
     const method = String(req.method || "").toUpperCase();
 
     if (method === "OPTIONS") {
-      return { status: 204, headers: cors(req) };
+      return {
+        status: 204,
+        headers: getCorsHeaders(),
+      };
     }
 
     const container = getConfigContainer();
     if (!container) {
-      return json({ error: "Cosmos DB not configured" }, 500, req);
+      return json({ error: "Cosmos DB not configured" }, 500);
     }
 
     try {
       if (method === "GET") {
         try {
           const { resource } = await container.item("default", "default").read();
-          return json({ config: resource }, 200, req);
+          return json({ config: resource }, 200);
         } catch (e) {
-          return json({ config: DEFAULT_CONFIG }, 200, req);
+          return json({ config: DEFAULT_CONFIG }, 200);
         }
       }
 
@@ -76,12 +78,12 @@ app.http("adminStarConfig", {
         try {
           body = await req.json();
         } catch {
-          return json({ error: "Invalid JSON" }, 400, req);
+          return json({ error: "Invalid JSON" }, 400);
         }
 
         const incoming = body.config || body;
         if (!incoming) {
-          return json({ error: "config required" }, 400, req);
+          return json({ error: "config required" }, 400);
         }
 
         const config = {
@@ -95,13 +97,13 @@ app.http("adminStarConfig", {
         };
 
         await container.items.upsert(config);
-        return json({ ok: true, config }, 200, req);
+        return json({ ok: true, config }, 200);
       }
 
-      return json({ error: "Method not allowed" }, 405, req);
+      return json({ error: "Method not allowed" }, 405);
     } catch (e) {
       context.log("Error in admin-star-config:", e?.message || e);
-      return json({ error: e?.message || "Internal error" }, 500, req);
+      return json({ error: e?.message || "Internal error" }, 500);
     }
   },
 });
