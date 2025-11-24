@@ -96,7 +96,7 @@ app.http("adminCompanies", {
       if (method === "POST" || method === "PUT") {
         let body = {};
         try {
-          body = await req.json();
+          body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
         } catch {
           return {
             status: 400,
@@ -141,7 +141,7 @@ app.http("adminCompanies", {
       if (method === "DELETE") {
         let body = {};
         try {
-          body = await req.json();
+          body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
         } catch {
           return {
             status: 400,
