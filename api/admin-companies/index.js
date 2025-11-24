@@ -1,3 +1,4 @@
+// Admin companies API endpoint - v4 modern runtime with app.http()
 const { app } = require("@azure/functions");
 
 let CosmosClientCtor = null;
