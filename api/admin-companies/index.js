@@ -59,9 +59,8 @@ app.http("adminCompanies", {
 
     try {
       if (method === "GET") {
-        const url = new URL(req.url);
-        const search = (url.searchParams.get("search") || "").toLowerCase().trim();
-        const take = Math.min(500, Math.max(1, parseInt(url.searchParams.get("take") || "200")));
+        const search = (req.query?.search || "").toString().toLowerCase().trim();
+        const take = Math.min(500, Math.max(1, parseInt((req.query?.take || "200").toString())));
 
         const parameters = [{ name: "@take", value: take }];
         let whereClause = "";
@@ -96,7 +95,7 @@ app.http("adminCompanies", {
       if (method === "POST" || method === "PUT") {
         let body = {};
         try {
-          body = await req.json();
+          body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
         } catch {
           return {
             status: 400,
@@ -141,7 +140,7 @@ app.http("adminCompanies", {
       if (method === "DELETE") {
         let body = {};
         try {
-          body = await req.json();
+          body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
         } catch {
           return {
             status: 400,
