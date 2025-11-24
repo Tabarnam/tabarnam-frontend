@@ -126,6 +126,15 @@ try {
 }
 
 try {
+  console.log("[api] Registering: test-echo");
+  require("./test-echo/index.js");
+  console.log("[api] ✓ test-echo registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load test-echo:", e?.message || e);
+  console.error(e);
+}
+
+try {
   console.log("[api] Registering: admin-companies");
   require("./admin-companies/index.js");
   console.log("[api] ✓ admin-companies registered");
