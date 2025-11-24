@@ -52,11 +52,14 @@ function getCompaniesContainer() {
   }
 }
 
+console.log("[admin-companies] About to register app.http handler...");
+
 app.http("adminCompanies", {
   route: "admin-companies",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
+    console.log("[admin-companies-handler] Request received:", { method: req.method, url: req.url });
     context.log("admin-companies function invoked");
 
     const method = (req.method || "").toUpperCase();
