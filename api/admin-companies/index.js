@@ -1,5 +1,7 @@
 // Admin companies API endpoint - v4 modern runtime with app.http()
+console.log("[admin-companies] Starting module load...");
 const { app } = require("@azure/functions");
+console.log("[admin-companies] @azure/functions imported, app object created");
 
 let CosmosClientCtor = null;
 function loadCosmosCtor() {
@@ -50,11 +52,14 @@ function getCompaniesContainer() {
   }
 }
 
+console.log("[admin-companies] About to register app.http handler...");
+
 app.http("adminCompanies", {
   route: "admin-companies",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
+    console.log("[admin-companies-handler] Request received:", { method: req.method, url: req.url });
     context.log("admin-companies function invoked");
 
     const method = (req.method || "").toUpperCase();
@@ -160,3 +165,5 @@ app.http("adminCompanies", {
     }
   },
 });
+
+console.log("[admin-companies] ✅ Handler registered successfully with app.http");
