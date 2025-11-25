@@ -108,10 +108,10 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
 
   const onSubmit = async (values) => {
     try {
+      const companyId = company?.id || company?.company_id;
+
       const payload = {
         ...(company || {}),
-        id: company?.id || undefined,
-        company_id: company?.company_id || company?.id || undefined,
         company_name: values.company_name?.trim() || '',
         name: values.company_name?.trim() || company?.name || '',
         logo_url: values.logo_url?.trim() || '',
@@ -155,7 +155,13 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
           .filter((entry) => entry.note),
       };
 
-      const method = company && (company.id || company.company_id) ? 'PUT' : 'POST';
+      // Ensure ID fields are present if updating
+      if (companyId) {
+        payload.id = companyId;
+        payload.company_id = companyId;
+      }
+
+      const method = companyId ? 'PUT' : 'POST';
       const res = await apiFetch('/companies-list', {
         method,
         headers: { 'Content-Type': 'application/json' },
