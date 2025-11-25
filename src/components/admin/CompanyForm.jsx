@@ -171,14 +171,14 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
       const requestBody = { company: payload, actor: adminUser?.email };
       console.log('[CompanyForm] Submitting request:', {
         method,
-        endpoint: '/companies-list',
+        endpoint: '/admin-companies',
         id: payload.id,
         company_id: payload.company_id,
         companyName: payload.company_name,
         bodySize: JSON.stringify(requestBody).length
       });
 
-      const res = await apiFetch('/companies-list', {
+      const res = await apiFetch('/admin-companies', {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
