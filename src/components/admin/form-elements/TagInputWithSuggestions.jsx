@@ -149,46 +149,46 @@ const TagInputWithSuggestions = ({
           {label}
         </label>
       )}
-      <div className="relative">
-        <div className={cn(
-          "border-2 rounded-md p-2 min-h-10 cursor-text bg-white transition-colors",
-          hasSpellingIssue ? "border-amber-400" : "border-slate-400 hover:border-slate-600"
-        )}>
-          <div className="flex flex-wrap gap-2">
-            {tags.map((tag, idx) => (
-              <div
-                key={idx}
-                className="bg-[#B1DDE3] text-slate-900 text-sm px-3 py-1 rounded-full flex items-center gap-2 font-medium"
-              >
-                <span>{tag}</span>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveTag(idx)}
-                  className="text-slate-700 hover:text-slate-900 focus:outline-none"
-                  aria-label={`Remove ${tag}`}
+      <Popover open={isOpen} onOpenChange={setIsOpen}>
+        <div className="relative">
+          <div className={cn(
+            "border-2 rounded-md p-2 min-h-10 cursor-text bg-white transition-colors",
+            hasSpellingIssue ? "border-amber-400" : "border-slate-400 hover:border-slate-600"
+          )}>
+            <div className="flex flex-wrap gap-2">
+              {tags.map((tag, idx) => (
+                <div
+                  key={idx}
+                  className="bg-[#B1DDE3] text-slate-900 text-sm px-3 py-1 rounded-full flex items-center gap-2 font-medium"
                 >
-                  <X size={14} />
-                </button>
-              </div>
-            ))}
+                  <span>{tag}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveTag(idx)}
+                    className="text-slate-700 hover:text-slate-900 focus:outline-none"
+                    aria-label={`Remove ${tag}`}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-        <div className="border-2 border-dashed border-slate-300 rounded-md px-3 py-2 min-h-9 bg-slate-50 focus-within:border-blue-500 focus-within:bg-blue-50 transition-colors mt-2">
-          <Input
-            ref={inputRef}
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onFocus={() => setIsOpen(true)}
-            onBlur={() => setTimeout(() => setIsOpen(false), 200)}
-            placeholder={placeholder}
-            spellCheck="true"
-            className="border-0 shadow-none p-0 h-auto text-sm placeholder:text-slate-500 focus:ring-0 w-full bg-transparent"
-          />
-        </div>
+          <PopoverTrigger asChild>
+            <div className="border-2 border-dashed border-slate-300 rounded-md px-3 py-2 min-h-9 bg-slate-50 focus-within:border-blue-500 focus-within:bg-blue-50 transition-colors mt-2">
+              <Input
+                ref={inputRef}
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={placeholder}
+                spellCheck="true"
+                className="border-0 shadow-none p-0 h-auto text-sm placeholder:text-slate-500 focus:ring-0 w-full bg-transparent"
+              />
+            </div>
+          </PopoverTrigger>
 
-        <Popover open={isOpen} onOpenChange={setIsOpen}>
           <PopoverContent align="start" className="p-3 w-full max-w-sm" onMouseDown={(e) => e.preventDefault()}>
             {isLoading ? (
               <div className="text-sm text-slate-600 p-2 text-center">Loading...</div>
@@ -267,8 +267,8 @@ const TagInputWithSuggestions = ({
               </div>
             )}
           </PopoverContent>
-        </Popover>
-      </div>
+        </div>
+      </Popover>
       {maxTags && tags.length < maxTags && (
         <p className="text-xs text-slate-500">
           {maxTags - tags.length} slot{maxTags - tags.length !== 1 ? 's' : ''} remaining
