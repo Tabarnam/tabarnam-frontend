@@ -23,7 +23,7 @@ const AdminPanel = () => {
   const fetchCompanies = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch('admin-companies');
+      const res = await apiFetch('companies-list');
       if (!res.ok) throw new Error('Failed to load companies');
       const data = await res.json();
       setCompanies(data.items || []);
