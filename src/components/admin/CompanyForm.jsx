@@ -43,6 +43,30 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
   const { toast } = useToast();
   const adminUser = getAdminUser();
   const [iconStates, setIconStates] = React.useState({});
+  const [keywordsSuggestions, setKeywordsSuggestions] = React.useState([]);
+  const [industriesSuggestions, setIndustriesSuggestions] = React.useState([]);
+  const [loadingKeywords, setLoadingKeywords] = React.useState(false);
+
+  // Fetch keywords and industries suggestions
+  React.useEffect(() => {
+    const fetchSuggestions = async () => {
+      setLoadingKeywords(true);
+      try {
+        const res = await apiFetch('admin-keywords');
+        if (res.ok) {
+          const data = await res.json();
+          const keywords = data.keywords || [];
+          setKeywordsSuggestions(keywords);
+          setIndustriesSuggestions(keywords);
+        }
+      } catch (error) {
+        console.warn('Failed to load keywords:', error);
+      } finally {
+        setLoadingKeywords(false);
+      }
+    };
+    fetchSuggestions();
+  }, []);
 
   const {
     register,
