@@ -351,44 +351,39 @@ export default function XAIBulkImportPage() {
         )}
       </div>
 
-      {/* Main content wrapper with modal positioned to the right */}
-      <div className="flex gap-4">
-        {/* Left side: Live stream */}
-        <div className="flex-1">
-          {sessionId ? (
-            <>
-              <BulkImportStream
-                sessionId={sessionId}
-                targetResults={maxImports}
-                take={400}
-                pollingMs={1500}
-                onStats={(s) => { setSavedSoFar(s.saved || 0); setLastRowTs(s.lastCreatedAt || ""); }}
-                onSuccess={handleImportSuccess}
-                onFailure={handleImportFailure}
-              />
-              {savedSoFar > 0 && (
-                <div className="mt-4 p-3 border rounded bg-emerald-50 text-emerald-800 text-sm">
-                  ✅ Import is working! {savedSoFar} {savedSoFar === 1 ? 'company' : 'companies'} saved so far. 
-                  If you don't see all results, the progress endpoint may be slow — check the database directly.
-                </div>
-              )}
-            </>
-          ) : (
-            <p className="text-sm text-gray-500">Start an import or click "Resume last stream".</p>
+      {/* Live stream and search result modal */}
+      {sessionId ? (
+        <>
+          <BulkImportStream
+            sessionId={sessionId}
+            targetResults={maxImports}
+            take={400}
+            pollingMs={1500}
+            onStats={(s) => { setSavedSoFar(s.saved || 0); setLastRowTs(s.lastCreatedAt || ""); }}
+            onSuccess={handleImportSuccess}
+            onFailure={handleImportFailure}
+          />
+          {savedSoFar > 0 && (
+            <div className="mt-4 p-3 border rounded bg-emerald-50 text-emerald-800 text-sm">
+              ✅ Import is working! {savedSoFar} {savedSoFar === 1 ? 'company' : 'companies'} saved so far.
+              If you don't see all results, the progress endpoint may be slow — check the database directly.
+            </div>
           )}
-        </div>
+        </>
+      ) : (
+        <p className="text-sm text-gray-500">Start an import or click "Resume last stream".</p>
+      )}
 
-        {/* Right side: Modal (positioned fixed) */}
-        <SearchResultModal
-          isOpen={modalOpen}
-          status={modalStatus}
-          targetResults={maxImports}
-          foundResults={foundResults}
-          onSearchMore={handleSearchMore}
-          onRedefine={handleRedefine}
-          onClose={handleCloseModal}
-        />
-      </div>
+      {/* Search Result Modal */}
+      <SearchResultModal
+        isOpen={modalOpen}
+        status={modalStatus}
+        targetResults={maxImports}
+        foundResults={foundResults}
+        onSearchMore={handleSearchMore}
+        onRedefine={handleRedefine}
+        onClose={handleCloseModal}
+      />
 
       {/* Recent imports section */}
       <RecentImportsPanel key={recentImportsKey} take={25} />
