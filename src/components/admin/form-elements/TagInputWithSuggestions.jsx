@@ -149,47 +149,50 @@ const TagInputWithSuggestions = ({
           {label}
         </label>
       )}
-      <Popover open={isOpen} onOpenChange={setIsOpen}>
-        <div className="relative">
-          <div className={cn(
-            "border-2 rounded-md p-2 min-h-10 cursor-text bg-white transition-colors",
-            hasSpellingIssue ? "border-amber-400" : "border-slate-400 hover:border-slate-600"
-          )}>
-            <div className="flex flex-wrap gap-2">
-              {tags.map((tag, idx) => (
-                <div
-                  key={idx}
-                  className="bg-[#B1DDE3] text-slate-900 text-sm px-3 py-1 rounded-full flex items-center gap-2 font-medium"
+      <div className="relative">
+        <div className={cn(
+          "border-2 rounded-md p-2 min-h-10 cursor-text bg-white transition-colors",
+          hasSpellingIssue ? "border-amber-400" : "border-slate-400 hover:border-slate-600"
+        )}>
+          <div className="flex flex-wrap gap-2">
+            {tags.map((tag, idx) => (
+              <div
+                key={idx}
+                className="bg-[#B1DDE3] text-slate-900 text-sm px-3 py-1 rounded-full flex items-center gap-2 font-medium"
+              >
+                <span>{tag}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveTag(idx)}
+                  className="text-slate-700 hover:text-slate-900 focus:outline-none"
+                  aria-label={`Remove ${tag}`}
                 >
-                  <span>{tag}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveTag(idx)}
-                    className="text-slate-700 hover:text-slate-900 focus:outline-none"
-                    aria-label={`Remove ${tag}`}
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
           </div>
-          <PopoverTrigger asChild>
-            <div className="border-2 border-dashed border-slate-300 rounded-md px-3 py-2 min-h-9 bg-slate-50 focus-within:border-blue-500 focus-within:bg-blue-50 transition-colors mt-2">
-              <Input
-                ref={inputRef}
-                type="text"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder={placeholder}
-                spellCheck="true"
-                className="border-0 shadow-none p-0 h-auto text-sm placeholder:text-slate-500 focus:ring-0 w-full bg-transparent"
-              />
-            </div>
-          </PopoverTrigger>
+        </div>
+        <div className="border-2 border-dashed border-slate-300 rounded-md px-3 py-2 min-h-9 bg-slate-50 focus-within:border-blue-500 focus-within:bg-blue-50 transition-colors mt-2">
+          <Input
+            ref={inputRef}
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={() => setIsOpen(true)}
+            onBlur={() => setTimeout(() => setIsOpen(false), 150)}
+            placeholder={placeholder}
+            spellCheck="true"
+            className="border-0 shadow-none p-0 h-auto text-sm placeholder:text-slate-500 focus:ring-0 w-full bg-transparent"
+          />
+        </div>
 
-          <PopoverContent align="start" className="p-3 w-full max-w-sm" onMouseDown={(e) => e.preventDefault()}>
+        {isOpen && (
+          <div
+            className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-md shadow-lg p-3 w-full max-w-sm z-50"
+            onMouseDown={(e) => e.preventDefault()}
+          >
             {isLoading ? (
               <div className="text-sm text-slate-600 p-2 text-center">Loading...</div>
             ) : (
@@ -208,6 +211,7 @@ const TagInputWithSuggestions = ({
                           onMouseDown={(e) => {
                             e.preventDefault();
                             handleAddTag(suggestion);
+                            inputRef.current?.focus();
                           }}
                           className="w-full text-left px-3 py-2 rounded hover:bg-blue-50 text-sm text-slate-800 transition-colors font-medium"
                         >
@@ -232,6 +236,7 @@ const TagInputWithSuggestions = ({
                           onMouseDown={(e) => {
                             e.preventDefault();
                             handleAddTag(correction);
+                            inputRef.current?.focus();
                           }}
                           className="w-full text-left px-3 py-2 rounded hover:bg-amber-50 text-sm text-slate-800 transition-colors"
                         >
@@ -250,6 +255,7 @@ const TagInputWithSuggestions = ({
                       onMouseDown={(e) => {
                         e.preventDefault();
                         handleAddTag(inputValue);
+                        inputRef.current?.focus();
                       }}
                       className="w-full text-left px-3 py-2 rounded hover:bg-slate-100 text-sm text-slate-800 transition-colors"
                     >
@@ -266,9 +272,9 @@ const TagInputWithSuggestions = ({
                 )}
               </div>
             )}
-          </PopoverContent>
-        </div>
-      </Popover>
+          </div>
+        )}
+      </div>
       {maxTags && tags.length < maxTags && (
         <p className="text-xs text-slate-500">
           {maxTags - tags.length} slot{maxTags - tags.length !== 1 ? 's' : ''} remaining
