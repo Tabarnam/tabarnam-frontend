@@ -163,11 +163,20 @@ app.http("companiesList", {
           return json({ error: "id required" }, 400);
         }
 
+        const partitionKeyValue = String(id).trim();
+        if (!partitionKeyValue) {
+          return json({ error: "Invalid company ID" }, 400);
+        }
+
+        context.log(`[companies-list] Deleting company:`, { id: partitionKeyValue });
+
         try {
-          await container.item(id).delete();
+          await container.item(partitionKeyValue, partitionKeyValue).delete();
+          context.log(`[companies-list] Delete success:`, { id: partitionKeyValue });
           return json({ ok: true }, 200);
         } catch (e) {
-          return json({ error: "Company not found" }, 404);
+          context.log("[companies-list] Delete error:", { id: partitionKeyValue, error: e?.message });
+          return json({ error: "Company not found", detail: e?.message }, 404);
         }
       }
 
