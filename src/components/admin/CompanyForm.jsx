@@ -168,25 +168,49 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
       const method = companyId ? 'PUT' : 'POST';
       console.log('[CompanyForm] Submitting:', { method, id: payload.id, companyName: payload.company_name });
 
+      const requestBody = { company: payload, actor: adminUser?.email };
+      console.log('[CompanyForm] Submitting request:', {
+        method,
+        endpoint: '/companies-list',
+        id: payload.id,
+        company_id: payload.company_id,
+        companyName: payload.company_name,
+        bodySize: JSON.stringify(requestBody).length
+      });
+
       const res = await apiFetch('/companies-list', {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ company: payload, actor: adminUser?.email }),
+        body: JSON.stringify(requestBody),
       });
 
       const data = await res.json().catch(() => null);
-      console.log('[CompanyForm] Response:', { status: res.status, ok: res.ok, data });
+      console.log('[CompanyForm] Response:', {
+        status: res.status,
+        ok: res.ok,
+        hasCompany: !!data?.company,
+        hasError: !!data?.error,
+        data
+      });
 
       if (!res.ok || data?.error) {
-        throw new Error(data?.error || data?.detail || `Failed to save company (${res.status})`);
+        const errorMsg = data?.error || data?.detail || `Failed to save company (${res.status})`;
+        console.error('[CompanyForm] Error response:', errorMsg);
+        throw new Error(errorMsg);
       }
 
       if (!data?.ok && !data?.company) {
-        throw new Error('Server response missing confirmation data');
+        const errorMsg = 'Server response missing confirmation data';
+        console.error('[CompanyForm] Invalid response:', data);
+        throw new Error(errorMsg);
       }
 
+      console.log('[CompanyForm] Save successful:', { id: data?.company?.id, name: data?.company?.company_name });
       toast({ title: 'Company saved', description: 'Changes have been applied.' });
-      if (onSuccess) onSuccess();
+      if (onSuccess) {
+        console.log('[CompanyForm] Calling onSuccess callback');
+        onSuccess();
+      }
       onClose();
     } catch (error) {
       console.error('[CompanyForm] Error:', error);
