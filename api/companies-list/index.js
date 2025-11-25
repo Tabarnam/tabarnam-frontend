@@ -122,21 +122,30 @@ app.http("companiesList", {
           id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
         }
 
+        // Ensure id is a string for partition key
+        const partitionKeyValue = String(id).trim();
+        if (!partitionKeyValue) {
+          return json({ error: "Unable to determine company ID" }, 400);
+        }
+
         const now = new Date().toISOString();
         const doc = {
           ...incoming,
-          id,
+          id: partitionKeyValue,
           company_name: incoming.company_name || incoming.name || "",
           name: incoming.name || incoming.company_name || "",
           updated_at: now,
           created_at: incoming.created_at || now,
         };
 
+        context.log(`[companies-list] Upserting company:`, { id: partitionKeyValue, method, hasId: !!doc.id });
+
         try {
-          await container.items.upsert(doc, { partitionKey: id });
+          const result = await container.items.upsert(doc, { partitionKey: partitionKeyValue });
+          context.log(`[companies-list] Upsert success:`, { id: partitionKeyValue, statusCode: result.statusCode });
           return json({ ok: true, company: doc }, 200);
         } catch (e) {
-          context.log("[companies-list] Upsert error:", e?.message);
+          context.log("[companies-list] Upsert error:", { id: partitionKeyValue, error: e?.message, code: e?.code });
           return json({ error: "Failed to save company", detail: e?.message }, 500);
         }
       }
