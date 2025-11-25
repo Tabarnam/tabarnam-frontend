@@ -161,7 +161,13 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
         payload.company_id = companyId;
       }
 
+      if (!payload.id && !payload.company_name) {
+        throw new Error('Company name is required');
+      }
+
       const method = companyId ? 'PUT' : 'POST';
+      console.log('[CompanyForm] Submitting:', { method, id: payload.id, companyName: payload.company_name });
+
       const res = await apiFetch('/companies-list', {
         method,
         headers: { 'Content-Type': 'application/json' },
@@ -169,14 +175,21 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
       });
 
       const data = await res.json().catch(() => null);
+      console.log('[CompanyForm] Response:', { status: res.status, ok: res.ok, data });
+
       if (!res.ok || data?.error) {
-        throw new Error(data?.error || 'Failed to save company');
+        throw new Error(data?.error || data?.detail || `Failed to save company (${res.status})`);
+      }
+
+      if (!data?.ok && !data?.company) {
+        throw new Error('Server response missing confirmation data');
       }
 
       toast({ title: 'Company saved', description: 'Changes have been applied.' });
       if (onSuccess) onSuccess();
       onClose();
     } catch (error) {
+      console.error('[CompanyForm] Error:', error);
       toast({ variant: 'destructive', title: 'Error', description: error?.message || 'Failed to save company' });
     }
   };
