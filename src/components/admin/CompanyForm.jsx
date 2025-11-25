@@ -186,13 +186,13 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent aria-label={company ? 'Edit company' : 'Add company'} className="max-w-3xl">
+      <DialogContent aria-label={company ? 'Edit company' : 'Add company'} className="max-w-[80vw] h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold">
             {company ? 'Edit Company' : 'Add Company'}
           </DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6" aria-describedby="company-form-description">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 overflow-y-auto flex-1 pr-4" aria-describedby="company-form-description">
           <div id="company-form-description" className="sr-only">
             Use this form to edit company details, affiliate links, and per-star notes.
           </div>
