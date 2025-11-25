@@ -132,20 +132,21 @@ app.http("companiesList", {
         const doc = {
           ...incoming,
           id: partitionKeyValue,
+          company_id: partitionKeyValue,
           company_name: incoming.company_name || incoming.name || "",
           name: incoming.name || incoming.company_name || "",
           updated_at: now,
           created_at: incoming.created_at || now,
         };
 
-        context.log(`[companies-list] Upserting company:`, { id: partitionKeyValue, method, hasId: !!doc.id });
+        context.log(`[companies-list] Upserting company:`, { id: partitionKeyValue, method, nameCheck: doc.company_name });
 
         try {
-          const result = await container.items.upsert(doc, { partitionKey: partitionKeyValue });
-          context.log(`[companies-list] Upsert success:`, { id: partitionKeyValue, statusCode: result.statusCode });
+          const result = await container.items.upsert(doc);
+          context.log(`[companies-list] Upsert success:`, { id: partitionKeyValue, statusCode: result.statusCode, resourceId: result.resource?.id });
           return json({ ok: true, company: doc }, 200);
         } catch (e) {
-          context.log("[companies-list] Upsert error:", { id: partitionKeyValue, error: e?.message, code: e?.code });
+          context.log("[companies-list] Upsert error:", { id: partitionKeyValue, error: e?.message, code: e?.code, stack: e?.stack });
           return json({ error: "Failed to save company", detail: e?.message }, 500);
         }
       }
