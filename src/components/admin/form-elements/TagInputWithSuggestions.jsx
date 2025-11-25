@@ -150,119 +150,123 @@ const TagInputWithSuggestions = ({
         </label>
       )}
       <div className="relative">
+        <div className={cn(
+          "border-2 rounded-md p-2 min-h-10 cursor-text bg-white transition-colors",
+          hasSpellingIssue ? "border-amber-400" : "border-slate-400 hover:border-slate-600"
+        )}>
+          <div className="flex flex-wrap gap-2">
+            {tags.map((tag, idx) => (
+              <div
+                key={idx}
+                className="bg-[#B1DDE3] text-slate-900 text-sm px-3 py-1 rounded-full flex items-center gap-2 font-medium"
+              >
+                <span>{tag}</span>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveTag(idx)}
+                  className="text-slate-700 hover:text-slate-900 focus:outline-none"
+                  aria-label={`Remove ${tag}`}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="border-2 border-dashed border-slate-300 rounded-md px-3 py-2 min-h-9 bg-slate-50 focus-within:border-blue-500 focus-within:bg-blue-50 transition-colors mt-2">
+          <Input
+            ref={inputRef}
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={() => setIsOpen(true)}
+            onBlur={() => setTimeout(() => setIsOpen(false), 200)}
+            placeholder={placeholder}
+            spellCheck="true"
+            className="border-0 shadow-none p-0 h-auto text-sm placeholder:text-slate-500 focus:ring-0 w-full bg-transparent"
+          />
+        </div>
+
         <Popover open={isOpen} onOpenChange={setIsOpen}>
-          <PopoverTrigger asChild>
-            <div className="space-y-2">
-              <div className={cn(
-                "border-2 rounded-md p-2 min-h-10 cursor-text bg-white transition-colors",
-                hasSpellingIssue ? "border-amber-400" : "border-slate-400 hover:border-slate-600"
-              )}>
-                <div className="flex flex-wrap gap-2">
-                  {tags.map((tag, idx) => (
-                    <div
-                      key={idx}
-                      className="bg-[#B1DDE3] text-slate-900 text-sm px-3 py-1 rounded-full flex items-center gap-2 font-medium"
+          <PopoverContent align="start" className="p-3 w-full max-w-sm" onMouseDown={(e) => e.preventDefault()}>
+            {isLoading ? (
+              <div className="text-sm text-slate-600 p-2 text-center">Loading...</div>
+            ) : (
+              <div className="space-y-3">
+                {/* Exact match suggestions */}
+                {filteredSuggestions.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">
+                      <CheckCircle size={12} className="inline mr-1" />
+                      Suggestions
+                    </p>
+                    <div className="space-y-1">
+                      {filteredSuggestions.map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            handleAddTag(suggestion);
+                          }}
+                          className="w-full text-left px-3 py-2 rounded hover:bg-blue-50 text-sm text-slate-800 transition-colors font-medium"
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Spelling corrections */}
+                {spellingCorrections.length > 0 && (
+                  <div className="border-t border-slate-200 pt-3">
+                    <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-2">
+                      <AlertCircle size={12} className="inline mr-1" />
+                      Did you mean?
+                    </p>
+                    <div className="space-y-1">
+                      {spellingCorrections.map((correction) => (
+                        <button
+                          key={correction}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            handleAddTag(correction);
+                          }}
+                          className="w-full text-left px-3 py-2 rounded hover:bg-amber-50 text-sm text-slate-800 transition-colors"
+                        >
+                          {correction}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Add custom tag */}
+                {allowCustom && inputValue.trim() && filteredSuggestions.length === 0 && (
+                  <div className={spellingCorrections.length > 0 ? "border-t border-slate-200 pt-3" : ""}>
+                    <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Custom</p>
+                    <button
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleAddTag(inputValue);
+                      }}
+                      className="w-full text-left px-3 py-2 rounded hover:bg-slate-100 text-sm text-slate-800 transition-colors"
                     >
-                      <span>{tag}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveTag(idx)}
-                        className="text-slate-700 hover:text-slate-900 focus:outline-none"
-                        aria-label={`Remove ${tag}`}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                      Add "{inputValue.trim()}"
+                    </button>
+                  </div>
+                )}
+
+                {/* Empty state */}
+                {filteredSuggestions.length === 0 && spellingCorrections.length === 0 && (!allowCustom || !inputValue.trim()) && (
+                  <div className="text-sm text-slate-600 p-2 text-center">
+                    {inputValue ? "No matches found" : "Start typing..."}
+                  </div>
+                )}
               </div>
-              <div className="border-2 border-dashed border-slate-300 rounded-md px-3 py-2 min-h-9 bg-slate-50 focus-within:border-blue-500 focus-within:bg-blue-50 transition-colors">
-                <Input
-                  ref={inputRef}
-                  type="text"
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  onFocus={() => setIsOpen(true)}
-                  placeholder={placeholder}
-                  spellCheck="true"
-                  className="border-0 shadow-none p-0 h-auto text-sm placeholder:text-slate-500 focus:ring-0 w-full bg-transparent"
-                />
-              </div>
-            </div>
-          </PopoverTrigger>
-
-          {isOpen && (
-            <PopoverContent align="start" className="p-3 w-full max-w-sm">
-              {isLoading ? (
-                <div className="text-sm text-slate-600 p-2 text-center">Loading...</div>
-              ) : (
-                <div className="space-y-3">
-                  {/* Exact match suggestions */}
-                  {filteredSuggestions.length > 0 && (
-                    <div>
-                      <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">
-                        <CheckCircle size={12} className="inline mr-1" />
-                        Suggestions
-                      </p>
-                      <div className="space-y-1">
-                        {filteredSuggestions.map((suggestion) => (
-                          <button
-                            key={suggestion}
-                            onClick={() => handleAddTag(suggestion)}
-                            className="w-full text-left px-3 py-2 rounded hover:bg-blue-50 text-sm text-slate-800 transition-colors font-medium"
-                          >
-                            {suggestion}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Spelling corrections */}
-                  {spellingCorrections.length > 0 && (
-                    <div className="border-t border-slate-200 pt-3">
-                      <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-2">
-                        <AlertCircle size={12} className="inline mr-1" />
-                        Did you mean?
-                      </p>
-                      <div className="space-y-1">
-                        {spellingCorrections.map((correction) => (
-                          <button
-                            key={correction}
-                            onClick={() => handleAddTag(correction)}
-                            className="w-full text-left px-3 py-2 rounded hover:bg-amber-50 text-sm text-slate-800 transition-colors"
-                          >
-                            {correction}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Add custom tag */}
-                  {allowCustom && inputValue.trim() && filteredSuggestions.length === 0 && (
-                    <div className={spellingCorrections.length > 0 ? "border-t border-slate-200 pt-3" : ""}>
-                      <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Custom</p>
-                      <button
-                        onClick={() => handleAddTag(inputValue)}
-                        className="w-full text-left px-3 py-2 rounded hover:bg-slate-100 text-sm text-slate-800 transition-colors"
-                      >
-                        Add "{inputValue.trim()}"
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Empty state */}
-                  {filteredSuggestions.length === 0 && spellingCorrections.length === 0 && (!allowCustom || !inputValue.trim()) && (
-                    <div className="text-sm text-slate-600 p-2 text-center">
-                      {inputValue ? "No matches found" : "Start typing..."}
-                    </div>
-                  )}
-                </div>
-              )}
-            </PopoverContent>
-          )}
+            )}
+          </PopoverContent>
         </Popover>
       </div>
       {maxTags && tags.length < maxTags && (
