@@ -255,6 +255,31 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
             <Input id="notes" {...register('notes')} />
           </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <TagInputWithSuggestions
+                label="Product Keywords"
+                tags={watch('product_keywords') || []}
+                onTagsChange={(newTags) => setValue('product_keywords', newTags)}
+                suggestions={keywordsSuggestions}
+                isLoading={loadingKeywords}
+                placeholder="Add product keywords..."
+                allowCustom={true}
+              />
+            </div>
+            <div>
+              <TagInputWithSuggestions
+                label="Industries"
+                tags={watch('industries') || []}
+                onTagsChange={(newTags) => setValue('industries', newTags)}
+                suggestions={industriesSuggestions}
+                isLoading={loadingKeywords}
+                placeholder="Add industries..."
+                allowCustom={true}
+              />
+            </div>
+          </div>
+
           <section aria-label="Affiliate links" className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-slate-900">Affiliate Links</h3>
