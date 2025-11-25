@@ -115,7 +115,7 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
       };
 
       const method = company && company.id ? 'PUT' : 'POST';
-      const res = await apiFetch('/admin-companies', {
+      const res = await apiFetch('/companies-list', {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ company: payload, actor: adminUser?.email }),
