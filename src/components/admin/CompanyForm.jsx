@@ -6,10 +6,17 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { apiFetch } from '@/lib/api';
 import { getAdminUser } from '@/lib/azureAuth';
+import TagInputWithSuggestions from './form-elements/TagInputWithSuggestions';
 
 const getInitialValues = (company) => {
   const affiliateLinks = Array.isArray(company?.affiliate_links) ? company.affiliate_links : [];
   const starExplanation = Array.isArray(company?.star_explanation) ? company.star_explanation : [];
+  const keywords = Array.isArray(company?.product_keywords)
+    ? company.product_keywords
+    : (typeof company?.product_keywords === 'string' && company.product_keywords.trim()
+        ? company.product_keywords.split(',').map((k) => k.trim()).filter(Boolean)
+        : []);
+  const industries = Array.isArray(company?.industries) ? company.industries : [];
 
   return {
     company_name: company?.company_name || company?.name || '',
@@ -21,6 +28,8 @@ const getInitialValues = (company) => {
     contact_email: company?.contact_email || '',
     contact_page_url: company?.contact_page_url || '',
     star_rating: company?.star_rating ?? 0,
+    product_keywords: keywords,
+    industries: industries,
     affiliate_links: affiliateLinks.length
       ? affiliateLinks
       : [],
@@ -34,6 +43,30 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
   const { toast } = useToast();
   const adminUser = getAdminUser();
   const [iconStates, setIconStates] = React.useState({});
+  const [keywordsSuggestions, setKeywordsSuggestions] = React.useState([]);
+  const [industriesSuggestions, setIndustriesSuggestions] = React.useState([]);
+  const [loadingKeywords, setLoadingKeywords] = React.useState(false);
+
+  // Fetch keywords and industries suggestions
+  React.useEffect(() => {
+    const fetchSuggestions = async () => {
+      setLoadingKeywords(true);
+      try {
+        const res = await apiFetch('admin-keywords');
+        if (res.ok) {
+          const data = await res.json();
+          const keywords = data.keywords || [];
+          setKeywordsSuggestions(keywords);
+          setIndustriesSuggestions(keywords);
+        }
+      } catch (error) {
+        console.warn('Failed to load keywords:', error);
+      } finally {
+        setLoadingKeywords(false);
+      }
+    };
+    fetchSuggestions();
+  }, []);
 
   const {
     register,
@@ -91,6 +124,12 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
           values.star_rating === '' || values.star_rating === null || values.star_rating === undefined
             ? 0
             : Number(values.star_rating),
+        product_keywords: Array.isArray(values.product_keywords)
+          ? values.product_keywords.map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean)
+          : [],
+        industries: Array.isArray(values.industries)
+          ? values.industries.map((i) => (typeof i === 'string' ? i.trim() : '')).filter(Boolean)
+          : [],
         affiliate_links: (values.affiliate_links || [])
           .slice(0, 5)
           .map((link) => ({
@@ -214,6 +253,31 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
               Internal Notes
             </label>
             <Input id="notes" {...register('notes')} />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <TagInputWithSuggestions
+                label="Product Keywords"
+                tags={watch('product_keywords') || []}
+                onTagsChange={(newTags) => setValue('product_keywords', newTags)}
+                suggestions={keywordsSuggestions}
+                isLoading={loadingKeywords}
+                placeholder="Add product keywords..."
+                allowCustom={true}
+              />
+            </div>
+            <div>
+              <TagInputWithSuggestions
+                label="Industries"
+                tags={watch('industries') || []}
+                onTagsChange={(newTags) => setValue('industries', newTags)}
+                suggestions={industriesSuggestions}
+                isLoading={loadingKeywords}
+                placeholder="Add industries..."
+                allowCustom={true}
+              />
+            </div>
           </div>
 
           <section aria-label="Affiliate links" className="space-y-3">
@@ -387,7 +451,7 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
             </div>
           </section>
 
-          <DialogFooter className="flex flex-col sm:flex-row sm:justify-end gap-3 pt-4">
+          <DialogFooter className="flex flex-col sm:flex-row sm:justify-end gap-3 pt-4 border-t border-slate-200 -mx-6 -mb-6 px-6 py-4">
             <Button
               type="submit"
               disabled={isSubmitting}
