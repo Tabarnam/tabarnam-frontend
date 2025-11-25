@@ -144,6 +144,15 @@ try {
 }
 
 try {
+  console.log("[api] Registering: admin-companies-v2 (diagnostic test)");
+  require("./admin-companies-v2/index.js");
+  console.log("[api] ✓ admin-companies-v2 registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-companies-v2:", e?.message || e);
+  console.error(e);
+}
+
+try {
   console.log("[api] Registering: admin-star-config");
   require("./admin-star-config/index.js");
   console.log("[api] ✓ admin-star-config registered");
