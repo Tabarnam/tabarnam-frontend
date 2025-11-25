@@ -121,7 +121,7 @@ const TagInputWithSuggestions = ({
           </PopoverTrigger>
 
           {isOpen && (
-            <PopoverContent align="start" className="w-full p-2">
+            <PopoverContent align="start" className="p-2">
               {isLoading ? (
                 <div className="text-sm text-slate-600 p-2 text-center">Loading...</div>
               ) : filteredSuggestions.length > 0 ? (
