@@ -108,8 +108,8 @@ app.http("adminCompanies", {
         let body = {};
         try {
           body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
-        } catch {
-          return json({ error: "Invalid JSON" }, 400);
+        } catch (e) {
+          return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
 
         const incoming = body.company || body;
@@ -132,9 +132,13 @@ app.http("adminCompanies", {
           created_at: incoming.created_at || now,
         };
 
-        await container.items.upsert(doc, { partitionKey: id });
-
-        return json({ ok: true, company: doc }, 200);
+        try {
+          await container.items.upsert(doc, { partitionKey: id });
+          return json({ ok: true, company: doc }, 200);
+        } catch (e) {
+          context.log("[admin-companies] Upsert error:", e?.message);
+          return json({ error: "Failed to save company", detail: e?.message }, 500);
+        }
       }
 
       if (method === "DELETE") {
