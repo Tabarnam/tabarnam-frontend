@@ -132,7 +132,7 @@ app.http("adminCompanies", {
           created_at: incoming.created_at || now,
         };
 
-        await container.items.upsert(doc);
+        await container.items.upsert(doc, { partitionKey: id });
 
         return json({ ok: true, company: doc }, 200);
       }
