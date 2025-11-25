@@ -74,16 +74,34 @@ app.http("adminKeywords", {
         }
 
         const keywords = Array.isArray(body.keywords) ? body.keywords : [];
+        const docId = "industries";
         const doc = {
-          id: "industries",
+          id: docId,
           type: "industry",
           list: keywords.filter(k => typeof k === "string" && k.trim()).map(k => k.trim()),
           updated_at: new Date().toISOString(),
           actor: body.actor || null,
         };
 
-        await container.items.upsert(doc);
-        return json({ ok: true, keywords: doc.list }, 200);
+        try {
+          context.log("[admin-keywords] Upserting keywords document", { id: docId });
+          let result;
+          try {
+            // Try with partition key first
+            result = await container.items.upsert(doc, { partitionKey: docId });
+          } catch (upsertError) {
+            // If that fails, try without explicit partition key
+            context.log("[admin-keywords] First upsert attempt failed, retrying without partition key", {
+              error: upsertError?.message
+            });
+            result = await container.items.upsert(doc);
+          }
+          context.log("[admin-keywords] Upsert successful", { id: docId, statusCode: result.statusCode });
+          return json({ ok: true, keywords: doc.list }, 200);
+        } catch (e) {
+          context.log("[admin-keywords] Upsert failed", { error: e?.message, code: e?.code });
+          return json({ error: "Failed to save keywords", detail: e?.message }, 500);
+        }
       }
 
       return json({ error: "Method not allowed" }, 405);
