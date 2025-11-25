@@ -110,6 +110,8 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
     try {
       const payload = {
         ...(company || {}),
+        id: company?.id || undefined,
+        company_id: company?.company_id || company?.id || undefined,
         company_name: values.company_name?.trim() || '',
         name: values.company_name?.trim() || company?.name || '',
         logo_url: values.logo_url?.trim() || '',
@@ -153,7 +155,7 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
           .filter((entry) => entry.note),
       };
 
-      const method = company && company.id ? 'PUT' : 'POST';
+      const method = company && (company.id || company.company_id) ? 'PUT' : 'POST';
       const res = await apiFetch('/companies-list', {
         method,
         headers: { 'Content-Type': 'application/json' },
