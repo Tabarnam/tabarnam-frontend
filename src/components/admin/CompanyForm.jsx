@@ -11,6 +11,12 @@ import TagInputWithSuggestions from './form-elements/TagInputWithSuggestions';
 const getInitialValues = (company) => {
   const affiliateLinks = Array.isArray(company?.affiliate_links) ? company.affiliate_links : [];
   const starExplanation = Array.isArray(company?.star_explanation) ? company.star_explanation : [];
+  const keywords = Array.isArray(company?.product_keywords)
+    ? company.product_keywords
+    : (typeof company?.product_keywords === 'string' && company.product_keywords.trim()
+        ? company.product_keywords.split(',').map((k) => k.trim()).filter(Boolean)
+        : []);
+  const industries = Array.isArray(company?.industries) ? company.industries : [];
 
   return {
     company_name: company?.company_name || company?.name || '',
@@ -22,6 +28,8 @@ const getInitialValues = (company) => {
     contact_email: company?.contact_email || '',
     contact_page_url: company?.contact_page_url || '',
     star_rating: company?.star_rating ?? 0,
+    product_keywords: keywords,
+    industries: industries,
     affiliate_links: affiliateLinks.length
       ? affiliateLinks
       : [],
