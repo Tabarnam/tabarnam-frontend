@@ -124,6 +124,12 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
           values.star_rating === '' || values.star_rating === null || values.star_rating === undefined
             ? 0
             : Number(values.star_rating),
+        product_keywords: Array.isArray(values.product_keywords)
+          ? values.product_keywords.map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean)
+          : [],
+        industries: Array.isArray(values.industries)
+          ? values.industries.map((i) => (typeof i === 'string' ? i.trim() : '')).filter(Boolean)
+          : [],
         affiliate_links: (values.affiliate_links || [])
           .slice(0, 5)
           .map((link) => ({
