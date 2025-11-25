@@ -303,14 +303,22 @@ export default function XAIBulkImportPage() {
 
       {/* Live stream */}
       {sessionId ? (
-        <BulkImportStream
-          sessionId={sessionId}
-          take={400}
-          pollingMs={1500}
-          onStats={(s) => { setSavedSoFar(s.saved || 0); setLastRowTs(s.lastCreatedAt || ""); }}
-        />
+        <>
+          <BulkImportStream
+            sessionId={sessionId}
+            take={400}
+            pollingMs={1500}
+            onStats={(s) => { setSavedSoFar(s.saved || 0); setLastRowTs(s.lastCreatedAt || ""); }}
+          />
+          {savedSoFar > 0 && (
+            <div className="mt-4 p-3 border rounded bg-emerald-50 text-emerald-800 text-sm">
+              ✅ Import is working! {savedSoFar} {savedSoFar === 1 ? 'company' : 'companies'} saved so far. 
+              If you don't see all results, the progress endpoint may be slow — check the database directly.
+            </div>
+          )}
+        </>
       ) : (
-        <p className="text-sm text-gray-500">Start an import or click “Resume last stream”.</p>
+        <p className="text-sm text-gray-500">Start an import or click "Resume last stream".</p>
       )}
     </div>
   );
