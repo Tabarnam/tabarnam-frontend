@@ -142,13 +142,31 @@ app.http("companiesList", {
         context.log(`[companies-list] Upserting company:`, { id: partitionKeyValue, method, nameCheck: doc.company_name });
 
         try {
-          // For Cosmos DB upsert, pass the partition key value explicitly
-          // The SDK uses this to route to the correct partition
+          // For Cosmos DB upsert with partition key /id, pass the id value
+          // The SDK requires this to route to the correct partition
+          context.log(`[companies-list] About to upsert document`, {
+            id: partitionKeyValue,
+            hasId: !!doc.id,
+            hasCompanyId: !!doc.company_id,
+            hasCompanyName: !!doc.company_name
+          });
+
           const result = await container.items.upsert(doc, { partitionKey: partitionKeyValue });
-          context.log(`[companies-list] Upsert success:`, { id: partitionKeyValue, statusCode: result.statusCode, resourceId: result.resource?.id });
+
+          context.log(`[companies-list] Upsert success`, {
+            id: partitionKeyValue,
+            statusCode: result.statusCode,
+            resourceId: result.resource?.id,
+            resourceUpdated: result.resource?.updated_at
+          });
           return json({ ok: true, company: doc }, 200);
         } catch (e) {
-          context.log("[companies-list] Upsert error:", { id: partitionKeyValue, error: e?.message, code: e?.code, stack: e?.stack });
+          context.log("[companies-list] Upsert error", {
+            id: partitionKeyValue,
+            message: e?.message,
+            code: e?.code,
+            status: e?.statusCode
+          });
           return json({ error: "Failed to save company", detail: e?.message }, 500);
         }
       }
