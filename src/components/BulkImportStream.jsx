@@ -8,12 +8,23 @@ export default function BulkImportStream({ sessionId, take = 200, pollingMs = 15
   const [stopped, setStopped] = useState(false);
   const [err, setErr] = useState("");
   const timerRef = useRef(null);
+  const failureCountRef = useRef(0);
+  const MAX_CONSECUTIVE_FAILURES = 10;
+  const FAILURE_TIMEOUT_MS = pollingMs * MAX_CONSECUTIVE_FAILURES;
 
   async function tick() {
     if (!sessionId) return;
     try {
       const url = `${API_BASE}/import/progress?session_id=${encodeURIComponent(sessionId)}&take=${encodeURIComponent(take)}`;
-      const r = await fetch(url, { method: "GET" });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const r = await fetch(url, {
+        method: "GET",
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error || r.statusText);
       setItems(j.items || []);
@@ -21,15 +32,34 @@ export default function BulkImportStream({ sessionId, take = 200, pollingMs = 15
       setStopped(!!j.stopped);
       onStats({ saved: j.saved || 0, lastCreatedAt: j.lastCreatedAt || "" });
       setErr("");
+      failureCountRef.current = 0;
     } catch (e) {
-      setErr(e?.message || "fetch failed");
+      failureCountRef.current += 1;
+      const errorMsg = e?.message || "fetch failed";
+
+      // If we've had too many failures (likely endpoint not available), show a message but stop retrying
+      if (failureCountRef.current >= MAX_CONSECUTIVE_FAILURES) {
+        setErr(`⚠️ Progress endpoint unreachable after ${MAX_CONSECUTIVE_FAILURES} attempts. Import may have succeeded. Check database or use "Resume last stream" to retry.`);
+        return;
+      }
+
+      // Show temporary error on initial failures
+      if (failureCountRef.current <= 3) {
+        setErr(`⏳ Connecting… (attempt ${failureCountRef.current}/${MAX_CONSECUTIVE_FAILURES}) — ${errorMsg}`);
+      } else {
+        setErr(`⏳ Still connecting (${failureCountRef.current}/${MAX_CONSECUTIVE_FAILURES})…`);
+      }
     } finally {
-      timerRef.current = setTimeout(tick, pollingMs);
+      // Stop retrying if we've hit the max failure count
+      if (failureCountRef.current < MAX_CONSECUTIVE_FAILURES && !stopped) {
+        timerRef.current = setTimeout(tick, pollingMs);
+      }
     }
   }
 
   useEffect(() => {
     clearTimeout(timerRef.current);
+    failureCountRef.current = 0;
     if (sessionId) tick();
     return () => clearTimeout(timerRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
