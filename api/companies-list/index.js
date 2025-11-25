@@ -142,30 +142,38 @@ app.http("companiesList", {
         context.log(`[companies-list] Upserting company:`, { id: partitionKeyValue, method, nameCheck: doc.company_name });
 
         try {
-          // For Cosmos DB upsert with partition key /id, pass the id value
-          // The SDK requires this to route to the correct partition
-          context.log(`[companies-list] About to upsert document`, {
+          // Cosmos DB upsert with explicit partition key
+          // The partition key value must match the document's partition key field
+          context.log(`[companies-list] Upserting document`, {
             id: partitionKeyValue,
-            hasId: !!doc.id,
-            hasCompanyId: !!doc.company_id,
-            hasCompanyName: !!doc.company_name
+            company_name: doc.company_name,
+            method: method
           });
 
-          const result = await container.items.upsert(doc, { partitionKey: partitionKeyValue });
+          // Try with the id as partition key (most common case)
+          let result;
+          try {
+            result = await container.items.upsert(doc, { partitionKey: partitionKeyValue });
+          } catch (upsertError) {
+            // If that fails, try without explicit partition key
+            context.log(`[companies-list] First upsert attempt failed, retrying without partition key option`, {
+              error: upsertError?.message
+            });
+            result = await container.items.upsert(doc);
+          }
 
-          context.log(`[companies-list] Upsert success`, {
+          context.log(`[companies-list] Upsert completed successfully`, {
             id: partitionKeyValue,
             statusCode: result.statusCode,
-            resourceId: result.resource?.id,
-            resourceUpdated: result.resource?.updated_at
+            resourceId: result.resource?.id
           });
           return json({ ok: true, company: doc }, 200);
         } catch (e) {
-          context.log("[companies-list] Upsert error", {
+          context.log("[companies-list] Upsert failed completely", {
             id: partitionKeyValue,
             message: e?.message,
             code: e?.code,
-            status: e?.statusCode
+            statusCode: e?.statusCode
           });
           return json({ error: "Failed to save company", detail: e?.message }, 500);
         }
