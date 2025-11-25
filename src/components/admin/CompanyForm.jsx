@@ -451,19 +451,20 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
             </div>
           </section>
 
-          <DialogFooter className="flex flex-col sm:flex-row sm:justify-end gap-3 pt-4">
-            <Button
-              type="submit"
-              disabled={isSubmitting}
-              className="bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]"
-            >
-              {isSubmitting ? 'Saving…' : 'Save'}
-            </Button>
-            <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
-              Cancel
-            </Button>
-          </DialogFooter>
         </form>
+        <DialogFooter className="flex flex-col sm:flex-row sm:justify-end gap-3 pt-4 border-t border-slate-200">
+          <Button
+            type="submit"
+            disabled={isSubmitting}
+            className="bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]"
+            onClick={handleSubmit(onSubmit)}
+          >
+            {isSubmitting ? 'Saving…' : 'Save'}
+          </Button>
+          <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
