@@ -152,27 +152,31 @@ const TagInputWithSuggestions = ({
       <div className="relative">
         <Popover open={isOpen} onOpenChange={setIsOpen}>
           <PopoverTrigger asChild>
-            <div className={cn(
-              "border-2 rounded-md p-2 min-h-10 cursor-text bg-white transition-colors",
-              hasSpellingIssue ? "border-amber-400" : "border-slate-400 hover:border-slate-600"
-            )}>
-              <div className="flex flex-wrap gap-2">
-                {tags.map((tag, idx) => (
-                  <div
-                    key={idx}
-                    className="bg-[#B1DDE3] text-slate-900 text-sm px-3 py-1 rounded-full flex items-center gap-2 font-medium"
-                  >
-                    <span>{tag}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveTag(idx)}
-                      className="text-slate-700 hover:text-slate-900 focus:outline-none"
-                      aria-label={`Remove ${tag}`}
+            <div className="space-y-2">
+              <div className={cn(
+                "border-2 rounded-md p-2 min-h-10 cursor-text bg-white transition-colors",
+                hasSpellingIssue ? "border-amber-400" : "border-slate-400 hover:border-slate-600"
+              )}>
+                <div className="flex flex-wrap gap-2">
+                  {tags.map((tag, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-[#B1DDE3] text-slate-900 text-sm px-3 py-1 rounded-full flex items-center gap-2 font-medium"
                     >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
+                      <span>{tag}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTag(idx)}
+                        className="text-slate-700 hover:text-slate-900 focus:outline-none"
+                        aria-label={`Remove ${tag}`}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="border-2 border-dashed border-slate-300 rounded-md px-3 py-2 min-h-9 bg-slate-50 focus-within:border-blue-500 focus-within:bg-blue-50 transition-colors">
                 <Input
                   ref={inputRef}
                   type="text"
@@ -180,9 +184,9 @@ const TagInputWithSuggestions = ({
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyDown}
                   onFocus={() => setIsOpen(true)}
-                  placeholder={tags.length === 0 ? placeholder : ''}
+                  placeholder={placeholder}
                   spellCheck="true"
-                  className="border-0 shadow-none p-0 h-auto text-sm placeholder:text-slate-400 focus:ring-0 flex-1"
+                  className="border-0 shadow-none p-0 h-auto text-sm placeholder:text-slate-500 focus:ring-0 w-full bg-transparent"
                 />
               </div>
             </div>
