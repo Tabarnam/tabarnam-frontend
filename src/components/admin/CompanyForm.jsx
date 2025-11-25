@@ -192,7 +192,7 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
             {company ? 'Edit Company' : 'Add Company'}
           </DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 overflow-y-auto flex-1 pr-4" aria-describedby="company-form-description">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 flex-1 overflow-y-auto pr-4" aria-describedby="company-form-description">
           <div id="company-form-description" className="sr-only">
             Use this form to edit company details, affiliate links, and per-star notes.
           </div>
