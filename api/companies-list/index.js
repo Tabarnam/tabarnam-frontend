@@ -142,7 +142,9 @@ app.http("companiesList", {
         context.log(`[companies-list] Upserting company:`, { id: partitionKeyValue, method, nameCheck: doc.company_name });
 
         try {
-          const result = await container.items.upsert(doc);
+          // For Cosmos DB upsert, pass the partition key value explicitly
+          // The SDK uses this to route to the correct partition
+          const result = await container.items.upsert(doc, { partitionKey: partitionKeyValue });
           context.log(`[companies-list] Upsert success:`, { id: partitionKeyValue, statusCode: result.statusCode, resourceId: result.resource?.id });
           return json({ ok: true, company: doc }, 200);
         } catch (e) {
