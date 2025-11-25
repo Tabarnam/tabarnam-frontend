@@ -132,20 +132,27 @@ app.http("adminCompanies", {
         const doc = {
           ...incoming,
           id: partitionKeyValue,
+          company_id: partitionKeyValue,
           company_name: incoming.company_name || incoming.name || "",
           name: incoming.name || incoming.company_name || "",
           updated_at: now,
           created_at: incoming.created_at || now,
         };
 
-        context.log(`[admin-companies] Upserting company:`, { id: partitionKeyValue, method, hasId: !!doc.id });
+        context.log(`[admin-companies] Upserting company`, { id: partitionKeyValue, method, company_name: doc.company_name });
 
         try {
-          const result = await container.items.upsert(doc, { partitionKey: partitionKeyValue });
-          context.log(`[admin-companies] Upsert success:`, { id: partitionKeyValue, statusCode: result.statusCode });
+          let result;
+          try {
+            result = await container.items.upsert(doc, { partitionKey: partitionKeyValue });
+          } catch (upsertError) {
+            context.log(`[admin-companies] First upsert attempt failed, retrying without partition key`, { error: upsertError?.message });
+            result = await container.items.upsert(doc);
+          }
+          context.log(`[admin-companies] Upsert completed successfully`, { id: partitionKeyValue, statusCode: result.statusCode, resourceId: result.resource?.id });
           return json({ ok: true, company: doc }, 200);
         } catch (e) {
-          context.log("[admin-companies] Upsert error:", { id: partitionKeyValue, error: e?.message, code: e?.code });
+          context.log("[admin-companies] Upsert failed completely", { id: partitionKeyValue, message: e?.message, code: e?.code, statusCode: e?.statusCode });
           return json({ error: "Failed to save company", detail: e?.message }, 500);
         }
       }
