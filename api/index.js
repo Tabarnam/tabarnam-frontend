@@ -238,6 +238,14 @@ try {
   console.error("[api] ❌ Failed to load admin-bulk-import-config:", e?.message || e);
 }
 
+try {
+  console.log("[api] Registering: admin-save-diagnostic");
+  require("./admin-save-diagnostic/index.js");
+  console.log("[api] ✓ admin-save-diagnostic registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-save-diagnostic:", e?.message || e);
+}
+
 console.log("[api/index.js] ✅ All handler registration complete!");
 
 module.exports = app;
