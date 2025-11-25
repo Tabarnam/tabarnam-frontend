@@ -1,6 +1,7 @@
-// src/pages/XAIBulkImportPage.jsx
 import React, { useEffect, useState } from "react";
 import BulkImportStream from "@/components/BulkImportStream";
+import SearchResultModal from "@/components/SearchResultModal";
+import RecentImportsPanel from "@/components/RecentImportsPanel";
 import { API_BASE } from "@/lib/api";
 
 export default function XAIBulkImportPage() {
@@ -25,6 +26,12 @@ export default function XAIBulkImportPage() {
 
   const [savedSoFar, setSavedSoFar] = useState(0);
   const [lastRowTs, setLastRowTs] = useState("");
+
+  // Modal state
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalStatus, setModalStatus] = useState("success"); // "success" or "failure"
+  const [foundResults, setFoundResults] = useState(0);
+  const [recentImportsKey, setRecentImportsKey] = useState(0); // Force refresh
 
   useEffect(() => {
     const prev = localStorage.getItem("last_session_id") || "";
@@ -84,14 +91,12 @@ export default function XAIBulkImportPage() {
     return j;
   }
 
-  // No server geocoding for now (external app does not expose it yet)
   function resolveCenter(currentCenter) {
     const latNum = Number(currentCenter?.lat);
     const lngNum = Number(currentCenter?.lng);
     if (Number.isFinite(latNum) && Number.isFinite(lngNum)) {
       return { lat: latNum, lng: lngNum };
     }
-    // If lat/lng blank, ignore postal/city/state/country here (placeholder for future)
     return undefined;
   }
 
@@ -103,7 +108,9 @@ export default function XAIBulkImportPage() {
     setSessionId(sid);
     localStorage.setItem("last_session_id", sid);
     setLastSessionId(sid);
-    setSavedSoFar(0); setLastRowTs("");
+    setSavedSoFar(0); 
+    setLastRowTs("");
+    setModalOpen(false);
     setStatus("Starting import… (rows will stream in below)");
 
     try {
@@ -133,8 +140,43 @@ export default function XAIBulkImportPage() {
   const handleResume = () => {
     if (!lastSessionId) return;
     setSessionId(lastSessionId);
-    setSavedSoFar(0); setLastRowTs("");
+    setSavedSoFar(0);
+    setLastRowTs("");
+    setModalOpen(false);
     setStatus("Resumed previous stream.");
+  };
+
+  const handleImportSuccess = (data) => {
+    console.log("Import succeeded:", data);
+    setFoundResults(data.found || 0);
+    setModalStatus("success");
+    setModalOpen(true);
+    setRecentImportsKey(k => k + 1); // Refresh recent imports
+  };
+
+  const handleImportFailure = (data) => {
+    console.log("Import failed:", data);
+    setFoundResults(data.saved || 0);
+    setModalStatus("failure");
+    setModalOpen(true);
+    setRecentImportsKey(k => k + 1); // Refresh recent imports
+  };
+
+  const handleSearchMore = () => {
+    setModalOpen(false);
+    setSessionId("");
+    setStatus("");
+    // Keep search parameters, just clear the session
+  };
+
+  const handleRedefine = () => {
+    setModalOpen(false);
+    // User can now modify the search parameters
+    // Could highlight the search controls here if desired
+  };
+
+  const handleCloseModal = () => {
+    setModalOpen(false);
   };
 
   const handleQuickImportSave = async () => {
@@ -148,7 +190,6 @@ export default function XAIBulkImportPage() {
     });
     try {
       setSaving(true); setStatus("Saving…");
-      // NOTE: This will 404 until your external app exposes /save-companies.
       const r = await fetch(`${API_BASE}/save-companies`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companies }) });
       const j = await r.json().catch(() => ({}));
       if (r.ok) setStatus(`💾 Saved ${j.saved} companies${j.failed ? `, ${j.failed} failed` : ""}.`);
@@ -159,11 +200,20 @@ export default function XAIBulkImportPage() {
   };
 
   const handleClear = () => {
-    setSessionId(""); setStatus(""); setSearchValue("");
-    setMaxImports(10); setLastMeta(null); setManualList("");
-    setSavedSoFar(0); setLastRowTs("");
+    setSessionId(""); 
+    setStatus(""); 
+    setSearchValue("");
+    setMaxImports(10); 
+    setLastMeta(null); 
+    setManualList("");
+    setSavedSoFar(0); 
+    setLastRowTs("");
     setCenter({ lat: "", lng: "" });
-    setPostal(""); setCity(""); setStateR(""); setCountry("");
+    setPostal(""); 
+    setCity(""); 
+    setStateR(""); 
+    setCountry("");
+    setModalOpen(false);
   };
 
   return (
@@ -301,25 +351,47 @@ export default function XAIBulkImportPage() {
         )}
       </div>
 
-      {/* Live stream */}
-      {sessionId ? (
-        <>
-          <BulkImportStream
-            sessionId={sessionId}
-            take={400}
-            pollingMs={1500}
-            onStats={(s) => { setSavedSoFar(s.saved || 0); setLastRowTs(s.lastCreatedAt || ""); }}
-          />
-          {savedSoFar > 0 && (
-            <div className="mt-4 p-3 border rounded bg-emerald-50 text-emerald-800 text-sm">
-              ✅ Import is working! {savedSoFar} {savedSoFar === 1 ? 'company' : 'companies'} saved so far. 
-              If you don't see all results, the progress endpoint may be slow — check the database directly.
-            </div>
+      {/* Main content wrapper with modal positioned to the right */}
+      <div className="flex gap-4">
+        {/* Left side: Live stream */}
+        <div className="flex-1">
+          {sessionId ? (
+            <>
+              <BulkImportStream
+                sessionId={sessionId}
+                targetResults={maxImports}
+                take={400}
+                pollingMs={1500}
+                onStats={(s) => { setSavedSoFar(s.saved || 0); setLastRowTs(s.lastCreatedAt || ""); }}
+                onSuccess={handleImportSuccess}
+                onFailure={handleImportFailure}
+              />
+              {savedSoFar > 0 && (
+                <div className="mt-4 p-3 border rounded bg-emerald-50 text-emerald-800 text-sm">
+                  ✅ Import is working! {savedSoFar} {savedSoFar === 1 ? 'company' : 'companies'} saved so far. 
+                  If you don't see all results, the progress endpoint may be slow — check the database directly.
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-gray-500">Start an import or click "Resume last stream".</p>
           )}
-        </>
-      ) : (
-        <p className="text-sm text-gray-500">Start an import or click "Resume last stream".</p>
-      )}
+        </div>
+
+        {/* Right side: Modal (positioned fixed) */}
+        <SearchResultModal
+          isOpen={modalOpen}
+          status={modalStatus}
+          targetResults={maxImports}
+          foundResults={foundResults}
+          onSearchMore={handleSearchMore}
+          onRedefine={handleRedefine}
+          onClose={handleCloseModal}
+        />
+      </div>
+
+      {/* Recent imports section */}
+      <RecentImportsPanel key={recentImportsKey} take={25} />
     </div>
   );
 }
