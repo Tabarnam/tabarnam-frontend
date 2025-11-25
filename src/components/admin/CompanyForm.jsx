@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { apiFetch } from '@/lib/api';
 import { getAdminUser } from '@/lib/azureAuth';
+import TagInputWithSuggestions from './form-elements/TagInputWithSuggestions';
 
 const getInitialValues = (company) => {
   const affiliateLinks = Array.isArray(company?.affiliate_links) ? company.affiliate_links : [];
