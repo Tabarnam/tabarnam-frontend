@@ -92,7 +92,7 @@ try {
 
 try {
   console.log("[api] Registering: import-start");
-  require("./import-start/index.js");
+  require("./importStart/index.js");
 } catch (e) {
   console.error("[api] Failed to load import-start:", e?.message || e);
 }
@@ -200,7 +200,7 @@ try {
 
 try {
   console.log("[api] Registering: admin-keywords");
-  require("./admin-keywords/index.js");
+  require("./adminKeywords/index.js");
   console.log("[api] ✓ admin-keywords registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-keywords:", e?.message || e);
@@ -208,7 +208,7 @@ try {
 
 try {
   console.log("[api] Registering: admin-companies");
-  require("./admin-companies/index.js");
+  require("./adminCompanies/index.js");
   console.log("[api] ✓ admin-companies registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-companies:", e?.message || e);
@@ -225,7 +225,7 @@ try {
 try {
   console.log("[api] Registering: admin-analytics");
   require("./admin-analytics/index.js");
-  console.log("[api] ✓ admin-analytics registered");
+  console.log("[api] �� admin-analytics registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-analytics:", e?.message || e);
 }
