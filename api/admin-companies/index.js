@@ -1,5 +1,7 @@
+console.log('[admin-companies] Module loading started');
 const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
+console.log('[admin-companies] Dependencies imported, app object acquired');
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -226,9 +228,11 @@ async function adminCompaniesHandler(request, context) {
   }
 }
 
+console.log('[admin-companies] Registering with app.http...');
 app.http('admin-companies', {
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   authLevel: 'anonymous',
   route: 'admin-companies',
   handler: adminCompaniesHandler,
 });
+console.log('[admin-companies] ✅ Successfully registered with app.http');
