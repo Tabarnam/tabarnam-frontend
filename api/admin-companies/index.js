@@ -1,3 +1,4 @@
+const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
 
 function env(k, d = "") {
@@ -32,33 +33,31 @@ function getCompaniesContainer() {
   return client.database(database).container(container);
 }
 
-module.exports = async function (context, req) {
+async function adminCompaniesHandler(request, context) {
   context.log("admin-companies function invoked");
-  
-  const method = (req.method || "").toUpperCase();
+
+  const method = (request.method || "").toUpperCase();
 
   if (method === "OPTIONS") {
-    context.res = {
+    return {
       status: 204,
       headers: getCorsHeaders(),
     };
-    return;
   }
 
   const container = getCompaniesContainer();
   if (!container) {
-    context.res = {
+    return {
       status: 503,
       headers: getCorsHeaders(),
       body: JSON.stringify({ error: "Cosmos DB not configured" }),
     };
-    return;
   }
 
   try {
     if (method === "GET") {
-      const search = (req.query?.search || "").toString().toLowerCase().trim();
-      const take = Math.min(500, Math.max(1, parseInt((req.query?.take || "200").toString())));
+      const search = (request.query?.search || "").toString().toLowerCase().trim();
+      const take = Math.min(500, Math.max(1, parseInt((request.query?.take || "200").toString())));
 
       const parameters = [{ name: "@take", value: take }];
       let whereClause = "";
@@ -83,35 +82,32 @@ module.exports = async function (context, req) {
         .fetchAll();
 
       const items = resources || [];
-      context.res = {
+      return {
         status: 200,
         headers: getCorsHeaders(),
         body: JSON.stringify({ items, count: items.length }),
       };
-      return;
     }
 
     if (method === "POST" || method === "PUT") {
       let body = {};
       try {
-        body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+        body = typeof request.body === "string" ? JSON.parse(request.body) : (request.body || {});
       } catch (e) {
-        context.res = {
+        return {
           status: 400,
           headers: getCorsHeaders(),
           body: JSON.stringify({ error: "Invalid JSON", detail: e?.message }),
         };
-        return;
       }
 
       const incoming = body.company || body;
       if (!incoming) {
-        context.res = {
+        return {
           status: 400,
           headers: getCorsHeaders(),
           body: JSON.stringify({ error: "company payload required" }),
         };
-        return;
       }
 
       let id = incoming.id || incoming.company_id || incoming.company_name;
@@ -121,12 +117,11 @@ module.exports = async function (context, req) {
 
       const partitionKeyValue = String(id).trim();
       if (!partitionKeyValue) {
-        context.res = {
+        return {
           status: 400,
           headers: getCorsHeaders(),
           body: JSON.stringify({ error: "Unable to determine company ID" }),
         };
-        return;
       }
 
       const now = new Date().toISOString();
@@ -151,54 +146,49 @@ module.exports = async function (context, req) {
           result = await container.items.upsert(doc);
         }
         context.log(`[admin-companies] Upsert completed successfully`, { id: partitionKeyValue, statusCode: result.statusCode });
-        context.res = {
+        return {
           status: 200,
           headers: getCorsHeaders(),
           body: JSON.stringify({ ok: true, company: doc }),
         };
-        return;
       } catch (e) {
         context.log("[admin-companies] Upsert failed completely", { id: partitionKeyValue, message: e?.message });
-        context.res = {
+        return {
           status: 500,
           headers: getCorsHeaders(),
           body: JSON.stringify({ error: "Failed to save company", detail: e?.message }),
         };
-        return;
       }
     }
 
     if (method === "DELETE") {
       let body = {};
       try {
-        body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+        body = typeof request.body === "string" ? JSON.parse(request.body) : (request.body || {});
       } catch {
-        context.res = {
+        return {
           status: 400,
           headers: getCorsHeaders(),
           body: JSON.stringify({ error: "Invalid JSON" }),
         };
-        return;
       }
 
       const id = body.id || body.company_id;
       if (!id) {
-        context.res = {
+        return {
           status: 400,
           headers: getCorsHeaders(),
           body: JSON.stringify({ error: "id required" }),
         };
-        return;
       }
 
       const partitionKeyValue = String(id).trim();
       if (!partitionKeyValue) {
-        context.res = {
+        return {
           status: 400,
           headers: getCorsHeaders(),
           body: JSON.stringify({ error: "Invalid company ID" }),
         };
-        return;
       }
 
       context.log(`[admin-companies] Deleting company:`, { id: partitionKeyValue });
@@ -206,34 +196,39 @@ module.exports = async function (context, req) {
       try {
         await container.item(partitionKeyValue, partitionKeyValue).delete();
         context.log(`[admin-companies] Delete success:`, { id: partitionKeyValue });
-        context.res = {
+        return {
           status: 200,
           headers: getCorsHeaders(),
           body: JSON.stringify({ ok: true }),
         };
-        return;
       } catch (e) {
         context.log("[admin-companies] Delete error:", { id: partitionKeyValue, error: e?.message });
-        context.res = {
+        return {
           status: 404,
           headers: getCorsHeaders(),
           body: JSON.stringify({ error: "Company not found", detail: e?.message }),
         };
-        return;
       }
     }
 
-    context.res = {
+    return {
       status: 405,
       headers: getCorsHeaders(),
       body: JSON.stringify({ error: "Method not allowed" }),
     };
   } catch (e) {
     context.log("[admin-companies] Error:", e?.message || e);
-    context.res = {
+    return {
       status: 500,
       headers: getCorsHeaders(),
       body: JSON.stringify({ error: e?.message || "Internal error" }),
     };
   }
-};
+}
+
+app.http('admin-companies', {
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'admin-companies',
+  handler: adminCompaniesHandler,
+});
