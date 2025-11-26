@@ -1,3 +1,4 @@
+const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
 
 function env(k, d = "") {
@@ -32,60 +33,55 @@ function getKeywordsContainer() {
   return client.database(databaseId).container(containerId);
 }
 
-module.exports = async function (context, req) {
+async function adminKeywordsHandler(request, context) {
   context.log("admin-keywords function invoked");
-  
-  const method = String(req.method || "").toUpperCase();
+
+  const method = String(request.method || "").toUpperCase();
 
   if (method === "OPTIONS") {
-    context.res = {
+    return {
       status: 204,
       headers: getCorsHeaders(),
     };
-    return;
   }
 
   const container = getKeywordsContainer();
   if (!container) {
-    context.res = {
+    return {
       status: 500,
       headers: getCorsHeaders(),
       body: JSON.stringify({ error: "Cosmos DB not configured" }),
     };
-    return;
   }
 
   try {
     if (method === "GET") {
       try {
         const { resource } = await container.item("industries", "industries").read();
-        context.res = {
+        return {
           status: 200,
           headers: getCorsHeaders(),
           body: JSON.stringify({ keywords: resource.list || [] }),
         };
-        return;
       } catch (e) {
-        context.res = {
+        return {
           status: 200,
           headers: getCorsHeaders(),
           body: JSON.stringify({ keywords: [] }),
         };
-        return;
       }
     }
 
     if (method === "PUT") {
       let body = {};
       try {
-        body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+        body = typeof request.body === "string" ? JSON.parse(request.body) : (request.body || {});
       } catch {
-        context.res = {
+        return {
           status: 400,
           headers: getCorsHeaders(),
           body: JSON.stringify({ error: "Invalid JSON" }),
         };
-        return;
       }
 
       const keywords = Array.isArray(body.keywords) ? body.keywords : [];
@@ -108,34 +104,39 @@ module.exports = async function (context, req) {
           result = await container.items.upsert(doc);
         }
         context.log("[admin-keywords] Upsert successful", { id: docId });
-        context.res = {
+        return {
           status: 200,
           headers: getCorsHeaders(),
           body: JSON.stringify({ ok: true, keywords: doc.list }),
         };
-        return;
       } catch (e) {
         context.log("[admin-keywords] Upsert failed", { error: e?.message });
-        context.res = {
+        return {
           status: 500,
           headers: getCorsHeaders(),
           body: JSON.stringify({ error: "Failed to save keywords", detail: e?.message }),
         };
-        return;
       }
     }
 
-    context.res = {
+    return {
       status: 405,
       headers: getCorsHeaders(),
       body: JSON.stringify({ error: "Method not allowed" }),
     };
   } catch (e) {
     context.log("Error in admin-keywords:", e?.message || e);
-    context.res = {
+    return {
       status: 500,
       headers: getCorsHeaders(),
       body: JSON.stringify({ error: e?.message || "Internal error" }),
     };
   }
-};
+}
+
+app.http('admin-keywords', {
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  authLevel: 'anonymous',
+  route: 'admin-keywords',
+  handler: adminKeywordsHandler,
+});
