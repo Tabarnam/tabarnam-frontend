@@ -46,7 +46,7 @@ export async function apiFetch(path: string, init?: RequestInit) {
   try {
     const response = await fetch(url, init);
     if (!response.ok) {
-      console.warn(`API ${url} returned ${response.status}:`, response.statusText);
+      console.error(`API ${url} returned ${response.status}:`, response.statusText);
     }
     return response;
   } catch (e) {
