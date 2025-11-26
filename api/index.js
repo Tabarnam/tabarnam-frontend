@@ -207,6 +207,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: admin-companies");
+  require("./admin-companies/index.js");
+  console.log("[api] ✓ admin-companies registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-companies:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: admin-undo");
   require("./admin-undo/index.js");
   console.log("[api] ✓ admin-undo registered");
