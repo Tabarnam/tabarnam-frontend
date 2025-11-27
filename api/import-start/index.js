@@ -644,6 +644,20 @@ Return ONLY the JSON array, no other text.`,
 
                 if (expansionCompanies.length > 0) {
                   const enrichedExpansion = expansionCompanies.map((c) => enrichCompany(c, center));
+
+                  // Geocode expansion companies
+                  console.log(`[import-start] Geocoding ${enrichedExpansion.length} expansion companies`);
+                  for (let i = 0; i < enrichedExpansion.length; i++) {
+                    const company = enrichedExpansion[i];
+                    if (company.headquarters_location && company.headquarters_location.trim()) {
+                      const geoResult = await geocodeHQLocation(company.headquarters_location);
+                      if (geoResult.hq_lat !== undefined && geoResult.hq_lng !== undefined) {
+                        enrichedExpansion[i] = { ...company, ...geoResult };
+                        console.log(`[import-start] Geocoded expansion company ${company.company_name}: ${company.headquarters_location} → (${geoResult.hq_lat}, ${geoResult.hq_lng})`);
+                      }
+                    }
+                  }
+
                   enriched = enriched.concat(enrichedExpansion);
 
                   // Re-save with expansion results
