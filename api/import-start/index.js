@@ -65,13 +65,23 @@ const toNormalizedDomain = (s = "") => {
   }
 };
 
-// Helper: enrich company data
+// Helper: enrich company data with location fields
 function enrichCompany(company, center) {
   const c = { ...(company || {}) };
   c.industries = normalizeIndustries(c.industries);
   c.product_keywords = normalizeKeywords(c.product_keywords, c.industries);
   const urlForDomain = c.canonical_url || c.url || "";
   c.normalized_domain = toNormalizedDomain(urlForDomain);
+
+  // Ensure location fields are present
+  c.headquarters_location = String(c.headquarters_location || "").trim();
+  c.manufacturing_locations = Array.isArray(c.manufacturing_locations)
+    ? c.manufacturing_locations.filter(l => String(l).trim()).map(l => String(l).trim())
+    : [];
+  c.red_flag = Boolean(c.red_flag);
+  c.red_flag_reason = String(c.red_flag_reason || "").trim();
+  c.location_confidence = (c.location_confidence || "medium").toString().toLowerCase();
+
   return c;
 }
 
@@ -180,6 +190,11 @@ async function saveCompaniesToCosmos(companies, sessionId) {
           logo_url: logoUrl || null,
           hq_lat: company.hq_lat,
           hq_lng: company.hq_lng,
+          headquarters_location: company.headquarters_location || "",
+          manufacturing_locations: company.manufacturing_locations || [],
+          red_flag: Boolean(company.red_flag),
+          red_flag_reason: company.red_flag_reason || "",
+          location_confidence: company.location_confidence || "medium",
           social: company.social || {},
           amazon_url: company.amazon_url || "",
           source: "xai_import",
@@ -269,7 +284,7 @@ app.http("importStart", {
           }, 500);
         }
 
-        // Build XAI request message
+        // Build XAI request message with PRIORITY on HQ and manufacturing locations
         const xaiMessage = {
           role: "user",
           content: `You are a business research assistant. Find and return information about ${xaiPayload.limit} DIFFERENT companies or products based on this search.
@@ -277,25 +292,60 @@ app.http("importStart", {
 Search query: "${xaiPayload.query}"
 Search type: ${xaiPayload.queryType}
 
-CRITICAL INSTRUCTIONS:
-1. PRIORITIZE SMALLER, REGIONAL, AND LESSER-KNOWN COMPANIES - these should be the majority of results
-2. Include a diversity of company sizes: 40% small/regional/emerging, 35% mid-market, 25% major brands
-3. Return DIVERSE companies - include independent manufacturers, local producers, regional specialists, family-owned businesses, and emerging/niche players
-4. Do NOT just return major dominant brands - if searching "chocolate", prioritize smaller producers like Lake Champlain, Endangered Species Chocolate, Godiva, before returning Hershey's or Barry Callebaut
-5. Prioritize finding DIFFERENT companies over finding more of the same type
-6. Include regional and international companies, not just US-based ones
-7. Look for specialty manufacturers, craft producers, and companies with unique positioning
-8. Verify each company URL is valid and returns a real website
+CRITICAL PRIORITY #1: HEADQUARTERS & MANUFACTURING LOCATIONS (THIS IS THE TOP VALUE PROP)
+These location fields are FIRST-CLASS and non-negotiable:
 
-Format your response as a valid JSON array of company objects. Each object must have:
-- company_name (string): The exact name of the company
-- url (string): The valid company website URL (must be a working website)
-- industries (array): List of industry categories
-- product_keywords (string): Comma-separated product keywords specific to this company
+1. HEADQUARTERS LOCATION (Required, high priority):
+   - Extract the company's headquarters location at minimum: city, state/region, country.
+   - If no street address is available, that is acceptable - city + state/region + country is the minimum acceptable.
+   - Use the company's official "Headquarters", "Head Office", or primary corporate address.
+   - Check: Official website's About/Contact pages, LinkedIn company profile, Crunchbase, business directories.
+   - Acceptable formats: "San Francisco, CA, USA" or "London, UK" or "Tokyo, Japan"
+
+2. MANUFACTURING LOCATIONS (Array, strongly encouraged):
+   - Gather ALL identifiable manufacturing, production, factory, and plant locations.
+   - Return as an array of strings, each string being a location.
+   - Acceptable detail per entry: Full address OR City + state/region + country OR country only.
+   - Examples: ["Charlotte, NC, USA", "Shanghai, China", "Germany", "Made in USA and Canada"]
+   - Check sources: official "Facilities", "Plants", "Manufacturing", "Where We Make" pages; product pages with "Made in..." claims; FAQs about production.
+   - If specific factories are named, extract them as separate entries.
+
+3. RED FLAG LOGIC:
+   - If NO HQ location can be found from any reliable source → red_flag: true, reason: "No verifiable HQ location from official or trusted sources."
+   - If HQ is found but manufacturing locations are unclear/vague → red_flag: true, reason: "Manufacturing locations vague or unverifiable."
+   - If HQ is clear AND manufacturing locations are reasonably documented (countries/cities/sites) → red_flag: false, reason: ""
+   - Only set red_flag: false when BOTH HQ and manufacturing info are reasonably supported.
+
+4. SOURCE PRIORITY (check in this order):
+   a) Official website: About, Contact, Locations, Our Facilities, Plants, Manufacturing, Where We Make sections
+   b) Footer or "Corporate Office" section
+   c) LinkedIn company profile (for HQ city + country)
+   d) Crunchbase / public business directories (for HQ)
+   e) Product pages / packaging with "Made in..." claims
+   f) FAQs or press releases mentioning facilities
+   - If sources conflict, favor official site and LinkedIn.
+   - If still unclear, pick the most recent/authoritative source and set red_flag: true with explanation.
+
+SECONDARY: DIVERSITY & COVERAGE
+- Prioritize smaller, regional, and lesser-known companies (40% small/regional/emerging, 35% mid-market, 25% major brands)
+- Return DIVERSE companies - independent manufacturers, local producers, regional specialists, family-owned businesses, emerging/niche players
+- Include regional and international companies
+- Verify each company URL is valid
+
+FORMAT YOUR RESPONSE AS A VALID JSON ARRAY. EACH OBJECT MUST HAVE:
+- company_name (string): Exact company name
+- website_url (string): Valid company website URL (must work)
+- industries (array): Industry categories
+- product_keywords (string): Comma-separated product keywords
+- headquarters_location (string, REQUIRED): "City, State/Region, Country" format (or empty string if truly unknown)
+- manufacturing_locations (array, REQUIRED): Array of location strings (can be empty if unknown)
+- red_flag (boolean, REQUIRED): true if HQ missing or manufacturing unclear
+- red_flag_reason (string, REQUIRED): Explanation if red_flag=true, empty string if false
 - hq_lat (number, optional): Headquarters latitude
 - hq_lng (number, optional): Headquarters longitude
-- amazon_url (string, optional): Amazon storefront URL if applicable
+- amazon_url (string, optional): Amazon storefront URL
 - social (object, optional): Social media URLs {linkedin, instagram, x, twitter, facebook, tiktok, youtube}
+- location_confidence (string, optional): "high", "medium", or "low" based on data quality
 
 Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayload.limit)} diverse results if possible.`,
         };
@@ -342,6 +392,107 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
+
+          // Check if any companies have missing or weak location data
+          const companiesNeedingLocationRefinement = enriched.filter(c =>
+            !c.headquarters_location || c.headquarters_location === "" ||
+            !c.manufacturing_locations || c.manufacturing_locations.length === 0
+          );
+
+          // Location refinement pass: if too many companies have missing locations, run a refinement
+          if (companiesNeedingLocationRefinement.length > 0 && enriched.length > 0) {
+            console.log(`[import-start] ${companiesNeedingLocationRefinement.length} companies need location refinement`);
+
+            try {
+              // Build refinement prompt focusing only on HQ + manufacturing locations
+              const refinementMessage = {
+                role: "user",
+                content: `You are a research assistant specializing in company location data.
+For the following companies, you previously found some information but HQ and/or manufacturing locations were missing or unclear.
+Re-check ONLY for headquarters location and manufacturing locations using official sources, LinkedIn, Crunchbase, product pages, and facility FAQs.
+
+Companies needing refinement:
+${companiesNeedingLocationRefinement.map(c => `- ${c.company_name} (${c.url || 'N/A'})`).join('\n')}
+
+For EACH company, return ONLY:
+{
+  "company_name": "exact name",
+  "headquarters_location": "City, State/Region, Country OR empty string if not found",
+  "manufacturing_locations": ["location1", "location2", ...],
+  "red_flag": true/false,
+  "red_flag_reason": "explanation if red_flag true, empty string if false",
+  "location_confidence": "high|medium|low"
+}
+
+Focus ONLY on location accuracy. Return a JSON array with these objects.
+Return ONLY the JSON array, no other text.`,
+              };
+
+              const refinementPayload = {
+                messages: [refinementMessage],
+                model: "grok-4-latest",
+                temperature: 0.1,
+                stream: false,
+              };
+
+              console.log(`[import-start] Running location refinement pass for ${companiesNeedingLocationRefinement.length} companies`);
+              const refinementResponse = await axios.post(xaiUrl, refinementPayload, {
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${xaiKey}`,
+                },
+                timeout: Math.max(1000, Number(process.env.XAI_TIMEOUT_MS) || 60000),
+              });
+
+              if (refinementResponse.status >= 200 && refinementResponse.status < 300) {
+                const refinementText = refinementResponse.data?.choices?.[0]?.message?.content || "";
+                console.log(`[import-start] Refinement response preview: ${refinementText.substring(0, 100)}...`);
+
+                let refinedLocations = [];
+                try {
+                  const jsonMatch = refinementText.match(/\[[\s\S]*\]/);
+                  if (jsonMatch) {
+                    refinedLocations = JSON.parse(jsonMatch[0]);
+                    if (!Array.isArray(refinedLocations)) refinedLocations = [];
+                  }
+                } catch (parseErr) {
+                  console.warn(`[import-start] Failed to parse refinement response: ${parseErr.message}`);
+                }
+
+                console.log(`[import-start] Refinement returned ${refinedLocations.length} location updates`);
+
+                // Merge refinement results back into enriched companies
+                if (refinedLocations.length > 0) {
+                  const refinementMap = new Map();
+                  refinedLocations.forEach(rl => {
+                    const name = (rl.company_name || "").toLowerCase();
+                    if (name) refinementMap.set(name, rl);
+                  });
+
+                  enriched = enriched.map(company => {
+                    const companyName = (company.company_name || "").toLowerCase();
+                    const refinement = refinementMap.get(companyName);
+                    if (refinement) {
+                      return {
+                        ...company,
+                        headquarters_location: refinement.headquarters_location || company.headquarters_location || "",
+                        manufacturing_locations: refinement.manufacturing_locations || company.manufacturing_locations || [],
+                        red_flag: refinement.red_flag !== undefined ? refinement.red_flag : company.red_flag,
+                        red_flag_reason: refinement.red_flag_reason !== undefined ? refinement.red_flag_reason : company.red_flag_reason || "",
+                        location_confidence: refinement.location_confidence || company.location_confidence || "medium",
+                      };
+                    }
+                    return company;
+                  });
+
+                  console.log(`[import-start] Merged refinement data back into companies`);
+                }
+              }
+            } catch (refinementErr) {
+              console.warn(`[import-start] Location refinement pass failed: ${refinementErr.message}`);
+              // Continue with original data if refinement fails
+            }
+          }
 
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
           if (enriched.length > 0) {
