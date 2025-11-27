@@ -1,4 +1,5 @@
 const { app } = require("@azure/functions");
+const axios = require("axios");
 
 function json(obj, status = 200) {
   return {
@@ -11,6 +12,44 @@ function json(obj, status = 200) {
     },
     body: JSON.stringify(obj),
   };
+}
+
+// Helper: geocode a headquarters location string to get lat/lng
+async function geocodeHQLocation(headquarters_location) {
+  if (!headquarters_location || headquarters_location.trim() === "") {
+    return { hq_lat: undefined, hq_lng: undefined };
+  }
+
+  try {
+    const proxyBase = (process.env.XAI_EXTERNAL_BASE || process.env.XAI_PROXY_BASE || "").trim();
+    const baseUrl = proxyBase ? `${proxyBase.replace(/\/api$/, '')}/api` : '/api';
+
+    const geocodeUrl = `${baseUrl}/google/geocode`;
+
+    const response = await axios.post(geocodeUrl,
+      {
+        address: headquarters_location,
+        ipLookup: false
+      },
+      {
+        timeout: 5000,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    if (response.data && response.data.best && response.data.best.location) {
+      const { lat, lng } = response.data.best.location;
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        return { hq_lat: lat, hq_lng: lng };
+      }
+    }
+  } catch (e) {
+    console.log(`[save-companies] Geocoding failed for "${headquarters_location}": ${e.message}`);
+  }
+
+  return { hq_lat: undefined, hq_lng: undefined };
 }
 
 app.http("saveCompanies", {
