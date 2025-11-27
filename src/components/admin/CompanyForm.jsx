@@ -42,7 +42,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
 
     console.log("[CompanyForm] Submitting:", formData);
 
-    const method = formData.id ? "PUT" : "POST";
+    const method = formData.id || formData.company_id ? "PUT" : "POST";
 
     const request = {
       method,
