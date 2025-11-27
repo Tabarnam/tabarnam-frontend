@@ -522,9 +522,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           }
 
           // Check if any companies have missing or weak location data
+          // Trigger refinement if: HQ is missing, manufacturing is missing, or confidence is low (aggressive approach)
           const companiesNeedingLocationRefinement = enriched.filter(c =>
-            !c.headquarters_location || c.headquarters_location === "" ||
-            !c.manufacturing_locations || c.manufacturing_locations.length === 0
+            (!c.headquarters_location || c.headquarters_location === "") ||
+            (!c.manufacturing_locations || c.manufacturing_locations.length === 0) ||
+            (c.location_confidence === "low")
           );
 
           // Location refinement pass: if too many companies have missing locations, run a refinement
