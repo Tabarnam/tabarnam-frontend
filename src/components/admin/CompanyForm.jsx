@@ -100,6 +100,11 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       product_keywords: Array.isArray(formData.product_keywords) ? formData.product_keywords : [],
       keywords: Array.isArray(formData.keywords) ? formData.keywords : [],
       normalized_domain,
+      headquarters_location: formData.headquarters_location || "",
+      manufacturing_locations: Array.isArray(formData.manufacturing_locations) ? formData.manufacturing_locations : [],
+      red_flag: Boolean(formData.red_flag),
+      red_flag_reason: formData.red_flag_reason || "",
+      location_confidence: formData.location_confidence || "medium",
     };
 
     console.log('[CompanyForm] Submitting:', { method, isEditMode: !!companyId, id: payload.id, company_id: payload.company_id, company_name: payload.company_name });
