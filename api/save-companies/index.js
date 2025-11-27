@@ -103,6 +103,21 @@ app.http("saveCompanies", {
 
       for (const company of companies) {
         try {
+          // Geocode headquarters location if present and no lat/lng already provided
+          let hq_lat = company.hq_lat;
+          let hq_lng = company.hq_lng;
+
+          if (!Number.isFinite(hq_lat) || !Number.isFinite(hq_lng)) {
+            if (company.headquarters_location && company.headquarters_location.trim()) {
+              const geoResult = await geocodeHQLocation(company.headquarters_location);
+              if (geoResult.hq_lat !== undefined && geoResult.hq_lng !== undefined) {
+                hq_lat = geoResult.hq_lat;
+                hq_lng = geoResult.hq_lng;
+                console.log(`[save-companies] Geocoded ${company.company_name || company.name}: ${company.headquarters_location} → (${hq_lat}, ${hq_lng})`);
+              }
+            }
+          }
+
           const doc = {
             id: `company_${Date.now()}_${Math.random().toString(36).slice(2)}`,
             company_name: company.company_name || company.name || "",
@@ -116,6 +131,8 @@ app.http("saveCompanies", {
             red_flag: Boolean(company.red_flag),
             red_flag_reason: company.red_flag_reason || "",
             location_confidence: company.location_confidence || "medium",
+            hq_lat: hq_lat,
+            hq_lng: hq_lng,
             source: "manual_import",
             session_id: sessionId,
             created_at: new Date().toISOString(),
