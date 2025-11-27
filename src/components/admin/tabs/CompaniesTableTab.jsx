@@ -51,7 +51,7 @@ const CompaniesTableTab = ({ companies, loading, onUpdate }) => {
 
   const handleDelete = async (companyId) => {
     try {
-      const res = await apiFetch('admin-companies', {
+      const res = await apiFetch('/admin-companies', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: companyId, actor: user?.email }),

@@ -210,7 +210,7 @@ async function saveCompaniesToCosmos(companies, sessionId) {
 
 app.http("importStart", {
   route: "import/start",
-  methods: ["POST", "OPTIONS"],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
     console.log("[import-start] Function handler invoked");
