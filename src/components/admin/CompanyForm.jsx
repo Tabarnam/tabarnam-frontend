@@ -8,15 +8,39 @@ import { toast } from "sonner";
 import TagInputWithSuggestions from "./form-elements/TagInputWithSuggestions";
 
 const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
-  const [formData, setFormData] = useState(company || {});
+  const [formData, setFormData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [keywords, setKeywords] = useState([]);
 
+  // Normalize incoming company data from snake_case to form structure
+  const normalizeCompany = (comp) => {
+    if (!comp) return {};
+    return {
+      id: comp.id || comp.company_id,
+      company_id: comp.company_id || comp.id,
+      company_name: comp.company_name || comp.name || "",
+      name: comp.name || comp.company_name || "",
+      tagline: comp.tagline || "",
+      website_url: comp.website_url || comp.domain || comp.url || "",
+      domain: comp.domain || comp.website_url || comp.url || "",
+      amazon_store_url: comp.amazon_store_url || comp.amazon_url || "",
+      amazon_url: comp.amazon_url || comp.amazon_store_url || "",
+      industries: Array.isArray(comp.industries) ? comp.industries : [],
+      product_keywords: Array.isArray(comp.product_keywords) ? comp.product_keywords : [],
+      keywords: Array.isArray(comp.keywords) ? comp.keywords : (Array.isArray(comp.product_keywords) ? comp.product_keywords : []),
+      normalized_domain: comp.normalized_domain || "",
+    };
+  };
+
   useEffect(() => {
     if (company) {
-      setFormData(company);
+      const normalized = normalizeCompany(company);
+      setFormData(normalized);
+      const isEditMode = !!(normalized.id || normalized.company_id);
+      console.log('[CompanyForm] Rendering with company:', { isEditMode, id: normalized.id, company_id: normalized.company_id, company_name: normalized.company_name });
     } else {
       setFormData({});
+      console.log('[CompanyForm] Rendering as new company form');
     }
   }, [company]);
 
