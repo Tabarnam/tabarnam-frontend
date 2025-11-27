@@ -134,15 +134,8 @@ app.http("searchCompanies", {
               ${whereText}
               ORDER BY c._ts DESC
             `;
-            const paramsB = params.map((p) => {
-              if (p.name === "@take") {
-                return { name: "@take2", value: remaining };
-              }
-              return p;
-            });
-            if (!paramsB.some((p) => p.name === "@take2")) {
-              paramsB.push({ name: "@take2", value: remaining });
-            }
+            const paramsB = [{ name: "@take2", value: remaining }];
+            if (q) paramsB.push({ name: "@q", value: q });
             const partB = await container.items
               .query({ query: sqlB, parameters: paramsB }, { enableCrossPartitionQuery: true })
               .fetchAll();
