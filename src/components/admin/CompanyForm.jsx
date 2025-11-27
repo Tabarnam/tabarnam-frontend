@@ -18,7 +18,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     } else {
       setFormData({});
     }
-  }, [company, isOpen]);
+  }, [company]);
 
   useEffect(() => {
     const fetchKeywords = async () => {
@@ -42,7 +42,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
 
     console.log("[CompanyForm] Submitting:", formData);
 
-    const method = formData.id ? "PUT" : "POST";
+    const method = formData.id || formData.company_id ? "PUT" : "POST";
 
     const request = {
       method,
@@ -112,11 +112,13 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     handleDialogClose();
   };
 
+  const isEditMode = !!(formData?.id || formData?.company_id);
+
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
       <DialogContent className="sm:max-w-[625px]">
         <DialogHeader>
-          <DialogTitle>{formData.id ? "Edit Company" : "New Company"}</DialogTitle>
+          <DialogTitle>{isEditMode ? "Edit Company" : "New Company"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
