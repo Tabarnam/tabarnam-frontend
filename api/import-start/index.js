@@ -551,7 +551,7 @@ SOURCES TO CHECK (in order):
 9. Crunchbase and other business databases
 
 CRITICAL RULES FOR MANUFACTURING LOCATIONS:
-- Government Buyer Guide entries (Yumpu, GSA, etc.) listing "all made in USA" or similar �� INCLUDE "United States" in manufacturing_locations
+- Government Buyer Guide entries (Yumpu, GSA, etc.) listing "all made in USA" or similar → INCLUDE "United States" in manufacturing_locations
 - B2B directories explicitly noting "Manufacturer" status + location → INCLUDE that location
 - Repeated origin countries in trade/customs data → INCLUDE those countries
 - Packaging claims "Made in [X]" → INCLUDE X
@@ -625,10 +625,16 @@ Return ONLY the JSON array, no other text.`,
                     const companyName = (company.company_name || "").toLowerCase();
                     const refinement = refinementMap.get(companyName);
                     if (refinement) {
+                      // Properly handle manufacturing_locations which might be a string or array
+                      let refinedMfgLocations = refinement.manufacturing_locations || company.manufacturing_locations || [];
+                      if (typeof refinedMfgLocations === 'string') {
+                        refinedMfgLocations = refinedMfgLocations.trim() ? [refinedMfgLocations.trim()] : [];
+                      }
+
                       return {
                         ...company,
                         headquarters_location: refinement.headquarters_location || company.headquarters_location || "",
-                        manufacturing_locations: refinement.manufacturing_locations || company.manufacturing_locations || [],
+                        manufacturing_locations: refinedMfgLocations,
                         red_flag: refinement.red_flag !== undefined ? refinement.red_flag : company.red_flag,
                         red_flag_reason: refinement.red_flag_reason !== undefined ? refinement.red_flag_reason : company.red_flag_reason || "",
                         location_confidence: refinement.location_confidence || company.location_confidence || "medium",
