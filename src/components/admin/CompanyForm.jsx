@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { api } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
 import TagInputWithSuggestions from "./form-elements/TagInputWithSuggestions";
 
@@ -14,8 +14,11 @@ const CompanyForm = ({ company, onSaved }) => {
 
   useEffect(() => {
     const fetchKeywords = async () => {
-      const { data } = await api.get("/admin-keywords");
-      if (data?.items) setKeywords(data.items);
+      const res = await apiFetch("/admin-keywords");
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data?.items) setKeywords(data.items);
+      }
     };
     fetchKeywords();
   }, []);
@@ -46,8 +49,9 @@ const CompanyForm = ({ company, onSaved }) => {
     console.log("[CompanyForm] Submitting request:", request);
 
     try {
-      const response = await api.fetch(request.endpoint, {
+      const response = await apiFetch(request.endpoint, {
         method: request.method,
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ company: request }),
       });
 
