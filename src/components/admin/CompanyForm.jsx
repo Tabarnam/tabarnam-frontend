@@ -11,6 +11,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const [formData, setFormData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [keywords, setKeywords] = useState([]);
+  const [manufacturingLocationInput, setManufacturingLocationInput] = useState("");
 
   // Normalize incoming company data from snake_case to form structure
   const normalizeCompany = (comp) => {
