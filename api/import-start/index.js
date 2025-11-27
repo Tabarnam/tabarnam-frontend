@@ -669,21 +669,31 @@ Find ${xaiPayload.limit} MORE DIFFERENT companies that are related to "${xaiPayl
 PRIORITIZE finding smaller, regional, and lesser-known companies that are alternatives to major brands.
 Focus on independent manufacturers, craft producers, specialty companies, and regional players that serve the same market.
 
-For each company, ALWAYS include:
-- headquarters_location: City, State/Region, Country format (required - check official site, LinkedIn, Crunchbase)
-- manufacturing_locations: Array of locations from official site, supplier databases, import/export records, packaging claims, and media (be AGGRESSIVE in extraction - do not leave empty without checking all sources)
+For EACH company, you MUST AGGRESSIVELY extract:
+1. headquarters_location: City, State/Region, Country format (required - check official site, government buyer guides, B2B directories, LinkedIn, Crunchbase)
+2. manufacturing_locations: Array of locations from ALL sources including:
+   - Official site and product pages
+   - Government Buyer Guides (Yumpu, GSA, etc.) - often list manufacturing explicitly
+   - B2B/Industrial Manufacturer Directories (Thomas Register, etc.)
+   - Supplier and import/export records
+   - Packaging claims and "Made in..." labels
+   - Media articles
+   Be AGGRESSIVE in extraction - NEVER return empty without exhaustively checking all sources above
+   - Country-only entries (e.g., "United States", "China") are FULLY ACCEPTABLE
 
 Format your response as a valid JSON array with this structure:
 - company_name (string)
 - website_url (string)
 - industries (array)
 - product_keywords (string)
-- headquarters_location (string, REQUIRED)
-- manufacturing_locations (array, REQUIRED)
+- headquarters_location (string, REQUIRED - "City, State/Region, Country" format, or empty only if truly unknown after checking all sources)
+- manufacturing_locations (array, REQUIRED - must include all locations from government guides, B2B directories, suppliers, customs, packaging, media. Use country-only entries if that's all known. NEVER empty without exhaustive checking)
 - red_flag (boolean, optional)
 - red_flag_reason (string, optional)
 - location_confidence (string, optional)
 - amazon_url, social (optional)
+
+IMPORTANT: Do not leave manufacturing_locations empty after checking government guides, B2B directories, and trade data. Prefer "United States" or "China" over empty array.
 
 Return ONLY the JSON array, no other text.`,
               };
