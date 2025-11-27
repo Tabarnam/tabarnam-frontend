@@ -269,7 +269,7 @@ app.http("importStart", {
           }, 500);
         }
 
-        // Build XAI request message
+        // Build XAI request message with PRIORITY on HQ and manufacturing locations
         const xaiMessage = {
           role: "user",
           content: `You are a business research assistant. Find and return information about ${xaiPayload.limit} DIFFERENT companies or products based on this search.
@@ -277,25 +277,60 @@ app.http("importStart", {
 Search query: "${xaiPayload.query}"
 Search type: ${xaiPayload.queryType}
 
-CRITICAL INSTRUCTIONS:
-1. PRIORITIZE SMALLER, REGIONAL, AND LESSER-KNOWN COMPANIES - these should be the majority of results
-2. Include a diversity of company sizes: 40% small/regional/emerging, 35% mid-market, 25% major brands
-3. Return DIVERSE companies - include independent manufacturers, local producers, regional specialists, family-owned businesses, and emerging/niche players
-4. Do NOT just return major dominant brands - if searching "chocolate", prioritize smaller producers like Lake Champlain, Endangered Species Chocolate, Godiva, before returning Hershey's or Barry Callebaut
-5. Prioritize finding DIFFERENT companies over finding more of the same type
-6. Include regional and international companies, not just US-based ones
-7. Look for specialty manufacturers, craft producers, and companies with unique positioning
-8. Verify each company URL is valid and returns a real website
+CRITICAL PRIORITY #1: HEADQUARTERS & MANUFACTURING LOCATIONS (THIS IS THE TOP VALUE PROP)
+These location fields are FIRST-CLASS and non-negotiable:
 
-Format your response as a valid JSON array of company objects. Each object must have:
-- company_name (string): The exact name of the company
-- url (string): The valid company website URL (must be a working website)
-- industries (array): List of industry categories
-- product_keywords (string): Comma-separated product keywords specific to this company
+1. HEADQUARTERS LOCATION (Required, high priority):
+   - Extract the company's headquarters location at minimum: city, state/region, country.
+   - If no street address is available, that is acceptable - city + state/region + country is the minimum acceptable.
+   - Use the company's official "Headquarters", "Head Office", or primary corporate address.
+   - Check: Official website's About/Contact pages, LinkedIn company profile, Crunchbase, business directories.
+   - Acceptable formats: "San Francisco, CA, USA" or "London, UK" or "Tokyo, Japan"
+
+2. MANUFACTURING LOCATIONS (Array, strongly encouraged):
+   - Gather ALL identifiable manufacturing, production, factory, and plant locations.
+   - Return as an array of strings, each string being a location.
+   - Acceptable detail per entry: Full address OR City + state/region + country OR country only.
+   - Examples: ["Charlotte, NC, USA", "Shanghai, China", "Germany", "Made in USA and Canada"]
+   - Check sources: official "Facilities", "Plants", "Manufacturing", "Where We Make" pages; product pages with "Made in..." claims; FAQs about production.
+   - If specific factories are named, extract them as separate entries.
+
+3. RED FLAG LOGIC:
+   - If NO HQ location can be found from any reliable source → red_flag: true, reason: "No verifiable HQ location from official or trusted sources."
+   - If HQ is found but manufacturing locations are unclear/vague → red_flag: true, reason: "Manufacturing locations vague or unverifiable."
+   - If HQ is clear AND manufacturing locations are reasonably documented (countries/cities/sites) → red_flag: false, reason: ""
+   - Only set red_flag: false when BOTH HQ and manufacturing info are reasonably supported.
+
+4. SOURCE PRIORITY (check in this order):
+   a) Official website: About, Contact, Locations, Our Facilities, Plants, Manufacturing, Where We Make sections
+   b) Footer or "Corporate Office" section
+   c) LinkedIn company profile (for HQ city + country)
+   d) Crunchbase / public business directories (for HQ)
+   e) Product pages / packaging with "Made in..." claims
+   f) FAQs or press releases mentioning facilities
+   - If sources conflict, favor official site and LinkedIn.
+   - If still unclear, pick the most recent/authoritative source and set red_flag: true with explanation.
+
+SECONDARY: DIVERSITY & COVERAGE
+- Prioritize smaller, regional, and lesser-known companies (40% small/regional/emerging, 35% mid-market, 25% major brands)
+- Return DIVERSE companies - independent manufacturers, local producers, regional specialists, family-owned businesses, emerging/niche players
+- Include regional and international companies
+- Verify each company URL is valid
+
+FORMAT YOUR RESPONSE AS A VALID JSON ARRAY. EACH OBJECT MUST HAVE:
+- company_name (string): Exact company name
+- website_url (string): Valid company website URL (must work)
+- industries (array): Industry categories
+- product_keywords (string): Comma-separated product keywords
+- headquarters_location (string, REQUIRED): "City, State/Region, Country" format (or empty string if truly unknown)
+- manufacturing_locations (array, REQUIRED): Array of location strings (can be empty if unknown)
+- red_flag (boolean, REQUIRED): true if HQ missing or manufacturing unclear
+- red_flag_reason (string, REQUIRED): Explanation if red_flag=true, empty string if false
 - hq_lat (number, optional): Headquarters latitude
 - hq_lng (number, optional): Headquarters longitude
-- amazon_url (string, optional): Amazon storefront URL if applicable
+- amazon_url (string, optional): Amazon storefront URL
 - social (object, optional): Social media URLs {linkedin, instagram, x, twitter, facebook, tiktok, youtube}
+- location_confidence (string, optional): "high", "medium", or "low" based on data quality
 
 Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayload.limit)} diverse results if possible.`,
         };
