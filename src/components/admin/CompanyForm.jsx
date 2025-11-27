@@ -214,6 +214,117 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
               placeholder="https://amazon.com/..."
             />
           </div>
+          <div className="border-t pt-4 mt-4">
+            <h3 className="font-semibold text-sm mb-4">Location Information</h3>
+            <div>
+              <Label htmlFor="headquarters_location">Headquarters Location</Label>
+              <Input
+                id="headquarters_location"
+                name="headquarters_location"
+                value={formData.headquarters_location || ""}
+                onChange={handleChange}
+                placeholder="City, State/Region, Country (e.g., San Francisco, CA, USA)"
+              />
+            </div>
+            <div className="mt-4">
+              <Label htmlFor="manufacturing_locations">Manufacturing Locations</Label>
+              <div className="flex gap-2 mb-2">
+                <Input
+                  id="manufacturing_locations_input"
+                  value={manufacturingLocationInput}
+                  onChange={(e) => setManufacturingLocationInput(e.target.value)}
+                  placeholder="Add location (e.g., Shanghai, China) and press Add"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (manufacturingLocationInput.trim()) {
+                        setFormData((prev) => ({
+                          ...prev,
+                          manufacturing_locations: [...(prev.manufacturing_locations || []), manufacturingLocationInput.trim()]
+                        }));
+                        setManufacturingLocationInput("");
+                      }
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (manufacturingLocationInput.trim()) {
+                      setFormData((prev) => ({
+                        ...prev,
+                        manufacturing_locations: [...(prev.manufacturing_locations || []), manufacturingLocationInput.trim()]
+                      }));
+                      setManufacturingLocationInput("");
+                    }
+                  }}
+                  className="px-3 py-2 bg-[#B1DDE3] text-slate-900 rounded hover:bg-[#A0C8D0] text-sm font-medium"
+                >
+                  Add
+                </button>
+              </div>
+              {Array.isArray(formData.manufacturing_locations) && formData.manufacturing_locations.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {formData.manufacturing_locations.map((loc, idx) => (
+                    <div key={idx} className="bg-slate-100 text-slate-700 px-3 py-1 rounded text-sm flex items-center gap-2">
+                      {loc}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormData((prev) => ({
+                            ...prev,
+                            manufacturing_locations: prev.manufacturing_locations.filter((_, i) => i !== idx)
+                          }));
+                        }}
+                        className="text-red-500 hover:text-red-700 font-bold"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="mt-4">
+              <Label htmlFor="red_flag">Red Flag</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="red_flag"
+                  type="checkbox"
+                  checked={Boolean(formData.red_flag)}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, red_flag: e.target.checked }))}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm text-slate-600">Mark for manual review</span>
+              </div>
+            </div>
+            {formData.red_flag && (
+              <div className="mt-4">
+                <Label htmlFor="red_flag_reason">Red Flag Reason</Label>
+                <textarea
+                  id="red_flag_reason"
+                  value={formData.red_flag_reason || ""}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, red_flag_reason: e.target.value }))}
+                  placeholder="Reason for flagging this company..."
+                  rows="3"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#B1DDE3]"
+                />
+              </div>
+            )}
+            <div className="mt-4">
+              <Label htmlFor="location_confidence">Location Confidence</Label>
+              <select
+                id="location_confidence"
+                value={formData.location_confidence || "medium"}
+                onChange={(e) => setFormData((prev) => ({ ...prev, location_confidence: e.target.value }))}
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#B1DDE3]"
+              >
+                <option value="high">High - Well documented locations</option>
+                <option value="medium">Medium - Reasonable location data</option>
+                <option value="low">Low - Vague or unverifiable locations</option>
+              </select>
+            </div>
+          </div>
           <div>
             <Label htmlFor="keywords">Keywords</Label>
             <TagInputWithSuggestions
