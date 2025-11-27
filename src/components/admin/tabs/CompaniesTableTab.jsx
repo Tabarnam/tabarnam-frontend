@@ -173,6 +173,15 @@ const CompaniesTableTab = ({ companies, loading, onUpdate }) => {
                   <span className="font-semibold text-slate-900">{company.star_rating || 0}</span>
                 </td>
                 <td className="p-3 text-center">
+                  {company.red_flag ? (
+                    <span title={company.red_flag_reason || "Flagged for review"} className="inline-block bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-semibold cursor-help">
+                      🚩
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 text-xs">-</span>
+                  )}
+                </td>
+                <td className="p-3 text-center">
                   <div className="flex justify-center gap-2">
                     <Button
                       size="sm"
