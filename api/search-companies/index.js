@@ -134,7 +134,15 @@ app.http("searchCompanies", {
               ${whereText}
               ORDER BY c._ts DESC
             `;
-            const paramsB = params.filter((p) => p.name !== "@take").concat({ name: "@take2", value: remaining });
+            const paramsB = params.map((p) => {
+              if (p.name === "@take") {
+                return { name: "@take2", value: remaining };
+              }
+              return p;
+            });
+            if (!paramsB.some((p) => p.name === "@take2")) {
+              paramsB.push({ name: "@take2", value: remaining });
+            }
             const partB = await container.items
               .query({ query: sqlB, parameters: paramsB }, { enableCrossPartitionQuery: true })
               .fetchAll();
