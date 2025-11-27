@@ -75,9 +75,20 @@ function enrichCompany(company, center) {
 
   // Ensure location fields are present
   c.headquarters_location = String(c.headquarters_location || "").trim();
-  c.manufacturing_locations = Array.isArray(c.manufacturing_locations)
-    ? c.manufacturing_locations.filter(l => String(l).trim()).map(l => String(l).trim())
-    : [];
+
+  // Handle manufacturing_locations - accept country-only entries like "United States", "China", etc.
+  if (Array.isArray(c.manufacturing_locations)) {
+    c.manufacturing_locations = c.manufacturing_locations
+      .map(l => String(l).trim())
+      .filter(l => l.length > 0);
+  } else if (typeof c.manufacturing_locations === 'string') {
+    // If it's a single string, wrap it in an array
+    const trimmed = String(c.manufacturing_locations || "").trim();
+    c.manufacturing_locations = trimmed ? [trimmed] : [];
+  } else {
+    c.manufacturing_locations = [];
+  }
+
   c.red_flag = Boolean(c.red_flag);
   c.red_flag_reason = String(c.red_flag_reason || "").trim();
   c.location_confidence = (c.location_confidence || "medium").toString().toLowerCase();
@@ -540,7 +551,7 @@ SOURCES TO CHECK (in order):
 9. Crunchbase and other business databases
 
 CRITICAL RULES FOR MANUFACTURING LOCATIONS:
-- Government Buyer Guide entries (Yumpu, GSA, etc.) listing "all made in USA" or similar → INCLUDE "United States" in manufacturing_locations
+- Government Buyer Guide entries (Yumpu, GSA, etc.) listing "all made in USA" or similar �� INCLUDE "United States" in manufacturing_locations
 - B2B directories explicitly noting "Manufacturer" status + location → INCLUDE that location
 - Repeated origin countries in trade/customs data → INCLUDE those countries
 - Packaging claims "Made in [X]" → INCLUDE X
