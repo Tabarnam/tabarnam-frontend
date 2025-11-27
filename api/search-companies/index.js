@@ -2,6 +2,8 @@
 const { app } = require("@azure/functions");
 
 let CosmosClientCtor = null;
+let cachedContainer = null;
+
 function loadCosmosCtor() {
   if (CosmosClientCtor !== null) return CosmosClientCtor;
   try {
@@ -31,6 +33,8 @@ function json(obj, status = 200, req) {
 }
 
 function getCompaniesContainer() {
+  if (cachedContainer) return cachedContainer;
+
   const endpoint = env("COSMOS_DB_ENDPOINT", "");
   const key = env("COSMOS_DB_KEY", "");
   const databaseId = env("COSMOS_DB_DATABASE", "tabarnam-db");
@@ -41,7 +45,8 @@ function getCompaniesContainer() {
   if (!C) return null;
 
   const client = new C({ endpoint, key });
-  return client.database(databaseId).container(containerId);
+  cachedContainer = client.database(databaseId).container(containerId);
+  return cachedContainer;
 }
 
 // Single declaration (avoids the "Cannot redeclare block-scoped variable" error)
