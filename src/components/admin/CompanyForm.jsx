@@ -88,45 +88,63 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     }
   };
 
+  const handleDialogClose = () => {
+    if (onClose) {
+      onClose();
+    }
+  };
+
+  const handleSave = (savedCompany) => {
+    if (onSaved) {
+      onSaved(savedCompany);
+    }
+    if (onSuccess) {
+      onSuccess(savedCompany);
+    }
+    handleDialogClose();
+  };
+
   return (
-    <DialogContent className="sm:max-w-[625px]">
-      <DialogHeader>
-        <DialogTitle>{formData.id ? "Edit Company" : "New Company"}</DialogTitle>
-      </DialogHeader>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <Label htmlFor="companyName">Company Name</Label>
-          <Input
-            id="companyName"
-            name="companyName"
-            value={formData.companyName || ""}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        <div>
-          <Label htmlFor="domain">Domain</Label>
-          <Input
-            id="domain"
-            name="domain"
-            value={formData.domain || ""}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        <div>
-          <Label htmlFor="keywords">Keywords</Label>
-          <TagInputWithSuggestions
-            suggestions={keywords}
-            value={formData.keywords || []}
-            onChange={(newKeywords) => setFormData((prev) => ({ ...prev, keywords: newKeywords }))}
-          />
-        </div>
-        <Button type="submit" disabled={isSaving}>
-          {isSaving ? "Saving..." : "Save"}
-        </Button>
-      </form>
-    </DialogContent>
+    <Dialog open={isOpen} onOpenChange={handleDialogClose}>
+      <DialogContent className="sm:max-w-[625px]">
+        <DialogHeader>
+          <DialogTitle>{formData.id ? "Edit Company" : "New Company"}</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <Label htmlFor="companyName">Company Name</Label>
+            <Input
+              id="companyName"
+              name="companyName"
+              value={formData.companyName || ""}
+              onChange={handleChange}
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="domain">Domain</Label>
+            <Input
+              id="domain"
+              name="domain"
+              value={formData.domain || ""}
+              onChange={handleChange}
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="keywords">Keywords</Label>
+            <TagInputWithSuggestions
+              suggestions={keywords}
+              value={formData.keywords || []}
+              onChange={(newKeywords) => setFormData((prev) => ({ ...prev, keywords: newKeywords }))}
+            />
+          </div>
+          <Button type="submit" disabled={isSaving}>
+            {isSaving ? "Saving..." : "Save"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 };
 
