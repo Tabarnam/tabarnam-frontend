@@ -1,0 +1,66 @@
+{
+  "mimeTypes": {
+    ".js": "application/javascript",
+    ".mjs": "application/javascript",
+    ".css": "text/css",
+    ".svg": "image/svg+xml",
+    ".json": "application/json",
+    ".wasm": "application/wasm"
+  },
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/api/*",
+      "/assets/*",
+      "/*.js",
+      "/*.css",
+      "/*.map",
+      "/*.png",
+      "/*.jpg",
+      "/*.svg",
+      "/*.ico",
+      "/*.webp",
+      "/*.woff",
+      "/*.woff2"
+    ]
+  },
+  "routes": [
+    {
+      "route": "/api/*",
+      "allowedRoles": ["authenticated", "anonymous"],
+      "methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+    },
+    {
+      "route": "/xapi",
+      "redirect": "/xapi/",
+      "statusCode": 301
+    },
+    {
+      "route": "/xapi/*",
+      "allowedRoles": ["anonymous"],
+      "rewrite": "/api/{*path}"
+    },
+    {
+      "route": "/admin",
+      "allowedRoles": ["authenticated"],
+      "headers": { "X-Robots-Tag": "noindex, nofollow" }
+    },
+    {
+      "route": "/admin/*",
+      "allowedRoles": ["authenticated"],
+      "headers": { "X-Robots-Tag": "noindex, nofollow" }
+    },
+    {
+      "route": "/bulk-import",
+      "allowedRoles": ["authenticated"],
+      "headers": { "X-Robots-Tag": "noindex, nofollow" }
+    },
+    {
+      "route": "/login",
+      "headers": { "X-Robots-Tag": "noindex, nofollow" }
+    }
+  ],
+  "platform": {
+    "apiRuntime": "node:20"
+  }
+}

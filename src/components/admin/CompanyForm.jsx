@@ -2,12 +2,12 @@ import React, { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
 import TagInputWithSuggestions from "./form-elements/TagInputWithSuggestions";
 
-const CompanyForm = ({ company, onSaved }) => {
+const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const [formData, setFormData] = useState(company || {});
   const [isSaving, setIsSaving] = useState(false);
   const [keywords, setKeywords] = useState([]);
@@ -67,7 +67,7 @@ const CompanyForm = ({ company, onSaved }) => {
         }
 
         toast.success("Company saved successfully!");
-        onSaved(data?.company || request);
+        handleSave(data?.company || request);
       } else {
         let errorData;
         try {
@@ -88,45 +88,63 @@ const CompanyForm = ({ company, onSaved }) => {
     }
   };
 
+  const handleDialogClose = () => {
+    if (onClose) {
+      onClose();
+    }
+  };
+
+  const handleSave = (savedCompany) => {
+    if (onSaved) {
+      onSaved(savedCompany);
+    }
+    if (onSuccess) {
+      onSuccess(savedCompany);
+    }
+    handleDialogClose();
+  };
+
   return (
-    <DialogContent className="sm:max-w-[625px]">
-      <DialogHeader>
-        <DialogTitle>{formData.id ? "Edit Company" : "New Company"}</DialogTitle>
-      </DialogHeader>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <Label htmlFor="companyName">Company Name</Label>
-          <Input
-            id="companyName"
-            name="companyName"
-            value={formData.companyName || ""}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        <div>
-          <Label htmlFor="domain">Domain</Label>
-          <Input
-            id="domain"
-            name="domain"
-            value={formData.domain || ""}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        <div>
-          <Label htmlFor="keywords">Keywords</Label>
-          <TagInputWithSuggestions
-            suggestions={keywords}
-            value={formData.keywords || []}
-            onChange={(newKeywords) => setFormData((prev) => ({ ...prev, keywords: newKeywords }))}
-          />
-        </div>
-        <Button type="submit" disabled={isSaving}>
-          {isSaving ? "Saving..." : "Save"}
-        </Button>
-      </form>
-    </DialogContent>
+    <Dialog open={isOpen} onOpenChange={handleDialogClose}>
+      <DialogContent className="sm:max-w-[625px]">
+        <DialogHeader>
+          <DialogTitle>{formData.id ? "Edit Company" : "New Company"}</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <Label htmlFor="companyName">Company Name</Label>
+            <Input
+              id="companyName"
+              name="companyName"
+              value={formData.companyName || ""}
+              onChange={handleChange}
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="domain">Domain</Label>
+            <Input
+              id="domain"
+              name="domain"
+              value={formData.domain || ""}
+              onChange={handleChange}
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="keywords">Keywords</Label>
+            <TagInputWithSuggestions
+              suggestions={keywords}
+              value={formData.keywords || []}
+              onChange={(newKeywords) => setFormData((prev) => ({ ...prev, keywords: newKeywords }))}
+            />
+          </div>
+          <Button type="submit" disabled={isSaving}>
+            {isSaving ? "Saving..." : "Save"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 };
 
