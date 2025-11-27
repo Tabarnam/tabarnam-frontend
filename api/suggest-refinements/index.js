@@ -184,7 +184,15 @@ app.http("suggestRefinements", {
         req
       );
     } catch (e) {
-      context.log("suggest-refinements error:", e?.message || e);
+      context.log("suggest-refinements error:", e?.message || e, e?.stack);
+      console.error("suggest-refinements error details:", {
+        message: e?.message,
+        stack: e?.stack,
+        q,
+        country,
+        state,
+        city,
+      });
       return json({ ok: true, success: true, suggestions: [] }, 200, req);
     }
   },
