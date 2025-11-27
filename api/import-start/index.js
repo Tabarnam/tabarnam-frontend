@@ -340,47 +340,89 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
    - Check: Official website's About/Contact pages, LinkedIn company profile, Crunchbase, business directories.
    - Acceptable formats: "San Francisco, CA, USA" or "London, UK" or "Tokyo, Japan"
 
+   IMPORTANT: Government Buyer Guides and Business Directories often list headquarters with complete address.
+   Examples: Yumpu (government buyers guide), Dun & Bradstreet, LinkedIn, Crunchbase, Google Business, SIC/NAICS registries.
+
 2. MANUFACTURING LOCATIONS (Array, STRONGLY REQUIRED - be aggressive and multi-source):
    - Gather ALL identifiable manufacturing, production, factory, and plant locations from ALL available sources.
    - Return as an array of strings, each string being a location. DO NOT leave this empty unless there is truly no credible signal.
-   - Acceptable detail per entry: Full address OR City + state/region + country OR country only.
-   - Examples: ["Charlotte, NC, USA", "Shanghai, China", "Vietnam", "Mexico"]
+   - Acceptable detail per entry: Full address OR City + state/region + country OR country only (e.g., "United States", "China").
+   - "Country only" manufacturing locations are FULLY ACCEPTABLE and PREFERRED over empty array.
+   - Examples of acceptable results: ["Charlotte, NC, USA", "Shanghai, China", "Vietnam", "United States", "Mexico"]
 
-   PRIMARY SOURCES (check all):
+   PRIMARY SOURCES (check ALL of these first):
    a) Official website: "Facilities", "Plants", "Manufacturing", "Where We Make", "Our Factories", "Production Sites" pages
-   b) Product pages: Any "Made in X" labels or manufacturing claims on product listings
+   b) Product pages: Any "Made in X" labels or manufacturing claims on product listings and packaging photos
    c) FAQ or policy pages: "Where is this made?", "Manufacturing standards", "Supply chain" sections
    d) About/Sustainability: "Where we produce", "Supply chain transparency", "Ethical sourcing" pages
    e) Job postings: Roles mentioning "factory", "plant", "warehouse", "production", "manufacturing" reveal facility locations
-   f) LinkedIn company profile: Manufacturing locations and facility information sometimes listed
+   f) LinkedIn company profile: Manufacturing locations and facility information often listed in company description
 
-   SECONDARY SOURCES (if website is vague - use these aggressively):
-   g) Public import/export records: Look for trade and customs data showing where goods originate (e.g., China, Vietnam, Mexico)
-   h) Supplier databases and records: Third-party sources listing known suppliers and manufacturing partners
-   i) Packaging and labeling: "Made in..." text on actual product images, packaging inserts, or labels found online
-   j) Media and press: Industry articles, news, or third-party investigations mentioning manufacturing locations
-   k) Financial/regulatory filings: SEC filings, annual reports, or business registrations mentioning facilities
-   l) Product sourcing info: Where materials and components come from (often reveals manufacturing regions)
+   SECONDARY SOURCES - USE THESE AGGRESSIVELY WHEN PRIMARY SOURCES ARE VAGUE (these are just as credible):
+   g) Government Buyer Guides & Federal Databases:
+      - Yumpu government buyer guide listings (often list exact location, products, "all made in USA" claims)
+      - GSA Schedules and federal procurement databases
+      - State business registrations and Secretary of State records
+      - These databases often capture manufacturer status and location explicitly
 
-   INFERENCE RULES:
-   - If a brand shows repeated shipments from a specific region (China, Vietnam) in trade records, include that region
-   - If packaging consistently says "Made in X", include X even if the brand website doesn't explicitly state it
+   h) B2B and Industrial Manufacturer Directories:
+      - Thomas Register (thomasnet.com) - explicitly lists manufacturers by industry and location
+      - SIC/NAICS manufacturer registries
+      - Industrial manufacturer databases (SJN databases, Kompass, etc.)
+      - These sources EXPLICITLY note if a company is a "Manufacturer" vs. reseller, and list facility locations
+
+   i) Public Import/Export Records and Trade Data:
+      - Customs data, shipping records, and trade databases showing origin countries
+      - Alibaba, Global Sources, and other trade platform records showing source locations
+      - Repeated shipments from specific countries (China, Vietnam, etc.) indicate manufacturing origin
+
+   j) Supplier Databases and Records:
+      - Known suppliers and manufacturing partners reveal facility regions
+      - Supply chain data aggregators often show where goods originate
+
+   k) Packaging and Product Labeling:
+      - "Made in..." text on actual product images, packaging, inserts, or labels found online
+      - Manufacturing claims in product descriptions and certifications
+
+   l) Media, Press, and Third-Party Sources:
+      - Industry articles, news, blog posts, or investigations mentioning manufacturing locations
+      - Product review sites that mention where items are made
+      - LinkedIn company posts discussing facilities or manufacturing
+
+   m) Financial/Regulatory Filings:
+      - SEC filings, annual reports, business registrations mentioning facilities
+      - Patent filings showing inventor locations (sometimes reveals manufacturing)
+
+   INFERENCE RULES FOR MANUFACTURING LOCATIONS:
+   - If a brand shows repeated shipments from a specific region in trade records (China, Vietnam, Mexico), include that region
+   - If government guides or B2B directories list the company as a "Manufacturer" with specific location, include that location
+   - If packaging or product listings consistently say "Made in [X]", include X even if the brand website doesn't explicitly state it
    - If multiple independent sources consistently point to one or more countries, include those countries
-   - When inferring from suppliers or customs data, set location_confidence to "medium" or "low" and note the source in red_flag_reason
-   - Product labels found online (e.g., "Made in China") are credible manufacturing location signals
+   - "All made in the USA" or similar inclusive statements → manufacturing_locations: ["United States"]
+   - If only country-level information is available after exhaustive checking, country-only entries are FULLY VALID and PREFERRED
+   - When inferring from suppliers, customs, packaging, or government guides, set location_confidence to "medium" and note the inference source in red_flag_reason
+   - Inferred manufacturing locations from secondary sources should NOT trigger red_flag: true (the flag is only for completely unknown locations)
 
 3. CONFIDENCE AND RED FLAGS:
-   - location_confidence: "high" if HQ and manufacturing are clearly stated on official site; "medium" if inferred from reliable secondary sources; "low" if from limited sources
-   - If HQ is found but manufacturing is completely unknown → red_flag: true, reason: "Manufacturing location unknown, not available from website or secondary sources"
-   - If manufacturing is inferred from suppliers/customs/packaging → red_flag: false (don't flag for inference), reason: "" (or note the inference source)
-   - If BOTH HQ and manufacturing are reasonably documented → red_flag: false, reason: ""
-   - Only leave manufacturing_locations empty and red_flag: true if there is TRULY no credible signal at all after checking all sources above
+   - location_confidence: "high" if HQ and manufacturing are clearly stated on official site; "medium" if inferred from reliable secondary sources (government guides, B2B directories, customs, packaging); "low" if from limited sources
+   - If HQ is found but manufacturing is completely unknown AFTER exhaustive checking → red_flag: true, reason: "Manufacturing location unknown, not found in official site, government guides, B2B directories, customs records, or packaging"
+   - If manufacturing is inferred from government guides, B2B directories, customs data, suppliers, or packaging → red_flag: false (this is NOT a reason to flag), location_confidence: "medium"
+   - If BOTH HQ and manufacturing are documented → red_flag: false, reason: ""
+   - Only leave manufacturing_locations empty and red_flag: true if there is TRULY no credible signal after checking government guides, B2B directories, custom records, supplier data, packaging, and media
 
 4. SOURCE PRIORITY FOR HQ:
    a) Official website: About, Contact, Locations, Head Office sections
-   b) LinkedIn company profile (for HQ city + country)
-   c) Crunchbase / public business directories
-   d) News and public records
+   b) Government Buyer Guides and business databases (Yumpu, GSA, state registrations)
+   c) B2B directories (Thomas Register, etc.) and LinkedIn company profile
+   d) Crunchbase / public business directories
+   e) News and public records
+
+CRITICAL REQUIREMENTS FOR THIS SEARCH:
+- Do NOT return empty manufacturing_locations arrays unless you have exhaustively checked government guides, B2B directories, and trade data
+- Do NOT treat "not explicitly stated on website" as "manufacturing location unknown" - use secondary sources
+- Always prefer country-level manufacturing locations (e.g., "United States") over empty arrays
+- Government Buyer Guides (like Yumpu entries) are CREDIBLE PRIMARY sources for both HQ and manufacturing claims
+- Companies listed in B2B manufacturer directories should have their listed location included
 
 SECONDARY: DIVERSITY & COVERAGE
 - Prioritize smaller, regional, and lesser-known companies (40% small/regional/emerging, 35% mid-market, 25% major brands)
@@ -393,9 +435,9 @@ FORMAT YOUR RESPONSE AS A VALID JSON ARRAY. EACH OBJECT MUST HAVE:
 - website_url (string): Valid company website URL (must work)
 - industries (array): Industry categories
 - product_keywords (string): Comma-separated product keywords
-- headquarters_location (string, REQUIRED): "City, State/Region, Country" format (or empty string if truly unknown)
-- manufacturing_locations (array, REQUIRED): Array of location strings (must include all credible sources - official, inferred from suppliers/customs, packaging labels, etc.)
-- red_flag (boolean, REQUIRED): true only if HQ unknown or manufacturing completely unverifiable despite checking all sources
+- headquarters_location (string, REQUIRED): "City, State/Region, Country" format (or empty string ONLY if truly unknown after checking all sources)
+- manufacturing_locations (array, REQUIRED): Array of location strings (MUST include all credible sources - official, government guides, B2B directories, suppliers, customs, packaging labels). Use country-only entries (e.g., "United States") if that's all that's known.
+- red_flag (boolean, REQUIRED): true only if HQ unknown or manufacturing completely unverifiable despite exhaustive checking of ALL sources including government guides and B2B directories
 - red_flag_reason (string, REQUIRED): Explanation if red_flag=true, empty string if false; may note if manufacturing was inferred from secondary sources
 - hq_lat (number, optional): Headquarters latitude
 - hq_lng (number, optional): Headquarters longitude
@@ -403,7 +445,11 @@ FORMAT YOUR RESPONSE AS A VALID JSON ARRAY. EACH OBJECT MUST HAVE:
 - social (object, optional): Social media URLs {linkedin, instagram, x, twitter, facebook, tiktok, youtube}
 - location_confidence (string, optional): "high", "medium", or "low" based on data quality and sources used
 
-IMPORTANT: For companies with vague or missing manufacturing info on their website, ALWAYS check suppliers, import records, packaging claims, and third-party sources before returning an empty manufacturing_locations array.
+IMPORTANT FINAL RULES:
+1. For companies with vague or missing manufacturing info on their website, ALWAYS check government guides, B2B directories, suppliers, import records, packaging claims, and third-party sources BEFORE returning an empty manufacturing_locations array.
+2. Country-only manufacturing locations (e.g., ["United States"]) are FULLY ACCEPTABLE results - do NOT treat them as incomplete.
+3. If government sources (like Yumpu buyer guides) list "all made in the USA", return manufacturing_locations: ["United States"] with high confidence.
+4. Only flag as red_flag: true when you have actually exhaustively checked all sources listed above and still have no credible signal.
 
 Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayload.limit)} diverse results if possible.`,
         };
