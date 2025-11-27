@@ -144,6 +144,7 @@ const CompaniesTableTab = ({ companies, loading, onUpdate }) => {
               <th className="text-left p-3 font-semibold text-slate-700">Tagline</th>
               <th className="text-left p-3 font-semibold text-slate-700">Industries</th>
               <th className="text-center p-3 font-semibold text-slate-700">Stars</th>
+              <th className="text-center p-3 font-semibold text-slate-700">Flag</th>
               <th className="text-center p-3 font-semibold text-slate-700">Actions</th>
             </tr>
           </thead>
