@@ -90,10 +90,21 @@ To verify the fixes work:
    - Manufacturing locations should list China and Vietnam
 
 ## Key Files Changed
-- `api/import-start/index.js`: Added geocoding and updated XAI prompts
+- `api/import-start/index.js`: Added geocoding function and updated XAI prompts for aggressive manufacturing location extraction
+- `api/save-companies/index.js`: Added geocoding support for manual company saves
+- `api/admin-companies/index.js`: Added geocoding support for admin company edits
+
+## Consistency Across All Endpoints
+All three company-saving endpoints now consistently geocode headquarters_location:
+- **import-start**: Geocodes as part of bulk XAI import (and refinement/expansion)
+- **save-companies**: Geocodes when manually saving companies
+- **admin-companies**: Geocodes when admin updates companies
+
+This ensures that whether a company is imported via XAI, saved manually, or edited in the admin panel, it always gets proper lat/lng coordinates for distance calculation.
 
 ## Backward Compatibility
 All changes are backward compatible:
 - Existing companies without hq_lat/hq_lng will continue to work
 - Frontend gracefully handles missing coordinates
 - Manufacturing locations work as both strings and objects
+- If geocoding fails or is skipped, companies are saved without lat/lng (no errors)
