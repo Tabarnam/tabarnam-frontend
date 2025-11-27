@@ -1,531 +1,128 @@
-import React from 'react';
-import { useForm, useFieldArray } from 'react-hook-form';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { useToast } from '@/components/ui/use-toast';
-import { apiFetch } from '@/lib/api';
-import { getAdminUser } from '@/lib/azureAuth';
-import TagInputWithSuggestions from './form-elements/TagInputWithSuggestions';
+import React, { useState, useEffect } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { api } from "@/lib/api";
+import { toast } from "sonner";
+import TagInputWithSuggestions from "./form-elements/TagInputWithSuggestions";
 
-const getInitialValues = (company) => {
-  const affiliateLinks = Array.isArray(company?.affiliate_links) ? company.affiliate_links : [];
-  const starExplanation = Array.isArray(company?.star_explanation) ? company.star_explanation : [];
-  const keywords = Array.isArray(company?.product_keywords)
-    ? company.product_keywords
-    : (typeof company?.product_keywords === 'string' && company.product_keywords.trim()
-        ? company.product_keywords.split(',').map((k) => k.trim()).filter(Boolean)
-        : []);
-  const industries = Array.isArray(company?.industries) ? company.industries : [];
+const CompanyForm = ({ company, onSaved }) => {
+  const [formData, setFormData] = useState(company || {});
+  const [isSaving, setIsSaving] = useState(false);
+  const [keywords, setKeywords] = useState([]);
 
-  return {
-    company_name: company?.company_name || company?.name || '',
-    logo_url: company?.logo_url || '',
-    tagline: company?.tagline || '',
-    website_url: company?.website_url || company?.url || '',
-    amazon_store_url: company?.amazon_store_url || company?.amazon_url || '',
-    notes: company?.notes || '',
-    contact_email: company?.contact_email || '',
-    contact_page_url: company?.contact_page_url || '',
-    star_rating: company?.star_rating ?? 0,
-    product_keywords: keywords,
-    industries: industries,
-    affiliate_links: affiliateLinks.length
-      ? affiliateLinks
-      : [],
-    star_explanation: starExplanation.length
-      ? starExplanation
-      : [],
-  };
-};
-
-const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
-  const { toast } = useToast();
-  const adminUser = getAdminUser();
-  const [iconStates, setIconStates] = React.useState({});
-  const [keywordsSuggestions, setKeywordsSuggestions] = React.useState([]);
-  const [industriesSuggestions, setIndustriesSuggestions] = React.useState([]);
-  const [loadingKeywords, setLoadingKeywords] = React.useState(false);
-
-  // Fetch keywords and industries suggestions
-  React.useEffect(() => {
-    const fetchSuggestions = async () => {
-      setLoadingKeywords(true);
-      try {
-        const res = await apiFetch('/admin-keywords');
-        if (res.ok) {
-          const data = await res.json().catch(() => ({}));
-          const keywords = data.keywords || [];
-          setKeywordsSuggestions(keywords);
-          setIndustriesSuggestions(keywords);
-        }
-      } catch (error) {
-        console.warn('Failed to load keywords:', error);
-      } finally {
-        setLoadingKeywords(false);
-      }
+  useEffect(() => {
+    const fetchKeywords = async () => {
+      const { data } = await api.get("/admin-keywords");
+      if (data?.items) setKeywords(data.items);
     };
-    fetchSuggestions();
+    fetchKeywords();
   }, []);
 
-  const {
-    register,
-    handleSubmit,
-    control,
-    reset,
-    setValue,
-    watch,
-    formState: { isSubmitting },
-  } = useForm({
-    defaultValues: getInitialValues(company),
-  });
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
 
-  React.useEffect(() => {
-    if (company && Array.isArray(company.star_explanation)) {
-      const states = {};
-      company.star_explanation.forEach((exp, idx) => {
-        states[idx] = exp.icon || 'star';
-      });
-      setIconStates(states);
-    }
-  }, [company]);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsSaving(true);
 
-  const {
-    fields: affiliateFields,
-    append: appendAffiliate,
-    remove: removeAffiliate,
-  } = useFieldArray({ control, name: 'affiliate_links' });
+    console.log("[CompanyForm] Submitting:", formData);
 
-  const {
-    fields: starFields,
-    append: appendStar,
-    remove: removeStar,
-  } = useFieldArray({ control, name: 'star_explanation' });
+    const method = formData.id ? "PUT" : "POST";
 
-  React.useEffect(() => {
-    reset(getInitialValues(company));
-  }, [company, reset]);
+    const request = {
+      method,
+      endpoint: "/admin-companies",
+      ...formData,
+      company_id: formData.id || formData.company_id,
+      normalized_domain: formData.normalized_domain || formData.domain?.replace(/^(www\.)?/, "").toLowerCase() || "",
+      product_keywords: formData.product_keywords || [],
+      keywords: formData.keywords || [],
+    };
 
-  const onSubmit = async (values) => {
+    console.log("[CompanyForm] Submitting request:", request);
+
     try {
-      const companyId = company?.id || company?.company_id;
-
-      const payload = {
-        ...(company || {}),
-        company_name: values.company_name?.trim() || '',
-        name: values.company_name?.trim() || company?.name || '',
-        logo_url: values.logo_url?.trim() || '',
-        tagline: values.tagline?.trim() || '',
-        website_url: values.website_url?.trim() || '',
-        amazon_store_url: values.amazon_store_url?.trim() || '',
-        amazon_url: values.amazon_store_url?.trim() || company?.amazon_url || '',
-        notes: values.notes || '',
-        contact_email: values.contact_email?.trim() || '',
-        contact_page_url: values.contact_page_url?.trim() || '',
-        star_rating:
-          values.star_rating === '' || values.star_rating === null || values.star_rating === undefined
-            ? 0
-            : Number(values.star_rating),
-        product_keywords: Array.isArray(values.product_keywords)
-          ? values.product_keywords.map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean)
-          : [],
-        industries: Array.isArray(values.industries)
-          ? values.industries.map((i) => (typeof i === 'string' ? i.trim() : '')).filter(Boolean)
-          : [],
-        affiliate_links: (values.affiliate_links || [])
-          .slice(0, 5)
-          .map((link) => ({
-            url: (link.url || '').trim(),
-            name: (link.name || '').trim(),
-            description: (link.description || '').trim(),
-            notes: (link.notes || '').trim(),
-            is_public: Boolean(link.is_public ?? true),
-          }))
-          .filter((link) => link.url || link.name || link.description || link.notes),
-        star_explanation: (values.star_explanation || [])
-          .map((entry, index) => ({
-            star_level:
-              entry.star_level === '' || entry.star_level === null || entry.star_level === undefined
-                ? index + 1
-                : Number(entry.star_level),
-            note: (entry.note || '').trim(),
-            is_public: Boolean(entry.is_public ?? true),
-            icon: (entry.icon || 'star').toLowerCase() === 'heart' ? 'heart' : 'star',
-          }))
-          .filter((entry) => entry.note),
-      };
-
-      // Ensure ID fields are present if updating
-      if (companyId) {
-        payload.id = companyId;
-        payload.company_id = companyId;
-      }
-
-      if (!payload.id && !payload.company_name) {
-        throw new Error('Company name is required');
-      }
-
-      const method = companyId ? 'PUT' : 'POST';
-      console.log('[CompanyForm] Submitting:', { method, id: payload.id, companyName: payload.company_name });
-
-      const requestBody = { company: payload, actor: adminUser?.email };
-      console.log('[CompanyForm] Submitting request:', {
-        method,
-        endpoint: '/admin-companies',
-        id: payload.id,
-        company_id: payload.company_id,
-        companyName: payload.company_name,
-        bodySize: JSON.stringify(requestBody).length
+      const response = await api.fetch(request.endpoint, {
+        method: request.method,
+        body: JSON.stringify({ company: request }),
       });
 
-      const res = await apiFetch('/admin-companies', {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      });
+      console.log("[CompanyForm] Response:", response);
 
-      let data = null;
-      const contentType = res.headers?.get('content-type') || '';
-      
-      if (contentType.includes('application/json')) {
-        data = await res.json().catch(() => null);
-      } else {
+      if (response.ok) {
+        let data;
         try {
-          const text = await res.text();
-          if (text) {
-            data = JSON.parse(text);
-          }
-        } catch (e) {
-          console.warn('[CompanyForm] Response is not JSON:', contentType);
-          data = null;
+          data = await response.json();
+        } catch (parseError) {
+          console.log("[CompanyForm] Response is not JSON, treating as success");
+          data = { company: request };
         }
-      }
 
-      console.log('[CompanyForm] Response:', {
-        status: res.status,
-        ok: res.ok,
-        contentType,
-        hasCompany: !!data?.company,
-        hasError: !!data?.error,
-        data
-      });
+        toast.success("Company saved successfully!");
+        onSaved(data?.company || request);
+      } else {
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch (parseError) {
+          console.log("[CompanyForm] Error response is not JSON:", response.statusText);
+          errorData = { error: response.statusText };
+        }
 
-      if (!res.ok || data?.error) {
-        const errorMsg = data?.error || data?.detail || `Failed to save company (${res.status})`;
-        console.error('[CompanyForm] Error response:', errorMsg);
-        throw new Error(errorMsg);
+        console.log("[CompanyForm] Error response:", errorData?.error || response.statusText);
+        toast.error("Failed to save company");
       }
-
-      if (!data?.ok && !data?.company) {
-        console.warn('[CompanyForm] Response missing confirmation, but status OK:', data);
-      }
-
-      console.log('[CompanyForm] Save successful:', { id: data?.company?.id, name: data?.company?.company_name });
-      toast({ title: 'Company saved', description: 'Changes have been applied.' });
-      if (onSuccess) {
-        console.log('[CompanyForm] Calling onSuccess callback');
-        onSuccess();
-      }
-      onClose();
     } catch (error) {
-      console.error('[CompanyForm] Error:', error);
-      toast({ variant: 'destructive', title: 'Error', description: error?.message || 'Failed to save company' });
+      console.log("[CompanyForm] Error:", error);
+      toast.error("Error saving company");
+    } finally {
+      setIsSaving(false);
     }
-  };
-
-  const handleAddAffiliate = () => {
-    if (affiliateFields.length >= 5) return;
-    appendAffiliate({ url: '', name: '', description: '', notes: '', is_public: true });
-  };
-
-  const handleAddStarNote = () => {
-    const newIndex = starFields.length;
-    appendStar({ star_level: '', note: '', is_public: true, icon: 'star' });
-    setIconStates({ ...iconStates, [newIndex]: 'star' });
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent aria-label={company ? 'Edit company' : 'Add company'} className="max-w-[80vw] h-[90vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="text-xl font-semibold">
-            {company ? 'Edit Company' : 'Add Company'}
-          </DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 flex-1 overflow-y-auto pr-4" aria-describedby="company-form-description">
-          <div id="company-form-description" className="sr-only">
-            Use this form to edit company details, affiliate links, and per-star notes.
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label htmlFor="company_name" className="block text-sm font-medium text-slate-800">
-                Company Name
-              </label>
-              <Input id="company_name" {...register('company_name')} autoFocus />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="logo_url" className="block text-sm font-medium text-slate-800">
-                Logo URL
-              </label>
-              <Input id="logo_url" {...register('logo_url')} />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="tagline" className="block text-sm font-medium text-slate-800">
-                Tagline
-              </label>
-              <Input id="tagline" {...register('tagline')} />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="website_url" className="block text-sm font-medium text-slate-800">
-                Website URL
-              </label>
-              <Input id="website_url" {...register('website_url')} />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="amazon_store_url" className="block text-sm font-medium text-slate-800">
-                Amazon Store URL
-              </label>
-              <Input id="amazon_store_url" {...register('amazon_store_url')} />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="contact_email" className="block text-sm font-medium text-slate-800">
-                Contact Email
-              </label>
-              <Input id="contact_email" type="email" {...register('contact_email')} />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="contact_page_url" className="block text-sm font-medium text-slate-800">
-                Contact Page URL
-              </label>
-              <Input id="contact_page_url" {...register('contact_page_url')} />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="star_rating" className="block text-sm font-medium text-slate-800">
-                Star Rating
-              </label>
-              <Input id="star_rating" type="number" step="0.5" {...register('star_rating')} />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label htmlFor="notes" className="block text-sm font-medium text-slate-800">
-              Internal Notes
-            </label>
-            <Input id="notes" {...register('notes')} />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <TagInputWithSuggestions
-                label="Product Keywords"
-                tags={watch('product_keywords') || []}
-                onTagsChange={(newTags) => setValue('product_keywords', newTags)}
-                suggestions={keywordsSuggestions}
-                isLoading={loadingKeywords}
-                placeholder="Add product keywords..."
-                allowCustom={true}
-              />
-            </div>
-            <div>
-              <TagInputWithSuggestions
-                label="Industries"
-                tags={watch('industries') || []}
-                onTagsChange={(newTags) => setValue('industries', newTags)}
-                suggestions={industriesSuggestions}
-                isLoading={loadingKeywords}
-                placeholder="Add industries..."
-                allowCustom={true}
-              />
-            </div>
-          </div>
-
-          <section aria-label="Affiliate links" className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-900">Affiliate Links</h3>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleAddAffiliate}
-                disabled={affiliateFields.length >= 5}
-                className="border-[#B1DDE3] text-slate-900 hover:bg-[#B1DDE3]/40"
-              >
-                Add Affiliate Link
-              </Button>
-            </div>
-            {affiliateFields.length === 0 && (
-              <p className="text-xs text-slate-600">No affiliate links added yet.</p>
-            )}
-            <div className="space-y-4">
-              {affiliateFields.map((field, index) => (
-                <div
-                  key={field.id}
-                  className="rounded-md border border-slate-200 p-3 space-y-2 bg-white"
-                  aria-label={`Affiliate link ${index + 1}`}
-                >
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="block text-xs font-medium text-slate-700">URL</label>
-                      <Input
-                        {...register(`affiliate_links.${index}.url`)}
-                        placeholder="https://example.com"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs font-medium text-slate-700">Name</label>
-                      <Input {...register(`affiliate_links.${index}.name`)} placeholder="Store name" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs font-medium text-slate-700">Description</label>
-                      <Input
-                        {...register(`affiliate_links.${index}.description`)}
-                        placeholder="Short description"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs font-medium text-slate-700">Notes</label>
-                      <Input
-                        {...register(`affiliate_links.${index}.notes`)}
-                        placeholder="Admin notes"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between mt-2">
-                    <label className="inline-flex items-center gap-2 text-xs text-slate-700">
-                      <input
-                        type="checkbox"
-                        {...register(`affiliate_links.${index}.is_public`)}
-                        className="h-3 w-3 rounded border-slate-400"
-                      />
-                      <span>Users see this link (uncheck for admin-only)</span>
-                    </label>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => removeAffiliate(index)}
-                      className="text-red-600 hover:bg-red-50"
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section aria-label="Star notes" className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-900">Per-Star Notes</h3>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleAddStarNote}
-                className="border-[#B1DDE3] text-slate-900 hover:bg-[#B1DDE3]/40"
-              >
-                Add Star Note
-              </Button>
-            </div>
-            {starFields.length === 0 && (
-              <p className="text-xs text-slate-600">No star notes added yet.</p>
-            )}
-            <div className="space-y-4">
-              {starFields.map((field, index) => (
-                <div
-                  key={field.id}
-                  className="rounded-md border border-slate-200 p-3 space-y-2 bg-white"
-                  aria-label={`Star note ${index + 1}`}
-                >
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-center">
-                    <div className="space-y-1">
-                      <label className="block text-xs font-medium text-slate-700">Star Level</label>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={5}
-                        {...register(`star_explanation.${index}.star_level`)}
-                      />
-                    </div>
-                    <div className="md:col-span-2 space-y-1">
-                      <label className="block text-xs font-medium text-slate-700">Note</label>
-                      <Input
-                        {...register(`star_explanation.${index}.note`)}
-                        placeholder="Explanation for this star"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs font-medium text-slate-700">Icon</label>
-                      <div className="flex gap-1">
-                        <Button
-                          type="button"
-                          variant={(iconStates[index] || 'star') !== 'heart' ? 'default' : 'outline'}
-                          onClick={() => {
-                            const newIcon = 'star';
-                            setIconStates({ ...iconStates, [index]: newIcon });
-                            setValue(`star_explanation.${index}.icon`, newIcon);
-                          }}
-                          className={(iconStates[index] || 'star') !== 'heart' ? "bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]" : "border-slate-200 text-slate-900 hover:bg-slate-100"}
-                          title="Star icon"
-                        >
-                          ★
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={(iconStates[index] || 'star') === 'heart' ? 'default' : 'outline'}
-                          onClick={() => {
-                            const newIcon = 'heart';
-                            setIconStates({ ...iconStates, [index]: newIcon });
-                            setValue(`star_explanation.${index}.icon`, newIcon);
-                          }}
-                          className={(iconStates[index] || 'star') === 'heart' ? "bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]" : "border-slate-200 text-slate-900 hover:bg-slate-100"}
-                          title="Heart icon"
-                        >
-                          ♥
-                        </Button>
-                      </div>
-                      <input
-                        type="hidden"
-                        {...register(`star_explanation.${index}.icon`)}
-                      />
-                    </div>
-                    <div className="flex flex-col items-start gap-2">
-                      <label className="inline-flex items-center gap-2 text-xs text-slate-700">
-                        <input
-                          type="checkbox"
-                          {...register(`star_explanation.${index}.is_public`)}
-                          className="h-3 w-3 rounded border-slate-400"
-                        />
-                        <span>Users see this note</span>
-                      </label>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => removeStar(index)}
-                        className="text-red-600 hover:bg-red-50"
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <DialogFooter className="flex flex-col sm:flex-row sm:justify-end gap-3 pt-4 border-t border-slate-200 -mx-6 -mb-6 px-6 py-4">
-            <Button
-              type="submit"
-              disabled={isSubmitting}
-              className="bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0]"
-            >
-              {isSubmitting ? 'Saving…' : 'Save'}
-            </Button>
-            <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
-              Cancel
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+    <DialogContent className="sm:max-w-[625px]">
+      <DialogHeader>
+        <DialogTitle>{formData.id ? "Edit Company" : "New Company"}</DialogTitle>
+      </DialogHeader>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <Label htmlFor="companyName">Company Name</Label>
+          <Input
+            id="companyName"
+            name="companyName"
+            value={formData.companyName || ""}
+            onChange={handleChange}
+            required
+          />
+        </div>
+        <div>
+          <Label htmlFor="domain">Domain</Label>
+          <Input
+            id="domain"
+            name="domain"
+            value={formData.domain || ""}
+            onChange={handleChange}
+            required
+          />
+        </div>
+        <div>
+          <Label htmlFor="keywords">Keywords</Label>
+          <TagInputWithSuggestions
+            suggestions={keywords}
+            value={formData.keywords || []}
+            onChange={(newKeywords) => setFormData((prev) => ({ ...prev, keywords: newKeywords }))}
+          />
+        </div>
+        <Button type="submit" disabled={isSaving}>
+          {isSaving ? "Saving..." : "Save"}
+        </Button>
+      </form>
+    </DialogContent>
   );
 };
 
