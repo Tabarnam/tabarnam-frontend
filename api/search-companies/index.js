@@ -189,7 +189,14 @@ app.http("searchCompanies", {
           req
         );
       } catch (e) {
-        context.log("search-companies cosmos error:", e?.message || e);
+        context.log("search-companies cosmos error:", e?.message || e, e?.stack);
+        console.error("search-companies error details:", {
+          message: e?.message,
+          stack: e?.stack,
+          sort,
+          q,
+          limit,
+        });
         return json({ ok: false, success: false, error: e?.message || "query failed" }, 500, req);
       }
     }
