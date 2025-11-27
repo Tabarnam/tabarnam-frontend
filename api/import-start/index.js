@@ -599,12 +599,21 @@ Find ${xaiPayload.limit} MORE DIFFERENT companies that are related to "${xaiPayl
 PRIORITIZE finding smaller, regional, and lesser-known companies that are alternatives to major brands.
 Focus on independent manufacturers, craft producers, specialty companies, and regional players that serve the same market.
 
-Format your response as a valid JSON array with the same structure:
+For each company, ALWAYS include:
+- headquarters_location: City, State/Region, Country format (required - check official site, LinkedIn, Crunchbase)
+- manufacturing_locations: Array of locations from official site, supplier databases, import/export records, packaging claims, and media (be AGGRESSIVE in extraction - do not leave empty without checking all sources)
+
+Format your response as a valid JSON array with this structure:
 - company_name (string)
-- url (string)
+- website_url (string)
 - industries (array)
 - product_keywords (string)
-- hq_lat, hq_lng, amazon_url, social (optional)
+- headquarters_location (string, REQUIRED)
+- manufacturing_locations (array, REQUIRED)
+- red_flag (boolean, optional)
+- red_flag_reason (string, optional)
+- location_confidence (string, optional)
+- amazon_url, social (optional)
 
 Return ONLY the JSON array, no other text.`,
               };
