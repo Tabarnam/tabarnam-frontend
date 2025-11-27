@@ -13,6 +13,14 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const [keywords, setKeywords] = useState([]);
 
   useEffect(() => {
+    if (company) {
+      setFormData(company);
+    } else {
+      setFormData({});
+    }
+  }, [company, isOpen]);
+
+  useEffect(() => {
     const fetchKeywords = async () => {
       const res = await apiFetch("/admin-keywords");
       if (res.ok) {
