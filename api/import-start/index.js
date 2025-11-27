@@ -325,13 +325,13 @@ app.http("importStart", {
         // Build XAI request message with PRIORITY on HQ and manufacturing locations
         const xaiMessage = {
           role: "user",
-          content: `You are a business research assistant. Find and return information about ${xaiPayload.limit} DIFFERENT companies or products based on this search.
+          content: `You are a business research assistant specializing in manufacturing location extraction. Find and return information about ${xaiPayload.limit} DIFFERENT companies or products based on this search.
 
 Search query: "${xaiPayload.query}"
 Search type: ${xaiPayload.queryType}
 
 CRITICAL PRIORITY #1: HEADQUARTERS & MANUFACTURING LOCATIONS (THIS IS THE TOP VALUE PROP)
-These location fields are FIRST-CLASS and non-negotiable:
+These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULTI-SOURCE in extraction - do not accept "website is vague" as final answer.
 
 1. HEADQUARTERS LOCATION (Required, high priority):
    - Extract the company's headquarters location at minimum: city, state/region, country.
@@ -340,29 +340,47 @@ These location fields are FIRST-CLASS and non-negotiable:
    - Check: Official website's About/Contact pages, LinkedIn company profile, Crunchbase, business directories.
    - Acceptable formats: "San Francisco, CA, USA" or "London, UK" or "Tokyo, Japan"
 
-2. MANUFACTURING LOCATIONS (Array, strongly encouraged):
-   - Gather ALL identifiable manufacturing, production, factory, and plant locations.
-   - Return as an array of strings, each string being a location.
+2. MANUFACTURING LOCATIONS (Array, STRONGLY REQUIRED - be aggressive and multi-source):
+   - Gather ALL identifiable manufacturing, production, factory, and plant locations from ALL available sources.
+   - Return as an array of strings, each string being a location. DO NOT leave this empty unless there is truly no credible signal.
    - Acceptable detail per entry: Full address OR City + state/region + country OR country only.
-   - Examples: ["Charlotte, NC, USA", "Shanghai, China", "Germany", "Made in USA and Canada"]
-   - Check sources: official "Facilities", "Plants", "Manufacturing", "Where We Make" pages; product pages with "Made in..." claims; FAQs about production.
-   - If specific factories are named, extract them as separate entries.
+   - Examples: ["Charlotte, NC, USA", "Shanghai, China", "Vietnam", "Mexico"]
 
-3. RED FLAG LOGIC:
-   - If NO HQ location can be found from any reliable source → red_flag: true, reason: "No verifiable HQ location from official or trusted sources."
-   - If HQ is found but manufacturing locations are unclear/vague → red_flag: true, reason: "Manufacturing locations vague or unverifiable."
-   - If HQ is clear AND manufacturing locations are reasonably documented (countries/cities/sites) → red_flag: false, reason: ""
-   - Only set red_flag: false when BOTH HQ and manufacturing info are reasonably supported.
+   PRIMARY SOURCES (check all):
+   a) Official website: "Facilities", "Plants", "Manufacturing", "Where We Make", "Our Factories", "Production Sites" pages
+   b) Product pages: Any "Made in X" labels or manufacturing claims on product listings
+   c) FAQ or policy pages: "Where is this made?", "Manufacturing standards", "Supply chain" sections
+   d) About/Sustainability: "Where we produce", "Supply chain transparency", "Ethical sourcing" pages
+   e) Job postings: Roles mentioning "factory", "plant", "warehouse", "production", "manufacturing" reveal facility locations
+   f) LinkedIn company profile: Manufacturing locations and facility information sometimes listed
 
-4. SOURCE PRIORITY (check in this order):
-   a) Official website: About, Contact, Locations, Our Facilities, Plants, Manufacturing, Where We Make sections
-   b) Footer or "Corporate Office" section
-   c) LinkedIn company profile (for HQ city + country)
-   d) Crunchbase / public business directories (for HQ)
-   e) Product pages / packaging with "Made in..." claims
-   f) FAQs or press releases mentioning facilities
-   - If sources conflict, favor official site and LinkedIn.
-   - If still unclear, pick the most recent/authoritative source and set red_flag: true with explanation.
+   SECONDARY SOURCES (if website is vague - use these aggressively):
+   g) Public import/export records: Look for trade and customs data showing where goods originate (e.g., China, Vietnam, Mexico)
+   h) Supplier databases and records: Third-party sources listing known suppliers and manufacturing partners
+   i) Packaging and labeling: "Made in..." text on actual product images, packaging inserts, or labels found online
+   j) Media and press: Industry articles, news, or third-party investigations mentioning manufacturing locations
+   k) Financial/regulatory filings: SEC filings, annual reports, or business registrations mentioning facilities
+   l) Product sourcing info: Where materials and components come from (often reveals manufacturing regions)
+
+   INFERENCE RULES:
+   - If a brand shows repeated shipments from a specific region (China, Vietnam) in trade records, include that region
+   - If packaging consistently says "Made in X", include X even if the brand website doesn't explicitly state it
+   - If multiple independent sources consistently point to one or more countries, include those countries
+   - When inferring from suppliers or customs data, set location_confidence to "medium" or "low" and note the source in red_flag_reason
+   - Product labels found online (e.g., "Made in China") are credible manufacturing location signals
+
+3. CONFIDENCE AND RED FLAGS:
+   - location_confidence: "high" if HQ and manufacturing are clearly stated on official site; "medium" if inferred from reliable secondary sources; "low" if from limited sources
+   - If HQ is found but manufacturing is completely unknown → red_flag: true, reason: "Manufacturing location unknown, not available from website or secondary sources"
+   - If manufacturing is inferred from suppliers/customs/packaging → red_flag: false (don't flag for inference), reason: "" (or note the inference source)
+   - If BOTH HQ and manufacturing are reasonably documented → red_flag: false, reason: ""
+   - Only leave manufacturing_locations empty and red_flag: true if there is TRULY no credible signal at all after checking all sources above
+
+4. SOURCE PRIORITY FOR HQ:
+   a) Official website: About, Contact, Locations, Head Office sections
+   b) LinkedIn company profile (for HQ city + country)
+   c) Crunchbase / public business directories
+   d) News and public records
 
 SECONDARY: DIVERSITY & COVERAGE
 - Prioritize smaller, regional, and lesser-known companies (40% small/regional/emerging, 35% mid-market, 25% major brands)
@@ -376,14 +394,16 @@ FORMAT YOUR RESPONSE AS A VALID JSON ARRAY. EACH OBJECT MUST HAVE:
 - industries (array): Industry categories
 - product_keywords (string): Comma-separated product keywords
 - headquarters_location (string, REQUIRED): "City, State/Region, Country" format (or empty string if truly unknown)
-- manufacturing_locations (array, REQUIRED): Array of location strings (can be empty if unknown)
-- red_flag (boolean, REQUIRED): true if HQ missing or manufacturing unclear
-- red_flag_reason (string, REQUIRED): Explanation if red_flag=true, empty string if false
+- manufacturing_locations (array, REQUIRED): Array of location strings (must include all credible sources - official, inferred from suppliers/customs, packaging labels, etc.)
+- red_flag (boolean, REQUIRED): true only if HQ unknown or manufacturing completely unverifiable despite checking all sources
+- red_flag_reason (string, REQUIRED): Explanation if red_flag=true, empty string if false; may note if manufacturing was inferred from secondary sources
 - hq_lat (number, optional): Headquarters latitude
 - hq_lng (number, optional): Headquarters longitude
 - amazon_url (string, optional): Amazon storefront URL
 - social (object, optional): Social media URLs {linkedin, instagram, x, twitter, facebook, tiktok, youtube}
-- location_confidence (string, optional): "high", "medium", or "low" based on data quality
+- location_confidence (string, optional): "high", "medium", or "low" based on data quality and sources used
+
+IMPORTANT: For companies with vague or missing manufacturing info on their website, ALWAYS check suppliers, import records, packaging claims, and third-party sources before returning an empty manufacturing_locations array.
 
 Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayload.limit)} diverse results if possible.`,
         };
