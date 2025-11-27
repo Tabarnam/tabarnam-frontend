@@ -65,13 +65,23 @@ const toNormalizedDomain = (s = "") => {
   }
 };
 
-// Helper: enrich company data
+// Helper: enrich company data with location fields
 function enrichCompany(company, center) {
   const c = { ...(company || {}) };
   c.industries = normalizeIndustries(c.industries);
   c.product_keywords = normalizeKeywords(c.product_keywords, c.industries);
   const urlForDomain = c.canonical_url || c.url || "";
   c.normalized_domain = toNormalizedDomain(urlForDomain);
+
+  // Ensure location fields are present
+  c.headquarters_location = String(c.headquarters_location || "").trim();
+  c.manufacturing_locations = Array.isArray(c.manufacturing_locations)
+    ? c.manufacturing_locations.filter(l => String(l).trim()).map(l => String(l).trim())
+    : [];
+  c.red_flag = Boolean(c.red_flag);
+  c.red_flag_reason = String(c.red_flag_reason || "").trim();
+  c.location_confidence = (c.location_confidence || "medium").toString().toLowerCase();
+
   return c;
 }
 
