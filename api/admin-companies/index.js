@@ -1,4 +1,5 @@
 const { app } = require("@azure/functions");
+const axios = require("axios");
 
 let CosmosClientCtor = null;
 function loadCosmosCtor() {
