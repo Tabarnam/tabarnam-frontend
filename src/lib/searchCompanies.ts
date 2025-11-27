@@ -31,7 +31,11 @@ export interface Company {
   url?: string;
   amazon_url?: string;
   normalized_domain?: string;
+  headquarters_location?: string;
   manufacturing_locations?: string[];
+  red_flag?: boolean;
+  red_flag_reason?: string;
+  location_confidence?: "high" | "medium" | "low";
 }
 
 export async function searchCompanies(opts: SearchOptions) {
