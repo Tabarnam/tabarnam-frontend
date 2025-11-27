@@ -46,10 +46,18 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
 
   useEffect(() => {
     const fetchKeywords = async () => {
-      const res = await apiFetch("/admin-keywords");
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        if (data?.items) setKeywords(data.items);
+      try {
+        const res = await apiFetch("/admin-keywords");
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const fetchedKeywords = data?.keywords || data?.items || [];
+          setKeywords(fetchedKeywords);
+          console.log('[CompanyForm] Keywords fetched:', fetchedKeywords.length, 'items');
+        } else {
+          console.log('[CompanyForm] Failed to fetch keywords, status:', res.status);
+        }
+      } catch (error) {
+        console.log('[CompanyForm] Error fetching keywords:', error?.message);
       }
     };
     fetchKeywords();
