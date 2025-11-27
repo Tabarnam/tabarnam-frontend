@@ -120,7 +120,14 @@ async function getKeywordRefinements(container, q, country, state, city) {
 
     return { keywords, industries };
   } catch (e) {
-    console.error("getKeywordRefinements error:", e?.message || e);
+    console.error("getKeywordRefinements error:", {
+      message: e?.message,
+      stack: e?.stack,
+      q,
+      country,
+      state,
+      city,
+    });
     return { keywords: [], industries: [] };
   }
 }
