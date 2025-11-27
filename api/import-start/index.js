@@ -451,6 +451,19 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
 
+          // Geocode headquarters locations to get lat/lng
+          console.log(`[import-start] Geocoding ${enriched.length} companies' headquarters locations`);
+          for (let i = 0; i < enriched.length; i++) {
+            const company = enriched[i];
+            if (company.headquarters_location && company.headquarters_location.trim()) {
+              const geoResult = await geocodeHQLocation(company.headquarters_location);
+              if (geoResult.hq_lat !== undefined && geoResult.hq_lng !== undefined) {
+                enriched[i] = { ...company, ...geoResult };
+                console.log(`[import-start] Geocoded ${company.company_name}: ${company.headquarters_location} → (${geoResult.hq_lat}, ${geoResult.hq_lng})`);
+              }
+            }
+          }
+
           // Check if any companies have missing or weak location data
           const companiesNeedingLocationRefinement = enriched.filter(c =>
             !c.headquarters_location || c.headquarters_location === "" ||
