@@ -153,27 +153,46 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
       <DialogContent className="sm:max-w-[625px]">
         <DialogHeader>
-          <DialogTitle>{isEditMode ? "Edit Company" : "New Company"}</DialogTitle>
+          <DialogTitle>{isEditMode ? "Edit Company" : "Add Company"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <Label htmlFor="companyName">Company Name</Label>
+            <Label htmlFor="company_name">Company Name</Label>
             <Input
-              id="companyName"
-              name="companyName"
-              value={formData.companyName || ""}
+              id="company_name"
+              name="company_name"
+              value={formData.company_name || ""}
               onChange={handleChange}
               required
             />
           </div>
           <div>
-            <Label htmlFor="domain">Domain</Label>
+            <Label htmlFor="tagline">Tagline</Label>
             <Input
-              id="domain"
-              name="domain"
-              value={formData.domain || ""}
+              id="tagline"
+              name="tagline"
+              value={formData.tagline || ""}
               onChange={handleChange}
-              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="website_url">Website URL</Label>
+            <Input
+              id="website_url"
+              name="website_url"
+              value={formData.website_url || ""}
+              onChange={handleChange}
+              placeholder="https://example.com"
+            />
+          </div>
+          <div>
+            <Label htmlFor="amazon_store_url">Amazon Store URL</Label>
+            <Input
+              id="amazon_store_url"
+              name="amazon_store_url"
+              value={formData.amazon_store_url || ""}
+              onChange={handleChange}
+              placeholder="https://amazon.com/..."
             />
           </div>
           <div>
