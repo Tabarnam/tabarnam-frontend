@@ -64,30 +64,41 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     e.preventDefault();
     setIsSaving(true);
 
-    console.log("[CompanyForm] Submitting:", formData);
+    const companyId = formData.id || formData.company_id;
+    const method = companyId ? "PUT" : "POST";
 
-    const method = formData.id || formData.company_id ? "PUT" : "POST";
+    const normalized_domain = formData.normalized_domain ||
+      (formData.domain || formData.website_url || "")
+        .replace(/^(https?:\/\/)?(www\.)?/, "")
+        .replace(/\/$/, "")
+        .toLowerCase() || "";
 
-    const request = {
-      method,
-      endpoint: "/admin-companies",
-      ...formData,
-      company_id: formData.id || formData.company_id,
-      normalized_domain: formData.normalized_domain || formData.domain?.replace(/^(www\.)?/, "").toLowerCase() || "",
-      product_keywords: formData.product_keywords || [],
-      keywords: formData.keywords || [],
+    const payload = {
+      id: companyId || undefined,
+      company_id: companyId || undefined,
+      company_name: formData.company_name || "",
+      name: formData.name || formData.company_name || "",
+      tagline: formData.tagline || "",
+      website_url: formData.website_url || formData.domain || "",
+      domain: formData.domain || formData.website_url || "",
+      amazon_store_url: formData.amazon_store_url || formData.amazon_url || "",
+      amazon_url: formData.amazon_url || formData.amazon_store_url || "",
+      industries: Array.isArray(formData.industries) ? formData.industries : [],
+      product_keywords: Array.isArray(formData.product_keywords) ? formData.product_keywords : [],
+      keywords: Array.isArray(formData.keywords) ? formData.keywords : [],
+      normalized_domain,
     };
 
-    console.log("[CompanyForm] Submitting request:", request);
+    console.log('[CompanyForm] Submitting:', { method, isEditMode: !!companyId, id: payload.id, company_id: payload.company_id, company_name: payload.company_name });
 
     try {
-      const response = await apiFetch(request.endpoint, {
-        method: request.method,
+      const response = await apiFetch("/admin-companies", {
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company: request }),
+        body: JSON.stringify({ company: payload }),
       });
 
-      console.log("[CompanyForm] Response:", response);
+      console.log('[CompanyForm] Response status:', response.status, response.ok);
 
       if (response.ok) {
         let data;
@@ -95,11 +106,11 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           data = await response.json();
         } catch (parseError) {
           console.log("[CompanyForm] Response is not JSON, treating as success");
-          data = { company: request };
+          data = { company: payload };
         }
 
         toast.success("Company saved successfully!");
-        handleSave(data?.company || request);
+        handleSave(data?.company || payload);
       } else {
         let errorData;
         try {
@@ -109,11 +120,11 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           errorData = { error: response.statusText };
         }
 
-        console.log("[CompanyForm] Error response:", errorData?.error || response.statusText);
+        console.log("[CompanyForm] Save failed with status:", response.status, errorData?.error || response.statusText);
         toast.error("Failed to save company");
       }
     } catch (error) {
-      console.log("[CompanyForm] Error:", error);
+      console.log("[CompanyForm] Error:", error?.message);
       toast.error("Error saving company");
     } finally {
       setIsSaving(false);
