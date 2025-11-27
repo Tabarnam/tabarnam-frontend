@@ -67,7 +67,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
         }
 
         toast.success("Company saved successfully!");
-        onSaved(data?.company || request);
+        handleSave(data?.company || request);
       } else {
         let errorData;
         try {
