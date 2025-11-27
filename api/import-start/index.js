@@ -526,20 +526,44 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 role: "user",
                 content: `You are a research assistant specializing in company location data.
 For the following companies, you previously found some information but HQ and/or manufacturing locations were missing or unclear.
-Re-check ONLY for headquarters location and manufacturing locations using official sources, LinkedIn, Crunchbase, product pages, and facility FAQs.
+AGGRESSIVELY re-check ONLY for headquarters location and manufacturing locations using ALL available sources.
+
+SOURCES TO CHECK (in order):
+1. Official website (About, Contact, Facilities, Manufacturing, Where We Make pages)
+2. Government Buyer Guides (like Yumpu entries) - often list exact headquarters and "made in USA" claims
+3. B2B/Industrial Manufacturer Directories (Thomas Register, SIC/NAICS registries, manufacturer databases)
+4. LinkedIn company profile and product pages
+5. Public import/export records and trade data showing manufacturing origin countries
+6. Supplier databases and known manufacturing partners
+7. Packaging labels and product descriptions mentioning "Made in..."
+8. Media articles, product reviews, and third-party sources
+9. Crunchbase and other business databases
+
+CRITICAL RULES FOR MANUFACTURING LOCATIONS:
+- Government Buyer Guide entries (Yumpu, GSA, etc.) listing "all made in USA" or similar → INCLUDE "United States" in manufacturing_locations
+- B2B directories explicitly noting "Manufacturer" status + location → INCLUDE that location
+- Repeated origin countries in trade/customs data → INCLUDE those countries
+- Packaging claims "Made in [X]" → INCLUDE X
+- Do NOT return empty manufacturing_locations arrays - prefer country-only entries (e.g., "United States", "China") if that's all that's known
+- Country-only manufacturing locations are FULLY ACCEPTABLE and PREFERRED
 
 Companies needing refinement:
-${companiesNeedingLocationRefinement.map(c => `- ${c.company_name} (${c.url || 'N/A'})`).join('\n')}
+${companiesNeedingLocationRefinement.map(c => `- ${c.company_name} (${c.url || 'N/A'}) - missing: ${!c.headquarters_location ? 'HQ' : ''} ${!c.manufacturing_locations || c.manufacturing_locations.length === 0 ? 'Manufacturing' : ''}`).join('\n')}
 
 For EACH company, return ONLY:
 {
   "company_name": "exact name",
-  "headquarters_location": "City, State/Region, Country OR empty string if not found",
-  "manufacturing_locations": ["location1", "location2", ...],
+  "headquarters_location": "City, State/Region, Country OR empty string ONLY if truly not found after checking all sources",
+  "manufacturing_locations": ["location1", "location2", ...] (MUST include countries/locations from all sources checked - never empty unless exhaustively confirmed unknown),
   "red_flag": true/false,
-  "red_flag_reason": "explanation if red_flag true, empty string if false",
+  "red_flag_reason": "explanation if red_flag true, empty string if false; may note inference source (e.g., 'Inferred from customs records')",
   "location_confidence": "high|medium|low"
 }
+
+IMPORTANT:
+- NEVER return empty manufacturing_locations after checking government guides, B2B directories, and trade data
+- ALWAYS prefer "United States" or "China" over empty array
+- Inferred locations from secondary sources are valid and do NOT require red_flag: true
 
 Focus ONLY on location accuracy. Return a JSON array with these objects.
 Return ONLY the JSON array, no other text.`,
