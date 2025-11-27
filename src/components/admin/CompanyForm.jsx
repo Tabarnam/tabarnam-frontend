@@ -52,9 +52,9 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
     const fetchSuggestions = async () => {
       setLoadingKeywords(true);
       try {
-        const res = await apiFetch('admin-keywords');
+        const res = await apiFetch('/admin-keywords');
         if (res.ok) {
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           const keywords = data.keywords || [];
           setKeywordsSuggestions(keywords);
           setIndustriesSuggestions(keywords);
@@ -184,10 +184,27 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
         body: JSON.stringify(requestBody),
       });
 
-      const data = await res.json().catch(() => null);
+      let data = null;
+      const contentType = res.headers?.get('content-type') || '';
+      
+      if (contentType.includes('application/json')) {
+        data = await res.json().catch(() => null);
+      } else {
+        try {
+          const text = await res.text();
+          if (text) {
+            data = JSON.parse(text);
+          }
+        } catch (e) {
+          console.warn('[CompanyForm] Response is not JSON:', contentType);
+          data = null;
+        }
+      }
+
       console.log('[CompanyForm] Response:', {
         status: res.status,
         ok: res.ok,
+        contentType,
         hasCompany: !!data?.company,
         hasError: !!data?.error,
         data
@@ -200,9 +217,7 @@ const CompanyForm = ({ isOpen, onClose, company, onSuccess }) => {
       }
 
       if (!data?.ok && !data?.company) {
-        const errorMsg = 'Server response missing confirmation data';
-        console.error('[CompanyForm] Invalid response:', data);
-        throw new Error(errorMsg);
+        console.warn('[CompanyForm] Response missing confirmation, but status OK:', data);
       }
 
       console.log('[CompanyForm] Save successful:', { id: data?.company?.id, name: data?.company?.company_name });
