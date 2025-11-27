@@ -161,6 +161,21 @@ app.http("adminCompanies", {
           return json({ error: "Unable to determine company ID" }, 400);
         }
 
+        // Geocode headquarters location if present and no lat/lng already provided
+        let hq_lat = incoming.hq_lat;
+        let hq_lng = incoming.hq_lng;
+
+        if (!Number.isFinite(hq_lat) || !Number.isFinite(hq_lng)) {
+          if (incoming.headquarters_location && incoming.headquarters_location.trim()) {
+            const geoResult = await geocodeHQLocation(incoming.headquarters_location);
+            if (geoResult.hq_lat !== undefined && geoResult.hq_lng !== undefined) {
+              hq_lat = geoResult.hq_lat;
+              hq_lng = geoResult.hq_lng;
+              context.log(`[admin-companies] Geocoded ${incoming.company_name || incoming.name}: ${incoming.headquarters_location} → (${hq_lat}, ${hq_lng})`);
+            }
+          }
+        }
+
         const now = new Date().toISOString();
         const doc = {
           ...incoming,
@@ -168,6 +183,8 @@ app.http("adminCompanies", {
           company_id: partitionKeyValue,
           company_name: incoming.company_name || incoming.name || "",
           name: incoming.name || incoming.company_name || "",
+          hq_lat: hq_lat,
+          hq_lng: hq_lng,
           updated_at: now,
           created_at: incoming.created_at || now,
         };
