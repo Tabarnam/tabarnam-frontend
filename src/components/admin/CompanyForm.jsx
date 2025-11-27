@@ -112,11 +112,13 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     handleDialogClose();
   };
 
+  const isEditMode = !!(formData?.id || formData?.company_id);
+
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
       <DialogContent className="sm:max-w-[625px]">
         <DialogHeader>
-          <DialogTitle>{formData.id ? "Edit Company" : "New Company"}</DialogTitle>
+          <DialogTitle>{isEditMode ? "Edit Company" : "New Company"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
