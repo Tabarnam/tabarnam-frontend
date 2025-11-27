@@ -29,6 +29,11 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       product_keywords: Array.isArray(comp.product_keywords) ? comp.product_keywords : [],
       keywords: Array.isArray(comp.keywords) ? comp.keywords : (Array.isArray(comp.product_keywords) ? comp.product_keywords : []),
       normalized_domain: comp.normalized_domain || "",
+      headquarters_location: comp.headquarters_location || "",
+      manufacturing_locations: Array.isArray(comp.manufacturing_locations) ? comp.manufacturing_locations : [],
+      red_flag: Boolean(comp.red_flag),
+      red_flag_reason: comp.red_flag_reason || "",
+      location_confidence: comp.location_confidence || "medium",
     };
   };
 
