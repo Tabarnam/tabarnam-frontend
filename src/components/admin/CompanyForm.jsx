@@ -18,7 +18,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     } else {
       setFormData({});
     }
-  }, [company, isOpen]);
+  }, [company]);
 
   useEffect(() => {
     const fetchKeywords = async () => {
