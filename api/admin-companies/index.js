@@ -1,4 +1,5 @@
 const { app } = require("@azure/functions");
+const axios = require("axios");
 
 let CosmosClientCtor = null;
 function loadCosmosCtor() {
@@ -47,6 +48,44 @@ function getCompaniesContainer() {
     console.error("[admin-companies] Failed to create Cosmos client:", e?.message);
     return null;
   }
+}
+
+// Helper: geocode a headquarters location string to get lat/lng
+async function geocodeHQLocation(headquarters_location) {
+  if (!headquarters_location || headquarters_location.trim() === "") {
+    return { hq_lat: undefined, hq_lng: undefined };
+  }
+
+  try {
+    const proxyBase = (process.env.XAI_EXTERNAL_BASE || process.env.XAI_PROXY_BASE || "").trim();
+    const baseUrl = proxyBase ? `${proxyBase.replace(/\/api$/, '')}/api` : '/api';
+
+    const geocodeUrl = `${baseUrl}/google/geocode`;
+
+    const response = await axios.post(geocodeUrl,
+      {
+        address: headquarters_location,
+        ipLookup: false
+      },
+      {
+        timeout: 5000,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    if (response.data && response.data.best && response.data.best.location) {
+      const { lat, lng } = response.data.best.location;
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        return { hq_lat: lat, hq_lng: lng };
+      }
+    }
+  } catch (e) {
+    console.log(`[admin-companies] Geocoding failed for "${headquarters_location}": ${e.message}`);
+  }
+
+  return { hq_lat: undefined, hq_lng: undefined };
 }
 
 app.http("adminCompanies", {
@@ -122,6 +161,21 @@ app.http("adminCompanies", {
           return json({ error: "Unable to determine company ID" }, 400);
         }
 
+        // Geocode headquarters location if present and no lat/lng already provided
+        let hq_lat = incoming.hq_lat;
+        let hq_lng = incoming.hq_lng;
+
+        if (!Number.isFinite(hq_lat) || !Number.isFinite(hq_lng)) {
+          if (incoming.headquarters_location && incoming.headquarters_location.trim()) {
+            const geoResult = await geocodeHQLocation(incoming.headquarters_location);
+            if (geoResult.hq_lat !== undefined && geoResult.hq_lng !== undefined) {
+              hq_lat = geoResult.hq_lat;
+              hq_lng = geoResult.hq_lng;
+              context.log(`[admin-companies] Geocoded ${incoming.company_name || incoming.name}: ${incoming.headquarters_location} → (${hq_lat}, ${hq_lng})`);
+            }
+          }
+        }
+
         const now = new Date().toISOString();
         const doc = {
           ...incoming,
@@ -129,6 +183,8 @@ app.http("adminCompanies", {
           company_id: partitionKeyValue,
           company_name: incoming.company_name || incoming.name || "",
           name: incoming.name || incoming.company_name || "",
+          hq_lat: hq_lat,
+          hq_lng: hq_lng,
           updated_at: now,
           created_at: incoming.created_at || now,
         };
