@@ -556,6 +556,20 @@ Return ONLY the JSON array, no other text.`,
                     return company;
                   });
 
+                  // Re-geocode any companies with updated headquarters locations from refinement
+                  console.log(`[import-start] Re-geocoding refined companies`);
+                  for (let i = 0; i < enriched.length; i++) {
+                    const company = enriched[i];
+                    const hasUpdatedHQ = refinedLocations.some(rl => (rl.company_name || "").toLowerCase() === (company.company_name || "").toLowerCase());
+                    if (hasUpdatedHQ && company.headquarters_location && company.headquarters_location.trim()) {
+                      const geoResult = await geocodeHQLocation(company.headquarters_location);
+                      if (geoResult.hq_lat !== undefined && geoResult.hq_lng !== undefined) {
+                        enriched[i] = { ...company, ...geoResult };
+                        console.log(`[import-start] Re-geocoded ${company.company_name}: ${company.headquarters_location} → (${geoResult.hq_lat}, ${geoResult.hq_lng})`);
+                      }
+                    }
+                  }
+
                   console.log(`[import-start] Merged refinement data back into companies`);
                 }
               }
