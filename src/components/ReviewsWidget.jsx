@@ -55,34 +55,7 @@ export default function ReviewsWidget({ companyName }) {
 
   return (
     <div className="mt-3 border rounded p-3 bg-gray-50">
-      <div className="font-semibold mb-2">User Reviews</div>
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
-        <div>
-          <label className="block text-xs text-gray-600">Rating</label>
-          <select className="w-full border rounded px-2 py-1" value={rating} onChange={e=>setRating(e.target.value)}>
-            {[5,4,3,2,1].map(n => <option key={n} value={n}>{n} ★</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs text-gray-600">Your first name (optional)</label>
-          <input className="w-full border rounded px-2 py-1" value={userName} onChange={e=>setUserName(e.target.value)} placeholder="Add your first name" />
-        </div>
-        <div className="md:col-span-2">
-          <label className="block text-xs text-gray-600">Your location (optional)</label>
-          <input className="w-full border rounded px-2 py-1" value={userLocation} onChange={e=>setUserLocation(e.target.value)} placeholder="City, State/Region, Country" />
-        </div>
-      </div>
-      <div className="mb-2">
-        <label className="block text-xs text-gray-600">Your review</label>
-        <textarea className="w-full border rounded px-2 py-2 min-h-[120px]" value={text}
-                  onChange={e=>setText(e.target.value)} placeholder="Share your experience. No images." />
-      </div>
-      {error && <div className="text-sm text-red-600 mb-2">❌ {error}</div>}
-      <button onClick={submit} disabled={submitting}
-              className={`rounded px-4 py-2 text-white ${submitting ? "bg-gray-400" : "bg-emerald-600 hover:bg-emerald-700"}`}>
-        {submitting ? "Submitting…" : "Submit review"}
-      </button>
+      <div className="font-semibold mb-2">Reviews</div>
 
       <div className="mt-4">
         {loading ? (

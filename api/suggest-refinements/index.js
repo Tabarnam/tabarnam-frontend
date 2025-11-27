@@ -1,17 +1,6 @@
 // api/suggest-refinements/index.js
 const { app } = require("@azure/functions");
 
-let CosmosClientCtor = null;
-function loadCosmosCtor() {
-  if (CosmosClientCtor !== null) return CosmosClientCtor;
-  try {
-    CosmosClientCtor = require("@azure/cosmos").CosmosClient;
-  } catch {
-    CosmosClientCtor = undefined;
-  }
-  return CosmosClientCtor;
-}
-
 function env(k, d = "") {
   const v = process.env[k];
   return (v == null ? d : String(v)).trim();
@@ -31,17 +20,21 @@ function json(obj, status = 200, req) {
 }
 
 function getCompaniesContainer() {
-  const endpoint = env("COSMOS_DB_ENDPOINT", "");
-  const key = env("COSMOS_DB_KEY", "");
-  const databaseId = env("COSMOS_DB_DATABASE", "tabarnam-db");
-  const containerId = env("COSMOS_DB_COMPANIES_CONTAINER", "companies");
+  try {
+    const endpoint = env("COSMOS_DB_ENDPOINT", "");
+    const key = env("COSMOS_DB_KEY", "");
+    const databaseId = env("COSMOS_DB_DATABASE", "tabarnam-db");
+    const containerId = env("COSMOS_DB_COMPANIES_CONTAINER", "companies");
 
-  if (!endpoint || !key) return null;
-  const C = loadCosmosCtor();
-  if (!C) return null;
+    if (!endpoint || !key) return null;
 
-  const client = new C({ endpoint, key });
-  return client.database(databaseId).container(containerId);
+    const { CosmosClient } = require("@azure/cosmos");
+    const client = new CosmosClient({ endpoint, key });
+    return client.database(databaseId).container(containerId);
+  } catch (err) {
+    console.error("Failed to initialize Cosmos container:", err);
+    return null;
+  }
 }
 
 // Extract and count all unique keywords/industries that match query
@@ -127,7 +120,14 @@ async function getKeywordRefinements(container, q, country, state, city) {
 
     return { keywords, industries };
   } catch (e) {
-    console.error("getKeywordRefinements error:", e?.message || e);
+    console.error("getKeywordRefinements error:", {
+      message: e?.message,
+      stack: e?.stack,
+      q,
+      country,
+      state,
+      city,
+    });
     return { keywords: [], industries: [] };
   }
 }
@@ -191,7 +191,15 @@ app.http("suggestRefinements", {
         req
       );
     } catch (e) {
-      context.log("suggest-refinements error:", e?.message || e);
+      context.log("suggest-refinements error:", e?.message || e, e?.stack);
+      console.error("suggest-refinements error details:", {
+        message: e?.message,
+        stack: e?.stack,
+        q,
+        country,
+        state,
+        city,
+      });
       return json({ ok: true, success: true, suggestions: [] }, 200, req);
     }
   },

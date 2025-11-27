@@ -1,17 +1,6 @@
 // api/search-companies/index.js
 const { app } = require("@azure/functions");
 
-let CosmosClientCtor = null;
-function loadCosmosCtor() {
-  if (CosmosClientCtor !== null) return CosmosClientCtor;
-  try {
-    CosmosClientCtor = require("@azure/cosmos").CosmosClient;
-  } catch {
-    CosmosClientCtor = undefined;
-  }
-  return CosmosClientCtor;
-}
-
 function env(k, d = "") {
   const v = process.env[k];
   return (v == null ? d : String(v)).trim();
@@ -31,17 +20,21 @@ function json(obj, status = 200, req) {
 }
 
 function getCompaniesContainer() {
-  const endpoint = env("COSMOS_DB_ENDPOINT", "");
-  const key = env("COSMOS_DB_KEY", "");
-  const databaseId = env("COSMOS_DB_DATABASE", "tabarnam-db");
-  const containerId = env("COSMOS_DB_COMPANIES_CONTAINER", "companies");
+  try {
+    const endpoint = env("COSMOS_DB_ENDPOINT", "");
+    const key = env("COSMOS_DB_KEY", "");
+    const databaseId = env("COSMOS_DB_DATABASE", "tabarnam-db");
+    const containerId = env("COSMOS_DB_COMPANIES_CONTAINER", "companies");
 
-  if (!endpoint || !key) return null;
-  const C = loadCosmosCtor();
-  if (!C) return null;
+    if (!endpoint || !key) return null;
 
-  const client = new C({ endpoint, key });
-  return client.database(databaseId).container(containerId);
+    const { CosmosClient } = require("@azure/cosmos");
+    const client = new CosmosClient({ endpoint, key });
+    return client.database(databaseId).container(containerId);
+  } catch (err) {
+    console.error("Failed to initialize Cosmos container:", err);
+    return null;
+  }
 }
 
 // Single declaration (avoids the "Cannot redeclare block-scoped variable" error)
@@ -129,7 +122,8 @@ app.http("searchCompanies", {
               ${whereText}
               ORDER BY c._ts DESC
             `;
-            const paramsB = params.filter((p) => p.name !== "@take").concat({ name: "@take2", value: remaining });
+            const paramsB = [{ name: "@take2", value: remaining }];
+            if (q) paramsB.push({ name: "@q", value: q });
             const partB = await container.items
               .query({ query: sqlB, parameters: paramsB }, { enableCrossPartitionQuery: true })
               .fetchAll();
@@ -183,7 +177,14 @@ app.http("searchCompanies", {
           req
         );
       } catch (e) {
-        context.log("search-companies cosmos error:", e?.message || e);
+        context.log("search-companies cosmos error:", e?.message || e, e?.stack);
+        console.error("search-companies error details:", {
+          message: e?.message,
+          stack: e?.stack,
+          sort,
+          q,
+          limit,
+        });
         return json({ ok: false, success: false, error: e?.message || "query failed" }, 500, req);
       }
     }
