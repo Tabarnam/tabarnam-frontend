@@ -8,24 +8,56 @@ import { toast } from "sonner";
 import TagInputWithSuggestions from "./form-elements/TagInputWithSuggestions";
 
 const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
-  const [formData, setFormData] = useState(company || {});
+  const [formData, setFormData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [keywords, setKeywords] = useState([]);
 
+  // Normalize incoming company data from snake_case to form structure
+  const normalizeCompany = (comp) => {
+    if (!comp) return {};
+    return {
+      id: comp.id || comp.company_id,
+      company_id: comp.company_id || comp.id,
+      company_name: comp.company_name || comp.name || "",
+      name: comp.name || comp.company_name || "",
+      tagline: comp.tagline || "",
+      website_url: comp.website_url || comp.domain || comp.url || "",
+      domain: comp.domain || comp.website_url || comp.url || "",
+      amazon_store_url: comp.amazon_store_url || comp.amazon_url || "",
+      amazon_url: comp.amazon_url || comp.amazon_store_url || "",
+      industries: Array.isArray(comp.industries) ? comp.industries : [],
+      product_keywords: Array.isArray(comp.product_keywords) ? comp.product_keywords : [],
+      keywords: Array.isArray(comp.keywords) ? comp.keywords : (Array.isArray(comp.product_keywords) ? comp.product_keywords : []),
+      normalized_domain: comp.normalized_domain || "",
+    };
+  };
+
   useEffect(() => {
     if (company) {
-      setFormData(company);
+      const normalized = normalizeCompany(company);
+      setFormData(normalized);
+      const isEditMode = !!(normalized.id || normalized.company_id);
+      console.log('[CompanyForm] Rendering with company:', { isEditMode, id: normalized.id, company_id: normalized.company_id, company_name: normalized.company_name });
     } else {
       setFormData({});
+      console.log('[CompanyForm] Rendering as new company form');
     }
   }, [company]);
 
   useEffect(() => {
     const fetchKeywords = async () => {
-      const res = await apiFetch("/admin-keywords");
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        if (data?.items) setKeywords(data.items);
+      try {
+        const res = await apiFetch("/admin-keywords");
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          const fetchedKeywords = data?.keywords || data?.items || [];
+          setKeywords(fetchedKeywords);
+          console.log('[CompanyForm] Keywords fetched:', fetchedKeywords.length, 'items');
+        } else {
+          console.log('[CompanyForm] Failed to fetch keywords, status:', res.status);
+        }
+      } catch (error) {
+        console.log('[CompanyForm] Error fetching keywords:', error?.message);
       }
     };
     fetchKeywords();
@@ -40,30 +72,41 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     e.preventDefault();
     setIsSaving(true);
 
-    console.log("[CompanyForm] Submitting:", formData);
+    const companyId = formData.id || formData.company_id;
+    const method = companyId ? "PUT" : "POST";
 
-    const method = formData.id || formData.company_id ? "PUT" : "POST";
+    const normalized_domain = formData.normalized_domain ||
+      (formData.domain || formData.website_url || "")
+        .replace(/^(https?:\/\/)?(www\.)?/, "")
+        .replace(/\/$/, "")
+        .toLowerCase() || "";
 
-    const request = {
-      method,
-      endpoint: "/admin-companies",
-      ...formData,
-      company_id: formData.id || formData.company_id,
-      normalized_domain: formData.normalized_domain || formData.domain?.replace(/^(www\.)?/, "").toLowerCase() || "",
-      product_keywords: formData.product_keywords || [],
-      keywords: formData.keywords || [],
+    const payload = {
+      id: companyId || undefined,
+      company_id: companyId || undefined,
+      company_name: formData.company_name || "",
+      name: formData.name || formData.company_name || "",
+      tagline: formData.tagline || "",
+      website_url: formData.website_url || formData.domain || "",
+      domain: formData.domain || formData.website_url || "",
+      amazon_store_url: formData.amazon_store_url || formData.amazon_url || "",
+      amazon_url: formData.amazon_url || formData.amazon_store_url || "",
+      industries: Array.isArray(formData.industries) ? formData.industries : [],
+      product_keywords: Array.isArray(formData.product_keywords) ? formData.product_keywords : [],
+      keywords: Array.isArray(formData.keywords) ? formData.keywords : [],
+      normalized_domain,
     };
 
-    console.log("[CompanyForm] Submitting request:", request);
+    console.log('[CompanyForm] Submitting:', { method, isEditMode: !!companyId, id: payload.id, company_id: payload.company_id, company_name: payload.company_name });
 
     try {
-      const response = await apiFetch(request.endpoint, {
-        method: request.method,
+      const response = await apiFetch("/admin-companies", {
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company: request }),
+        body: JSON.stringify({ company: payload }),
       });
 
-      console.log("[CompanyForm] Response:", response);
+      console.log('[CompanyForm] Response status:', response.status, response.ok);
 
       if (response.ok) {
         let data;
@@ -71,11 +114,11 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           data = await response.json();
         } catch (parseError) {
           console.log("[CompanyForm] Response is not JSON, treating as success");
-          data = { company: request };
+          data = { company: payload };
         }
 
         toast.success("Company saved successfully!");
-        handleSave(data?.company || request);
+        handleSave(data?.company || payload);
       } else {
         let errorData;
         try {
@@ -85,11 +128,11 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           errorData = { error: response.statusText };
         }
 
-        console.log("[CompanyForm] Error response:", errorData?.error || response.statusText);
+        console.log("[CompanyForm] Save failed with status:", response.status, errorData?.error || response.statusText);
         toast.error("Failed to save company");
       }
     } catch (error) {
-      console.log("[CompanyForm] Error:", error);
+      console.log("[CompanyForm] Error:", error?.message);
       toast.error("Error saving company");
     } finally {
       setIsSaving(false);
@@ -118,27 +161,46 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
       <DialogContent className="sm:max-w-[625px]">
         <DialogHeader>
-          <DialogTitle>{isEditMode ? "Edit Company" : "New Company"}</DialogTitle>
+          <DialogTitle>{isEditMode ? "Edit Company" : "Add Company"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <Label htmlFor="companyName">Company Name</Label>
+            <Label htmlFor="company_name">Company Name</Label>
             <Input
-              id="companyName"
-              name="companyName"
-              value={formData.companyName || ""}
+              id="company_name"
+              name="company_name"
+              value={formData.company_name || ""}
               onChange={handleChange}
               required
             />
           </div>
           <div>
-            <Label htmlFor="domain">Domain</Label>
+            <Label htmlFor="tagline">Tagline</Label>
             <Input
-              id="domain"
-              name="domain"
-              value={formData.domain || ""}
+              id="tagline"
+              name="tagline"
+              value={formData.tagline || ""}
               onChange={handleChange}
-              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="website_url">Website URL</Label>
+            <Input
+              id="website_url"
+              name="website_url"
+              value={formData.website_url || ""}
+              onChange={handleChange}
+              placeholder="https://example.com"
+            />
+          </div>
+          <div>
+            <Label htmlFor="amazon_store_url">Amazon Store URL</Label>
+            <Input
+              id="amazon_store_url"
+              name="amazon_store_url"
+              value={formData.amazon_store_url || ""}
+              onChange={handleChange}
+              placeholder="https://amazon.com/..."
             />
           </div>
           <div>
