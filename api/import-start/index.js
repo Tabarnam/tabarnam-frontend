@@ -388,6 +388,107 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
 
+          // Check if any companies have missing or weak location data
+          const companiesNeedingLocationRefinement = enriched.filter(c =>
+            !c.headquarters_location || c.headquarters_location === "" ||
+            !c.manufacturing_locations || c.manufacturing_locations.length === 0
+          );
+
+          // Location refinement pass: if too many companies have missing locations, run a refinement
+          if (companiesNeedingLocationRefinement.length > 0 && enriched.length > 0) {
+            console.log(`[import-start] ${companiesNeedingLocationRefinement.length} companies need location refinement`);
+
+            try {
+              // Build refinement prompt focusing only on HQ + manufacturing locations
+              const refinementMessage = {
+                role: "user",
+                content: `You are a research assistant specializing in company location data.
+For the following companies, you previously found some information but HQ and/or manufacturing locations were missing or unclear.
+Re-check ONLY for headquarters location and manufacturing locations using official sources, LinkedIn, Crunchbase, product pages, and facility FAQs.
+
+Companies needing refinement:
+${companiesNeedingLocationRefinement.map(c => `- ${c.company_name} (${c.url || 'N/A'})`).join('\n')}
+
+For EACH company, return ONLY:
+{
+  "company_name": "exact name",
+  "headquarters_location": "City, State/Region, Country OR empty string if not found",
+  "manufacturing_locations": ["location1", "location2", ...],
+  "red_flag": true/false,
+  "red_flag_reason": "explanation if red_flag true, empty string if false",
+  "location_confidence": "high|medium|low"
+}
+
+Focus ONLY on location accuracy. Return a JSON array with these objects.
+Return ONLY the JSON array, no other text.`,
+              };
+
+              const refinementPayload = {
+                messages: [refinementMessage],
+                model: "grok-4-latest",
+                temperature: 0.1,
+                stream: false,
+              };
+
+              console.log(`[import-start] Running location refinement pass for ${companiesNeedingLocationRefinement.length} companies`);
+              const refinementResponse = await axios.post(xaiUrl, refinementPayload, {
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${xaiKey}`,
+                },
+                timeout: Math.max(1000, Number(process.env.XAI_TIMEOUT_MS) || 60000),
+              });
+
+              if (refinementResponse.status >= 200 && refinementResponse.status < 300) {
+                const refinementText = refinementResponse.data?.choices?.[0]?.message?.content || "";
+                console.log(`[import-start] Refinement response preview: ${refinementText.substring(0, 100)}...`);
+
+                let refinedLocations = [];
+                try {
+                  const jsonMatch = refinementText.match(/\[[\s\S]*\]/);
+                  if (jsonMatch) {
+                    refinedLocations = JSON.parse(jsonMatch[0]);
+                    if (!Array.isArray(refinedLocations)) refinedLocations = [];
+                  }
+                } catch (parseErr) {
+                  console.warn(`[import-start] Failed to parse refinement response: ${parseErr.message}`);
+                }
+
+                console.log(`[import-start] Refinement returned ${refinedLocations.length} location updates`);
+
+                // Merge refinement results back into enriched companies
+                if (refinedLocations.length > 0) {
+                  const refinementMap = new Map();
+                  refinedLocations.forEach(rl => {
+                    const name = (rl.company_name || "").toLowerCase();
+                    if (name) refinementMap.set(name, rl);
+                  });
+
+                  enriched = enriched.map(company => {
+                    const companyName = (company.company_name || "").toLowerCase();
+                    const refinement = refinementMap.get(companyName);
+                    if (refinement) {
+                      return {
+                        ...company,
+                        headquarters_location: refinement.headquarters_location || company.headquarters_location || "",
+                        manufacturing_locations: refinement.manufacturing_locations || company.manufacturing_locations || [],
+                        red_flag: refinement.red_flag !== undefined ? refinement.red_flag : company.red_flag,
+                        red_flag_reason: refinement.red_flag_reason !== undefined ? refinement.red_flag_reason : company.red_flag_reason || "",
+                        location_confidence: refinement.location_confidence || company.location_confidence || "medium",
+                      };
+                    }
+                    return company;
+                  });
+
+                  console.log(`[import-start] Merged refinement data back into companies`);
+                }
+              }
+            } catch (refinementErr) {
+              console.warn(`[import-start] Location refinement pass failed: ${refinementErr.message}`);
+              // Continue with original data if refinement fails
+            }
+          }
+
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
           if (enriched.length > 0) {
             saveResult = await saveCompaniesToCosmos(enriched, sessionId);
