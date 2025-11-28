@@ -16,6 +16,12 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const [keywords, setKeywords] = useState([]);
   const [manufacturingLocationInput, setManufacturingLocationInput] = useState("");
   const [starRating, setStarRating] = useState(0);
+  const [adminRatingNotes, setAdminRatingNotes] = useState("");
+  const [visibility, setVisibility] = useState({
+    hq_public: true,
+    manufacturing_public: true,
+    admin_rating_public: false,
+  });
 
   // Normalize incoming company data from snake_case to form structure
   const normalizeCompany = (comp) => {
