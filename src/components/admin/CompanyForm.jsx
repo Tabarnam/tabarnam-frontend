@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
 import { getAdminUser } from "@/lib/azureAuth";
@@ -16,11 +16,17 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const [keywords, setKeywords] = useState([]);
   const [manufacturingLocationInput, setManufacturingLocationInput] = useState("");
   const [starRating, setStarRating] = useState(0);
+  const [adminRatingNotes, setAdminRatingNotes] = useState("");
+  const [visibility, setVisibility] = useState({
+    hq_public: true,
+    manufacturing_public: true,
+    admin_rating_public: false,
+  });
 
   // Normalize incoming company data from snake_case to form structure
   const normalizeCompany = (comp) => {
     if (!comp) return {};
-    return {
+    const normalized = {
       id: comp.id || comp.company_id,
       company_id: comp.company_id || comp.id,
       company_name: comp.company_name || comp.name || "",
@@ -34,13 +40,15 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       product_keywords: Array.isArray(comp.product_keywords) ? comp.product_keywords : [],
       keywords: Array.isArray(comp.keywords) ? comp.keywords : (Array.isArray(comp.product_keywords) ? comp.product_keywords : []),
       normalized_domain: comp.normalized_domain || "",
-      headquarters_location: comp.headquarters_location || "",
-      manufacturing_locations: Array.isArray(comp.manufacturing_locations) ? comp.manufacturing_locations : [],
+      headquarters_location: typeof comp.headquarters_location === 'string' ? comp.headquarters_location : (comp.headquarters_location?.address || ""),
+      manufacturing_locations: Array.isArray(comp.manufacturing_locations) ? comp.manufacturing_locations.map(loc => typeof loc === 'string' ? loc : (loc?.address || "")) : [],
       red_flag: Boolean(comp.red_flag),
       red_flag_reason: comp.red_flag_reason || "",
       location_confidence: comp.location_confidence || "medium",
       star_rating: comp.star_rating || 0,
+      admin_rating_notes: comp.admin_rating_notes || "",
     };
+    return normalized;
   };
 
   useEffect(() => {
@@ -48,11 +56,23 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       const normalized = normalizeCompany(company);
       setFormData(normalized);
       setStarRating(normalized.star_rating || 0);
+      setAdminRatingNotes(normalized.admin_rating_notes || "");
+      setVisibility(company.visibility || {
+        hq_public: true,
+        manufacturing_public: true,
+        admin_rating_public: false,
+      });
       const isEditMode = !!(normalized.id || normalized.company_id);
       console.log('[CompanyForm] Rendering with company:', { isEditMode, id: normalized.id, company_id: normalized.company_id, company_name: normalized.company_name });
     } else {
       setFormData({});
       setStarRating(0);
+      setAdminRatingNotes("");
+      setVisibility({
+        hq_public: true,
+        manufacturing_public: true,
+        admin_rating_public: false,
+      });
       console.log('[CompanyForm] Rendering as new company form');
     }
   }, [company]);
@@ -114,6 +134,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       red_flag_reason: formData.red_flag_reason || "",
       location_confidence: formData.location_confidence || "medium",
       star_rating: Number(starRating) || 0,
+      admin_rating_notes: adminRatingNotes || "",
+      visibility: visibility,
     };
 
     console.log('[CompanyForm] Submitting:', { method, isEditMode: !!companyId, id: payload.id, company_id: payload.company_id, company_name: payload.company_name });
@@ -181,6 +203,9 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       <DialogContent className="sm:max-w-[625px] max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>{isEditMode ? "Edit Company" : "Add Company"}</DialogTitle>
+          <DialogDescription>
+            {isEditMode ? "Update company information and settings" : "Add a new company to the system"}
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto pr-4 flex-1">
           <div>
@@ -339,6 +364,67 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
             onStarChange={(val) => setStarRating(val)}
             userName={user?.email}
           />
+
+          <div className="border-t pt-4 mt-4">
+            <h3 className="font-semibold text-sm mb-4">Admin Notes</h3>
+            <div>
+              <Label htmlFor="admin_rating_notes">Internal Notes</Label>
+              <textarea
+                id="admin_rating_notes"
+                value={adminRatingNotes}
+                onChange={(e) => setAdminRatingNotes(e.target.value)}
+                placeholder="Internal notes about this company (not shown to users)..."
+                rows="3"
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#B1DDE3]"
+              />
+            </div>
+          </div>
+
+          <div className="border-t pt-4 mt-4">
+            <h3 className="font-semibold text-sm mb-4">Field Visibility</h3>
+            <p className="text-xs text-slate-600 mb-4">Control which fields are visible to users on the public results page</p>
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <input
+                  id="hq_public"
+                  type="checkbox"
+                  checked={visibility.hq_public}
+                  onChange={(e) => setVisibility((prev) => ({ ...prev, hq_public: e.target.checked }))}
+                  className="w-4 h-4 rounded border-slate-300"
+                />
+                <Label htmlFor="hq_public" className="text-sm font-medium text-slate-700 cursor-pointer mb-0">
+                  Show Headquarters Location to users
+                </Label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <input
+                  id="manufacturing_public"
+                  type="checkbox"
+                  checked={visibility.manufacturing_public}
+                  onChange={(e) => setVisibility((prev) => ({ ...prev, manufacturing_public: e.target.checked }))}
+                  className="w-4 h-4 rounded border-slate-300"
+                />
+                <Label htmlFor="manufacturing_public" className="text-sm font-medium text-slate-700 cursor-pointer mb-0">
+                  Show Manufacturing Locations to users
+                </Label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <input
+                  id="admin_rating_public"
+                  type="checkbox"
+                  checked={visibility.admin_rating_public}
+                  onChange={(e) => setVisibility((prev) => ({ ...prev, admin_rating_public: e.target.checked }))}
+                  className="w-4 h-4 rounded border-slate-300"
+                />
+                <Label htmlFor="admin_rating_public" className="text-sm font-medium text-slate-700 cursor-pointer mb-0">
+                  Show Star Rating to users
+                </Label>
+              </div>
+            </div>
+          </div>
 
           <div>
             <Label htmlFor="keywords">Keywords</Label>
