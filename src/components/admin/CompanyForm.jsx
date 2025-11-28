@@ -365,6 +365,67 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
             userName={user?.email}
           />
 
+          <div className="border-t pt-4 mt-4">
+            <h3 className="font-semibold text-sm mb-4">Admin Notes</h3>
+            <div>
+              <Label htmlFor="admin_rating_notes">Internal Notes</Label>
+              <textarea
+                id="admin_rating_notes"
+                value={adminRatingNotes}
+                onChange={(e) => setAdminRatingNotes(e.target.value)}
+                placeholder="Internal notes about this company (not shown to users)..."
+                rows="3"
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#B1DDE3]"
+              />
+            </div>
+          </div>
+
+          <div className="border-t pt-4 mt-4">
+            <h3 className="font-semibold text-sm mb-4">Field Visibility</h3>
+            <p className="text-xs text-slate-600 mb-4">Control which fields are visible to users on the public results page</p>
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <input
+                  id="hq_public"
+                  type="checkbox"
+                  checked={visibility.hq_public}
+                  onChange={(e) => setVisibility((prev) => ({ ...prev, hq_public: e.target.checked }))}
+                  className="w-4 h-4 rounded border-slate-300"
+                />
+                <Label htmlFor="hq_public" className="text-sm font-medium text-slate-700 cursor-pointer mb-0">
+                  Show Headquarters Location to users
+                </Label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <input
+                  id="manufacturing_public"
+                  type="checkbox"
+                  checked={visibility.manufacturing_public}
+                  onChange={(e) => setVisibility((prev) => ({ ...prev, manufacturing_public: e.target.checked }))}
+                  className="w-4 h-4 rounded border-slate-300"
+                />
+                <Label htmlFor="manufacturing_public" className="text-sm font-medium text-slate-700 cursor-pointer mb-0">
+                  Show Manufacturing Locations to users
+                </Label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <input
+                  id="admin_rating_public"
+                  type="checkbox"
+                  checked={visibility.admin_rating_public}
+                  onChange={(e) => setVisibility((prev) => ({ ...prev, admin_rating_public: e.target.checked }))}
+                  className="w-4 h-4 rounded border-slate-300"
+                />
+                <Label htmlFor="admin_rating_public" className="text-sm font-medium text-slate-700 cursor-pointer mb-0">
+                  Show Star Rating to users
+                </Label>
+              </div>
+            </div>
+          </div>
+
           <div>
             <Label htmlFor="keywords">Keywords</Label>
             <TagInputWithSuggestions
