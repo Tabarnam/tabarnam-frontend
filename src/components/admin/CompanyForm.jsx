@@ -5,13 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
+import { getAdminUser } from "@/lib/azureAuth";
 import TagInputWithSuggestions from "./form-elements/TagInputWithSuggestions";
+import StarNotesEditor from "./form-elements/StarNotesEditor";
 
 const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
+  const user = getAdminUser();
   const [formData, setFormData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [keywords, setKeywords] = useState([]);
   const [manufacturingLocationInput, setManufacturingLocationInput] = useState("");
+  const [starRating, setStarRating] = useState(0);
 
   // Normalize incoming company data from snake_case to form structure
   const normalizeCompany = (comp) => {
@@ -35,6 +39,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       red_flag: Boolean(comp.red_flag),
       red_flag_reason: comp.red_flag_reason || "",
       location_confidence: comp.location_confidence || "medium",
+      star_rating: comp.star_rating || 0,
     };
   };
 
@@ -42,10 +47,12 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     if (company) {
       const normalized = normalizeCompany(company);
       setFormData(normalized);
+      setStarRating(normalized.star_rating || 0);
       const isEditMode = !!(normalized.id || normalized.company_id);
       console.log('[CompanyForm] Rendering with company:', { isEditMode, id: normalized.id, company_id: normalized.company_id, company_name: normalized.company_name });
     } else {
       setFormData({});
+      setStarRating(0);
       console.log('[CompanyForm] Rendering as new company form');
     }
   }, [company]);
@@ -106,6 +113,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       red_flag: Boolean(formData.red_flag),
       red_flag_reason: formData.red_flag_reason || "",
       location_confidence: formData.location_confidence || "medium",
+      star_rating: Number(starRating) || 0,
     };
 
     console.log('[CompanyForm] Submitting:', { method, isEditMode: !!companyId, id: payload.id, company_id: payload.company_id, company_name: payload.company_name });
@@ -170,11 +178,11 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
-      <DialogContent className="sm:max-w-[625px]">
+      <DialogContent className="sm:max-w-[625px] max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>{isEditMode ? "Edit Company" : "Add Company"}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto pr-4 flex-1">
           <div>
             <Label htmlFor="company_name">Company Name</Label>
             <Input
@@ -325,6 +333,13 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
               </select>
             </div>
           </div>
+          <StarNotesEditor
+            companyId={formData.id || formData.company_id}
+            starRating={starRating}
+            onStarChange={(val) => setStarRating(val)}
+            userName={user?.email}
+          />
+
           <div>
             <Label htmlFor="keywords">Keywords</Label>
             <TagInputWithSuggestions
