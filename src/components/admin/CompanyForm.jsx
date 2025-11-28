@@ -200,7 +200,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
-      <DialogContent className="w-[95vw] sm:w-[92vw] md:w-[90vw] h-[90vh] flex flex-col p-6">
+      <DialogContent className="w-[95vw] sm:w-[92vw] md:w-[90vw] max-w-none h-[90vh] flex flex-col">
         <DialogHeader className="flex-shrink-0">
           <DialogTitle>{isEditMode ? "Edit Company" : "Add Company"}</DialogTitle>
           <DialogDescription>
