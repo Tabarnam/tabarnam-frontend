@@ -56,11 +56,23 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       const normalized = normalizeCompany(company);
       setFormData(normalized);
       setStarRating(normalized.star_rating || 0);
+      setAdminRatingNotes(normalized.admin_rating_notes || "");
+      setVisibility(company.visibility || {
+        hq_public: true,
+        manufacturing_public: true,
+        admin_rating_public: false,
+      });
       const isEditMode = !!(normalized.id || normalized.company_id);
       console.log('[CompanyForm] Rendering with company:', { isEditMode, id: normalized.id, company_id: normalized.company_id, company_name: normalized.company_name });
     } else {
       setFormData({});
       setStarRating(0);
+      setAdminRatingNotes("");
+      setVisibility({
+        hq_public: true,
+        manufacturing_public: true,
+        admin_rating_public: false,
+      });
       console.log('[CompanyForm] Rendering as new company form');
     }
   }, [company]);
