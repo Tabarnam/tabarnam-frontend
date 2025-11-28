@@ -26,7 +26,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   // Normalize incoming company data from snake_case to form structure
   const normalizeCompany = (comp) => {
     if (!comp) return {};
-    return {
+    const normalized = {
       id: comp.id || comp.company_id,
       company_id: comp.company_id || comp.id,
       company_name: comp.company_name || comp.name || "",
@@ -40,13 +40,15 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       product_keywords: Array.isArray(comp.product_keywords) ? comp.product_keywords : [],
       keywords: Array.isArray(comp.keywords) ? comp.keywords : (Array.isArray(comp.product_keywords) ? comp.product_keywords : []),
       normalized_domain: comp.normalized_domain || "",
-      headquarters_location: comp.headquarters_location || "",
-      manufacturing_locations: Array.isArray(comp.manufacturing_locations) ? comp.manufacturing_locations : [],
+      headquarters_location: typeof comp.headquarters_location === 'string' ? comp.headquarters_location : (comp.headquarters_location?.address || ""),
+      manufacturing_locations: Array.isArray(comp.manufacturing_locations) ? comp.manufacturing_locations.map(loc => typeof loc === 'string' ? loc : (loc?.address || "")) : [],
       red_flag: Boolean(comp.red_flag),
       red_flag_reason: comp.red_flag_reason || "",
       location_confidence: comp.location_confidence || "medium",
       star_rating: comp.star_rating || 0,
+      admin_rating_notes: comp.admin_rating_notes || "",
     };
+    return normalized;
   };
 
   useEffect(() => {
