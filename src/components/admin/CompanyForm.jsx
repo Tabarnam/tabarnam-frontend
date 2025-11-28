@@ -47,10 +47,12 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     if (company) {
       const normalized = normalizeCompany(company);
       setFormData(normalized);
+      setStarRating(normalized.star_rating || 0);
       const isEditMode = !!(normalized.id || normalized.company_id);
       console.log('[CompanyForm] Rendering with company:', { isEditMode, id: normalized.id, company_id: normalized.company_id, company_name: normalized.company_name });
     } else {
       setFormData({});
+      setStarRating(0);
       console.log('[CompanyForm] Rendering as new company form');
     }
   }, [company]);
