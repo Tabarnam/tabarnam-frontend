@@ -200,14 +200,14 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
-      <DialogContent className="sm:max-w-[625px] max-h-[90vh] flex flex-col">
-        <DialogHeader>
+      <DialogContent className="w-[95vw] sm:w-[92vw] md:w-[90vw] max-w-none h-[90vh] flex flex-col">
+        <DialogHeader className="flex-shrink-0">
           <DialogTitle>{isEditMode ? "Edit Company" : "Add Company"}</DialogTitle>
           <DialogDescription>
             {isEditMode ? "Update company information and settings" : "Add a new company to the system"}
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto pr-4 flex-1">
+        <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto flex-1 pr-4">
           <div>
             <Label htmlFor="company_name">Company Name</Label>
             <Input
