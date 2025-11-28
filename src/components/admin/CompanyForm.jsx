@@ -39,6 +39,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       red_flag: Boolean(comp.red_flag),
       red_flag_reason: comp.red_flag_reason || "",
       location_confidence: comp.location_confidence || "medium",
+      star_rating: comp.star_rating || 0,
     };
   };
 
