@@ -233,16 +233,18 @@ export default function ExpandableCompanyRow({
       >
         <div className="grid grid-cols-5 gap-4 mb-6 pb-6 border-b">
           <div className="col-span-2">
-            <div className="font-bold text-lg text-gray-900">{company.company_name}</div>
+            <h2 className="font-bold text-lg text-gray-900">
+              <a
+                href={company.website_url || company.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-gray-900 hover:text-blue-600 hover:underline transition-colors"
+              >
+                {company.company_name}
+              </a>
+            </h2>
             {company.company_tagline && (
               <div className="text-sm text-gray-600 mt-1">{company.company_tagline}</div>
-            )}
-            {company.url && (
-              <div className="text-xs text-blue-600 mt-1 truncate hover:text-blue-800">
-                <a href={company.url} target="_blank" rel="noreferrer">
-                  {company.url}
-                </a>
-              </div>
             )}
 
             {(affiliateLinks.length > 0 || amazonLink) && (
@@ -363,12 +365,18 @@ export default function ExpandableCompanyRow({
       style={{ borderColor: "#649BA0" }}
     >
       <div className="col-span-4">
-        <div className="font-bold text-gray-900">{company.company_name}</div>
+        <h2 className="font-bold text-gray-900">
+          <a
+            href={company.website_url || company.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-gray-900 hover:text-blue-600 hover:underline transition-colors"
+          >
+            {company.company_name}
+          </a>
+        </h2>
         {company.company_tagline && (
           <div className="text-xs text-gray-600 mt-1">{company.company_tagline}</div>
-        )}
-        {company.url && (
-          <div className="text-xs text-blue-600 mt-1 truncate">{truncateText(company.url, 40)}</div>
         )}
 
         {(affiliateLinks.length > 0 || amazonLink) && (
