@@ -246,13 +246,6 @@ export default function ExpandableCompanyRow({
             {company.company_tagline && (
               <div className="text-sm text-gray-600 mt-1">{company.company_tagline}</div>
             )}
-            {(company.website_url || company.url) && (
-              <div className="text-xs text-blue-600 mt-1 truncate hover:text-blue-800">
-                <a href={company.website_url || company.url} target="_blank" rel="noreferrer">
-                  {company.website_url || company.url}
-                </a>
-              </div>
-            )}
 
             {(affiliateLinks.length > 0 || amazonLink) && (
               <div className="mt-3 space-y-1">
