@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
+import { getAdminUser } from "@/lib/azureAuth";
 import TagInputWithSuggestions from "./form-elements/TagInputWithSuggestions";
+import StarNotesEditor from "./form-elements/StarNotesEditor";
 
 const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const [formData, setFormData] = useState({});
