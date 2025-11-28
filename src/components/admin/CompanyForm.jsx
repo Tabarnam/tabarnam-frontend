@@ -10,10 +10,12 @@ import TagInputWithSuggestions from "./form-elements/TagInputWithSuggestions";
 import StarNotesEditor from "./form-elements/StarNotesEditor";
 
 const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
+  const user = getAdminUser();
   const [formData, setFormData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [keywords, setKeywords] = useState([]);
   const [manufacturingLocationInput, setManufacturingLocationInput] = useState("");
+  const [starRating, setStarRating] = useState(0);
 
   // Normalize incoming company data from snake_case to form structure
   const normalizeCompany = (comp) => {
