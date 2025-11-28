@@ -333,6 +333,13 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
               </select>
             </div>
           </div>
+          <StarNotesEditor
+            companyId={formData.id || formData.company_id}
+            starRating={starRating}
+            onStarChange={(val) => setStarRating(val)}
+            userName={user?.email}
+          />
+
           <div>
             <Label htmlFor="keywords">Keywords</Label>
             <TagInputWithSuggestions
