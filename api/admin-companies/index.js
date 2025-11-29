@@ -176,6 +176,26 @@ app.http("adminCompanies", {
           }
         }
 
+        // Geocode additional headquarters locations
+        let headquarters_locations = [];
+        if (Array.isArray(incoming.headquarters_locations) && incoming.headquarters_locations.length > 0) {
+          headquarters_locations = await Promise.all(
+            incoming.headquarters_locations.map(async (hqLoc) => {
+              if (!hqLoc.lat || !hqLoc.lng) {
+                if (hqLoc.address && hqLoc.address.trim()) {
+                  const geoResult = await geocodeHQLocation(hqLoc.address);
+                  return {
+                    ...hqLoc,
+                    lat: geoResult.hq_lat,
+                    lng: geoResult.hq_lng,
+                  };
+                }
+              }
+              return hqLoc;
+            })
+          );
+        }
+
         // Calculate default rating if not provided
         const hasManufacturingLocations = Array.isArray(incoming.manufacturing_locations) && incoming.manufacturing_locations.length > 0;
         const hasHeadquarters = !!(incoming.headquarters_location && incoming.headquarters_location.trim());
