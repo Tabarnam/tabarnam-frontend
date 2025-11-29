@@ -344,12 +344,29 @@ app.http("companiesList", {
       if (method === "DELETE") {
         let body = {};
         try {
-          body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+          // Azure Functions v4: body can be string, object, Uint8Array, or Buffer
+          let bodyText = "";
+
+          if (typeof req.body === "string") {
+            bodyText = req.body;
+          } else if (Buffer.isBuffer(req.body) || req.body instanceof Uint8Array) {
+            bodyText = Buffer.from(req.body).toString("utf8");
+          } else if (req.body && typeof req.body === "object") {
+            body = req.body;
+          }
+
+          if (!body || Object.keys(body).length === 0) {
+            if (bodyText) {
+              body = JSON.parse(bodyText);
+            }
+          }
         } catch {
           return json({ error: "Invalid JSON" }, 400);
         }
 
-        const id = body.id || body.company_id;
+        // Support both { company: {...} } and flat {...} patterns
+        const deleteTarget = body.company || body;
+        const id = deleteTarget.id || deleteTarget.company_id;
         if (!id) {
           return json({ error: "id required" }, 400);
         }
