@@ -215,14 +215,14 @@ const KeywordsEditor: React.FC<KeywordsEditorProps> = ({
             </div>
           )}
         </div>
-      <Button
-        type="button"
-        onClick={handleAddButtonClick}
-        className="px-4 py-2 bg-[#B1DDE3] text-slate-900 rounded hover:bg-[#A0C8D0] font-medium h-10"
-        disabled={isLoading || !inputValue.trim()}
-      >
-        Add
-      </Button>
+        <Button
+          type="button"
+          onClick={handleAddButtonClick}
+          className="px-4 py-2 bg-[#B1DDE3] text-slate-900 rounded hover:bg-[#A0C8D0] font-medium h-10"
+          disabled={isLoading || !inputValue.trim()}
+        >
+          Add
+        </Button>
       </div>
 
       {keywords.length > 0 && (
