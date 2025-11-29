@@ -149,8 +149,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     }
 
     const payload = {
-      id: companyId || undefined,
-      company_id: companyId || undefined,
+      id: companyId,
+      company_id: companyId,
       company_name: formData.company_name || "",
       name: formData.name || formData.company_name || "",
       tagline: formData.tagline || "",
@@ -174,6 +174,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     };
 
     console.log('[CompanyForm] Submitting:', { method, isEditMode: !!companyId, id: payload.id, company_id: payload.company_id, company_name: payload.company_name });
+    console.log('[CompanyForm] Full payload being sent:', JSON.stringify({ company: payload }).substring(0, 500));
 
     try {
       const response = await apiFetch("/companies-list", {

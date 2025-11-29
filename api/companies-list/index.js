@@ -146,15 +146,45 @@ app.http("companiesList", {
       if (method === "POST" || method === "PUT") {
         let body = {};
         try {
-          body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+          // Azure Functions v4: body can be string, object, Uint8Array, or Buffer
+          let bodyText = "";
+
+          if (typeof req.body === "string") {
+            bodyText = req.body;
+          } else if (Buffer.isBuffer(req.body) || req.body instanceof Uint8Array) {
+            bodyText = Buffer.from(req.body).toString("utf8");
+          } else if (req.body && typeof req.body === "object") {
+            // Already parsed, use directly
+            body = req.body;
+          }
+
+          if (!body || Object.keys(body).length === 0) {
+            // If we haven't already set body from object, parse the text
+            if (bodyText) {
+              body = JSON.parse(bodyText);
+              context.log("[companies-list] Parsed body from text:", { textLength: bodyText.length, parsed: !!body });
+            }
+          }
         } catch (e) {
-          context.log("[companies-list] JSON parse error:", e?.message);
+          context.log("[companies-list] JSON parse error:", { error: e?.message, bodyType: typeof req.body });
           return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
 
-        context.log("[companies-list] Raw body received:", { method, bodyKeys: Object.keys(body).slice(0, 5), hasCompany: !!body.company });
+        context.log("[companies-list] Raw body received:", {
+          method,
+          bodyKeys: Object.keys(body).slice(0, 10),
+          hasCompany: !!body.company,
+          bodySample: JSON.stringify(body).substring(0, 500)
+        });
 
         const incoming = body.company || body;
+        context.log("[companies-list] Extracted incoming payload:", {
+          hasId: !!incoming.id,
+          hasCompanyId: !!incoming.company_id,
+          incomingId: incoming.id,
+          incomingCompanyId: incoming.company_id,
+          incomingKeys: Object.keys(incoming).slice(0, 15)
+        });
         if (!incoming) {
           context.log("[companies-list] No company payload found in body");
           return json({ error: "company payload required" }, 400);
@@ -177,8 +207,15 @@ app.http("companiesList", {
         if (method === "PUT") {
           // For PUT (updates), ALWAYS use the existing ID - never generate a new one
           id = incoming.id || incoming.company_id;
+          context.log("[companies-list] PUT: Looking for ID:", {
+            hasIncomingId: !!incoming.id,
+            hasIncomingCompanyId: !!incoming.company_id,
+            incomingIdValue: incoming.id,
+            incomingCompanyIdValue: incoming.company_id,
+            derivedId: id
+          });
           if (!id) {
-            context.log("[companies-list] PUT request missing ID");
+            context.log("[companies-list] PUT request missing ID - returning 400");
             return json({ error: "company ID required for updates" }, 400);
           }
           context.log("[companies-list] PUT: Preserving existing ID:", id);
@@ -314,12 +351,29 @@ app.http("companiesList", {
       if (method === "DELETE") {
         let body = {};
         try {
-          body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+          // Azure Functions v4: body can be string, object, Uint8Array, or Buffer
+          let bodyText = "";
+
+          if (typeof req.body === "string") {
+            bodyText = req.body;
+          } else if (Buffer.isBuffer(req.body) || req.body instanceof Uint8Array) {
+            bodyText = Buffer.from(req.body).toString("utf8");
+          } else if (req.body && typeof req.body === "object") {
+            body = req.body;
+          }
+
+          if (!body || Object.keys(body).length === 0) {
+            if (bodyText) {
+              body = JSON.parse(bodyText);
+            }
+          }
         } catch {
           return json({ error: "Invalid JSON" }, 400);
         }
 
-        const id = body.id || body.company_id;
+        // Support both { company: {...} } and flat {...} patterns
+        const deleteTarget = body.company || body;
+        const id = deleteTarget.id || deleteTarget.company_id;
         if (!id) {
           return json({ error: "id required" }, 400);
         }
