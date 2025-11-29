@@ -30,6 +30,24 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   // Normalize incoming company data from snake_case to form structure
   const normalizeCompany = (comp) => {
     if (!comp) return {};
+
+    // Extract primary and additional HQs from headquarters_locations array
+    let primaryHQ = "";
+    let additionalHQsList = [];
+
+    if (Array.isArray(comp.headquarters_locations) && comp.headquarters_locations.length > 0) {
+      const primaryHQObj = comp.headquarters_locations.find(hq => hq.is_hq === true);
+      if (primaryHQObj && primaryHQObj.address) {
+        primaryHQ = primaryHQObj.address;
+      }
+      additionalHQsList = comp.headquarters_locations.filter(hq => hq.is_hq !== true);
+    }
+
+    // Fall back to headquarters_location string if no HQs array
+    if (!primaryHQ && typeof comp.headquarters_location === 'string') {
+      primaryHQ = comp.headquarters_location;
+    }
+
     const normalized = {
       id: comp.id || comp.company_id,
       company_id: comp.company_id || comp.id,
@@ -44,7 +62,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       product_keywords: Array.isArray(comp.product_keywords) ? comp.product_keywords : [],
       keywords: Array.isArray(comp.keywords) ? comp.keywords : (Array.isArray(comp.product_keywords) ? comp.product_keywords : []),
       normalized_domain: comp.normalized_domain || "",
-      headquarters_location: typeof comp.headquarters_location === 'string' ? comp.headquarters_location : (comp.headquarters_location?.address || ""),
+      headquarters_location: primaryHQ,
+      headquarters_locations: additionalHQsList,
       manufacturing_locations: Array.isArray(comp.manufacturing_locations) ? comp.manufacturing_locations.map(loc => typeof loc === 'string' ? loc : (loc?.address || "")) : [],
       red_flag: Boolean(comp.red_flag),
       red_flag_reason: comp.red_flag_reason || "",
