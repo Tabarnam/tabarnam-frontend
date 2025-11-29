@@ -143,23 +143,40 @@ app.http("adminCompanies", {
         try {
           body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
         } catch (e) {
+          context.log("[admin-companies] JSON parse error:", e?.message);
           return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
 
+        context.log("[admin-companies] Raw body received:", { bodyKeys: Object.keys(body).slice(0, 5), hasCompany: !!body.company });
+
         const incoming = body.company || body;
         if (!incoming) {
+          context.log("[admin-companies] No company payload found in body");
           return json({ error: "company payload required" }, 400);
         }
+
+        context.log("[admin-companies] Incoming company data:", {
+          id: incoming.id,
+          company_id: incoming.company_id,
+          company_name: incoming.company_name,
+          hasRating: !!incoming.rating,
+          hasHeadquarters_location: !!incoming.headquarters_location,
+          hasHeadquarters_locations: Array.isArray(incoming.headquarters_locations),
+        });
 
         let id = incoming.id || incoming.company_id || incoming.company_name;
         if (!id) {
           id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+          context.log("[admin-companies] Generated new ID:", id);
         }
 
         const partitionKeyValue = String(id).trim();
         if (!partitionKeyValue) {
+          context.log("[admin-companies] Invalid partition key value");
           return json({ error: "Unable to determine company ID" }, 400);
         }
+
+        context.log("[admin-companies] Using partition key:", partitionKeyValue);
 
         // Geocode headquarters location if present and no lat/lng already provided
         let hq_lat = incoming.hq_lat;
@@ -225,20 +242,41 @@ app.http("adminCompanies", {
           created_at: incoming.created_at || now,
         };
 
-        context.log(`[admin-companies] Upserting company`, { id: partitionKeyValue, method, company_name: doc.company_name });
+        context.log(`[admin-companies] Document prepared for upsert`, {
+          id: partitionKeyValue,
+          method,
+          company_name: doc.company_name,
+          docKeys: Object.keys(doc).sort(),
+          hasRating: !!doc.rating,
+        });
 
         try {
+          context.log(`[admin-companies] Attempting upsert with partition key...`);
           let result;
           try {
-            result = await container.items.upsert(doc, { partitionKey: partitionKeyValue });
-          } catch (upsertError) {
-            context.log(`[admin-companies] First upsert attempt failed, retrying without partition key`, { error: upsertError?.message });
             result = await container.items.upsert(doc);
+            context.log(`[admin-companies] Upsert succeeded`, {
+              id: partitionKeyValue,
+              statusCode: result?.statusCode,
+              resourceId: result?.resource?.id,
+            });
+          } catch (upsertError) {
+            context.log(`[admin-companies] Upsert attempt failed`, {
+              error: upsertError?.message,
+              code: upsertError?.code,
+              statusCode: upsertError?.statusCode,
+            });
+            throw upsertError;
           }
-          context.log(`[admin-companies] Upsert completed successfully`, { id: partitionKeyValue, statusCode: result.statusCode, resourceId: result.resource?.id });
           return json({ ok: true, company: doc }, 200);
         } catch (e) {
-          context.log("[admin-companies] Upsert failed completely", { id: partitionKeyValue, message: e?.message, code: e?.code, statusCode: e?.statusCode });
+          context.log("[admin-companies] Upsert failed completely", {
+            id: partitionKeyValue,
+            message: e?.message,
+            code: e?.code,
+            statusCode: e?.statusCode,
+            stack: e?.stack,
+          });
           return json({ error: "Failed to save company", detail: e?.message }, 500);
         }
       }
