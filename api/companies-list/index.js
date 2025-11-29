@@ -1,6 +1,7 @@
 // Companies list API endpoint - v4 modern runtime with app.http()
 console.log("[companies-list] Starting module load...");
 const { app } = require("@azure/functions");
+const axios = require("axios");
 console.log("[companies-list] @azure/functions imported, app object created");
 
 let CosmosClientCtor = null;
