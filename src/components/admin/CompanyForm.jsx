@@ -372,21 +372,6 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           />
 
           <div className="border-t pt-4 mt-4">
-            <h3 className="font-semibold text-sm mb-4">Admin Notes</h3>
-            <div>
-              <Label htmlFor="admin_rating_notes">Internal Notes</Label>
-              <textarea
-                id="admin_rating_notes"
-                value={adminRatingNotes}
-                onChange={(e) => setAdminRatingNotes(e.target.value)}
-                placeholder="Internal notes about this company (not shown to users)..."
-                rows="3"
-                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#B1DDE3]"
-              />
-            </div>
-          </div>
-
-          <div className="border-t pt-4 mt-4">
             <h3 className="font-semibold text-sm mb-4">Field Visibility</h3>
             <p className="text-xs text-slate-600 mb-4">Control which fields are visible to users on the public results page</p>
 
