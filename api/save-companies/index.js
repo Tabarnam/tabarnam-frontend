@@ -118,6 +118,26 @@ app.http("saveCompanies", {
             }
           }
 
+          // Geocode additional headquarters locations
+          let headquarters_locations = [];
+          if (Array.isArray(company.headquarters_locations) && company.headquarters_locations.length > 0) {
+            headquarters_locations = await Promise.all(
+              company.headquarters_locations.map(async (hqLoc) => {
+                if (!hqLoc.lat || !hqLoc.lng) {
+                  if (hqLoc.address && hqLoc.address.trim()) {
+                    const geoResult = await geocodeHQLocation(hqLoc.address);
+                    return {
+                      ...hqLoc,
+                      lat: geoResult.hq_lat,
+                      lng: geoResult.hq_lng,
+                    };
+                  }
+                }
+                return hqLoc;
+              })
+            );
+          }
+
           // Calculate default rating based on company data
           const hasManufacturingLocations = Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0;
           const hasHeadquarters = !!(company.headquarters_location && company.headquarters_location.trim());
@@ -141,6 +161,7 @@ app.http("saveCompanies", {
             industries: company.industries || [],
             product_keywords: company.product_keywords || "",
             headquarters_location: company.headquarters_location || "",
+            headquarters_locations: headquarters_locations.length > 0 ? headquarters_locations : company.headquarters_locations,
             manufacturing_locations: Array.isArray(company.manufacturing_locations) ? company.manufacturing_locations : [],
             red_flag: Boolean(company.red_flag),
             red_flag_reason: company.red_flag_reason || "",
