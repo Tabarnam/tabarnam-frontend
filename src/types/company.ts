@@ -47,6 +47,7 @@ export interface Company {
   keywords?: string[];
   product_keywords?: string[];
   headquarters_location?: string;
+  headquarters_locations?: HeadquartersLocation[];
   hq_lat?: number;
   hq_lng?: number;
   manufacturing_locations?: string[];
