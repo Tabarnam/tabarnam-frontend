@@ -144,8 +144,9 @@ const KeywordsEditor: React.FC<KeywordsEditorProps> = ({
         </div>
       )}
 
-      {/* Search input with dropdown */}
-      <div className="relative" ref={containerRef}>
+      {/* Search input with dropdown and Add button */}
+      <div className="flex gap-2">
+        <div className="relative flex-1" ref={containerRef}>
         <div
           className={cn(
             'relative flex items-center gap-2 rounded-md border px-3 py-2 bg-white transition-colors',
@@ -213,6 +214,15 @@ const KeywordsEditor: React.FC<KeywordsEditorProps> = ({
             )}
           </div>
         )}
+      </div>
+      <Button
+        type="button"
+        onClick={handleAddButtonClick}
+        className="px-4 py-2 bg-[#B1DDE3] text-slate-900 rounded hover:bg-[#A0C8D0] font-medium h-10"
+        disabled={isLoading || !inputValue.trim()}
+      >
+        Add
+      </Button>
       </div>
 
       {keywords.length > 0 && (
