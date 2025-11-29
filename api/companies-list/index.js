@@ -403,4 +403,4 @@ app.http("companiesList", {
   },
 });
 
-console.log("[companies-list] ✅ Handler registered successfully with app.http");
+console.log("[companies-list] ✅ Handler registered successfully with app.http v1");
