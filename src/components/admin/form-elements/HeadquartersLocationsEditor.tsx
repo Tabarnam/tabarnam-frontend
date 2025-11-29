@@ -100,7 +100,7 @@ const HeadquartersLocationsEditor: React.FC<HeadquartersLocationsEditorProps> = 
             onClick={handleAddAdditionalHQ}
             className="px-4 py-2 bg-[#B1DDE3] text-slate-900 rounded hover:bg-[#A0C8D0] font-medium"
           >
-            Add HQ
+            Add
           </Button>
         </div>
 
