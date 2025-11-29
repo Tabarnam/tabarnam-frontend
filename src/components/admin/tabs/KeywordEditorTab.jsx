@@ -20,7 +20,7 @@ const KeywordEditorTab = () => {
   const fetchKeywords = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch('admin-keywords');
+      const res = await apiFetch('/keywords-list');
       if (res.ok) {
         const data = await res.json();
         setKeywords(data.keywords || []);
