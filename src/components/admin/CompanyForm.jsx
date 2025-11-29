@@ -399,14 +399,28 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
             </div>
           </div>
 
-          <div>
-            <Label htmlFor="keywords">Keywords</Label>
-            <TagInputWithSuggestions
-              suggestions={keywords}
-              value={formData.keywords || []}
-              onChange={(newKeywords) => setFormData((prev) => ({ ...prev, keywords: newKeywords }))}
-            />
+          <div className="border-t pt-4 mt-4">
+            <h3 className="font-semibold text-sm mb-4">Industries & Keywords</h3>
+
+            <div className="mb-4">
+              <IndustriesEditor
+                industries={formData.industries || []}
+                onChange={(newIndustries) => setFormData((prev) => ({ ...prev, industries: newIndustries }))}
+                label="Industries"
+                placeholder="Add an industry (e.g., Technology, Manufacturing) and press Enter"
+              />
+            </div>
+
+            <div>
+              <KeywordsEditor
+                keywords={formData.keywords || []}
+                onChange={(newKeywords) => setFormData((prev) => ({ ...prev, keywords: newKeywords }))}
+                label="Keywords"
+                placeholder="Search and select keywords..."
+              />
+            </div>
           </div>
+
           <Button type="submit" disabled={isSaving}>
             {isSaving ? "Saving..." : "Save"}
           </Button>
