@@ -207,8 +207,15 @@ app.http("companiesList", {
         if (method === "PUT") {
           // For PUT (updates), ALWAYS use the existing ID - never generate a new one
           id = incoming.id || incoming.company_id;
+          context.log("[companies-list] PUT: Looking for ID:", {
+            hasIncomingId: !!incoming.id,
+            hasIncomingCompanyId: !!incoming.company_id,
+            incomingIdValue: incoming.id,
+            incomingCompanyIdValue: incoming.company_id,
+            derivedId: id
+          });
           if (!id) {
-            context.log("[companies-list] PUT request missing ID");
+            context.log("[companies-list] PUT request missing ID - returning 400");
             return json({ error: "company ID required for updates" }, 400);
           }
           context.log("[companies-list] PUT: Preserving existing ID:", id);
