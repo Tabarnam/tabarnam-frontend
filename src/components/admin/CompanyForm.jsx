@@ -284,14 +284,13 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           </div>
           <div className="border-t pt-4 mt-4">
             <h3 className="font-semibold text-sm mb-4">Location Information</h3>
-            <div>
-              <Label htmlFor="headquarters_location">Headquarters Location</Label>
-              <Input
-                id="headquarters_location"
-                name="headquarters_location"
-                value={formData.headquarters_location || ""}
-                onChange={handleChange}
-                placeholder="City, State/Region, Country (e.g., San Francisco, CA, USA)"
+            <div className="border-t pt-4 mt-4">
+              <h3 className="font-semibold text-sm mb-4">Headquarters Locations</h3>
+              <HeadquartersLocationsEditor
+                primaryHQ={formData.headquarters_location || ""}
+                additionalHQs={additionalHQs}
+                onPrimaryChange={(value) => setFormData((prev) => ({ ...prev, headquarters_location: value }))}
+                onAdditionalsChange={setAdditionalHQs}
               />
             </div>
             <div className="mt-4">
