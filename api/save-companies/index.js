@@ -118,6 +118,20 @@ app.http("saveCompanies", {
             }
           }
 
+          // Calculate default rating based on company data
+          const hasManufacturingLocations = Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0;
+          const hasHeadquarters = !!(company.headquarters_location && company.headquarters_location.trim());
+          const hasReviews = (company.editorial_review_count || 0) > 0 ||
+                            (Array.isArray(company.reviews) && company.reviews.length > 0);
+
+          const defaultRating = {
+            star1: { value: hasManufacturingLocations ? 1.0 : 0.0, notes: [] },
+            star2: { value: hasHeadquarters ? 1.0 : 0.0, notes: [] },
+            star3: { value: hasReviews ? 1.0 : 0.0, notes: [] },
+            star4: { value: 0.0, notes: [] },
+            star5: { value: 0.0, notes: [] },
+          };
+
           const doc = {
             id: `company_${Date.now()}_${Math.random().toString(36).slice(2)}`,
             company_name: company.company_name || company.name || "",
@@ -133,6 +147,8 @@ app.http("saveCompanies", {
             location_confidence: company.location_confidence || "medium",
             hq_lat: hq_lat,
             hq_lng: hq_lng,
+            rating_icon_type: company.rating_icon_type || "star",
+            rating: company.rating || defaultRating,
             source: "manual_import",
             session_id: sessionId,
             created_at: new Date().toISOString(),
