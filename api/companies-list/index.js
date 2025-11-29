@@ -269,29 +269,36 @@ app.http("companiesList", {
           id: partitionKeyValue,
           method,
           company_name: doc.company_name,
+          hasIndustries: Array.isArray(doc.industries) && doc.industries.length > 0,
+          hasKeywords: Array.isArray(doc.keywords) && doc.keywords.length > 0,
           docKeys: Object.keys(doc).sort(),
           hasRating: !!doc.rating,
         });
 
         try {
-          context.log(`[companies-list] Attempting upsert with partition key...`);
+          context.log(`[companies-list] Attempting upsert with partition key "${partitionKeyValue}"...`);
           let result;
           try {
-            result = await container.items.upsert(doc);
+            result = await container.items.upsert(doc, { partitionKey: partitionKeyValue });
             context.log(`[companies-list] Upsert succeeded`, {
               id: partitionKeyValue,
               statusCode: result?.statusCode,
-              resourceId: result?.resource?.id,
+              returnedId: result?.resource?.id,
+              returnedCompanyId: result?.resource?.company_id,
             });
           } catch (upsertError) {
-            context.log(`[companies-list] Upsert attempt failed`, {
+            context.log(`[companies-list] Upsert with partition key failed, retrying without explicit key...`, {
               error: upsertError?.message,
               code: upsertError?.code,
               statusCode: upsertError?.statusCode,
             });
-            throw upsertError;
+            result = await container.items.upsert(doc);
+            context.log(`[companies-list] Fallback upsert succeeded`, {
+              id: partitionKeyValue,
+              statusCode: result?.statusCode,
+            });
           }
-          return json({ ok: true, company: doc }, 200);
+          return json({ ok: true, company: result?.resource || doc }, 200);
         } catch (e) {
           context.log("[companies-list] Upsert failed completely", {
             id: partitionKeyValue,
