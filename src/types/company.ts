@@ -35,6 +35,7 @@ export interface Company {
   normalized_domain?: string;
   tagline?: string;
   industries?: string[];
+  keywords?: string[];
   product_keywords?: string[];
   headquarters_location?: string;
   hq_lat?: number;
