@@ -32,7 +32,7 @@ const KeywordsEditor: React.FC<KeywordsEditorProps> = ({
     const fetchKeywords = async () => {
       try {
         setIsLoading(true);
-        const res = await apiFetch('/admin-keywords');
+        const res = await apiFetch('/keywords-list');
         if (res.ok) {
           const data = await res.json().catch(() => ({}));
           const keywordsList = data?.keywords || data?.items || [];

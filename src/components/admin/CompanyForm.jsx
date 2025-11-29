@@ -176,7 +176,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     console.log('[CompanyForm] Submitting:', { method, isEditMode: !!companyId, id: payload.id, company_id: payload.company_id, company_name: payload.company_name });
 
     try {
-      const response = await apiFetch("/admin-companies", {
+      const response = await apiFetch("/companies-list", {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ company: payload }),
