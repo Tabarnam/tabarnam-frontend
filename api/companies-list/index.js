@@ -146,32 +146,44 @@ app.http("companiesList", {
       if (method === "POST" || method === "PUT") {
         let body = {};
         try {
-          // Azure Functions v4: req.body might be a Uint8Array or stream
-          // Try multiple approaches to get the actual JSON payload
+          // Azure Functions v4: body can be string, object, Uint8Array, or Buffer
+          let bodyText = "";
+
           if (typeof req.body === "string") {
-            body = JSON.parse(req.body);
+            bodyText = req.body;
+          } else if (Buffer.isBuffer(req.body) || req.body instanceof Uint8Array) {
+            bodyText = Buffer.from(req.body).toString("utf8");
           } else if (req.body && typeof req.body === "object") {
-            // If it's already an object, use it
+            // Already parsed, use directly
             body = req.body;
-          } else {
-            // Try to read as text first
-            const bodyText = await req.text();
-            context.log("[companies-list] Request body as text:", bodyText.substring(0, 200));
-            body = bodyText ? JSON.parse(bodyText) : {};
+          }
+
+          if (!body || Object.keys(body).length === 0) {
+            // If we haven't already set body from object, parse the text
+            if (bodyText) {
+              body = JSON.parse(bodyText);
+              context.log("[companies-list] Parsed body from text:", { textLength: bodyText.length, parsed: !!body });
+            }
           }
         } catch (e) {
           context.log("[companies-list] JSON parse error:", { error: e?.message, bodyType: typeof req.body });
           return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
 
-        context.log("[companies-list] Raw body received:", { method, bodyKeys: Object.keys(body).slice(0, 10), bodyJSON: JSON.stringify(body).substring(0, 300) });
+        context.log("[companies-list] Raw body received:", {
+          method,
+          bodyKeys: Object.keys(body).slice(0, 10),
+          hasCompany: !!body.company,
+          bodySample: JSON.stringify(body).substring(0, 500)
+        });
 
         const incoming = body.company || body;
         context.log("[companies-list] Extracted incoming payload:", {
           hasId: !!incoming.id,
           hasCompanyId: !!incoming.company_id,
           incomingId: incoming.id,
-          incomingCompanyId: incoming.company_id
+          incomingCompanyId: incoming.company_id,
+          incomingKeys: Object.keys(incoming).slice(0, 15)
         });
         if (!incoming) {
           context.log("[companies-list] No company payload found in body");
