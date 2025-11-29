@@ -82,6 +82,7 @@ async function keywordsListHandler(request, context) {
       try {
         body = typeof request.body === "string" ? JSON.parse(request.body) : (request.body || {});
       } catch {
+        context.log("[keywords-list] JSON parse error on PUT");
         return {
           status: 400,
           headers: getCorsHeaders(),
@@ -100,22 +101,23 @@ async function keywordsListHandler(request, context) {
       };
 
       try {
-        context.log("[keywords-list] Upserting keywords document", { id: docId });
+        context.log("[keywords-list] Upserting keywords document", { id: docId, keywordCount: doc.list.length });
         let result;
         try {
           result = await container.items.upsert(doc, { partitionKey: docId });
+          context.log("[keywords-list] Upsert with partition key successful", { id: docId, statusCode: result?.statusCode });
         } catch (upsertError) {
-          context.log("[keywords-list] First upsert attempt failed, retrying without partition key", { error: upsertError?.message });
+          context.log("[keywords-list] Upsert with partition key failed, retrying without...", { error: upsertError?.message });
           result = await container.items.upsert(doc);
+          context.log("[keywords-list] Fallback upsert successful", { id: docId });
         }
-        context.log("[keywords-list] Upsert successful", { id: docId });
         return {
           status: 200,
           headers: getCorsHeaders(),
-          body: JSON.stringify({ ok: true, keywords: doc.list }),
+          body: JSON.stringify({ ok: true, keywords: (result?.resource?.list || doc.list) }),
         };
       } catch (e) {
-        context.log("[keywords-list] Upsert failed", { error: e?.message });
+        context.log("[keywords-list] Upsert failed completely", { error: e?.message, stack: e?.stack });
         return {
           status: 500,
           headers: getCorsHeaders(),
