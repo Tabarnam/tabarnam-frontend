@@ -24,6 +24,15 @@ export interface CompanyRating {
   star5: StarUnit;
 }
 
+export interface HeadquartersLocation {
+  address?: string;
+  city?: string;
+  country?: string;
+  lat?: number;
+  lng?: number;
+  is_hq?: boolean; // true for primary, false for additional
+}
+
 export interface Company {
   id?: string;
   company_id?: string;
@@ -38,6 +47,7 @@ export interface Company {
   keywords?: string[];
   product_keywords?: string[];
   headquarters_location?: string;
+  headquarters_locations?: HeadquartersLocation[];
   hq_lat?: number;
   hq_lng?: number;
   manufacturing_locations?: string[];

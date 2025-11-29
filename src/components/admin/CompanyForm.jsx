@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { getAdminUser } from "@/lib/azureAuth";
 import IndustriesEditor from "./form-elements/IndustriesEditor";
 import KeywordsEditor from "./form-elements/KeywordsEditor";
+import HeadquartersLocationsEditor from "./form-elements/HeadquartersLocationsEditor";
 import StarRatingEditor from "./form-elements/StarRatingEditor";
 import { defaultRating } from "@/types/company";
 import { getOrCalculateRating } from "@/lib/stars/calculateRating";
@@ -16,6 +17,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const user = getAdminUser();
   const [formData, setFormData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
+  const [additionalHQs, setAdditionalHQs] = useState([]);
   const [manufacturingLocationInput, setManufacturingLocationInput] = useState("");
   const [rating, setRating] = useState(defaultRating());
   const [ratingIconType, setRatingIconType] = useState("star");
@@ -28,6 +30,24 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   // Normalize incoming company data from snake_case to form structure
   const normalizeCompany = (comp) => {
     if (!comp) return {};
+
+    // Extract primary and additional HQs from headquarters_locations array
+    let primaryHQ = "";
+    let additionalHQsList = [];
+
+    if (Array.isArray(comp.headquarters_locations) && comp.headquarters_locations.length > 0) {
+      const primaryHQObj = comp.headquarters_locations.find(hq => hq.is_hq === true);
+      if (primaryHQObj && primaryHQObj.address) {
+        primaryHQ = primaryHQObj.address;
+      }
+      additionalHQsList = comp.headquarters_locations.filter(hq => hq.is_hq !== true);
+    }
+
+    // Fall back to headquarters_location string if no HQs array
+    if (!primaryHQ && typeof comp.headquarters_location === 'string') {
+      primaryHQ = comp.headquarters_location;
+    }
+
     const normalized = {
       id: comp.id || comp.company_id,
       company_id: comp.company_id || comp.id,
@@ -42,7 +62,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       product_keywords: Array.isArray(comp.product_keywords) ? comp.product_keywords : [],
       keywords: Array.isArray(comp.keywords) ? comp.keywords : (Array.isArray(comp.product_keywords) ? comp.product_keywords : []),
       normalized_domain: comp.normalized_domain || "",
-      headquarters_location: typeof comp.headquarters_location === 'string' ? comp.headquarters_location : (comp.headquarters_location?.address || ""),
+      headquarters_location: primaryHQ,
+      headquarters_locations: additionalHQsList,
       manufacturing_locations: Array.isArray(comp.manufacturing_locations) ? comp.manufacturing_locations.map(loc => typeof loc === 'string' ? loc : (loc?.address || "")) : [],
       red_flag: Boolean(comp.red_flag),
       red_flag_reason: comp.red_flag_reason || "",
@@ -57,6 +78,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     if (company) {
       const normalized = normalizeCompany(company);
       setFormData(normalized);
+      setAdditionalHQs(normalized.headquarters_locations || []);
 
       // Initialize rating from company data
       const companyRating = getOrCalculateRating(company);
@@ -72,6 +94,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       console.log('[CompanyForm] Rendering with company:', { isEditMode, id: normalized.id, company_id: normalized.company_id, company_name: normalized.company_name });
     } else {
       setFormData({});
+      setAdditionalHQs([]);
       setRating(defaultRating());
       setRatingIconType("star");
       setVisibility({
@@ -102,6 +125,29 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
         .replace(/\/$/, "")
         .toLowerCase() || "";
 
+    // Build headquarters_locations array from primary and additional HQs
+    const headquarters_locations = [];
+
+    if (formData.headquarters_location && formData.headquarters_location.trim()) {
+      headquarters_locations.push({
+        address: formData.headquarters_location.trim(),
+        is_hq: true,
+      });
+    }
+
+    if (Array.isArray(additionalHQs) && additionalHQs.length > 0) {
+      headquarters_locations.push(
+        ...additionalHQs.map(hq => ({
+          address: hq.address || '',
+          city: hq.city,
+          country: hq.country,
+          lat: hq.lat,
+          lng: hq.lng,
+          is_hq: false,
+        }))
+      );
+    }
+
     const payload = {
       id: companyId || undefined,
       company_id: companyId || undefined,
@@ -117,6 +163,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       keywords: Array.isArray(formData.keywords) ? formData.keywords : [],
       normalized_domain,
       headquarters_location: formData.headquarters_location || "",
+      headquarters_locations: headquarters_locations.length > 0 ? headquarters_locations : undefined,
       manufacturing_locations: Array.isArray(formData.manufacturing_locations) ? formData.manufacturing_locations : [],
       red_flag: Boolean(formData.red_flag),
       red_flag_reason: formData.red_flag_reason || "",
@@ -237,14 +284,13 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           </div>
           <div className="border-t pt-4 mt-4">
             <h3 className="font-semibold text-sm mb-4">Location Information</h3>
-            <div>
-              <Label htmlFor="headquarters_location">Headquarters Location</Label>
-              <Input
-                id="headquarters_location"
-                name="headquarters_location"
-                value={formData.headquarters_location || ""}
-                onChange={handleChange}
-                placeholder="City, State/Region, Country (e.g., San Francisco, CA, USA)"
+            <div className="border-t pt-4 mt-4">
+              <h3 className="font-semibold text-sm mb-4">Headquarters Locations</h3>
+              <HeadquartersLocationsEditor
+                primaryHQ={formData.headquarters_location || ""}
+                additionalHQs={additionalHQs}
+                onPrimaryChange={(value) => setFormData((prev) => ({ ...prev, headquarters_location: value }))}
+                onAdditionalsChange={setAdditionalHQs}
               />
             </div>
             <div className="mt-4">

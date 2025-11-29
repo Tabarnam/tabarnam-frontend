@@ -254,6 +254,7 @@ async function saveCompaniesToCosmos(companies, sessionId) {
           hq_lat: company.hq_lat,
           hq_lng: company.hq_lng,
           headquarters_location: company.headquarters_location || "",
+          headquarters_locations: company.headquarters_locations || [],
           manufacturing_locations: company.manufacturing_locations || [],
           red_flag: Boolean(company.red_flag),
           red_flag_reason: company.red_flag_reason || "",
