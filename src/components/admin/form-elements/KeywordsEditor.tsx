@@ -147,8 +147,8 @@ const KeywordsEditor: React.FC<KeywordsEditorProps> = ({
       {/* Search input with dropdown and Add button */}
       <div className="flex gap-2">
         <div className="relative flex-1" ref={containerRef}>
-        <div
-          className={cn(
+          <div
+            className={cn(
             'relative flex items-center gap-2 rounded-md border px-3 py-2 bg-white transition-colors',
             isOpen ? 'border-blue-500 ring-2 ring-blue-200' : 'border-slate-300 hover:border-slate-400'
           )}
