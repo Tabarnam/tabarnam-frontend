@@ -125,6 +125,29 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
         .replace(/\/$/, "")
         .toLowerCase() || "";
 
+    // Build headquarters_locations array from primary and additional HQs
+    const headquarters_locations = [];
+
+    if (formData.headquarters_location && formData.headquarters_location.trim()) {
+      headquarters_locations.push({
+        address: formData.headquarters_location.trim(),
+        is_hq: true,
+      });
+    }
+
+    if (Array.isArray(additionalHQs) && additionalHQs.length > 0) {
+      headquarters_locations.push(
+        ...additionalHQs.map(hq => ({
+          address: hq.address || '',
+          city: hq.city,
+          country: hq.country,
+          lat: hq.lat,
+          lng: hq.lng,
+          is_hq: false,
+        }))
+      );
+    }
+
     const payload = {
       id: companyId || undefined,
       company_id: companyId || undefined,
@@ -140,6 +163,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       keywords: Array.isArray(formData.keywords) ? formData.keywords : [],
       normalized_domain,
       headquarters_location: formData.headquarters_location || "",
+      headquarters_locations: headquarters_locations.length > 0 ? headquarters_locations : undefined,
       manufacturing_locations: Array.isArray(formData.manufacturing_locations) ? formData.manufacturing_locations : [],
       red_flag: Boolean(formData.red_flag),
       red_flag_reason: formData.red_flag_reason || "",
