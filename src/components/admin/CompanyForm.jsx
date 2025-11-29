@@ -149,8 +149,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     }
 
     const payload = {
-      id: companyId || undefined,
-      company_id: companyId || undefined,
+      ...(companyId && { id: companyId }),
+      ...(companyId && { company_id: companyId }),
       company_name: formData.company_name || "",
       name: formData.name || formData.company_name || "",
       tagline: formData.tagline || "",
