@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { getAdminUser } from "@/lib/azureAuth";
 import IndustriesEditor from "./form-elements/IndustriesEditor";
 import KeywordsEditor from "./form-elements/KeywordsEditor";
+import HeadquartersLocationsEditor from "./form-elements/HeadquartersLocationsEditor";
 import StarRatingEditor from "./form-elements/StarRatingEditor";
 import { defaultRating } from "@/types/company";
 import { getOrCalculateRating } from "@/lib/stars/calculateRating";
