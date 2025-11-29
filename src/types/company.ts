@@ -24,6 +24,15 @@ export interface CompanyRating {
   star5: StarUnit;
 }
 
+export interface HeadquartersLocation {
+  address?: string;
+  city?: string;
+  country?: string;
+  lat?: number;
+  lng?: number;
+  is_hq?: boolean; // true for primary, false for additional
+}
+
 export interface Company {
   id?: string;
   company_id?: string;
