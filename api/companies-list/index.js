@@ -146,27 +146,23 @@ app.http("companiesList", {
       if (method === "POST" || method === "PUT") {
         let body = {};
         try {
-          // Azure Functions v4: body can be string, object, Uint8Array, or Buffer
-          let bodyText = "";
-
-          if (typeof req.body === "string") {
-            bodyText = req.body;
-          } else if (Buffer.isBuffer(req.body) || req.body instanceof Uint8Array) {
-            bodyText = Buffer.from(req.body).toString("utf8");
-          } else if (req.body && typeof req.body === "object") {
-            // Already parsed, use directly
-            body = req.body;
-          }
-
-          if (!body || Object.keys(body).length === 0) {
-            // If we haven't already set body from object, parse the text
-            if (bodyText) {
-              body = JSON.parse(bodyText);
-              context.log("[companies-list] Parsed body from text:", { textLength: bodyText.length, parsed: !!body });
+          // Azure Functions v4: use await req.json() for proper body parsing
+          try {
+            body = await req.json();
+          } catch (jsonErr) {
+            // If JSON parsing fails, try raw text as fallback
+            try {
+              const text = await req.text();
+              if (text) {
+                body = JSON.parse(text);
+              }
+            } catch (textErr) {
+              context.log("[companies-list] Failed to parse request body as JSON or text", { jsonErr: jsonErr?.message, textErr: textErr?.message });
+              return json({ error: "Invalid JSON", detail: textErr?.message }, 400);
             }
           }
         } catch (e) {
-          context.log("[companies-list] JSON parse error:", { error: e?.message, bodyType: typeof req.body });
+          context.log("[companies-list] JSON parse error:", { error: e?.message });
           return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
 
