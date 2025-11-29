@@ -146,15 +146,33 @@ app.http("companiesList", {
       if (method === "POST" || method === "PUT") {
         let body = {};
         try {
-          body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+          // Azure Functions v4: req.body might be a Uint8Array or stream
+          // Try multiple approaches to get the actual JSON payload
+          if (typeof req.body === "string") {
+            body = JSON.parse(req.body);
+          } else if (req.body && typeof req.body === "object") {
+            // If it's already an object, use it
+            body = req.body;
+          } else {
+            // Try to read as text first
+            const bodyText = await req.text();
+            context.log("[companies-list] Request body as text:", bodyText.substring(0, 200));
+            body = bodyText ? JSON.parse(bodyText) : {};
+          }
         } catch (e) {
-          context.log("[companies-list] JSON parse error:", e?.message);
+          context.log("[companies-list] JSON parse error:", { error: e?.message, bodyType: typeof req.body });
           return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
 
-        context.log("[companies-list] Raw body received:", { method, bodyKeys: Object.keys(body).slice(0, 5), hasCompany: !!body.company });
+        context.log("[companies-list] Raw body received:", { method, bodyKeys: Object.keys(body).slice(0, 10), bodyJSON: JSON.stringify(body).substring(0, 300) });
 
         const incoming = body.company || body;
+        context.log("[companies-list] Extracted incoming payload:", {
+          hasId: !!incoming.id,
+          hasCompanyId: !!incoming.company_id,
+          incomingId: incoming.id,
+          incomingCompanyId: incoming.company_id
+        });
         if (!incoming) {
           context.log("[companies-list] No company payload found in body");
           return json({ error: "company payload required" }, 400);
