@@ -110,6 +110,14 @@ const KeywordsEditor: React.FC<KeywordsEditorProps> = ({
     }
   };
 
+  const handleAddButtonClick = () => {
+    if (filteredKeywords.length > 0) {
+      handleAddKeyword(filteredKeywords[0]);
+    } else if (inputValue.trim()) {
+      handleAddKeyword(inputValue);
+    }
+  };
+
   return (
     <div className="space-y-2">
       <Label htmlFor="keywords">{label}</Label>
