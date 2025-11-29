@@ -7,7 +7,9 @@ import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
 import { getAdminUser } from "@/lib/azureAuth";
 import TagInputWithSuggestions from "./form-elements/TagInputWithSuggestions";
-import StarNotesEditor from "./form-elements/StarNotesEditor";
+import StarRatingEditor from "./form-elements/StarRatingEditor";
+import { defaultRating } from "@/types/company";
+import { getOrCalculateRating } from "@/lib/stars/calculateRating";
 
 const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const user = getAdminUser();
