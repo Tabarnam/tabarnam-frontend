@@ -137,10 +137,10 @@ async function keywordsListHandler(request, context) {
 }
 
 console.log('[keywords-list] Registering with app.http...');
-app.http('keywordsList', {
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+app.http('keywords-list', {
+  methods: ['GET', 'PUT', 'OPTIONS'],
   authLevel: 'anonymous',
   route: 'keywords-list',
   handler: keywordsListHandler,
 });
-console.log('[keywords-list] ✅ Successfully registered with app.http');
+console.log('[keywords-list] ✅ Successfully registered app.http with route: keywords-list');
