@@ -57,8 +57,12 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     if (company) {
       const normalized = normalizeCompany(company);
       setFormData(normalized);
-      setStarRating(normalized.star_rating || 0);
-      setAdminRatingNotes(normalized.admin_rating_notes || "");
+
+      // Initialize rating from company data
+      const companyRating = getOrCalculateRating(company);
+      setRating(companyRating);
+      setRatingIconType(company.rating_icon_type || "star");
+
       setVisibility(company.visibility || {
         hq_public: true,
         manufacturing_public: true,
@@ -68,8 +72,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       console.log('[CompanyForm] Rendering with company:', { isEditMode, id: normalized.id, company_id: normalized.company_id, company_name: normalized.company_name });
     } else {
       setFormData({});
-      setStarRating(0);
-      setAdminRatingNotes("");
+      setRating(defaultRating());
+      setRatingIconType("star");
       setVisibility({
         hq_public: true,
         manufacturing_public: true,
