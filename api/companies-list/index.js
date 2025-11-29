@@ -399,4 +399,4 @@ app.http("companiesList", {
   },
 });
 
-console.log("[companies-list] ✅ Handler registered successfully with app.http v1");
+console.log("[companies-list] ✅ Handler registered successfully with app.http v2");
