@@ -6,7 +6,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
 import { getAdminUser } from "@/lib/azureAuth";
-import TagInputWithSuggestions from "./form-elements/TagInputWithSuggestions";
+import IndustriesEditor from "./form-elements/IndustriesEditor";
+import KeywordsEditor from "./form-elements/KeywordsEditor";
 import StarRatingEditor from "./form-elements/StarRatingEditor";
 import { defaultRating } from "@/types/company";
 import { getOrCalculateRating } from "@/lib/stars/calculateRating";
@@ -15,7 +16,6 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const user = getAdminUser();
   const [formData, setFormData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
-  const [keywords, setKeywords] = useState([]);
   const [manufacturingLocationInput, setManufacturingLocationInput] = useState("");
   const [rating, setRating] = useState(defaultRating());
   const [ratingIconType, setRatingIconType] = useState("star");
@@ -83,24 +83,6 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     }
   }, [company]);
 
-  useEffect(() => {
-    const fetchKeywords = async () => {
-      try {
-        const res = await apiFetch("/admin-keywords");
-        if (res.ok) {
-          const data = await res.json().catch(() => ({}));
-          const fetchedKeywords = data?.keywords || data?.items || [];
-          setKeywords(fetchedKeywords);
-          console.log('[CompanyForm] Keywords fetched:', fetchedKeywords.length, 'items');
-        } else {
-          console.log('[CompanyForm] Failed to fetch keywords, status:', res.status);
-        }
-      } catch (error) {
-        console.log('[CompanyForm] Error fetching keywords:', error?.message);
-      }
-    };
-    fetchKeywords();
-  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -417,14 +399,28 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
             </div>
           </div>
 
-          <div>
-            <Label htmlFor="keywords">Keywords</Label>
-            <TagInputWithSuggestions
-              suggestions={keywords}
-              value={formData.keywords || []}
-              onChange={(newKeywords) => setFormData((prev) => ({ ...prev, keywords: newKeywords }))}
-            />
+          <div className="border-t pt-4 mt-4">
+            <h3 className="font-semibold text-sm mb-4">Industries & Keywords</h3>
+
+            <div className="mb-4">
+              <IndustriesEditor
+                industries={formData.industries || []}
+                onChange={(newIndustries) => setFormData((prev) => ({ ...prev, industries: newIndustries }))}
+                label="Industries"
+                placeholder="Add an industry (e.g., Technology, Manufacturing) and press Enter"
+              />
+            </div>
+
+            <div>
+              <KeywordsEditor
+                keywords={formData.keywords || []}
+                onChange={(newKeywords) => setFormData((prev) => ({ ...prev, keywords: newKeywords }))}
+                label="Keywords"
+                placeholder="Search and select keywords..."
+              />
+            </div>
           </div>
+
           <Button type="submit" disabled={isSaving}>
             {isSaving ? "Saving..." : "Save"}
           </Button>
