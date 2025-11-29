@@ -7,7 +7,9 @@ import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
 import { getAdminUser } from "@/lib/azureAuth";
 import TagInputWithSuggestions from "./form-elements/TagInputWithSuggestions";
-import StarNotesEditor from "./form-elements/StarNotesEditor";
+import StarRatingEditor from "./form-elements/StarRatingEditor";
+import { defaultRating } from "@/types/company";
+import { getOrCalculateRating } from "@/lib/stars/calculateRating";
 
 const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const user = getAdminUser();
@@ -15,8 +17,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [keywords, setKeywords] = useState([]);
   const [manufacturingLocationInput, setManufacturingLocationInput] = useState("");
-  const [starRating, setStarRating] = useState(0);
-  const [adminRatingNotes, setAdminRatingNotes] = useState("");
+  const [rating, setRating] = useState(defaultRating());
+  const [ratingIconType, setRatingIconType] = useState("star");
   const [visibility, setVisibility] = useState({
     hq_public: true,
     manufacturing_public: true,
@@ -55,8 +57,12 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     if (company) {
       const normalized = normalizeCompany(company);
       setFormData(normalized);
-      setStarRating(normalized.star_rating || 0);
-      setAdminRatingNotes(normalized.admin_rating_notes || "");
+
+      // Initialize rating from company data
+      const companyRating = getOrCalculateRating(company);
+      setRating(companyRating);
+      setRatingIconType(company.rating_icon_type || "star");
+
       setVisibility(company.visibility || {
         hq_public: true,
         manufacturing_public: true,
@@ -66,8 +72,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       console.log('[CompanyForm] Rendering with company:', { isEditMode, id: normalized.id, company_id: normalized.company_id, company_name: normalized.company_name });
     } else {
       setFormData({});
-      setStarRating(0);
-      setAdminRatingNotes("");
+      setRating(defaultRating());
+      setRatingIconType("star");
       setVisibility({
         hq_public: true,
         manufacturing_public: true,
@@ -133,8 +139,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       red_flag: Boolean(formData.red_flag),
       red_flag_reason: formData.red_flag_reason || "",
       location_confidence: formData.location_confidence || "medium",
-      star_rating: Number(starRating) || 0,
-      admin_rating_notes: adminRatingNotes || "",
+      rating_icon_type: ratingIconType,
+      rating: rating,
       visibility: visibility,
     };
 
@@ -358,27 +364,12 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
               </select>
             </div>
           </div>
-          <StarNotesEditor
-            companyId={formData.id || formData.company_id}
-            starRating={starRating}
-            onStarChange={(val) => setStarRating(val)}
-            userName={user?.email}
+          <StarRatingEditor
+            rating={rating}
+            iconType={ratingIconType}
+            onRatingChange={setRating}
+            onIconTypeChange={setRatingIconType}
           />
-
-          <div className="border-t pt-4 mt-4">
-            <h3 className="font-semibold text-sm mb-4">Admin Notes</h3>
-            <div>
-              <Label htmlFor="admin_rating_notes">Internal Notes</Label>
-              <textarea
-                id="admin_rating_notes"
-                value={adminRatingNotes}
-                onChange={(e) => setAdminRatingNotes(e.target.value)}
-                placeholder="Internal notes about this company (not shown to users)..."
-                rows="3"
-                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#B1DDE3]"
-              />
-            </div>
-          </div>
 
           <div className="border-t pt-4 mt-4">
             <h3 className="font-semibold text-sm mb-4">Field Visibility</h3>

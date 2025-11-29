@@ -176,6 +176,19 @@ app.http("adminCompanies", {
           }
         }
 
+        // Calculate default rating if not provided
+        const hasManufacturingLocations = Array.isArray(incoming.manufacturing_locations) && incoming.manufacturing_locations.length > 0;
+        const hasHeadquarters = !!(incoming.headquarters_location && incoming.headquarters_location.trim());
+        const hasReviews = (incoming.editorial_review_count || 0) > 0;
+
+        const defaultRating = {
+          star1: { value: hasManufacturingLocations ? 1.0 : 0.0, notes: [] },
+          star2: { value: hasHeadquarters ? 1.0 : 0.0, notes: [] },
+          star3: { value: hasReviews ? 1.0 : 0.0, notes: [] },
+          star4: { value: 0.0, notes: [] },
+          star5: { value: 0.0, notes: [] },
+        };
+
         const now = new Date().toISOString();
         const doc = {
           ...incoming,
@@ -185,6 +198,8 @@ app.http("adminCompanies", {
           name: incoming.name || incoming.company_name || "",
           hq_lat: hq_lat,
           hq_lng: hq_lng,
+          rating_icon_type: incoming.rating_icon_type || "star",
+          rating: incoming.rating || defaultRating,
           updated_at: now,
           created_at: incoming.created_at || now,
         };
