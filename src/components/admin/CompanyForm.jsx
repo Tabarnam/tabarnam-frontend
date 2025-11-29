@@ -17,8 +17,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [keywords, setKeywords] = useState([]);
   const [manufacturingLocationInput, setManufacturingLocationInput] = useState("");
-  const [starRating, setStarRating] = useState(0);
-  const [adminRatingNotes, setAdminRatingNotes] = useState("");
+  const [rating, setRating] = useState(defaultRating());
+  const [ratingIconType, setRatingIconType] = useState("star");
   const [visibility, setVisibility] = useState({
     hq_public: true,
     manufacturing_public: true,
