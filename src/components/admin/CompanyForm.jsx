@@ -193,6 +193,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           data = { company: payload };
         }
 
+        console.log('[CompanyForm] Save succeeded with response:', { ok: data?.ok, company_id: data?.company?.company_id });
         toast.success("Company saved successfully!");
         handleSave(data?.company || payload);
       } else {
@@ -204,8 +205,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           errorData = { error: response.statusText };
         }
 
-        console.log("[CompanyForm] Save failed with status:", response.status, errorData?.error || response.statusText);
-        toast.error("Failed to save company");
+        console.log("[CompanyForm] Save failed with status:", response.status, "error:", errorData?.error || response.statusText);
+        toast.error("Failed to save company: " + (errorData?.error || response.statusText));
       }
     } catch (error) {
       console.log("[CompanyForm] Error:", error?.message);
