@@ -6,7 +6,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
 import { getAdminUser } from "@/lib/azureAuth";
-import TagInputWithSuggestions from "./form-elements/TagInputWithSuggestions";
+import IndustriesEditor from "./form-elements/IndustriesEditor";
+import KeywordsEditor from "./form-elements/KeywordsEditor";
 import StarRatingEditor from "./form-elements/StarRatingEditor";
 import { defaultRating } from "@/types/company";
 import { getOrCalculateRating } from "@/lib/stars/calculateRating";
