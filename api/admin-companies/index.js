@@ -143,23 +143,40 @@ app.http("adminCompanies", {
         try {
           body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
         } catch (e) {
+          context.log("[admin-companies] JSON parse error:", e?.message);
           return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
 
+        context.log("[admin-companies] Raw body received:", { bodyKeys: Object.keys(body).slice(0, 5), hasCompany: !!body.company });
+
         const incoming = body.company || body;
         if (!incoming) {
+          context.log("[admin-companies] No company payload found in body");
           return json({ error: "company payload required" }, 400);
         }
+
+        context.log("[admin-companies] Incoming company data:", {
+          id: incoming.id,
+          company_id: incoming.company_id,
+          company_name: incoming.company_name,
+          hasRating: !!incoming.rating,
+          hasHeadquarters_location: !!incoming.headquarters_location,
+          hasHeadquarters_locations: Array.isArray(incoming.headquarters_locations),
+        });
 
         let id = incoming.id || incoming.company_id || incoming.company_name;
         if (!id) {
           id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+          context.log("[admin-companies] Generated new ID:", id);
         }
 
         const partitionKeyValue = String(id).trim();
         if (!partitionKeyValue) {
+          context.log("[admin-companies] Invalid partition key value");
           return json({ error: "Unable to determine company ID" }, 400);
         }
+
+        context.log("[admin-companies] Using partition key:", partitionKeyValue);
 
         // Geocode headquarters location if present and no lat/lng already provided
         let hq_lat = incoming.hq_lat;
