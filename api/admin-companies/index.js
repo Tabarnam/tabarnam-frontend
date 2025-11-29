@@ -218,6 +218,7 @@ app.http("adminCompanies", {
           name: incoming.name || incoming.company_name || "",
           hq_lat: hq_lat,
           hq_lng: hq_lng,
+          headquarters_locations: headquarters_locations.length > 0 ? headquarters_locations : incoming.headquarters_locations,
           rating_icon_type: incoming.rating_icon_type || "star",
           rating: incoming.rating || defaultRating,
           updated_at: now,
