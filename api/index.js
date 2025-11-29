@@ -254,6 +254,14 @@ try {
   console.error("[api] ❌ Failed to load admin-save-diagnostic:", e?.message || e);
 }
 
+try {
+  console.log("[api] Registering: keywords-list");
+  require("./keywords-list/index.js");
+  console.log("[api] ✓ keywords-list registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load keywords-list:", e?.message || e);
+}
+
 console.log("[api/index.js] ✅ All handler registration complete!");
 
 module.exports = app;
