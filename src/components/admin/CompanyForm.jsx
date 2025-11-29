@@ -364,11 +364,11 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
               </select>
             </div>
           </div>
-          <StarNotesEditor
-            companyId={formData.id || formData.company_id}
-            starRating={starRating}
-            onStarChange={(val) => setStarRating(val)}
-            userName={user?.email}
+          <StarRatingEditor
+            rating={rating}
+            iconType={ratingIconType}
+            onRatingChange={setRating}
+            onIconTypeChange={setRatingIconType}
           />
 
           <div className="border-t pt-4 mt-4">
