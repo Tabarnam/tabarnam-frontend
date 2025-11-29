@@ -149,9 +149,9 @@ const KeywordsEditor: React.FC<KeywordsEditorProps> = ({
         <div className="relative flex-1" ref={containerRef}>
           <div
             className={cn(
-            'relative flex items-center gap-2 rounded-md border px-3 py-2 bg-white transition-colors',
-            isOpen ? 'border-blue-500 ring-2 ring-blue-200' : 'border-slate-300 hover:border-slate-400'
-          )}
+              'relative flex items-center gap-2 rounded-md border px-3 py-2 bg-white transition-colors',
+              isOpen ? 'border-blue-500 ring-2 ring-blue-200' : 'border-slate-300 hover:border-slate-400'
+            )}
           >
             <Input
               ref={inputRef}
