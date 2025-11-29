@@ -78,6 +78,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     if (company) {
       const normalized = normalizeCompany(company);
       setFormData(normalized);
+      setAdditionalHQs(normalized.headquarters_locations || []);
 
       // Initialize rating from company data
       const companyRating = getOrCalculateRating(company);
@@ -93,6 +94,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       console.log('[CompanyForm] Rendering with company:', { isEditMode, id: normalized.id, company_id: normalized.company_id, company_name: normalized.company_name });
     } else {
       setFormData({});
+      setAdditionalHQs([]);
       setRating(defaultRating());
       setRatingIconType("star");
       setVisibility({
