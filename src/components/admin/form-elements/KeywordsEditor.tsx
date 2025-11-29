@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { X, ChevronDown } from 'lucide-react';
@@ -109,6 +110,14 @@ const KeywordsEditor: React.FC<KeywordsEditorProps> = ({
     }
   };
 
+  const handleAddButtonClick = () => {
+    if (filteredKeywords.length > 0) {
+      handleAddKeyword(filteredKeywords[0]);
+    } else if (inputValue.trim()) {
+      handleAddKeyword(inputValue);
+    }
+  };
+
   return (
     <div className="space-y-2">
       <Label htmlFor="keywords">{label}</Label>
@@ -135,75 +144,85 @@ const KeywordsEditor: React.FC<KeywordsEditorProps> = ({
         </div>
       )}
 
-      {/* Search input with dropdown */}
-      <div className="relative" ref={containerRef}>
-        <div
-          className={cn(
-            'relative flex items-center gap-2 rounded-md border px-3 py-2 bg-white transition-colors',
-            isOpen ? 'border-blue-500 ring-2 ring-blue-200' : 'border-slate-300 hover:border-slate-400'
-          )}
-        >
-          <Input
-            ref={inputRef}
-            id="keywords"
-            type="text"
-            value={inputValue}
-            onChange={(e) => {
-              setInputValue(e.target.value);
-              setIsOpen(true);
-            }}
-            onKeyDown={handleKeyDown}
-            onFocus={() => {
-              setIsOpen(true);
-            }}
-            placeholder={placeholder}
-            disabled={isLoading}
-            className="border-0 shadow-none p-0 h-auto text-sm placeholder:text-slate-500 focus:ring-0 w-full bg-transparent"
-          />
-          <ChevronDown
-            size={16}
-            className={cn(
-              'text-slate-400 transition-transform flex-shrink-0',
-              isOpen && 'rotate-180'
-            )}
-          />
-        </div>
-
-        {/* Dropdown menu */}
-        {isOpen && (
+      {/* Search input with dropdown and Add button */}
+      <div className="flex gap-2">
+        <div className="relative flex-1" ref={containerRef}>
           <div
-            className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-md shadow-lg p-2 w-full max-h-64 overflow-y-auto z-50"
-            onMouseDown={(e) => e.preventDefault()}
-          >
-            {isLoading ? (
-              <div className="text-sm text-slate-600 p-3 text-center">Loading keywords...</div>
-            ) : filteredKeywords.length > 0 ? (
-              <div className="space-y-1">
-                {filteredKeywords.map((keyword) => (
-                  <button
-                    key={keyword}
-                    type="button"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      handleAddKeyword(keyword);
-                    }}
-                    className="w-full text-left px-3 py-2 rounded hover:bg-blue-50 text-sm text-slate-800 transition-colors font-medium"
-                  >
-                    {keyword}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="text-sm text-slate-600 p-3 text-center">
-                {inputValue.trim() && availableKeywords.length > 0
-                  ? 'No matching keywords'
-                  : availableKeywords.length === 0
-                  ? 'No keywords available'
-                  : 'Start typing to search...'}
-              </div>
+            className={cn(
+              'relative flex items-center gap-2 rounded-md border px-3 py-2 bg-white transition-colors',
+              isOpen ? 'border-blue-500 ring-2 ring-blue-200' : 'border-slate-300 hover:border-slate-400'
             )}
+          >
+            <Input
+              ref={inputRef}
+              id="keywords"
+              type="text"
+              value={inputValue}
+              onChange={(e) => {
+                setInputValue(e.target.value);
+                setIsOpen(true);
+              }}
+              onKeyDown={handleKeyDown}
+              onFocus={() => {
+                setIsOpen(true);
+              }}
+              placeholder={placeholder}
+              disabled={isLoading}
+              className="border-0 shadow-none p-0 h-auto text-sm placeholder:text-slate-500 focus:ring-0 w-full bg-transparent"
+            />
+            <ChevronDown
+              size={16}
+              className={cn(
+                'text-slate-400 transition-transform flex-shrink-0',
+                isOpen && 'rotate-180'
+              )}
+            />
           </div>
-        )}
+
+          {/* Dropdown menu */}
+          {isOpen && (
+            <div
+              className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-md shadow-lg p-2 w-full max-h-64 overflow-y-auto z-50"
+              onMouseDown={(e) => e.preventDefault()}
+            >
+              {isLoading ? (
+                <div className="text-sm text-slate-600 p-3 text-center">Loading keywords...</div>
+              ) : filteredKeywords.length > 0 ? (
+                <div className="space-y-1">
+                  {filteredKeywords.map((keyword) => (
+                    <button
+                      key={keyword}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleAddKeyword(keyword);
+                      }}
+                      className="w-full text-left px-3 py-2 rounded hover:bg-blue-50 text-sm text-slate-800 transition-colors font-medium"
+                    >
+                      {keyword}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-slate-600 p-3 text-center">
+                  {inputValue.trim() && availableKeywords.length > 0
+                    ? 'No matching keywords'
+                    : availableKeywords.length === 0
+                    ? 'No keywords available'
+                    : 'Start typing to search...'}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <Button
+          type="button"
+          onClick={handleAddButtonClick}
+          className="px-4 py-2 bg-[#B1DDE3] text-slate-900 rounded hover:bg-[#A0C8D0] font-medium h-10"
+          disabled={isLoading || !inputValue.trim()}
+        >
+          Add
+        </Button>
       </div>
 
       {keywords.length > 0 && (
