@@ -152,7 +152,7 @@ app.http("companiesList", {
           return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
 
-        context.log("[companies-list] Raw body received:", { bodyKeys: Object.keys(body).slice(0, 5), hasCompany: !!body.company });
+        context.log("[companies-list] Raw body received:", { method, bodyKeys: Object.keys(body).slice(0, 5), hasCompany: !!body.company });
 
         const incoming = body.company || body;
         if (!incoming) {
@@ -161,18 +161,36 @@ app.http("companiesList", {
         }
 
         context.log("[companies-list] Incoming company data:", {
+          method,
           id: incoming.id,
           company_id: incoming.company_id,
           company_name: incoming.company_name,
+          hasIndustries: Array.isArray(incoming.industries) && incoming.industries.length > 0,
+          hasKeywords: Array.isArray(incoming.keywords) && incoming.keywords.length > 0,
           hasRating: !!incoming.rating,
           hasHeadquarters_location: !!incoming.headquarters_location,
           hasHeadquarters_locations: Array.isArray(incoming.headquarters_locations),
         });
 
-        let id = incoming.id || incoming.company_id || incoming.company_name;
-        if (!id) {
-          id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-          context.log("[companies-list] Generated new ID:", id);
+        let id;
+
+        if (method === "PUT") {
+          // For PUT (updates), ALWAYS use the existing ID - never generate a new one
+          id = incoming.id || incoming.company_id;
+          if (!id) {
+            context.log("[companies-list] PUT request missing ID");
+            return json({ error: "company ID required for updates" }, 400);
+          }
+          context.log("[companies-list] PUT: Preserving existing ID:", id);
+        } else {
+          // For POST (new companies), generate ID if not provided
+          id = incoming.id || incoming.company_id || incoming.company_name;
+          if (!id) {
+            id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+            context.log("[companies-list] POST: Generated new ID:", id);
+          } else {
+            context.log("[companies-list] POST: Using provided ID:", id);
+          }
         }
 
         const partitionKeyValue = String(id).trim();
