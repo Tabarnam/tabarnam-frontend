@@ -227,6 +227,20 @@ async function saveCompaniesToCosmos(companies, sessionId) {
           logoUrl = await fetchLogo(normalizedDomain);
         }
 
+        // Calculate default rating based on company data
+        const hasManufacturingLocations = Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0;
+        const hasHeadquarters = !!(company.headquarters_location && company.headquarters_location.trim());
+        const hasReviews = (company.editorial_review_count || 0) > 0 ||
+                          (Array.isArray(company.reviews) && company.reviews.length > 0);
+
+        const defaultRating = {
+          star1: { value: hasManufacturingLocations ? 1.0 : 0.0, notes: [] },
+          star2: { value: hasHeadquarters ? 1.0 : 0.0, notes: [] },
+          star3: { value: hasReviews ? 1.0 : 0.0, notes: [] },
+          star4: { value: 0.0, notes: [] },
+          star5: { value: 0.0, notes: [] },
+        };
+
         const doc = {
           id: `company_${Date.now()}_${Math.random().toString(36).slice(2)}`,
           company_name: companyName,
@@ -246,6 +260,8 @@ async function saveCompaniesToCosmos(companies, sessionId) {
           location_confidence: company.location_confidence || "medium",
           social: company.social || {},
           amazon_url: company.amazon_url || "",
+          rating_icon_type: "star",
+          rating: defaultRating,
           source: "xai_import",
           session_id: sessionId,
           created_at: new Date().toISOString(),
