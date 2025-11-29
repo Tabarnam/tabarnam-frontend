@@ -17,6 +17,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const user = getAdminUser();
   const [formData, setFormData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
+  const [additionalHQs, setAdditionalHQs] = useState([]);
   const [manufacturingLocationInput, setManufacturingLocationInput] = useState("");
   const [rating, setRating] = useState(defaultRating());
   const [ratingIconType, setRatingIconType] = useState("star");
