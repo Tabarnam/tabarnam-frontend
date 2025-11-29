@@ -59,13 +59,16 @@ async function keywordsListHandler(request, context) {
   try {
     if (method === "GET") {
       try {
+        context.log("[keywords-list] Reading industries document from Cosmos...");
         const { resource } = await container.item("industries", "industries").read();
+        context.log("[keywords-list] Successfully read industries document");
         return {
           status: 200,
           headers: getCorsHeaders(),
           body: JSON.stringify({ keywords: resource.list || [] }),
         };
       } catch (e) {
+        context.log("[keywords-list] Failed to read industries document (expected on first run)", { error: e?.message });
         return {
           status: 200,
           headers: getCorsHeaders(),
