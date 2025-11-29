@@ -242,20 +242,41 @@ app.http("adminCompanies", {
           created_at: incoming.created_at || now,
         };
 
-        context.log(`[admin-companies] Upserting company`, { id: partitionKeyValue, method, company_name: doc.company_name });
+        context.log(`[admin-companies] Document prepared for upsert`, {
+          id: partitionKeyValue,
+          method,
+          company_name: doc.company_name,
+          docKeys: Object.keys(doc).sort(),
+          hasRating: !!doc.rating,
+        });
 
         try {
+          context.log(`[admin-companies] Attempting upsert with partition key...`);
           let result;
           try {
-            result = await container.items.upsert(doc, { partitionKey: partitionKeyValue });
-          } catch (upsertError) {
-            context.log(`[admin-companies] First upsert attempt failed, retrying without partition key`, { error: upsertError?.message });
             result = await container.items.upsert(doc);
+            context.log(`[admin-companies] Upsert succeeded`, {
+              id: partitionKeyValue,
+              statusCode: result?.statusCode,
+              resourceId: result?.resource?.id,
+            });
+          } catch (upsertError) {
+            context.log(`[admin-companies] Upsert attempt failed`, {
+              error: upsertError?.message,
+              code: upsertError?.code,
+              statusCode: upsertError?.statusCode,
+            });
+            throw upsertError;
           }
-          context.log(`[admin-companies] Upsert completed successfully`, { id: partitionKeyValue, statusCode: result.statusCode, resourceId: result.resource?.id });
           return json({ ok: true, company: doc }, 200);
         } catch (e) {
-          context.log("[admin-companies] Upsert failed completely", { id: partitionKeyValue, message: e?.message, code: e?.code, statusCode: e?.statusCode });
+          context.log("[admin-companies] Upsert failed completely", {
+            id: partitionKeyValue,
+            message: e?.message,
+            code: e?.code,
+            statusCode: e?.statusCode,
+            stack: e?.stack,
+          });
           return json({ error: "Failed to save company", detail: e?.message }, 500);
         }
       }
