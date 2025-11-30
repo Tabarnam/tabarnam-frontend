@@ -307,7 +307,6 @@ app.http("adminCompanies", {
         context.log(`[admin-companies] DELETE: Deleting company with id:`, { id: requestedId });
 
         try {
-          // 1) Query for the document to ensure it exists and get its actual partition key
           context.log("[admin-companies] DELETE: Querying for document with id:", requestedId);
           const querySpec = {
             query: "SELECT * FROM c WHERE c.id = @id",
@@ -327,9 +326,8 @@ app.http("adminCompanies", {
             return json({ error: "Company not found", id: requestedId }, 404);
           }
 
-          const doc = resources[0];
+          let doc = resources[0];
 
-          // 2) Get container definition for partition key info
           let pkPaths = undefined;
           let pkFieldName = null;
 
@@ -346,10 +344,8 @@ app.http("adminCompanies", {
             });
           }
 
-          // 3) Derive partition key value from document
-          // Try multiple approaches to get the correct partition key
           let partitionKeyValue = doc.id;
-          const potentialPkValues = [doc.id]; // Primary candidate
+          const potentialPkValues = [doc.id];
 
           if (pkPaths && pkPaths.length > 0) {
             const primaryPkPath = pkPaths[0];
@@ -359,26 +355,30 @@ app.http("adminCompanies", {
               pkFieldName: pkFieldName
             });
 
-            // If the field name is different from 'id', try to extract it
             if (pkFieldName && pkFieldName !== "id") {
-              const pkFromDoc = doc[pkFieldName];
-              if (pkFromDoc !== undefined && pkFromDoc !== null) {
-                partitionKeyValue = pkFromDoc;
-                context.log("[admin-companies] DELETE using extracted partition key:", {
-                  pkFieldName: pkFieldName,
-                  pkValue: partitionKeyValue
-                });
-              } else {
-                context.log("[admin-companies] DELETE warning: partition key field '" + pkFieldName + "' not found or is undefined in document:", {
+              let pkFromDoc = doc[pkFieldName];
+
+              if (pkFromDoc === undefined || pkFromDoc === null) {
+                context.log("[admin-companies] DELETE warning: partition key field '" + pkFieldName + "' is missing or null in document, using id as fallback:", {
                   hasField: pkFieldName in doc,
-                  fieldValue: doc[pkFieldName],
-                  docFields: Object.keys(doc).slice(0, 10)
+                  fieldValue: pkFromDoc,
+                  usingValue: doc.id
                 });
+                pkFromDoc = doc.id;
+                doc = {
+                  ...doc,
+                  [pkFieldName]: doc.id
+                };
               }
+
+              partitionKeyValue = pkFromDoc;
+              context.log("[admin-companies] DELETE using extracted partition key:", {
+                pkFieldName: pkFieldName,
+                pkValue: partitionKeyValue
+              });
             }
           }
 
-          // Build list of potential partition key values to try (for fallback)
           if (doc.company_id !== undefined && doc.company_id !== null && !potentialPkValues.includes(doc.company_id)) {
             potentialPkValues.push(doc.company_id);
           }
@@ -393,7 +393,6 @@ app.http("adminCompanies", {
             potentialPkValues: potentialPkValues
           });
 
-          // 4) Perform soft delete by replacing the document with deletion flags set
           const now = new Date().toISOString();
           const actor = (body && body.actor) || "admin_ui";
 
@@ -404,7 +403,6 @@ app.http("adminCompanies", {
             deleted_by: actor
           };
 
-          // Try replace operation with primary partition key value, then fallback values
           let replaceError = null;
           let replacedSuccessfully = false;
 
@@ -441,7 +439,6 @@ app.http("adminCompanies", {
             }
           }
 
-          // All partition key attempts failed
           context.log("[admin-companies] SOFT DELETE failed with all partition key attempts:", {
             requestedId: requestedId,
             itemId: doc.id,
