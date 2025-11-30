@@ -73,6 +73,7 @@ async function getKeywordRefinements(container, q, country, state, city) {
         ) > 0 OR
         CONTAINS(LOWER(c.normalized_domain), @q)
       )
+      AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
       ${locationFilter}
     `;
 
