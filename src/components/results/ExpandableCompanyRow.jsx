@@ -65,6 +65,15 @@ export default function ExpandableCompanyRow({
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
+  if (import.meta.env.DEV && company?.company_name === "The Hershey Company") {
+    console.log('[ExpandableCompanyRow] Hershey company data:', {
+      company_name: company.company_name,
+      keywords: company.keywords,
+      product_keywords: company.product_keywords,
+      industries: company.industries,
+    });
+  }
+
   const affiliateLinks = normalizeAffiliateLinks(company);
   const amazonLink = company.amazon_store_url || company.amazon_url || "";
 
