@@ -364,30 +364,76 @@ app.http("companiesList", {
             }
           }
         } catch {
+          context.log("[companies-list] DELETE JSON parse error");
           return json({ error: "Invalid JSON" }, 400);
         }
 
+        context.log("[companies-list] DELETE raw body:", {
+          bodyType: typeof body,
+          bodyKeys: Object.keys(body),
+          bodyText: JSON.stringify(body).substring(0, 200),
+        });
+
         // Support both { company: {...} } and flat {...} patterns
         const deleteTarget = body.company || body;
+        context.log("[companies-list] DELETE extracted target:", {
+          hasCompanyField: !!body.company,
+          targetKeys: Object.keys(deleteTarget),
+          targetId: deleteTarget.id,
+          targetCompanyId: deleteTarget.company_id,
+        });
+
         const id = deleteTarget.id || deleteTarget.company_id;
         if (!id) {
+          context.log("[companies-list] DELETE missing id - body.company:", body.company, "body:", body);
           return json({ error: "id required" }, 400);
         }
 
         const partitionKeyValue = String(id).trim();
         if (!partitionKeyValue) {
+          context.log("[companies-list] Invalid partition key value");
           return json({ error: "Invalid company ID" }, 400);
         }
 
-        context.log(`[companies-list] Deleting company:`, { id: partitionKeyValue });
+        context.log(`[companies-list] DELETE attempting to delete:`, {
+          id: partitionKeyValue,
+          partitionKey: partitionKeyValue,
+        });
 
         try {
-          await container.item(partitionKeyValue, partitionKeyValue).delete();
-          context.log(`[companies-list] Delete success:`, { id: partitionKeyValue });
+          // First, try to read the item to confirm it exists
+          try {
+            const existing = await container.item(partitionKeyValue, partitionKeyValue).read();
+            context.log(`[companies-list] DELETE confirmed item exists:`, {
+              id: partitionKeyValue,
+              itemId: existing?.resource?.id,
+              itemCompanyId: existing?.resource?.company_id,
+            });
+          } catch (readErr) {
+            context.log(`[companies-list] DELETE item not found (read failed):`, {
+              id: partitionKeyValue,
+              error: readErr?.message,
+              code: readErr?.code,
+            });
+            return json({ error: "Company not found", detail: readErr?.message }, 404);
+          }
+
+          // Now delete it
+          const deleteResult = await container.item(partitionKeyValue, partitionKeyValue).delete();
+          context.log(`[companies-list] DELETE success:`, {
+            id: partitionKeyValue,
+            statusCode: deleteResult?.statusCode,
+          });
           return json({ ok: true }, 200);
         } catch (e) {
-          context.log("[companies-list] Delete error:", { id: partitionKeyValue, error: e?.message });
-          return json({ error: "Company not found", detail: e?.message }, 404);
+          context.log("[companies-list] DELETE error:", {
+            id: partitionKeyValue,
+            error: e?.message,
+            code: e?.code,
+            statusCode: e?.statusCode,
+            stack: e?.stack,
+          });
+          return json({ error: "Failed to delete company", detail: e?.message }, 500);
         }
       }
 
