@@ -420,32 +420,50 @@ app.http("companiesList", {
           // 2) Dynamically derive partition key from container configuration
           const primaryPkPath = pkPaths && pkPaths[0];
           const pkFieldName = primaryPkPath ? primaryPkPath.replace(/^\//, "") : null;
-          const partitionKeyValue = pkFieldName ? doc[pkFieldName] : undefined;
 
-          context.log("[companies-list] DELETE resolved pk info:", {
-            id,
-            pkPaths,
-            pkFieldName,
-            docCompanyId: doc.company_id,
-            docId: doc.id,
-            partitionKeyValue,
-          });
+          let partitionKeyValue = pkFieldName ? doc[pkFieldName] : undefined;
+
+          // Fallbacks if that field is missing on this document
+          if (partitionKeyValue === undefined || partitionKeyValue === null) {
+            // Prefer explicit company_id if present
+            if (doc.company_id !== undefined && doc.company_id !== null) {
+              partitionKeyValue = doc.company_id;
+            } else {
+              // Final fallback – use id
+              partitionKeyValue = doc.id;
+            }
+
+            context.log("[companies-list] DELETE pk fallback used:", {
+              id,
+              pkPaths,
+              pkFieldName,
+              docCompanyId: doc.company_id,
+              docId: doc.id,
+              partitionKeyValue
+            });
+          }
 
           if (partitionKeyValue === undefined || partitionKeyValue === null) {
-            context.log("[companies-list] DELETE: Could not resolve partition key value", {
+            context.log("[companies-list] DELETE unable to resolve partition key value:", {
               id,
-              pkFieldName,
               pkPaths,
+              pkFieldName,
+              doc
             });
-            return json({ error: "Could not determine partition key for document", id }, 500);
+            return json(
+              { error: "Could not determine partition key for document", id },
+              500
+            );
           }
 
           // 3) Delete using the correct partition key resolved from container config
           const deleteResult = await container.item(id, partitionKeyValue).delete();
-          context.log("[companies-list] DELETE delete() result:", {
+          context.log("[companies-list] DELETE success:", {
             id,
-            statusCode: deleteResult?.statusCode,
+            partitionKeyValue,
+            statusCode: deleteResult.statusCode
           });
+
           return json({ ok: true, id }, 200);
         } catch (e) {
           context.log("[companies-list] DELETE error:", {
