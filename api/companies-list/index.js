@@ -361,11 +361,9 @@ app.http("companiesList", {
       if (method === "DELETE") {
         let body = {};
         try {
-          // Use same robust parsing as POST/PUT: Azure Functions v4 with req.json() and text fallback
           try {
             body = await req.json();
           } catch (jsonErr) {
-            // If JSON parsing fails, try raw text as fallback
             try {
               const text = await req.text();
               if (text) {
@@ -384,7 +382,6 @@ app.http("companiesList", {
         context.log("[companies-list] DELETE raw body:", body);
         context.log("[companies-list] DELETE query:", req.query);
 
-        // Support both { company: {...} } and flat {...} patterns, plus query params
         const incoming = body.company || body || {};
         const id = incoming.id || incoming.company_id || req.query?.id || req.query?.company_id;
 
@@ -402,7 +399,6 @@ app.http("companiesList", {
         }
 
         try {
-          // 1) Find the document by id with a cross-partition query
           context.log("[companies-list] DELETE: Querying for document with id:", id);
           const querySpec = {
             query: "SELECT * FROM c WHERE c.id = @id",
@@ -429,9 +425,8 @@ app.http("companiesList", {
             return json({ error: "Company not found", id }, 404);
           }
 
-          const doc = resources[0];
+          let doc = resources[0];
 
-          // 2) Read container definition to get partition key information
           let pkPaths = undefined;
           let pkFieldName = null;
 
@@ -450,10 +445,8 @@ app.http("companiesList", {
             });
           }
 
-          // 3) Derive partition key from container configuration and document
-          // Try multiple approaches to get the correct partition key
           let partitionKeyValue = doc.id;
-          const potentialPkValues = [doc.id]; // Primary candidate
+          const potentialPkValues = [doc.id];
 
           if (pkPaths && pkPaths.length > 0) {
             const primaryPkPath = pkPaths[0];
@@ -463,26 +456,30 @@ app.http("companiesList", {
               pkFieldName: pkFieldName
             });
 
-            // If the field name is different from 'id', try to extract it
             if (pkFieldName && pkFieldName !== "id") {
-              const pkFromDoc = doc[pkFieldName];
-              if (pkFromDoc !== undefined && pkFromDoc !== null) {
-                partitionKeyValue = pkFromDoc;
-                context.log("[companies-list] DELETE using extracted partition key:", {
-                  pkFieldName: pkFieldName,
-                  pkValue: partitionKeyValue
-                });
-              } else {
-                context.log("[companies-list] DELETE warning: partition key field '" + pkFieldName + "' not found or is undefined in document:", {
+              let pkFromDoc = doc[pkFieldName];
+
+              if (pkFromDoc === undefined || pkFromDoc === null) {
+                context.log("[companies-list] DELETE warning: partition key field '" + pkFieldName + "' is missing or null in document, using id as fallback:", {
                   hasField: pkFieldName in doc,
-                  fieldValue: doc[pkFieldName],
-                  docFields: Object.keys(doc).slice(0, 10)
+                  fieldValue: pkFromDoc,
+                  usingValue: doc.id
                 });
+                pkFromDoc = doc.id;
+                doc = {
+                  ...doc,
+                  [pkFieldName]: doc.id
+                };
               }
+
+              partitionKeyValue = pkFromDoc;
+              context.log("[companies-list] DELETE using extracted partition key:", {
+                pkFieldName: pkFieldName,
+                pkValue: partitionKeyValue
+              });
             }
           }
 
-          // Build list of potential partition key values to try (for fallback)
           if (doc.company_id !== undefined && doc.company_id !== null && !potentialPkValues.includes(doc.company_id)) {
             potentialPkValues.push(doc.company_id);
           }
@@ -497,7 +494,6 @@ app.http("companiesList", {
             potentialPkValues: potentialPkValues
           });
 
-          // 4) Perform soft delete by replacing the document with deletion flags set
           const now = new Date().toISOString();
           const actor = (incoming && incoming.actor) || (body && body.actor) || "admin_ui";
 
@@ -508,7 +504,6 @@ app.http("companiesList", {
             deleted_by: actor
           };
 
-          // Try replace operation with primary partition key value, then fallback values
           let replaceError = null;
           let replacedSuccessfully = false;
 
@@ -545,7 +540,6 @@ app.http("companiesList", {
             }
           }
 
-          // All partition key attempts failed
           context.log("[companies-list] SOFT DELETE failed with all partition key attempts:", {
             requestedId: id,
             itemId: doc.id,
