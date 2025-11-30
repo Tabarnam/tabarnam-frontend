@@ -387,48 +387,56 @@ app.http("companiesList", {
           return json({ error: "id required" }, 400);
         }
 
-        const partitionKey = String(id).trim();
-        if (!partitionKey) {
-          context.log("[companies-list] DELETE: Invalid partition key value");
-          return json({ error: "Invalid company ID" }, 400);
-        }
-
-        context.log(`[companies-list] DELETE attempting to delete:`, {
-          id,
-          partitionKey,
-        });
-
         try {
-          // Optional: read-before-delete for better diagnostics
-          try {
-            const readResult = await container.item(id, partitionKey).read();
-            context.log("[companies-list] DELETE read result:", {
-              statusCode: readResult?.statusCode,
-              resourceId: readResult?.resource?.id,
-              resourceCompanyId: readResult?.resource?.company_id,
-            });
-          } catch (readErr) {
-            context.log("[companies-list] DELETE: Item not found (read failed):", {
-              id,
-              partitionKey,
-              error: readErr?.message,
-              code: readErr?.code,
-            });
-            return json({ error: "Company not found", detail: readErr?.message }, 404);
+          // 1) Find the document by id with a cross-partition query
+          context.log("[companies-list] DELETE: Querying for document with id:", id);
+          const querySpec = {
+            query: "SELECT TOP 1 c.id, c.company_id FROM c WHERE c.id = @id",
+            parameters: [{ name: "@id", value: id }],
+          };
+
+          const queryResult = await container.items
+            .query(querySpec, { enableCrossPartitionQuery: true })
+            .fetchAll();
+
+          const { resources } = queryResult;
+
+          if (!resources || resources.length === 0) {
+            context.log("[companies-list] DELETE: Document not found for id:", id);
+            return json({ error: "Company not found", id }, 404);
           }
 
-          // Delete the item
-          const deleteResult = await container.item(id, partitionKey).delete();
+          const doc = resources[0];
+          context.log("[companies-list] DELETE: Found document:", {
+            docId: doc.id,
+            docCompanyId: doc.company_id,
+          });
+
+          // 2) Derive the actual partition key from the document
+          // Cosmos partition key for companies is /company_id
+          // If company_id is missing or undefined, use id as fallback
+          const partitionKeyValue =
+            doc.company_id !== undefined && doc.company_id !== null
+              ? doc.company_id
+              : doc.id;
+
+          context.log("[companies-list] DELETE: Resolved partition key:", {
+            id,
+            company_id: doc.company_id,
+            partitionKeyValue,
+          });
+
+          // 3) Delete using the correct partition key
+          const deleteResult = await container.item(id, partitionKeyValue).delete();
           context.log("[companies-list] DELETE success:", {
             id,
-            partitionKey,
+            partitionKeyValue,
             statusCode: deleteResult?.statusCode,
           });
           return json({ ok: true, id }, 200);
         } catch (e) {
           context.log("[companies-list] DELETE error:", {
             id,
-            partitionKey,
             error: e?.message,
             code: e?.code,
             statusCode: e?.statusCode,
