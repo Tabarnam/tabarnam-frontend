@@ -24,9 +24,18 @@ export default function FeedbackWidget() {
   return (
     <div className="fixed top-3 right-3 z-50 bg-white/90 backdrop-blur border rounded-full px-3 py-1.5 shadow flex items-center gap-2">
       <span className="text-sm text-gray-700">Reach us:</span>
-      <a href={`mailto:${EMAIL}`} className="text-sm font-medium text-blue-700 hover:underline">
-        {EMAIL}
-      </a>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <a href={`mailto:${EMAIL}`} className="text-sm font-medium text-blue-700 hover:underline cursor-help">
+              {EMAIL}
+            </a>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            Got feedback? Email us anytime with advice, critiques, business links we should add, or anything you think we should know.
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       <button onClick={copy} className="p-1 rounded hover:bg-gray-100" aria-label="Copy email">
         <Copy size={16} />
       </button>
