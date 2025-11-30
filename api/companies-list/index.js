@@ -119,7 +119,7 @@ app.http("companiesList", {
 
         const parameters = [{ name: "@take", value: take }];
         let whereClauses = [
-          "(IS_NULL(c.is_deleted) OR c.is_deleted != true)"
+          "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)"
         ];
 
         if (search) {
@@ -149,11 +149,11 @@ app.http("companiesList", {
           .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
           .fetchAll();
 
-        const items = resources || [];
-        context.log(`[companies-list] GET returning ${items.length} docs (soft-deleted excluded)`, {
-          count: items.length,
-          take
-        });
+        const results = resources || [];
+        context.log("[companies-list] GET raw count:", results.length);
+
+        const items = results;
+        context.log("[companies-list] GET count after soft-delete filter:", items.length);
         return json({ items, count: items.length }, 200);
       }
 
