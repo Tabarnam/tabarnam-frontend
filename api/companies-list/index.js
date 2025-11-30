@@ -420,6 +420,7 @@ app.http("companiesList", {
               error: readErr?.message,
               code: readErr?.code
             });
+            // Continue anyway - we have a fallback
           }
 
           // 2) Find the document by id with a cross-partition query
@@ -437,10 +438,12 @@ app.http("companiesList", {
 
           context.log("[companies-list] DELETE query result count:", resources.length);
           if (resources.length > 0) {
-            context.log("[companies-list] DELETE first doc:", resources[0]);
+            context.log("[companies-list] DELETE document found", {
+              id: resources[0].id,
+              company_id: resources[0].company_id,
+              is_deleted: resources[0].is_deleted
+            });
           }
-
-          context.log("[companies-list] DELETE container partition key paths:", pkPaths);
 
           if (!resources || resources.length === 0) {
             context.log("[companies-list] DELETE no document found for id:", id);
@@ -449,36 +452,36 @@ app.http("companiesList", {
 
           const doc = resources[0];
 
-          // 3) Dynamically derive partition key from container configuration
+          // 3) Derive partition key from container configuration and document
+          // For companies container, partition key is /id, so it should match doc.id
+          let partitionKeyValue = doc.id;
+
           if (pkPaths && pkPaths.length > 0) {
             const primaryPkPath = pkPaths[0];
             pkFieldName = primaryPkPath.replace(/^\//, "");
-          }
+            const pkFromContainer = doc[pkFieldName];
 
-          let partitionKeyValue = pkFieldName ? doc[pkFieldName] : undefined;
-          let partitionKeySource = "primary";
-
-          // Fallbacks if that field is missing on this document
-          if (partitionKeyValue === undefined || partitionKeyValue === null) {
-            // Prefer explicit company_id if present
-            if (doc.company_id !== undefined && doc.company_id !== null) {
-              partitionKeyValue = doc.company_id;
-              partitionKeySource = "fallback_company_id";
+            if (pkFromContainer !== undefined && pkFromContainer !== null) {
+              partitionKeyValue = pkFromContainer;
+              context.log("[companies-list] DELETE partition key from container definition:", {
+                pkPath: primaryPkPath,
+                pkFieldName: pkFieldName,
+                pkValue: partitionKeyValue
+              });
             } else {
-              // Final fallback – use id
+              // Container definition says the PK field should exist but doesn't - use doc.id as fallback
+              context.log("[companies-list] DELETE partition key field missing from document, using id fallback:", {
+                pkPath: primaryPkPath,
+                pkFieldName: pkFieldName,
+                docId: doc.id,
+                docHasField: pkFieldName in doc
+              });
               partitionKeyValue = doc.id;
-              partitionKeySource = "fallback_id";
             }
-
-            context.log("[companies-list] DELETE pk fallback used:", {
-              id,
-              pkPaths,
-              pkFieldName,
-              docCompanyId: doc.company_id,
-              docId: doc.id,
-              partitionKeyValue,
-              partitionKeySource
-            });
+          } else {
+            // No container definition, use doc.id as fallback
+            context.log("[companies-list] DELETE no partition key info available, using doc.id");
+            partitionKeyValue = doc.id;
           }
 
           if (partitionKeyValue === undefined || partitionKeyValue === null) {
@@ -486,7 +489,7 @@ app.http("companiesList", {
               id,
               pkPaths,
               pkFieldName,
-              doc
+              docId: doc.id
             });
             return json(
               { error: "Could not determine partition key for document", id },
@@ -495,17 +498,13 @@ app.http("companiesList", {
           }
 
           // Debug log: document shape and partition key info (BEFORE soft delete)
-          context.log("[companies-list] SOFT DELETE doc shape:", {
+          context.log("[companies-list] SOFT DELETE doc info:", {
             id: doc.id,
             company_id: doc.company_id,
             company_name: doc.company_name,
-            is_deleted: doc.is_deleted
-          });
-
-          context.log("[companies-list] SOFT DELETE PK debug:", {
-            pkPaths,
-            pkFieldName,
-            partitionKeyValue
+            is_deleted: doc.is_deleted,
+            partitionKeyValue: partitionKeyValue,
+            pkFieldName: pkFieldName
           });
 
           // 4) Perform soft delete by replacing the document with deletion flags set
@@ -519,12 +518,18 @@ app.http("companiesList", {
             deleted_by: actor
           };
 
-          const itemId = doc.id || id;
+          const itemId = doc.id;
 
           try {
+            context.log("[companies-list] SOFT DELETE attempting replace:", {
+              itemId: itemId,
+              partitionKeyValue: partitionKeyValue,
+              docId: doc.id,
+              match: itemId === partitionKeyValue
+            });
+
             const replaceResult = await container.item(itemId, partitionKeyValue).replace(updatedDoc);
-            context.log("[companies-list] SOFT DELETE replace succeeded for id:", doc.id);
-            context.log("[companies-list] SOFT DELETE completed:", {
+            context.log("[companies-list] SOFT DELETE replace succeeded:", {
               requestedId: id,
               itemId: itemId,
               partitionKeyValue: partitionKeyValue,
@@ -541,7 +546,9 @@ app.http("companiesList", {
               code: replaceErr?.code,
               statusCode: replaceErr?.statusCode,
               message: replaceErr?.message,
-              body: replaceErr?.body
+              body: replaceErr?.body,
+              itemIdType: typeof itemId,
+              pkValueType: typeof partitionKeyValue
             });
             throw replaceErr;
           }
