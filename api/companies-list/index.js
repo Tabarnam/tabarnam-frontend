@@ -402,28 +402,7 @@ app.http("companiesList", {
         }
 
         try {
-          // 1) Read container definition to get partition key information
-          let containerDef = null;
-          let pkPaths = undefined;
-          let pkFieldName = null;
-
-          try {
-            const containerResponse = await container.read();
-            containerDef = containerResponse.resource;
-            pkPaths = containerDef && containerDef.partitionKey && containerDef.partitionKey.paths;
-            context.log("[companies-list] DELETE container definition read successfully:", {
-              partitionKeyPaths: pkPaths,
-              hasPartitionKey: !!(containerDef && containerDef.partitionKey)
-            });
-          } catch (readErr) {
-            context.log("[companies-list] DELETE failed to read container definition:", {
-              error: readErr?.message,
-              code: readErr?.code
-            });
-            // Continue anyway - we have a fallback
-          }
-
-          // 2) Find the document by id with a cross-partition query
+          // 1) Find the document by id with a cross-partition query
           context.log("[companies-list] DELETE: Querying for document with id:", id);
           const querySpec = {
             query: "SELECT * FROM c WHERE c.id = @id",
@@ -452,36 +431,53 @@ app.http("companiesList", {
 
           const doc = resources[0];
 
+          // 2) Read container definition to get partition key information
+          let pkPaths = undefined;
+          let pkFieldName = null;
+
+          try {
+            const containerResponse = await container.read();
+            const containerDef = containerResponse.resource;
+            pkPaths = containerDef && containerDef.partitionKey && containerDef.partitionKey.paths;
+            context.log("[companies-list] DELETE container definition read successfully:", {
+              partitionKeyPaths: pkPaths,
+              hasPartitionKey: !!(containerDef && containerDef.partitionKey)
+            });
+          } catch (readErr) {
+            context.log("[companies-list] DELETE warning: failed to read container definition:", {
+              error: readErr?.message,
+              code: readErr?.code
+            });
+          }
+
           // 3) Derive partition key from container configuration and document
-          // For companies container, partition key is /id, so it should match doc.id
+          // Start with doc.id as default, then try to extract from container definition
           let partitionKeyValue = doc.id;
 
           if (pkPaths && pkPaths.length > 0) {
             const primaryPkPath = pkPaths[0];
             pkFieldName = primaryPkPath.replace(/^\//, "");
-            const pkFromContainer = doc[pkFieldName];
 
-            if (pkFromContainer !== undefined && pkFromContainer !== null) {
-              partitionKeyValue = pkFromContainer;
-              context.log("[companies-list] DELETE partition key from container definition:", {
-                pkPath: primaryPkPath,
-                pkFieldName: pkFieldName,
-                pkValue: partitionKeyValue
-              });
-            } else {
-              // Container definition says the PK field should exist but doesn't - use doc.id as fallback
-              context.log("[companies-list] DELETE partition key field missing from document, using id fallback:", {
-                pkPath: primaryPkPath,
-                pkFieldName: pkFieldName,
-                docId: doc.id,
-                docHasField: pkFieldName in doc
-              });
-              partitionKeyValue = doc.id;
+            if (pkFieldName && pkFieldName !== "id") {
+              // If partition key is not /id, try to extract from document
+              const pkFromContainer = doc[pkFieldName];
+              if (pkFromContainer !== undefined && pkFromContainer !== null) {
+                partitionKeyValue = pkFromContainer;
+                context.log("[companies-list] DELETE using partition key field from container definition:", {
+                  pkPath: primaryPkPath,
+                  pkFieldName: pkFieldName,
+                  pkValue: partitionKeyValue,
+                  docIdValue: doc.id
+                });
+              } else {
+                context.log("[companies-list] DELETE warning: partition key field missing from document, using id fallback:", {
+                  pkPath: primaryPkPath,
+                  pkFieldName: pkFieldName,
+                  docId: doc.id,
+                  docHasField: pkFieldName in doc
+                });
+              }
             }
-          } else {
-            // No container definition, use doc.id as fallback
-            context.log("[companies-list] DELETE no partition key info available, using doc.id");
-            partitionKeyValue = doc.id;
           }
 
           if (partitionKeyValue === undefined || partitionKeyValue === null) {
@@ -497,13 +493,16 @@ app.http("companiesList", {
             );
           }
 
-          // Debug log: document shape and partition key info (BEFORE soft delete)
-          context.log("[companies-list] SOFT DELETE doc info:", {
-            id: doc.id,
+          // Convert partition key to string to ensure consistency
+          const partitionKeyStr = String(partitionKeyValue).trim();
+          const itemIdStr = String(doc.id).trim();
+
+          context.log("[companies-list] SOFT DELETE prepared:", {
+            id: itemIdStr,
             company_id: doc.company_id,
             company_name: doc.company_name,
             is_deleted: doc.is_deleted,
-            partitionKeyValue: partitionKeyValue,
+            partitionKeyValue: partitionKeyStr,
             pkFieldName: pkFieldName
           });
 
@@ -518,21 +517,20 @@ app.http("companiesList", {
             deleted_by: actor
           };
 
-          const itemId = doc.id;
-
           try {
             context.log("[companies-list] SOFT DELETE attempting replace:", {
-              itemId: itemId,
-              partitionKeyValue: partitionKeyValue,
+              itemId: itemIdStr,
+              partitionKeyValue: partitionKeyStr,
               docId: doc.id,
-              match: itemId === partitionKeyValue
+              pkFieldName: pkFieldName,
+              match: itemIdStr === partitionKeyStr
             });
 
-            const replaceResult = await container.item(itemId, partitionKeyValue).replace(updatedDoc);
+            const replaceResult = await container.item(itemIdStr, partitionKeyStr).replace(updatedDoc);
             context.log("[companies-list] SOFT DELETE replace succeeded:", {
               requestedId: id,
-              itemId: itemId,
-              partitionKeyValue: partitionKeyValue,
+              itemId: itemIdStr,
+              partitionKeyValue: partitionKeyStr,
               deletedAt: now,
               deletedBy: actor,
               statusCode: replaceResult?.statusCode
@@ -541,14 +539,14 @@ app.http("companiesList", {
           } catch (replaceErr) {
             context.log("[companies-list] SOFT DELETE replace failed:", {
               requestedId: id,
-              itemId: itemId,
-              partitionKeyValue: partitionKeyValue,
+              itemId: itemIdStr,
+              partitionKeyValue: partitionKeyStr,
               code: replaceErr?.code,
               statusCode: replaceErr?.statusCode,
               message: replaceErr?.message,
               body: replaceErr?.body,
-              itemIdType: typeof itemId,
-              pkValueType: typeof partitionKeyValue
+              itemIdType: typeof itemIdStr,
+              pkValueType: typeof partitionKeyStr
             });
             throw replaceErr;
           }
