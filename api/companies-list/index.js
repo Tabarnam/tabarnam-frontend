@@ -347,91 +347,91 @@ app.http("companiesList", {
       if (method === "DELETE") {
         let body = {};
         try {
-          // Azure Functions v4: body can be string, object, Uint8Array, or Buffer
-          let bodyText = "";
-
-          if (typeof req.body === "string") {
-            bodyText = req.body;
-          } else if (Buffer.isBuffer(req.body) || req.body instanceof Uint8Array) {
-            bodyText = Buffer.from(req.body).toString("utf8");
-          } else if (req.body && typeof req.body === "object") {
-            body = req.body;
-          }
-
-          if (!body || Object.keys(body).length === 0) {
-            if (bodyText) {
-              body = JSON.parse(bodyText);
+          // Use same robust parsing as POST/PUT: Azure Functions v4 with req.json() and text fallback
+          try {
+            body = await req.json();
+          } catch (jsonErr) {
+            // If JSON parsing fails, try raw text as fallback
+            try {
+              const text = await req.text();
+              if (text) {
+                body = JSON.parse(text);
+              }
+            } catch (textErr) {
+              context.log("[companies-list] DELETE: Failed to parse request body as JSON or text", { jsonErr: jsonErr?.message, textErr: textErr?.message });
+              return json({ error: "Invalid JSON", detail: textErr?.message }, 400);
             }
           }
-        } catch {
-          context.log("[companies-list] DELETE JSON parse error");
-          return json({ error: "Invalid JSON" }, 400);
+        } catch (e) {
+          context.log("[companies-list] DELETE: JSON parse error:", { error: e?.message });
+          return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
 
-        context.log("[companies-list] DELETE raw body:", {
-          bodyType: typeof body,
-          bodyKeys: Object.keys(body),
-          bodyText: JSON.stringify(body).substring(0, 200),
+        context.log("[companies-list] DELETE raw body:", body);
+        context.log("[companies-list] DELETE query:", req.query);
+
+        // Support both { company: {...} } and flat {...} patterns, plus query params
+        const incoming = body.company || body || {};
+        const id = incoming.id || incoming.company_id || req.query?.id || req.query?.company_id;
+
+        context.log("[companies-list] DELETE extracted:", {
+          incomingId: incoming.id,
+          incomingCompanyId: incoming.company_id,
+          queryId: req.query?.id,
+          queryCompanyId: req.query?.company_id,
+          resolvedId: id,
         });
 
-        // Support both { company: {...} } and flat {...} patterns
-        const deleteTarget = body.company || body;
-        context.log("[companies-list] DELETE extracted target:", {
-          hasCompanyField: !!body.company,
-          targetKeys: Object.keys(deleteTarget),
-          targetId: deleteTarget.id,
-          targetCompanyId: deleteTarget.company_id,
-        });
-
-        const id = deleteTarget.id || deleteTarget.company_id;
         if (!id) {
-          context.log("[companies-list] DELETE missing id - body.company:", body.company, "body:", body);
+          context.log("[companies-list] DELETE missing ID", { incoming, query: req.query });
           return json({ error: "id required" }, 400);
         }
 
-        const partitionKeyValue = String(id).trim();
-        if (!partitionKeyValue) {
-          context.log("[companies-list] Invalid partition key value");
+        const partitionKey = String(id).trim();
+        if (!partitionKey) {
+          context.log("[companies-list] DELETE: Invalid partition key value");
           return json({ error: "Invalid company ID" }, 400);
         }
 
         context.log(`[companies-list] DELETE attempting to delete:`, {
-          id: partitionKeyValue,
-          partitionKey: partitionKeyValue,
+          id,
+          partitionKey,
         });
 
         try {
-          // First, try to read the item to confirm it exists
+          // Optional: read-before-delete for better diagnostics
           try {
-            const existing = await container.item(partitionKeyValue, partitionKeyValue).read();
-            context.log(`[companies-list] DELETE confirmed item exists:`, {
-              id: partitionKeyValue,
-              itemId: existing?.resource?.id,
-              itemCompanyId: existing?.resource?.company_id,
+            const readResult = await container.item(id, partitionKey).read();
+            context.log("[companies-list] DELETE read result:", {
+              statusCode: readResult?.statusCode,
+              resourceId: readResult?.resource?.id,
+              resourceCompanyId: readResult?.resource?.company_id,
             });
           } catch (readErr) {
-            context.log(`[companies-list] DELETE item not found (read failed):`, {
-              id: partitionKeyValue,
+            context.log("[companies-list] DELETE: Item not found (read failed):", {
+              id,
+              partitionKey,
               error: readErr?.message,
               code: readErr?.code,
             });
             return json({ error: "Company not found", detail: readErr?.message }, 404);
           }
 
-          // Now delete it
-          const deleteResult = await container.item(partitionKeyValue, partitionKeyValue).delete();
-          context.log(`[companies-list] DELETE success:`, {
-            id: partitionKeyValue,
+          // Delete the item
+          const deleteResult = await container.item(id, partitionKey).delete();
+          context.log("[companies-list] DELETE success:", {
+            id,
+            partitionKey,
             statusCode: deleteResult?.statusCode,
           });
-          return json({ ok: true }, 200);
+          return json({ ok: true, id }, 200);
         } catch (e) {
           context.log("[companies-list] DELETE error:", {
-            id: partitionKeyValue,
+            id,
+            partitionKey,
             error: e?.message,
             code: e?.code,
             statusCode: e?.statusCode,
-            stack: e?.stack,
           });
           return json({ error: "Failed to delete company", detail: e?.message }, 500);
         }
