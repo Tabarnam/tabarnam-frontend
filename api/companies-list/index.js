@@ -495,7 +495,6 @@ app.http("companiesList", {
         } catch (e) {
           context.log("[companies-list] DELETE error:", {
             id,
-            partitionKeyValue: e.partitionKeyValue,
             code: e?.code,
             statusCode: e?.statusCode,
             message: e?.message,
