@@ -50,17 +50,53 @@ const CompaniesTableTab = ({ companies, loading, onUpdate }) => {
   };
 
   const handleDelete = async (companyId) => {
+    const companyToDelete = companies.find(c => c.id === companyId);
+    console.log('[Admin] Deleting company', {
+      id: companyId,
+      company_id: companyToDelete?.company_id,
+      company_name: companyToDelete?.company_name || companyToDelete?.name,
+    });
+
     try {
+      const deletePayload = { id: companyId, actor: user?.email };
+      console.log('[Admin] DELETE payload:', deletePayload);
+
       const res = await apiFetch('/companies-list', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: companyId, actor: user?.email }),
+        body: JSON.stringify(deletePayload),
       });
-      if (!res.ok) throw new Error('Failed to delete company');
+
+      console.log('[Admin] DELETE response:', {
+        status: res.status,
+        ok: res.ok,
+        statusText: res.statusText,
+      });
+
+      let responseBody = {};
+      try {
+        responseBody = await res.json();
+        console.log('[Admin] DELETE response body:', responseBody);
+      } catch (jsonErr) {
+        console.warn('[Admin] Failed to parse DELETE response as JSON:', jsonErr?.message);
+      }
+
+      if (!res.ok) {
+        throw new Error(responseBody?.error || responseBody?.detail || `Delete failed with status ${res.status}`);
+      }
+
+      if (!responseBody.ok) {
+        console.warn('[Admin] Response indicated failure:', responseBody);
+        throw new Error(responseBody?.error || 'Delete response was not ok');
+      }
+
+      console.log('[Admin] Delete confirmed as successful');
       toast.success('Company deleted');
+      console.log('[Admin] Calling onUpdate() to refresh companies list...');
       onUpdate();
       setDeleteCompanyId(null);
     } catch (error) {
+      console.error('[Admin] Delete error:', error);
       toast.error(error?.message || 'Failed to delete company');
     }
   };
