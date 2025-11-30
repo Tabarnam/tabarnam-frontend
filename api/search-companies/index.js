@@ -95,8 +95,8 @@ app.http("searchCompanies", {
                              c.normalized_domain, c.created_at, c.session_id, c._ts,
                              c.manufacturing_locations, c.manufacturing_geocodes,
                              c.headquarters, c.headquarters_location,
-                             c.hq_lat, c.hq_lng, c.product_keywords, c.star_rating,
-                             c.star_score, c.confidence_score
+                             c.hq_lat, c.hq_lng, c.product_keywords, c.keywords,
+                             c.star_rating, c.star_score, c.confidence_score
             FROM c
             WHERE IS_DEFINED(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
             ${whereText}
@@ -115,8 +115,8 @@ app.http("searchCompanies", {
                                 c.normalized_domain, c.created_at, c.session_id, c._ts,
                                 c.manufacturing_locations, c.manufacturing_geocodes,
                                 c.headquarters, c.headquarters_location,
-                                c.hq_lat, c.hq_lng, c.product_keywords, c.star_rating,
-                                c.star_score, c.confidence_score
+                                c.hq_lat, c.hq_lng, c.product_keywords, c.keywords,
+                                c.star_rating, c.star_score, c.confidence_score
               FROM c
               WHERE (NOT IS_DEFINED(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
               ${whereText}
@@ -137,8 +137,8 @@ app.http("searchCompanies", {
                                c.normalized_domain, c.created_at, c.session_id, c._ts,
                                c.manufacturing_locations, c.manufacturing_geocodes,
                                c.headquarters, c.headquarters_location,
-                               c.hq_lat, c.hq_lng, c.product_keywords, c.star_rating,
-                               c.star_score, c.confidence_score
+                               c.hq_lat, c.hq_lng, c.product_keywords, c.keywords,
+                               c.star_rating, c.star_score, c.confidence_score
               FROM c
               WHERE ${SQL_TEXT_FILTER}
               ${orderBy}
@@ -148,8 +148,8 @@ app.http("searchCompanies", {
                                c.normalized_domain, c.created_at, c.session_id, c._ts,
                                c.manufacturing_locations, c.manufacturing_geocodes,
                                c.headquarters, c.headquarters_location,
-                               c.hq_lat, c.hq_lng, c.product_keywords, c.star_rating,
-                               c.star_score, c.confidence_score
+                               c.hq_lat, c.hq_lng, c.product_keywords, c.keywords,
+                               c.star_rating, c.star_score, c.confidence_score
               FROM c
               ${orderBy}
             `;
