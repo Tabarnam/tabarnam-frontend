@@ -345,7 +345,7 @@ app.http("adminCompanies", {
           }
 
           let partitionKeyValue = doc.id;
-          const potentialPkValues = [doc.id];
+          const potentialPkValues = [];
 
           if (pkPaths && pkPaths.length > 0) {
             const primaryPkPath = pkPaths[0];
@@ -355,28 +355,29 @@ app.http("adminCompanies", {
               pkFieldName: pkFieldName
             });
 
-            if (pkFieldName && pkFieldName !== "id") {
-              let pkFromDoc = doc[pkFieldName];
+            let pkFromDoc = doc[pkFieldName];
 
-              if (pkFromDoc === undefined || pkFromDoc === null) {
-                context.log("[admin-companies] DELETE warning: partition key field '" + pkFieldName + "' is missing or null in document, using id as fallback:", {
-                  hasField: pkFieldName in doc,
-                  fieldValue: pkFromDoc,
-                  usingValue: doc.id
-                });
-                pkFromDoc = doc.id;
-                doc = {
-                  ...doc,
-                  [pkFieldName]: doc.id
-                };
-              }
-
+            if (pkFromDoc !== undefined && pkFromDoc !== null) {
               partitionKeyValue = pkFromDoc;
-              context.log("[admin-companies] DELETE using extracted partition key:", {
+              potentialPkValues.push(pkFromDoc);
+              context.log("[admin-companies] DELETE extracted partition key value from document:", {
                 pkFieldName: pkFieldName,
-                pkValue: partitionKeyValue
+                pkValue: pkFromDoc
+              });
+            } else {
+              context.log("[admin-companies] DELETE warning: partition key field '" + pkFieldName + "' is missing or null in document, will use fallbacks:", {
+                pkFieldName: pkFieldName,
+                hasField: pkFieldName in doc,
+                fieldValue: pkFromDoc,
+                docKeys: Object.keys(doc).slice(0, 15)
               });
             }
+          } else {
+            context.log("[admin-companies] DELETE warning: unable to read container partition key paths");
+          }
+
+          if (doc.id !== undefined && doc.id !== null && !potentialPkValues.includes(doc.id)) {
+            potentialPkValues.push(doc.id);
           }
 
           if (doc.company_id !== undefined && doc.company_id !== null && !potentialPkValues.includes(doc.company_id)) {
