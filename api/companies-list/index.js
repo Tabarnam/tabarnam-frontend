@@ -494,51 +494,56 @@ app.http("companiesList", {
             );
           }
 
-          // Debug log: document shape and partition key info
-          context.log("[companies-list] DELETE debug:", {
-            requestedId: id,
-            pkPaths: pkPaths,
-            pkFieldName: pkFieldName,
-            docShape: {
-              id: doc.id,
-              company_id: doc.company_id,
-              company_name: doc.company_name,
-              _self: doc._self,
-              _rid: doc._rid,
-              _etag: doc._etag,
-              _ts: doc._ts
-            },
-            partitionKeyValue: partitionKeyValue,
-            partitionKeySource: partitionKeySource
+          // Debug log: document shape and partition key info (BEFORE soft delete)
+          context.log("[companies-list] SOFT DELETE doc shape:", {
+            id: doc.id,
+            company_id: doc.company_id,
+            company_name: doc.company_name,
+            is_deleted: doc.is_deleted
           });
 
-          // 4) Delete using the actual document ID from query result and computed partition key
-          // This ensures we use the exact ID that was stored, not the request parameter
+          context.log("[companies-list] SOFT DELETE PK debug:", {
+            pkPaths,
+            pkFieldName,
+            partitionKeyValue
+          });
+
+          // 4) Perform soft delete by replacing the document with deletion flags set
+          const now = new Date().toISOString();
+          const actor = (incoming && incoming.actor) || (body && body.actor) || "admin_ui";
+
+          const updatedDoc = {
+            ...doc,
+            is_deleted: true,
+            deleted_at: now,
+            deleted_by: actor
+          };
+
           const itemId = doc.id || id;
 
           try {
-            const deleteResult = await container.item(itemId, partitionKeyValue).delete();
-            context.log("[companies-list] DELETE success:", {
+            const replaceResult = await container.item(itemId, partitionKeyValue).replace(updatedDoc);
+            context.log("[companies-list] SOFT DELETE replace succeeded for id:", doc.id);
+            context.log("[companies-list] SOFT DELETE completed:", {
               requestedId: id,
               itemId: itemId,
               partitionKeyValue: partitionKeyValue,
-              statusCode: deleteResult.statusCode
+              deletedAt: now,
+              deletedBy: actor,
+              statusCode: replaceResult?.statusCode
             });
-            return json({ ok: true, id }, 200);
-          } catch (deleteErr) {
-            // Handle 404 as a successful no-op delete for this admin UI use case
-            // The document was confirmed to exist above, so a 404 here is likely a partition key mismatch
-            // or the document was already deleted. Either way, from the admin UI perspective, the goal is met.
-            if (deleteErr?.code === 404 || deleteErr?.statusCode === 404) {
-              context.log("[companies-list] DELETE returned 404 (treating as successful no-op):", {
-                requestedId: id,
-                itemId: itemId,
-                partitionKeyValue: partitionKeyValue,
-                message: deleteErr?.message
-              });
-              return json({ ok: true, id }, 200);
-            }
-            throw deleteErr;
+            return json({ ok: true, id, softDeleted: true }, 200);
+          } catch (replaceErr) {
+            context.log("[companies-list] SOFT DELETE replace failed:", {
+              requestedId: id,
+              itemId: itemId,
+              partitionKeyValue: partitionKeyValue,
+              code: replaceErr?.code,
+              statusCode: replaceErr?.statusCode,
+              message: replaceErr?.message,
+              body: replaceErr?.body
+            });
+            throw replaceErr;
           }
         } catch (e) {
           context.log("[companies-list] DELETE error:", {
