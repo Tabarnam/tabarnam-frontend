@@ -73,15 +73,26 @@ const CompaniesTableTab = ({ companies, loading, onUpdate }) => {
         statusText: res.statusText,
       });
 
-      const responseBody = await res.json();
-      console.log('[Admin] DELETE response body:', responseBody);
-
-      if (!res.ok) {
-        throw new Error(responseBody?.error || 'Failed to delete company');
+      let responseBody = {};
+      try {
+        responseBody = await res.json();
+        console.log('[Admin] DELETE response body:', responseBody);
+      } catch (jsonErr) {
+        console.warn('[Admin] Failed to parse DELETE response as JSON:', jsonErr?.message);
       }
 
+      if (!res.ok) {
+        throw new Error(responseBody?.error || responseBody?.detail || `Delete failed with status ${res.status}`);
+      }
+
+      if (!responseBody.ok) {
+        console.warn('[Admin] Response indicated failure:', responseBody);
+        throw new Error(responseBody?.error || 'Delete response was not ok');
+      }
+
+      console.log('[Admin] Delete confirmed as successful');
       toast.success('Company deleted');
-      console.log('[Admin] Delete success, calling onUpdate()...');
+      console.log('[Admin] Calling onUpdate() to refresh companies list...');
       onUpdate();
       setDeleteCompanyId(null);
     } catch (error) {
