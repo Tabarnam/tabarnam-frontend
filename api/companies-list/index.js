@@ -118,28 +118,42 @@ app.http("companiesList", {
         const take = Math.min(500, Math.max(1, parseInt((req.query?.take || "200").toString())));
 
         const parameters = [{ name: "@take", value: take }];
-        let whereClause = "";
+        let whereClauses = [
+          "(IS_NULL(c.is_deleted) OR c.is_deleted != true)"
+        ];
 
         if (search) {
           parameters.push({ name: "@q", value: search });
-          whereClause =
-            "WHERE (" +
+          whereClauses.push(
+            "(" +
             [
               "CONTAINS(LOWER(c.company_name), @q)",
               "CONTAINS(LOWER(c.name), @q)",
               "CONTAINS(LOWER(c.product_keywords), @q)",
               "CONTAINS(LOWER(c.normalized_domain), @q)",
             ].join(" OR ") +
-            ")";
+            ")"
+          );
         }
 
+        const whereClause = whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
         const sql = "SELECT TOP @take * FROM c " + whereClause + " ORDER BY c._ts DESC";
+
+        context.log("[companies-list] GET query:", {
+          search: search || "(none)",
+          take,
+          sql
+        });
 
         const { resources } = await container.items
           .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
           .fetchAll();
 
         const items = resources || [];
+        context.log(`[companies-list] GET returning ${items.length} docs (soft-deleted excluded)`, {
+          count: items.length,
+          take
+        });
         return json({ items, count: items.length }, 200);
       }
 
