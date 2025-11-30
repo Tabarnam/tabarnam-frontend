@@ -299,20 +299,121 @@ app.http("adminCompanies", {
           return json({ error: "id required" }, 400);
         }
 
-        const partitionKeyValue = String(id).trim();
-        if (!partitionKeyValue) {
+        const requestedId = String(id).trim();
+        if (!requestedId) {
           return json({ error: "Invalid company ID" }, 400);
         }
 
-        context.log(`[admin-companies] Deleting company:`, { id: partitionKeyValue });
+        context.log(`[admin-companies] DELETE: Deleting company with id:`, { id: requestedId });
 
         try {
-          await container.item(partitionKeyValue, partitionKeyValue).delete();
-          context.log(`[admin-companies] Delete success:`, { id: partitionKeyValue });
-          return json({ ok: true }, 200);
+          // 1) Query for the document to ensure it exists and get its actual partition key
+          context.log("[admin-companies] DELETE: Querying for document with id:", requestedId);
+          const querySpec = {
+            query: "SELECT * FROM c WHERE c.id = @id",
+            parameters: [{ name: "@id", value: requestedId }],
+          };
+
+          const queryResult = await container.items
+            .query(querySpec, { enableCrossPartitionQuery: true })
+            .fetchAll();
+
+          const { resources } = queryResult;
+
+          context.log("[admin-companies] DELETE query result count:", resources.length);
+
+          if (!resources || resources.length === 0) {
+            context.log("[admin-companies] DELETE no document found for id:", requestedId);
+            return json({ error: "Company not found", id: requestedId }, 404);
+          }
+
+          const doc = resources[0];
+
+          // 2) Get container definition for partition key info
+          let pkPaths = undefined;
+          let pkFieldName = null;
+
+          try {
+            const containerResponse = await container.read();
+            const containerDef = containerResponse.resource;
+            pkPaths = containerDef && containerDef.partitionKey && containerDef.partitionKey.paths;
+            context.log("[admin-companies] DELETE container definition read successfully:", {
+              partitionKeyPaths: pkPaths
+            });
+          } catch (readErr) {
+            context.log("[admin-companies] DELETE failed to read container definition:", {
+              error: readErr?.message
+            });
+          }
+
+          // 3) Derive partition key value from document
+          let partitionKeyValue = doc.id;
+
+          if (pkPaths && pkPaths.length > 0) {
+            const primaryPkPath = pkPaths[0];
+            pkFieldName = primaryPkPath.replace(/^\//, "");
+            const pkFromContainer = doc[pkFieldName];
+
+            if (pkFromContainer !== undefined && pkFromContainer !== null) {
+              partitionKeyValue = pkFromContainer;
+              context.log("[admin-companies] DELETE partition key from container definition:", {
+                pkFieldName: pkFieldName,
+                pkValue: partitionKeyValue
+              });
+            }
+          }
+
+          if (partitionKeyValue === undefined || partitionKeyValue === null) {
+            context.log("[admin-companies] DELETE unable to resolve partition key value");
+            return json(
+              { error: "Could not determine partition key for document", id: requestedId },
+              500
+            );
+          }
+
+          // 4) Perform soft delete by replacing the document with deletion flags set
+          const now = new Date().toISOString();
+          const actor = (body && body.actor) || "admin_ui";
+
+          const updatedDoc = {
+            ...doc,
+            is_deleted: true,
+            deleted_at: now,
+            deleted_by: actor
+          };
+
+          const itemId = doc.id;
+
+          context.log("[admin-companies] DELETE attempting soft delete:", {
+            itemId: itemId,
+            partitionKeyValue: partitionKeyValue,
+            match: itemId === partitionKeyValue
+          });
+
+          const replaceResult = await container.item(itemId, partitionKeyValue).replace(updatedDoc);
+          context.log(`[admin-companies] DELETE soft-delete succeeded:`, {
+            id: requestedId,
+            itemId: itemId,
+            partitionKeyValue: partitionKeyValue,
+            deletedAt: now,
+            deletedBy: actor,
+            statusCode: replaceResult?.statusCode
+          });
+          return json({ ok: true, softDeleted: true }, 200);
         } catch (e) {
-          context.log("[admin-companies] Delete error:", { id: partitionKeyValue, error: e?.message });
-          return json({ error: "Company not found", detail: e?.message }, 404);
+          context.log("[admin-companies] DELETE error:", {
+            id: requestedId,
+            code: e?.code,
+            statusCode: e?.statusCode,
+            message: e?.message,
+            stack: e?.stack
+          });
+
+          if (e?.statusCode === 404) {
+            return json({ error: "Company not found", id: requestedId }, 404);
+          }
+
+          return json({ error: "Failed to delete company", detail: e?.message }, 500);
         }
       }
 
