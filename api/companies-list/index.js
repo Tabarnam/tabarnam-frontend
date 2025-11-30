@@ -546,13 +546,19 @@ app.http("companiesList", {
             throw replaceErr;
           }
         } catch (e) {
-          context.log("[companies-list] DELETE error:", {
+          context.log("[companies-list] DELETE/SOFT-DELETE error:", {
             id,
             code: e?.code,
             statusCode: e?.statusCode,
             message: e?.message,
+            stack: e?.stack,
             body: e?.body
           });
+
+          if (e?.statusCode === 404) {
+            return json({ error: "Company not found", id }, 404);
+          }
+
           return json({ error: "Failed to delete company", detail: e?.message }, 500);
         }
       }
