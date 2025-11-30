@@ -445,54 +445,9 @@ app.http("companiesList", {
             });
           }
 
-          let partitionKeyValue = doc.id;
-          const potentialPkValues = [];
-
-          if (pkPaths && pkPaths.length > 0) {
-            const primaryPkPath = pkPaths[0];
-            pkFieldName = primaryPkPath.replace(/^\//, "");
-            context.log("[companies-list] DELETE container partition key path:", {
-              pkPath: primaryPkPath,
-              pkFieldName: pkFieldName
-            });
-
-            let pkFromDoc = doc[pkFieldName];
-
-            if (pkFromDoc !== undefined && pkFromDoc !== null) {
-              partitionKeyValue = pkFromDoc;
-              potentialPkValues.push(pkFromDoc);
-              context.log("[companies-list] DELETE extracted partition key value from document:", {
-                pkFieldName: pkFieldName,
-                pkValue: pkFromDoc
-              });
-            } else {
-              context.log("[companies-list] DELETE warning: partition key field '" + pkFieldName + "' is missing or null in document, will use fallbacks:", {
-                pkFieldName: pkFieldName,
-                hasField: pkFieldName in doc,
-                fieldValue: pkFromDoc,
-                docKeys: Object.keys(doc).slice(0, 15)
-              });
-            }
-          } else {
-            context.log("[companies-list] DELETE warning: unable to read container partition key paths");
-          }
-
-          if (doc.id !== undefined && doc.id !== null && !potentialPkValues.includes(doc.id)) {
-            potentialPkValues.push(doc.id);
-          }
-
-          if (doc.company_id !== undefined && doc.company_id !== null && !potentialPkValues.includes(doc.company_id)) {
-            potentialPkValues.push(doc.company_id);
-          }
-
-          context.log("[companies-list] SOFT DELETE prepared:", {
-            id: doc.id,
-            company_id: doc.company_id,
-            company_name: doc.company_name,
-            is_deleted: doc.is_deleted,
-            partitionKeyValue: partitionKeyValue,
-            pkFieldName: pkFieldName,
-            potentialPkValues: potentialPkValues
+          context.log("[companies-list] DELETE container partition key paths:", {
+            pkPaths: pkPaths,
+            pkFieldName: pkFieldName
           });
 
           const now = new Date().toISOString();
@@ -505,52 +460,40 @@ app.http("companiesList", {
             deleted_by: actor
           };
 
-          let replaceError = null;
-          let replacedSuccessfully = false;
-
-          for (const pkValue of potentialPkValues) {
-            if (replacedSuccessfully) break;
-
-            try {
-              context.log("[companies-list] SOFT DELETE attempting replace with partition key:", {
-                itemId: doc.id,
-                partitionKeyValue: pkValue,
-                isRetry: potentialPkValues.indexOf(pkValue) > 0
-              });
-
-              const replaceResult = await container.item(doc.id, pkValue).replace(updatedDoc);
-              context.log("[companies-list] SOFT DELETE replace succeeded:", {
-                requestedId: id,
-                itemId: doc.id,
-                partitionKeyValue: pkValue,
-                deletedAt: now,
-                deletedBy: actor,
-                statusCode: replaceResult?.statusCode
-              });
-              replacedSuccessfully = true;
-              return json({ ok: true, id, softDeleted: true }, 200);
-            } catch (err) {
-              replaceError = err;
-              context.log("[companies-list] SOFT DELETE replace failed with partition key:", {
-                attemptedPkValue: pkValue,
-                code: err?.code,
-                statusCode: err?.statusCode,
-                message: err?.message,
-                isLastAttempt: potentialPkValues.indexOf(pkValue) === potentialPkValues.length - 1
-              });
-            }
-          }
-
-          context.log("[companies-list] SOFT DELETE failed with all partition key attempts:", {
-            requestedId: id,
-            itemId: doc.id,
-            attemptedPartitionKeys: potentialPkValues,
-            finalError: replaceError?.message,
-            errorCode: replaceError?.code,
-            errorStatusCode: replaceError?.statusCode,
-            errorBody: replaceError?.body
+          context.log("[companies-list] SOFT DELETE prepared:", {
+            id: doc.id,
+            company_id: doc.company_id,
+            company_name: doc.company_name,
+            is_deleted: updatedDoc.is_deleted,
+            deleted_at: updatedDoc.deleted_at,
+            deleted_by: updatedDoc.deleted_by
           });
-          throw replaceError;
+
+          try {
+            context.log("[companies-list] SOFT DELETE attempting upsert (no explicit partition key needed):", {
+              itemId: doc.id
+            });
+
+            const upsertResult = await container.items.upsert(updatedDoc);
+            context.log("[companies-list] SOFT DELETE upsert succeeded:", {
+              requestedId: id,
+              itemId: doc.id,
+              deletedAt: now,
+              deletedBy: actor,
+              statusCode: upsertResult?.statusCode
+            });
+            return json({ ok: true, id, softDeleted: true }, 200);
+          } catch (upsertError) {
+            context.log("[companies-list] SOFT DELETE upsert failed:", {
+              requestedId: id,
+              itemId: doc.id,
+              code: upsertError?.code,
+              statusCode: upsertError?.statusCode,
+              message: upsertError?.message,
+              errorBody: upsertError?.body
+            });
+            throw upsertError;
+          }
         } catch (e) {
           context.log("[companies-list] DELETE/SOFT-DELETE error:", {
             id,
