@@ -341,25 +341,38 @@ app.http("adminCompanies", {
               partitionKeyPaths: pkPaths
             });
           } catch (readErr) {
-            context.log("[admin-companies] DELETE failed to read container definition:", {
+            context.log("[admin-companies] DELETE warning: failed to read container definition:", {
               error: readErr?.message
             });
           }
 
           // 3) Derive partition key value from document
+          // Start with doc.id as default, then try to extract from container definition
           let partitionKeyValue = doc.id;
 
           if (pkPaths && pkPaths.length > 0) {
             const primaryPkPath = pkPaths[0];
             pkFieldName = primaryPkPath.replace(/^\//, "");
-            const pkFromContainer = doc[pkFieldName];
 
-            if (pkFromContainer !== undefined && pkFromContainer !== null) {
-              partitionKeyValue = pkFromContainer;
-              context.log("[admin-companies] DELETE partition key from container definition:", {
-                pkFieldName: pkFieldName,
-                pkValue: partitionKeyValue
-              });
+            if (pkFieldName && pkFieldName !== "id") {
+              // If partition key is not /id, try to extract from document
+              const pkFromContainer = doc[pkFieldName];
+              if (pkFromContainer !== undefined && pkFromContainer !== null) {
+                partitionKeyValue = pkFromContainer;
+                context.log("[admin-companies] DELETE using partition key field from container definition:", {
+                  pkPath: primaryPkPath,
+                  pkFieldName: pkFieldName,
+                  pkValue: partitionKeyValue,
+                  docIdValue: doc.id
+                });
+              } else {
+                context.log("[admin-companies] DELETE warning: partition key field missing from document, using id fallback:", {
+                  pkPath: primaryPkPath,
+                  pkFieldName: pkFieldName,
+                  docId: doc.id,
+                  docHasField: pkFieldName in doc
+                });
+              }
             }
           }
 
@@ -370,6 +383,10 @@ app.http("adminCompanies", {
               500
             );
           }
+
+          // Convert to string for consistency
+          const partitionKeyStr = String(partitionKeyValue).trim();
+          const itemIdStr = String(doc.id).trim();
 
           // 4) Perform soft delete by replacing the document with deletion flags set
           const now = new Date().toISOString();
@@ -382,19 +399,18 @@ app.http("adminCompanies", {
             deleted_by: actor
           };
 
-          const itemId = doc.id;
-
           context.log("[admin-companies] DELETE attempting soft delete:", {
-            itemId: itemId,
-            partitionKeyValue: partitionKeyValue,
-            match: itemId === partitionKeyValue
+            itemId: itemIdStr,
+            partitionKeyValue: partitionKeyStr,
+            pkFieldName: pkFieldName,
+            match: itemIdStr === partitionKeyStr
           });
 
-          const replaceResult = await container.item(itemId, partitionKeyValue).replace(updatedDoc);
+          const replaceResult = await container.item(itemIdStr, partitionKeyStr).replace(updatedDoc);
           context.log(`[admin-companies] DELETE soft-delete succeeded:`, {
             id: requestedId,
-            itemId: itemId,
-            partitionKeyValue: partitionKeyValue,
+            itemId: itemIdStr,
+            partitionKeyValue: partitionKeyStr,
             deletedAt: now,
             deletedBy: actor,
             statusCode: replaceResult?.statusCode
