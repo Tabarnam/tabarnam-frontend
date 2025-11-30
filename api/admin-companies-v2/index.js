@@ -225,46 +225,51 @@ app.http("adminCompaniesV2", {
           }
 
           // 3) Derive partition key value from document
-          // Start with doc.id as default, then try to extract from container definition
+          // Try multiple approaches to get the correct partition key
           let partitionKeyValue = doc.id;
+          const potentialPkValues = [doc.id]; // Primary candidate
 
           if (pkPaths && pkPaths.length > 0) {
             const primaryPkPath = pkPaths[0];
             pkFieldName = primaryPkPath.replace(/^\//, "");
+            context.log("[admin-companies-v2] DELETE container partition key path:", {
+              pkPath: primaryPkPath,
+              pkFieldName: pkFieldName
+            });
 
+            // If the field name is different from 'id', try to extract it
             if (pkFieldName && pkFieldName !== "id") {
-              // If partition key is not /id, try to extract from document
-              const pkFromContainer = doc[pkFieldName];
-              if (pkFromContainer !== undefined && pkFromContainer !== null) {
-                partitionKeyValue = pkFromContainer;
-                context.log("[admin-companies-v2] DELETE using partition key field from container definition:", {
-                  pkPath: primaryPkPath,
+              const pkFromDoc = doc[pkFieldName];
+              if (pkFromDoc !== undefined && pkFromDoc !== null) {
+                partitionKeyValue = pkFromDoc;
+                context.log("[admin-companies-v2] DELETE using extracted partition key:", {
                   pkFieldName: pkFieldName,
-                  pkValue: partitionKeyValue,
-                  docIdValue: doc.id
+                  pkValue: partitionKeyValue
                 });
               } else {
-                context.log("[admin-companies-v2] DELETE warning: partition key field missing from document, using id fallback:", {
-                  pkPath: primaryPkPath,
-                  pkFieldName: pkFieldName,
-                  docId: doc.id,
-                  docHasField: pkFieldName in doc
+                context.log("[admin-companies-v2] DELETE warning: partition key field '" + pkFieldName + "' not found or is undefined in document:", {
+                  hasField: pkFieldName in doc,
+                  fieldValue: doc[pkFieldName],
+                  docFields: Object.keys(doc).slice(0, 10)
                 });
               }
             }
           }
 
-          if (partitionKeyValue === undefined || partitionKeyValue === null) {
-            context.log("[admin-companies-v2] DELETE unable to resolve partition key value");
-            return json(
-              { error: "Could not determine partition key for document", id: requestedId },
-              500
-            );
+          // Build list of potential partition key values to try (for fallback)
+          if (doc.company_id !== undefined && doc.company_id !== null && !potentialPkValues.includes(doc.company_id)) {
+            potentialPkValues.push(doc.company_id);
           }
 
-          // Convert to string for consistency
-          const partitionKeyStr = String(partitionKeyValue).trim();
-          const itemIdStr = String(doc.id).trim();
+          context.log("[admin-companies-v2] SOFT DELETE prepared:", {
+            id: doc.id,
+            company_id: doc.company_id,
+            company_name: doc.company_name,
+            is_deleted: doc.is_deleted,
+            partitionKeyValue: partitionKeyValue,
+            pkFieldName: pkFieldName,
+            potentialPkValues: potentialPkValues
+          });
 
           // 4) Perform soft delete by replacing the document with deletion flags set
           const now = new Date().toISOString();
@@ -277,23 +282,53 @@ app.http("adminCompaniesV2", {
             deleted_by: actor
           };
 
-          context.log("[admin-companies-v2] DELETE attempting soft delete:", {
-            itemId: itemIdStr,
-            partitionKeyValue: partitionKeyStr,
-            pkFieldName: pkFieldName,
-            match: itemIdStr === partitionKeyStr
-          });
+          // Try replace operation with primary partition key value, then fallback values
+          let replaceError = null;
+          let replacedSuccessfully = false;
 
-          const replaceResult = await container.item(itemIdStr, partitionKeyStr).replace(updatedDoc);
-          context.log(`[admin-companies-v2] DELETE soft-delete succeeded:`, {
-            id: requestedId,
-            itemId: itemIdStr,
-            partitionKeyValue: partitionKeyStr,
-            deletedAt: now,
-            deletedBy: actor,
-            statusCode: replaceResult?.statusCode
+          for (const pkValue of potentialPkValues) {
+            if (replacedSuccessfully) break;
+
+            try {
+              context.log("[admin-companies-v2] SOFT DELETE attempting replace with partition key:", {
+                itemId: doc.id,
+                partitionKeyValue: pkValue,
+                isRetry: potentialPkValues.indexOf(pkValue) > 0
+              });
+
+              const replaceResult = await container.item(doc.id, pkValue).replace(updatedDoc);
+              context.log(`[admin-companies-v2] DELETE soft-delete succeeded:`, {
+                id: requestedId,
+                itemId: doc.id,
+                partitionKeyValue: pkValue,
+                deletedAt: now,
+                deletedBy: actor,
+                statusCode: replaceResult?.statusCode
+              });
+              replacedSuccessfully = true;
+              return json({ ok: true, softDeleted: true }, 200);
+            } catch (err) {
+              replaceError = err;
+              context.log("[admin-companies-v2] SOFT DELETE replace failed with partition key:", {
+                attemptedPkValue: pkValue,
+                code: err?.code,
+                statusCode: err?.statusCode,
+                message: err?.message,
+                isLastAttempt: potentialPkValues.indexOf(pkValue) === potentialPkValues.length - 1
+              });
+            }
+          }
+
+          // All partition key attempts failed
+          context.log("[admin-companies-v2] SOFT DELETE failed with all partition key attempts:", {
+            requestedId: requestedId,
+            itemId: doc.id,
+            attemptedPartitionKeys: potentialPkValues,
+            finalError: replaceError?.message,
+            errorCode: replaceError?.code,
+            errorStatusCode: replaceError?.statusCode
           });
-          return json({ ok: true, softDeleted: true }, 200);
+          throw replaceError;
         } catch (e) {
           context.log("[admin-companies-v2] DELETE error:", {
             id: requestedId,
