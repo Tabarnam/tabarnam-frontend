@@ -391,7 +391,7 @@ app.http("companiesList", {
           // 1) Find the document by id with a cross-partition query
           context.log("[companies-list] DELETE: Querying for document with id:", id);
           const querySpec = {
-            query: "SELECT TOP 1 c.id, c.company_id FROM c WHERE c.id = @id",
+            query: "SELECT * FROM c WHERE c.id = @id",
             parameters: [{ name: "@id", value: id }],
           };
 
@@ -401,36 +401,49 @@ app.http("companiesList", {
 
           const { resources } = queryResult;
 
+          context.log("[companies-list] DELETE query result count:", resources.length);
+          if (resources.length > 0) {
+            context.log("[companies-list] DELETE first doc:", resources[0]);
+          }
+
+          // Log container partition key configuration
+          const pkPaths = container.partitionKey && container.partitionKey.paths;
+          context.log("[companies-list] DELETE container partition key paths:", pkPaths);
+
           if (!resources || resources.length === 0) {
-            context.log("[companies-list] DELETE: Document not found for id:", id);
+            context.log("[companies-list] DELETE no document found for id:", id);
             return json({ error: "Company not found", id }, 404);
           }
 
           const doc = resources[0];
-          context.log("[companies-list] DELETE: Found document:", {
-            docId: doc.id,
+
+          // 2) Dynamically derive partition key from container configuration
+          const primaryPkPath = pkPaths && pkPaths[0];
+          const pkFieldName = primaryPkPath ? primaryPkPath.replace(/^\//, "") : null;
+          const partitionKeyValue = pkFieldName ? doc[pkFieldName] : undefined;
+
+          context.log("[companies-list] DELETE resolved pk info:", {
+            id,
+            pkPaths,
+            pkFieldName,
             docCompanyId: doc.company_id,
-          });
-
-          // 2) Derive the actual partition key from the document
-          // Cosmos partition key for companies is /company_id
-          // If company_id is missing or undefined, use id as fallback
-          const partitionKeyValue =
-            doc.company_id !== undefined && doc.company_id !== null
-              ? doc.company_id
-              : doc.id;
-
-          context.log("[companies-list] DELETE: Resolved partition key:", {
-            id,
-            company_id: doc.company_id,
+            docId: doc.id,
             partitionKeyValue,
           });
 
-          // 3) Delete using the correct partition key
+          if (partitionKeyValue === undefined || partitionKeyValue === null) {
+            context.log("[companies-list] DELETE: Could not resolve partition key value", {
+              id,
+              pkFieldName,
+              pkPaths,
+            });
+            return json({ error: "Could not determine partition key for document", id }, 500);
+          }
+
+          // 3) Delete using the correct partition key resolved from container config
           const deleteResult = await container.item(id, partitionKeyValue).delete();
-          context.log("[companies-list] DELETE success:", {
+          context.log("[companies-list] DELETE delete() result:", {
             id,
-            partitionKeyValue,
             statusCode: deleteResult?.statusCode,
           });
           return json({ ok: true, id }, 200);
