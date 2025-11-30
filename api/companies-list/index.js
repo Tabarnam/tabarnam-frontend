@@ -422,15 +422,18 @@ app.http("companiesList", {
           const pkFieldName = primaryPkPath ? primaryPkPath.replace(/^\//, "") : null;
 
           let partitionKeyValue = pkFieldName ? doc[pkFieldName] : undefined;
+          let partitionKeySource = "primary";
 
           // Fallbacks if that field is missing on this document
           if (partitionKeyValue === undefined || partitionKeyValue === null) {
             // Prefer explicit company_id if present
             if (doc.company_id !== undefined && doc.company_id !== null) {
               partitionKeyValue = doc.company_id;
+              partitionKeySource = "fallback_company_id";
             } else {
               // Final fallback – use id
               partitionKeyValue = doc.id;
+              partitionKeySource = "fallback_id";
             }
 
             context.log("[companies-list] DELETE pk fallback used:", {
@@ -439,7 +442,8 @@ app.http("companiesList", {
               pkFieldName,
               docCompanyId: doc.company_id,
               docId: doc.id,
-              partitionKeyValue
+              partitionKeyValue,
+              partitionKeySource
             });
           }
 
@@ -456,11 +460,34 @@ app.http("companiesList", {
             );
           }
 
-          // 3) Delete using the correct partition key resolved from container config
-          const deleteResult = await container.item(id, partitionKeyValue).delete();
+          // Debug log: document shape and partition key info
+          context.log("[companies-list] DELETE debug:", {
+            requestedId: id,
+            pkPaths: pkPaths,
+            primaryPkPath: primaryPkPath,
+            pkFieldName: pkFieldName,
+            docShape: {
+              id: doc.id,
+              company_id: doc.company_id,
+              company_name: doc.company_name,
+              _self: doc._self,
+              _rid: doc._rid,
+              _etag: doc._etag,
+              _ts: doc._ts
+            },
+            partitionKeyValue: partitionKeyValue,
+            partitionKeySource: partitionKeySource
+          });
+
+          // 3) Delete using the actual document ID from query result
+          // This ensures we use the exact ID that was stored, not the request parameter
+          const itemId = doc.id || id;
+
+          const deleteResult = await container.item(itemId, partitionKeyValue).delete();
           context.log("[companies-list] DELETE success:", {
-            id,
-            partitionKeyValue,
+            requestedId: id,
+            itemId: itemId,
+            partitionKeyValue: partitionKeyValue,
             statusCode: deleteResult.statusCode
           });
 
@@ -468,9 +495,11 @@ app.http("companiesList", {
         } catch (e) {
           context.log("[companies-list] DELETE error:", {
             id,
-            error: e?.message,
+            partitionKeyValue: e.partitionKeyValue,
             code: e?.code,
             statusCode: e?.statusCode,
+            message: e?.message,
+            body: e?.body
           });
           return json({ error: "Failed to delete company", detail: e?.message }, 500);
         }
