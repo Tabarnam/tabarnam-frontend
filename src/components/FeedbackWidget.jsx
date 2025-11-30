@@ -3,6 +3,7 @@ import React from 'react';
 import { Copy } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { useLocation } from 'react-router-dom';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 
 const EMAIL = 'duh@tabarnam.com';
 
