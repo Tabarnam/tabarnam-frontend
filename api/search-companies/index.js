@@ -86,6 +86,8 @@ app.http("searchCompanies", {
         const params = [{ name: "@take", value: limit }];
         if (q) params.push({ name: "@q", value: q });
 
+        const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
+
         if (sort === "manu") {
           const whereText = q ? `AND (${SQL_TEXT_FILTER})` : "";
 
@@ -99,6 +101,7 @@ app.http("searchCompanies", {
                              c.star_rating, c.star_score, c.confidence_score
             FROM c
             WHERE IS_DEFINED(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
+            AND ${softDeleteFilter}
             ${whereText}
             ORDER BY c._ts DESC
           `;
@@ -119,6 +122,7 @@ app.http("searchCompanies", {
                                 c.star_rating, c.star_score, c.confidence_score
               FROM c
               WHERE (NOT IS_DEFINED(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
+              AND ${softDeleteFilter}
               ${whereText}
               ORDER BY c._ts DESC
             `;
@@ -141,6 +145,7 @@ app.http("searchCompanies", {
                                c.star_rating, c.star_score, c.confidence_score
               FROM c
               WHERE ${SQL_TEXT_FILTER}
+              AND ${softDeleteFilter}
               ${orderBy}
             `
             : `
@@ -151,6 +156,7 @@ app.http("searchCompanies", {
                                c.hq_lat, c.hq_lng, c.product_keywords, c.keywords,
                                c.star_rating, c.star_score, c.confidence_score
               FROM c
+              WHERE ${softDeleteFilter}
               ${orderBy}
             `;
           const res = await container.items
