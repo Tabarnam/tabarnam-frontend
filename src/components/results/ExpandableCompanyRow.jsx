@@ -65,6 +65,15 @@ export default function ExpandableCompanyRow({
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
+  if (import.meta.env.DEV && company?.company_name === "The Hershey Company") {
+    console.log('[ExpandableCompanyRow] Hershey company data:', {
+      company_name: company.company_name,
+      keywords: company.keywords,
+      product_keywords: company.product_keywords,
+      industries: company.industries,
+    });
+  }
+
   const affiliateLinks = normalizeAffiliateLinks(company);
   const amazonLink = company.amazon_store_url || company.amazon_url || "";
 
@@ -319,22 +328,35 @@ export default function ExpandableCompanyRow({
             )}
             <div className="text-sm font-semibold text-gray-700">Keywords</div>
             <div className="text-sm text-gray-600 mt-1 flex flex-wrap gap-1">
-              {String(company.product_keywords || "")
-                .split(",")
-                .map((kw) => kw.trim())
-                .filter(Boolean)
-                .map((kw, idx) => (
-                  <button
-                    key={idx}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onKeywordSearch(kw);
-                    }}
-                    className="text-blue-600 hover:underline text-xs"
-                  >
-                    {kw}
-                  </button>
-                ))}
+              {Array.isArray(company.keywords) && company.keywords.length > 0
+                ? company.keywords.map((kw, idx) => (
+                    <button
+                      key={idx}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onKeywordSearch(kw);
+                      }}
+                      className="text-blue-600 hover:underline text-xs"
+                    >
+                      {kw}
+                    </button>
+                  ))
+                : String(company.product_keywords || "")
+                    .split(",")
+                    .map((kw) => kw.trim())
+                    .filter(Boolean)
+                    .map((kw, idx) => (
+                      <button
+                        key={idx}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onKeywordSearch(kw);
+                        }}
+                        className="text-blue-600 hover:underline text-xs"
+                      >
+                        {kw}
+                      </button>
+                    ))}
             </div>
           </div>
 
@@ -441,23 +463,36 @@ export default function ExpandableCompanyRow({
         )}
         <div className="text-xs font-semibold text-gray-700">Keywords</div>
         <div className="flex flex-wrap gap-1 mt-1">
-          {String(company.product_keywords || "")
-            .split(",")
-            .map((kw) => kw.trim())
-            .filter(Boolean)
-            .slice(0, 4)
-            .map((kw, idx) => (
-              <button
-                key={idx}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onKeywordSearch(kw);
-                }}
-                className="text-xs text-blue-600 hover:underline bg-gray-100 px-1 py-0.5 rounded"
-              >
-                {kw}
-              </button>
-            ))}
+          {Array.isArray(company.keywords) && company.keywords.length > 0
+            ? company.keywords.slice(0, 4).map((kw, idx) => (
+                <button
+                  key={idx}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onKeywordSearch(kw);
+                  }}
+                  className="text-xs text-blue-600 hover:underline bg-gray-100 px-1 py-0.5 rounded"
+                >
+                  {kw}
+                </button>
+              ))
+            : String(company.product_keywords || "")
+                .split(",")
+                .map((kw) => kw.trim())
+                .filter(Boolean)
+                .slice(0, 4)
+                .map((kw, idx) => (
+                  <button
+                    key={idx}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onKeywordSearch(kw);
+                    }}
+                    className="text-xs text-blue-600 hover:underline bg-gray-100 px-1 py-0.5 rounded"
+                  >
+                    {kw}
+                  </button>
+                ))}
         </div>
       </div>
 
