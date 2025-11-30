@@ -61,7 +61,8 @@ jobs:
           skip_app_build: true
           api_location: "api"
 
-      - name: Seed test companies
+      - name: Seed test companies (disabled in CI)
+        if: ${{ false }}
         env:
           COSMOS_DB_ENDPOINT: ${{ secrets.COSMOS_DB_ENDPOINT }} # yamllint disable-line rule:truthy
           COSMOS_DB_KEY: ${{ secrets.COSMOS_DB_KEY }} # yamllint disable-line rule:truthy
