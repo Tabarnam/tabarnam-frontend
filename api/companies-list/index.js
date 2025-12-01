@@ -91,6 +91,18 @@ async function geocodeHQLocation(headquarters_location) {
   return { hq_lat: undefined, hq_lng: undefined };
 }
 
+// Helper: normalize domain from URL
+const toNormalizedDomain = (s = "") => {
+  try {
+    const u = s.startsWith("http") ? new URL(s) : new URL(`https://${s}`);
+    let h = u.hostname.toLowerCase();
+    if (h.startsWith("www.")) h = h.slice(4);
+    return h || "unknown";
+  } catch {
+    return "unknown";
+  }
+};
+
 console.log("[companies-list] About to register app.http handler...");
 
 app.http("companiesList", {
