@@ -325,7 +325,12 @@ export default function SearchCard({ onSubmitParams }) {
               <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
               <Input
                 value={countrySearch === '' && country ? selectedCountryName : countrySearch}
-                onChange={(e) => setCountrySearch(e.target.value)}
+                onChange={(e) => {
+                  setCountrySearch(e.target.value);
+                  if (e.target.value.trim().length > 0) {
+                    setOpenCountryDropdown(true);
+                  }
+                }}
                 onFocus={() => setOpenCountryDropdown(true)}
                 onKeyDown={onKeyDown}
                 placeholder="Country"
