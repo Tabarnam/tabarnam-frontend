@@ -121,7 +121,7 @@ export default function SearchCard({ onSubmitParams }) {
 
   useEffect(() => {
     const c = city.trim();
-    if (c.length < 2) {
+    if (c.length < 1) {
       setCitySuggestions([]);
       setOpenCitySuggest(false);
       return;
@@ -129,7 +129,7 @@ export default function SearchCard({ onSubmitParams }) {
 
     const t = setTimeout(async () => {
       try {
-        const suggestions = await placesAutocomplete({ input: c, country });
+        const suggestions = await getCitySuggestions(c, country);
         setCitySuggestions(suggestions);
         // Auto-open the popover if suggestions are found
         setOpenCitySuggest(suggestions.length > 0);
@@ -142,19 +142,39 @@ export default function SearchCard({ onSubmitParams }) {
     return () => clearTimeout(t);
   }, [city, country]);
 
-  const handleCitySelect = async (placeId) => {
-    try {
-      const details = await placeDetails({ placeId });
-      if (details) {
-        // Use the already-extracted countryCode and stateCode from placeDetails
-        if (details.countryCode) setCountry(details.countryCode);
-        if (details.stateCode) setStateCode(details.stateCode);
-      }
-      setCitySuggestions([]);
-      setOpenCitySuggest(false);
-    } catch (e) {
-      console.warn("Failed to get place details:", e?.message);
+  useEffect(() => {
+    const s = stateCode.trim();
+    if (s.length < 1) {
+      setStateSuggestions([]);
+      setOpenStateSuggest(false);
+      return;
     }
+
+    const t = setTimeout(async () => {
+      try {
+        const suggestions = await getStateSuggestions(s, country);
+        setStateSuggestions(suggestions);
+        // Auto-open the popover if suggestions are found
+        setOpenStateSuggest(suggestions.length > 0);
+      } catch (e) {
+        console.warn("Failed to load state suggestions:", e?.message);
+        setStateSuggestions([]);
+        setOpenStateSuggest(false);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [stateCode, country]);
+
+  const handleCitySelect = (cityName) => {
+    setCity(cityName);
+    setCitySuggestions([]);
+    setOpenCitySuggest(false);
+  };
+
+  const handleStateSelect = (stateName) => {
+    setStateCode(stateName);
+    setStateSuggestions([]);
+    setOpenStateSuggest(false);
   };
 
   const filteredCountries = countries
