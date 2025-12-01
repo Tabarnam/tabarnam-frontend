@@ -47,22 +47,7 @@ export default function SearchCard({ onSubmitParams }) {
 
   useEffect(() => {
     getCountries().then(setCountries);
-    // Load all subdivisions from all countries for state autocomplete
-    getSubdivisions('').then(allSubdivs => {
-      setAllSubdivisions(allSubdivs || {});
-    });
   }, []);
-
-  // Load subdivisions for the selected country (for filtering)
-  useEffect(() => {
-    setStateCode('');
-    setStateSearch('');
-    if (country && allSubdivisions[country]) {
-      setSubdivs(allSubdivisions[country]);
-    } else {
-      setSubdivs([]);
-    }
-  }, [country, allSubdivisions]);
 
   // Hydrate from URL
   useEffect(() => {
