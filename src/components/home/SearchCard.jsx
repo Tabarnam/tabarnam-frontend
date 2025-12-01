@@ -281,7 +281,17 @@ export default function SearchCard({ onSubmitParams }) {
               <Input
                 ref={cityInputRef}
                 value={city}
-                onChange={(e)=>setCity(e.target.value)}
+                onChange={(e)=>{
+                  setCity(e.target.value);
+                  if (e.target.value.trim().length > 0) {
+                    setOpenCitySuggest(true);
+                  }
+                }}
+                onFocus={() => {
+                  if (city.trim().length > 0) {
+                    setOpenCitySuggest(true);
+                  }
+                }}
                 onKeyDown={onKeyDown}
                 placeholder="City / Postal Code"
                 className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
