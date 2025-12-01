@@ -29,8 +29,6 @@ export default function SearchCard({ onSubmitParams }) {
   const [sortBy, setSortBy] = useState('manu'); // default
 
   const [countries, setCountries] = useState([]);
-  const [subdivs, setSubdivs] = useState([]);
-  const [allSubdivisions, setAllSubdivisions] = useState({}); // Map of all subdivisions by country
 
   const [suggestions, setSuggestions] = useState([]);
   const [openSuggest, setOpenSuggest] = useState(false);
