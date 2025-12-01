@@ -5,7 +5,7 @@ import { Search, MapPin, ListFilter, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Popover, PopoverContent } from '@/components/ui/popover';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { getCountries, getSubdivisions } from '@/lib/location';
 import { getSuggestions, getRefinements } from '@/lib/searchCompanies';
 import { placesAutocomplete, placeDetails } from '@/lib/google';
