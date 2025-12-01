@@ -77,6 +77,22 @@ try {
 }
 
 try {
+  console.log("[api] Registering: suggest-cities");
+  require("./suggest-cities/index.js");
+  console.log("[api] ✓ suggest-cities registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load suggest-cities:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: suggest-states");
+  require("./suggest-states/index.js");
+  console.log("[api] ✓ suggest-states registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load suggest-states:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: save-companies");
   require("./save-companies/index.js");
 } catch (e) {

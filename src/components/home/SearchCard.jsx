@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { getCountries } from '@/lib/location';
-import { getSuggestions, getRefinements } from '@/lib/searchCompanies';
+import { getSuggestions, getRefinements, getCitySuggestions, getStateSuggestions } from '@/lib/searchCompanies';
 import { placesAutocomplete, placeDetails } from '@/lib/google';
 
 const SORTS = [
@@ -36,6 +36,8 @@ export default function SearchCard({ onSubmitParams }) {
 
   const [citySuggestions, setCitySuggestions] = useState([]);
   const [openCitySuggest, setOpenCitySuggest] = useState(false);
+  const [stateSuggestions, setStateSuggestions] = useState([]);
+  const [openStateSuggest, setOpenStateSuggest] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
   const [openCountryDropdown, setOpenCountryDropdown] = useState(false);
 
@@ -119,7 +121,7 @@ export default function SearchCard({ onSubmitParams }) {
 
   useEffect(() => {
     const c = city.trim();
-    if (c.length < 2) {
+    if (c.length < 1) {
       setCitySuggestions([]);
       setOpenCitySuggest(false);
       return;
@@ -127,7 +129,7 @@ export default function SearchCard({ onSubmitParams }) {
 
     const t = setTimeout(async () => {
       try {
-        const suggestions = await placesAutocomplete({ input: c, country });
+        const suggestions = await getCitySuggestions(c, country);
         setCitySuggestions(suggestions);
         // Auto-open the popover if suggestions are found
         setOpenCitySuggest(suggestions.length > 0);
@@ -140,19 +142,39 @@ export default function SearchCard({ onSubmitParams }) {
     return () => clearTimeout(t);
   }, [city, country]);
 
-  const handleCitySelect = async (placeId) => {
-    try {
-      const details = await placeDetails({ placeId });
-      if (details) {
-        // Use the already-extracted countryCode and stateCode from placeDetails
-        if (details.countryCode) setCountry(details.countryCode);
-        if (details.stateCode) setStateCode(details.stateCode);
-      }
-      setCitySuggestions([]);
-      setOpenCitySuggest(false);
-    } catch (e) {
-      console.warn("Failed to get place details:", e?.message);
+  useEffect(() => {
+    const s = stateCode.trim();
+    if (s.length < 1) {
+      setStateSuggestions([]);
+      setOpenStateSuggest(false);
+      return;
     }
+
+    const t = setTimeout(async () => {
+      try {
+        const suggestions = await getStateSuggestions(s, country);
+        setStateSuggestions(suggestions);
+        // Auto-open the popover if suggestions are found
+        setOpenStateSuggest(suggestions.length > 0);
+      } catch (e) {
+        console.warn("Failed to load state suggestions:", e?.message);
+        setStateSuggestions([]);
+        setOpenStateSuggest(false);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [stateCode, country]);
+
+  const handleCitySelect = (cityName) => {
+    setCity(cityName);
+    setCitySuggestions([]);
+    setOpenCitySuggest(false);
+  };
+
+  const handleStateSelect = (stateName) => {
+    setStateCode(stateName);
+    setStateSuggestions([]);
+    setOpenStateSuggest(false);
   };
 
   const filteredCountries = countries
@@ -259,7 +281,17 @@ export default function SearchCard({ onSubmitParams }) {
               <Input
                 ref={cityInputRef}
                 value={city}
-                onChange={(e)=>setCity(e.target.value)}
+                onChange={(e)=>{
+                  setCity(e.target.value);
+                  if (e.target.value.trim().length > 0) {
+                    setOpenCitySuggest(true);
+                  }
+                }}
+                onFocus={() => {
+                  if (city.trim().length > 0) {
+                    setOpenCitySuggest(true);
+                  }
+                }}
                 onKeyDown={onKeyDown}
                 placeholder="City / Postal Code"
                 className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
@@ -278,46 +310,83 @@ export default function SearchCard({ onSubmitParams }) {
             </div>
           </PopoverTrigger>
           <PopoverContent
-            className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
+            className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1 max-h-72 overflow-y-auto"
             align="start"
             onOpenAutoFocus={(e)=>e.preventDefault()}
           >
-            {citySuggestions.map((s, i) => (
-              <button
-                key={`${s.placeId}-${i}`}
-                className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex flex-col"
-                onMouseDown={(e)=>e.preventDefault()}
-                onClick={()=>{ setCity(s.mainText); handleCitySelect(s.placeId); }}
-              >
-                <span className="font-medium">{s.mainText}</span>
-                {s.secondaryText && <span className="text-xs text-gray-600">{s.secondaryText}</span>}
-              </button>
-            ))}
+            {citySuggestions.length > 0 ? (
+              citySuggestions.map((s, i) => (
+                <button
+                  key={`${s.value}-${i}`}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+                  onMouseDown={(e)=>e.preventDefault()}
+                  onClick={() => handleCitySelect(s.value)}
+                >
+                  {s.value}
+                </button>
+              ))
+            ) : (
+              <div className="px-4 py-2 text-sm text-gray-500">No cities found</div>
+            )}
           </PopoverContent>
         </Popover>
 
-        <div className="relative">
-          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
-          <Input
-            ref={stateInputRef}
-            value={stateCode}
-            onChange={(e)=>setStateCode(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder="State / Province"
-            className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
-            autoComplete="off"
-          />
-          {stateCode && (
-            <button
-              type="button"
-              onClick={()=>{ setStateCode(''); stateInputRef.current?.focus(); }}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
-              aria-label="Clear state"
-            >
-              <X size={16} />
-            </button>
-          )}
-        </div>
+        <Popover open={openStateSuggest && stateSuggestions.length > 0}>
+          <PopoverTrigger asChild>
+            <div className="relative">
+              <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
+              <Input
+                ref={stateInputRef}
+                value={stateCode}
+                onChange={(e)=>{
+                  setStateCode(e.target.value);
+                  if (e.target.value.trim().length > 0) {
+                    setOpenStateSuggest(true);
+                  }
+                }}
+                onFocus={() => {
+                  if (stateCode.trim().length > 0) {
+                    setOpenStateSuggest(true);
+                  }
+                }}
+                onKeyDown={onKeyDown}
+                placeholder="State / Province"
+                className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
+                autoComplete="off"
+              />
+              {stateCode && (
+                <button
+                  type="button"
+                  onClick={()=>{ setStateCode(''); stateInputRef.current?.focus(); }}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
+                  aria-label="Clear state"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1 max-h-72 overflow-y-auto"
+            align="start"
+            onOpenAutoFocus={(e)=>e.preventDefault()}
+          >
+            {stateSuggestions.length > 0 ? (
+              stateSuggestions.map((s, i) => (
+                <button
+                  key={`${s.value}-${i}`}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+                  onMouseDown={(e)=>e.preventDefault()}
+                  onClick={() => handleStateSelect(s.value)}
+                >
+                  {s.value}
+                </button>
+              ))
+            ) : (
+              <div className="px-4 py-2 text-sm text-gray-500">No states found</div>
+            )}
+          </PopoverContent>
+        </Popover>
 
         <Popover open={openCountryDropdown} onOpenChange={setOpenCountryDropdown}>
           <PopoverTrigger asChild>
