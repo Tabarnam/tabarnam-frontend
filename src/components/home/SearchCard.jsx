@@ -285,45 +285,46 @@ export default function SearchCard({ onSubmitParams }) {
           </Popover>
         </div>
 
-        <div className="relative">
-          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <Input
-            value={countrySearch === '' && country ? selectedCountryName : countrySearch}
-            onChange={(e) => setCountrySearch(e.target.value)}
-            onFocus={() => setOpenCountryDropdown(true)}
-            onKeyDown={onKeyDown}
-            placeholder="Country"
-            className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
-            autoComplete="off"
-          />
-          <Popover open={openCountryDropdown}>
-            <PopoverContent
-              className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1 max-h-72 overflow-y-auto"
-              align="start"
-              onOpenAutoFocus={(e)=>e.preventDefault()}
-            >
-              {filteredCountries.length > 0 ? (
-                filteredCountries.slice(0, 50).map((c) => (
-                  <button
-                    key={c.code}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
-                    onMouseDown={(e)=>e.preventDefault()}
-                    onClick={() => {
-                      setCountry(c.code);
-                      setCountrySearch('');
-                      setOpenCountryDropdown(false);
-                    }}
-                  >
-                    {c.code === 'US' && <span className="font-semibold">{c.name}</span>}
-                    {c.code !== 'US' && <span>{c.name}</span>}
-                  </button>
-                ))
-              ) : (
-                <div className="px-4 py-2 text-sm text-gray-500">No countries found</div>
-              )}
-            </PopoverContent>
-          </Popover>
-        </div>
+        <Popover open={openCountryDropdown} onOpenChange={setOpenCountryDropdown}>
+          <PopoverTrigger asChild>
+            <div className="relative">
+              <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
+              <Input
+                value={countrySearch === '' && country ? selectedCountryName : countrySearch}
+                onChange={(e) => setCountrySearch(e.target.value)}
+                onKeyDown={onKeyDown}
+                placeholder="Country"
+                className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
+                autoComplete="off"
+              />
+            </div>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1 max-h-72 overflow-y-auto"
+            align="start"
+            onOpenAutoFocus={(e)=>e.preventDefault()}
+          >
+            {filteredCountries.length > 0 ? (
+              filteredCountries.slice(0, 50).map((c) => (
+                <button
+                  key={c.code}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+                  onMouseDown={(e)=>e.preventDefault()}
+                  onClick={() => {
+                    setCountry(c.code);
+                    setCountrySearch('');
+                    setOpenCountryDropdown(false);
+                  }}
+                >
+                  {c.code === 'US' && <span className="font-semibold">{c.name}</span>}
+                  {c.code !== 'US' && <span>{c.name}</span>}
+                </button>
+              ))
+            ) : (
+              <div className="px-4 py-2 text-sm text-gray-500">No countries found</div>
+            )}
+          </PopoverContent>
+        </Popover>
 
         <Select value={sortBy} onValueChange={setSortBy}>
           <SelectTrigger className="h-11 bg-gray-50 border-gray-300 text-gray-900">
