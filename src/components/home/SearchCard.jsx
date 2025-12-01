@@ -45,22 +45,8 @@ export default function SearchCard({ onSubmitParams }) {
   const inputRef = useRef(null);
   const cityInputRef = useRef(null);
   const stateInputRef = useRef(null);
-  const countryDropdownRef = useRef(null);
 
   useEffect(() => { getCountries().then(setCountries); }, []);
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (countryDropdownRef.current && !countryDropdownRef.current.contains(e.target)) {
-        setOpenCountryDropdown(false);
-      }
-    };
-
-    if (openCountryDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [openCountryDropdown]);
 
   useEffect(() => {
     setStateCode('');
