@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import { getCountries, getSubdivisions } from '@/lib/location';
+import { getCountries } from '@/lib/location';
 import { getSuggestions, getRefinements } from '@/lib/searchCompanies';
 import { placesAutocomplete, placeDetails } from '@/lib/google';
 
@@ -29,8 +29,6 @@ export default function SearchCard({ onSubmitParams }) {
   const [sortBy, setSortBy] = useState('manu'); // default
 
   const [countries, setCountries] = useState([]);
-  const [subdivs, setSubdivs] = useState([]);
-  const [allSubdivisions, setAllSubdivisions] = useState({}); // Map of all subdivisions by country
 
   const [suggestions, setSuggestions] = useState([]);
   const [openSuggest, setOpenSuggest] = useState(false);
@@ -40,8 +38,6 @@ export default function SearchCard({ onSubmitParams }) {
   const [openCitySuggest, setOpenCitySuggest] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
   const [openCountryDropdown, setOpenCountryDropdown] = useState(false);
-  const [stateSearch, setStateSearch] = useState('');
-  const [openStateSuggest, setOpenStateSuggest] = useState(false);
 
   const inputRef = useRef(null);
   const cityInputRef = useRef(null);
@@ -49,22 +45,7 @@ export default function SearchCard({ onSubmitParams }) {
 
   useEffect(() => {
     getCountries().then(setCountries);
-    // Load all subdivisions from all countries for state autocomplete
-    getSubdivisions('').then(allSubdivs => {
-      setAllSubdivisions(allSubdivs || {});
-    });
   }, []);
-
-  // Load subdivisions for the selected country (for filtering)
-  useEffect(() => {
-    setStateCode('');
-    setStateSearch('');
-    if (country && allSubdivisions[country]) {
-      setSubdivs(allSubdivisions[country]);
-    } else {
-      setSubdivs([]);
-    }
-  }, [country, allSubdivisions]);
 
   // Hydrate from URL
   useEffect(() => {
@@ -109,6 +90,33 @@ export default function SearchCard({ onSubmitParams }) {
     return () => clearTimeout(t);
   }, [q, country, stateCode, city]);
 
+  // Check if input might be a postal code and auto-fill country
+  useEffect(() => {
+    const c = city.trim();
+
+    // Check if it looks like a postal code (for common patterns)
+    const postalCodePattern = /^\d{5}(-\d{4})?$|^[A-Z]\d[A-Z] \d[A-Z]\d$|^\d{5}$|^[A-Z]{1,2}\d{1,2}[A-Z]? ?\d[A-Z]{2}$|^\d{4}$|^[A-Z0-9]{3,8}$/i;
+    const looksLikePostalCode = postalCodePattern.test(c) && c.length >= 3;
+
+    if (looksLikePostalCode && !country) {
+      // Try to get place details for this postal code to extract country
+      const t = setTimeout(async () => {
+        try {
+          const suggestions = await placesAutocomplete({ input: c, country: '' });
+          if (suggestions.length > 0) {
+            const details = await placeDetails({ placeId: suggestions[0].placeId });
+            if (details && details.countryCode && !country) {
+              setCountry(details.countryCode);
+            }
+          }
+        } catch (e) {
+          console.warn("Failed to detect country from postal code:", e?.message);
+        }
+      }, 500);
+      return () => clearTimeout(t);
+    }
+  }, [city, country]);
+
   useEffect(() => {
     const c = city.trim();
     if (c.length < 2) {
@@ -147,16 +155,6 @@ export default function SearchCard({ onSubmitParams }) {
     }
   };
 
-  const handleStateSelect = (state) => {
-    setStateCode(state.code);
-    setStateSearch('');
-    setOpenStateSuggest(false);
-    // Auto-set country if this state came from searching all countries
-    if (state._countryCode && !country) {
-      setCountry(state._countryCode);
-    }
-  };
-
   const filteredCountries = countries
     .filter(c =>
       countrySearch.trim() === '' || c.name.toLowerCase().includes(countrySearch.toLowerCase()) || c.code.toLowerCase().includes(countrySearch.toLowerCase())
@@ -167,38 +165,6 @@ export default function SearchCard({ onSubmitParams }) {
       if (b.code === 'US') return 1;
       return a.name.localeCompare(b.name);
     });
-
-  // Filter states from either the selected country or all countries
-  const getFilteredStates = () => {
-    const searchTerm = stateSearch.trim().toLowerCase();
-
-    // If a country is selected, show its subdivisions first
-    if (country && subdivs.length > 0) {
-      return subdivs.filter(s =>
-        searchTerm === '' || s.name.toLowerCase().includes(searchTerm) || s.code.toLowerCase().includes(searchTerm)
-      );
-    }
-
-    // Otherwise, search across all countries' subdivisions
-    const allStates = [];
-    for (const [countryCode, stateList] of Object.entries(allSubdivisions)) {
-      for (const state of stateList) {
-        if (searchTerm === '' || state.name.toLowerCase().includes(searchTerm) || state.code.toLowerCase().includes(searchTerm)) {
-          allStates.push({ ...state, _countryCode: countryCode });
-        }
-      }
-    }
-    // Sort by relevance: exact matches first, then alphabetical
-    return allStates.sort((a, b) => {
-      const aName = a.name.toLowerCase();
-      const bName = b.name.toLowerCase();
-      if (aName === searchTerm) return -1;
-      if (bName === searchTerm) return 1;
-      return aName.localeCompare(bName);
-    });
-  };
-
-  const filteredStates = getFilteredStates();
 
   const selectedCountryName = country ? countries.find(c => c.code === country)?.name || '' : '';
 
@@ -287,9 +253,19 @@ export default function SearchCard({ onSubmitParams }) {
                 onChange={(e)=>setCity(e.target.value)}
                 onKeyDown={onKeyDown}
                 placeholder="City / Postal Code"
-                className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
+                className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
                 autoComplete="off"
               />
+              {city && (
+                <button
+                  type="button"
+                  onClick={()=>{ setCity(''); cityInputRef.current?.focus(); }}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
+                  aria-label="Clear city"
+                >
+                  <X size={16} />
+                </button>
+              )}
             </div>
           </PopoverTrigger>
           <PopoverContent
@@ -311,40 +287,28 @@ export default function SearchCard({ onSubmitParams }) {
           </PopoverContent>
         </Popover>
 
-        <Popover open={openStateSuggest && filteredStates.length > 0}>
-          <PopoverTrigger asChild>
-            <div className="relative">
-              <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
-              <Input
-                ref={stateInputRef}
-                value={stateSearch || (stateCode ? subdivs.find(s => s.code === stateCode)?.name || '' : '')}
-                onChange={(e)=>{ setStateSearch(e.target.value); setOpenStateSuggest(true); }}
-                onFocus={() => setOpenStateSuggest(true)}
-                onKeyDown={onKeyDown}
-                placeholder="State / Province"
-                className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
-                autoComplete="off"
-              />
-            </div>
-          </PopoverTrigger>
-          <PopoverContent
-            className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
-            align="start"
-            onOpenAutoFocus={(e)=>e.preventDefault()}
-          >
-            {filteredStates.slice(0, 12).map((s, i) => (
-              <button
-                key={`${s.code}-${s._countryCode || ''}-${i}`}
-                className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex flex-col"
-                onMouseDown={(e)=>e.preventDefault()}
-                onClick={()=>handleStateSelect(s)}
-              >
-                <span className="font-medium">{s.name}</span>
-                <span className="text-xs text-gray-600">{s.code}</span>
-              </button>
-            ))}
-          </PopoverContent>
-        </Popover>
+        <div className="relative">
+          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
+          <Input
+            ref={stateInputRef}
+            value={stateCode}
+            onChange={(e)=>setStateCode(e.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder="State / Province"
+            className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
+            autoComplete="off"
+          />
+          {stateCode && (
+            <button
+              type="button"
+              onClick={()=>{ setStateCode(''); stateInputRef.current?.focus(); }}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
+              aria-label="Clear state"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
 
         <Popover open={openCountryDropdown}>
           <PopoverTrigger asChild>
@@ -356,9 +320,19 @@ export default function SearchCard({ onSubmitParams }) {
                 onFocus={() => setOpenCountryDropdown(true)}
                 onKeyDown={onKeyDown}
                 placeholder="Country"
-                className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
+                className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
                 autoComplete="off"
               />
+              {country && !countrySearch && (
+                <button
+                  type="button"
+                  onClick={()=>{ setCountry(''); setCountrySearch(''); setOpenCountryDropdown(false); }}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
+                  aria-label="Clear country"
+                >
+                  <X size={16} />
+                </button>
+              )}
             </div>
           </PopoverTrigger>
           <PopoverContent
