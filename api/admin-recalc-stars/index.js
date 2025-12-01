@@ -101,7 +101,10 @@ app.http("adminRecalcStars", {
             company.star_rating = binaryStars;
           }
           company.updated_at = new Date().toISOString();
-          await companiesContainer.items.upsert(company);
+
+          // Use normalized_domain as partition key for upsert
+          const partitionKeyValue = String(company.normalized_domain || "unknown").trim();
+          await companiesContainer.items.upsert(company, { partitionKey: partitionKeyValue });
           updated += 1;
         }
       }
