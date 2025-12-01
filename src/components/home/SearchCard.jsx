@@ -318,28 +318,62 @@ export default function SearchCard({ onSubmitParams }) {
           </PopoverContent>
         </Popover>
 
-        <div className="relative">
-          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
-          <Input
-            ref={stateInputRef}
-            value={stateCode}
-            onChange={(e)=>setStateCode(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder="State / Province"
-            className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
-            autoComplete="off"
-          />
-          {stateCode && (
-            <button
-              type="button"
-              onClick={()=>{ setStateCode(''); stateInputRef.current?.focus(); }}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
-              aria-label="Clear state"
-            >
-              <X size={16} />
-            </button>
-          )}
-        </div>
+        <Popover open={openStateSuggest && stateSuggestions.length > 0}>
+          <PopoverTrigger asChild>
+            <div className="relative">
+              <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
+              <Input
+                ref={stateInputRef}
+                value={stateCode}
+                onChange={(e)=>{
+                  setStateCode(e.target.value);
+                  if (e.target.value.trim().length > 0) {
+                    setOpenStateSuggest(true);
+                  }
+                }}
+                onFocus={() => {
+                  if (stateCode.trim().length > 0) {
+                    setOpenStateSuggest(true);
+                  }
+                }}
+                onKeyDown={onKeyDown}
+                placeholder="State / Province"
+                className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
+                autoComplete="off"
+              />
+              {stateCode && (
+                <button
+                  type="button"
+                  onClick={()=>{ setStateCode(''); stateInputRef.current?.focus(); }}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
+                  aria-label="Clear state"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1 max-h-72 overflow-y-auto"
+            align="start"
+            onOpenAutoFocus={(e)=>e.preventDefault()}
+          >
+            {stateSuggestions.length > 0 ? (
+              stateSuggestions.map((s, i) => (
+                <button
+                  key={`${s.value}-${i}`}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+                  onMouseDown={(e)=>e.preventDefault()}
+                  onClick={() => handleStateSelect(s.value)}
+                >
+                  {s.value}
+                </button>
+              ))
+            ) : (
+              <div className="px-4 py-2 text-sm text-gray-500">No states found</div>
+            )}
+          </PopoverContent>
+        </Popover>
 
         <Popover open={openCountryDropdown} onOpenChange={setOpenCountryDropdown}>
           <PopoverTrigger asChild>
