@@ -316,8 +316,9 @@ app.http("companiesList", {
         const now = new Date().toISOString();
         const doc = {
           ...incoming,
-          id: partitionKeyValue,
-          company_id: partitionKeyValue,
+          id: String(id).trim(),
+          company_id: String(id).trim(),
+          normalized_domain: normalizedDomain,
           company_name: incoming.company_name || incoming.name || "",
           name: incoming.name || incoming.company_name || "",
           hq_lat: hq_lat,
