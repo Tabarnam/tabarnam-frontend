@@ -134,6 +134,12 @@ export default function SearchCard({ onSubmitParams }) {
     countrySearch.trim() === '' || c.name.toLowerCase().includes(countrySearch.toLowerCase()) || c.code.toLowerCase().includes(countrySearch.toLowerCase())
   );
 
+  const filteredStates = subdivs.filter(s =>
+    stateSearch.trim() === '' || s.name.toLowerCase().includes(stateSearch.toLowerCase()) || s.code.toLowerCase().includes(stateSearch.toLowerCase())
+  );
+
+  const selectedCountryName = country ? countries.find(c => c.code === country)?.name || '' : '';
+
   const onKeyDown = (e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } };
 
   const handleSubmit = () => {
