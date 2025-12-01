@@ -429,7 +429,7 @@ app.http("companiesList", {
 
           const now = new Date().toISOString();
           const actor = (incoming && incoming.actor) || (body && body.actor) || "admin_ui";
-          const partitionKeyValue = String(doc.id).trim();
+          const partitionKeyValue = String(doc.normalized_domain || doc.id).trim();
 
           const updatedDoc = {
             ...doc,
@@ -445,7 +445,8 @@ app.http("companiesList", {
             is_deleted: updatedDoc.is_deleted,
             deleted_at: updatedDoc.deleted_at,
             deleted_by: updatedDoc.deleted_by,
-            partitionKeyValue: partitionKeyValue
+            partitionKeyValue: partitionKeyValue,
+            normalized_domain: doc.normalized_domain
           });
 
           try {
