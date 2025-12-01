@@ -158,18 +158,8 @@ export default function SearchCard({ onSubmitParams }) {
         </Button>
       </div>
 
-      {/* Row 2: Sort Results, City/Postal Code, State/Province, Country */}
+      {/* Row 2: City/Postal Code, State/Province, Country, Sort Results */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="h-11 bg-gray-50 border-gray-300 text-gray-900">
-            <ListFilter className="text-gray-400 mr-2" size={18} />
-            <span className="text-gray-900">Sort Results</span>
-          </SelectTrigger>
-          <SelectContent>
-            {SORTS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-          </SelectContent>
-        </Select>
-
         <div className="relative">
           <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <Input
@@ -204,6 +194,16 @@ export default function SearchCard({ onSubmitParams }) {
             </SelectContent>
           </Select>
         </div>
+
+        <Select value={sortBy} onValueChange={setSortBy}>
+          <SelectTrigger className="h-11 bg-gray-50 border-gray-300 text-gray-900">
+            <ListFilter className="text-gray-400 mr-2" size={18} />
+            <span className="text-gray-900">Sort Results</span>
+          </SelectTrigger>
+          <SelectContent>
+            {SORTS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </div>
     </div>
   );
