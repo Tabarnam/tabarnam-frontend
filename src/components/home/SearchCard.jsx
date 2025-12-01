@@ -277,9 +277,7 @@ export default function SearchCard({ onSubmitParams }) {
 
       {/* Row 2: City/Postal Code, State/Province, Country, Sort Results */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <Popover open={openCitySuggest && citySuggestions.length > 0} onOpenChange={(open) => {
-          if (!open || city.trim().length < 2) setOpenCitySuggest(open);
-        }}>
+        <Popover open={openCitySuggest && citySuggestions.length > 0}>
           <PopoverTrigger asChild>
             <div className="relative">
               <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
@@ -287,11 +285,6 @@ export default function SearchCard({ onSubmitParams }) {
                 ref={cityInputRef}
                 value={city}
                 onChange={(e)=>setCity(e.target.value)}
-                onFocus={() => {
-                  if (city.trim().length >= 2 && citySuggestions.length > 0) {
-                    setOpenCitySuggest(true);
-                  }
-                }}
                 onKeyDown={onKeyDown}
                 placeholder="City / Postal Code"
                 className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
