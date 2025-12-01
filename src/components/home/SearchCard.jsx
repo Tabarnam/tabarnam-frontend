@@ -47,8 +47,11 @@ export default function SearchCard({ onSubmitParams }) {
   const stateInputRef = useRef(null);
 
   useEffect(() => { getCountries().then(setCountries); }, []);
+
   useEffect(() => {
-    setStateCode(''); setSubdivs([]);
+    setStateCode('');
+    setStateSearch('');
+    setSubdivs([]);
     if (country) getSubdivisions(country).then(setSubdivs);
   }, [country]);
 
