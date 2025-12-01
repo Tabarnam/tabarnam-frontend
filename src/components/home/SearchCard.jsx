@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Popover, PopoverContent } from '@/components/ui/popover';
 import { getCountries, getSubdivisions } from '@/lib/location';
 import { getSuggestions, getRefinements } from '@/lib/searchCompanies';
+import { placesAutocomplete, placeDetails } from '@/lib/google';
 
 const SORTS = [
   { value: 'manu',  label: 'Nearest Manufacturing' },
@@ -34,7 +35,14 @@ export default function SearchCard({ onSubmitParams }) {
   const [openSuggest, setOpenSuggest] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const [citySuggestions, setCitySuggestions] = useState([]);
+  const [openCitySuggest, setOpenCitySuggest] = useState(false);
+  const [countrySearch, setCountrySearch] = useState('');
+  const [openCountrySuggest, setOpenCountrySuggest] = useState(false);
+
   const inputRef = useRef(null);
+  const cityInputRef = useRef(null);
+  const countryInputRef = useRef(null);
 
   useEffect(() => { getCountries().then(setCountries); }, []);
   useEffect(() => {
@@ -84,6 +92,45 @@ export default function SearchCard({ onSubmitParams }) {
     }, 250);
     return () => clearTimeout(t);
   }, [q, country, stateCode, city]);
+
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      const c = city.trim();
+      if (c.length < 2) { setCitySuggestions([]); setOpenCitySuggest(false); return; }
+      try {
+        const suggestions = await placesAutocomplete({ input: c, country });
+        setCitySuggestions(suggestions);
+        setOpenCitySuggest(suggestions.length > 0);
+      } catch (e) {
+        console.warn("Failed to load city suggestions:", e?.message);
+        setCitySuggestions([]);
+        setOpenCitySuggest(false);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [city, country]);
+
+  const handleCitySelect = async (placeId) => {
+    try {
+      const details = await placeDetails({ placeId });
+      if (details) {
+        // Try to extract country code from address components
+        const countryCode = details.components?.find(c => c.types?.includes('country'))?.short_name || '';
+        const stateCode = details.components?.find(c => c.types?.includes('administrative_area_level_1'))?.short_name || '';
+
+        if (countryCode) setCountry(countryCode);
+        if (stateCode) setStateCode(stateCode);
+      }
+      setCitySuggestions([]);
+      setOpenCitySuggest(false);
+    } catch (e) {
+      console.warn("Failed to get place details:", e?.message);
+    }
+  };
+
+  const filteredCountries = countries.filter(c =>
+    countrySearch.trim() === '' || c.name.toLowerCase().includes(countrySearch.toLowerCase()) || c.code.toLowerCase().includes(countrySearch.toLowerCase())
+  );
 
   const onKeyDown = (e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } };
 
@@ -163,12 +210,32 @@ export default function SearchCard({ onSubmitParams }) {
         <div className="relative">
           <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <Input
+            ref={cityInputRef}
             value={city}
             onChange={(e)=>setCity(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="City / Postal Code"
             className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
           />
+          <Popover open={openCitySuggest && citySuggestions.length > 0}>
+            <PopoverContent
+              className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
+              align="start"
+              onOpenAutoFocus={(e)=>e.preventDefault()}
+            >
+              {citySuggestions.map((s, i) => (
+                <button
+                  key={`${s.placeId}-${i}`}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex flex-col"
+                  onMouseDown={(e)=>e.preventDefault()}
+                  onClick={()=>{ setCity(s.mainText); handleCitySelect(s.placeId); }}
+                >
+                  <span className="font-medium">{s.mainText}</span>
+                  {s.secondaryText && <span className="text-xs text-gray-600">{s.secondaryText}</span>}
+                </button>
+              ))}
+            </PopoverContent>
+          </Popover>
         </div>
 
         <div className="relative">
@@ -185,14 +252,33 @@ export default function SearchCard({ onSubmitParams }) {
 
         <div className="relative">
           <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <Select value={country} onValueChange={setCountry}>
-            <SelectTrigger className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900">
-              <SelectValue placeholder="Country" />
-            </SelectTrigger>
-            <SelectContent className="max-h-72 overflow-auto">
-              {countries.map(c => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <Input
+            ref={countryInputRef}
+            value={countrySearch || (country ? countries.find(c => c.code === country)?.name || '' : '')}
+            onChange={(e)=>{ setCountrySearch(e.target.value); setOpenCountrySuggest(true); }}
+            onFocus={()=>setOpenCountrySuggest(true)}
+            onKeyDown={onKeyDown}
+            placeholder="Country"
+            className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
+          />
+          <Popover open={openCountrySuggest && filteredCountries.length > 0}>
+            <PopoverContent
+              className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
+              align="start"
+              onOpenAutoFocus={(e)=>e.preventDefault()}
+            >
+              {filteredCountries.slice(0, 15).map((c, i) => (
+                <button
+                  key={`${c.code}-${i}`}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+                  onMouseDown={(e)=>e.preventDefault()}
+                  onClick={()=>{ setCountry(c.code); setCountrySearch(''); setOpenCountrySuggest(false); }}
+                >
+                  {c.name}
+                </button>
+              ))}
+            </PopoverContent>
+          </Popover>
         </div>
 
         <Select value={sortBy} onValueChange={setSortBy}>
