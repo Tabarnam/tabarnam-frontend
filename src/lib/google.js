@@ -62,3 +62,80 @@ export async function translate({ text, target = "en" }) {
     return { text, target, translatedText: text };
   }
 }
+
+export async function placesAutocomplete({ input, country = "" } = {}) {
+  const query = String(input || "").trim();
+  if (!query) return [];
+
+  try {
+    const params = new URLSearchParams();
+    params.set("input", query);
+    if (country) params.set("country", country);
+
+    const r = await fetch(`${API_BASE}/google/places?${params.toString()}`, {
+      method: "GET",
+      headers: { "Accept": "application/json" }
+    });
+
+    if (!r.ok) {
+      console.warn(`Places autocomplete returned ${r.status}`);
+      return [];
+    }
+
+    const data = await r.json().catch(() => ({}));
+    if (!Array.isArray(data?.predictions)) return [];
+
+    return data.predictions.map((p) => ({
+      placeId: p.place_id,
+      description: p.description,
+      mainText: p.main_text,
+      secondaryText: p.secondary_text,
+    }));
+  } catch (e) {
+    console.warn("Places autocomplete failed:", e?.message);
+    return [];
+  }
+}
+
+export async function placeDetails({ placeId } = {}) {
+  const id = String(placeId || "").trim();
+  if (!id) return null;
+
+  try {
+    const params = new URLSearchParams();
+    params.set("place_id", id);
+
+    const r = await fetch(`${API_BASE}/google/places?${params.toString()}`, {
+      method: "GET",
+      headers: { "Accept": "application/json" }
+    });
+
+    if (!r.ok) {
+      console.warn(`Place details returned ${r.status}`);
+      return null;
+    }
+
+    const data = await r.json().catch(() => ({}));
+    if (!data?.components) return null;
+
+    const components = data.components || [];
+    const getComponentByType = (types) => {
+      const comp = components.find((c) => Array.isArray(c.types) && c.types.some((t) => types.includes(t)));
+      return comp?.short_name || comp?.long_name || "";
+    };
+
+    return {
+      geometry: data.geometry,
+      country: getComponentByType(["country"]),
+      countryCode: getComponentByType(["country"]),
+      state: getComponentByType(["administrative_area_level_1"]),
+      stateCode: getComponentByType(["administrative_area_level_1"]),
+      city: getComponentByType(["locality", "postal_town"]),
+      postalCode: getComponentByType(["postal_code"]),
+      components: components,
+    };
+  } catch (e) {
+    console.warn("Place details failed:", e?.message);
+    return null;
+  }
+}
