@@ -1,7 +1,7 @@
 // src/components/home/SearchCard.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Search, MapPin, ListFilter, Loader2, X } from 'lucide-react';
+import { Search, MapPin, ListFilter, Loader2, X, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -38,11 +38,13 @@ export default function SearchCard({ onSubmitParams }) {
   const [citySuggestions, setCitySuggestions] = useState([]);
   const [openCitySuggest, setOpenCitySuggest] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
-  const [openCountrySuggest, setOpenCountrySuggest] = useState(false);
+  const [openCountryDropdown, setOpenCountryDropdown] = useState(false);
+  const [stateSearch, setStateSearch] = useState('');
+  const [openStateSuggest, setOpenStateSuggest] = useState(false);
 
   const inputRef = useRef(null);
   const cityInputRef = useRef(null);
-  const countryInputRef = useRef(null);
+  const stateInputRef = useRef(null);
 
   useEffect(() => { getCountries().then(setCountries); }, []);
   useEffect(() => {
