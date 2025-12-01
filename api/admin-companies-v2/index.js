@@ -226,27 +226,47 @@ app.http("adminCompaniesV2", {
 
           // CRITICAL: Extract partition key value directly from the retrieved document
           // The Cosmos DB container partition key is /normalized_domain
-          const documentNormalizedDomain = doc.normalized_domain;
+          let documentNormalizedDomain = doc.normalized_domain;
 
+          // If the document doesn't have normalized_domain, compute it from URL fields
+          // This handles legacy documents created before the normalized_domain field was added
           if (!documentNormalizedDomain || String(documentNormalizedDomain).trim() === "") {
-            context.log("[admin-companies-v2] DELETE ERROR: Document missing normalized_domain", {
+            const urlForDomain = doc.canonical_url || doc.url || doc.website || "";
+            documentNormalizedDomain = toNormalizedDomain(urlForDomain);
+
+            context.log("[admin-companies-v2] DELETE: Document missing normalized_domain, computed from URL", {
               id: doc.id,
               company_name: doc.company_name,
-              normalized_domain: documentNormalizedDomain,
+              urlForDomain: urlForDomain,
+              computedNormalizedDomain: documentNormalizedDomain
+            });
+
+            // Update the document to include the computed normalized_domain for future operations
+            doc.normalized_domain = documentNormalizedDomain;
+          }
+
+          if (!documentNormalizedDomain || String(documentNormalizedDomain).trim() === "" || String(documentNormalizedDomain).trim() === "unknown") {
+            context.log("[admin-companies-v2] DELETE ERROR: Cannot determine normalized_domain for document", {
+              id: doc.id,
+              company_name: doc.company_name,
+              canonicalUrl: doc.canonical_url,
+              url: doc.url,
+              website: doc.website,
               docKeys: Object.keys(doc).slice(0, 20)
             });
             return json({
-              error: "Cannot delete company: missing partition key field (normalized_domain)",
+              error: "Cannot delete company: unable to determine partition key from document URL fields",
               id: requestedId
             }, 500);
           }
 
           const partitionKeyValue = String(documentNormalizedDomain).trim();
-          context.log("[admin-companies-v2] DELETE: Partition key extracted from document", {
+          context.log("[admin-companies-v2] DELETE: Partition key ready", {
             itemId: doc.id,
             partitionKeyValue: partitionKeyValue,
             typeOf: typeof partitionKeyValue,
-            length: partitionKeyValue.length
+            length: partitionKeyValue.length,
+            wasComputed: !resources[0].normalized_domain
           });
 
           const now = new Date().toISOString();
