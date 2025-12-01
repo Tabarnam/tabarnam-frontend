@@ -168,7 +168,16 @@ export default function SearchCard({ onSubmitParams }) {
 
   const selectedCountryName = country ? countries.find(c => c.code === country)?.name || '' : '';
 
-  const onKeyDown = (e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } };
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSubmit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpenCountryDropdown(false);
+      setCountrySearch('');
+    }
+  };
 
   const handleSubmit = () => {
     const params = { q: q.trim(), sort: sortBy, country, state: stateCode, city };
@@ -310,7 +319,7 @@ export default function SearchCard({ onSubmitParams }) {
           )}
         </div>
 
-        <Popover open={openCountryDropdown}>
+        <Popover open={openCountryDropdown} onOpenChange={setOpenCountryDropdown}>
           <PopoverTrigger asChild>
             <div className="relative">
               <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
