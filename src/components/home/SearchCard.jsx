@@ -329,10 +329,10 @@ export default function SearchCard({ onSubmitParams }) {
           >
             {filteredStates.slice(0, 12).map((s, i) => (
               <button
-                key={`${s.code}-${i}`}
+                key={`${s.code}-${s._countryCode || ''}-${i}`}
                 className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex flex-col"
                 onMouseDown={(e)=>e.preventDefault()}
-                onClick={()=>{ setStateCode(s.code); setStateSearch(''); setOpenStateSuggest(false); }}
+                onClick={()=>handleStateSelect(s)}
               >
                 <span className="font-medium">{s.name}</span>
                 <span className="text-xs text-gray-600">{s.code}</span>
