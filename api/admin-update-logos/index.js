@@ -42,10 +42,12 @@ async function updateLogos() {
 
     for (const [companyId, logoUrl] of Object.entries(logoMapping)) {
       try {
-        const { resource: company } = await container.item(companyId).read();
+        const partitionKeyValue = String(companyId).trim();
+        const { resource: company } = await container.item(companyId, partitionKeyValue).read();
         if (company) {
           const updatedCompany = { ...company, logo_url: logoUrl };
-          await container.item(companyId).replace(updatedCompany);
+          const normalizedDomain = String(company.normalized_domain || "unknown").trim();
+          await container.item(companyId, normalizedDomain).replace(updatedCompany);
           updated++;
         }
         total++;
