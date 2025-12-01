@@ -222,7 +222,7 @@ export default function SearchCard({ onSubmitParams }) {
 
       {/* Row 2: City/Postal Code, State/Province, Country, Sort Results */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <Popover open={openCitySuggest && citySuggestions.length > 0} onOpenChange={setOpenCitySuggest}>
+        <Popover open={openCitySuggest && citySuggestions.length > 0}>
           <PopoverTrigger asChild>
             <div className="relative">
               <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
@@ -230,9 +230,11 @@ export default function SearchCard({ onSubmitParams }) {
                 ref={cityInputRef}
                 value={city}
                 onChange={(e)=>setCity(e.target.value)}
+                onFocus={() => city.trim().length >= 2 && setOpenCitySuggest(true)}
                 onKeyDown={onKeyDown}
                 placeholder="City / Postal Code"
                 className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
+                autoComplete="off"
               />
             </div>
           </PopoverTrigger>
@@ -255,7 +257,7 @@ export default function SearchCard({ onSubmitParams }) {
           </PopoverContent>
         </Popover>
 
-        <Popover open={openStateSuggest && filteredStates.length > 0} onOpenChange={setOpenStateSuggest}>
+        <Popover open={openStateSuggest && filteredStates.length > 0}>
           <PopoverTrigger asChild>
             <div className="relative">
               <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
@@ -263,9 +265,11 @@ export default function SearchCard({ onSubmitParams }) {
                 ref={stateInputRef}
                 value={stateSearch || (stateCode ? subdivs.find(s => s.code === stateCode)?.name || '' : '')}
                 onChange={(e)=>{ setStateSearch(e.target.value); setOpenStateSuggest(true); }}
+                onFocus={() => setOpenStateSuggest(true)}
                 onKeyDown={onKeyDown}
                 placeholder="State / Province"
                 className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
+                autoComplete="off"
               />
             </div>
           </PopoverTrigger>
@@ -288,13 +292,14 @@ export default function SearchCard({ onSubmitParams }) {
           </PopoverContent>
         </Popover>
 
-        <Popover open={openCountryDropdown} onOpenChange={setOpenCountryDropdown}>
+        <Popover open={openCountryDropdown}>
           <PopoverTrigger asChild>
             <div className="relative">
               <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
               <Input
                 value={countrySearch === '' && country ? selectedCountryName : countrySearch}
                 onChange={(e) => setCountrySearch(e.target.value)}
+                onFocus={() => setOpenCountryDropdown(true)}
                 onKeyDown={onKeyDown}
                 placeholder="Country"
                 className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
