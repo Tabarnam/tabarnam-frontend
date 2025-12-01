@@ -8,6 +8,7 @@ export default function BetaBadge() {
         width: '150px',
         height: '150px',
         overflow: 'hidden',
+        clipPath: 'polygon(0 0, 100% 0, 0 100%)',
       }}
     >
       <div
