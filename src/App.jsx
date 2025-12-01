@@ -59,9 +59,10 @@ function Layout({ children }) {
   const isAdmin = pathname.startsWith("/admin");
   const isLogin = pathname === "/login";
   const showLayout = !isAdmin && !isLogin;
-  
+
   return (
     <div className="flex flex-col min-h-screen">
+      {showLayout && <BetaBadge />}
       {showLayout && <SiteHeader />}
       <div className="flex-grow">{children}</div>
       {showLayout && <FeedbackWidget />}
