@@ -427,29 +427,6 @@ app.http("companiesList", {
 
           let doc = resources[0];
 
-          let pkPaths = undefined;
-          let pkFieldName = null;
-
-          try {
-            const containerResponse = await container.read();
-            const containerDef = containerResponse.resource;
-            pkPaths = containerDef && containerDef.partitionKey && containerDef.partitionKey.paths;
-            context.log("[companies-list] DELETE container definition read successfully:", {
-              partitionKeyPaths: pkPaths,
-              hasPartitionKey: !!(containerDef && containerDef.partitionKey)
-            });
-          } catch (readErr) {
-            context.log("[companies-list] DELETE warning: failed to read container definition:", {
-              error: readErr?.message,
-              code: readErr?.code
-            });
-          }
-
-          context.log("[companies-list] DELETE container partition key paths:", {
-            pkPaths: pkPaths,
-            pkFieldName: pkFieldName
-          });
-
           const now = new Date().toISOString();
           const actor = (incoming && incoming.actor) || (body && body.actor) || "admin_ui";
 
@@ -470,11 +447,12 @@ app.http("companiesList", {
           });
 
           try {
-            context.log("[companies-list] SOFT DELETE attempting upsert (no explicit partition key needed):", {
-              itemId: doc.id
+            context.log("[companies-list] SOFT DELETE attempting upsert with partition key:", {
+              itemId: doc.id,
+              partitionKeyValue: doc.id
             });
 
-            const upsertResult = await container.items.upsert(updatedDoc);
+            const upsertResult = await container.items.upsert(updatedDoc, { partitionKey: doc.id });
             context.log("[companies-list] SOFT DELETE upsert succeeded:", {
               requestedId: id,
               itemId: doc.id,
@@ -492,7 +470,23 @@ app.http("companiesList", {
               message: upsertError?.message,
               errorBody: upsertError?.body
             });
-            throw upsertError;
+
+            context.log("[companies-list] SOFT DELETE: Attempting fallback upsert without partition key...");
+            try {
+              const fallbackResult = await container.items.upsert(updatedDoc);
+              context.log("[companies-list] SOFT DELETE fallback upsert succeeded:", {
+                requestedId: id,
+                itemId: doc.id,
+                statusCode: fallbackResult?.statusCode
+              });
+              return json({ ok: true, id, softDeleted: true }, 200);
+            } catch (fallbackError) {
+              context.log("[companies-list] SOFT DELETE fallback also failed:", {
+                error: fallbackError?.message,
+                code: fallbackError?.code
+              });
+              throw upsertError;
+            }
           }
         } catch (e) {
           context.log("[companies-list] DELETE/SOFT-DELETE error:", {
