@@ -35,7 +35,14 @@ export default function SearchCard({ onSubmitParams }) {
   const [openSuggest, setOpenSuggest] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const [citySuggestions, setCitySuggestions] = useState([]);
+  const [openCitySuggest, setOpenCitySuggest] = useState(false);
+  const [countrySearch, setCountrySearch] = useState('');
+  const [openCountrySuggest, setOpenCountrySuggest] = useState(false);
+
   const inputRef = useRef(null);
+  const cityInputRef = useRef(null);
+  const countryInputRef = useRef(null);
 
   useEffect(() => { getCountries().then(setCountries); }, []);
   useEffect(() => {
