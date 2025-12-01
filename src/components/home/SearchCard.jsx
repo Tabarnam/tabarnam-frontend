@@ -300,7 +300,6 @@ export default function SearchCard({ onSubmitParams }) {
                 value={countrySearch === '' && country ? selectedCountryName : countrySearch}
                 onChange={(e) => setCountrySearch(e.target.value)}
                 onFocus={() => setOpenCountryDropdown(true)}
-                onBlur={() => setTimeout(() => setOpenCountryDropdown(false), 200)}
                 onKeyDown={onKeyDown}
                 placeholder="Country"
                 className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
