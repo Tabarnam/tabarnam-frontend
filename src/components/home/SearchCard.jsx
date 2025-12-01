@@ -291,29 +291,35 @@ export default function SearchCard({ onSubmitParams }) {
             value={countrySearch || selectedCountryName}
             onChange={(e) => { setCountrySearch(e.target.value); setOpenCountryDropdown(true); }}
             onFocus={() => setOpenCountryDropdown(true)}
+            onBlur={() => setTimeout(() => setOpenCountryDropdown(false), 200)}
             placeholder="Country"
             className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
           />
-          <Popover open={openCountryDropdown && filteredCountries.length > 0}>
+          <Popover open={openCountryDropdown}>
             <PopoverContent
-              className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
+              className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1 max-h-72 overflow-y-auto"
               align="start"
               onOpenAutoFocus={(e)=>e.preventDefault()}
             >
-              {filteredCountries.slice(0, 15).map((c) => (
-                <button
-                  key={c.code}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
-                  onMouseDown={(e)=>e.preventDefault()}
-                  onClick={() => {
-                    setCountry(c.code);
-                    setCountrySearch('');
-                    setOpenCountryDropdown(false);
-                  }}
-                >
-                  {c.name}
-                </button>
-              ))}
+              {filteredCountries.length > 0 ? (
+                filteredCountries.slice(0, 50).map((c) => (
+                  <button
+                    key={c.code}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+                    onMouseDown={(e)=>e.preventDefault()}
+                    onClick={() => {
+                      setCountry(c.code);
+                      setCountrySearch('');
+                      setOpenCountryDropdown(false);
+                    }}
+                  >
+                    {c.code === 'US' && <span className="font-semibold">{c.name}</span>}
+                    {c.code !== 'US' && <span>{c.name}</span>}
+                  </button>
+                ))
+              ) : (
+                <div className="px-4 py-2 text-sm text-gray-500">No countries found</div>
+              )}
             </PopoverContent>
           </Popover>
         </div>
