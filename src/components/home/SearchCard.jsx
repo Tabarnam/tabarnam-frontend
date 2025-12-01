@@ -141,6 +141,16 @@ export default function SearchCard({ onSubmitParams }) {
     }
   };
 
+  const handleStateSelect = (state) => {
+    setStateCode(state.code);
+    setStateSearch('');
+    setOpenStateSuggest(false);
+    // Auto-set country if this state came from searching all countries
+    if (state._countryCode && !country) {
+      setCountry(state._countryCode);
+    }
+  };
+
   const filteredCountries = countries
     .filter(c =>
       countrySearch.trim() === '' || c.name.toLowerCase().includes(countrySearch.toLowerCase()) || c.code.toLowerCase().includes(countrySearch.toLowerCase())
