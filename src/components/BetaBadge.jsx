@@ -24,7 +24,7 @@ export default function BetaBadge() {
           fontSize: '20px',
         }}
       >
-        Beta
+        Early
       </div>
     </div>
   );
