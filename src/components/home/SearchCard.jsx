@@ -92,6 +92,33 @@ export default function SearchCard({ onSubmitParams }) {
     return () => clearTimeout(t);
   }, [q, country, stateCode, city]);
 
+  // Check if input might be a postal code and auto-fill country
+  useEffect(() => {
+    const c = city.trim();
+
+    // Check if it looks like a postal code (for common patterns)
+    const postalCodePattern = /^\d{5}(-\d{4})?$|^[A-Z]\d[A-Z] \d[A-Z]\d$|^\d{5}$|^[A-Z]{1,2}\d{1,2}[A-Z]? ?\d[A-Z]{2}$|^\d{4}$|^[A-Z0-9]{3,8}$/i;
+    const looksLikePostalCode = postalCodePattern.test(c) && c.length >= 3;
+
+    if (looksLikePostalCode && !country) {
+      // Try to get place details for this postal code to extract country
+      const t = setTimeout(async () => {
+        try {
+          const suggestions = await placesAutocomplete({ input: c, country: '' });
+          if (suggestions.length > 0) {
+            const details = await placeDetails({ placeId: suggestions[0].placeId });
+            if (details && details.countryCode && !country) {
+              setCountry(details.countryCode);
+            }
+          }
+        } catch (e) {
+          console.warn("Failed to detect country from postal code:", e?.message);
+        }
+      }, 500);
+      return () => clearTimeout(t);
+    }
+  }, [city, country]);
+
   useEffect(() => {
     const c = city.trim();
     if (c.length < 2) {
