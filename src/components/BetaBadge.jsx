@@ -15,7 +15,7 @@ export default function BetaBadge() {
         style={{
           width: '280px',
           height: '60px',
-          bottom: '-30px',
+          top: '-30px',
           left: '-70px',
           transform: 'rotate(-45deg)',
           borderRadius: '4px',
