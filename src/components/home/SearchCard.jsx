@@ -332,10 +332,16 @@ export default function SearchCard({ onSubmitParams }) {
                 className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
                 autoComplete="off"
               />
-              {country && !countrySearch && (
+              {(country || countrySearch) && (
                 <button
                   type="button"
-                  onClick={()=>{ setCountry(''); setCountrySearch(''); setOpenCountryDropdown(false); }}
+                  onClick={() => {
+                    if (countrySearch) {
+                      setCountrySearch('');
+                    } else {
+                      setCountry('');
+                    }
+                  }}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
                   aria-label="Clear country"
                 >
