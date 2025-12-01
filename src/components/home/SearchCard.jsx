@@ -261,26 +261,24 @@ export default function SearchCard({ onSubmitParams }) {
             placeholder="Country"
             className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
           />
-          {openCountrySuggest && filteredCountries.length > 0 && (
-            <Popover open={openCountrySuggest}>
-              <PopoverContent
-                className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
-                align="start"
-                onOpenAutoFocus={(e)=>e.preventDefault()}
-              >
-                {filteredCountries.slice(0, 15).map((c, i) => (
-                  <button
-                    key={`${c.code}-${i}`}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
-                    onMouseDown={(e)=>e.preventDefault()}
-                    onClick={()=>{ setCountry(c.code); setCountrySearch(''); setOpenCountrySuggest(false); }}
-                  >
-                    {c.name}
-                  </button>
-                ))}
-              </PopoverContent>
-            </Popover>
-          )}
+          <Popover open={openCountrySuggest && filteredCountries.length > 0}>
+            <PopoverContent
+              className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
+              align="start"
+              onOpenAutoFocus={(e)=>e.preventDefault()}
+            >
+              {filteredCountries.slice(0, 15).map((c, i) => (
+                <button
+                  key={`${c.code}-${i}`}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+                  onMouseDown={(e)=>e.preventDefault()}
+                  onClick={()=>{ setCountry(c.code); setCountrySearch(''); setOpenCountrySuggest(false); }}
+                >
+                  {c.name}
+                </button>
+              ))}
+            </PopoverContent>
+          </Popover>
         </div>
 
         <Select value={sortBy} onValueChange={setSortBy}>
