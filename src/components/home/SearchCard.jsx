@@ -110,12 +110,18 @@ export default function SearchCard({ onSubmitParams }) {
   }, [q, country, stateCode, city]);
 
   useEffect(() => {
+    const c = city.trim();
+    if (c.length < 2) {
+      setCitySuggestions([]);
+      setOpenCitySuggest(false);
+      return;
+    }
+
     const t = setTimeout(async () => {
-      const c = city.trim();
-      if (c.length < 2) { setCitySuggestions([]); setOpenCitySuggest(false); return; }
       try {
         const suggestions = await placesAutocomplete({ input: c, country });
         setCitySuggestions(suggestions);
+        // Auto-open the popover if suggestions are found
         setOpenCitySuggest(suggestions.length > 0);
       } catch (e) {
         console.warn("Failed to load city suggestions:", e?.message);
