@@ -88,12 +88,15 @@ app.http("adminUndo", {
       }
 
       if (historyRecord.action_type === "delete" && historyRecord.old_doc) {
-        await companiesContainer.items.upsert(historyRecord.old_doc);
+        const partitionKeyValue = String(historyRecord.old_doc.normalized_domain || "unknown").trim();
+        await companiesContainer.items.upsert(historyRecord.old_doc, { partitionKey: partitionKeyValue });
       } else if (historyRecord.action_type === "update" && historyRecord.old_doc) {
-        await companiesContainer.items.upsert(historyRecord.old_doc);
+        const partitionKeyValue = String(historyRecord.old_doc.normalized_domain || "unknown").trim();
+        await companiesContainer.items.upsert(historyRecord.old_doc, { partitionKey: partitionKeyValue });
       } else if (historyRecord.action_type === "create") {
         try {
-          await companiesContainer.item(historyRecord.company_id, historyRecord.company_id).delete();
+          const partitionKeyValue = String(historyRecord.old_doc?.normalized_domain || "unknown").trim();
+          await companiesContainer.item(historyRecord.company_id, partitionKeyValue).delete();
         } catch (e) {
           console.warn("Could not delete company for undo:", e?.message);
         }

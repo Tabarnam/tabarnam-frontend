@@ -91,6 +91,18 @@ async function geocodeHQLocation(headquarters_location) {
   return { hq_lat: undefined, hq_lng: undefined };
 }
 
+// Helper: normalize domain from URL
+const toNormalizedDomain = (s = "") => {
+  try {
+    const u = s.startsWith("http") ? new URL(s) : new URL(`https://${s}`);
+    let h = u.hostname.toLowerCase();
+    if (h.startsWith("www.")) h = h.slice(4);
+    return h || "unknown";
+  } catch {
+    return "unknown";
+  }
+};
+
 console.log("[companies-list] About to register app.http handler...");
 
 app.http("companiesList", {
@@ -240,13 +252,18 @@ app.http("companiesList", {
           }
         }
 
-        const partitionKeyValue = String(id).trim();
-        if (!partitionKeyValue) {
-          context.log("[companies-list] Invalid partition key value");
-          return json({ error: "Unable to determine company ID" }, 400);
+        // Compute normalized_domain for partition key (Cosmos DB partition key is /normalized_domain)
+        const urlForDomain = incoming.canonical_url || incoming.url || incoming.website || "unknown";
+        const normalizedDomain = incoming.normalized_domain || toNormalizedDomain(urlForDomain);
+
+        if (!normalizedDomain) {
+          context.log("[companies-list] Unable to determine company domain for partition key");
+          return json({ error: "Unable to determine company domain for partition key" }, 400);
         }
 
-        context.log("[companies-list] Using partition key:", partitionKeyValue);
+        // Use normalized_domain as partition key value
+        const partitionKeyValue = String(normalizedDomain).trim();
+        context.log("[companies-list] Using partition key (normalized_domain):", partitionKeyValue);
 
         // Geocode headquarters location if present and no lat/lng already provided
         let hq_lat = incoming.hq_lat;
@@ -299,8 +316,9 @@ app.http("companiesList", {
         const now = new Date().toISOString();
         const doc = {
           ...incoming,
-          id: partitionKeyValue,
-          company_id: partitionKeyValue,
+          id: String(id).trim(),
+          company_id: String(id).trim(),
+          normalized_domain: normalizedDomain,
           company_name: incoming.company_name || incoming.name || "",
           name: incoming.name || incoming.company_name || "",
           hq_lat: hq_lat,
@@ -429,7 +447,7 @@ app.http("companiesList", {
 
           const now = new Date().toISOString();
           const actor = (incoming && incoming.actor) || (body && body.actor) || "admin_ui";
-          const partitionKeyValue = String(doc.id).trim();
+          const partitionKeyValue = String(doc.normalized_domain || doc.id).trim();
 
           const updatedDoc = {
             ...doc,
@@ -445,7 +463,8 @@ app.http("companiesList", {
             is_deleted: updatedDoc.is_deleted,
             deleted_at: updatedDoc.deleted_at,
             deleted_by: updatedDoc.deleted_by,
-            partitionKeyValue: partitionKeyValue
+            partitionKeyValue: partitionKeyValue,
+            normalized_domain: doc.normalized_domain
           });
 
           try {

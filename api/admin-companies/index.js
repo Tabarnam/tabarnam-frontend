@@ -88,6 +88,18 @@ async function geocodeHQLocation(headquarters_location) {
   return { hq_lat: undefined, hq_lng: undefined };
 }
 
+// Helper: normalize domain from URL
+const toNormalizedDomain = (s = "") => {
+  try {
+    const u = s.startsWith("http") ? new URL(s) : new URL(`https://${s}`);
+    let h = u.hostname.toLowerCase();
+    if (h.startsWith("www.")) h = h.slice(4);
+    return h || "unknown";
+  } catch {
+    return "unknown";
+  }
+};
+
 app.http("adminCompanies", {
   route: "admin-companies",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -175,13 +187,18 @@ app.http("adminCompanies", {
           context.log("[admin-companies] Generated new ID:", id);
         }
 
-        const partitionKeyValue = String(id).trim();
-        if (!partitionKeyValue) {
-          context.log("[admin-companies] Invalid partition key value");
-          return json({ error: "Unable to determine company ID" }, 400);
+        // Compute normalized_domain for partition key (Cosmos DB partition key is /normalized_domain)
+        const urlForDomain = incoming.canonical_url || incoming.url || incoming.website || "unknown";
+        const normalizedDomain = incoming.normalized_domain || toNormalizedDomain(urlForDomain);
+
+        if (!normalizedDomain) {
+          context.log("[admin-companies] Unable to determine company domain for partition key");
+          return json({ error: "Unable to determine company domain for partition key" }, 400);
         }
 
-        context.log("[admin-companies] Using partition key:", partitionKeyValue);
+        // Use normalized_domain as partition key value
+        const partitionKeyValue = String(normalizedDomain).trim();
+        context.log("[admin-companies] Using partition key (normalized_domain):", partitionKeyValue);
 
         // Geocode headquarters location if present and no lat/lng already provided
         let hq_lat = incoming.hq_lat;
@@ -234,8 +251,9 @@ app.http("adminCompanies", {
         const now = new Date().toISOString();
         const doc = {
           ...incoming,
-          id: partitionKeyValue,
-          company_id: partitionKeyValue,
+          id: String(id).trim(),
+          company_id: String(id).trim(),
+          normalized_domain: normalizedDomain,
           company_name: incoming.company_name || incoming.name || "",
           name: incoming.name || incoming.company_name || "",
           hq_lat: hq_lat,
@@ -351,6 +369,7 @@ app.http("adminCompanies", {
 
           const now = new Date().toISOString();
           const actor = (body && body.actor) || "admin_ui";
+          const partitionKeyValue = String(doc.normalized_domain || doc.id).trim();
 
           const updatedDoc = {
             ...doc,
@@ -365,15 +384,18 @@ app.http("adminCompanies", {
             company_name: doc.company_name,
             is_deleted: updatedDoc.is_deleted,
             deleted_at: updatedDoc.deleted_at,
-            deleted_by: updatedDoc.deleted_by
+            deleted_by: updatedDoc.deleted_by,
+            partitionKeyValue: partitionKeyValue,
+            normalized_domain: doc.normalized_domain
           });
 
           try {
-            context.log("[admin-companies] SOFT DELETE attempting upsert (no explicit partition key needed):", {
-              itemId: doc.id
+            context.log("[admin-companies] SOFT DELETE attempting upsert with partition key:", {
+              itemId: doc.id,
+              partitionKeyValue: partitionKeyValue
             });
 
-            const upsertResult = await container.items.upsert(updatedDoc);
+            const upsertResult = await container.items.upsert(updatedDoc, { partitionKey: partitionKeyValue });
             context.log(`[admin-companies] DELETE soft-delete succeeded:`, {
               id: requestedId,
               itemId: doc.id,
@@ -383,7 +405,7 @@ app.http("adminCompanies", {
             });
             return json({ ok: true, softDeleted: true }, 200);
           } catch (upsertError) {
-            context.log("[admin-companies] SOFT DELETE upsert failed:", {
+            context.log("[admin-companies] SOFT DELETE upsert with partition key failed:", {
               requestedId: requestedId,
               itemId: doc.id,
               code: upsertError?.code,
@@ -391,7 +413,44 @@ app.http("adminCompanies", {
               message: upsertError?.message,
               errorBody: upsertError?.body
             });
-            throw upsertError;
+
+            context.log("[admin-companies] SOFT DELETE: Attempting direct item replace with partition key...");
+            try {
+              const itemRef = container.item(doc.id, partitionKeyValue);
+              const replaceResult = await itemRef.replace(updatedDoc);
+              context.log("[admin-companies] SOFT DELETE direct replace succeeded:", {
+                requestedId: requestedId,
+                itemId: doc.id,
+                statusCode: replaceResult?.statusCode,
+                returnedId: replaceResult?.resource?.id,
+                returnedIsDeleted: replaceResult?.resource?.is_deleted
+              });
+              return json({ ok: true, softDeleted: true }, 200);
+            } catch (replaceError) {
+              context.log("[admin-companies] SOFT DELETE direct replace also failed:", {
+                error: replaceError?.message,
+                code: replaceError?.code,
+                statusCode: replaceError?.statusCode
+              });
+
+              context.log("[admin-companies] SOFT DELETE: Attempting fallback upsert without partition key...");
+              try {
+                const fallbackResult = await container.items.upsert(updatedDoc);
+                context.log("[admin-companies] SOFT DELETE fallback upsert succeeded:", {
+                  requestedId: requestedId,
+                  itemId: doc.id,
+                  statusCode: fallbackResult?.statusCode
+                });
+                return json({ ok: true, softDeleted: true }, 200);
+              } catch (fallbackError) {
+                context.log("[admin-companies] SOFT DELETE all methods failed:", {
+                  upsertWithKeyError: upsertError?.message,
+                  replaceError: replaceError?.message,
+                  fallbackError: fallbackError?.message
+                });
+                throw upsertError;
+              }
+            }
           }
         } catch (e) {
           context.log("[admin-companies] DELETE error:", {
