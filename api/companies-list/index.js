@@ -434,7 +434,8 @@ app.http("companiesList", {
             context.log("[companies-list] DELETE document found", {
               id: resources[0].id,
               company_id: resources[0].company_id,
-              is_deleted: resources[0].is_deleted
+              is_deleted: resources[0].is_deleted,
+              normalized_domain: resources[0].normalized_domain
             });
           }
 
@@ -445,9 +446,33 @@ app.http("companiesList", {
 
           let doc = resources[0];
 
+          // CRITICAL: Extract partition key value directly from the retrieved document
+          // The Cosmos DB container partition key is /normalized_domain
+          const documentNormalizedDomain = doc.normalized_domain;
+
+          if (!documentNormalizedDomain || String(documentNormalizedDomain).trim() === "") {
+            context.log("[companies-list] DELETE ERROR: Document missing normalized_domain", {
+              id: doc.id,
+              company_name: doc.company_name,
+              normalized_domain: documentNormalizedDomain,
+              docKeys: Object.keys(doc).slice(0, 20)
+            });
+            return json({
+              error: "Cannot delete company: missing partition key field (normalized_domain)",
+              id
+            }, 500);
+          }
+
+          const partitionKeyValue = String(documentNormalizedDomain).trim();
+          context.log("[companies-list] DELETE: Partition key extracted from document", {
+            itemId: doc.id,
+            partitionKeyValue: partitionKeyValue,
+            typeOf: typeof partitionKeyValue,
+            length: partitionKeyValue.length
+          });
+
           const now = new Date().toISOString();
           const actor = (incoming && incoming.actor) || (body && body.actor) || "admin_ui";
-          const partitionKeyValue = String(doc.normalized_domain || doc.id).trim();
 
           const updatedDoc = {
             ...doc,
@@ -471,10 +496,12 @@ app.http("companiesList", {
             context.log("[companies-list] SOFT DELETE attempting upsert with partition key:", {
               itemId: doc.id,
               partitionKeyValue: partitionKeyValue,
-              docId: updatedDoc.id
+              docId: updatedDoc.id,
+              updatedDocNormalizedDomain: updatedDoc.normalized_domain
             });
 
             const upsertResult = await container.items.upsert(updatedDoc, { partitionKey: partitionKeyValue });
+
             context.log("[companies-list] SOFT DELETE upsert succeeded:", {
               requestedId: id,
               itemId: doc.id,
@@ -482,29 +509,34 @@ app.http("companiesList", {
               deletedBy: actor,
               statusCode: upsertResult?.statusCode,
               returnedId: upsertResult?.resource?.id,
-              returnedIsDeleted: upsertResult?.resource?.is_deleted
+              returnedIsDeleted: upsertResult?.resource?.is_deleted,
+              returnedNormalizedDomain: upsertResult?.resource?.normalized_domain
             });
             return json({ ok: true, id, softDeleted: true }, 200);
           } catch (upsertError) {
             context.log("[companies-list] SOFT DELETE upsert with partition key failed:", {
               requestedId: id,
               itemId: doc.id,
+              partitionKeyValue: partitionKeyValue,
               code: upsertError?.code,
               statusCode: upsertError?.statusCode,
               message: upsertError?.message,
               errorBody: upsertError?.body
             });
 
-            context.log("[companies-list] SOFT DELETE: Attempting direct item upsert with partition key...");
+            context.log("[companies-list] SOFT DELETE: Attempting direct item replace with partition key...");
             try {
               const itemRef = container.item(doc.id, partitionKeyValue);
               const replaceResult = await itemRef.replace(updatedDoc);
+
               context.log("[companies-list] SOFT DELETE direct replace succeeded:", {
                 requestedId: id,
                 itemId: doc.id,
+                partitionKeyValue: partitionKeyValue,
                 statusCode: replaceResult?.statusCode,
                 returnedId: replaceResult?.resource?.id,
-                returnedIsDeleted: replaceResult?.resource?.is_deleted
+                returnedIsDeleted: replaceResult?.resource?.is_deleted,
+                returnedNormalizedDomain: replaceResult?.resource?.normalized_domain
               });
               return json({ ok: true, id, softDeleted: true }, 200);
             } catch (replaceError) {
@@ -514,17 +546,21 @@ app.http("companiesList", {
                 statusCode: replaceError?.statusCode
               });
 
-              context.log("[companies-list] SOFT DELETE: Attempting fallback upsert without partition key...");
+              context.log("[companies-list] SOFT DELETE: Attempting fallback upsert without explicit partition key parameter...");
               try {
                 const fallbackResult = await container.items.upsert(updatedDoc);
+
                 context.log("[companies-list] SOFT DELETE fallback upsert succeeded:", {
                   requestedId: id,
                   itemId: doc.id,
-                  statusCode: fallbackResult?.statusCode
+                  statusCode: fallbackResult?.statusCode,
+                  returnedId: fallbackResult?.resource?.id,
+                  returnedIsDeleted: fallbackResult?.resource?.is_deleted
                 });
                 return json({ ok: true, id, softDeleted: true }, 200);
               } catch (fallbackError) {
                 context.log("[companies-list] SOFT DELETE all methods failed:", {
+                  partitionKeyValue: partitionKeyValue,
                   upsertWithKeyError: upsertError?.message,
                   replaceError: replaceError?.message,
                   fallbackError: fallbackError?.message
