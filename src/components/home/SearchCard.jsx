@@ -292,13 +292,15 @@ export default function SearchCard({ onSubmitParams }) {
           </PopoverContent>
         </Popover>
 
-        <Popover open={openCountryDropdown} onOpenChange={setOpenCountryDropdown}>
+        <Popover open={openCountryDropdown}>
           <PopoverTrigger asChild>
             <div className="relative">
               <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
               <Input
                 value={countrySearch === '' && country ? selectedCountryName : countrySearch}
                 onChange={(e) => setCountrySearch(e.target.value)}
+                onFocus={() => setOpenCountryDropdown(true)}
+                onBlur={() => setTimeout(() => setOpenCountryDropdown(false), 200)}
                 onKeyDown={onKeyDown}
                 placeholder="Country"
                 className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
