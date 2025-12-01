@@ -222,68 +222,71 @@ export default function SearchCard({ onSubmitParams }) {
 
       {/* Row 2: City/Postal Code, State/Province, Country, Sort Results */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <div className="relative">
-          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <Input
-            ref={cityInputRef}
-            value={city}
-            onChange={(e)=>setCity(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder="City / Postal Code"
-            className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
-          />
-          <Popover open={openCitySuggest && citySuggestions.length > 0}>
-            <PopoverContent
-              className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
-              align="start"
-              onOpenAutoFocus={(e)=>e.preventDefault()}
-            >
-              {citySuggestions.map((s, i) => (
-                <button
-                  key={`${s.placeId}-${i}`}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex flex-col"
-                  onMouseDown={(e)=>e.preventDefault()}
-                  onClick={()=>{ setCity(s.mainText); handleCitySelect(s.placeId); }}
-                >
-                  <span className="font-medium">{s.mainText}</span>
-                  {s.secondaryText && <span className="text-xs text-gray-600">{s.secondaryText}</span>}
-                </button>
-              ))}
-            </PopoverContent>
-          </Popover>
-        </div>
+        <Popover open={openCitySuggest && citySuggestions.length > 0} onOpenChange={setOpenCitySuggest}>
+          <PopoverTrigger asChild>
+            <div className="relative">
+              <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
+              <Input
+                ref={cityInputRef}
+                value={city}
+                onChange={(e)=>setCity(e.target.value)}
+                onKeyDown={onKeyDown}
+                placeholder="City / Postal Code"
+                className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
+              />
+            </div>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
+            align="start"
+            onOpenAutoFocus={(e)=>e.preventDefault()}
+          >
+            {citySuggestions.map((s, i) => (
+              <button
+                key={`${s.placeId}-${i}`}
+                className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex flex-col"
+                onMouseDown={(e)=>e.preventDefault()}
+                onClick={()=>{ setCity(s.mainText); handleCitySelect(s.placeId); }}
+              >
+                <span className="font-medium">{s.mainText}</span>
+                {s.secondaryText && <span className="text-xs text-gray-600">{s.secondaryText}</span>}
+              </button>
+            ))}
+          </PopoverContent>
+        </Popover>
 
-        <div className="relative">
-          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <Input
-            ref={stateInputRef}
-            value={stateSearch || (stateCode ? subdivs.find(s => s.code === stateCode)?.name || '' : '')}
-            onChange={(e)=>{ setStateSearch(e.target.value); setOpenStateSuggest(true); }}
-            onFocus={()=>setOpenStateSuggest(true)}
-            onKeyDown={onKeyDown}
-            placeholder="State / Province"
-            className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
-          />
-          <Popover open={openStateSuggest && filteredStates.length > 0}>
-            <PopoverContent
-              className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
-              align="start"
-              onOpenAutoFocus={(e)=>e.preventDefault()}
-            >
-              {filteredStates.slice(0, 12).map((s, i) => (
-                <button
-                  key={`${s.code}-${i}`}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex flex-col"
-                  onMouseDown={(e)=>e.preventDefault()}
-                  onClick={()=>{ setStateCode(s.code); setStateSearch(''); setOpenStateSuggest(false); }}
-                >
-                  <span className="font-medium">{s.name}</span>
-                  <span className="text-xs text-gray-600">{s.code}</span>
-                </button>
-              ))}
-            </PopoverContent>
-          </Popover>
-        </div>
+        <Popover open={openStateSuggest && filteredStates.length > 0} onOpenChange={setOpenStateSuggest}>
+          <PopoverTrigger asChild>
+            <div className="relative">
+              <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
+              <Input
+                ref={stateInputRef}
+                value={stateSearch || (stateCode ? subdivs.find(s => s.code === stateCode)?.name || '' : '')}
+                onChange={(e)=>{ setStateSearch(e.target.value); setOpenStateSuggest(true); }}
+                onKeyDown={onKeyDown}
+                placeholder="State / Province"
+                className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
+              />
+            </div>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
+            align="start"
+            onOpenAutoFocus={(e)=>e.preventDefault()}
+          >
+            {filteredStates.slice(0, 12).map((s, i) => (
+              <button
+                key={`${s.code}-${i}`}
+                className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex flex-col"
+                onMouseDown={(e)=>e.preventDefault()}
+                onClick={()=>{ setStateCode(s.code); setStateSearch(''); setOpenStateSuggest(false); }}
+              >
+                <span className="font-medium">{s.name}</span>
+                <span className="text-xs text-gray-600">{s.code}</span>
+              </button>
+            ))}
+          </PopoverContent>
+        </Popover>
 
         <Popover open={openCountryDropdown} onOpenChange={setOpenCountryDropdown}>
           <PopoverTrigger asChild>
