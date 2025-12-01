@@ -157,16 +157,6 @@ export default function SearchCard({ onSubmitParams }) {
     }
   };
 
-  const handleStateSelect = (state) => {
-    setStateCode(state.code);
-    setStateSearch('');
-    setOpenStateSuggest(false);
-    // Auto-set country if this state came from searching all countries
-    if (state._countryCode && !country) {
-      setCountry(state._countryCode);
-    }
-  };
-
   const filteredCountries = countries
     .filter(c =>
       countrySearch.trim() === '' || c.name.toLowerCase().includes(countrySearch.toLowerCase()) || c.code.toLowerCase().includes(countrySearch.toLowerCase())
@@ -177,38 +167,6 @@ export default function SearchCard({ onSubmitParams }) {
       if (b.code === 'US') return 1;
       return a.name.localeCompare(b.name);
     });
-
-  // Filter states from either the selected country or all countries
-  const getFilteredStates = () => {
-    const searchTerm = stateSearch.trim().toLowerCase();
-
-    // If a country is selected, show its subdivisions first
-    if (country && subdivs.length > 0) {
-      return subdivs.filter(s =>
-        searchTerm === '' || s.name.toLowerCase().includes(searchTerm) || s.code.toLowerCase().includes(searchTerm)
-      );
-    }
-
-    // Otherwise, search across all countries' subdivisions
-    const allStates = [];
-    for (const [countryCode, stateList] of Object.entries(allSubdivisions)) {
-      for (const state of stateList) {
-        if (searchTerm === '' || state.name.toLowerCase().includes(searchTerm) || state.code.toLowerCase().includes(searchTerm)) {
-          allStates.push({ ...state, _countryCode: countryCode });
-        }
-      }
-    }
-    // Sort by relevance: exact matches first, then alphabetical
-    return allStates.sort((a, b) => {
-      const aName = a.name.toLowerCase();
-      const bName = b.name.toLowerCase();
-      if (aName === searchTerm) return -1;
-      if (bName === searchTerm) return 1;
-      return aName.localeCompare(bName);
-    });
-  };
-
-  const filteredStates = getFilteredStates();
 
   const selectedCountryName = country ? countries.find(c => c.code === country)?.name || '' : '';
 
