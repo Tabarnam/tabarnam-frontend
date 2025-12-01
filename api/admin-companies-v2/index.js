@@ -224,30 +224,33 @@ app.http("adminCompaniesV2", {
 
           let doc = resources[0];
 
-          let pkPaths = undefined;
-          let pkFieldName = null;
+          // CRITICAL: Extract partition key value directly from the retrieved document
+          // The Cosmos DB container partition key is /normalized_domain
+          const documentNormalizedDomain = doc.normalized_domain;
 
-          try {
-            const containerResponse = await container.read();
-            const containerDef = containerResponse.resource;
-            pkPaths = containerDef && containerDef.partitionKey && containerDef.partitionKey.paths;
-            context.log("[admin-companies-v2] DELETE container definition read successfully:", {
-              partitionKeyPaths: pkPaths
+          if (!documentNormalizedDomain || String(documentNormalizedDomain).trim() === "") {
+            context.log("[admin-companies-v2] DELETE ERROR: Document missing normalized_domain", {
+              id: doc.id,
+              company_name: doc.company_name,
+              normalized_domain: documentNormalizedDomain,
+              docKeys: Object.keys(doc).slice(0, 20)
             });
-          } catch (readErr) {
-            context.log("[admin-companies-v2] DELETE warning: failed to read container definition:", {
-              error: readErr?.message
-            });
+            return json({
+              error: "Cannot delete company: missing partition key field (normalized_domain)",
+              id: requestedId
+            }, 500);
           }
 
-          context.log("[admin-companies-v2] DELETE container partition key paths:", {
-            pkPaths: pkPaths,
-            pkFieldName: pkFieldName
+          const partitionKeyValue = String(documentNormalizedDomain).trim();
+          context.log("[admin-companies-v2] DELETE: Partition key extracted from document", {
+            itemId: doc.id,
+            partitionKeyValue: partitionKeyValue,
+            typeOf: typeof partitionKeyValue,
+            length: partitionKeyValue.length
           });
 
           const now = new Date().toISOString();
           const actor = (body && body.actor) || "admin_ui";
-          const partitionKeyValue = String(doc.normalized_domain || doc.id).trim();
 
           const updatedDoc = {
             ...doc,
@@ -270,22 +273,29 @@ app.http("adminCompaniesV2", {
           try {
             context.log("[admin-companies-v2] SOFT DELETE attempting upsert with partition key:", {
               itemId: doc.id,
-              partitionKeyValue: partitionKeyValue
+              partitionKeyValue: partitionKeyValue,
+              docId: updatedDoc.id,
+              updatedDocNormalizedDomain: updatedDoc.normalized_domain
             });
 
             const upsertResult = await container.items.upsert(updatedDoc, { partitionKey: partitionKeyValue });
+
             context.log(`[admin-companies-v2] DELETE soft-delete succeeded:`, {
               id: requestedId,
               itemId: doc.id,
               deletedAt: now,
               deletedBy: actor,
-              statusCode: upsertResult?.statusCode
+              statusCode: upsertResult?.statusCode,
+              returnedId: upsertResult?.resource?.id,
+              returnedIsDeleted: upsertResult?.resource?.is_deleted,
+              returnedNormalizedDomain: upsertResult?.resource?.normalized_domain
             });
             return json({ ok: true, softDeleted: true }, 200);
           } catch (upsertError) {
             context.log("[admin-companies-v2] SOFT DELETE upsert with partition key failed:", {
               requestedId: requestedId,
               itemId: doc.id,
+              partitionKeyValue: partitionKeyValue,
               code: upsertError?.code,
               statusCode: upsertError?.statusCode,
               message: upsertError?.message,
@@ -296,12 +306,15 @@ app.http("adminCompaniesV2", {
             try {
               const itemRef = container.item(doc.id, partitionKeyValue);
               const replaceResult = await itemRef.replace(updatedDoc);
+
               context.log("[admin-companies-v2] SOFT DELETE direct replace succeeded:", {
                 requestedId: requestedId,
                 itemId: doc.id,
+                partitionKeyValue: partitionKeyValue,
                 statusCode: replaceResult?.statusCode,
                 returnedId: replaceResult?.resource?.id,
-                returnedIsDeleted: replaceResult?.resource?.is_deleted
+                returnedIsDeleted: replaceResult?.resource?.is_deleted,
+                returnedNormalizedDomain: replaceResult?.resource?.normalized_domain
               });
               return json({ ok: true, softDeleted: true }, 200);
             } catch (replaceError) {
@@ -311,17 +324,21 @@ app.http("adminCompaniesV2", {
                 statusCode: replaceError?.statusCode
               });
 
-              context.log("[admin-companies-v2] SOFT DELETE: Attempting fallback upsert without partition key...");
+              context.log("[admin-companies-v2] SOFT DELETE: Attempting fallback upsert without explicit partition key parameter...");
               try {
                 const fallbackResult = await container.items.upsert(updatedDoc);
+
                 context.log("[admin-companies-v2] SOFT DELETE fallback upsert succeeded:", {
                   requestedId: requestedId,
                   itemId: doc.id,
-                  statusCode: fallbackResult?.statusCode
+                  statusCode: fallbackResult?.statusCode,
+                  returnedId: fallbackResult?.resource?.id,
+                  returnedIsDeleted: fallbackResult?.resource?.is_deleted
                 });
                 return json({ ok: true, softDeleted: true }, 200);
               } catch (fallbackError) {
                 context.log("[admin-companies-v2] SOFT DELETE all methods failed:", {
+                  partitionKeyValue: partitionKeyValue,
                   upsertWithKeyError: upsertError?.message,
                   replaceError: replaceError?.message,
                   fallbackError: fallbackError?.message
