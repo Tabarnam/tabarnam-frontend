@@ -119,12 +119,9 @@ export default function SearchCard({ onSubmitParams }) {
     try {
       const details = await placeDetails({ placeId });
       if (details) {
-        // Try to extract country code from address components
-        const countryCode = details.components?.find(c => c.types?.includes('country'))?.short_name || '';
-        const stateCode = details.components?.find(c => c.types?.includes('administrative_area_level_1'))?.short_name || '';
-
-        if (countryCode) setCountry(countryCode);
-        if (stateCode) setStateCode(stateCode);
+        // Use the already-extracted countryCode and stateCode from placeDetails
+        if (details.countryCode) setCountry(details.countryCode);
+        if (details.stateCode) setStateCode(details.stateCode);
       }
       setCitySuggestions([]);
       setOpenCitySuggest(false);
