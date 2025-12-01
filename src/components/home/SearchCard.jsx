@@ -130,9 +130,16 @@ export default function SearchCard({ onSubmitParams }) {
     }
   };
 
-  const filteredCountries = countries.filter(c =>
-    countrySearch.trim() === '' || c.name.toLowerCase().includes(countrySearch.toLowerCase()) || c.code.toLowerCase().includes(countrySearch.toLowerCase())
-  );
+  const filteredCountries = countries
+    .filter(c =>
+      countrySearch.trim() === '' || c.name.toLowerCase().includes(countrySearch.toLowerCase()) || c.code.toLowerCase().includes(countrySearch.toLowerCase())
+    )
+    .sort((a, b) => {
+      // Put US at the top
+      if (a.code === 'US') return -1;
+      if (b.code === 'US') return 1;
+      return a.name.localeCompare(b.name);
+    });
 
   const filteredStates = subdivs.filter(s =>
     stateSearch.trim() === '' || s.name.toLowerCase().includes(stateSearch.toLowerCase()) || s.code.toLowerCase().includes(stateSearch.toLowerCase())
