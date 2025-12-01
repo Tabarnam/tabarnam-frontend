@@ -3,7 +3,7 @@ import React from 'react';
 export default function BetaBadge() {
   return (
     <div
-      className="fixed bottom-0 left-0 z-50 pointer-events-none"
+      className="fixed top-0 left-0 z-50 pointer-events-none"
       style={{
         width: '200px',
         height: '200px',
