@@ -144,7 +144,8 @@ app.http("adminReviews", {
         companyRecord.curated_reviews = companyRecord.curated_reviews.slice(0, 10);
 
         // Update company
-        await container.items.upsert(companyRecord);
+        const partitionKeyValue = String(companyRecord.normalized_domain || "unknown").trim();
+        await container.items.upsert(companyRecord, { partitionKey: partitionKeyValue });
 
         return json({ ok: true, review: newReview }, 200);
       }
