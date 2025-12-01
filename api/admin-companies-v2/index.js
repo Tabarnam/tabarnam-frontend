@@ -54,6 +54,18 @@ function getCompaniesContainer() {
   }
 }
 
+// Helper: normalize domain from URL
+const toNormalizedDomain = (s = "") => {
+  try {
+    const u = s.startsWith("http") ? new URL(s) : new URL(`https://${s}`);
+    let h = u.hostname.toLowerCase();
+    if (h.startsWith("www.")) h = h.slice(4);
+    return h || "unknown";
+  } catch {
+    return "unknown";
+  }
+};
+
 console.log("[admin-companies-v2] About to register app.http handler...");
 
 app.http("adminCompaniesV2", {
