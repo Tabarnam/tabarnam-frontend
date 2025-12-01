@@ -255,9 +255,19 @@ export default function SearchCard({ onSubmitParams }) {
                 onChange={(e)=>setCity(e.target.value)}
                 onKeyDown={onKeyDown}
                 placeholder="City / Postal Code"
-                className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
+                className="pl-10 pr-9 h-11 bg-gray-50 border-gray-300 text-gray-900"
                 autoComplete="off"
               />
+              {city && (
+                <button
+                  type="button"
+                  onClick={()=>{ setCity(''); cityInputRef.current?.focus(); }}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 z-10"
+                  aria-label="Clear city"
+                >
+                  <X size={16} />
+                </button>
+              )}
             </div>
           </PopoverTrigger>
           <PopoverContent
