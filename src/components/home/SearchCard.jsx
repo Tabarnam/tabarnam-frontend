@@ -40,8 +40,6 @@ export default function SearchCard({ onSubmitParams }) {
   const [openCitySuggest, setOpenCitySuggest] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
   const [openCountryDropdown, setOpenCountryDropdown] = useState(false);
-  const [stateSearch, setStateSearch] = useState('');
-  const [openStateSuggest, setOpenStateSuggest] = useState(false);
 
   const inputRef = useRef(null);
   const cityInputRef = useRef(null);
