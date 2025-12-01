@@ -254,14 +254,35 @@ export default function SearchCard({ onSubmitParams }) {
 
         <div className="relative">
           <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <Select value={country} onValueChange={setCountry}>
-            <SelectTrigger className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900">
-              <SelectValue placeholder="Country" />
-            </SelectTrigger>
-            <SelectContent className="max-h-72 overflow-auto">
-              {countries.map(c => <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <Input
+            ref={countryInputRef}
+            value={countrySearch || (country ? countries.find(c => c.code === country)?.name || '' : '')}
+            onChange={(e)=>{ setCountrySearch(e.target.value); setOpenCountrySuggest(true); }}
+            onFocus={()=>setOpenCountrySuggest(true)}
+            onKeyDown={onKeyDown}
+            placeholder="Country"
+            className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
+          />
+          {openCountrySuggest && filteredCountries.length > 0 && (
+            <Popover open={openCountrySuggest}>
+              <PopoverContent
+                className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
+                align="start"
+                onOpenAutoFocus={(e)=>e.preventDefault()}
+              >
+                {filteredCountries.slice(0, 15).map((c, i) => (
+                  <button
+                    key={`${c.code}-${i}`}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+                    onMouseDown={(e)=>e.preventDefault()}
+                    onClick={()=>{ setCountry(c.code); setCountrySearch(''); setOpenCountrySuggest(false); }}
+                  >
+                    {c.name}
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
 
         <Select value={sortBy} onValueChange={setSortBy}>
