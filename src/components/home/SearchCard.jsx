@@ -292,49 +292,48 @@ export default function SearchCard({ onSubmitParams }) {
           </Popover>
         </div>
 
-        <div className="relative">
-          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <div className="relative">
-            <button
-              onClick={() => setOpenCountryDropdown(!openCountryDropdown)}
-              className="w-full h-11 bg-gray-50 border border-gray-300 rounded-md px-10 text-left text-gray-900 text-sm flex items-center justify-between hover:bg-gray-100 transition-colors"
-            >
-              <span>{selectedCountryName || 'Country'}</span>
-              <ChevronDown size={16} className="text-gray-400" />
-            </button>
-            {openCountryDropdown && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-72 overflow-auto">
-                <div className="p-2 sticky top-0 bg-white border-b border-gray-200">
-                  <input
-                    type="text"
-                    value={countrySearch}
-                    onChange={(e) => setCountrySearch(e.target.value)}
-                    placeholder="Search countries..."
-                    className="w-full h-8 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  {filteredCountries.length > 0 ? (
-                    filteredCountries.slice(0, 15).map((c) => (
-                      <button
-                        key={c.code}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
-                        onClick={() => {
-                          setCountry(c.code);
-                          setCountrySearch('');
-                          setOpenCountryDropdown(false);
-                        }}
-                      >
-                        {c.name}
-                      </button>
-                    ))
-                  ) : (
-                    <div className="px-4 py-2 text-sm text-gray-500">No countries found</div>
-                  )}
-                </div>
+        <div className="relative" ref={countryDropdownRef}>
+          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-20" size={18} />
+          <button
+            onClick={() => setOpenCountryDropdown(!openCountryDropdown)}
+            className="w-full h-11 bg-gray-50 border border-gray-300 rounded-md pl-10 pr-10 text-left text-gray-900 text-sm flex items-center justify-between hover:bg-gray-100 transition-colors"
+          >
+            <span>{selectedCountryName || 'Country'}</span>
+            <ChevronDown size={16} className="text-gray-400 absolute right-3" />
+          </button>
+          {openCountryDropdown && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 max-h-72 overflow-hidden flex flex-col">
+              <div className="p-2 border-b border-gray-200 flex-shrink-0">
+                <input
+                  type="text"
+                  value={countrySearch}
+                  onChange={(e) => setCountrySearch(e.target.value)}
+                  placeholder="Search countries..."
+                  className="w-full h-8 px-3 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500"
+                  autoComplete="off"
+                />
               </div>
-            )}
-          </div>
+              <div className="overflow-auto flex-1">
+                {filteredCountries.length > 0 ? (
+                  filteredCountries.slice(0, 15).map((c) => (
+                    <button
+                      key={c.code}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+                      onClick={() => {
+                        setCountry(c.code);
+                        setCountrySearch('');
+                        setOpenCountryDropdown(false);
+                      }}
+                    >
+                      {c.name}
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-4 py-2 text-sm text-gray-500">No countries found</div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <Select value={sortBy} onValueChange={setSortBy}>
