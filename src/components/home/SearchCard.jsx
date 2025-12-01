@@ -152,9 +152,37 @@ export default function SearchCard({ onSubmitParams }) {
       return a.name.localeCompare(b.name);
     });
 
-  const filteredStates = subdivs.filter(s =>
-    stateSearch.trim() === '' || s.name.toLowerCase().includes(stateSearch.toLowerCase()) || s.code.toLowerCase().includes(stateSearch.toLowerCase())
-  );
+  // Filter states from either the selected country or all countries
+  const getFilteredStates = () => {
+    const searchTerm = stateSearch.trim().toLowerCase();
+
+    // If a country is selected, show its subdivisions first
+    if (country && subdivs.length > 0) {
+      return subdivs.filter(s =>
+        searchTerm === '' || s.name.toLowerCase().includes(searchTerm) || s.code.toLowerCase().includes(searchTerm)
+      );
+    }
+
+    // Otherwise, search across all countries' subdivisions
+    const allStates = [];
+    for (const [countryCode, stateList] of Object.entries(allSubdivisions)) {
+      for (const state of stateList) {
+        if (searchTerm === '' || state.name.toLowerCase().includes(searchTerm) || state.code.toLowerCase().includes(searchTerm)) {
+          allStates.push({ ...state, _countryCode: countryCode });
+        }
+      }
+    }
+    // Sort by relevance: exact matches first, then alphabetical
+    return allStates.sort((a, b) => {
+      const aName = a.name.toLowerCase();
+      const bName = b.name.toLowerCase();
+      if (aName === searchTerm) return -1;
+      if (bName === searchTerm) return 1;
+      return aName.localeCompare(bName);
+    });
+  };
+
+  const filteredStates = getFilteredStates();
 
   const selectedCountryName = country ? countries.find(c => c.code === country)?.name || '' : '';
 
