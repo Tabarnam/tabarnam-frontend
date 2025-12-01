@@ -319,7 +319,7 @@ export default function SearchCard({ onSubmitParams }) {
           )}
         </div>
 
-        <Popover open={openCountryDropdown}>
+        <Popover open={openCountryDropdown} onOpenChange={setOpenCountryDropdown}>
           <PopoverTrigger asChild>
             <div className="relative">
               <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={18} />
