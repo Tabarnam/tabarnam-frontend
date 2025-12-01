@@ -30,6 +30,7 @@ export default function SearchCard({ onSubmitParams }) {
 
   const [countries, setCountries] = useState([]);
   const [subdivs, setSubdivs] = useState([]);
+  const [allSubdivisions, setAllSubdivisions] = useState({}); // Map of all subdivisions by country
 
   const [suggestions, setSuggestions] = useState([]);
   const [openSuggest, setOpenSuggest] = useState(false);
@@ -46,14 +47,24 @@ export default function SearchCard({ onSubmitParams }) {
   const cityInputRef = useRef(null);
   const stateInputRef = useRef(null);
 
-  useEffect(() => { getCountries().then(setCountries); }, []);
+  useEffect(() => {
+    getCountries().then(setCountries);
+    // Load all subdivisions from all countries for state autocomplete
+    getSubdivisions('').then(allSubdivs => {
+      setAllSubdivisions(allSubdivs || {});
+    });
+  }, []);
 
+  // Load subdivisions for the selected country (for filtering)
   useEffect(() => {
     setStateCode('');
     setStateSearch('');
-    setSubdivs([]);
-    if (country) getSubdivisions(country).then(setSubdivs);
-  }, [country]);
+    if (country && allSubdivisions[country]) {
+      setSubdivs(allSubdivisions[country]);
+    } else {
+      setSubdivs([]);
+    }
+  }, [country, allSubdivisions]);
 
   // Hydrate from URL
   useEffect(() => {
@@ -99,12 +110,18 @@ export default function SearchCard({ onSubmitParams }) {
   }, [q, country, stateCode, city]);
 
   useEffect(() => {
+    const c = city.trim();
+    if (c.length < 2) {
+      setCitySuggestions([]);
+      setOpenCitySuggest(false);
+      return;
+    }
+
     const t = setTimeout(async () => {
-      const c = city.trim();
-      if (c.length < 2) { setCitySuggestions([]); setOpenCitySuggest(false); return; }
       try {
         const suggestions = await placesAutocomplete({ input: c, country });
         setCitySuggestions(suggestions);
+        // Auto-open the popover if suggestions are found
         setOpenCitySuggest(suggestions.length > 0);
       } catch (e) {
         console.warn("Failed to load city suggestions:", e?.message);
@@ -130,6 +147,16 @@ export default function SearchCard({ onSubmitParams }) {
     }
   };
 
+  const handleStateSelect = (state) => {
+    setStateCode(state.code);
+    setStateSearch('');
+    setOpenStateSuggest(false);
+    // Auto-set country if this state came from searching all countries
+    if (state._countryCode && !country) {
+      setCountry(state._countryCode);
+    }
+  };
+
   const filteredCountries = countries
     .filter(c =>
       countrySearch.trim() === '' || c.name.toLowerCase().includes(countrySearch.toLowerCase()) || c.code.toLowerCase().includes(countrySearch.toLowerCase())
@@ -141,9 +168,37 @@ export default function SearchCard({ onSubmitParams }) {
       return a.name.localeCompare(b.name);
     });
 
-  const filteredStates = subdivs.filter(s =>
-    stateSearch.trim() === '' || s.name.toLowerCase().includes(stateSearch.toLowerCase()) || s.code.toLowerCase().includes(stateSearch.toLowerCase())
-  );
+  // Filter states from either the selected country or all countries
+  const getFilteredStates = () => {
+    const searchTerm = stateSearch.trim().toLowerCase();
+
+    // If a country is selected, show its subdivisions first
+    if (country && subdivs.length > 0) {
+      return subdivs.filter(s =>
+        searchTerm === '' || s.name.toLowerCase().includes(searchTerm) || s.code.toLowerCase().includes(searchTerm)
+      );
+    }
+
+    // Otherwise, search across all countries' subdivisions
+    const allStates = [];
+    for (const [countryCode, stateList] of Object.entries(allSubdivisions)) {
+      for (const state of stateList) {
+        if (searchTerm === '' || state.name.toLowerCase().includes(searchTerm) || state.code.toLowerCase().includes(searchTerm)) {
+          allStates.push({ ...state, _countryCode: countryCode });
+        }
+      }
+    }
+    // Sort by relevance: exact matches first, then alphabetical
+    return allStates.sort((a, b) => {
+      const aName = a.name.toLowerCase();
+      const bName = b.name.toLowerCase();
+      if (aName === searchTerm) return -1;
+      if (bName === searchTerm) return 1;
+      return aName.localeCompare(bName);
+    });
+  };
+
+  const filteredStates = getFilteredStates();
 
   const selectedCountryName = country ? countries.find(c => c.code === country)?.name || '' : '';
 
@@ -230,7 +285,6 @@ export default function SearchCard({ onSubmitParams }) {
                 ref={cityInputRef}
                 value={city}
                 onChange={(e)=>setCity(e.target.value)}
-                onFocus={() => city.trim().length >= 2 && setOpenCitySuggest(true)}
                 onKeyDown={onKeyDown}
                 placeholder="City / Postal Code"
                 className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
@@ -280,10 +334,10 @@ export default function SearchCard({ onSubmitParams }) {
           >
             {filteredStates.slice(0, 12).map((s, i) => (
               <button
-                key={`${s.code}-${i}`}
+                key={`${s.code}-${s._countryCode || ''}-${i}`}
                 className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex flex-col"
                 onMouseDown={(e)=>e.preventDefault()}
-                onClick={()=>{ setStateCode(s.code); setStateSearch(''); setOpenStateSuggest(false); }}
+                onClick={()=>handleStateSelect(s)}
               >
                 <span className="font-medium">{s.name}</span>
                 <span className="text-xs text-gray-600">{s.code}</span>

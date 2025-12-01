@@ -66,10 +66,11 @@ export async function getCountries() {
  * Load subdivisions from /geo/subdivisions.json with fallback.
  * Put your full map in:  public/geo/subdivisions.json
  *   Shape: { "US":[{"code":"CA","name":"California"},...], "CA":[...], ... }
+ *
+ * If countryCode is empty/null/undefined, returns the entire subdivisions map.
  */
 export async function getSubdivisions(countryCode) {
   const cc = String(countryCode || "").toUpperCase();
-  if (subdivisionsCache && subdivisionsCache[cc]) return subdivisionsCache[cc];
 
   if (!subdivisionsLoad) {
     subdivisionsLoad = (async () => {
@@ -83,7 +84,13 @@ export async function getSubdivisions(countryCode) {
       return subdivisionsCache;
     })();
   }
+
   const m = await subdivisionsLoad;
+
+  // If no country code provided, return the entire map
+  if (!cc) return m;
+
+  // Otherwise return subdivisions for the specific country
   return m[cc] || [];
 }
 
