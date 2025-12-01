@@ -168,7 +168,16 @@ export default function SearchCard({ onSubmitParams }) {
 
   const selectedCountryName = country ? countries.find(c => c.code === country)?.name || '' : '';
 
-  const onKeyDown = (e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } };
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSubmit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpenCountryDropdown(false);
+      setCountrySearch('');
+    }
+  };
 
   const handleSubmit = () => {
     const params = { q: q.trim(), sort: sortBy, country, state: stateCode, city };
