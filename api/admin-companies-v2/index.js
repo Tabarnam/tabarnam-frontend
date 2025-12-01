@@ -141,17 +141,23 @@ app.http("adminCompaniesV2", {
           id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
         }
 
-        // Ensure id is a string for partition key
-        const partitionKeyValue = String(id).trim();
-        if (!partitionKeyValue) {
-          return json({ error: "Unable to determine company ID" }, 400);
+        // Compute normalized_domain for partition key (Cosmos DB partition key is /normalized_domain)
+        const urlForDomain = incoming.canonical_url || incoming.url || incoming.website || "unknown";
+        const normalizedDomain = incoming.normalized_domain || toNormalizedDomain(urlForDomain);
+
+        if (!normalizedDomain) {
+          return json({ error: "Unable to determine company domain for partition key" }, 400);
         }
+
+        // Use normalized_domain as partition key value
+        const partitionKeyValue = String(normalizedDomain).trim();
 
         const now = new Date().toISOString();
         const doc = {
           ...incoming,
-          id: partitionKeyValue,
-          company_id: partitionKeyValue,
+          id: String(id).trim(),
+          company_id: String(id).trim(),
+          normalized_domain: normalizedDomain,
           company_name: incoming.company_name || incoming.name || "",
           name: incoming.name || incoming.company_name || "",
           updated_at: now,
