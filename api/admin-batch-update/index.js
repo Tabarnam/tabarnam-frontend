@@ -97,7 +97,9 @@ app.http("adminBatchUpdate", {
             existing[field] = field === "star_rating" ? Number(value) : value;
             existing.updated_at = now;
 
-            await companiesContainer.items.upsert(existing);
+            // Use normalized_domain as partition key for upsert
+            const partitionKeyValue = String(existing.normalized_domain || "unknown").trim();
+            await companiesContainer.items.upsert(existing, { partitionKey: partitionKeyValue });
 
             if (undoContainer) {
               const historyDoc = {
