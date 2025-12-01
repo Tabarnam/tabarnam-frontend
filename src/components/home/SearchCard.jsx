@@ -300,21 +300,24 @@ export default function SearchCard({ onSubmitParams }) {
             </div>
           </PopoverTrigger>
           <PopoverContent
-            className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
+            className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1 max-h-72 overflow-y-auto"
             align="start"
             onOpenAutoFocus={(e)=>e.preventDefault()}
           >
-            {citySuggestions.map((s, i) => (
-              <button
-                key={`${s.placeId}-${i}`}
-                className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex flex-col"
-                onMouseDown={(e)=>e.preventDefault()}
-                onClick={()=>{ setCity(s.mainText); handleCitySelect(s.placeId); }}
-              >
-                <span className="font-medium">{s.mainText}</span>
-                {s.secondaryText && <span className="text-xs text-gray-600">{s.secondaryText}</span>}
-              </button>
-            ))}
+            {citySuggestions.length > 0 ? (
+              citySuggestions.map((s, i) => (
+                <button
+                  key={`${s.value}-${i}`}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+                  onMouseDown={(e)=>e.preventDefault()}
+                  onClick={() => handleCitySelect(s.value)}
+                >
+                  {s.value}
+                </button>
+              ))
+            ) : (
+              <div className="px-4 py-2 text-sm text-gray-500">No cities found</div>
+            )}
           </PopoverContent>
         </Popover>
 
