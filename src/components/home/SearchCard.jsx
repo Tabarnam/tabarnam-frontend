@@ -93,6 +93,45 @@ export default function SearchCard({ onSubmitParams }) {
     return () => clearTimeout(t);
   }, [q, country, stateCode, city]);
 
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      const c = city.trim();
+      if (c.length < 2) { setCitySuggestions([]); setOpenCitySuggest(false); return; }
+      try {
+        const suggestions = await placesAutocomplete({ input: c, country });
+        setCitySuggestions(suggestions);
+        setOpenCitySuggest(suggestions.length > 0);
+      } catch (e) {
+        console.warn("Failed to load city suggestions:", e?.message);
+        setCitySuggestions([]);
+        setOpenCitySuggest(false);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [city, country]);
+
+  const handleCitySelect = async (placeId) => {
+    try {
+      const details = await placeDetails({ placeId });
+      if (details) {
+        // Try to extract country code from address components
+        const countryCode = details.components?.find(c => c.types?.includes('country'))?.short_name || '';
+        const stateCode = details.components?.find(c => c.types?.includes('administrative_area_level_1'))?.short_name || '';
+
+        if (countryCode) setCountry(countryCode);
+        if (stateCode) setStateCode(stateCode);
+      }
+      setCitySuggestions([]);
+      setOpenCitySuggest(false);
+    } catch (e) {
+      console.warn("Failed to get place details:", e?.message);
+    }
+  };
+
+  const filteredCountries = countries.filter(c =>
+    countrySearch.trim() === '' || c.name.toLowerCase().includes(countrySearch.toLowerCase()) || c.code.toLowerCase().includes(countrySearch.toLowerCase())
+  );
+
   const onKeyDown = (e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } };
 
   const handleSubmit = () => {
