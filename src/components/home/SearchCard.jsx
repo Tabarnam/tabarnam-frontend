@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { getCountries } from '@/lib/location';
-import { getSuggestions, getRefinements } from '@/lib/searchCompanies';
+import { getSuggestions, getRefinements, getCitySuggestions, getStateSuggestions } from '@/lib/searchCompanies';
 import { placesAutocomplete, placeDetails } from '@/lib/google';
 
 const SORTS = [
