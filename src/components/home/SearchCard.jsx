@@ -217,27 +217,25 @@ export default function SearchCard({ onSubmitParams }) {
             placeholder="City / Postal Code"
             className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
           />
-          {citySuggestions.length > 0 && (
-            <Popover open={openCitySuggest}>
-              <PopoverContent
-                className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
-                align="start"
-                onOpenAutoFocus={(e)=>e.preventDefault()}
-              >
-                {citySuggestions.map((s, i) => (
-                  <button
-                    key={`${s.placeId}-${i}`}
-                    className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex flex-col"
-                    onMouseDown={(e)=>e.preventDefault()}
-                    onClick={()=>{ setCity(s.mainText); handleCitySelect(s.placeId); }}
-                  >
-                    <span className="font-medium">{s.mainText}</span>
-                    {s.secondaryText && <span className="text-xs text-gray-600">{s.secondaryText}</span>}
-                  </button>
-                ))}
-              </PopoverContent>
-            </Popover>
-          )}
+          <Popover open={openCitySuggest && citySuggestions.length > 0}>
+            <PopoverContent
+              className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
+              align="start"
+              onOpenAutoFocus={(e)=>e.preventDefault()}
+            >
+              {citySuggestions.map((s, i) => (
+                <button
+                  key={`${s.placeId}-${i}`}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex flex-col"
+                  onMouseDown={(e)=>e.preventDefault()}
+                  onClick={()=>{ setCity(s.mainText); handleCitySelect(s.placeId); }}
+                >
+                  <span className="font-medium">{s.mainText}</span>
+                  {s.secondaryText && <span className="text-xs text-gray-600">{s.secondaryText}</span>}
+                </button>
+              ))}
+            </PopoverContent>
+          </Popover>
         </div>
 
         <div className="relative">
