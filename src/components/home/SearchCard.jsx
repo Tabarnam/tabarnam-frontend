@@ -30,6 +30,7 @@ export default function SearchCard({ onSubmitParams }) {
 
   const [countries, setCountries] = useState([]);
   const [subdivs, setSubdivs] = useState([]);
+  const [allSubdivisions, setAllSubdivisions] = useState({}); // Map of all subdivisions by country
 
   const [suggestions, setSuggestions] = useState([]);
   const [openSuggest, setOpenSuggest] = useState(false);
@@ -46,14 +47,24 @@ export default function SearchCard({ onSubmitParams }) {
   const cityInputRef = useRef(null);
   const stateInputRef = useRef(null);
 
-  useEffect(() => { getCountries().then(setCountries); }, []);
+  useEffect(() => {
+    getCountries().then(setCountries);
+    // Load all subdivisions from all countries for state autocomplete
+    getSubdivisions('').then(allSubdivs => {
+      setAllSubdivisions(allSubdivs || {});
+    });
+  }, []);
 
+  // Load subdivisions for the selected country (for filtering)
   useEffect(() => {
     setStateCode('');
     setStateSearch('');
-    setSubdivs([]);
-    if (country) getSubdivisions(country).then(setSubdivs);
-  }, [country]);
+    if (country && allSubdivisions[country]) {
+      setSubdivs(allSubdivisions[country]);
+    } else {
+      setSubdivs([]);
+    }
+  }, [country, allSubdivisions]);
 
   // Hydrate from URL
   useEffect(() => {
