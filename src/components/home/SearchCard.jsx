@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Popover, PopoverContent } from '@/components/ui/popover';
 import { getCountries, getSubdivisions } from '@/lib/location';
 import { getSuggestions, getRefinements } from '@/lib/searchCompanies';
+import { placesAutocomplete, placeDetails } from '@/lib/google';
 
 const SORTS = [
   { value: 'manu',  label: 'Nearest Manufacturing' },
