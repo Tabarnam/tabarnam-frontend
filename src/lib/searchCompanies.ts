@@ -139,6 +139,72 @@ export async function getRefinements(
   }
 }
 
+export async function getCitySuggestions(q: unknown, country?: string): Promise<RefinementSuggestion[]> {
+  const query = asStr(q).trim();
+  if (!query || query.length < 1) return [];
+
+  try {
+    const params = new URLSearchParams({ q: query });
+    if (country) params.set("country", country);
+
+    const r = await apiFetch(`/suggest-cities?${params.toString()}`, {
+      headers: { accept: "application/json" },
+    });
+
+    if (!r.ok) {
+      console.warn(`suggest-cities returned ${r.status}`);
+      return [];
+    }
+
+    const data = await r.json();
+    const suggestions: RefinementSuggestion[] = Array.isArray(data?.suggestions)
+      ? data.suggestions.map((s: any) => ({
+          value: String(s.value || ""),
+          type: "City",
+          count: s.count,
+        }))
+      : [];
+
+    return suggestions;
+  } catch (e) {
+    console.warn("Failed to get city suggestions:", e?.message);
+    return [];
+  }
+}
+
+export async function getStateSuggestions(q: unknown, country?: string): Promise<RefinementSuggestion[]> {
+  const query = asStr(q).trim();
+  if (!query || query.length < 1) return [];
+
+  try {
+    const params = new URLSearchParams({ q: query });
+    if (country) params.set("country", country);
+
+    const r = await apiFetch(`/suggest-states?${params.toString()}`, {
+      headers: { accept: "application/json" },
+    });
+
+    if (!r.ok) {
+      console.warn(`suggest-states returned ${r.status}`);
+      return [];
+    }
+
+    const data = await r.json();
+    const suggestions: RefinementSuggestion[] = Array.isArray(data?.suggestions)
+      ? data.suggestions.map((s: any) => ({
+          value: String(s.value || ""),
+          type: "State",
+          count: s.count,
+        }))
+      : [];
+
+    return suggestions;
+  } catch (e) {
+    console.warn("Failed to get state suggestions:", e?.message);
+    return [];
+  }
+}
+
 async function readError(resp: Response) {
   try {
     const t = await resp.text();
