@@ -264,7 +264,7 @@ export default function SearchCard({ onSubmitParams }) {
           <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <Input
             ref={stateInputRef}
-            value={stateSearch}
+            value={stateSearch || (stateCode ? subdivs.find(s => s.code === stateCode)?.name || '' : '')}
             onChange={(e)=>{ setStateSearch(e.target.value); setOpenStateSuggest(true); }}
             onFocus={()=>setOpenStateSuggest(true)}
             onKeyDown={onKeyDown}
