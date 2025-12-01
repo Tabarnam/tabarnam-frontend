@@ -187,13 +187,18 @@ app.http("adminCompanies", {
           context.log("[admin-companies] Generated new ID:", id);
         }
 
-        const partitionKeyValue = String(id).trim();
-        if (!partitionKeyValue) {
-          context.log("[admin-companies] Invalid partition key value");
-          return json({ error: "Unable to determine company ID" }, 400);
+        // Compute normalized_domain for partition key (Cosmos DB partition key is /normalized_domain)
+        const urlForDomain = incoming.canonical_url || incoming.url || incoming.website || "unknown";
+        const normalizedDomain = incoming.normalized_domain || toNormalizedDomain(urlForDomain);
+
+        if (!normalizedDomain) {
+          context.log("[admin-companies] Unable to determine company domain for partition key");
+          return json({ error: "Unable to determine company domain for partition key" }, 400);
         }
 
-        context.log("[admin-companies] Using partition key:", partitionKeyValue);
+        // Use normalized_domain as partition key value
+        const partitionKeyValue = String(normalizedDomain).trim();
+        context.log("[admin-companies] Using partition key (normalized_domain):", partitionKeyValue);
 
         // Geocode headquarters location if present and no lat/lng already provided
         let hq_lat = incoming.hq_lat;
