@@ -21,6 +21,7 @@ import FeedbackWidget from "@/components/FeedbackWidget";
 import Footer from "@/components/Footer";
 import AdminRoute from "@/components/AdminRoute";
 import AuthKeepAlive from "@/components/AuthKeepAlive";
+import BetaBadge from "@/components/BetaBadge";
 
 // Simple error boundary
 class ErrorBoundary extends React.Component {
