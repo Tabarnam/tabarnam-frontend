@@ -38,15 +38,20 @@ export default function SearchCard({ onSubmitParams }) {
   const [citySuggestions, setCitySuggestions] = useState([]);
   const [openCitySuggest, setOpenCitySuggest] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
-  const [openCountrySuggest, setOpenCountrySuggest] = useState(false);
+  const [openCountryDropdown, setOpenCountryDropdown] = useState(false);
+  const [stateSearch, setStateSearch] = useState('');
+  const [openStateSuggest, setOpenStateSuggest] = useState(false);
 
   const inputRef = useRef(null);
   const cityInputRef = useRef(null);
-  const countryInputRef = useRef(null);
+  const stateInputRef = useRef(null);
 
   useEffect(() => { getCountries().then(setCountries); }, []);
+
   useEffect(() => {
-    setStateCode(''); setSubdivs([]);
+    setStateCode('');
+    setStateSearch('');
+    setSubdivs([]);
     if (country) getSubdivisions(country).then(setSubdivs);
   }, [country]);
 
@@ -114,12 +119,9 @@ export default function SearchCard({ onSubmitParams }) {
     try {
       const details = await placeDetails({ placeId });
       if (details) {
-        // Try to extract country code from address components
-        const countryCode = details.components?.find(c => c.types?.includes('country'))?.short_name || '';
-        const stateCode = details.components?.find(c => c.types?.includes('administrative_area_level_1'))?.short_name || '';
-
-        if (countryCode) setCountry(countryCode);
-        if (stateCode) setStateCode(stateCode);
+        // Use the already-extracted countryCode and stateCode from placeDetails
+        if (details.countryCode) setCountry(details.countryCode);
+        if (details.stateCode) setStateCode(details.stateCode);
       }
       setCitySuggestions([]);
       setOpenCitySuggest(false);
@@ -131,6 +133,12 @@ export default function SearchCard({ onSubmitParams }) {
   const filteredCountries = countries.filter(c =>
     countrySearch.trim() === '' || c.name.toLowerCase().includes(countrySearch.toLowerCase()) || c.code.toLowerCase().includes(countrySearch.toLowerCase())
   );
+
+  const filteredStates = subdivs.filter(s =>
+    stateSearch.trim() === '' || s.name.toLowerCase().includes(stateSearch.toLowerCase()) || s.code.toLowerCase().includes(stateSearch.toLowerCase())
+  );
+
+  const selectedCountryName = country ? countries.find(c => c.code === country)?.name || '' : '';
 
   const onKeyDown = (e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } };
 
@@ -240,39 +248,61 @@ export default function SearchCard({ onSubmitParams }) {
 
         <div className="relative">
           <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <Select value={stateCode} onValueChange={setStateCode}>
-            <SelectTrigger className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900">
-              <SelectValue placeholder="State / Province" />
-            </SelectTrigger>
-            <SelectContent className="max-h-72 overflow-auto">
-              {subdivs.map(s => <SelectItem key={s.code} value={s.code}>{s.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="relative">
-          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <Input
-            ref={countryInputRef}
-            value={countrySearch || (country ? countries.find(c => c.code === country)?.name || '' : '')}
-            onChange={(e)=>{ setCountrySearch(e.target.value); setOpenCountrySuggest(true); }}
-            onFocus={()=>setOpenCountrySuggest(true)}
+            ref={stateInputRef}
+            value={stateSearch || (stateCode ? subdivs.find(s => s.code === stateCode)?.name || '' : '')}
+            onChange={(e)=>{ setStateSearch(e.target.value); setOpenStateSuggest(true); }}
+            onFocus={()=>setOpenStateSuggest(true)}
             onKeyDown={onKeyDown}
-            placeholder="Country"
+            placeholder="State / Province"
             className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
           />
-          <Popover open={openCountrySuggest && filteredCountries.length > 0}>
+          <Popover open={openStateSuggest && filteredStates.length > 0}>
             <PopoverContent
               className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
               align="start"
               onOpenAutoFocus={(e)=>e.preventDefault()}
             >
-              {filteredCountries.slice(0, 15).map((c, i) => (
+              {filteredStates.slice(0, 12).map((s, i) => (
                 <button
-                  key={`${c.code}-${i}`}
+                  key={`${s.code}-${i}`}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 flex flex-col"
+                  onMouseDown={(e)=>e.preventDefault()}
+                  onClick={()=>{ setStateCode(s.code); setStateSearch(''); setOpenStateSuggest(false); }}
+                >
+                  <span className="font-medium">{s.name}</span>
+                  <span className="text-xs text-gray-600">{s.code}</span>
+                </button>
+              ))}
+            </PopoverContent>
+          </Popover>
+        </div>
+
+        <div className="relative">
+          <MapPin className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <Input
+            value={countrySearch || selectedCountryName}
+            onChange={(e) => { setCountrySearch(e.target.value); setOpenCountryDropdown(true); }}
+            onFocus={() => setOpenCountryDropdown(true)}
+            placeholder="Country"
+            className="pl-10 h-11 bg-gray-50 border-gray-300 text-gray-900"
+          />
+          <Popover open={openCountryDropdown && filteredCountries.length > 0}>
+            <PopoverContent
+              className="w-[var(--radix-popover-trigger-width)] p-0 bg-white border-gray-300 mt-1"
+              align="start"
+              onOpenAutoFocus={(e)=>e.preventDefault()}
+            >
+              {filteredCountries.slice(0, 15).map((c) => (
+                <button
+                  key={c.code}
                   className="w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
                   onMouseDown={(e)=>e.preventDefault()}
-                  onClick={()=>{ setCountry(c.code); setCountrySearch(''); setOpenCountrySuggest(false); }}
+                  onClick={() => {
+                    setCountry(c.code);
+                    setCountrySearch('');
+                    setOpenCountryDropdown(false);
+                  }}
                 >
                   {c.name}
                 </button>

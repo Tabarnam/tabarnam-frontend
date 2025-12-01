@@ -119,19 +119,33 @@ export async function placeDetails({ placeId } = {}) {
     if (!data?.components) return null;
 
     const components = data.components || [];
-    const getComponentByType = (types) => {
-      const comp = components.find((c) => Array.isArray(c.types) && c.types.some((t) => types.includes(t)));
-      return comp?.short_name || comp?.long_name || "";
-    };
+
+    // Find country component and extract ISO code (short_name)
+    const countryComponent = components.find((c) => Array.isArray(c.types) && c.types.includes("country"));
+    const countryCode = countryComponent?.short_name || ""; // ISO country code like "US"
+    const countryName = countryComponent?.long_name || "";
+
+    // Find state/province component and extract code (short_name for state codes)
+    const stateComponent = components.find((c) => Array.isArray(c.types) && c.types.includes("administrative_area_level_1"));
+    const stateCode = stateComponent?.short_name || ""; // State code like "CA"
+    const stateName = stateComponent?.long_name || "";
+
+    // Find city/locality
+    const cityComponent = components.find((c) => Array.isArray(c.types) && (c.types.includes("locality") || c.types.includes("postal_town")));
+    const city = cityComponent?.long_name || "";
+
+    // Find postal code
+    const postalComponent = components.find((c) => Array.isArray(c.types) && c.types.includes("postal_code"));
+    const postalCode = postalComponent?.short_name || "";
 
     return {
       geometry: data.geometry,
-      country: getComponentByType(["country"]),
-      countryCode: getComponentByType(["country"]),
-      state: getComponentByType(["administrative_area_level_1"]),
-      stateCode: getComponentByType(["administrative_area_level_1"]),
-      city: getComponentByType(["locality", "postal_town"]),
-      postalCode: getComponentByType(["postal_code"]),
+      country: countryName,
+      countryCode: countryCode,
+      state: stateName,
+      stateCode: stateCode,
+      city: city,
+      postalCode: postalCode,
       components: components,
     };
   } catch (e) {
