@@ -202,7 +202,8 @@ app.http("adminReviews", {
         reviews[reviewIndex] = updated;
         companyRecord.curated_reviews = reviews;
 
-        await container.items.upsert(companyRecord);
+        const partitionKeyValue2 = String(companyRecord.normalized_domain || "unknown").trim();
+        await container.items.upsert(companyRecord, { partitionKey: partitionKeyValue2 });
 
         return json({ ok: true, review: updated }, 200);
       }
@@ -239,7 +240,8 @@ app.http("adminReviews", {
 
         companyRecord.curated_reviews = reviews.filter((r) => r.id !== review_id);
 
-        await container.items.upsert(companyRecord);
+        const partitionKeyValue3 = String(companyRecord.normalized_domain || "unknown").trim();
+        await container.items.upsert(companyRecord, { partitionKey: partitionKeyValue3 });
 
         return json({ ok: true, deleted: review_id }, 200);
       }
