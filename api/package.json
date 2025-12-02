@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "main": "index.js",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
     "@azure/functions": "^4.6.0",
     "@azure/cosmos": "^4.2.0",
