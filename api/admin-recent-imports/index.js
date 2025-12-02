@@ -22,6 +22,7 @@ app.http("adminRecentImports", {
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, ctx) => {
+    console.log("[admin-recent-imports] Handler invoked - routing is working!");
     if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
 
     const take = Number(new URL(req.url).searchParams.get("take") || "25") || 25;
