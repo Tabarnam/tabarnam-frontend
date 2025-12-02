@@ -1,4 +1,3 @@
-// api/ping/index.js
 const { app } = require("@azure/functions");
 
 app.http("ping", {

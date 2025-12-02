@@ -1,5 +1,5 @@
-// api/search-companies/index.js
 const { app } = require("@azure/functions");
+const { CosmosClient } = require("@azure/cosmos");
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -28,7 +28,6 @@ function getCompaniesContainer() {
 
     if (!endpoint || !key) return null;
 
-    const { CosmosClient } = require("@azure/cosmos");
     const client = new CosmosClient({ endpoint, key });
     return client.database(databaseId).container(containerId);
   } catch (err) {
@@ -37,7 +36,6 @@ function getCompaniesContainer() {
   }
 }
 
-// Single declaration (avoids the "Cannot redeclare block-scoped variable" error)
 const SQL_TEXT_FILTER = `
   (IS_DEFINED(c.company_name) AND CONTAINS(LOWER(c.company_name), @q)) OR
   (IS_DEFINED(c.product_keywords) AND CONTAINS(LOWER(c.product_keywords), @q)) OR
@@ -78,7 +76,6 @@ app.http("search-companies", {
     const skip = Math.max(0, Number(rawSkip || 0) || 0);
     const limit = Math.min(500, skip + take || take);
 
-    // 1) Cosmos DB path (prioritized - local data source first)
     const container = getCompaniesContainer();
     if (container) {
       try {
@@ -91,7 +88,6 @@ app.http("search-companies", {
         if (sort === "manu") {
           const whereText = q ? `AND (${SQL_TEXT_FILTER})` : "";
 
-          // A) With manufacturing locations
           const sqlA = `
             SELECT TOP @take c.id, c.company_name, c.industries, c.url, c.amazon_url,
                              c.normalized_domain, c.created_at, c.session_id, c._ts,
@@ -110,7 +106,6 @@ app.http("search-companies", {
             .fetchAll();
           items = partA.resources || [];
 
-          // B) Fill remainder without manufacturing data
           const remaining = Math.max(0, limit - items.length);
           if (remaining > 0) {
             const sqlB = `
@@ -165,7 +160,6 @@ app.http("search-companies", {
           items = res.resources || [];
         }
 
-        // Normalize created_at from _ts when missing
         const normalized = items.map((r) => {
           if (!r?.created_at && typeof r?._ts === "number") {
             try {
@@ -195,7 +189,6 @@ app.http("search-companies", {
       }
     }
 
-    // 2) Error if no Cosmos DB available
     return json({ ok: false, success: false, error: "Cosmos DB not configured" }, 503, req);
   },
 });

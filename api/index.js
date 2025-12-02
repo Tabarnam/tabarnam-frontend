@@ -1,8 +1,9 @@
-// api/index.js  register all functions (new programming model, CommonJS)
+// api/index.js - register all functions (CommonJS)
 const { app } = require("@azure/functions");
 
 console.log("[api/index.js] Starting handler registration...");
 
+// Public endpoints (most are CommonJS)
 try {
   console.log("[api] Registering: health");
   require("./health/index.js");
@@ -47,20 +48,6 @@ try {
 }
 
 try {
-  console.log("[api] Registering: admin-reviews");
-  require("./admin-reviews/index.js");
-} catch (e) {
-  console.error("[api] Failed to load admin-reviews:", e?.message || e);
-}
-
-try {
-  console.log("[api] Registering: admin-update-logos");
-  require("./admin-update-logos/index.js");
-} catch (e) {
-  console.error("[api] Failed to load admin-update-logos:", e?.message || e);
-}
-
-try {
   console.log("[api] Registering: search-companies");
   require("./search-companies/index.js");
 } catch (e) {
@@ -69,11 +56,10 @@ try {
 
 try {
   console.log("[api] Registering: suggest-refinements");
-  const suggestRefinements = require("./suggest-refinements/index.js");
+  require("./suggest-refinements/index.js");
   console.log("[api] ✓ suggest-refinements registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load suggest-refinements:", e?.message || e);
-  console.error("[api] Stack:", e?.stack || "no stack");
 }
 
 try {
@@ -147,7 +133,6 @@ try {
   console.log("[api] ✓ test-echo registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load test-echo:", e?.message || e);
-  console.error(e);
 }
 
 try {
@@ -156,62 +141,23 @@ try {
   console.log("[api] ✓ companies-list registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load companies-list:", e?.message || e);
-  console.error(e);
 }
 
 try {
-  console.log("[api] Registering: admin-star-config");
-  require("./admin-star-config/index.js");
-  console.log("[api] ✓ admin-star-config registered");
+  console.log("[api] Registering: keywords-list");
+  require("./keywords-list/index.js");
+  console.log("[api] ✓ keywords-list registered");
 } catch (e) {
-  console.error("[api] ❌ Failed to load admin-star-config:", e?.message || e);
-  console.error(e);
+  console.error("[api] ❌ Failed to load keywords-list:", e?.message || e);
 }
 
+// Admin endpoints (being converted to CommonJS)
 try {
-  console.log("[api] Registering: admin-undo-history");
-  require("./admin-undo-history/index.js");
+  console.log("[api] Registering: admin-recent-imports");
+  require("./admin-recent-imports/index.js");
+  console.log("[api] ✓ admin-recent-imports registered");
 } catch (e) {
-  console.error("[api] Failed to load admin-undo-history:", e?.message || e);
-}
-
-try {
-  console.log("[api] Registering: admin-notes");
-  require("./admin-notes/index.js");
-} catch (e) {
-  console.error("[api] Failed to load admin-notes:", e?.message || e);
-}
-
-try {
-  console.log("[api] Registering: admin-login");
-  require("./admin-login/index.js");
-} catch (e) {
-  console.error("[api] Failed to load admin-login:", e?.message || e);
-}
-
-try {
-  console.log("[api] Registering: admin-debug");
-  require("./admin-debug/index.js");
-  console.log("[api] ✓ admin-debug registered");
-} catch (e) {
-  console.error("[api] ❌ Failed to load admin-debug:", e?.message || e);
-  console.error(e);
-}
-
-try {
-  console.log("[api] Registering: admin-recalc-stars");
-  require("./admin-recalc-stars/index.js");
-  console.log("[api] ✓ admin-recalc-stars registered");
-} catch (e) {
-  console.error("[api] ❌ Failed to load admin-recalc-stars:", e?.message || e);
-}
-
-try {
-  console.log("[api] Registering: admin-import-stats");
-  require("./admin-import-stats/index.js");
-  console.log("[api] ✓ admin-import-stats registered");
-} catch (e) {
-  console.error("[api] ❌ Failed to load admin-import-stats:", e?.message || e);
+  console.error("[api] ❌ Failed to load admin-recent-imports:", e?.message || e);
 }
 
 try {
@@ -231,17 +177,9 @@ try {
 }
 
 try {
-  console.log("[api] Registering: admin-undo");
-  require("./admin-undo/index.js");
-  console.log("[api] ✓ admin-undo registered");
-} catch (e) {
-  console.error("[api] ❌ Failed to load admin-undo:", e?.message || e);
-}
-
-try {
   console.log("[api] Registering: admin-analytics");
   require("./admin-analytics/index.js");
-  console.log("[api] �� admin-analytics registered");
+  console.log("[api] ✓ admin-analytics registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-analytics:", e?.message || e);
 }
@@ -263,11 +201,67 @@ try {
 }
 
 try {
-  console.log("[api] Registering: admin-recent-imports");
-  require("./admin-recent-imports/index.js");
-  console.log("[api] ✓ admin-recent-imports registered");
+  console.log("[api] Registering: admin-companies-v2");
+  require("./admin-companies-v2/index.js");
+  console.log("[api] ✓ admin-companies-v2 registered");
 } catch (e) {
-  console.error("[api] ❌ Failed to load admin-recent-imports:", e?.message || e);
+  console.error("[api] ❌ Failed to load admin-companies-v2:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-debug");
+  require("./admin-debug/index.js");
+  console.log("[api] ✓ admin-debug registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-debug:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-echo");
+  require("./admin-echo/index.js");
+  console.log("[api] ✓ admin-echo registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-echo:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-import-stats");
+  require("./admin-import-stats/index.js");
+  console.log("[api] ✓ admin-import-stats registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-import-stats:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-login");
+  require("./admin-login/index.js");
+  console.log("[api] ✓ admin-login registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-login:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-notes");
+  require("./admin-notes/index.js");
+  console.log("[api] ✓ admin-notes registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-notes:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-recalc-stars");
+  require("./admin-recalc-stars/index.js");
+  console.log("[api] ✓ admin-recalc-stars registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-recalc-stars:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-reviews");
+  require("./admin-reviews/index.js");
+  console.log("[api] ✓ admin-reviews registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-reviews:", e?.message || e);
 }
 
 try {
@@ -279,11 +273,35 @@ try {
 }
 
 try {
-  console.log("[api] Registering: keywords-list");
-  require("./keywords-list/index.js");
-  console.log("[api] ✓ keywords-list registered");
+  console.log("[api] Registering: admin-star-config");
+  require("./admin-star-config/index.js");
+  console.log("[api] ✓ admin-star-config registered");
 } catch (e) {
-  console.error("[api] ❌ Failed to load keywords-list:", e?.message || e);
+  console.error("[api] ❌ Failed to load admin-star-config:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-undo");
+  require("./admin-undo/index.js");
+  console.log("[api] ✓ admin-undo registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-undo:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-undo-history");
+  require("./admin-undo-history/index.js");
+  console.log("[api] ✓ admin-undo-history registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-undo-history:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-update-logos");
+  require("./admin-update-logos/index.js");
+  console.log("[api] ✓ admin-update-logos registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-update-logos:", e?.message || e);
 }
 
 console.log("[api/index.js] ✅ All handler registration complete!");
