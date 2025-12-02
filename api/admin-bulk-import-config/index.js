@@ -11,8 +11,8 @@ const json = (obj, status = 200) => ({
   body: JSON.stringify(obj),
 });
 
-app.http("bulkImportConfig", {
-  route: "admin/bulk-import-config",
+app.http("adminBulkImportConfig", {
+  route: "admin-bulk-import-config",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
