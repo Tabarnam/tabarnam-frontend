@@ -1,5 +1,5 @@
-import { app } from '@azure/functions';
-import { CosmosClient } from '@azure/cosmos';
+const { app } = require('@azure/functions');
+const { CosmosClient } = require('@azure/cosmos');
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
@@ -44,7 +44,7 @@ const DEFAULT_CONFIG = {
   min_reviews: 3,
 };
 
-export default app.http('adminStarConfig', {
+app.http('adminStarConfig', {
   route: 'admin-star-config',
   methods: ['GET', 'PUT', 'OPTIONS'],
   authLevel: 'anonymous',

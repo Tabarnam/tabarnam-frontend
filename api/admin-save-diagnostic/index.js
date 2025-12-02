@@ -1,5 +1,5 @@
-import { app } from '@azure/functions';
-import { CosmosClient } from '@azure/cosmos';
+const { app } = require('@azure/functions');
+const { CosmosClient } = require('@azure/cosmos');
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -34,7 +34,7 @@ function getCompaniesContainer() {
   }
 }
 
-export default app.http('adminSaveDiagnostic', {
+app.http('adminSaveDiagnostic', {
   route: 'admin-save-diagnostic',
   methods: ['GET', 'POST', 'OPTIONS'],
   authLevel: 'anonymous',

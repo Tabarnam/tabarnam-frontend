@@ -1,6 +1,6 @@
-import { app } from '@azure/functions';
-import { CosmosClient } from '@azure/cosmos';
-import { randomUUID } from 'node:crypto';
+const { app } = require('@azure/functions');
+const { CosmosClient } = require('@azure/cosmos');
+const { randomUUID } = require('node:crypto');
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
@@ -43,7 +43,7 @@ function isExcludedSource(source) {
   return false;
 }
 
-export default app.http('adminReviews', {
+app.http('adminReviews', {
   route: 'admin-reviews',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   authLevel: 'anonymous',

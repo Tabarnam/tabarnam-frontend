@@ -1,5 +1,5 @@
-import { app } from '@azure/functions';
-import { CosmosClient } from '@azure/cosmos';
+const { app } = require('@azure/functions');
+const { CosmosClient } = require('@azure/cosmos');
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
@@ -44,7 +44,7 @@ function getUndoContainer() {
   return client.database(databaseId).container(containerId);
 }
 
-export default app.http('adminUndo', {
+app.http('adminUndo', {
   route: 'admin-undo',
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
