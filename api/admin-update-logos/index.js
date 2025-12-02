@@ -1,5 +1,5 @@
-const { app } = require("@azure/functions");
-const { CosmosClient } = require("@azure/cosmos");
+import { app } from '@azure/functions';
+import { CosmosClient } from '@azure/cosmos';
 
 const COSMOS_ENDPOINT = process.env.COSMOS_DB_ENDPOINT || "";
 const COSMOS_KEY = process.env.COSMOS_DB_KEY || "";
@@ -63,33 +63,32 @@ async function updateLogos() {
   }
 }
 
-app.http("admin-update-logos", {
-  route: "admin-update-logos",
-  methods: ["POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
-    const method = String(req.method || "").toUpperCase();
+export default app.http('adminUpdateLogos', {
+  route: 'admin-update-logos',
+  methods: ['POST', 'OPTIONS'],
+  authLevel: 'anonymous',
+}, async (req, context) => {
+  const method = String(req.method || "").toUpperCase();
 
-    if (method === "OPTIONS") {
-      return {
-        status: 204,
-        headers: getCorsHeaders(),
-      };
-    }
+  if (method === "OPTIONS") {
+    return {
+      status: 204,
+      headers: getCorsHeaders(),
+    };
+  }
 
-    try {
-      const result = await updateLogos();
-      return {
-        status: result.success ? 200 : 400,
-        body: JSON.stringify(result),
-        headers: getCorsHeaders(),
-      };
-    } catch (e) {
-      return {
-        status: 500,
-        body: JSON.stringify({ error: e.message }),
-        headers: getCorsHeaders(),
-      };
-    }
-  },
+  try {
+    const result = await updateLogos();
+    return {
+      status: result.success ? 200 : 400,
+      body: JSON.stringify(result),
+      headers: getCorsHeaders(),
+    };
+  } catch (e) {
+    return {
+      status: 500,
+      body: JSON.stringify({ error: e.message }),
+      headers: getCorsHeaders(),
+    };
+  }
 });

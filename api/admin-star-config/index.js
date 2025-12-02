@@ -1,12 +1,12 @@
-const { app } = require("@azure/functions");
-const { CosmosClient } = require("@azure/cosmos");
+import { app } from '@azure/functions';
+import { CosmosClient } from '@azure/cosmos';
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
 function getCorsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Content-Type": "application/json",
   };
@@ -44,66 +44,65 @@ const DEFAULT_CONFIG = {
   min_reviews: 3,
 };
 
-app.http("admin-star-config", {
-  route: "admin-star-config",
-  methods: ["GET", "PUT", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
-    const method = String(req.method || "").toUpperCase();
+export default app.http('adminStarConfig', {
+  route: 'admin-star-config',
+  methods: ['GET', 'PUT', 'OPTIONS'],
+  authLevel: 'anonymous',
+}, async (req, context) => {
+  const method = String(req.method || "").toUpperCase();
 
-    if (method === "OPTIONS") {
-      return {
-        status: 204,
-        headers: getCorsHeaders(),
+  if (method === "OPTIONS") {
+    return {
+      status: 204,
+      headers: getCorsHeaders(),
+    };
+  }
+
+  const container = getConfigContainer();
+  if (!container) {
+    return json({ error: "Cosmos DB not configured" }, 500);
+  }
+
+  try {
+    if (method === "GET") {
+      try {
+        const { resource } = await container.item("default", "default").read();
+        return json({ config: resource }, 200);
+      } catch (e) {
+        return json({ config: DEFAULT_CONFIG }, 200);
+      }
+    }
+
+    if (method === "PUT") {
+      let body = {};
+      try {
+        body = await req.json();
+      } catch {
+        return json({ error: "Invalid JSON" }, 400);
+      }
+
+      const incoming = body.config || body;
+      if (!incoming) {
+        return json({ error: "config required" }, 400);
+      }
+
+      const config = {
+        id: "default",
+        hq_weight: Number(incoming.hq_weight ?? 1),
+        manufacturing_weight: Number(incoming.manufacturing_weight ?? 1),
+        review_threshold: Number(incoming.review_threshold ?? 4),
+        min_reviews: Number(incoming.min_reviews ?? 3),
+        updated_at: new Date().toISOString(),
+        actor: body.actor || null,
       };
+
+      await container.items.upsert(config);
+      return json({ ok: true, config }, 200);
     }
 
-    const container = getConfigContainer();
-    if (!container) {
-      return json({ error: "Cosmos DB not configured" }, 500);
-    }
-
-    try {
-      if (method === "GET") {
-        try {
-          const { resource } = await container.item("default", "default").read();
-          return json({ config: resource }, 200);
-        } catch (e) {
-          return json({ config: DEFAULT_CONFIG }, 200);
-        }
-      }
-
-      if (method === "PUT") {
-        let body = {};
-        try {
-          body = await req.json();
-        } catch {
-          return json({ error: "Invalid JSON" }, 400);
-        }
-
-        const incoming = body.config || body;
-        if (!incoming) {
-          return json({ error: "config required" }, 400);
-        }
-
-        const config = {
-          id: "default",
-          hq_weight: Number(incoming.hq_weight ?? 1),
-          manufacturing_weight: Number(incoming.manufacturing_weight ?? 1),
-          review_threshold: Number(incoming.review_threshold ?? 4),
-          min_reviews: Number(incoming.min_reviews ?? 3),
-          updated_at: new Date().toISOString(),
-          actor: body.actor || null,
-        };
-
-        await container.items.upsert(config);
-        return json({ ok: true, config }, 200);
-      }
-
-      return json({ error: "Method not allowed" }, 405);
-    } catch (e) {
-      context.log("Error in admin-star-config:", e?.message || e);
-      return json({ error: e?.message || "Internal error" }, 500);
-    }
-  },
+    return json({ error: "Method not allowed" }, 405);
+  } catch (e) {
+    context.log("Error in admin-star-config:", e?.message || e);
+    return json({ error: e?.message || "Internal error" }, 500);
+  }
 });

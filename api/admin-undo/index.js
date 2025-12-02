@@ -1,5 +1,5 @@
-const { app } = require("@azure/functions");
-const { CosmosClient } = require("@azure/cosmos");
+import { app } from '@azure/functions';
+import { CosmosClient } from '@azure/cosmos';
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
@@ -44,73 +44,72 @@ function getUndoContainer() {
   return client.database(databaseId).container(containerId);
 }
 
-app.http("admin-undo", {
-  route: "admin-undo",
-  methods: ["POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
-    const method = String(req.method || "").toUpperCase();
+export default app.http('adminUndo', {
+  route: 'admin-undo',
+  methods: ['POST', 'OPTIONS'],
+  authLevel: 'anonymous',
+}, async (req, context) => {
+  const method = String(req.method || "").toUpperCase();
 
-    if (method === "OPTIONS") {
-      return {
-        status: 204,
-        headers: getCorsHeaders(),
-      };
-    }
+  if (method === "OPTIONS") {
+    return {
+      status: 204,
+      headers: getCorsHeaders(),
+    };
+  }
 
-    const companiesContainer = getCompaniesContainer();
-    const undoContainer = getUndoContainer();
+  const companiesContainer = getCompaniesContainer();
+  const undoContainer = getUndoContainer();
 
-    if (!companiesContainer || !undoContainer) {
-      return json({ error: "Cosmos DB not configured" }, 500);
-    }
+  if (!companiesContainer || !undoContainer) {
+    return json({ error: "Cosmos DB not configured" }, 500);
+  }
 
+  try {
+    let body = {};
     try {
-      let body = {};
-      try {
-        body = await req.json();
-      } catch {
-        return json({ error: "Invalid JSON" }, 400);
-      }
-
-      const { id } = body;
-      if (!id) {
-        return json({ error: "id required" }, 400);
-      }
-
-      const historyRecord = await undoContainer.item(id, id).read().then(r => r.resource).catch(() => null);
-      if (!historyRecord) {
-        return json({ error: "History record not found" }, 404);
-      }
-
-      if (historyRecord.is_undone) {
-        return json({ error: "Already undone" }, 400);
-      }
-
-      if (historyRecord.action_type === "delete" && historyRecord.old_doc) {
-        const partitionKeyValue = String(historyRecord.old_doc.normalized_domain || "unknown").trim();
-        await companiesContainer.items.upsert(historyRecord.old_doc, { partitionKey: partitionKeyValue });
-      } else if (historyRecord.action_type === "update" && historyRecord.old_doc) {
-        const partitionKeyValue = String(historyRecord.old_doc.normalized_domain || "unknown").trim();
-        await companiesContainer.items.upsert(historyRecord.old_doc, { partitionKey: partitionKeyValue });
-      } else if (historyRecord.action_type === "create") {
-        try {
-          const partitionKeyValue = String(historyRecord.old_doc?.normalized_domain || "unknown").trim();
-          await companiesContainer.item(historyRecord.company_id, partitionKeyValue).delete();
-        } catch (e) {
-          console.warn("Could not delete company for undo:", e?.message);
-        }
-      }
-
-      historyRecord.is_undone = true;
-      historyRecord.undone_at = new Date().toISOString();
-      historyRecord.undone_by = body.actor || null;
-      await undoContainer.items.upsert(historyRecord);
-
-      return json({ ok: true, message: "Action undone" }, 200);
-    } catch (e) {
-      context.log("Error in admin-undo:", e?.message || e);
-      return json({ error: e?.message || "Internal error" }, 500);
+      body = await req.json();
+    } catch {
+      return json({ error: "Invalid JSON" }, 400);
     }
-  },
+
+    const { id } = body;
+    if (!id) {
+      return json({ error: "id required" }, 400);
+    }
+
+    const historyRecord = await undoContainer.item(id, id).read().then(r => r.resource).catch(() => null);
+    if (!historyRecord) {
+      return json({ error: "History record not found" }, 404);
+    }
+
+    if (historyRecord.is_undone) {
+      return json({ error: "Already undone" }, 400);
+    }
+
+    if (historyRecord.action_type === "delete" && historyRecord.old_doc) {
+      const partitionKeyValue = String(historyRecord.old_doc.normalized_domain || "unknown").trim();
+      await companiesContainer.items.upsert(historyRecord.old_doc, { partitionKey: partitionKeyValue });
+    } else if (historyRecord.action_type === "update" && historyRecord.old_doc) {
+      const partitionKeyValue = String(historyRecord.old_doc.normalized_domain || "unknown").trim();
+      await companiesContainer.items.upsert(historyRecord.old_doc, { partitionKey: partitionKeyValue });
+    } else if (historyRecord.action_type === "create") {
+      try {
+        const partitionKeyValue = String(historyRecord.old_doc?.normalized_domain || "unknown").trim();
+        await companiesContainer.item(historyRecord.company_id, partitionKeyValue).delete();
+      } catch (e) {
+        console.warn("Could not delete company for undo:", e?.message);
+      }
+    }
+
+    historyRecord.is_undone = true;
+    historyRecord.undone_at = new Date().toISOString();
+    historyRecord.undone_by = body.actor || null;
+    await undoContainer.items.upsert(historyRecord);
+
+    return json({ ok: true, message: "Action undone" }, 200);
+  } catch (e) {
+    context.log("Error in admin-undo:", e?.message || e);
+    return json({ error: e?.message || "Internal error" }, 500);
+  }
 });

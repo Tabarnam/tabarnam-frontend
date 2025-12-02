@@ -1,7 +1,5 @@
-console.log('[admin-keywords] Module loading started');
-const { app } = require("@azure/functions");
-const { CosmosClient } = require("@azure/cosmos");
-console.log('[admin-keywords] Dependencies imported, app object acquired');
+import { app } from '@azure/functions';
+import { CosmosClient } from '@azure/cosmos';
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -35,7 +33,11 @@ function getKeywordsContainer() {
   return client.database(databaseId).container(containerId);
 }
 
-async function adminKeywordsHandler(request, context) {
+export default app.http('adminKeywords', {
+  route: 'admin-keywords',
+  methods: ['GET', 'PUT', 'OPTIONS'],
+  authLevel: 'anonymous',
+}, async (request, context) => {
   context.log("admin-keywords function invoked");
 
   const method = String(request.method || "").toUpperCase();
@@ -134,13 +136,4 @@ async function adminKeywordsHandler(request, context) {
       body: JSON.stringify({ error: e?.message || "Internal error" }),
     };
   }
-}
-
-console.log('[admin-keywords] Registering with app.http...');
-app.http('admin-keywords', {
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  authLevel: 'anonymous',
-  route: 'admin-keywords',
-  handler: adminKeywordsHandler,
 });
-console.log('[admin-keywords] ✅ Successfully registered with app.http');
