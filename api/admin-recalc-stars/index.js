@@ -1,5 +1,5 @@
-import { app } from '@azure/functions';
-import { CosmosClient } from '@azure/cosmos';
+const { app } = require('@azure/functions');
+const { CosmosClient } = require('@azure/cosmos');
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
@@ -56,7 +56,7 @@ function calculateBinaryStars(company, minReviews = 3, reviewThreshold = 4) {
   return Math.min(3, Math.max(0, stars));
 }
 
-export default app.http('adminRecalcStars', {
+app.http('adminRecalcStars', {
   route: 'admin-recalc-stars',
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',

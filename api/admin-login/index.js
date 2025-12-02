@@ -1,6 +1,6 @@
-import { app } from '@azure/functions';
-import bcrypt from 'bcryptjs';
-import crypto from 'node:crypto';
+const { app } = require('@azure/functions');
+const bcrypt = require('bcryptjs');
+const crypto = require('node:crypto');
 
 const E = (k, d = "") => (process.env[k] ?? d).toString().trim();
 
@@ -81,7 +81,7 @@ async function getJson(req) {
   return {};
 }
 
-export default app.http('adminLogin', {
+app.http('adminLogin', {
   route: 'admin-login',
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
