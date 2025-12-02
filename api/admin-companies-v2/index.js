@@ -68,7 +68,7 @@ const toNormalizedDomain = (s = "") => {
 
 console.log("[admin-companies-v2] About to register app.http handler...");
 
-app.http("adminCompaniesV2", {
+app.http("admin-companies-v2", {
   route: "admin-companies-v2",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",

@@ -36,7 +36,7 @@ function getUndoContainer() {
   return client.database(databaseId).container(containerId);
 }
 
-app.http("adminUndoHistory", {
+app.http("admin-undo-history", {
   route: "admin-undo-history",
   methods: ["GET", "DELETE", "OPTIONS"],
   authLevel: "anonymous",

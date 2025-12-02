@@ -44,7 +44,7 @@ function getUndoContainer() {
   return client.database(databaseId).container(containerId);
 }
 
-app.http("adminBatchUpdate", {
+app.http("admin-batch-update", {
   route: "admin-batch-update",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",

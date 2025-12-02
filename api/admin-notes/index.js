@@ -70,7 +70,7 @@ async function getJson(req) {
   return {};
 }
 
-app.http("adminNotes", {
+app.http("admin-notes", {
   route: "admin-notes",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",

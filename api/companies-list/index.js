@@ -105,7 +105,7 @@ const toNormalizedDomain = (s = "") => {
 
 console.log("[companies-list] About to register app.http handler...");
 
-app.http("companiesList", {
+app.http("companies-list", {
   route: "companies-list",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",

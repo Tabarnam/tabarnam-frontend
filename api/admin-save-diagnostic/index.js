@@ -36,7 +36,7 @@ function getCompaniesContainer() {
   }
 }
 
-app.http("adminSaveDiagnostic", {
+app.http("admin-save-diagnostic", {
   route: "admin-save-diagnostic",
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",

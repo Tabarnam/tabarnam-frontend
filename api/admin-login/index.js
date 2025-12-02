@@ -81,7 +81,7 @@ async function getJson(req) {
   return {};
 }
 
-app.http("adminLogin", {
+app.http("admin-login", {
   route: "admin-login",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",

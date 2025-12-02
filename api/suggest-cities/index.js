@@ -36,7 +36,7 @@ function getCompaniesContainer() {
   }
 }
 
-app.http("suggestCities", {
+app.http("suggest-cities", {
   route: "suggest-cities",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",

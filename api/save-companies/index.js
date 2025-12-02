@@ -52,7 +52,7 @@ async function geocodeHQLocation(headquarters_location) {
   return { hq_lat: undefined, hq_lng: undefined };
 }
 
-app.http("saveCompanies", {
+app.http("save-companies", {
   route: "save-companies",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",

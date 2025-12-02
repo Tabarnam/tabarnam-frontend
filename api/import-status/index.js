@@ -15,7 +15,7 @@ function json(obj, status = 200) {
   };
 }
 
-app.http("importStatus", {
+app.http("import-status", {
   route: "import/status",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",

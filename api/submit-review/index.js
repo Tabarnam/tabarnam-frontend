@@ -41,7 +41,7 @@ function getReviewsContainer() {
   return cosmosClient.database(databaseId).container(containerId);
 }
 
-app.http("submitReview", {
+app.http("submit-review", {
   route: "submit-review",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",

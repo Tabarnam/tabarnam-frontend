@@ -237,7 +237,7 @@ function parseXaiResponse(responseText) {
 }
 
 // ----- function entrypoint -----
-app.http("proxyXai", {
+app.http("proxy-xai", {
   route: "proxy-xai",
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",

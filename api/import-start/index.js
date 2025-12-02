@@ -289,7 +289,7 @@ async function saveCompaniesToCosmos(companies, sessionId) {
   }
 }
 
-app.http("importStart", {
+app.http("import-start", {
   route: "import/start",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",

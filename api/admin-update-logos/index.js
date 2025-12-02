@@ -63,7 +63,7 @@ async function updateLogos() {
   }
 }
 
-app.http("adminUpdateLogos", {
+app.http("admin-update-logos", {
   route: "admin-update-logos",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",

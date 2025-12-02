@@ -44,7 +44,7 @@ const DEFAULT_CONFIG = {
   min_reviews: 3,
 };
 
-app.http("adminStarConfig", {
+app.http("admin-star-config", {
   route: "admin-star-config",
   methods: ["GET", "PUT", "OPTIONS"],
   authLevel: "anonymous",

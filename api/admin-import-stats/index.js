@@ -30,7 +30,7 @@ function getCompaniesContainer() {
   return client.database(databaseId).container(containerId);
 }
 
-app.http("adminImportStats", {
+app.http("admin-import-stats", {
   route: "admin-import-stats",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
