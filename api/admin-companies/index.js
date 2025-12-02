@@ -85,7 +85,7 @@ const toNormalizedDomain = (s = "") => {
   }
 };
 
-export default app.http('adminCompanies', {
+app.http('adminCompanies', {
   route: 'admin-companies',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   authLevel: 'anonymous',
