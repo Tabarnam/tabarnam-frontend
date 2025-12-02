@@ -17,7 +17,7 @@ const json = (obj, status = 200, req) => ({
   body: JSON.stringify(obj),
 });
 
-app.http("adminRecentImports", {
+app.http("admin-recent-imports", {
   route: "admin-recent-imports",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",

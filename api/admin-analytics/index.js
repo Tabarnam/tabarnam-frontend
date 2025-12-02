@@ -36,7 +36,7 @@ function getAnalyticsContainer() {
   return client.database(databaseId).container(containerId);
 }
 
-app.http("adminAnalytics", {
+app.http("admin-analytics", {
   route: "admin-analytics",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
