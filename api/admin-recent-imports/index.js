@@ -21,13 +21,13 @@ app.http("admin-recent-imports", {
   route: "admin-recent-imports",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, ctx) => {
+  handler: async (req, context) => {
     console.log("[admin-recent-imports] Handler invoked - routing is working!");
     if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
 
     const take = Number(new URL(req.url).searchParams.get("take") || "25") || 25;
 
-    console.log(`[admin-recent-imports] Fetching ${take} most recent imports`);
+    context.log(`[admin-recent-imports] Fetching ${take} most recent imports`);
 
     const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
     const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
@@ -35,7 +35,7 @@ app.http("admin-recent-imports", {
     const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
     if (!endpoint || !key) {
-      console.error("[admin-recent-imports] Cosmos DB not configured");
+      context.log("[admin-recent-imports] Cosmos DB not configured");
       return json({ error: "Cosmos not configured" }, 500, req);
     }
 
@@ -65,7 +65,7 @@ app.http("admin-recent-imports", {
 
       const { resources } = await container.items.query(q, { enableCrossPartitionQuery: true }).fetchAll();
 
-      console.log(`[admin-recent-imports] Found ${resources.length} recent imports`);
+      context.log(`[admin-recent-imports] Found ${resources.length} recent imports`);
 
       // Format the response with imported_by (extract from session_id or use 'System')
       const imports = resources.map(r => ({
@@ -84,8 +84,8 @@ app.http("admin-recent-imports", {
         count: imports.length
       }, 200, req);
     } catch (e) {
-      console.error("[admin-recent-imports] Query error:", e.message);
-      console.error("[admin-recent-imports] Full error:", e);
+      context.log("[admin-recent-imports] Query error:", e.message);
+      context.log("[admin-recent-imports] Full error:", e);
       return json(
         { error: "query failed", detail: e?.message || String(e) },
         500,
