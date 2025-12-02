@@ -18,7 +18,7 @@ const json = (obj, status = 200, req) => ({
   body: JSON.stringify(obj),
 });
 
-app.http("importProgress", {
+app.http("import-progress", {
   route: "import/progress",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",

@@ -46,7 +46,7 @@ function getCompaniesContainer() {
   return cosmosClient.database(databaseId).container(containerId);
 }
 
-app.http("getReviews", {
+app.http("get-reviews", {
   route: "get-reviews",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",

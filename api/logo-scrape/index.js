@@ -15,7 +15,7 @@ function json(obj, status = 200) {
   };
 }
 
-app.http("logoScrape", {
+app.http("logo-scrape", {
   route: "logo-scrape",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
