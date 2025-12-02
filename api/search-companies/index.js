@@ -48,7 +48,7 @@ const SQL_TEXT_FILTER = `
   (IS_DEFINED(c.amazon_url) AND CONTAINS(LOWER(c.amazon_url), @q))
 `;
 
-app.http("searchCompanies", {
+app.http("search-companies", {
   route: "search-companies",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",

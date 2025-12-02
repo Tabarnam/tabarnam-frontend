@@ -2,7 +2,7 @@ const { app } = require("@azure/functions");
 
 console.log("[test-echo] Module loaded");
 
-app.http("testEcho", {
+app.http("test-echo", {
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",
   route: "test-echo",

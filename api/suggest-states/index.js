@@ -36,7 +36,7 @@ function getCompaniesContainer() {
   }
 }
 
-app.http("suggestStates", {
+app.http("suggest-states", {
   route: "suggest-states",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",

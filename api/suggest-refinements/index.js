@@ -133,7 +133,7 @@ async function getKeywordRefinements(container, q, country, state, city) {
   }
 }
 
-app.http("suggestRefinements", {
+app.http("suggest-refinements", {
   route: "suggest-refinements",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
