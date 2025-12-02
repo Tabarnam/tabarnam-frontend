@@ -1,33 +1,31 @@
-// api/ping/index.js
-const { app } = require("@azure/functions");
+import { app } from '@azure/functions';
 
-app.http("ping", {
-  route: "ping",
-  methods: ["GET", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
-    if ((req.method || "").toUpperCase() === "OPTIONS") {
-      return {
-        status: 204,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET,OPTIONS",
-          "Access-Control-Allow-Headers": "content-type,x-functions-key",
-        },
-      };
-    }
-
+export default app.http('ping', {
+  route: 'ping',
+  methods: ['GET', 'OPTIONS'],
+  authLevel: 'anonymous',
+}, async (req, context) => {
+  if ((req.method || "").toUpperCase() === "OPTIONS") {
     return {
-      status: 200,
+      status: 204,
       headers: {
-        "Content-Type": "application/json",
         "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET,OPTIONS",
+        "Access-Control-Allow-Headers": "content-type,x-functions-key",
       },
-      body: JSON.stringify({
-        ok: true,
-        name: "ping",
-        ts: new Date().toISOString(),
-      }),
     };
-  },
+  }
+
+  return {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    },
+    body: JSON.stringify({
+      ok: true,
+      name: "ping",
+      ts: new Date().toISOString(),
+    }),
+  };
 });
