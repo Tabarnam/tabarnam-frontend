@@ -108,7 +108,7 @@ try {
 
 try {
   console.log("[api] Registering: import-start");
-  require("./importStart/index.js");
+  require("./import-start/index.js");
 } catch (e) {
   console.error("[api] Failed to load import-start:", e?.message || e);
 }
