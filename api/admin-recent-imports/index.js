@@ -18,7 +18,7 @@ const json = (obj, status = 200, req) => ({
 });
 
 app.http("adminRecentImports", {
-  route: "admin/recent-imports",
+  route: "admin-recent-imports",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, ctx) => {
