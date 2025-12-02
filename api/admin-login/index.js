@@ -85,7 +85,7 @@ app.http("admin-login", {
   route: "admin-login",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, ctx) => {
+  handler: async (req, context) => {
     const method = String(req.method || "").toUpperCase();
     if (method === "OPTIONS") return { status: 204, headers: cors(req) };
 
