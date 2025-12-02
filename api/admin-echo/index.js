@@ -1,24 +1,32 @@
-const { app } = require('@azure/functions');
+const { app } = require("@azure/functions");
 
-app.http('adminEcho', {
-  route: 'admin-echo',
-  methods: ['GET'],
-  authLevel: 'anonymous',
-  handler: async (request, context) => {
+app.http("adminEcho", {
+  route: "admin-echo",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req, context) => {
+    if ((req.method || "").toUpperCase() === "OPTIONS") {
+      return {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,OPTIONS",
+          "Access-Control-Allow-Headers": "content-type,x-functions-key",
+        },
+      };
+    }
+
     return {
       status: 200,
       headers: {
         "Content-Type": "application/json",
         "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET,OPTIONS",
-        "Access-Control-Allow-Headers": "content-type,x-functions-key",
       },
       body: JSON.stringify({
         ok: true,
         name: "admin-echo",
-        message: "Admin echo endpoint is working correctly!",
-        timestamp: new Date().toISOString(),
+        ts: new Date().toISOString(),
       }),
     };
-  }
+  },
 });
