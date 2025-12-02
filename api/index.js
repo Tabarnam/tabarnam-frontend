@@ -306,4 +306,5 @@ try {
 
 console.log("[api/index.js] ✅ All handler registration complete!");
 
+// Export the app instance so Azure Functions can use it
 module.exports = app;
