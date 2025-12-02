@@ -216,7 +216,7 @@ try {
 
 try {
   console.log("[api] Registering: admin-keywords");
-  require("./adminKeywords/index.js");
+  require("./admin-keywords/index.js");
   console.log("[api] ✓ admin-keywords registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-keywords:", e?.message || e);
@@ -224,7 +224,7 @@ try {
 
 try {
   console.log("[api] Registering: admin-companies");
-  require("./adminCompanies/index.js");
+  require("./admin-companies/index.js");
   console.log("[api] ✓ admin-companies registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-companies:", e?.message || e);
