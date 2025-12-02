@@ -44,7 +44,7 @@ function isExcludedSource(source) {
   return false;
 }
 
-app.http("adminReviews", {
+app.http("admin-reviews", {
   route: "admin-reviews",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",

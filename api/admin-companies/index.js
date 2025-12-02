@@ -100,7 +100,7 @@ const toNormalizedDomain = (s = "") => {
   }
 };
 
-app.http("adminCompanies", {
+app.http("admin-companies", {
   route: "admin-companies",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",

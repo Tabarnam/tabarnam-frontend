@@ -67,7 +67,7 @@ function calculateBinaryStars(company, minReviews = 3, reviewThreshold = 4) {
   return Math.min(3, Math.max(0, stars));
 }
 
-app.http("adminRecalcStars", {
+app.http("admin-recalc-stars", {
   route: "admin-recalc-stars",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
