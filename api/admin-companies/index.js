@@ -1,6 +1,6 @@
-import { app } from '@azure/functions';
-import axios from 'axios';
-import { CosmosClient } from '@azure/cosmos';
+const { app } = require('@azure/functions');
+const axios = require('axios');
+const { CosmosClient } = require('@azure/cosmos');
 
 function env(k, d = "") {
   const v = process.env[k];
