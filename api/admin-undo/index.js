@@ -44,7 +44,7 @@ function getUndoContainer() {
   return client.database(databaseId).container(containerId);
 }
 
-app.http("adminUndo", {
+app.http("admin-undo", {
   route: "admin-undo",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
