@@ -30,52 +30,53 @@ function getCompaniesContainer() {
   return client.database(databaseId).container(containerId);
 }
 
-export default app.http('adminImportStats', {
+app.http('adminImportStats', {
   route: 'admin-import-stats',
   methods: ['GET', 'OPTIONS'],
   authLevel: 'anonymous',
-}, async (req, context) => {
-  if (req.method === "OPTIONS") {
-    return { status: 204, headers: { "Access-Control-Allow-Origin": "*" } };
-  }
+  handler: async (req, context) => {
+    if (req.method === "OPTIONS") {
+      return { status: 204, headers: { "Access-Control-Allow-Origin": "*" } };
+    }
 
-  const container = getCompaniesContainer();
-  if (!container) {
-    return json({ error: "Cosmos DB not configured", last24h: 0, last7d: 0, lastMonth: 0 }, 500, req);
-  }
+    const container = getCompaniesContainer();
+    if (!container) {
+      return json({ error: "Cosmos DB not configured", last24h: 0, last7d: 0, lastMonth: 0 }, 500, req);
+    }
 
-  try {
-    const now = new Date();
-    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-    const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const lastMonth = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    try {
+      const now = new Date();
+      const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+      const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const lastMonth = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    const [res24, res7, resMonth] = await Promise.all([
-      container.items.query({
-        query: "SELECT VALUE COUNT(1) FROM c WHERE c.created_at > @date AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted = false)",
-        parameters: [{ name: "@date", value: last24h }],
-      }).fetchAll(),
-      container.items.query({
-        query: "SELECT VALUE COUNT(1) FROM c WHERE c.created_at > @date AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted = false)",
-        parameters: [{ name: "@date", value: last7d }],
-      }).fetchAll(),
-      container.items.query({
-        query: "SELECT VALUE COUNT(1) FROM c WHERE c.created_at > @date AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted = false)",
-        parameters: [{ name: "@date", value: lastMonth }],
-      }).fetchAll(),
-    ]);
+      const [res24, res7, resMonth] = await Promise.all([
+        container.items.query({
+          query: "SELECT VALUE COUNT(1) FROM c WHERE c.created_at > @date AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted = false)",
+          parameters: [{ name: "@date", value: last24h }],
+        }).fetchAll(),
+        container.items.query({
+          query: "SELECT VALUE COUNT(1) FROM c WHERE c.created_at > @date AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted = false)",
+          parameters: [{ name: "@date", value: last7d }],
+        }).fetchAll(),
+        container.items.query({
+          query: "SELECT VALUE COUNT(1) FROM c WHERE c.created_at > @date AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted = false)",
+          parameters: [{ name: "@date", value: lastMonth }],
+        }).fetchAll(),
+      ]);
 
-    return json(
-      {
-        last24h: res24.resources[0] || 0,
-        last7d: res7.resources[0] || 0,
-        lastMonth: resMonth.resources[0] || 0,
-      },
-      200,
-      req
-    );
-  } catch (e) {
-    context.log("Error in admin-import-stats:", e?.message || e);
-    return json({ error: e?.message || "Internal error", last24h: 0, last7d: 0, lastMonth: 0 }, 500, req);
+      return json(
+        {
+          last24h: res24.resources[0] || 0,
+          last7d: res7.resources[0] || 0,
+          lastMonth: resMonth.resources[0] || 0,
+        },
+        200,
+        req
+      );
+    } catch (e) {
+      context.log("Error in admin-import-stats:", e?.message || e);
+      return json({ error: e?.message || "Internal error", last24h: 0, last7d: 0, lastMonth: 0 }, 500, req);
+    }
   }
 });
