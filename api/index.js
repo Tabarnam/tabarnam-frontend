@@ -310,3 +310,5 @@ console.log("[api/index.js] ✅ All handler registration complete!");
 module.exports = app;
 
 // v4 migration completed - all admin functions registered via app.http pattern
+
+// redeploy: 2025-12-03T13:14:23.9220260-08:00
