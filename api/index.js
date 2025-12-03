@@ -308,3 +308,5 @@ console.log("[api/index.js] ✅ All handler registration complete!");
 
 // Export the app instance so Azure Functions can use it
 module.exports = app;
+
+// v4 migration completed - all admin functions registered via app.http pattern
