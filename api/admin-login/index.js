@@ -85,54 +85,55 @@ app.http('adminLogin', {
   route: 'admin-login',
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
-}, async (req, context) => {
-  const method = String(req.method || "").toUpperCase();
-  if (method === "OPTIONS") return { status: 204, headers: cors(req) };
+  handler: async (req, context) => {
+    const method = String(req.method || "").toUpperCase();
+    if (method === "OPTIONS") return { status: 204, headers: cors(req) };
 
-  let body = await getJson(req);
+    let body = await getJson(req);
 
-  const email = String(body?.email || "").trim().toLowerCase();
-  const password = String(body?.password || "");
-  if (!email || !password) {
-    return json({ success: false, error: "Email and password are required" }, 400, req);
-  }
-
-  const creds = parseAdminCredentials();
-  const configured = Object.keys(creds).length > 0;
-  if (!configured) {
-    return json(
-      {
-        success: false,
-        error: "Admin credentials are not configured. Set ADMIN_CREDENTIALS (JSON of email->bcrypt hash) or ADMIN_PLAIN_CREDENTIALS.",
-      },
-      500,
-      req
-    );
-  }
-
-  const stored = creds[email];
-  if (!stored) {
-    return json({ success: false, error: "Email not authorized as admin" }, 401, req);
-  }
-
-  let ok = false;
-  try {
-    if (stored.startsWith("$2a$") || stored.startsWith("$2b$") || stored.startsWith("$2y$")) {
-      ok = await bcrypt.compare(password, stored);
-    } else {
-      ok = stored === password;
+    const email = String(body?.email || "").trim().toLowerCase();
+    const password = String(body?.password || "");
+    if (!email || !password) {
+      return json({ success: false, error: "Email and password are required" }, 400, req);
     }
-  } catch (e) {
-    return json({ success: false, error: "Password verification failed" }, 500, req);
+
+    const creds = parseAdminCredentials();
+    const configured = Object.keys(creds).length > 0;
+    if (!configured) {
+      return json(
+        {
+          success: false,
+          error: "Admin credentials are not configured. Set ADMIN_CREDENTIALS (JSON of email->bcrypt hash) or ADMIN_PLAIN_CREDENTIALS.",
+        },
+        500,
+        req
+      );
+    }
+
+    const stored = creds[email];
+    if (!stored) {
+      return json({ success: false, error: "Email not authorized as admin" }, 401, req);
+    }
+
+    let ok = false;
+    try {
+      if (stored.startsWith("$2a$") || stored.startsWith("$2b$") || stored.startsWith("$2y$")) {
+        ok = await bcrypt.compare(password, stored);
+      } else {
+        ok = stored === password;
+      }
+    } catch (e) {
+      return json({ success: false, error: "Password verification failed" }, 500, req);
+    }
+
+    if (!ok) {
+      return json({ success: false, error: "Invalid password" }, 401, req);
+    }
+
+    const secret = E("ADMIN_JWT_SECRET", "tabarnam_admin_secret");
+    const now = Math.floor(Date.now() / 1000);
+    const token = signToken({ sub: email, iat: now, exp: now + 60 * 60 * 8 }, secret);
+
+    return json({ success: true, token }, 200, req);
   }
-
-  if (!ok) {
-    return json({ success: false, error: "Invalid password" }, 401, req);
-  }
-
-  const secret = E("ADMIN_JWT_SECRET", "tabarnam_admin_secret");
-  const now = Math.floor(Date.now() / 1000);
-  const token = signToken({ sub: email, iat: now, exp: now + 60 * 60 * 8 }, secret);
-
-  return json({ success: true, token }, 200, req);
 });
