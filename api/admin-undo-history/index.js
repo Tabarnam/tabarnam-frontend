@@ -40,63 +40,64 @@ app.http('adminUndoHistory', {
   route: 'admin-undo-history',
   methods: ['GET', 'DELETE', 'OPTIONS'],
   authLevel: 'anonymous',
-}, async (req, context) => {
-  const method = String(req.method || "").toUpperCase();
+  handler: async (req, context) => {
+    const method = String(req.method || "").toUpperCase();
 
-  if (method === "OPTIONS") {
-    return {
-      status: 204,
-      headers: getCorsHeaders(),
-    };
-  }
-
-  const container = getUndoContainer();
-  if (!container) {
-    return json({ error: "Cosmos DB not configured" }, 500);
-  }
-
-  try {
-    if (method === "GET") {
-      const { resources } = await container.items
-        .query({ query: "SELECT * FROM c ORDER BY c.created_at DESC" })
-        .fetchAll();
-
-      const history = resources.map(h => ({
-        id: h.id,
-        company_id: h.company_id,
-        action_type: h.action_type,
-        description: h.description,
-        changed_fields: h.changed_fields || [],
-        actor: h.actor,
-        created_at: h.created_at,
-        is_undone: h.is_undone || false,
-      }));
-
-      return json({ history }, 200);
+    if (method === "OPTIONS") {
+      return {
+        status: 204,
+        headers: getCorsHeaders(),
+      };
     }
 
-    if (method === "DELETE") {
-      const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const container = getUndoContainer();
+    if (!container) {
+      return json({ error: "Cosmos DB not configured" }, 500);
+    }
 
-      const { resources } = await container.items
-        .query({
-          query: "SELECT * FROM c WHERE c.created_at < @cutoff",
-          parameters: [{ name: "@cutoff", value: fortyEightHoursAgo }],
-        })
-        .fetchAll();
+    try {
+      if (method === "GET") {
+        const { resources } = await container.items
+          .query({ query: "SELECT * FROM c ORDER BY c.created_at DESC" })
+          .fetchAll();
 
-      let deleted = 0;
-      for (const item of resources) {
-        await container.item(item.id, item.id).delete();
-        deleted += 1;
+        const history = resources.map(h => ({
+          id: h.id,
+          company_id: h.company_id,
+          action_type: h.action_type,
+          description: h.description,
+          changed_fields: h.changed_fields || [],
+          actor: h.actor,
+          created_at: h.created_at,
+          is_undone: h.is_undone || false,
+        }));
+
+        return json({ history }, 200);
       }
 
-      return json({ ok: true, deleted }, 200);
-    }
+      if (method === "DELETE") {
+        const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 
-    return json({ error: "Method not allowed" }, 405);
-  } catch (e) {
-    context.log("Error in admin-undo-history:", e?.message || e);
-    return json({ error: e?.message || "Internal error" }, 500);
+        const { resources } = await container.items
+          .query({
+            query: "SELECT * FROM c WHERE c.created_at < @cutoff",
+            parameters: [{ name: "@cutoff", value: fortyEightHoursAgo }],
+          })
+          .fetchAll();
+
+        let deleted = 0;
+        for (const item of resources) {
+          await container.item(item.id, item.id).delete();
+          deleted += 1;
+        }
+
+        return json({ ok: true, deleted }, 200);
+      }
+
+      return json({ error: "Method not allowed" }, 405);
+    } catch (e) {
+      context.log("Error in admin-undo-history:", e?.message || e);
+      return json({ error: e?.message || "Internal error" }, 500);
+    }
   }
 });

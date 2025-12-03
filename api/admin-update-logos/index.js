@@ -67,28 +67,29 @@ app.http('adminUpdateLogos', {
   route: 'admin-update-logos',
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
-}, async (req, context) => {
-  const method = String(req.method || "").toUpperCase();
+  handler: async (req, context) => {
+    const method = String(req.method || "").toUpperCase();
 
-  if (method === "OPTIONS") {
-    return {
-      status: 204,
-      headers: getCorsHeaders(),
-    };
-  }
+    if (method === "OPTIONS") {
+      return {
+        status: 204,
+        headers: getCorsHeaders(),
+      };
+    }
 
-  try {
-    const result = await updateLogos();
-    return {
-      status: result.success ? 200 : 400,
-      body: JSON.stringify(result),
-      headers: getCorsHeaders(),
-    };
-  } catch (e) {
-    return {
-      status: 500,
-      body: JSON.stringify({ error: e.message }),
-      headers: getCorsHeaders(),
-    };
+    try {
+      const result = await updateLogos();
+      return {
+        status: result.success ? 200 : 400,
+        body: JSON.stringify(result),
+        headers: getCorsHeaders(),
+      };
+    } catch (e) {
+      return {
+        status: 500,
+        body: JSON.stringify({ error: e.message }),
+        headers: getCorsHeaders(),
+      };
+    }
   }
 });
