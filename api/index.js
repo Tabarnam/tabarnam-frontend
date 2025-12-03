@@ -177,14 +177,6 @@ try {
 }
 
 try {
-  console.log("[api] Registering: admin-companies");
-  require("./admin-companies/index.js");
-  console.log("[api] ✓ admin-companies registered");
-} catch (e) {
-  console.error("[api] ❌ Failed to load admin-companies:", e?.message || e);
-}
-
-try {
   console.log("[api] Registering: admin-analytics");
   require("./admin-analytics/index.js");
   console.log("[api] ✓ admin-analytics registered");
