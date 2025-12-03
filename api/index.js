@@ -153,6 +153,14 @@ try {
 
 // Admin endpoints (being converted to CommonJS)
 try {
+  console.log("[api] Registering: admin-test");
+  require("./admin-test/index.js");
+  console.log("[api] ✓ admin-test registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-test:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: admin-recent-imports");
   require("./admin-recent-imports/index.js");
   console.log("[api] ✓ admin-recent-imports registered");
