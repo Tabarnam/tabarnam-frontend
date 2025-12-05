@@ -1,31 +1,34 @@
-module.exports = async function (context, req) {
-  context.log("[admin-test] v3 handler called");
+const { app } = require("@azure/functions");
 
-  // Handle CORS preflight
-  if (req.method === "OPTIONS") {
-    context.res = {
-      status: 204,
+app.http("admin-test", {
+  route: "admin-test",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req, context) => {
+    context.log("[admin-test] v4 handler called");
+
+    if ((req.method || "").toUpperCase() === "OPTIONS") {
+      return {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization"
+        }
+      };
+    }
+
+    return {
+      status: 200,
       headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET,OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type,Authorization"
-      }
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
+      },
+      body: JSON.stringify({
+        ok: true,
+        name: "admin-test",
+        timestamp: new Date().toISOString()
+      })
     };
-    return;
   }
-
-  const body = {
-    ok: true,
-    name: "admin-test",
-    timestamp: new Date().toISOString()
-  };
-
-  context.res = {
-    status: 200,
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*"
-    },
-    body
-  };
-};
+});
