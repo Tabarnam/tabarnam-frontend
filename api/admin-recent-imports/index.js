@@ -1,24 +1,50 @@
-// api/admin-recent-imports/index.js
+const { app } = require("@azure/functions");
 
-module.exports = async function (context, req) {
-  context.log("admin-recent-imports called");
+app.http("admin-recent-imports", {
+  route: "admin-recent-imports",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req, context) => {
+    const method = String(req.method || "").toUpperCase();
 
-  const takeRaw = (req.query && (req.query.take || req.query.top)) || "25";
-  const take = Number.parseInt(takeRaw, 10) || 25;
+    if (method === "OPTIONS") {
+      return {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,OPTIONS",
+          "Access-Control-Allow-Headers": "content-type,x-functions-key",
+        },
+      };
+    }
 
-  const body = {
-    ok: true,
-    name: "admin-recent-imports",
-    take,
-    imports: [] // fill with real imports later
-  };
+    if (method !== "GET") {
+      return {
+        status: 405,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        },
+        body: JSON.stringify({ ok: false, error: "Method Not Allowed" }),
+      };
+    }
 
-  context.res = {
-    status: 200,
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*"
-    },
-    body
-  };
-};
+    const url = new URL(req.url);
+    const takeRaw = url.searchParams.get("take") || url.searchParams.get("top") || "25";
+    const take = Math.max(1, Math.min(1000, Number.parseInt(takeRaw, 10) || 25));
+
+    return {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      },
+      body: JSON.stringify({
+        ok: true,
+        name: "admin-recent-imports",
+        take,
+        imports: [],
+      }),
+    };
+  },
+});
