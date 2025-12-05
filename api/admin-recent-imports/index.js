@@ -1,5 +1,7 @@
 // api/admin-recent-imports/index.js
-const { app } = require("@azure/functions");
+
+// IMPORTANT: reuse the shared app instance exported from ../index.js
+const app = require("..");
 
 app.http("adminRecentImports", {
   route: "admin-recent-imports", // final URL: /api/admin-recent-imports
