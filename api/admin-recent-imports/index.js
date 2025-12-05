@@ -1,14 +1,14 @@
 // api/admin-recent-imports/index.js
 const { app } = require("@azure/functions");
 
-app.http("admin-recent-imports", {
-  route: "admin-recent-imports",  // final URL: /api/admin-recent-imports
+app.http("adminRecentImports", {
+  route: "admin-recent-imports", // final URL: /api/admin-recent-imports
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (request, context) => {
     context.log("[admin-recent-imports] handler called");
 
-    // Handle CORS preflight
+    // CORS preflight
     if (request.method === "OPTIONS") {
       return {
         status: 204,
