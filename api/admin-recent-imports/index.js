@@ -1,50 +1,45 @@
+// api/admin-recent-imports/index.js
 const { app } = require("@azure/functions");
 
 app.http("admin-recent-imports", {
-  route: "admin-recent-imports",
+  route: "admin-recent-imports",  // final URL: /api/admin-recent-imports
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, context) => {
-    const method = String(req.method || "").toUpperCase();
+  handler: async (request, context) => {
+    context.log("[admin-recent-imports] handler called");
 
-    if (method === "OPTIONS") {
+    // Handle CORS preflight
+    if (request.method === "OPTIONS") {
       return {
         status: 204,
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,OPTIONS",
-          "Access-Control-Allow-Headers": "content-type,x-functions-key",
-        },
+          "Access-Control-Allow-Headers": "Content-Type,Authorization"
+        }
       };
     }
 
-    if (method !== "GET") {
-      return {
-        status: 405,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        },
-        body: JSON.stringify({ ok: false, error: "Method Not Allowed" }),
-      };
-    }
+    const url = new URL(request.url);
+    const takeRaw =
+      url.searchParams.get("take") ||
+      url.searchParams.get("top") ||
+      "25";
+    const take = Number.parseInt(takeRaw, 10) || 25;
 
-    const url = new URL(req.url);
-    const takeRaw = url.searchParams.get("take") || url.searchParams.get("top") || "25";
-    const take = Math.max(1, Math.min(1000, Number.parseInt(takeRaw, 10) || 25));
+    const body = {
+      ok: true,
+      name: "admin-recent-imports",
+      take,
+      imports: [] // TODO: populate with real data later
+    };
 
     return {
       status: 200,
+      jsonBody: body,
       headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      },
-      body: JSON.stringify({
-        ok: true,
-        name: "admin-recent-imports",
-        take,
-        imports: [],
-      }),
+        "Access-Control-Allow-Origin": "*"
+      }
     };
-  },
+  }
 });
