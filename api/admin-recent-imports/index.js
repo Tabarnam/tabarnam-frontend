@@ -1,47 +1,39 @@
-// api/admin-recent-imports/index.js
+module.exports = async function (context, req) {
+  context.log("[admin-recent-imports] v3 handler called");
 
-// IMPORTANT: reuse the shared app instance exported from ../index.js
-const app = require("..");
-
-app.http("adminRecentImports", {
-  route: "admin-recent-imports", // final URL: /api/admin-recent-imports
-  methods: ["GET", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (request, context) => {
-    context.log("[admin-recent-imports] handler called");
-
-    // CORS preflight
-    if (request.method === "OPTIONS") {
-      return {
-        status: 204,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization"
-        }
-      };
-    }
-
-    const url = new URL(request.url);
-    const takeRaw =
-      url.searchParams.get("take") ||
-      url.searchParams.get("top") ||
-      "25";
-    const take = Number.parseInt(takeRaw, 10) || 25;
-
-    const body = {
-      ok: true,
-      name: "admin-recent-imports",
-      take,
-      imports: [] // TODO: populate with real data later
-    };
-
-    return {
-      status: 200,
-      jsonBody: body,
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    context.res = {
+      status: 204,
       headers: {
-        "Access-Control-Allow-Origin": "*"
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type,Authorization"
       }
     };
+    return;
   }
-});
+
+  const takeRaw =
+    (req.query && (req.query.take || req.query.top)) ||
+    (req.body && (req.body.take || req.body.top)) ||
+    "25";
+
+  const take = Number.parseInt(takeRaw, 10) || 25;
+
+  const body = {
+    ok: true,
+    name: "admin-recent-imports",
+    take,
+    imports: []
+  };
+
+  context.res = {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*"
+    },
+    body
+  };
+};
