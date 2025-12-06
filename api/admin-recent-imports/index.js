@@ -1,12 +1,12 @@
 // api/admin-recent-imports/index.js - v4 HTTP function
 const { app } = require("@azure/functions");
 
-app.http("admin-recent-imports", {
-  route: "admin-recent-imports",
+app.http("adminRecentImports", {
+  route: "admin-api-recent-imports",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, ctx) => {
-    ctx.log("[admin-recent-imports] v4 handler called");
+    ctx.log("[admin-api-recent-imports] v4 handler called");
 
     // CORS preflight
     if ((req.method || "").toUpperCase() === "OPTIONS") {
@@ -33,7 +33,7 @@ app.http("admin-recent-imports", {
       status: 200,
       jsonBody: {
         ok: true,
-        name: "admin-recent-imports",
+        name: "admin-api-recent-imports",
         take,
         imports: []
       },
