@@ -1,18 +1,15 @@
-// api/admin-test/index.js
-
+// api/admin-test/index.js - v4 HTTP function
 const { app } = require("@azure/functions");
 
-app.http("adminTest", {
-  route: "admin-test", // /api/admin-test
+app.http("admin-test", {
+  route: "admin-test",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, context) => {
-    context.log("[admin-test] v4 handler called");
-
-    const method = (req.method || "").toUpperCase();
+  handler: async (req, ctx) => {
+    ctx.log("[admin-test] v4 handler called");
 
     // CORS preflight
-    if (method === "OPTIONS") {
+    if ((req.method || "").toUpperCase() === "OPTIONS") {
       return {
         status: 204,
         headers: {
@@ -25,15 +22,14 @@ app.http("adminTest", {
 
     return {
       status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*"
-      },
-      body: JSON.stringify({
+      jsonBody: {
         ok: true,
         name: "admin-test",
         timestamp: new Date().toISOString()
-      })
+      },
+      headers: {
+        "Access-Control-Allow-Origin": "*"
+      }
     };
   }
 });

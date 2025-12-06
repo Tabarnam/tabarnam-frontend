@@ -1,4 +1,4 @@
-// api/index.js - centralized v4 registration for all HTTP functions
+// api/index.js - register all functions (CommonJS / v4 app model)
 const { app } = require("@azure/functions");
 
 console.log("[api/index.js] Starting handler registration...");
@@ -155,7 +155,6 @@ try {
 
 // -------------------------
 // Admin endpoints (v4 model)
-// All of these use the shared `app` instance
 // -------------------------
 
 try {
@@ -294,91 +293,23 @@ try {
   console.error("[api] ❌ Failed to load admin-update-logos:", e?.message || e);
 }
 
-// -------------------------
-// Explicit v4 admin routes that were 404ing
-// -------------------------
+try {
+  console.log("[api] Registering: admin-test");
+  require("./admin-test/index.js");
+  console.log("[api] ✓ admin-test registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-test:", e?.message || e);
+}
 
-console.log("[api] Registering: admin-test (inline v4)");
-
-app.http("admin-test", {
-  route: "admin-test",
-  methods: ["GET", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, ctx) => {
-    ctx.log("[admin-test] handler invoked (v4 inline)");
-
-    // CORS preflight
-    if (req.method.toUpperCase() === "OPTIONS") {
-      return {
-        status: 204,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization"
-        }
-      };
-    }
-
-    return {
-      status: 200,
-      jsonBody: {
-        ok: true,
-        name: "admin-test",
-        timestamp: new Date().toISOString()
-      },
-      headers: {
-        "Access-Control-Allow-Origin": "*"
-      }
-    };
-  }
-});
-
-console.log("[api] Registering: admin-recent-imports (inline v4)");
-
-app.http("admin-recent-imports", {
-  route: "admin-recent-imports",
-  methods: ["GET", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, ctx) => {
-    ctx.log("[admin-recent-imports] handler invoked (v4 inline)");
-
-    // CORS preflight
-    if (req.method.toUpperCase() === "OPTIONS") {
-      return {
-        status: 204,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization"
-        }
-      };
-    }
-
-    // v4 req.query is a URLSearchParams
-    const query = req.query || new URLSearchParams();
-    const takeRaw =
-      query.get("take") ||
-      query.get("top") ||
-      "25";
-
-    const take = Number.parseInt(takeRaw, 10) || 25;
-
-    return {
-      status: 200,
-      jsonBody: {
-        ok: true,
-        name: "admin-recent-imports",
-        take,
-        imports: []
-      },
-      headers: {
-        "Access-Control-Allow-Origin": "*"
-      }
-    };
-  }
-});
+try {
+  console.log("[api] Registering: admin-recent-imports");
+  require("./admin-recent-imports/index.js");
+  console.log("[api] ✓ admin-recent-imports registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-recent-imports:", e?.message || e);
+}
 
 console.log("[api/index.js] ✅ All handler registration complete! Exporting app.");
 
-// This export is critical so the v4 Functions runtime can discover all handlers
+// Critical for v4 model: export the shared app so the Functions runtime can discover handlers
 module.exports = app;
