@@ -1,9 +1,11 @@
-// api/index.js - register all functions (CommonJS, Azure Functions v4)
+// api/index.js - centralized v4 registration for all HTTP handlers
 const { app } = require("@azure/functions");
 
 console.log("[api/index.js] Starting handler registration...");
 
-// Public endpoints (most are CommonJS)
+// ----------------------
+// Public endpoints
+// ----------------------
 try {
   console.log("[api] Registering: health");
   require("./health/index.js");
@@ -151,7 +153,10 @@ try {
   console.error("[api] ❌ Failed to load keywords-list:", e?.message || e);
 }
 
-// Admin endpoints (v3-style ones, still using their own function.json)
+// ----------------------
+// Admin endpoints (v4 centralized)
+// ----------------------
+
 try {
   console.log("[api] Registering: admin-keywords");
   require("./admin-keywords/index.js");
@@ -288,19 +293,18 @@ try {
   console.error("[api] ❌ Failed to load admin-update-logos:", e?.message || e);
 }
 
-// Inline v4 admin endpoints using the shared app instance
-
-// /api/admin-test
+// ----------------------
+// Inline v4 admin-test
+// ----------------------
+console.log("[api] Registering: admin-test (v4 inline)");
 app.http("adminTest", {
-  route: "admin-test",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, context) => {
-    context.log("[admin-test] v4 inline handler called");
+  route: "admin-test",
+  handler: async (request, context) => {
+    context.log("[admin-test] handler invoked (v4 inline)");
 
-    const method = (req.method || "").toUpperCase();
-
-    if (method === "OPTIONS") {
+    if ((request.method || "").toUpperCase() === "OPTIONS") {
       return {
         status: 204,
         headers: {
@@ -317,26 +321,35 @@ app.http("adminTest", {
         "Content-Type": "application/json",
         "Access-Control-Allow-Origin": "*"
       },
-      body: JSON.stringify({
+      jsonBody: {
         ok: true,
         name: "admin-test",
         timestamp: new Date().toISOString()
-      })
+      }
     };
   }
 });
 
-// /api/admin-recent-imports
+// ----------------------
+// Inline v4 admin-recent-imports
+// ----------------------
+console.log("[api] Registering: admin-recent-imports (v4 inline)");
 app.http("adminRecentImports", {
-  route: "admin-recent-imports",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, context) => {
-    context.log("[admin-recent-imports] v4 inline handler called");
+  route: "admin-recent-imports",
+  handler: async (request, context) => {
+    context.log("[admin-recent-imports] handler invoked (v4 inline)");
 
-    const method = (req.method || "").toUpperCase();
+    const url = new URL(request.url);
+    const takeRaw =
+      url.searchParams.get("take") ||
+      url.searchParams.get("top") ||
+      "25";
 
-    if (method === "OPTIONS") {
+    const take = Number.parseInt(takeRaw, 10) || 25;
+
+    if ((request.method || "").toUpperCase() === "OPTIONS") {
       return {
         status: 204,
         headers: {
@@ -347,26 +360,17 @@ app.http("adminRecentImports", {
       };
     }
 
-    const url = new URL(req.url);
-    const takeRaw =
-      url.searchParams.get("take") ||
-      url.searchParams.get("top") ||
-      "25";
-
-    const take = Number.parseInt(takeRaw, 10) || 25;
-
-    const body = {
-      ok: true,
-      name: "admin-recent-imports",
-      take,
-      imports: []
-    };
-
     return {
       status: 200,
-      jsonBody: body,
       headers: {
+        "Content-Type": "application/json",
         "Access-Control-Allow-Origin": "*"
+      },
+      jsonBody: {
+        ok: true,
+        name: "admin-recent-imports",
+        take,
+        imports: []
       }
     };
   }
@@ -374,5 +378,5 @@ app.http("adminRecentImports", {
 
 console.log("[api/index.js] ✅ All handler registration complete!");
 
-// Export shared app instance for v4 Functions model
-module.exports = app;
+// Critical for v4 centralized model: export the app instance
+module.exports = { app };
