@@ -27,7 +27,7 @@ const StarNotesEditor = ({ companyId, starRating, onStarChange, userName }) => {
   const fetchNotes = async () => {
     if (!companyId) return;
     try {
-      const res = await apiFetch(`/admin-notes?company_id=${companyId}&kind=admin`);
+      const res = await apiFetch(`/admin-api-notes?company_id=${companyId}&kind=admin`);
       if (res.ok) {
         const data = await res.json();
         setNotes(data.items || []);
@@ -49,7 +49,7 @@ const StarNotesEditor = ({ companyId, starRating, onStarChange, userName }) => {
 
     setLoading(true);
     try {
-      const res = await apiFetch("/admin-notes", {
+      const res = await apiFetch("/admin-api-notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -84,7 +84,7 @@ const StarNotesEditor = ({ companyId, starRating, onStarChange, userName }) => {
       const noteToUpdate = notes.find((n) => n.id === noteId);
       if (!noteToUpdate) return;
 
-      const res = await apiFetch("/admin-notes", {
+      const res = await apiFetch("/admin-api-notes", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -117,7 +117,7 @@ const StarNotesEditor = ({ companyId, starRating, onStarChange, userName }) => {
   const handleDeleteNote = async (noteId, companyIdVal) => {
     setLoading(true);
     try {
-      const res = await apiFetch("/admin-notes", {
+      const res = await apiFetch("/admin-api-notes", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

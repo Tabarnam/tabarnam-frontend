@@ -12,7 +12,7 @@ const json = (obj, status = 200) => ({
 });
 
 app.http('adminBulkImportConfig', {
-  route: 'admin-bulk-import-config',
+  route: 'admin-api-bulk-import-config',
   methods: ['GET', 'OPTIONS'],
   authLevel: 'anonymous',
   handler: async (req, context) => {

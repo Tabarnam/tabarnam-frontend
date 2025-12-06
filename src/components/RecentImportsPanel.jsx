@@ -14,7 +14,7 @@ export default function RecentImportsPanel({ take = 25 }) {
       setError('');
       
       // Query the Cosmos DB for most recent companies across all sessions
-      const url = `${API_BASE}/admin-recent-imports?take=${encodeURIComponent(limit)}`;
+      const url = `${API_BASE}/admin-api-recent-imports?take=${encodeURIComponent(limit)}`;
       const r = await fetch(url);
       
       if (!r.ok) {
