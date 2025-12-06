@@ -45,10 +45,10 @@ const DEFAULT_CONFIG = {
 };
 
 app.http('adminStarConfig', {
-  route: 'admin-star-config',
+  route: 'admin-api-star-config',
   methods: ['GET', 'PUT', 'OPTIONS'],
   authLevel: 'anonymous',
-}, async (req, context) => {
+  handler: async (req, context) => {
   const method = String(req.method || "").toUpperCase();
 
   if (method === "OPTIONS") {
@@ -104,5 +104,6 @@ app.http('adminStarConfig', {
   } catch (e) {
     context.log("Error in admin-star-config:", e?.message || e);
     return json({ error: e?.message || "Internal error" }, 500);
+  }
   }
 });
