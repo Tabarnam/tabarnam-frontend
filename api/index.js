@@ -151,8 +151,21 @@ try {
   console.error("[api] ❌ Failed to load keywords-list:", e?.message || e);
 }
 
-// Admin endpoints with individual function.json files are discovered directly by SWA v3 pattern
-// (admin-test and admin-recent-imports will be invoked directly by SWA, not through this loader)
+try {
+  console.log("[api] Registering: admin-test");
+  require("./admin-test/index.js");
+  console.log("[api] ✓ admin-test registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-test:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-recent-imports");
+  require("./admin-recent-imports/index.js");
+  console.log("[api] ✓ admin-recent-imports registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-recent-imports:", e?.message || e);
+}
 
 try {
   console.log("[api] Registering: admin-keywords");
