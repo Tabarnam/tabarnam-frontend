@@ -304,3 +304,5 @@ try {
 }
 
 console.log("[api/index.js] ✅ All handler registration complete!");
+
+module.exports = app;
