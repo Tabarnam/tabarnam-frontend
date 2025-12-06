@@ -1,4 +1,4 @@
-// api/index.js - register all functions (CommonJS)
+// api/index.js - register all functions (CommonJS, Azure Functions v4)
 const { app } = require("@azure/functions");
 
 console.log("[api/index.js] Starting handler registration...");
@@ -151,23 +151,7 @@ try {
   console.error("[api] ❌ Failed to load keywords-list:", e?.message || e);
 }
 
-// Admin endpoints (v4 model, discovered via this centralized loader)
-try {
-  console.log("[api] Registering: admin-test");
-  require("./admin-test/index.js");
-  console.log("[api] ✓ admin-test registered");
-} catch (e) {
-  console.error("[api] ❌ Failed to load admin-test:", e?.message || e);
-}
-
-try {
-  console.log("[api] Registering: admin-recent-imports");
-  require("./admin-recent-imports/index.js");
-  console.log("[api] ✓ admin-recent-imports registered");
-} catch (e) {
-  console.error("[api] ❌ Failed to load admin-recent-imports:", e?.message || e);
-}
-
+// Admin endpoints (v3-style ones, still using their own function.json)
 try {
   console.log("[api] Registering: admin-keywords");
   require("./admin-keywords/index.js");
@@ -303,6 +287,90 @@ try {
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-update-logos:", e?.message || e);
 }
+
+// Inline v4 admin endpoints using the shared app instance
+
+// /api/admin-test
+app.http("adminTest", {
+  route: "admin-test",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req, context) => {
+    context.log("[admin-test] v4 inline handler called");
+
+    const method = (req.method || "").toUpperCase();
+
+    if (method === "OPTIONS") {
+      return {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization"
+        }
+      };
+    }
+
+    return {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*"
+      },
+      body: JSON.stringify({
+        ok: true,
+        name: "admin-test",
+        timestamp: new Date().toISOString()
+      })
+    };
+  }
+});
+
+// /api/admin-recent-imports
+app.http("adminRecentImports", {
+  route: "admin-recent-imports",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req, context) => {
+    context.log("[admin-recent-imports] v4 inline handler called");
+
+    const method = (req.method || "").toUpperCase();
+
+    if (method === "OPTIONS") {
+      return {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization"
+        }
+      };
+    }
+
+    const url = new URL(req.url);
+    const takeRaw =
+      url.searchParams.get("take") ||
+      url.searchParams.get("top") ||
+      "25";
+
+    const take = Number.parseInt(takeRaw, 10) || 25;
+
+    const body = {
+      ok: true,
+      name: "admin-recent-imports",
+      take,
+      imports: []
+    };
+
+    return {
+      status: 200,
+      jsonBody: body,
+      headers: {
+        "Access-Control-Allow-Origin": "*"
+      }
+    };
+  }
+});
 
 console.log("[api/index.js] ✅ All handler registration complete!");
 
