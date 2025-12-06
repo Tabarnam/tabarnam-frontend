@@ -1,9 +1,11 @@
-// api/index.js - register all functions (CommonJS)
+// api/index.js - register all functions (CommonJS / v4 app model)
 const { app } = require("@azure/functions");
 
 console.log("[api/index.js] Starting handler registration...");
 
-// Public endpoints (most are CommonJS)
+// -------------------------
+// Public endpoints
+// -------------------------
 try {
   console.log("[api] Registering: health");
   require("./health/index.js");
@@ -151,21 +153,9 @@ try {
   console.error("[api] ❌ Failed to load keywords-list:", e?.message || e);
 }
 
-try {
-  console.log("[api] Registering: admin-test");
-  require("./admin-test/index.js");
-  console.log("[api] ✓ admin-test registered");
-} catch (e) {
-  console.error("[api] ❌ Failed to load admin-test:", e?.message || e);
-}
-
-try {
-  console.log("[api] Registering: admin-recent-imports");
-  require("./admin-recent-imports/index.js");
-  console.log("[api] ✓ admin-recent-imports registered");
-} catch (e) {
-  console.error("[api] ❌ Failed to load admin-recent-imports:", e?.message || e);
-}
+// -------------------------
+// Admin endpoints (v4 model)
+// -------------------------
 
 try {
   console.log("[api] Registering: admin-keywords");
@@ -303,6 +293,23 @@ try {
   console.error("[api] ❌ Failed to load admin-update-logos:", e?.message || e);
 }
 
-console.log("[api/index.js] ✅ All handler registration complete!");
+try {
+  console.log("[api] Registering: admin-test");
+  require("./admin-test/index.js");
+  console.log("[api] ✓ admin-test registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-test:", e?.message || e);
+}
 
+try {
+  console.log("[api] Registering: admin-recent-imports");
+  require("./admin-recent-imports/index.js");
+  console.log("[api] ✓ admin-recent-imports registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-recent-imports:", e?.message || e);
+}
+
+console.log("[api/index.js] ✅ All handler registration complete! Exporting app.");
+
+// Critical for v4 model: export the shared app so the Functions runtime can discover handlers
 module.exports = app;

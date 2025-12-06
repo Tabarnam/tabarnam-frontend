@@ -1,12 +1,14 @@
+// api/admin-recent-imports/index.js - v4 HTTP function
 const { app } = require("@azure/functions");
 
-app.http("adminRecentImports", {
-  route: "admin-api-recent-imports",
+app.http("admin-recent-imports", {
+  route: "admin-recent-imports",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, context) => {
-    context.log("[admin-recent-imports] handler called");
+  handler: async (req, ctx) => {
+    ctx.log("[admin-recent-imports] v4 handler called");
 
+    // CORS preflight
     if ((req.method || "").toUpperCase() === "OPTIONS") {
       return {
         status: 204,
@@ -18,21 +20,26 @@ app.http("adminRecentImports", {
       };
     }
 
-    const takeRaw = req.query?.take || req.query?.top || "25";
+    // In v4, req.query is URLSearchParams
+    const query = req.query || new URLSearchParams();
+    const takeRaw =
+      query.get("take") ||
+      query.get("top") ||
+      "25";
+
     const take = Number.parseInt(takeRaw, 10) || 25;
 
     return {
       status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*"
-      },
-      body: JSON.stringify({
+      jsonBody: {
         ok: true,
         name: "admin-recent-imports",
         take,
         imports: []
-      })
+      },
+      headers: {
+        "Access-Control-Allow-Origin": "*"
+      }
     };
   }
 });
