@@ -151,6 +151,7 @@ try {
   console.error("[api] ❌ Failed to load keywords-list:", e?.message || e);
 }
 
+// Admin endpoints (v4 model, discovered via this centralized loader)
 try {
   console.log("[api] Registering: admin-test");
   require("./admin-test/index.js");
@@ -305,4 +306,5 @@ try {
 
 console.log("[api/index.js] ✅ All handler registration complete!");
 
+// Export shared app instance for v4 Functions model
 module.exports = app;

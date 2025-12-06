@@ -1,13 +1,18 @@
+// api/admin-test/index.js
+
 const { app } = require("@azure/functions");
 
 app.http("adminTest", {
-  route: "admin-test",
+  route: "admin-test", // /api/admin-test
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
-    context.log("[admin-test] handler called");
+    context.log("[admin-test] v4 handler called");
 
-    if ((req.method || "").toUpperCase() === "OPTIONS") {
+    const method = (req.method || "").toUpperCase();
+
+    // CORS preflight
+    if (method === "OPTIONS") {
       return {
         status: 204,
         headers: {
