@@ -57,7 +57,7 @@ function calculateBinaryStars(company, minReviews = 3, reviewThreshold = 4) {
 }
 
 app.http('adminRecalcStars', {
-  route: 'admin-recalc-stars',
+  route: 'admin-api-recalc-stars',
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
   handler: async (req, context) => {

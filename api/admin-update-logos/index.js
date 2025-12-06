@@ -64,7 +64,7 @@ async function updateLogos() {
 }
 
 app.http('adminUpdateLogos', {
-  route: 'admin-update-logos',
+  route: 'admin-api-update-logos',
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
   handler: async (req, context) => {

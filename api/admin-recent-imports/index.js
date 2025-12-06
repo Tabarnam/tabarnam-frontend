@@ -1,7 +1,7 @@
 const { app } = require("@azure/functions");
 
 app.http("adminRecentImports", {
-  route: "admin-recent-imports",
+  route: "admin-api-recent-imports",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
