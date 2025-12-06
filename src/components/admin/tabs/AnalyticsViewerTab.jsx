@@ -29,7 +29,7 @@ const AnalyticsViewerTab = () => {
   const fetchMetrics = async (startDate, endDate) => {
     setLoading(true);
     try {
-      const url = join(API_BASE, `admin-analytics?start=${startDate.toISOString()}&end=${endDate.toISOString()}`);
+      const url = join(API_BASE, `admin-api-analytics?start=${startDate.toISOString()}&end=${endDate.toISOString()}`);
       const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();

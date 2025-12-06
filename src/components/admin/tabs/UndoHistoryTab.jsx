@@ -19,7 +19,7 @@ const UndoHistoryTab = () => {
   const fetchHistory = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch('admin-undo-history');
+      const res = await apiFetch('admin-api-undo-history');
       if (res.ok) {
         const data = await res.json();
         setHistory(data.history || []);
@@ -34,7 +34,7 @@ const UndoHistoryTab = () => {
   const handleUndo = async (id) => {
     setLoading(true);
     try {
-      const res = await apiFetch('admin-undo', {
+      const res = await apiFetch('admin-api-undo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, actor: user?.email }),
@@ -52,7 +52,7 @@ const UndoHistoryTab = () => {
   const handleClearOldHistory = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch('admin-undo-history', {
+      const res = await apiFetch('admin-api-undo-history', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ actor: user?.email }),
