@@ -1,11 +1,11 @@
-// api/index.js - centralized v4 registration for all HTTP handlers
+// api/index.js - centralized v4 registration for all HTTP functions
 const { app } = require("@azure/functions");
 
 console.log("[api/index.js] Starting handler registration...");
 
-// ----------------------
+// -------------------------
 // Public endpoints
-// ----------------------
+// -------------------------
 try {
   console.log("[api] Registering: health");
   require("./health/index.js");
@@ -153,9 +153,10 @@ try {
   console.error("[api] ❌ Failed to load keywords-list:", e?.message || e);
 }
 
-// ----------------------
-// Admin endpoints (v4 centralized)
-// ----------------------
+// -------------------------
+// Admin endpoints (v4 model)
+// All of these use the shared `app` instance
+// -------------------------
 
 try {
   console.log("[api] Registering: admin-keywords");
@@ -293,18 +294,21 @@ try {
   console.error("[api] ❌ Failed to load admin-update-logos:", e?.message || e);
 }
 
-// ----------------------
-// Inline v4 admin-test
-// ----------------------
-console.log("[api] Registering: admin-test (v4 inline)");
-app.http("adminTest", {
+// -------------------------
+// Explicit v4 admin routes that were 404ing
+// -------------------------
+
+console.log("[api] Registering: admin-test (inline v4)");
+
+app.http("admin-test", {
+  route: "admin-test",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  route: "admin-test",
-  handler: async (request, context) => {
-    context.log("[admin-test] handler invoked (v4 inline)");
+  handler: async (req, ctx) => {
+    ctx.log("[admin-test] handler invoked (v4 inline)");
 
-    if ((request.method || "").toUpperCase() === "OPTIONS") {
+    // CORS preflight
+    if (req.method.toUpperCase() === "OPTIONS") {
       return {
         status: 204,
         headers: {
@@ -317,39 +321,29 @@ app.http("adminTest", {
 
     return {
       status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*"
-      },
       jsonBody: {
         ok: true,
         name: "admin-test",
         timestamp: new Date().toISOString()
+      },
+      headers: {
+        "Access-Control-Allow-Origin": "*"
       }
     };
   }
 });
 
-// ----------------------
-// Inline v4 admin-recent-imports
-// ----------------------
-console.log("[api] Registering: admin-recent-imports (v4 inline)");
-app.http("adminRecentImports", {
+console.log("[api] Registering: admin-recent-imports (inline v4)");
+
+app.http("admin-recent-imports", {
+  route: "admin-recent-imports",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  route: "admin-recent-imports",
-  handler: async (request, context) => {
-    context.log("[admin-recent-imports] handler invoked (v4 inline)");
+  handler: async (req, ctx) => {
+    ctx.log("[admin-recent-imports] handler invoked (v4 inline)");
 
-    const url = new URL(request.url);
-    const takeRaw =
-      url.searchParams.get("take") ||
-      url.searchParams.get("top") ||
-      "25";
-
-    const take = Number.parseInt(takeRaw, 10) || 25;
-
-    if ((request.method || "").toUpperCase() === "OPTIONS") {
+    // CORS preflight
+    if (req.method.toUpperCase() === "OPTIONS") {
       return {
         status: 204,
         headers: {
@@ -360,23 +354,31 @@ app.http("adminRecentImports", {
       };
     }
 
+    // v4 req.query is a URLSearchParams
+    const query = req.query || new URLSearchParams();
+    const takeRaw =
+      query.get("take") ||
+      query.get("top") ||
+      "25";
+
+    const take = Number.parseInt(takeRaw, 10) || 25;
+
     return {
       status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*"
-      },
       jsonBody: {
         ok: true,
         name: "admin-recent-imports",
         take,
         imports: []
+      },
+      headers: {
+        "Access-Control-Allow-Origin": "*"
       }
     };
   }
 });
 
-console.log("[api/index.js] ✅ All handler registration complete!");
+console.log("[api/index.js] ✅ All handler registration complete! Exporting app.");
 
-// Critical for v4 centralized model: export the app instance
-module.exports = { app };
+// This export is critical so the v4 Functions runtime can discover all handlers
+module.exports = app;
