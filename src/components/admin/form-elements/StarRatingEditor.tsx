@@ -81,6 +81,12 @@ export const StarRatingEditor: React.FC<StarRatingEditorProps> = ({
     }
   };
 
+  const handlePerStarIconTypeChange = (starKey: keyof CompanyRating, iconType: RatingIconType | undefined) => {
+    const updated = { ...rating };
+    updated[starKey].icon_type = iconType;
+    onRatingChange(updated);
+  };
+
   const totalScore = calculateTotalScore(rating);
 
   return (
@@ -103,11 +109,12 @@ export const StarRatingEditor: React.FC<StarRatingEditorProps> = ({
       </CardHeader>
 
       <CardContent className="space-y-6">
-        {/* Icon Type Selector */}
+        {/* Global Icon Type Selector (default) */}
         <div className="border-b pb-6">
           <Label className="text-sm font-semibold text-slate-900 mb-3 block">
-            Rating Icon Type
+            Default Rating Icon Type
           </Label>
+          <p className="text-xs text-slate-600 mb-3">Set the default icon type for all stars. Individual stars can override this setting below.</p>
           <div className="flex gap-3">
             <button
               type="button"
@@ -174,8 +181,53 @@ export const StarRatingEditor: React.FC<StarRatingEditorProps> = ({
               {/* Star Value and Notes (Expanded) */}
               {isExpanded && (
                 <div className="px-4 py-4 bg-white space-y-4 border-t">
-                  {/* Value Input */}
+                  {/* Per-Star Icon Type Override */}
                   <div>
+                    <Label className="text-sm font-medium mb-2 block">
+                      Icon Type Override
+                    </Label>
+                    <p className="text-xs text-slate-600 mb-3">Optional: Override the default icon type for this star only (leave empty to use default)</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handlePerStarIconTypeChange(starKey, undefined)}
+                        className={`flex items-center gap-1 px-3 py-2 rounded-md text-sm transition ${
+                          star.icon_type === undefined
+                            ? "bg-blue-100 text-blue-700 border border-blue-300"
+                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        }`}
+                      >
+                        <span>Use Default</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handlePerStarIconTypeChange(starKey, "star")}
+                        className={`flex items-center gap-1 px-3 py-2 rounded-md text-sm transition ${
+                          star.icon_type === "star"
+                            ? "bg-slate-900 text-white"
+                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        }`}
+                      >
+                        <StarIcon size={14} />
+                        <span>Star</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handlePerStarIconTypeChange(starKey, "heart")}
+                        className={`flex items-center gap-1 px-3 py-2 rounded-md text-sm transition ${
+                          star.icon_type === "heart"
+                            ? "bg-slate-900 text-white"
+                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        }`}
+                      >
+                        <Heart size={14} />
+                        <span>Heart</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Value Input */}
+                  <div className="border-t pt-4">
                     <Label htmlFor={`${starKey}_value`} className="text-sm font-medium">
                       Value (0.0 - 1.0)
                     </Label>

@@ -27,12 +27,15 @@ export function CompanyStarsBlock({ company }: { company: CompanyLike }) {
   // Try new rating schema first
   if (company.rating) {
     const totalScore = calculateTotalScore(company.rating);
-    const iconType = (company.rating_icon_type || "star") as RatingIconType;
+    const defaultIconType = (company.rating_icon_type || "star") as RatingIconType;
 
-    // Build starIcons map based on rating_icon_type
+    // Build starIcons map based on per-star icon types (with fallback to default)
     const starIcons: Record<number, 'star' | 'heart'> = {};
+    const starKeys = ["star1", "star2", "star3", "star4", "star5"] as const;
     for (let i = 1; i <= 5; i++) {
-      starIcons[i] = iconType;
+      const starKey = starKeys[i - 1];
+      const star = company.rating[starKey];
+      starIcons[i] = star?.icon_type || defaultIconType;
     }
 
     // Create a bundle-like object for the Stars component

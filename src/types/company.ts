@@ -14,6 +14,7 @@ export interface StarNote {
 export interface StarUnit {
   value: number; // 0.0 - 1.0 in steps of 0.1
   notes: StarNote[];
+  icon_type?: RatingIconType; // Per-star icon type override (defaults to company rating_icon_type if not set)
 }
 
 export interface CompanyRating {
@@ -90,6 +91,7 @@ export interface Company {
 export const emptyStar = (): StarUnit => ({
   value: 0.0,
   notes: [],
+  icon_type: undefined,
 });
 
 // Helper function to create default rating

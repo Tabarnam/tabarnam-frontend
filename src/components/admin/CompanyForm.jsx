@@ -6,10 +6,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
 import { getAdminUser } from "@/lib/azureAuth";
+import { Plus, Trash2, Edit2, Image } from "lucide-react";
 import IndustriesEditor from "./form-elements/IndustriesEditor";
 import KeywordsEditor from "./form-elements/KeywordsEditor";
 import HeadquartersLocationsEditor from "./form-elements/HeadquartersLocationsEditor";
 import StarRatingEditor from "./form-elements/StarRatingEditor";
+import LogoUploadDialog from "./LogoUploadDialog";
 import { defaultRating } from "@/types/company";
 import { getOrCalculateRating } from "@/lib/stars/calculateRating";
 
@@ -27,6 +29,9 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     admin_rating_public: false,
   });
   const [showLocationSourcesToUsers, setShowLocationSourcesToUsers] = useState(false);
+  const [locationSources, setLocationSources] = useState([]);
+  const [showLogoDialog, setShowLogoDialog] = useState(false);
+  const [newSourceInput, setNewSourceInput] = useState({ url: "", type: "official_website", location: "" });
 
   // Normalize incoming company data from snake_case to form structure
   const normalizeCompany = (comp) => {
@@ -59,6 +64,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       domain: comp.domain || comp.website_url || comp.url || "",
       amazon_store_url: comp.amazon_store_url || comp.amazon_url || "",
       amazon_url: comp.amazon_url || comp.amazon_store_url || "",
+      logo_url: comp.logo_url || "",
       industries: Array.isArray(comp.industries) ? comp.industries : [],
       product_keywords: Array.isArray(comp.product_keywords) ? comp.product_keywords : [],
       keywords: Array.isArray(comp.keywords) ? comp.keywords : (Array.isArray(comp.product_keywords) ? comp.product_keywords : []),
@@ -92,6 +98,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
         admin_rating_public: false,
       });
       setShowLocationSourcesToUsers(Boolean(company.show_location_sources_to_users));
+      setLocationSources(Array.isArray(company.location_sources) ? company.location_sources : []);
       const isEditMode = !!(normalized.id || normalized.company_id);
       console.log('[CompanyForm] Rendering with company:', { isEditMode, id: normalized.id, company_id: normalized.company_id, company_name: normalized.company_name });
     } else {
@@ -160,6 +167,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       domain: formData.domain || formData.website_url || "",
       amazon_store_url: formData.amazon_store_url || formData.amazon_url || "",
       amazon_url: formData.amazon_url || formData.amazon_store_url || "",
+      logo_url: formData.logo_url || "",
       industries: Array.isArray(formData.industries) ? formData.industries : [],
       product_keywords: Array.isArray(formData.product_keywords) ? formData.product_keywords : [],
       keywords: Array.isArray(formData.keywords) ? formData.keywords : [],
@@ -171,6 +179,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       red_flag_reason: formData.red_flag_reason || "",
       location_confidence: formData.location_confidence || "medium",
       show_location_sources_to_users: showLocationSourcesToUsers,
+      location_sources: locationSources.length > 0 ? locationSources : undefined,
       rating_icon_type: ratingIconType,
       rating: rating,
       visibility: visibility,
@@ -258,18 +267,67 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
               required
             />
           </div>
+
+          {/* Logo Section */}
+          <div className="border rounded-lg p-4 bg-slate-50">
+            <div className="flex items-center justify-between mb-3">
+              <Label className="text-base font-semibold">Company Logo</Label>
+              {!company?.logo_url && (
+                <span className="text-amber-600 text-xs font-medium">⚠️ Missing</span>
+              )}
+            </div>
+
+            {company?.logo_url && (
+              <div className="mb-4 p-3 bg-white rounded border border-slate-200">
+                <p className="text-xs text-slate-600 mb-2">Current Logo:</p>
+                <img
+                  src={company.logo_url}
+                  alt="Company logo"
+                  className="max-h-32 max-w-32 object-contain bg-slate-100 p-2 rounded"
+                />
+              </div>
+            )}
+
+            <div className="space-y-2 mb-3">
+              <p className="text-xs text-slate-600">
+                Supported formats: PNG, JPG, SVG, GIF (max 5MB, will be optimized to 500x500px)
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              onClick={() => setShowLogoDialog(true)}
+              variant="outline"
+              className="w-full flex items-center justify-center gap-2"
+            >
+              <Image size={16} />
+              {company?.logo_url ? "Replace or Edit Logo" : "Add Logo"}
+            </Button>
+          </div>
+
           <div>
-            <Label htmlFor="tagline">
-              Tagline
-              {!formData.tagline && <span className="text-red-500 text-xs ml-2">⚠️ Missing</span>}
-            </Label>
+            <div className="flex items-center justify-between mb-2">
+              <Label htmlFor="tagline">
+                Company Tagline
+                {!formData.tagline && <span className="text-amber-600 text-xs ml-2">ℹ️ Optional but recommended</span>}
+              </Label>
+              <span className="text-xs text-slate-500">
+                {(formData.tagline || "").length}/200
+              </span>
+            </div>
             <Input
               id="tagline"
               name="tagline"
               value={formData.tagline || ""}
-              onChange={handleChange}
-              placeholder="Company tagline or mission statement"
+              onChange={(e) => {
+                if (e.target.value.length <= 200) {
+                  handleChange(e);
+                }
+              }}
+              placeholder="e.g., 'Leading innovators in sustainable technology'"
+              maxLength="200"
             />
+            <p className="text-xs text-slate-600 mt-1">Short, catchy description for better user engagement</p>
           </div>
           <div>
             <Label htmlFor="website_url">
@@ -301,6 +359,115 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           </div>
           <div className="border-t pt-4 mt-4">
             <h3 className="font-semibold text-sm mb-4">Location Information</h3>
+
+            {/* Location Sources */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold text-sm text-slate-900">Location Sources</h4>
+                <input
+                  id="show_location_sources"
+                  type="checkbox"
+                  checked={showLocationSourcesToUsers}
+                  onChange={(e) => setShowLocationSourcesToUsers(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 cursor-pointer"
+                />
+              </div>
+              <Label htmlFor="show_location_sources" className="text-sm text-slate-700 cursor-pointer mb-3 block">
+                Show Location Sources to Users
+              </Label>
+              <p className="text-xs text-slate-600 mb-4">
+                When enabled, source links will appear on the public company page under a "Sources" section
+              </p>
+
+              {/* Add New Source */}
+              <div className="bg-white p-3 rounded border border-blue-200 mb-4 space-y-2">
+                <Input
+                  placeholder="Location (e.g., San Francisco, CA, USA)"
+                  value={newSourceInput.location}
+                  onChange={(e) =>
+                    setNewSourceInput({ ...newSourceInput, location: e.target.value })
+                  }
+                  className="text-sm"
+                />
+                <Input
+                  placeholder="Source URL (e.g., https://example.com)"
+                  value={newSourceInput.url}
+                  onChange={(e) =>
+                    setNewSourceInput({ ...newSourceInput, url: e.target.value })
+                  }
+                  className="text-sm"
+                />
+                <select
+                  value={newSourceInput.type}
+                  onChange={(e) =>
+                    setNewSourceInput({ ...newSourceInput, type: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="official_website">Official Website</option>
+                  <option value="government_guide">Government Guide</option>
+                  <option value="b2b_directory">B2B Directory</option>
+                  <option value="trade_data">Trade Data</option>
+                  <option value="packaging">Packaging</option>
+                  <option value="media">Media</option>
+                  <option value="other">Other</option>
+                </select>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    if (newSourceInput.location.trim() && newSourceInput.url.trim()) {
+                      setLocationSources([
+                        ...locationSources,
+                        {
+                          location: newSourceInput.location,
+                          source_url: newSourceInput.url,
+                          source_type: newSourceInput.type,
+                        },
+                      ]);
+                      setNewSourceInput({ url: "", type: "official_website", location: "" });
+                      toast.success("Source added");
+                    } else {
+                      toast.error("Please fill in location and URL");
+                    }
+                  }}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center gap-2"
+                >
+                  <Plus size={14} />
+                  Add Source
+                </Button>
+              </div>
+
+              {/* Existing Sources */}
+              {locationSources.length > 0 && (
+                <div className="space-y-2">
+                  {locationSources.map((source, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-white p-3 rounded border border-slate-200 flex items-start justify-between gap-2"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900 break-words">{source.location}</p>
+                        <p className="text-xs text-slate-600 truncate">
+                          {source.source_type} | {source.source_url}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLocationSources(locationSources.filter((_, i) => i !== idx));
+                          toast.success("Source removed");
+                        }}
+                        className="text-red-600 hover:text-red-800 flex-shrink-0"
+                        title="Remove source"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="border-t pt-4 mt-4">
               <h3 className="font-semibold text-sm mb-4">Headquarters Locations</h3>
               <HeadquartersLocationsEditor
@@ -459,22 +626,6 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
                   Show Star Rating to users
                 </Label>
               </div>
-
-              <div className="flex items-center gap-3">
-                <input
-                  id="show_location_sources"
-                  type="checkbox"
-                  checked={showLocationSourcesToUsers}
-                  onChange={(e) => setShowLocationSourcesToUsers(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-300"
-                />
-                <Label htmlFor="show_location_sources" className="text-sm font-medium text-slate-700 cursor-pointer mb-0">
-                  ✨ Show Location Sources to users
-                </Label>
-              </div>
-              <p className="text-xs text-slate-600 ml-7 -mt-1">
-                Display source links for HQ and manufacturing location information on the public page
-              </p>
             </div>
           </div>
 
@@ -505,6 +656,21 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           </Button>
         </form>
       </DialogContent>
+
+      {/* Logo Upload Dialog */}
+      <Dialog open={showLogoDialog} onOpenChange={setShowLogoDialog}>
+        <DialogContent className="max-w-md">
+          <LogoUploadDialog
+            companyId={formData.id || formData.company_id}
+            onClose={() => setShowLogoDialog(false)}
+            onSaved={(logoUrl) => {
+              setFormData((prev) => ({ ...prev, logo_url: logoUrl }));
+              setShowLogoDialog(false);
+              toast.success("Logo updated successfully!");
+            }}
+          />
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 };
