@@ -29,6 +29,9 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     admin_rating_public: false,
   });
   const [showLocationSourcesToUsers, setShowLocationSourcesToUsers] = useState(false);
+  const [locationSources, setLocationSources] = useState([]);
+  const [showLogoDialog, setShowLogoDialog] = useState(false);
+  const [newSourceInput, setNewSourceInput] = useState({ url: "", type: "official_website", location: "" });
 
   // Normalize incoming company data from snake_case to form structure
   const normalizeCompany = (comp) => {
