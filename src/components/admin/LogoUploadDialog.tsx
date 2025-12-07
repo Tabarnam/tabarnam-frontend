@@ -107,7 +107,9 @@ export function LogoUploadDialog({
       onSaved?.(r.logo_url);
       onClose?.();
     } catch (e: any) {
-      setError(e?.message || "Upload failed");
+      const errorMessage = e?.message || "Upload failed";
+      setError(errorMessage);
+      onError?.(errorMessage);
     } finally {
       setBusy(false);
     }
