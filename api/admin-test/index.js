@@ -1,14 +1,14 @@
 // api/admin-test/index.js - v4 HTTP function
 const { app } = require("@azure/functions");
 
+// Keep function name the same for Azure, change only the route prefix
 app.http("adminTest", {
-  route: "admin-api-test",
+  route: "xadmin-api-test",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, ctx) => {
-    ctx.log("[admin-api-test] v4 handler called");
+    ctx.log("[xadmin-api-test] v4 handler called");
 
-    // CORS preflight
     if ((req.method || "").toUpperCase() === "OPTIONS") {
       return {
         status: 204,
@@ -24,7 +24,7 @@ app.http("adminTest", {
       status: 200,
       jsonBody: {
         ok: true,
-        name: "admin-api-test",
+        name: "xadmin-api-test",
         timestamp: new Date().toISOString()
       },
       headers: {
