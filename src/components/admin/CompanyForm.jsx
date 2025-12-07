@@ -670,6 +670,21 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           </Button>
         </form>
       </DialogContent>
+
+      {/* Logo Upload Dialog */}
+      <Dialog open={showLogoDialog} onOpenChange={setShowLogoDialog}>
+        <DialogContent className="max-w-md">
+          <LogoUploadDialog
+            companyId={formData.id || formData.company_id}
+            onClose={() => setShowLogoDialog(false)}
+            onSaved={(logoUrl) => {
+              setFormData((prev) => ({ ...prev, logo_url: logoUrl }));
+              setShowLogoDialog(false);
+              toast.success("Logo updated successfully!");
+            }}
+          />
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 };
