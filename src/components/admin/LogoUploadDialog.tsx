@@ -72,9 +72,24 @@ export function LogoUploadDialog({
       setError("Enter a URL");
       return;
     }
+    if (logoUrl.startsWith('blob:')) {
+      const errorMessage = "Invalid blob URL—use a permanent link from Azure Blob Storage or another CDN.";
+      setError(errorMessage);
+      onError?.(errorMessage);
+      return;
+    }
     try {
       setBusy(true);
       const r = await setLogoUrl(companyId, logoUrl.trim());
+
+      // Validate returned URL is not a blob URL
+      if (r.logo_url && r.logo_url.startsWith('blob:')) {
+        const errorMessage = "Server returned invalid blob URL—please try uploading a file instead.";
+        setError(errorMessage);
+        onError?.(errorMessage);
+        return;
+      }
+
       onSaved?.(r.logo_url);
       onClose?.();
     } catch (e: any) {
@@ -104,6 +119,15 @@ export function LogoUploadDialog({
 
       // Upload using existing function
       const r = await uploadLogoFile(companyId, file);
+
+      // Validate returned URL is not a blob URL
+      if (!r.logo_url || r.logo_url.startsWith('blob:')) {
+        const errorMessage = "Server returned invalid URL—upload may have failed. Please try again.";
+        setError(errorMessage);
+        onError?.(errorMessage);
+        return;
+      }
+
       onSaved?.(r.logo_url);
       onClose?.();
     } catch (e: any) {
@@ -225,8 +249,15 @@ export function LogoUploadDialog({
               type="file"
               accept="image/png,image/jpeg,image/gif,image/svg+xml"
               onChange={(e) => {
+                setError("");
                 const f = e.target.files?.[0];
-                if (f) handleFileSelect(f);
+                if (f) {
+                  if (f.size > 5 * 1024 * 1024) {
+                    setError("File size must be under 5MB");
+                    return;
+                  }
+                  handleFileSelect(f);
+                }
               }}
               className="hidden"
             />
