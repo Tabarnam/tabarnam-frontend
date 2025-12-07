@@ -18,10 +18,12 @@ export function LogoUploadDialog({
   companyId,
   onClose,
   onSaved,
+  onError,
 }: {
   companyId: string;
   onClose?: () => void;
   onSaved?: (url: string) => void;
+  onError?: (error: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
