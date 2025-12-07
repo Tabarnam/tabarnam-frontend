@@ -30,6 +30,15 @@ app.http("upload-logo-blob", {
   handler: async (req, ctx) => {
     if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
 
+    if (!STORAGE_ACCOUNT_KEY) {
+      console.error("[upload-logo-blob] AZURE_STORAGE_ACCOUNT_KEY not configured");
+      return json(
+        { ok: false, error: "Server storage not configured" },
+        500,
+        req
+      );
+    }
+
     try {
       // Initialize blob service client
       const blobServiceClient = BlobServiceClient.fromConnectionString(
