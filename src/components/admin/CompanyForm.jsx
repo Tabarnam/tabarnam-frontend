@@ -84,6 +84,14 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   useEffect(() => {
     if (company) {
       const normalized = normalizeCompany(company);
+
+      // Handle invalid legacy blob URLs
+      if (normalized.logo_url && normalized.logo_url.startsWith('blob:')) {
+        console.warn('[CompanyForm] Detected invalid blob URL in logo_url, clearing it');
+        normalized.logo_url = '';
+        toast.warning("Invalid legacy logo URL detected—please re-upload a new image.");
+      }
+
       setFormData(normalized);
       setAdditionalHQs(normalized.headquarters_locations || []);
 
