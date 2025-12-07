@@ -64,6 +64,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       domain: comp.domain || comp.website_url || comp.url || "",
       amazon_store_url: comp.amazon_store_url || comp.amazon_url || "",
       amazon_url: comp.amazon_url || comp.amazon_store_url || "",
+      logo_url: comp.logo_url || "",
       industries: Array.isArray(comp.industries) ? comp.industries : [],
       product_keywords: Array.isArray(comp.product_keywords) ? comp.product_keywords : [],
       keywords: Array.isArray(comp.keywords) ? comp.keywords : (Array.isArray(comp.product_keywords) ? comp.product_keywords : []),
