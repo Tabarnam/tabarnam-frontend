@@ -187,18 +187,20 @@ export default function XAIBulkImportPage() {
 
 
   const handleClear = () => {
-    setSessionId(""); 
-    setStatus(""); 
+    setSessionId("");
+    setStatus("");
     setSearchValue("");
-    setMaxImports(1); 
-    setLastMeta(null); 
-    setSavedSoFar(0); 
+    setMaxImports(1);
+    setLastMeta(null);
+    setSavedSoFar(0);
     setLastRowTs("");
     setCenter({ lat: "", lng: "" });
-    setPostal(""); 
-    setCity(""); 
-    setStateR(""); 
+    setPostal("");
+    setCity("");
+    setStateR("");
     setCountry("");
+    setShowLocationSources(false);
+    setSearchMode("multiple");
     setModalOpen(false);
   };
 
