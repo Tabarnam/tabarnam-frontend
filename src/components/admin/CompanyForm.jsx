@@ -294,18 +294,22 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           <div className="border rounded-lg p-4 bg-slate-50">
             <div className="flex items-center justify-between mb-3">
               <Label className="text-base font-semibold">Company Logo</Label>
-              {!company?.logo_url && (
+              {!company?.logo_url || company?.logo_url?.startsWith('blob:') ? (
                 <span className="text-amber-600 text-xs font-medium">⚠️ Missing</span>
-              )}
+              ) : null}
             </div>
 
-            {company?.logo_url && (
+            {company?.logo_url && !company.logo_url.startsWith('blob:') && (
               <div className="mb-4 p-3 bg-white rounded border border-slate-200">
                 <p className="text-xs text-slate-600 mb-2">Current Logo:</p>
                 <img
                   src={company.logo_url}
                   alt="Company logo"
                   className="max-h-32 max-w-32 object-contain bg-slate-100 p-2 rounded"
+                  onError={(e) => {
+                    console.error('[CompanyForm] Logo image failed to load:', company.logo_url);
+                    e.target.style.display = 'none';
+                  }}
                 />
               </div>
             )}
