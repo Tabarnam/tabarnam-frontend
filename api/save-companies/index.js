@@ -103,6 +103,15 @@ app.http("save-companies", {
 
       for (const company of companies) {
         try {
+          // Validate logo_url is not a temporary blob URL
+          if (company.logo_url && typeof company.logo_url === 'string') {
+            if (company.logo_url.startsWith('blob:')) {
+              failed++;
+              errors.push(`Invalid logo URL for "${company.company_name || company.name}": Must be a permanent storage link, not a temporary blob URL`);
+              continue;
+            }
+          }
+
           // Geocode headquarters location if present and no lat/lng already provided
           let hq_lat = company.hq_lat;
           let hq_lng = company.hq_lng;

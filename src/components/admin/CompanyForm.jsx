@@ -219,7 +219,14 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
         }
 
         console.log("[CompanyForm] Save failed with status:", response.status, "error:", errorData?.error || response.statusText);
-        toast.error("Failed to save company: " + (errorData?.error || response.statusText));
+
+        // Check if error is related to blob URL
+        const errorMessage = errorData?.error || response.statusText;
+        if (errorMessage && errorMessage.includes('blob:')) {
+          toast.error("Logo upload issue: " + errorMessage);
+        } else {
+          toast.error("Failed to save company: " + errorMessage);
+        }
       }
     } catch (error) {
       console.log("[CompanyForm] Error:", error?.message);
@@ -664,9 +671,16 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
             companyId={formData.id || formData.company_id}
             onClose={() => setShowLogoDialog(false)}
             onSaved={(logoUrl) => {
+              if (!logoUrl || logoUrl.startsWith('blob:')) {
+                toast.error("Logo upload failed: invalid URL returned. Please try again.");
+                return;
+              }
               setFormData((prev) => ({ ...prev, logo_url: logoUrl }));
               setShowLogoDialog(false);
-              toast.success("Logo updated successfully!");
+              toast.success("Logo uploaded successfully! Don't forget to save the company.");
+            }}
+            onError={(error) => {
+              toast.error(`Logo upload failed: ${error}`);
             }}
           />
         </DialogContent>

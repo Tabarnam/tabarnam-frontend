@@ -18,10 +18,12 @@ export function LogoUploadDialog({
   companyId,
   onClose,
   onSaved,
+  onError,
 }: {
   companyId: string;
   onClose?: () => void;
   onSaved?: (url: string) => void;
+  onError?: (error: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -76,7 +78,9 @@ export function LogoUploadDialog({
       onSaved?.(r.logo_url);
       onClose?.();
     } catch (e: any) {
-      setError(e?.message || "Failed to save logo URL");
+      const errorMessage = e?.message || "Failed to save logo URL";
+      setError(errorMessage);
+      onError?.(errorMessage);
     } finally {
       setBusy(false);
     }
@@ -103,7 +107,9 @@ export function LogoUploadDialog({
       onSaved?.(r.logo_url);
       onClose?.();
     } catch (e: any) {
-      setError(e?.message || "Upload failed");
+      const errorMessage = e?.message || "Upload failed";
+      setError(errorMessage);
+      onError?.(errorMessage);
     } finally {
       setBusy(false);
     }
