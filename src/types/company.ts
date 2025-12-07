@@ -63,7 +63,11 @@ export interface Company {
   location_confidence?: "low" | "medium" | "high";
   amazon_store_url?: string;
   amazon_url?: string;
-  
+  tagline?: string;
+  logo_url?: string;
+  location_sources?: LocationSource[];
+  show_location_sources_to_users?: boolean;
+
   // Legacy fields (for backward compatibility)
   star_rating?: number;
   star_overrides?: any;
