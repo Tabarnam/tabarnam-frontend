@@ -219,7 +219,14 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
         }
 
         console.log("[CompanyForm] Save failed with status:", response.status, "error:", errorData?.error || response.statusText);
-        toast.error("Failed to save company: " + (errorData?.error || response.statusText));
+
+        // Check if error is related to blob URL
+        const errorMessage = errorData?.error || response.statusText;
+        if (errorMessage && errorMessage.includes('blob:')) {
+          toast.error("Logo upload issue: " + errorMessage);
+        } else {
+          toast.error("Failed to save company: " + errorMessage);
+        }
       }
     } catch (error) {
       console.log("[CompanyForm] Error:", error?.message);
