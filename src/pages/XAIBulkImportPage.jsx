@@ -9,7 +9,7 @@ export default function XAIBulkImportPage() {
   const [searchField, setSearchField] = useState("product_keywords");
   const [searchValue, setSearchValue] = useState("");
   const [center, setCenter] = useState({ lat: "", lng: "" });
-  const [expandIfFew, setExpandIfFew] = useState(true);
+  const [expandIfFew, setExpandIfFew] = useState(false);
 
   const [postal, setPostal]   = useState("");
   const [city, setCity]       = useState("");
