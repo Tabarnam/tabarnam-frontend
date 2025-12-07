@@ -5,11 +5,13 @@ import RecentImportsPanel from "@/components/RecentImportsPanel";
 import { API_BASE } from "@/lib/api";
 
 export default function XAIBulkImportPage() {
+  const [searchMode, setSearchMode] = useState("multiple"); // "specific" or "multiple"
   const [maxImports, setMaxImports] = useState(1);
   const [searchField, setSearchField] = useState("product_keywords");
   const [searchValue, setSearchValue] = useState("");
   const [center, setCenter] = useState({ lat: "", lng: "" });
   const [expandIfFew, setExpandIfFew] = useState(false);
+  const [showLocationSources, setShowLocationSources] = useState(false);
 
   const [postal, setPostal]   = useState("");
   const [city, setCity]       = useState("");
