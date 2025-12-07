@@ -45,7 +45,7 @@ const DEFAULT_CONFIG = {
 };
 
 app.http('adminStarConfig', {
-  route: 'admin-api-star-config',
+  route: 'xadmin-api-star-config',
   methods: ['GET', 'PUT', 'OPTIONS'],
   authLevel: 'anonymous',
   handler: async (req, context) => {

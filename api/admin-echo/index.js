@@ -1,7 +1,7 @@
 const { app } = require("@azure/functions");
 
 app.http("adminEcho", {
-  route: "admin-api-echo",
+  route: "xadmin-api-echo",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
