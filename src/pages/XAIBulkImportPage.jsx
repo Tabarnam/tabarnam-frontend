@@ -21,8 +21,6 @@ export default function XAIBulkImportPage() {
   const [status, setStatus] = useState("");
   const [lastMeta, setLastMeta] = useState(null);
   const [usedDirect] = useState(false); // no longer needed with /xapi proxy
-  const [saving, setSaving] = useState(false);
-  const [manualList, setManualList] = useState("");
 
   const [savedSoFar, setSavedSoFar] = useState(0);
   const [lastRowTs, setLastRowTs] = useState("");
@@ -179,25 +177,6 @@ export default function XAIBulkImportPage() {
     setModalOpen(false);
   };
 
-  const handleQuickImportSave = async () => {
-    const lines = manualList.split("\n").map((s) => s.trim()).filter(Boolean);
-    if (!lines.length) { setStatus("Paste at least one company name or URL."); return; }
-    const companies = lines.map((line) => {
-      const looksLikeUrl = /^(https?:\/\/|www\.)/i.test(line) || /^[\w.-]+\.[a-z]{2,}$/i.test(line);
-      const url = looksLikeUrl ? (line.startsWith("http") ? line : `https://${line}`) : "";
-      const company_name = looksLikeUrl ? "" : line;
-      return { company_name, url };
-    });
-    try {
-      setSaving(true); setStatus("Saving…");
-      const r = await fetch(`${API_BASE}/save-companies`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ companies }) });
-      const j = await r.json().catch(() => ({}));
-      if (r.ok) setStatus(`💾 Saved ${j.saved} companies${j.failed ? `, ${j.failed} failed` : ""}.`);
-      else setStatus(`❌ Save failed: ${j?.error || r.statusText}`);
-    } catch (e) {
-      setStatus(`❌ Save error: ${e.message}`);
-    } finally { setSaving(false); }
-  };
 
   const handleClear = () => {
     setSessionId(""); 
@@ -205,7 +184,6 @@ export default function XAIBulkImportPage() {
     setSearchValue("");
     setMaxImports(10); 
     setLastMeta(null); 
-    setManualList("");
     setSavedSoFar(0); 
     setLastRowTs("");
     setCenter({ lat: "", lng: "" });
@@ -228,34 +206,8 @@ export default function XAIBulkImportPage() {
             Saved so far: <strong>{savedSoFar}</strong>{lastRowTs ? ` · last at ${new Date(lastRowTs).toLocaleTimeString()}` : ""}
           </span>
         )}
-        {!sessionId && lastSessionId && (
-          <button onClick={handleResume} className="text-xs px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-700">
-            Resume last stream
-          </button>
-        )}
       </div>
 
-      {/* Manual/CSV quick import (kept) */}
-      <div className="mb-6 p-3 border rounded">
-        <label className="block text-sm font-medium text-gray-700 mb-1">Manual/CSV Quick Import (one per line)</label>
-        <textarea
-          rows={5}
-          value={manualList}
-          onChange={(e) => setManualList(e.target.value)}
-          placeholder={`Acme Candles\nhttps://www.bunn.com\ncarpigiani.com`}
-          className="w-full border rounded px-3 py-2"
-        />
-        <div className="mt-2 flex gap-2 items-center">
-          <button
-            onClick={handleQuickImportSave}
-            disabled={saving}
-            className={`rounded px-4 py-2 text-white ${saving ? "bg-emerald-400" : "bg-emerald-600 hover:bg-emerald-700"}`}
-          >
-            {saving ? "Saving…" : "Save These Lines to DB"}
-          </button>
-          <span className="text-xs text-gray-500">Calls <code>{API_BASE}/save-companies</code> (wire up in external app).</span>
-        </div>
-      </div>
 
       {/* Discovery controls */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
