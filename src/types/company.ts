@@ -91,6 +91,7 @@ export interface Company {
 export const emptyStar = (): StarUnit => ({
   value: 0.0,
   notes: [],
+  icon_type: undefined,
 });
 
 // Helper function to create default rating
