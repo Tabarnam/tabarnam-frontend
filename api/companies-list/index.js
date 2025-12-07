@@ -212,6 +212,19 @@ app.http("companies-list", {
           return json({ error: "company payload required" }, 400);
         }
 
+        // Validate logo_url is not a temporary blob URL
+        if (incoming.logo_url && typeof incoming.logo_url === 'string') {
+          if (incoming.logo_url.startsWith('blob:')) {
+            context.log("[companies-list] Rejected: logo_url is a temporary blob URL", {
+              company_name: incoming.company_name,
+              logo_url: incoming.logo_url.substring(0, 50)
+            });
+            return json({
+              error: "Invalid logo URL: Must be a permanent storage link, not a temporary blob URL. Please ensure the logo was properly uploaded to Azure Blob Storage before saving."
+            }, 400);
+          }
+        }
+
         context.log("[companies-list] Incoming company data:", {
           method,
           id: incoming.id,
