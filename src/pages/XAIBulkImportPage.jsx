@@ -5,7 +5,7 @@ import RecentImportsPanel from "@/components/RecentImportsPanel";
 import { API_BASE } from "@/lib/api";
 
 export default function XAIBulkImportPage() {
-  const [maxImports, setMaxImports] = useState(10);
+  const [maxImports, setMaxImports] = useState(1);
   const [searchField, setSearchField] = useState("product_keywords");
   const [searchValue, setSearchValue] = useState("");
   const [center, setCenter] = useState({ lat: "", lng: "" });
@@ -182,7 +182,7 @@ export default function XAIBulkImportPage() {
     setSessionId(""); 
     setStatus(""); 
     setSearchValue("");
-    setMaxImports(10); 
+    setMaxImports(1); 
     setLastMeta(null); 
     setSavedSoFar(0); 
     setLastRowTs("");
@@ -196,7 +196,7 @@ export default function XAIBulkImportPage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <h1 className="text-3xl font-bold mb-2">Bulk Company Import</h1>
+      <h1 className="text-3xl font-bold mb-4">Company Import</h1>
       <div className="flex gap-2 items-center mb-6">
         {sessionId && (
           <span className="text-xs px-2 py-1 rounded bg-gray-200">Session: <code>{sessionId}</code></span>
@@ -208,9 +208,21 @@ export default function XAIBulkImportPage() {
         )}
       </div>
 
+      {/* Search Value - full width, dedicated line */}
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700">Search Value</label>
+        <input
+          type="text"
+          value={searchValue}
+          onChange={(e) => setSearchValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleImport(); } }}
+          placeholder='e.g., "electrolyte powder"'
+          className="w-full border rounded px-3 py-2"
+        />
+      </div>
 
       {/* Discovery controls */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <div>
           <label className="block text-sm font-medium text-gray-700">Target results (1–25)</label>
           <input
@@ -237,37 +249,6 @@ export default function XAIBulkImportPage() {
             {fields.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
         </div>
-        <div className="md:col-span-2">
-          <label className="block text-sm font-medium text-gray-700">Search Value</label>
-          <input
-            type="text"
-            value={searchValue}
-            onChange={(e) => setSearchValue(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleImport(); } }}
-            placeholder='e.g., "electrolyte powder"'
-            className="w-full border rounded px-3 py-2"
-          />
-        </div>
-      </div>
-
-      {/* Center + Address (UI kept; geocode deferred) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Center Latitude (optional)</label>
-          <input type="number" step="any" value={center.lat}
-                 onChange={(e) => setCenter((s) => ({ ...s, lat: e.target.value }))}
-                 className="w-full border rounded px-3 py-2" placeholder="34.103" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Center Longitude (optional)</label>
-          <input type="number" step="any" value={center.lng}
-                 onChange={(e) => setCenter((s) => ({ ...s, lng: e.target.value }))}
-                 className="w-full border rounded px-3 py-2" placeholder="-118.325" />
-        </div>
-        <div className="flex items-end gap-2">
-          <button onClick={handleImport} className="rounded px-4 py-2 text-white bg-blue-600 hover:bg-blue-700">Start Import</button>
-          <button onClick={handleClear} className="bg-red-600 hover:bg-red-700 text-white rounded px-4 py-2">Clear</button>
-        </div>
       </div>
 
       {/* Address inputs (for future geocode; no-op today) */}
@@ -287,6 +268,26 @@ export default function XAIBulkImportPage() {
         <div>
           <label className="block text-sm font-medium text-gray-700">Country</label>
           <input value={country} onChange={(e)=>setCountry(e.target.value)} placeholder="e.g. USA" className="w-full border rounded px-3 py-2" />
+        </div>
+      </div>
+
+      {/* Center Latitude + Center Longitude + Buttons */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Center Latitude (optional)</label>
+          <input type="number" step="any" value={center.lat}
+                 onChange={(e) => setCenter((s) => ({ ...s, lat: e.target.value }))}
+                 className="w-full border rounded px-3 py-2" placeholder="34.103" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Center Longitude (optional)</label>
+          <input type="number" step="any" value={center.lng}
+                 onChange={(e) => setCenter((s) => ({ ...s, lng: e.target.value }))}
+                 className="w-full border rounded px-3 py-2" placeholder="-118.325" />
+        </div>
+        <div className="flex items-end gap-2">
+          <button onClick={handleImport} className="rounded px-4 py-2 text-white bg-lime-500 hover:bg-lime-600">Start Import</button>
+          <button onClick={handleClear} className="bg-red-600 hover:bg-red-700 text-white rounded px-4 py-2">Clear</button>
         </div>
       </div>
 
