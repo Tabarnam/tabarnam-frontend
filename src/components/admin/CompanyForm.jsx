@@ -266,17 +266,28 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
             />
           </div>
           <div>
-            <Label htmlFor="tagline">
-              Tagline
-              {!formData.tagline && <span className="text-red-500 text-xs ml-2">⚠️ Missing</span>}
-            </Label>
+            <div className="flex items-center justify-between mb-2">
+              <Label htmlFor="tagline">
+                Company Tagline
+                {!formData.tagline && <span className="text-amber-600 text-xs ml-2">ℹ️ Optional but recommended</span>}
+              </Label>
+              <span className="text-xs text-slate-500">
+                {(formData.tagline || "").length}/200
+              </span>
+            </div>
             <Input
               id="tagline"
               name="tagline"
               value={formData.tagline || ""}
-              onChange={handleChange}
-              placeholder="Company tagline or mission statement"
+              onChange={(e) => {
+                if (e.target.value.length <= 200) {
+                  handleChange(e);
+                }
+              }}
+              placeholder="e.g., 'Leading innovators in sustainable technology'"
+              maxLength="200"
             />
+            <p className="text-xs text-slate-600 mt-1">Short, catchy description for better user engagement</p>
           </div>
           <div>
             <Label htmlFor="website_url">
