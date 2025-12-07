@@ -2,13 +2,13 @@
 const { app } = require("@azure/functions");
 
 app.http("adminRecentImports", {
+  // New safe prefix
   route: "xadmin-api-recent-imports",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, ctx) => {
-    ctx.log("[admin-api-recent-imports] v4 handler called");
+    ctx.log("[xadmin-api-recent-imports] v4 handler called");
 
-    // CORS preflight
     if ((req.method || "").toUpperCase() === "OPTIONS") {
       return {
         status: 204,
@@ -20,7 +20,6 @@ app.http("adminRecentImports", {
       };
     }
 
-    // In v4, req.query is URLSearchParams
     const query = req.query || new URLSearchParams();
     const takeRaw =
       query.get("take") ||
@@ -33,7 +32,7 @@ app.http("adminRecentImports", {
       status: 200,
       jsonBody: {
         ok: true,
-        name: "admin-api-recent-imports",
+        name: "xadmin-api-recent-imports",
         take,
         imports: []
       },
