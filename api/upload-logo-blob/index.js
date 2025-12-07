@@ -2,7 +2,7 @@ const { app } = require("@azure/functions");
 const { BlobServiceClient } = require("@azure/storage-blob");
 
 const STORAGE_ACCOUNT = "tabarnamstor2356";
-const STORAGE_ACCOUNT_KEY = process.env.AZURE_STORAGE_ACCOUNT_KEY || "yc2wE75NmkLuy74EoJMqMaNpNFm70vK2iptLuAzJ6XswlPOWREJEd5sNUS8sDNKV484jxhFLTPCo+AStzd3Kfw==";
+const STORAGE_ACCOUNT_KEY = process.env.AZURE_STORAGE_ACCOUNT_KEY || "";
 const CONTAINER_NAME = "company-logos";
 
 function cors(req) {
