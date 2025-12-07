@@ -6,10 +6,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { apiFetch } from "@/lib/api";
 import { toast } from "sonner";
 import { getAdminUser } from "@/lib/azureAuth";
+import { Plus, Trash2, Edit2, Image } from "lucide-react";
 import IndustriesEditor from "./form-elements/IndustriesEditor";
 import KeywordsEditor from "./form-elements/KeywordsEditor";
 import HeadquartersLocationsEditor from "./form-elements/HeadquartersLocationsEditor";
 import StarRatingEditor from "./form-elements/StarRatingEditor";
+import LogoUploadDialog from "./LogoUploadDialog";
 import { defaultRating } from "@/types/company";
 import { getOrCalculateRating } from "@/lib/stars/calculateRating";
 
