@@ -271,10 +271,13 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
-      <DialogContent className="w-[95vw] sm:w-[92vw] md:w-[90vw] max-w-none h-[90vh] flex flex-col">
+      <DialogContent
+        className="w-[95vw] sm:w-[92vw] md:w-[90vw] max-w-none h-[90vh] flex flex-col"
+        aria-describedby="company-form-description"
+      >
         <DialogHeader className="flex-shrink-0">
           <DialogTitle>{isEditMode ? "Edit Company" : "Add Company"}</DialogTitle>
-          <DialogDescription>
+          <DialogDescription id="company-form-description">
             {isEditMode ? "Update company information and settings" : "Add a new company to the system"}
           </DialogDescription>
         </DialogHeader>
