@@ -357,6 +357,115 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           </div>
           <div className="border-t pt-4 mt-4">
             <h3 className="font-semibold text-sm mb-4">Location Information</h3>
+
+            {/* Location Sources */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold text-sm text-slate-900">Location Sources</h4>
+                <input
+                  id="show_location_sources"
+                  type="checkbox"
+                  checked={showLocationSourcesToUsers}
+                  onChange={(e) => setShowLocationSourcesToUsers(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 cursor-pointer"
+                />
+              </div>
+              <Label htmlFor="show_location_sources" className="text-sm text-slate-700 cursor-pointer mb-3 block">
+                Show Location Sources to Users
+              </Label>
+              <p className="text-xs text-slate-600 mb-4">
+                When enabled, source links will appear on the public company page under a "Sources" section
+              </p>
+
+              {/* Add New Source */}
+              <div className="bg-white p-3 rounded border border-blue-200 mb-4 space-y-2">
+                <Input
+                  placeholder="Location (e.g., San Francisco, CA, USA)"
+                  value={newSourceInput.location}
+                  onChange={(e) =>
+                    setNewSourceInput({ ...newSourceInput, location: e.target.value })
+                  }
+                  className="text-sm"
+                />
+                <Input
+                  placeholder="Source URL (e.g., https://example.com)"
+                  value={newSourceInput.url}
+                  onChange={(e) =>
+                    setNewSourceInput({ ...newSourceInput, url: e.target.value })
+                  }
+                  className="text-sm"
+                />
+                <select
+                  value={newSourceInput.type}
+                  onChange={(e) =>
+                    setNewSourceInput({ ...newSourceInput, type: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="official_website">Official Website</option>
+                  <option value="government_guide">Government Guide</option>
+                  <option value="b2b_directory">B2B Directory</option>
+                  <option value="trade_data">Trade Data</option>
+                  <option value="packaging">Packaging</option>
+                  <option value="media">Media</option>
+                  <option value="other">Other</option>
+                </select>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    if (newSourceInput.location.trim() && newSourceInput.url.trim()) {
+                      setLocationSources([
+                        ...locationSources,
+                        {
+                          location: newSourceInput.location,
+                          source_url: newSourceInput.url,
+                          source_type: newSourceInput.type,
+                        },
+                      ]);
+                      setNewSourceInput({ url: "", type: "official_website", location: "" });
+                      toast.success("Source added");
+                    } else {
+                      toast.error("Please fill in location and URL");
+                    }
+                  }}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center gap-2"
+                >
+                  <Plus size={14} />
+                  Add Source
+                </Button>
+              </div>
+
+              {/* Existing Sources */}
+              {locationSources.length > 0 && (
+                <div className="space-y-2">
+                  {locationSources.map((source, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-white p-3 rounded border border-slate-200 flex items-start justify-between gap-2"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900 break-words">{source.location}</p>
+                        <p className="text-xs text-slate-600 truncate">
+                          {source.source_type} | {source.source_url}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLocationSources(locationSources.filter((_, i) => i !== idx));
+                          toast.success("Source removed");
+                        }}
+                        className="text-red-600 hover:text-red-800 flex-shrink-0"
+                        title="Remove source"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="border-t pt-4 mt-4">
               <h3 className="font-semibold text-sm mb-4">Headquarters Locations</h3>
               <HeadquartersLocationsEditor
