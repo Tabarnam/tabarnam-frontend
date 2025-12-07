@@ -119,6 +119,15 @@ export function LogoUploadDialog({
 
       // Upload using existing function
       const r = await uploadLogoFile(companyId, file);
+
+      // Validate returned URL is not a blob URL
+      if (!r.logo_url || r.logo_url.startsWith('blob:')) {
+        const errorMessage = "Server returned invalid URL—upload may have failed. Please try again.";
+        setError(errorMessage);
+        onError?.(errorMessage);
+        return;
+      }
+
       onSaved?.(r.logo_url);
       onClose?.();
     } catch (e: any) {
