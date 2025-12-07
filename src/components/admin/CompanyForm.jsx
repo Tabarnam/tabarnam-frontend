@@ -259,12 +259,16 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
             />
           </div>
           <div>
-            <Label htmlFor="tagline">Tagline</Label>
+            <Label htmlFor="tagline">
+              Tagline
+              {!formData.tagline && <span className="text-red-500 text-xs ml-2">⚠️ Missing</span>}
+            </Label>
             <Input
               id="tagline"
               name="tagline"
               value={formData.tagline || ""}
               onChange={handleChange}
+              placeholder="Company tagline or mission statement"
             />
           </div>
           <div>
