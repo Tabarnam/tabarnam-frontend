@@ -272,7 +272,10 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
             />
           </div>
           <div>
-            <Label htmlFor="website_url">Website URL</Label>
+            <Label htmlFor="website_url">
+              Website URL
+              {isEditMode && !company?.logo_url && <span className="text-orange-500 text-xs ml-2">ℹ️ No logo</span>}
+            </Label>
             <Input
               id="website_url"
               name="website_url"
@@ -280,6 +283,11 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
               onChange={handleChange}
               placeholder="https://example.com"
             />
+            {isEditMode && (
+              <p className="text-xs text-slate-600 mt-1">
+                {company?.logo_url ? '✅ Logo present' : '⚠️ Logo will be auto-imported on next import or can be manually added'}
+              </p>
+            )}
           </div>
           <div>
             <Label htmlFor="amazon_store_url">Amazon Store URL</Label>
