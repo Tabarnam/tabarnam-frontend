@@ -89,6 +89,24 @@ function enrichCompany(company, center) {
     c.manufacturing_locations = [];
   }
 
+  // Handle location_sources - structured data with source attribution
+  if (!Array.isArray(c.location_sources)) {
+    c.location_sources = [];
+  }
+
+  // Ensure each location_source has required fields
+  c.location_sources = c.location_sources
+    .filter(s => s && s.location)
+    .map(s => ({
+      location: String(s.location || "").trim(),
+      source_url: String(s.source_url || "").trim(),
+      source_type: s.source_type || "other",
+      location_type: s.location_type || "other",
+    }));
+
+  // Handle tagline
+  c.tagline = String(c.tagline || "").trim();
+
   c.red_flag = Boolean(c.red_flag);
   c.red_flag_reason = String(c.red_flag_reason || "").trim();
   c.location_confidence = (c.location_confidence || "medium").toString().toLowerCase();
