@@ -170,6 +170,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       red_flag: Boolean(formData.red_flag),
       red_flag_reason: formData.red_flag_reason || "",
       location_confidence: formData.location_confidence || "medium",
+      show_location_sources_to_users: showLocationSourcesToUsers,
       rating_icon_type: ratingIconType,
       rating: rating,
       visibility: visibility,
