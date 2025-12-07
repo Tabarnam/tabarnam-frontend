@@ -133,6 +133,13 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     e.preventDefault();
     setIsSaving(true);
 
+    // Client-side validation for logo_url
+    if (formData.logo_url && formData.logo_url.startsWith('blob:')) {
+      toast.error("Invalid logo URL—must be a permanent storage link. Please re-upload.");
+      setIsSaving(false);
+      return;
+    }
+
     const companyId = formData.id || formData.company_id;
     const method = companyId ? "PUT" : "POST";
 
