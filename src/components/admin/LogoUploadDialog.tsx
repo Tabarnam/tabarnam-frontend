@@ -3,7 +3,6 @@ import { setLogoUrl, uploadLogoFile } from "@/lib/api/adminLogos";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
 import { X, ZoomIn, ZoomOut, RotateCw, Sun } from "lucide-react";
 
 interface LogoEditState {
