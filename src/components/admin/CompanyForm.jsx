@@ -664,9 +664,16 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
             companyId={formData.id || formData.company_id}
             onClose={() => setShowLogoDialog(false)}
             onSaved={(logoUrl) => {
+              if (!logoUrl || logoUrl.startsWith('blob:')) {
+                toast.error("Logo upload failed: invalid URL returned. Please try again.");
+                return;
+              }
               setFormData((prev) => ({ ...prev, logo_url: logoUrl }));
               setShowLogoDialog(false);
-              toast.success("Logo updated successfully!");
+              toast.success("Logo uploaded successfully! Don't forget to save the company.");
+            }}
+            onError={(error) => {
+              toast.error(`Logo upload failed: ${error}`);
             }}
           />
         </DialogContent>
