@@ -78,7 +78,9 @@ export function LogoUploadDialog({
       onSaved?.(r.logo_url);
       onClose?.();
     } catch (e: any) {
-      setError(e?.message || "Failed to save logo URL");
+      const errorMessage = e?.message || "Failed to save logo URL";
+      setError(errorMessage);
+      onError?.(errorMessage);
     } finally {
       setBusy(false);
     }
