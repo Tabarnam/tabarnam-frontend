@@ -249,8 +249,15 @@ export function LogoUploadDialog({
               type="file"
               accept="image/png,image/jpeg,image/gif,image/svg+xml"
               onChange={(e) => {
+                setError("");
                 const f = e.target.files?.[0];
-                if (f) handleFileSelect(f);
+                if (f) {
+                  if (f.size > 5 * 1024 * 1024) {
+                    setError("File size must be under 5MB");
+                    return;
+                  }
+                  handleFileSelect(f);
+                }
               }}
               className="hidden"
             />
