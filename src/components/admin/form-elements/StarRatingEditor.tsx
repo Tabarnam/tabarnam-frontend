@@ -103,11 +103,12 @@ export const StarRatingEditor: React.FC<StarRatingEditorProps> = ({
       </CardHeader>
 
       <CardContent className="space-y-6">
-        {/* Icon Type Selector */}
+        {/* Global Icon Type Selector (default) */}
         <div className="border-b pb-6">
           <Label className="text-sm font-semibold text-slate-900 mb-3 block">
-            Rating Icon Type
+            Default Rating Icon Type
           </Label>
+          <p className="text-xs text-slate-600 mb-3">Set the default icon type for all stars. Individual stars can override this setting below.</p>
           <div className="flex gap-3">
             <button
               type="button"
