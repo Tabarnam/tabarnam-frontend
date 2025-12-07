@@ -108,28 +108,34 @@ export default function XAIBulkImportPage() {
     setSessionId(sid);
     localStorage.setItem("last_session_id", sid);
     setLastSessionId(sid);
-    setSavedSoFar(0); 
+    setSavedSoFar(0);
     setLastRowTs("");
     setModalOpen(false);
-    setStatus("Starting import… (rows will stream in below)");
+
+    const isSpecificSearch = searchMode === "specific";
+    setStatus(isSpecificSearch ? "🔍 Searching for specific company… (may take longer for thorough location search)" : "Starting import… (rows will stream in below)");
 
     try {
       const queryType = mapFieldToQueryType(searchField);
       const maybeCenter = resolveCenter(center);
 
+      // For specific company search, always use limit of 1; for multiple, use user's choice
+      const limit = isSpecificSearch ? 1 : Math.max(1, Math.min(Number(maxImports) || 1, 25));
+
       const body = {
         queryType,
         query: q,
-        limit: Math.max(1, Math.min(Number(maxImports) || 1, 25)),
-        timeout_ms: 600000,
+        limit,
+        timeout_ms: isSpecificSearch ? 600000 : 600000, // Allow more time for thorough specific searches
         session_id: sid,
-        expand_if_few: !!expandIfFew,
+        expand_if_few: isSpecificSearch ? false : !!expandIfFew, // Don't expand when searching for specific company
+        show_location_sources: showLocationSources,
         ...(maybeCenter ? { center: maybeCenter } : {}),
       };
 
       const j = await postImportStart(body);
       setLastMeta(j?.meta || null);
-      setStatus("✅ Import started. Streaming…");
+      setStatus(isSpecificSearch ? "✅ Specific company search started. Performing thorough location search…" : "✅ Import started. Streaming…");
     } catch (err) {
       console.error("Import error:", err);
       setStatus(`❌ Error: ${err?.message || "Unknown error"}`);
