@@ -89,6 +89,24 @@ function enrichCompany(company, center) {
     c.manufacturing_locations = [];
   }
 
+  // Handle location_sources - structured data with source attribution
+  if (!Array.isArray(c.location_sources)) {
+    c.location_sources = [];
+  }
+
+  // Ensure each location_source has required fields
+  c.location_sources = c.location_sources
+    .filter(s => s && s.location)
+    .map(s => ({
+      location: String(s.location || "").trim(),
+      source_url: String(s.source_url || "").trim(),
+      source_type: s.source_type || "other",
+      location_type: s.location_type || "other",
+    }));
+
+  // Handle tagline
+  c.tagline = String(c.tagline || "").trim();
+
   c.red_flag = Boolean(c.red_flag);
   c.red_flag_reason = String(c.red_flag_reason || "").trim();
   c.location_confidence = (c.location_confidence || "medium").toString().toLowerCase();
@@ -251,6 +269,9 @@ async function saveCompaniesToCosmos(companies, sessionId) {
           product_keywords: company.product_keywords || "",
           normalized_domain: normalizedDomain,
           logo_url: logoUrl || null,
+          tagline: company.tagline || "",
+          location_sources: Array.isArray(company.location_sources) ? company.location_sources : [],
+          show_location_sources_to_users: Boolean(company.show_location_sources_to_users),
           hq_lat: company.hq_lat,
           hq_lng: company.hq_lng,
           headquarters_location: company.headquarters_location || "",
@@ -445,12 +466,29 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
    d) Crunchbase / public business directories
    e) News and public records
 
+5. LOCATION SOURCES (Required for structured data):
+   - For EVERY location (both HQ and manufacturing) you extract, provide the source information in location_sources array
+   - Each entry in location_sources must have:
+     a) location: the exact location string (e.g., "San Francisco, CA, USA")
+     b) source_url: the URL where this location was found (or empty string if no specific URL)
+     c) source_type: one of: official_website, government_guide, b2b_directory, trade_data, packaging, media, other
+     d) location_type: either "headquarters" or "manufacturing"
+   - This allows us to display source attribution to users and verify data quality
+   - Example: { "location": "Shanghai, China", "source_url": "https://company.com/facilities", "source_type": "official_website", "location_type": "manufacturing" }
+
+6. TAGLINE (Optional but valuable):
+   - Extract the company's official tagline, mission statement, or brand slogan if available
+   - Check: Company website homepage, About page, marketing materials, "Tagline" or "Slogan" field
+   - If no explicit tagline found, leave empty (do NOT fabricate)
+   - Example: "Tagline": "Where Quality Meets Innovation" or empty string ""
+
 CRITICAL REQUIREMENTS FOR THIS SEARCH:
 - Do NOT return empty manufacturing_locations arrays unless you have exhaustively checked government guides, B2B directories, and trade data
 - Do NOT treat "not explicitly stated on website" as "manufacturing location unknown" - use secondary sources
 - Always prefer country-level manufacturing locations (e.g., "United States") over empty arrays
 - Government Buyer Guides (like Yumpu entries) are CREDIBLE PRIMARY sources for both HQ and manufacturing claims
 - Companies listed in B2B manufacturer directories should have their listed location included
+- For EACH location returned, MUST have a corresponding entry in location_sources array (this is non-negotiable)
 
 SECONDARY: DIVERSITY & COVERAGE
 - Prioritize smaller, regional, and lesser-known companies (40% small/regional/emerging, 35% mid-market, 25% major brands)
@@ -465,11 +503,13 @@ FORMAT YOUR RESPONSE AS A VALID JSON ARRAY. EACH OBJECT MUST HAVE:
 - product_keywords (string): Comma-separated product keywords
 - headquarters_location (string, REQUIRED): "City, State/Region, Country" format (or empty string ONLY if truly unknown after checking all sources)
 - manufacturing_locations (array, REQUIRED): Array of location strings (MUST include all credible sources - official, government guides, B2B directories, suppliers, customs, packaging labels). Use country-only entries (e.g., "United States") if that's all that's known.
+- location_sources (array, REQUIRED): Array of objects with structure: { "location": "City, State, Country", "source_url": "https://...", "source_type": "official_website|government_guide|b2b_directory|trade_data|packaging|media|other", "location_type": "headquarters|manufacturing" }. Include ALL sources found for both HQ and manufacturing locations.
 - red_flag (boolean, REQUIRED): true only if HQ unknown or manufacturing completely unverifiable despite exhaustive checking of ALL sources including government guides and B2B directories
 - red_flag_reason (string, REQUIRED): Explanation if red_flag=true, empty string if false; may note if manufacturing was inferred from secondary sources
 - hq_lat (number, optional): Headquarters latitude
 - hq_lng (number, optional): Headquarters longitude
 - amazon_url (string, optional): Amazon storefront URL
+- tagline (string, optional): Company's official tagline or mission statement (from website or marketing materials)
 - social (object, optional): Social media URLs {linkedin, instagram, x, twitter, facebook, tiktok, youtube}
 - location_confidence (string, optional): "high", "medium", or "low" based on data quality and sources used
 

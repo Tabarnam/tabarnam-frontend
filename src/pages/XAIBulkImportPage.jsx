@@ -5,11 +5,13 @@ import RecentImportsPanel from "@/components/RecentImportsPanel";
 import { API_BASE } from "@/lib/api";
 
 export default function XAIBulkImportPage() {
+  const [searchMode, setSearchMode] = useState("multiple"); // "specific" or "multiple"
   const [maxImports, setMaxImports] = useState(1);
   const [searchField, setSearchField] = useState("product_keywords");
   const [searchValue, setSearchValue] = useState("");
   const [center, setCenter] = useState({ lat: "", lng: "" });
   const [expandIfFew, setExpandIfFew] = useState(false);
+  const [showLocationSources, setShowLocationSources] = useState(false);
 
   const [postal, setPostal]   = useState("");
   const [city, setCity]       = useState("");
@@ -106,28 +108,34 @@ export default function XAIBulkImportPage() {
     setSessionId(sid);
     localStorage.setItem("last_session_id", sid);
     setLastSessionId(sid);
-    setSavedSoFar(0); 
+    setSavedSoFar(0);
     setLastRowTs("");
     setModalOpen(false);
-    setStatus("Starting import… (rows will stream in below)");
+
+    const isSpecificSearch = searchMode === "specific";
+    setStatus(isSpecificSearch ? "🔍 Searching for specific company… (may take longer for thorough location search)" : "Starting import… (rows will stream in below)");
 
     try {
       const queryType = mapFieldToQueryType(searchField);
       const maybeCenter = resolveCenter(center);
 
+      // For specific company search, always use limit of 1; for multiple, use user's choice
+      const limit = isSpecificSearch ? 1 : Math.max(1, Math.min(Number(maxImports) || 1, 25));
+
       const body = {
         queryType,
         query: q,
-        limit: Math.max(1, Math.min(Number(maxImports) || 1, 25)),
-        timeout_ms: 600000,
+        limit,
+        timeout_ms: isSpecificSearch ? 600000 : 600000, // Allow more time for thorough specific searches
         session_id: sid,
-        expand_if_few: !!expandIfFew,
+        expand_if_few: isSpecificSearch ? false : !!expandIfFew, // Don't expand when searching for specific company
+        show_location_sources: showLocationSources,
         ...(maybeCenter ? { center: maybeCenter } : {}),
       };
 
       const j = await postImportStart(body);
       setLastMeta(j?.meta || null);
-      setStatus("✅ Import started. Streaming…");
+      setStatus(isSpecificSearch ? "✅ Specific company search started. Performing thorough location search…" : "✅ Import started. Streaming…");
     } catch (err) {
       console.error("Import error:", err);
       setStatus(`❌ Error: ${err?.message || "Unknown error"}`);
@@ -179,18 +187,20 @@ export default function XAIBulkImportPage() {
 
 
   const handleClear = () => {
-    setSessionId(""); 
-    setStatus(""); 
+    setSessionId("");
+    setStatus("");
     setSearchValue("");
-    setMaxImports(1); 
-    setLastMeta(null); 
-    setSavedSoFar(0); 
+    setMaxImports(1);
+    setLastMeta(null);
+    setSavedSoFar(0);
     setLastRowTs("");
     setCenter({ lat: "", lng: "" });
-    setPostal(""); 
-    setCity(""); 
-    setStateR(""); 
+    setPostal("");
+    setCity("");
+    setStateR("");
     setCountry("");
+    setShowLocationSources(false);
+    setSearchMode("multiple");
     setModalOpen(false);
   };
 
@@ -206,6 +216,39 @@ export default function XAIBulkImportPage() {
             Saved so far: <strong>{savedSoFar}</strong>{lastRowTs ? ` · last at ${new Date(lastRowTs).toLocaleTimeString()}` : ""}
           </span>
         )}
+      </div>
+
+      {/* Search Mode Toggle */}
+      <div className="mb-6 p-4 border rounded bg-blue-50">
+        <label className="block text-sm font-medium text-gray-700 mb-2">Search Mode</label>
+        <div className="flex gap-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="searchMode"
+              value="specific"
+              checked={searchMode === "specific"}
+              onChange={(e) => setSearchMode(e.target.value)}
+              className="h-4 w-4"
+            />
+            <span className="text-sm text-gray-700">
+              🔍 Specific Company (finds exactly one company with thorough location search)
+            </span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="searchMode"
+              value="multiple"
+              checked={searchMode === "multiple"}
+              onChange={(e) => setSearchMode(e.target.value)}
+              className="h-4 w-4"
+            />
+            <span className="text-sm text-gray-700">
+              📋 Multiple Results (bulk import up to 25 companies)
+            </span>
+          </label>
+        </div>
       </div>
 
       {/* Search Value - full width, dedicated line */}
@@ -224,24 +267,30 @@ export default function XAIBulkImportPage() {
       {/* Discovery controls */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700">Target results (1–25)</label>
+          <label className="block text-sm font-medium text-gray-700">
+            Target results (1–25)
+            {searchMode === "specific" && <span className="text-xs text-teal-600 ml-2">(locked to 1 for specific search)</span>}
+          </label>
           <input
-            type="number" min="1" max="25" value={maxImports}
+            type="number" min="1" max="25" value={searchMode === "specific" ? 1 : maxImports}
             onChange={(e) => setMaxImports(Math.max(1, Math.min(25, Number(e.target.value) || 1)))}
-            className="w-full border rounded px-3 py-2"
+            disabled={searchMode === "specific"}
+            className={`w-full border rounded px-3 py-2 ${searchMode === "specific" ? "bg-gray-100 text-gray-500 cursor-not-allowed" : ""}`}
           />
-          <div className="mt-2 flex items-center gap-2">
-            <input
-              id="expandIfFew"
-              type="checkbox"
-              className="h-4 w-4"
-              checked={expandIfFew}
-              onChange={(e) => setExpandIfFew(e.target.checked)}
-            />
-            <label htmlFor="expandIfFew" className="text-sm text-gray-700">
-              Expand search area if few results
-            </label>
-          </div>
+          {searchMode === "multiple" && (
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                id="expandIfFew"
+                type="checkbox"
+                className="h-4 w-4"
+                checked={expandIfFew}
+                onChange={(e) => setExpandIfFew(e.target.checked)}
+              />
+              <label htmlFor="expandIfFew" className="text-sm text-gray-700">
+                Expand search area if few results
+              </label>
+            </div>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700">Search Field</label>
@@ -250,6 +299,26 @@ export default function XAIBulkImportPage() {
           </select>
         </div>
       </div>
+
+      {/* Location Sources Visibility for Specific Search */}
+      {searchMode === "specific" && (
+        <div className="mb-4 p-3 border rounded bg-teal-50">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={showLocationSources}
+              onChange={(e) => setShowLocationSources(e.target.checked)}
+            />
+            <span className="text-sm font-medium text-gray-700">
+              ✨ Make Location Sources Visible to Users
+            </span>
+          </label>
+          <p className="text-xs text-gray-600 mt-1 ml-6">
+            When enabled, source links for HQ and manufacturing locations will appear on the public company page.
+          </p>
+        </div>
+      )}
 
       {/* Address inputs (for future geocode; no-op today) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">

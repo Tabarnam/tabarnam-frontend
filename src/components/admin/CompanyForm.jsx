@@ -26,6 +26,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     manufacturing_public: true,
     admin_rating_public: false,
   });
+  const [showLocationSourcesToUsers, setShowLocationSourcesToUsers] = useState(false);
 
   // Normalize incoming company data from snake_case to form structure
   const normalizeCompany = (comp) => {
@@ -90,6 +91,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
         manufacturing_public: true,
         admin_rating_public: false,
       });
+      setShowLocationSourcesToUsers(Boolean(company.show_location_sources_to_users));
       const isEditMode = !!(normalized.id || normalized.company_id);
       console.log('[CompanyForm] Rendering with company:', { isEditMode, id: normalized.id, company_id: normalized.company_id, company_name: normalized.company_name });
     } else {
@@ -168,6 +170,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       red_flag: Boolean(formData.red_flag),
       red_flag_reason: formData.red_flag_reason || "",
       location_confidence: formData.location_confidence || "medium",
+      show_location_sources_to_users: showLocationSourcesToUsers,
       rating_icon_type: ratingIconType,
       rating: rating,
       visibility: visibility,
@@ -256,16 +259,23 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
             />
           </div>
           <div>
-            <Label htmlFor="tagline">Tagline</Label>
+            <Label htmlFor="tagline">
+              Tagline
+              {!formData.tagline && <span className="text-red-500 text-xs ml-2">⚠️ Missing</span>}
+            </Label>
             <Input
               id="tagline"
               name="tagline"
               value={formData.tagline || ""}
               onChange={handleChange}
+              placeholder="Company tagline or mission statement"
             />
           </div>
           <div>
-            <Label htmlFor="website_url">Website URL</Label>
+            <Label htmlFor="website_url">
+              Website URL
+              {isEditMode && !company?.logo_url && <span className="text-orange-500 text-xs ml-2">ℹ️ No logo</span>}
+            </Label>
             <Input
               id="website_url"
               name="website_url"
@@ -273,6 +283,11 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
               onChange={handleChange}
               placeholder="https://example.com"
             />
+            {isEditMode && (
+              <p className="text-xs text-slate-600 mt-1">
+                {company?.logo_url ? '✅ Logo present' : '⚠️ Logo will be auto-imported on next import or can be manually added'}
+              </p>
+            )}
           </div>
           <div>
             <Label htmlFor="amazon_store_url">Amazon Store URL</Label>
@@ -444,6 +459,22 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
                   Show Star Rating to users
                 </Label>
               </div>
+
+              <div className="flex items-center gap-3">
+                <input
+                  id="show_location_sources"
+                  type="checkbox"
+                  checked={showLocationSourcesToUsers}
+                  onChange={(e) => setShowLocationSourcesToUsers(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300"
+                />
+                <Label htmlFor="show_location_sources" className="text-sm font-medium text-slate-700 cursor-pointer mb-0">
+                  ✨ Show Location Sources to users
+                </Label>
+              </div>
+              <p className="text-xs text-slate-600 ml-7 -mt-1">
+                Display source links for HQ and manufacturing location information on the public page
+              </p>
             </div>
           </div>
 

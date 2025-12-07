@@ -504,6 +504,39 @@ export default function ExpandableCompanyRow({
           {renderRightColumn(colKey)}
         </div>
       ))}
+
+      {/* Location Sources Section */}
+      {company.show_location_sources_to_users && Array.isArray(company.location_sources) && company.location_sources.length > 0 && (
+        <div className="col-span-5 border-t pt-4 mt-4">
+          <div className="text-xs font-semibold text-gray-700 mb-3">📍 Location Sources</div>
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            {company.location_sources.map((source, idx) => (
+              <div key={idx} className="border rounded p-2 bg-gray-50">
+                <div className="font-medium text-gray-700">{source.location}</div>
+                <div className="text-gray-600 text-xs mt-1">
+                  Type: <span className="font-medium capitalize">{source.location_type}</span>
+                </div>
+                {source.source_url && (
+                  <div className="mt-2">
+                    <a
+                      href={source.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline text-xs"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      View source ({source.source_type})
+                    </a>
+                  </div>
+                )}
+                {!source.source_url && (
+                  <div className="text-gray-500 text-xs mt-2">Source: {source.source_type}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

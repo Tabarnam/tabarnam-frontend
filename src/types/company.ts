@@ -33,6 +33,13 @@ export interface HeadquartersLocation {
   is_hq?: boolean; // true for primary, false for additional
 }
 
+export interface LocationSource {
+  location: string; // e.g., "San Francisco, CA, USA"
+  source_url?: string; // URL to the source
+  source_type?: "official_website" | "government_guide" | "b2b_directory" | "trade_data" | "packaging" | "media" | "other"; // source type
+  location_type?: "headquarters" | "manufacturing"; // which type of location
+}
+
 export interface Company {
   id?: string;
   company_id?: string;
@@ -56,7 +63,11 @@ export interface Company {
   location_confidence?: "low" | "medium" | "high";
   amazon_store_url?: string;
   amazon_url?: string;
-  
+  tagline?: string;
+  logo_url?: string;
+  location_sources?: LocationSource[];
+  show_location_sources_to_users?: boolean;
+
   // Legacy fields (for backward compatibility)
   star_rating?: number;
   star_overrides?: any;
