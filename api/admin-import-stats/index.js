@@ -31,7 +31,7 @@ function getCompaniesContainer() {
 }
 
 app.http('adminImportStats', {
-  route: 'admin-api-import-stats',
+  route: 'xadmin-api-import-stats',
   methods: ['GET', 'OPTIONS'],
   authLevel: 'anonymous',
   handler: async (req, context) => {

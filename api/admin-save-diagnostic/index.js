@@ -35,7 +35,7 @@ function getCompaniesContainer() {
 }
 
 app.http('adminSaveDiagnostic', {
-  route: 'admin-api-save-diagnostic',
+  route: 'xadmin-api-save-diagnostic',
   methods: ['GET', 'POST', 'OPTIONS'],
   authLevel: 'anonymous',
   handler: async (req, context) => {

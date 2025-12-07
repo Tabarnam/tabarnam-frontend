@@ -37,7 +37,7 @@ function getUndoContainer() {
 }
 
 app.http('adminUndoHistory', {
-  route: 'admin-api-undo-history',
+  route: 'xadmin-api-undo-history',
   methods: ['GET', 'DELETE', 'OPTIONS'],
   authLevel: 'anonymous',
   handler: async (req, context) => {

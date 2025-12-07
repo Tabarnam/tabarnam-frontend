@@ -45,7 +45,7 @@ function getUndoContainer() {
 }
 
 app.http('adminBatchUpdate', {
-  route: 'admin-api-batch-update',
+  route: 'xadmin-api-batch-update',
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
   handler: async (req, context) => {

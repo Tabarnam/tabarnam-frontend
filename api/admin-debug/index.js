@@ -1,7 +1,7 @@
 const { app } = require('@azure/functions');
 
 app.http('adminDebug', {
-  route: 'admin-api-debug',
+  route: 'xadmin-api-debug',
   methods: ['GET'],
   authLevel: 'anonymous',
   handler: async (req, context) => {

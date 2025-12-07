@@ -12,7 +12,7 @@ const UndoHistoryDashboard = () => {
     const fetchHistory = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await apiFetch('/admin-api-undo-history');
+            const res = await apiFetch('/xadmin-api-undo-history');
             const data = await res.json().catch(() => null);
             if (res.ok && data && Array.isArray(data.items)) {
                 setHistory(data.items);
@@ -45,7 +45,7 @@ const UndoHistoryDashboard = () => {
         }
 
         try {
-            const res = await apiFetch('/admin-api-undo-history', {
+            const res = await apiFetch('/xadmin-api-undo-history', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action_ids: [action.id] }),

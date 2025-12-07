@@ -82,7 +82,7 @@ async function getJson(req) {
 }
 
 app.http('adminLogin', {
-  route: 'admin-api-login',
+  route: 'xadmin-api-login',
   methods: ['POST', 'OPTIONS'],
   authLevel: 'anonymous',
   handler: async (req, context) => {

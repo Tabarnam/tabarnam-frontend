@@ -1,7 +1,7 @@
 import { apiFetch } from '../api';
 
 export async function setLogoUrl(companyId: string, logoUrl: string): Promise<{ logo_url: string }> {
-  const r = await apiFetch(`/admin-api-logos/${encodeURIComponent(companyId)}`, {
+  const r = await apiFetch(`/xadmin-api-logos/${encodeURIComponent(companyId)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ logo_url: logoUrl })

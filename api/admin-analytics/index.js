@@ -37,7 +37,7 @@ function getAnalyticsContainer() {
 }
 
 app.http('adminAnalytics', {
-  route: 'admin-api-analytics',
+  route: 'xadmin-api-analytics',
   methods: ['GET', 'OPTIONS'],
   authLevel: 'anonymous',
   handler: async (req, context) => {
