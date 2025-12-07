@@ -11,7 +11,6 @@ export default function XAIBulkImportPage() {
   const [searchValue, setSearchValue] = useState("");
   const [center, setCenter] = useState({ lat: "", lng: "" });
   const [expandIfFew, setExpandIfFew] = useState(false);
-  const [showLocationSources, setShowLocationSources] = useState(false);
 
   const [postal, setPostal]   = useState("");
   const [city, setCity]       = useState("");
@@ -129,7 +128,6 @@ export default function XAIBulkImportPage() {
         timeout_ms: isSpecificSearch ? 600000 : 600000, // Allow more time for thorough specific searches
         session_id: sid,
         expand_if_few: isSpecificSearch ? false : !!expandIfFew, // Don't expand when searching for specific company
-        show_location_sources: showLocationSources,
         ...(maybeCenter ? { center: maybeCenter } : {}),
       };
 
@@ -199,7 +197,6 @@ export default function XAIBulkImportPage() {
     setCity("");
     setStateR("");
     setCountry("");
-    setShowLocationSources(false);
     setSearchMode("multiple");
     setModalOpen(false);
   };
@@ -300,25 +297,6 @@ export default function XAIBulkImportPage() {
         </div>
       </div>
 
-      {/* Location Sources Visibility for Specific Search */}
-      {searchMode === "specific" && (
-        <div className="mb-4 p-3 border rounded bg-teal-50">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              className="h-4 w-4"
-              checked={showLocationSources}
-              onChange={(e) => setShowLocationSources(e.target.checked)}
-            />
-            <span className="text-sm font-medium text-gray-700">
-              ✨ Make Location Sources Visible to Users
-            </span>
-          </label>
-          <p className="text-xs text-gray-600 mt-1 ml-6">
-            When enabled, source links for HQ and manufacturing locations will appear on the public company page.
-          </p>
-        </div>
-      )}
 
       {/* Address inputs (for future geocode; no-op today) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
