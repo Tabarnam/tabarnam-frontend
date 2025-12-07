@@ -72,9 +72,24 @@ export function LogoUploadDialog({
       setError("Enter a URL");
       return;
     }
+    if (logoUrl.startsWith('blob:')) {
+      const errorMessage = "Invalid blob URL—use a permanent link from Azure Blob Storage or another CDN.";
+      setError(errorMessage);
+      onError?.(errorMessage);
+      return;
+    }
     try {
       setBusy(true);
       const r = await setLogoUrl(companyId, logoUrl.trim());
+
+      // Validate returned URL is not a blob URL
+      if (r.logo_url && r.logo_url.startsWith('blob:')) {
+        const errorMessage = "Server returned invalid blob URL—please try uploading a file instead.";
+        setError(errorMessage);
+        onError?.(errorMessage);
+        return;
+      }
+
       onSaved?.(r.logo_url);
       onClose?.();
     } catch (e: any) {
