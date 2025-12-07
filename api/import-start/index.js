@@ -445,12 +445,29 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
    d) Crunchbase / public business directories
    e) News and public records
 
+5. LOCATION SOURCES (Required for structured data):
+   - For EVERY location (both HQ and manufacturing) you extract, provide the source information in location_sources array
+   - Each entry in location_sources must have:
+     a) location: the exact location string (e.g., "San Francisco, CA, USA")
+     b) source_url: the URL where this location was found (or empty string if no specific URL)
+     c) source_type: one of: official_website, government_guide, b2b_directory, trade_data, packaging, media, other
+     d) location_type: either "headquarters" or "manufacturing"
+   - This allows us to display source attribution to users and verify data quality
+   - Example: { "location": "Shanghai, China", "source_url": "https://company.com/facilities", "source_type": "official_website", "location_type": "manufacturing" }
+
+6. TAGLINE (Optional but valuable):
+   - Extract the company's official tagline, mission statement, or brand slogan if available
+   - Check: Company website homepage, About page, marketing materials, "Tagline" or "Slogan" field
+   - If no explicit tagline found, leave empty (do NOT fabricate)
+   - Example: "Tagline": "Where Quality Meets Innovation" or empty string ""
+
 CRITICAL REQUIREMENTS FOR THIS SEARCH:
 - Do NOT return empty manufacturing_locations arrays unless you have exhaustively checked government guides, B2B directories, and trade data
 - Do NOT treat "not explicitly stated on website" as "manufacturing location unknown" - use secondary sources
 - Always prefer country-level manufacturing locations (e.g., "United States") over empty arrays
 - Government Buyer Guides (like Yumpu entries) are CREDIBLE PRIMARY sources for both HQ and manufacturing claims
 - Companies listed in B2B manufacturer directories should have their listed location included
+- For EACH location returned, MUST have a corresponding entry in location_sources array (this is non-negotiable)
 
 SECONDARY: DIVERSITY & COVERAGE
 - Prioritize smaller, regional, and lesser-known companies (40% small/regional/emerging, 35% mid-market, 25% major brands)
