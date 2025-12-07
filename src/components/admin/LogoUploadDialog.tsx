@@ -261,18 +261,19 @@ export function LogoUploadDialog({
                 <Label className="text-sm font-medium">Rotation</Label>
               </div>
               <div className="flex items-center gap-3">
-                <Slider
-                  value={[editState.crop.rotation]}
-                  onValueChange={(val) =>
+                <input
+                  type="range"
+                  min="0"
+                  max="360"
+                  step="15"
+                  value={editState.crop.rotation}
+                  onChange={(e) =>
                     setEditState({
                       ...editState,
-                      crop: { ...editState.crop, rotation: val[0] },
+                      crop: { ...editState.crop, rotation: parseInt(e.target.value) },
                     })
                   }
-                  min={0}
-                  max={360}
-                  step={15}
-                  className="flex-1"
+                  className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#B1DDE3]"
                 />
                 <span className="text-sm text-slate-600 min-w-[3rem]">{editState.crop.rotation}°</span>
               </div>
@@ -285,15 +286,16 @@ export function LogoUploadDialog({
                 <Label className="text-sm font-medium">Brightness</Label>
               </div>
               <div className="flex items-center gap-3">
-                <Slider
-                  value={[editState.brightness]}
-                  onValueChange={(val) =>
-                    setEditState({ ...editState, brightness: val[0] })
+                <input
+                  type="range"
+                  min="50"
+                  max="150"
+                  step="5"
+                  value={editState.brightness}
+                  onChange={(e) =>
+                    setEditState({ ...editState, brightness: parseInt(e.target.value) })
                   }
-                  min={50}
-                  max={150}
-                  step={5}
-                  className="flex-1"
+                  className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#B1DDE3]"
                 />
                 <span className="text-sm text-slate-600 min-w-[3rem]">{editState.brightness}%</span>
               </div>
@@ -306,15 +308,16 @@ export function LogoUploadDialog({
                 <Label className="text-sm font-medium">Contrast</Label>
               </div>
               <div className="flex items-center gap-3">
-                <Slider
-                  value={[editState.contrast]}
-                  onValueChange={(val) =>
-                    setEditState({ ...editState, contrast: val[0] })
+                <input
+                  type="range"
+                  min="50"
+                  max="150"
+                  step="5"
+                  value={editState.contrast}
+                  onChange={(e) =>
+                    setEditState({ ...editState, contrast: parseInt(e.target.value) })
                   }
-                  min={50}
-                  max={150}
-                  step={5}
-                  className="flex-1"
+                  className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#B1DDE3]"
                 />
                 <span className="text-sm text-slate-600 min-w-[3rem]">{editState.contrast}%</span>
               </div>
