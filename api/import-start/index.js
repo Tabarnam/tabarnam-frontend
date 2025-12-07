@@ -465,11 +465,13 @@ FORMAT YOUR RESPONSE AS A VALID JSON ARRAY. EACH OBJECT MUST HAVE:
 - product_keywords (string): Comma-separated product keywords
 - headquarters_location (string, REQUIRED): "City, State/Region, Country" format (or empty string ONLY if truly unknown after checking all sources)
 - manufacturing_locations (array, REQUIRED): Array of location strings (MUST include all credible sources - official, government guides, B2B directories, suppliers, customs, packaging labels). Use country-only entries (e.g., "United States") if that's all that's known.
+- location_sources (array, REQUIRED): Array of objects with structure: { "location": "City, State, Country", "source_url": "https://...", "source_type": "official_website|government_guide|b2b_directory|trade_data|packaging|media|other", "location_type": "headquarters|manufacturing" }. Include ALL sources found for both HQ and manufacturing locations.
 - red_flag (boolean, REQUIRED): true only if HQ unknown or manufacturing completely unverifiable despite exhaustive checking of ALL sources including government guides and B2B directories
 - red_flag_reason (string, REQUIRED): Explanation if red_flag=true, empty string if false; may note if manufacturing was inferred from secondary sources
 - hq_lat (number, optional): Headquarters latitude
 - hq_lng (number, optional): Headquarters longitude
 - amazon_url (string, optional): Amazon storefront URL
+- tagline (string, optional): Company's official tagline or mission statement (from website or marketing materials)
 - social (object, optional): Social media URLs {linkedin, instagram, x, twitter, facebook, tiktok, youtube}
 - location_confidence (string, optional): "high", "medium", or "low" based on data quality and sources used
 
