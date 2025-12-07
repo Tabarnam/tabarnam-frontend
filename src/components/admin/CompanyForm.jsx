@@ -177,6 +177,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       red_flag_reason: formData.red_flag_reason || "",
       location_confidence: formData.location_confidence || "medium",
       show_location_sources_to_users: showLocationSourcesToUsers,
+      location_sources: locationSources.length > 0 ? locationSources : undefined,
       rating_icon_type: ratingIconType,
       rating: rating,
       visibility: visibility,
