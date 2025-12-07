@@ -10,10 +10,25 @@ export async function setLogoUrl(companyId: string, logoUrl: string): Promise<{ 
   return r.json();
 }
 
-// keep the local preview behavior for now, or switch to real upload when ready
 export async function uploadLogoFile(companyId: string, file: File): Promise<{ logo_url: string }> {
-  // TODO: swap to your real upload flow (presigned URL, then PUT to blob, then POST logo URL)
-  const objectUrl = URL.createObjectURL(file);
-  await new Promise((r) => setTimeout(r, 400));
-  return { logo_url: objectUrl };
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('companyId', companyId);
+
+  const r = await fetch('/api/upload-logo-blob', {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!r.ok) {
+    const errorData = await r.json().catch(() => ({}));
+    throw new Error(errorData.error || `Upload failed with status ${r.status}`);
+  }
+
+  const data = await r.json();
+  if (!data.ok) {
+    throw new Error(data.error || 'Upload failed');
+  }
+
+  return { logo_url: data.logo_url };
 }
