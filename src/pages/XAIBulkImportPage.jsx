@@ -265,24 +265,30 @@ export default function XAIBulkImportPage() {
       {/* Discovery controls */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700">Target results (1–25)</label>
+          <label className="block text-sm font-medium text-gray-700">
+            Target results (1–25)
+            {searchMode === "specific" && <span className="text-xs text-teal-600 ml-2">(locked to 1 for specific search)</span>}
+          </label>
           <input
-            type="number" min="1" max="25" value={maxImports}
+            type="number" min="1" max="25" value={searchMode === "specific" ? 1 : maxImports}
             onChange={(e) => setMaxImports(Math.max(1, Math.min(25, Number(e.target.value) || 1)))}
-            className="w-full border rounded px-3 py-2"
+            disabled={searchMode === "specific"}
+            className={`w-full border rounded px-3 py-2 ${searchMode === "specific" ? "bg-gray-100 text-gray-500 cursor-not-allowed" : ""}`}
           />
-          <div className="mt-2 flex items-center gap-2">
-            <input
-              id="expandIfFew"
-              type="checkbox"
-              className="h-4 w-4"
-              checked={expandIfFew}
-              onChange={(e) => setExpandIfFew(e.target.checked)}
-            />
-            <label htmlFor="expandIfFew" className="text-sm text-gray-700">
-              Expand search area if few results
-            </label>
-          </div>
+          {searchMode === "multiple" && (
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                id="expandIfFew"
+                type="checkbox"
+                className="h-4 w-4"
+                checked={expandIfFew}
+                onChange={(e) => setExpandIfFew(e.target.checked)}
+              />
+              <label htmlFor="expandIfFew" className="text-sm text-gray-700">
+                Expand search area if few results
+              </label>
+            </div>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700">Search Field</label>
@@ -291,6 +297,26 @@ export default function XAIBulkImportPage() {
           </select>
         </div>
       </div>
+
+      {/* Location Sources Visibility for Specific Search */}
+      {searchMode === "specific" && (
+        <div className="mb-4 p-3 border rounded bg-teal-50">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={showLocationSources}
+              onChange={(e) => setShowLocationSources(e.target.checked)}
+            />
+            <span className="text-sm font-medium text-gray-700">
+              ✨ Make Location Sources Visible to Users
+            </span>
+          </label>
+          <p className="text-xs text-gray-600 mt-1 ml-6">
+            When enabled, source links for HQ and manufacturing locations will appear on the public company page.
+          </p>
+        </div>
+      )}
 
       {/* Address inputs (for future geocode; no-op today) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
