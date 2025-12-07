@@ -91,6 +91,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
         manufacturing_public: true,
         admin_rating_public: false,
       });
+      setShowLocationSourcesToUsers(Boolean(company.show_location_sources_to_users));
       const isEditMode = !!(normalized.id || normalized.company_id);
       console.log('[CompanyForm] Rendering with company:', { isEditMode, id: normalized.id, company_id: normalized.company_id, company_name: normalized.company_name });
     } else {
