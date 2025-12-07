@@ -265,6 +265,44 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
               required
             />
           </div>
+
+          {/* Logo Section */}
+          <div className="border rounded-lg p-4 bg-slate-50">
+            <div className="flex items-center justify-between mb-3">
+              <Label className="text-base font-semibold">Company Logo</Label>
+              {!company?.logo_url && (
+                <span className="text-amber-600 text-xs font-medium">⚠️ Missing</span>
+              )}
+            </div>
+
+            {company?.logo_url && (
+              <div className="mb-4 p-3 bg-white rounded border border-slate-200">
+                <p className="text-xs text-slate-600 mb-2">Current Logo:</p>
+                <img
+                  src={company.logo_url}
+                  alt="Company logo"
+                  className="max-h-32 max-w-32 object-contain bg-slate-100 p-2 rounded"
+                />
+              </div>
+            )}
+
+            <div className="space-y-2 mb-3">
+              <p className="text-xs text-slate-600">
+                Supported formats: PNG, JPG, SVG, GIF (max 5MB, will be optimized to 500x500px)
+              </p>
+            </div>
+
+            <Button
+              type="button"
+              onClick={() => setShowLogoDialog(true)}
+              variant="outline"
+              className="w-full flex items-center justify-center gap-2"
+            >
+              <Image size={16} />
+              {company?.logo_url ? "Replace or Edit Logo" : "Add Logo"}
+            </Button>
+          </div>
+
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label htmlFor="tagline">
