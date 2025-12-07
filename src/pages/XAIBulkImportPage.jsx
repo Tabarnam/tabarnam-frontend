@@ -216,6 +216,39 @@ export default function XAIBulkImportPage() {
         )}
       </div>
 
+      {/* Search Mode Toggle */}
+      <div className="mb-6 p-4 border rounded bg-blue-50">
+        <label className="block text-sm font-medium text-gray-700 mb-2">Search Mode</label>
+        <div className="flex gap-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="searchMode"
+              value="specific"
+              checked={searchMode === "specific"}
+              onChange={(e) => setSearchMode(e.target.value)}
+              className="h-4 w-4"
+            />
+            <span className="text-sm text-gray-700">
+              🔍 Specific Company (finds exactly one company with thorough location search)
+            </span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="searchMode"
+              value="multiple"
+              checked={searchMode === "multiple"}
+              onChange={(e) => setSearchMode(e.target.value)}
+              className="h-4 w-4"
+            />
+            <span className="text-sm text-gray-700">
+              📋 Multiple Results (bulk import up to 25 companies)
+            </span>
+          </label>
+        </div>
+      </div>
+
       {/* Search Value - full width, dedicated line */}
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700">Search Value</label>
