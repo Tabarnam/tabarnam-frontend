@@ -15,7 +15,7 @@ const ImportToolsTab = () => {
   const fetchImportStats = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch('admin-api-import-stats');
+      const res = await apiFetch('xadmin-api-import-stats');
       if (res.ok) {
         const data = await res.json();
         setStats(data);

@@ -24,7 +24,7 @@ const StarRatingDashboard = ({ companies, onUpdate }) => {
 
   const fetchStarConfig = async () => {
     try {
-      const res = await apiFetch('admin-api-star-config');
+      const res = await apiFetch('xadmin-api-star-config');
       if (!res.ok) throw new Error('Failed to load star config');
       const data = await res.json();
       if (data.config) {
@@ -38,7 +38,7 @@ const StarRatingDashboard = ({ companies, onUpdate }) => {
   const handleSaveConfig = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch('admin-api-star-config', {
+      const res = await apiFetch('xadmin-api-star-config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config: starConfig, actor: user?.email }),
@@ -56,7 +56,7 @@ const StarRatingDashboard = ({ companies, onUpdate }) => {
   const handleRecalculateStars = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch('admin-api-recalc-stars', {
+      const res = await apiFetch('xadmin-api-recalc-stars', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ actor: user?.email }),
