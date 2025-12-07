@@ -81,6 +81,12 @@ export const StarRatingEditor: React.FC<StarRatingEditorProps> = ({
     }
   };
 
+  const handlePerStarIconTypeChange = (starKey: keyof CompanyRating, iconType: RatingIconType | undefined) => {
+    const updated = { ...rating };
+    updated[starKey].icon_type = iconType;
+    onRatingChange(updated);
+  };
+
   const totalScore = calculateTotalScore(rating);
 
   return (
