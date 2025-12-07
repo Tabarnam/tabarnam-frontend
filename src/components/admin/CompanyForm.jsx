@@ -624,22 +624,6 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
                   Show Star Rating to users
                 </Label>
               </div>
-
-              <div className="flex items-center gap-3">
-                <input
-                  id="show_location_sources"
-                  type="checkbox"
-                  checked={showLocationSourcesToUsers}
-                  onChange={(e) => setShowLocationSourcesToUsers(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-300"
-                />
-                <Label htmlFor="show_location_sources" className="text-sm font-medium text-slate-700 cursor-pointer mb-0">
-                  ✨ Show Location Sources to users
-                </Label>
-              </div>
-              <p className="text-xs text-slate-600 ml-7 -mt-1">
-                Display source links for HQ and manufacturing location information on the public page
-              </p>
             </div>
           </div>
 
