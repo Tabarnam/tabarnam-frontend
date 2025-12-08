@@ -116,7 +116,7 @@ app.http("delete-logo-blob", {
       const blockBlobClient = containerClient.getBlockBlobClient(blobName);
       await blockBlobClient.delete();
 
-      console.log(`[delete-logo-blob] Deleted blob: ${blobName}`);
+      ctx.log(`[delete-logo-blob] Successfully deleted blob: ${blobName}`);
 
       return json(
         { ok: true, message: "Logo deleted successfully" },
@@ -124,9 +124,10 @@ app.http("delete-logo-blob", {
         req
       );
     } catch (error) {
-      console.error("[delete-logo-blob] Error:", error);
+      ctx.error("[delete-logo-blob] Deletion error:", error.message);
+      ctx.error("[delete-logo-blob] Stack:", error.stack);
       return json(
-        { ok: false, error: error.message || "Deletion failed" },
+        { ok: false, error: error.message || "Deletion failed - please try again" },
         500,
         req
       );
