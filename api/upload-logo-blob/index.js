@@ -66,6 +66,12 @@ app.http("upload-logo-blob", {
     if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
 
     try {
+      // Diagnostic logging - log raw env var presence at handler entry
+      console.log('[upload-logo-blob] hasNameEnv =', !!process.env.AZURE_STORAGE_ACCOUNT_NAME);
+      console.log('[upload-logo-blob] hasKeyEnv =', !!process.env.AZURE_STORAGE_ACCOUNT_KEY);
+      console.log('[upload-logo-blob] hasConn =', !!process.env.AzureWebJobsStorage);
+      console.log('[upload-logo-blob] accountName =', process.env.AZURE_STORAGE_ACCOUNT_NAME || 'NOT SET');
+
       // Get Azure Blob Storage credentials
       const { accountName, accountKey } = getStorageCredentials(ctx);
 
