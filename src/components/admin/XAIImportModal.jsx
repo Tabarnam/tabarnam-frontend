@@ -39,12 +39,12 @@ const XAIImportModal = ({ isOpen, onClose, onSuccess }) => {
         <AnimatePresence>
             {isOpen && (
                 <Dialog open={isOpen} onOpenChange={onClose}>
-                    <DialogContent className="bg-slate-900 border-purple-500 text-white sm:max-w-[500px]">
+                    <DialogContent className="bg-slate-900 border-purple-500 text-white sm:max-w-[500px]" aria-describedby="xai-import-description">
                         <DialogHeader>
                             <DialogTitle className="text-2xl text-purple-400 flex items-center gap-2">
                                 <Wand2 /> Import from xAI
                             </DialogTitle>
-                            <DialogDescription className="text-gray-400">
+                            <DialogDescription id="xai-import-description" className="text-gray-400">
                                 Enter a natural language query to find and import a single company. For example, "light switch manufacturers in the USA".
                             </DialogDescription>
                         </DialogHeader>

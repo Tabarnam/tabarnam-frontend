@@ -1,127 +1,104 @@
 const { app } = require("@azure/functions");
 
-app.http("adminStorageConfig", {
-  route: "xadmin-api-storage-config",
-  methods: ["GET"],
+function cors(req) {
+  const origin = req.headers.get("origin") || "*";
+  return {
+    "Access-Control-Allow-Origin": origin,
+    Vary: "Origin",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  };
+}
+
+function json(obj, status = 200, req) {
+  return {
+    status,
+    headers: { ...cors(req), "Content-Type": "application/json" },
+    body: JSON.stringify(obj),
+  };
+}
+
+app.http("admin-storage-config", {
+  route: "admin-storage-config",
+  methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler: async (req, context) => {
+  handler: async (req, ctx) => {
+    if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
+
     try {
-      // Collect all environment variables for diagnostic purposes
-      const envKeys = Object.keys(process.env).sort();
+      // Check direct environment variables
+      const directAccountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+      const directAccountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
+
+      // Check connection string fallback
+      const connectionString = process.env.AzureWebJobsStorage;
+      let fallbackAccountName = null;
+      let fallbackAccountKey = null;
+
+      if (connectionString) {
+        const nameMatch = connectionString.match(/AccountName=([^;]+)/);
+        const keyMatch = connectionString.match(/AccountKey=([^;=]+)/);
+        fallbackAccountName = nameMatch ? nameMatch[1] : null;
+        fallbackAccountKey = keyMatch ? keyMatch[1] : null;
+      }
+
+      // List all environment variables for debugging
+      const storageEnvVars = {};
+      const azureEnvVars = {};
       
-      // Extract storage-related variables
-      const storageVars = {};
-      envKeys.forEach(key => {
-        if (
-          key.includes("AZURE_STORAGE") ||
-          key.includes("AzureWebJobs") ||
-          key.includes("STORAGE_ACCOUNT")
-        ) {
-          // Mask sensitive values for security
-          const value = process.env[key];
-          const isSensitive =
-            key.includes("KEY") || key.includes("PASSWORD") || key.includes("SECRET");
-          storageVars[key] = isSensitive ? `[${value ? "SET" : "NOT SET"}]` : value;
+      Object.keys(process.env).forEach(key => {
+        if (key.includes('STORAGE') || key.includes('BLOB') || key.includes('ACCOUNT')) {
+          storageEnvVars[key] = process.env[key] ? "SET" : "NOT SET";
+        }
+        if (key.includes('AZURE') && !key.includes('CRED') && !key.includes('PASS')) {
+          azureEnvVars[key] = process.env[key] ? "SET" : "NOT SET";
         }
       });
 
-      // Check for the specific variables we need
-      const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
-      const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
-      const azureWebJobsStorage = process.env.AzureWebJobsStorage;
-
-      // Try to parse connection string
-      let connectionStringAnalysis = null;
-      if (azureWebJobsStorage) {
-        const match = azureWebJobsStorage.match(/AccountName=([^;]+)/);
-        connectionStringAnalysis = {
-          hasAccountName: !!match,
-          extractedAccountName: match ? match[1] : null,
-          hasAccountKey: azureWebJobsStorage.includes("AccountKey="),
-        };
-      }
-
-      const diagnostics = {
+      const response = {
         timestamp: new Date().toISOString(),
-        environmentStatus: {
-          AZURE_STORAGE_ACCOUNT_NAME: accountName ? "SET" : "NOT SET",
-          AZURE_STORAGE_ACCOUNT_KEY: accountKey ? "SET" : "NOT SET",
-          AzureWebJobsStorage: azureWebJobsStorage ? "SET" : "NOT SET",
+        directVariables: {
+          AZURE_STORAGE_ACCOUNT_NAME: directAccountName ? "✓ SET" : "✗ NOT SET",
+          AZURE_STORAGE_ACCOUNT_KEY: directAccountKey ? "✓ SET (hidden)" : "✗ NOT SET",
         },
-        detectedVariables: storageVars,
-        connectionStringAnalysis,
-        nodeVersion: process.version,
-        allEnvKeysCount: envKeys.length,
-        recommendations: generateRecommendations(
-          accountName,
-          accountKey,
-          azureWebJobsStorage
-        ),
+        fallbackVariables: {
+          AzureWebJobsStorage: connectionString ? "✓ SET" : "✗ NOT SET",
+          parsedAccountName: fallbackAccountName ? "✓ EXTRACTED" : "✗ NOT EXTRACTED",
+          parsedAccountKey: fallbackAccountKey ? "✓ EXTRACTED (hidden)" : "✗ NOT EXTRACTED",
+        },
+        finalCredentials: {
+          accountName: (directAccountName || fallbackAccountName) ? "✓ AVAILABLE" : "✗ MISSING",
+          accountKey: (directAccountKey || fallbackAccountKey) ? "✓ AVAILABLE" : "✗ MISSING",
+        },
+        allStorageEnvVars: storageEnvVars,
+        allAzureEnvVars: azureEnvVars,
+        diagnosis: {
+          canUpload: (directAccountName || fallbackAccountName) && (directAccountKey || fallbackAccountKey),
+          recommendation: (() => {
+            if (directAccountName && directAccountKey) {
+              return "✓ Direct variables are properly set. Uploads should work.";
+            } else if (fallbackAccountName && fallbackAccountKey) {
+              return "⚠ Using fallback from AzureWebJobsStorage. Consider setting direct variables for consistency.";
+            } else if (connectionString) {
+              return "⚠ AzureWebJobsStorage is set but credentials couldn't be parsed. Check format.";
+            } else {
+              return "✗ No storage credentials found. Set AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY in Function App Configuration.";
+            }
+          })(),
+        },
       };
 
-      context.log("[adminStorageConfig] Diagnostics:", JSON.stringify(diagnostics, null, 2));
-
-      return {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(diagnostics),
-      };
+      return json(response, 200, req);
     } catch (error) {
-      context.error("[adminStorageConfig] Error:", error.message);
-      return {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      return json(
+        {
           ok: false,
-          error: error.message,
-        }),
-      };
+          error: error.message || "Diagnostic check failed",
+          timestamp: new Date().toISOString(),
+        },
+        500,
+        req
+      );
     }
   },
 });
-
-function generateRecommendations(accountName, accountKey, azureWebJobsStorage) {
-  const recommendations = [];
-
-  if (!accountName) {
-    recommendations.push(
-      "AZURE_STORAGE_ACCOUNT_NAME is not set. Add it to Function App > Configuration > Application settings."
-    );
-  }
-
-  if (!accountKey) {
-    recommendations.push(
-      "AZURE_STORAGE_ACCOUNT_KEY is not set. Add it to Function App > Configuration > Application settings."
-    );
-  }
-
-  if (!accountName && !accountKey && !azureWebJobsStorage) {
-    recommendations.push(
-      "No storage credentials found. Either set AZURE_STORAGE_ACCOUNT_NAME + AZURE_STORAGE_ACCOUNT_KEY, or ensure AzureWebJobsStorage is configured."
-    );
-  }
-
-  if (azureWebJobsStorage && !accountName && !accountKey) {
-    recommendations.push(
-      "AzureWebJobsStorage is set but individual variables are not. The upload-logo-blob API will try to parse the connection string."
-    );
-  }
-
-  if (accountName && !accountKey) {
-    recommendations.push(
-      "AZURE_STORAGE_ACCOUNT_NAME is set but KEY is missing. Both are required."
-    );
-  }
-
-  if (!accountName && accountKey) {
-    recommendations.push(
-      "AZURE_STORAGE_ACCOUNT_KEY is set but NAME is missing. Both are required."
-    );
-  }
-
-  if (recommendations.length === 0) {
-    recommendations.push("✅ Storage configuration appears correct!");
-  }
-
-  return recommendations;
-}
