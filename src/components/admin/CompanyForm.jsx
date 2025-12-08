@@ -1,4 +1,5 @@
 // Accessibility improvements: Added aria-describedby for screen readers
+// Fix: Resolved console warning for DialogContent missing aria-describedby attribute
 import React, { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
