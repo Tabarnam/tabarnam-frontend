@@ -23,6 +23,7 @@ import AdminRoute from "@/components/AdminRoute";
 import AuthKeepAlive from "@/components/AuthKeepAlive";
 import BetaBadge from "@/components/BetaBadge";
 
+// Main application component with routing, layout management, and error handling
 // Simple error boundary
 class ErrorBoundary extends React.Component {
   constructor(props) {
