@@ -125,11 +125,16 @@ app.http("upload-logo-blob", {
 
       // Try to create container if it doesn't exist
       try {
-        await containerClient.create({ access: "blob" });
-        ctx.log(`[upload-logo-blob] Created container: ${containerName}`);
-      } catch (e) {
-        if (e.code !== "ContainerAlreadyExists") throw e;
-        ctx.log(`[upload-logo-blob] Container already exists: ${containerName}`);
+        const existsResponse = await containerClient.exists();
+        if (existsResponse) {
+          ctx.log(`[upload-logo-blob] Container already exists: ${containerName}`);
+        } else {
+          await containerClient.create({ access: "blob" });
+          ctx.log(`[upload-logo-blob] Created new container: ${containerName}`);
+        }
+      } catch (containerError) {
+        ctx.warn(`[upload-logo-blob] Container creation warning: ${containerError.message}`);
+        // Continue anyway - upload may still work if container exists
       }
 
       // Read file as buffer
