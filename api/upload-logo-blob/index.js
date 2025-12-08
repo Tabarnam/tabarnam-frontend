@@ -32,8 +32,13 @@ app.http("upload-logo-blob", {
       // Get Azure Blob Storage credentials from environment
       const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
       const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
+
+      ctx.log(`[upload-logo-blob] Environment check - accountName exists: ${!!accountName}, accountKey exists: ${!!accountKey}`);
+      ctx.log(`[upload-logo-blob] Available env keys: ${Object.keys(process.env).filter(k => k.includes('AZURE') || k.includes('STORAGE')).join(', ') || 'none found'}`);
+
       if (!accountName || !accountKey) {
         ctx.error("[upload-logo-blob] Missing AZURE_STORAGE_ACCOUNT_NAME or AZURE_STORAGE_ACCOUNT_KEY");
+        ctx.error(`[upload-logo-blob] accountName: ${accountName}, accountKey: ${accountKey ? 'set' : 'missing'}`);
         return json(
           { ok: false, error: "Server storage not configured - check AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY environment variables" },
           500,
