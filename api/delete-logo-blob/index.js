@@ -56,16 +56,29 @@ app.http("delete-logo-blob", {
   handler: async (req, ctx) => {
     if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
 
-    if (!STORAGE_ACCOUNT_KEY) {
-      console.error("[delete-logo-blob] AZURE_STORAGE_ACCOUNT_KEY not configured");
-      return json(
-        { ok: false, error: "Server storage not configured" },
-        500,
-        req
-      );
-    }
-
     try {
+      // Diagnostic logging - log raw env var presence at handler entry
+      console.log('[delete-logo-blob] hasNameEnv =', !!process.env.AZURE_STORAGE_ACCOUNT_NAME);
+      console.log('[delete-logo-blob] hasKeyEnv =', !!process.env.AZURE_STORAGE_ACCOUNT_KEY);
+      console.log('[delete-logo-blob] hasConn =', !!process.env.AzureWebJobsStorage);
+      console.log('[delete-logo-blob] accountName =', process.env.AZURE_STORAGE_ACCOUNT_NAME || 'NOT SET');
+
+      // Get Azure Blob Storage credentials
+      const { accountName, accountKey } = getStorageCredentials(ctx);
+
+      if (!accountName || !accountKey) {
+        ctx.error("[delete-logo-blob] Missing storage credentials");
+        ctx.error(`[delete-logo-blob] Debug: accountName=${!!accountName}, accountKey=${!!accountKey}`);
+        return json(
+          {
+            ok: false,
+            error: "Server storage not configured. Please ensure AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY environment variables are set in the Function App Configuration."
+          },
+          500,
+          req
+        );
+      }
+
       let body = {};
       try {
         body = await req.json();
@@ -83,9 +96,8 @@ app.http("delete-logo-blob", {
       }
 
       // Initialize blob service client
-      const blobServiceClient = BlobServiceClient.fromConnectionString(
-        `DefaultEndpointProtocol=https;AccountName=${STORAGE_ACCOUNT};AccountKey=${STORAGE_ACCOUNT_KEY};EndpointSuffix=core.windows.net`
-      );
+      const connectionString = `DefaultEndpointProtocol=https;AccountName=${accountName};AccountKey=${accountKey};EndpointSuffix=core.windows.net`;
+      const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
 
       // Extract blob name from URL
       const containerClient = blobServiceClient.getContainerClient(CONTAINER_NAME);
