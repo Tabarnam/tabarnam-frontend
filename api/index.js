@@ -153,6 +153,22 @@ try {
   console.error("[api] ❌ Failed to load keywords-list:", e?.message || e);
 }
 
+try {
+  console.log("[api] Registering: upload-logo-blob");
+  require("./upload-logo-blob/index.js");
+  console.log("[api] ✓ upload-logo-blob registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load upload-logo-blob:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: delete-logo-blob");
+  require("./delete-logo-blob/index.js");
+  console.log("[api] ✓ delete-logo-blob registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load delete-logo-blob:", e?.message || e);
+}
+
 // -------------------------
 // Admin endpoints (v4 model)
 // -------------------------
