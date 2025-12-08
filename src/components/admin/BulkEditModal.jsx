@@ -71,10 +71,10 @@ const BulkEditModal = ({ isOpen, onClose, onSuccess, companies }) => {
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="bg-slate-900 border-purple-500 text-white sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+            <DialogContent className="bg-slate-900 border-purple-500 text-white sm:max-w-[600px] max-h-[90vh] overflow-y-auto" aria-describedby="bulk-edit-description">
                 <DialogHeader>
                     <DialogTitle className="text-2xl text-purple-400">Bulk Edit {companyCount} Companies</DialogTitle>
-                    <DialogDescription className="text-gray-400">
+                    <DialogDescription id="bulk-edit-description" className="text-gray-400">
                         Add or remove industries and keywords for the selected companies. Changes are final.
                     </DialogDescription>
                 </DialogHeader>
