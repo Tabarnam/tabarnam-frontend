@@ -23,26 +23,39 @@ function json(obj, status = 200, req) {
 
 // Helper function to get storage credentials with fallbacks
 function getStorageCredentials(ctx) {
+  // Log what we're looking for (for debugging)
+  ctx.log('[upload-logo-blob] Attempting to retrieve storage credentials...');
+
   // Try multiple possible env var names (Azure may use different naming conventions)
-  const accountName =
-    process.env.AZURE_STORAGE_ACCOUNT_NAME ||
-    process.env.AzureWebJobsStorage?.match(/AccountName=([^;]+)/)?.[1] ||
-    null;
+  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+  const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
 
-  const accountKey =
-    process.env.AZURE_STORAGE_ACCOUNT_KEY ||
-    process.env.AzureWebJobsStorage?.match(/AccountKey=([^;]+)/)?.[1] ||
-    null;
+  // If direct env vars not found, try parsing AzureWebJobsStorage
+  let fallbackName = null;
+  let fallbackKey = null;
 
-  ctx.log(`[upload-logo-blob] Storage config - accountName: ${accountName || 'NOT FOUND'}, key present: ${!!accountKey}`);
+  if (process.env.AzureWebJobsStorage) {
+    const connStr = process.env.AzureWebJobsStorage;
+    const nameMatch = connStr.match(/AccountName=([^;]+)/);
+    const keyMatch = connStr.match(/AccountKey=([^;=]+)/);
+    fallbackName = nameMatch ? nameMatch[1] : null;
+    fallbackKey = keyMatch ? keyMatch[1] : null;
+    ctx.log('[upload-logo-blob] Parsed from AzureWebJobsStorage - name:', !!fallbackName, 'key:', !!fallbackKey);
+  }
+
+  const finalName = accountName || fallbackName;
+  const finalKey = accountKey || fallbackKey;
+
+  ctx.log(`[upload-logo-blob] Final credentials - name present: ${!!finalName}, key present: ${!!finalKey}`);
+  ctx.log(`[upload-logo-blob] Direct env vars - AZURE_STORAGE_ACCOUNT_NAME: ${!!accountName}, AZURE_STORAGE_ACCOUNT_KEY: ${!!accountKey}`);
 
   // Log all environment variables containing STORAGE or AZURE for debugging
   const storageEnvKeys = Object.keys(process.env).filter(k =>
     k.includes('STORAGE') || (k.includes('AZURE') && !k.includes('CREDENTIAL') && !k.includes('PASSWORD'))
   );
-  ctx.log(`[upload-logo-blob] Available storage-related env vars: ${storageEnvKeys.join(', ') || 'none'}`);
+  ctx.log(`[upload-logo-blob] Available storage env vars: ${storageEnvKeys.join(', ') || 'NONE'}`);
 
-  return { accountName, accountKey };
+  return { accountName: finalName, accountKey: finalKey };
 }
 
 app.http("upload-logo-blob", {
@@ -112,11 +125,16 @@ app.http("upload-logo-blob", {
 
       // Try to create container if it doesn't exist
       try {
-        await containerClient.create({ access: "blob" });
-        ctx.log(`[upload-logo-blob] Created container: ${containerName}`);
-      } catch (e) {
-        if (e.code !== "ContainerAlreadyExists") throw e;
-        ctx.log(`[upload-logo-blob] Container already exists: ${containerName}`);
+        const existsResponse = await containerClient.exists();
+        if (existsResponse) {
+          ctx.log(`[upload-logo-blob] Container already exists: ${containerName}`);
+        } else {
+          await containerClient.create({ access: "blob" });
+          ctx.log(`[upload-logo-blob] Created new container: ${containerName}`);
+        }
+      } catch (containerError) {
+        ctx.warn(`[upload-logo-blob] Container creation warning: ${containerError.message}`);
+        // Continue anyway - upload may still work if container exists
       }
 
       // Read file as buffer
