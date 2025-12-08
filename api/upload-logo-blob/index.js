@@ -3,10 +3,6 @@ const { BlobServiceClient } = require("@azure/storage-blob");
 const sharp = require("sharp");
 const { v4: uuidv4 } = require("uuid");
 
-const STORAGE_ACCOUNT = "tabarnamstor2356";
-const STORAGE_ACCOUNT_KEY = process.env.AZURE_STORAGE_ACCOUNT_KEY || "";
-const CONTAINER_NAME = "company-logos";
-
 function cors(req) {
   const origin = req.headers.get("origin") || "*";
   return {
@@ -32,16 +28,22 @@ app.http("upload-logo-blob", {
   handler: async (req, ctx) => {
     if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
 
-    if (!STORAGE_ACCOUNT_KEY) {
-      console.error("[upload-logo-blob] AZURE_STORAGE_ACCOUNT_KEY not configured");
-      return json(
-        { ok: false, error: "Server storage not configured - check AZURE_STORAGE_ACCOUNT_KEY environment variable" },
-        500,
-        req
-      );
-    }
-
     try {
+      // Get Azure Blob Storage credentials from environment
+      const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+      const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
+      if (!accountName || !accountKey) {
+        ctx.error("[upload-logo-blob] Missing AZURE_STORAGE_ACCOUNT_NAME or AZURE_STORAGE_ACCOUNT_KEY");
+        return json(
+          { ok: false, error: "Server storage not configured - check AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY environment variables" },
+          500,
+          req
+        );
+      }
+
+      // Construct connection string
+      const connectionString = `DefaultEndpointProtocol=https;AccountName=${accountName};AccountKey=${accountKey};EndpointSuffix=core.windows.net`;
+
       // Parse form data
       const formData = await req.formData();
       const file = formData.get("file");
@@ -75,15 +77,14 @@ app.http("upload-logo-blob", {
       }
 
       // Initialize blob service client
-      const blobServiceClient = BlobServiceClient.fromConnectionString(
-        `DefaultEndpointProtocol=https;AccountName=${STORAGE_ACCOUNT};AccountKey=${STORAGE_ACCOUNT_KEY};EndpointSuffix=core.windows.net`
-      );
+      const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+      const containerName = "company-logos";
+      const containerClient = blobServiceClient.getContainerClient(containerName);
 
-      // Get or create container
-      const containerClient = blobServiceClient.getContainerClient(CONTAINER_NAME);
+      // Try to create container if it doesn't exist
       try {
         await containerClient.create({ access: "blob" });
-        console.log(`[upload-logo-blob] Created container: ${CONTAINER_NAME}`);
+        ctx.log(`[upload-logo-blob] Created container: ${containerName}`);
       } catch (e) {
         if (e.code !== "ContainerAlreadyExists") throw e;
       }
@@ -99,9 +100,9 @@ app.http("upload-logo-blob", {
           processedBuffer = await sharp(uint8Array)
             .resize({ width: 500, height: 500, fit: "inside", withoutEnlargement: true })
             .toBuffer();
-          console.log(`[upload-logo-blob] Resized image for company ${companyId}`);
+          ctx.log(`[upload-logo-blob] Resized image for company ${companyId}`);
         } catch (sharpError) {
-          console.warn(`[upload-logo-blob] Sharp resize failed, using original: ${sharpError.message}`);
+          ctx.warn(`[upload-logo-blob] Sharp resize failed, using original: ${sharpError.message}`);
           processedBuffer = uint8Array;
         }
       }
@@ -117,7 +118,7 @@ app.http("upload-logo-blob", {
       });
 
       const blobUrl = blockBlobClient.url;
-      console.log(`[upload-logo-blob] Uploaded logo for company ${companyId}: ${blobUrl}`);
+      ctx.log(`[upload-logo-blob] Uploaded logo for company ${companyId}: ${blobUrl}`);
 
       return json(
         { ok: true, logo_url: blobUrl, message: "Logo uploaded successfully" },
@@ -125,7 +126,7 @@ app.http("upload-logo-blob", {
         req
       );
     } catch (error) {
-      console.error("[upload-logo-blob] Error:", error);
+      ctx.error("[upload-logo-blob] Error:", error);
       return json(
         { ok: false, error: error.message || "Upload failed" },
         500,
