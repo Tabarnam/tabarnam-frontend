@@ -21,6 +21,30 @@ function json(obj, status = 200, req) {
   };
 }
 
+// Helper function to get storage credentials with fallbacks
+function getStorageCredentials(ctx) {
+  // Try multiple possible env var names (Azure may use different naming conventions)
+  const accountName =
+    process.env.AZURE_STORAGE_ACCOUNT_NAME ||
+    process.env.AzureWebJobsStorage?.match(/AccountName=([^;]+)/)?.[1] ||
+    null;
+
+  const accountKey =
+    process.env.AZURE_STORAGE_ACCOUNT_KEY ||
+    process.env.AzureWebJobsStorage?.match(/AccountKey=([^;]+)/)?.[1] ||
+    null;
+
+  ctx.log(`[upload-logo-blob] Storage config - accountName: ${accountName || 'NOT FOUND'}, key present: ${!!accountKey}`);
+
+  // Log all environment variables containing STORAGE or AZURE for debugging
+  const storageEnvKeys = Object.keys(process.env).filter(k =>
+    k.includes('STORAGE') || (k.includes('AZURE') && !k.includes('CREDENTIAL') && !k.includes('PASSWORD'))
+  );
+  ctx.log(`[upload-logo-blob] Available storage-related env vars: ${storageEnvKeys.join(', ') || 'none'}`);
+
+  return { accountName, accountKey };
+}
+
 app.http("upload-logo-blob", {
   route: "upload-logo-blob",
   methods: ["POST", "OPTIONS"],
@@ -29,18 +53,18 @@ app.http("upload-logo-blob", {
     if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
 
     try {
-      // Get Azure Blob Storage credentials from environment
-      const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
-      const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
-
-      ctx.log(`[upload-logo-blob] Environment check - accountName exists: ${!!accountName}, accountKey exists: ${!!accountKey}`);
-      ctx.log(`[upload-logo-blob] Available env keys: ${Object.keys(process.env).filter(k => k.includes('AZURE') || k.includes('STORAGE')).join(', ') || 'none found'}`);
+      // Get Azure Blob Storage credentials
+      const { accountName, accountKey } = getStorageCredentials(ctx);
 
       if (!accountName || !accountKey) {
-        ctx.error("[upload-logo-blob] Missing AZURE_STORAGE_ACCOUNT_NAME or AZURE_STORAGE_ACCOUNT_KEY");
-        ctx.error(`[upload-logo-blob] accountName: ${accountName}, accountKey: ${accountKey ? 'set' : 'missing'}`);
+        ctx.error("[upload-logo-blob] Missing storage credentials");
+        ctx.error(`[upload-logo-blob] Debug: accountName=${!!accountName}, accountKey=${!!accountKey}`);
+
         return json(
-          { ok: false, error: "Server storage not configured - check AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY environment variables" },
+          {
+            ok: false,
+            error: "Server storage not configured. Please ensure AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY environment variables are set in the Function App Configuration."
+          },
           500,
           req
         );
@@ -92,6 +116,7 @@ app.http("upload-logo-blob", {
         ctx.log(`[upload-logo-blob] Created container: ${containerName}`);
       } catch (e) {
         if (e.code !== "ContainerAlreadyExists") throw e;
+        ctx.log(`[upload-logo-blob] Container already exists: ${containerName}`);
       }
 
       // Read file as buffer
@@ -123,7 +148,7 @@ app.http("upload-logo-blob", {
       });
 
       const blobUrl = blockBlobClient.url;
-      ctx.log(`[upload-logo-blob] Uploaded logo for company ${companyId}: ${blobUrl}`);
+      ctx.log(`[upload-logo-blob] Successfully uploaded logo for company ${companyId}: ${blobUrl}`);
 
       return json(
         { ok: true, logo_url: blobUrl, message: "Logo uploaded successfully" },
@@ -131,9 +156,11 @@ app.http("upload-logo-blob", {
         req
       );
     } catch (error) {
-      ctx.error("[upload-logo-blob] Error:", error);
+      ctx.error("[upload-logo-blob] Upload error:", error.message);
+      ctx.error("[upload-logo-blob] Stack:", error.stack);
+
       return json(
-        { ok: false, error: error.message || "Upload failed" },
+        { ok: false, error: error.message || "Upload failed - please try again" },
         500,
         req
       );
