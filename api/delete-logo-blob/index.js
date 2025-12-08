@@ -1,9 +1,35 @@
 const { app } = require("@azure/functions");
 const { BlobServiceClient } = require("@azure/storage-blob");
 
-const STORAGE_ACCOUNT = "tabarnamstor2356";
-const STORAGE_ACCOUNT_KEY = process.env.AZURE_STORAGE_ACCOUNT_KEY || "";
 const CONTAINER_NAME = "company-logos";
+
+// Helper function to get storage credentials with fallbacks
+function getStorageCredentials(ctx) {
+  ctx.log('[delete-logo-blob] Attempting to retrieve storage credentials...');
+
+  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+  const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
+
+  let fallbackName = null;
+  let fallbackKey = null;
+
+  if (process.env.AzureWebJobsStorage) {
+    const connStr = process.env.AzureWebJobsStorage;
+    const nameMatch = connStr.match(/AccountName=([^;]+)/);
+    const keyMatch = connStr.match(/AccountKey=([^;=]+)/);
+    fallbackName = nameMatch ? nameMatch[1] : null;
+    fallbackKey = keyMatch ? keyMatch[1] : null;
+    ctx.log('[delete-logo-blob] Parsed from AzureWebJobsStorage - name:', !!fallbackName, 'key:', !!fallbackKey);
+  }
+
+  const finalName = accountName || fallbackName;
+  const finalKey = accountKey || fallbackKey;
+
+  ctx.log(`[delete-logo-blob] Final credentials - name present: ${!!finalName}, key present: ${!!finalKey}`);
+  ctx.log(`[delete-logo-blob] Direct env vars - AZURE_STORAGE_ACCOUNT_NAME: ${!!accountName}, AZURE_STORAGE_ACCOUNT_KEY: ${!!accountKey}`);
+
+  return { accountName: finalName, accountKey: finalKey };
+}
 
 function cors(req) {
   const origin = req.headers.get("origin") || "*";
