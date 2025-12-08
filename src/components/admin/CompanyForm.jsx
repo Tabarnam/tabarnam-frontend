@@ -691,6 +691,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       {/* Logo Upload Dialog */}
       <Dialog open={showLogoDialog} onOpenChange={setShowLogoDialog}>
         <DialogContent className="max-w-md" aria-describedby="logo-upload-description">
+          <DialogTitle className="sr-only">Update Company Logo</DialogTitle>
           <DialogDescription id="logo-upload-description" className="sr-only">
             Upload or set a logo URL for the company
           </DialogDescription>
