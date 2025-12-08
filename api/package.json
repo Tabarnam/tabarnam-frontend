@@ -9,6 +9,8 @@
     "@azure/cosmos": "^4.2.0",
     "@azure/storage-blob": "^12.20.0",
     "axios": "^1.7.7",
-    "bcryptjs": "^2.4.3"
+    "bcryptjs": "^2.4.3",
+    "sharp": "^0.33.5",
+    "uuid": "^9.0.1"
   }
 }
