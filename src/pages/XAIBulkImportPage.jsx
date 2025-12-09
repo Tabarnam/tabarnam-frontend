@@ -143,6 +143,9 @@ export default function XAIBulkImportPage() {
     setSavedSoFar(0);
     setLastRowTs("");
     setModalOpen(false);
+    setStartTime(Date.now());
+    setElapsedSeconds(0);
+    setStopRequested(false);
 
     const isSpecificSearch = searchMode === "specific";
     setStatus(isSpecificSearch ? "🔍 Searching for specific company… (may take longer for thorough location search)" : "Starting import… (rows will stream in below)");
