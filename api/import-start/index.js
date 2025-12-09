@@ -427,18 +427,8 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
           // Calculate default rating based on company data
           const hasManufacturingLocations = Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0;
           const hasHeadquarters = !!(company.headquarters_location && company.headquarters_location.trim());
-          const hasReviews = (company.editorial_review_count || 0) > 0 ||
-                            (Array.isArray(company.reviews) && company.reviews.length > 0);
 
-          const defaultRating = {
-            star1: { value: hasManufacturingLocations ? 1.0 : 0.0, notes: [] },
-            star2: { value: hasHeadquarters ? 1.0 : 0.0, notes: [] },
-            star3: { value: hasReviews ? 1.0 : 0.0, notes: [] },
-            star4: { value: 0.0, notes: [] },
-            star5: { value: 0.0, notes: [] },
-          };
-
-          // Check if review eligibility has changed with curated reviews
+          // Check for reviews from curated_reviews or legacy fields
           const hasCuratedReviews = Array.isArray(company.curated_reviews) && company.curated_reviews.length > 0;
           const hasEditorialReviews = (company.editorial_review_count || 0) > 0 ||
                                       (Array.isArray(company.reviews) && company.reviews.length > 0) ||
