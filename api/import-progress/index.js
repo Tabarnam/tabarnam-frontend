@@ -32,7 +32,7 @@ app.http("import-progress", {
       return json({ error: "session_id is required" }, 400, req);
     }
 
-    console.log(`[import-progress] Polling for session_id: ${sessionId}, take: ${take}`);
+    console.log(`[import-progress] session=${sessionId} polling take=${take}`);
 
     const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
     const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
