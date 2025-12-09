@@ -92,7 +92,7 @@ app.http("import-progress", {
       const saved = resources.length || 0;
       const lastCreatedAt = resources?.[0]?.created_at || "";
 
-      console.log(`[import-progress] Found ${saved} companies in Cosmos DB for session ${sessionId}, stopped: ${stopped}, timedOut: ${timedOut}`);
+      console.log(`[import-progress] session=${sessionId} found=${saved} stopped=${stopped} timedOut=${timedOut}`);
 
       // Return what we found in Cosmos DB
       return json({
