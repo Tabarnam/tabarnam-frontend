@@ -209,7 +209,6 @@ app.http("upload-logo-blob", {
       let logoUrl = blockBlobClient.url;
       try {
         const { accountName, accountKey } = getStorageCredentials(ctx);
-        const credentials = new StorageSharedKeyCredential(accountName, accountKey);
 
         // Generate SAS URL valid for 1 year
         logoUrl = generateBlobSASUrl({
@@ -217,10 +216,10 @@ app.http("upload-logo-blob", {
           blobName: blobName,
           accountName: accountName,
           accountKey: accountKey,
-          permissions: require("@azure/storage-blob").BlobSASPermissions.parse("r"),
+          permissions: BlobSASPermissions.parse("r"),
           expiresOn: new Date(new Date().getTime() + 365 * 24 * 60 * 60 * 1000),
         });
-        ctx.log(`[upload-logo-blob] Generated SAS URL for blob: ${logoUrl.substring(0, 100)}...`);
+        ctx.log(`[upload-logo-blob] Generated SAS URL for blob access`);
       } catch (sasError) {
         ctx.warn(`[upload-logo-blob] Failed to generate SAS URL, using plain blob URL instead: ${sasError.message}`);
         // Fall back to plain URL if SAS generation fails
