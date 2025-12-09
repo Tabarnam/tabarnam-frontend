@@ -1,5 +1,6 @@
 const { app } = require("@azure/functions");
 const { BlobServiceClient, StorageSharedKeyCredential } = require("@azure/storage-blob");
+const { CosmosClient } = require("@azure/cosmos");
 const sharp = require("sharp");
 const { v4: uuidv4 } = require("uuid");
 
@@ -31,6 +32,39 @@ function getStorageCredentials(ctx) {
   ctx.log(`[upload-logo-blob] Account key present: ${!!accountKey}`);
 
   return { accountName, accountKey };
+}
+
+// Helper function to get Cosmos DB connection
+function getCosmosContainer(ctx) {
+  const endpoint = process.env.COSMOS_DB_ENDPOINT || "";
+  const key = process.env.COSMOS_DB_KEY || "";
+  const database = process.env.COSMOS_DB_DATABASE || "tabarnam-db";
+  const container = process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies";
+
+  if (!endpoint || !key) {
+    ctx.log("[upload-logo-blob] Cosmos DB not configured - logo URL will not be saved to company document");
+    return null;
+  }
+
+  try {
+    const client = new CosmosClient({ endpoint, key });
+    return client.database(database).container(container);
+  } catch (e) {
+    ctx.error("[upload-logo-blob] Failed to create Cosmos client:", e?.message);
+    return null;
+  }
+}
+
+// Helper to normalize domain from URL
+function toNormalizedDomain(s = "") {
+  try {
+    const u = s.startsWith("http") ? new URL(s) : new URL(`https://${s}`);
+    let h = u.hostname.toLowerCase();
+    if (h.startsWith("www.")) h = h.slice(4);
+    return h || "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 app.http("upload-logo-blob", {
@@ -173,6 +207,76 @@ app.http("upload-logo-blob", {
 
       const blobUrl = blockBlobClient.url;
       ctx.log(`[upload-logo-blob] Successfully uploaded logo for company ${companyId}: ${blobUrl}`);
+
+      // Now update the company document in Cosmos with the new logo URL
+      try {
+        const cosmosContainer = getCosmosContainer(ctx);
+        if (cosmosContainer) {
+          ctx.log(`[upload-logo-blob] Attempting to save logo URL to company document in Cosmos...`);
+
+          // Query for the company by ID (using cross-partition query)
+          const querySpec = {
+            query: "SELECT * FROM c WHERE c.id = @id OR c.company_id = @id",
+            parameters: [{ name: "@id", value: companyId }],
+          };
+
+          const queryResult = await cosmosContainer.items
+            .query(querySpec, { enableCrossPartitionQuery: true })
+            .fetchAll();
+
+          const { resources } = queryResult;
+
+          if (resources && resources.length > 0) {
+            const doc = resources[0];
+            ctx.log(`[upload-logo-blob] Found company document:`, {
+              id: doc.id,
+              company_name: doc.company_name,
+              normalized_domain: doc.normalized_domain
+            });
+
+            // Get the partition key (normalized_domain)
+            let partitionKey = doc.normalized_domain;
+            if (!partitionKey || String(partitionKey).trim() === "") {
+              partitionKey = toNormalizedDomain(doc.website_url || doc.url || doc.domain || "");
+              ctx.log(`[upload-logo-blob] No normalized_domain found, computed from URL: ${partitionKey}`);
+            }
+
+            // Update the document with the new logo_url
+            const updatedDoc = {
+              ...doc,
+              logo_url: blobUrl,
+              updated_at: new Date().toISOString(),
+            };
+
+            ctx.log(`[upload-logo-blob] Upserting company document with logo_url...`, {
+              id: doc.id,
+              logo_url: blobUrl,
+              partitionKey: partitionKey
+            });
+
+            try {
+              await cosmosContainer.items.upsert(updatedDoc, { partitionKey });
+              ctx.log(`[upload-logo-blob] Successfully updated company document with logo URL`);
+            } catch (upsertError) {
+              ctx.log(`[upload-logo-blob] Upsert with partition key failed, attempting fallback...`, {
+                error: upsertError?.message
+              });
+              try {
+                await cosmosContainer.items.upsert(updatedDoc);
+                ctx.log(`[upload-logo-blob] Fallback upsert succeeded`);
+              } catch (fallbackError) {
+                ctx.error(`[upload-logo-blob] Failed to update company document:`, fallbackError?.message);
+              }
+            }
+          } else {
+            ctx.log(`[upload-logo-blob] No company document found for ID: ${companyId}`);
+          }
+        } else {
+          ctx.log(`[upload-logo-blob] Cosmos DB not available - logo URL saved to blob storage but not persisted to company document`);
+        }
+      } catch (cosmosError) {
+        ctx.error(`[upload-logo-blob] Error updating company document:`, cosmosError?.message);
+      }
 
       return json(
         { ok: true, logo_url: blobUrl, message: "Logo uploaded successfully" },
