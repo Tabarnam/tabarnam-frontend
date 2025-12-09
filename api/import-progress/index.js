@@ -104,16 +104,18 @@ app.http("import-progress", {
       const saved = resources.length || 0;
       const lastCreatedAt = resources?.[0]?.created_at || "";
 
-      console.log(`[import-progress] session=${sessionId} found=${saved} stopped=${stopped} timedOut=${timedOut}`);
+      console.log(`[import-progress] session=${sessionId} found=${saved} stopped=${stopped} timedOut=${timedOut} completed=${completed}`);
 
       // Return what we found in Cosmos DB
+      // Note: completed flag signals that import-start finished (0 results or successful save)
       return json({
         ok: true,
         session_id: sessionId,
         items: resources.slice(0, take),
         steps: [],
-        stopped: stopped || timedOut,
+        stopped: stopped || timedOut || completed,  // Include completed as a "stopped" state for UI
         timedOut: timedOut,
+        completed: completed,  // Explicitly signal 0-results completion
         saved,
         lastCreatedAt
       }, 200, req);
