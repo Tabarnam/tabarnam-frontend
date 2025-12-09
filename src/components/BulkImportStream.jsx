@@ -37,27 +37,39 @@ export default function BulkImportStream({
 
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error || r.statusText);
-      
+
       const saved = j.saved || 0;
       const items = j.items || [];
-      
+      const isStopped = !!j.stopped;
+
       setItems(items);
       setSteps(j.steps || []);
-      setStopped(!!j.stopped);
+      setStopped(isStopped);
       onStats({ saved, lastCreatedAt: j.lastCreatedAt || "" });
       setErr("");
       failureCountRef.current = 0;
-      
+
       // Update last activity time
       lastActivityRef.current = Date.now();
-      
+
+      // Check if import was stopped
+      if (isStopped && !hasEmittedRef.current) {
+        hasEmittedRef.current = true;
+        if (saved > 0) {
+          onFailure({ saved, target: targetResults });
+        } else {
+          setErr("❌ Import was stopped.");
+        }
+        return;
+      }
+
       // Check if target reached
       if (!hasEmittedRef.current && saved >= targetResults) {
         hasEmittedRef.current = true;
         onSuccess({ found: saved, target: targetResults });
         return;
       }
-      
+
       // Continue polling
       scheduleNextTick();
     } catch (e) {
@@ -105,6 +117,24 @@ export default function BulkImportStream({
   }
 
   useEffect(() => {
+    if (stopRequested && sessionId) {
+      // Call the stop endpoint to notify the server
+      (async () => {
+        try {
+          const url = `${API_BASE}/import/stop`;
+          await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: sessionId })
+          }).catch(() => {}); // Ignore errors
+        } catch (e) {
+          console.warn("Failed to notify server of stop:", e);
+        }
+      })();
+      clearTimeout(timerRef.current);
+      return;
+    }
+
     clearTimeout(timerRef.current);
     failureCountRef.current = 0;
     lastActivityRef.current = Date.now();

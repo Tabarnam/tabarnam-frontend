@@ -116,6 +116,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: import-stop");
+  require("./import-stop/index.js");
+} catch (e) {
+  console.error("[api] Failed to load import-stop:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: google/geocode");
   require("./google/geocode/index.js");
 } catch (e) {
