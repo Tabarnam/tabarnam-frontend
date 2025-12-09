@@ -105,6 +105,24 @@ export default function BulkImportStream({
   }
 
   useEffect(() => {
+    if (stopRequested && sessionId) {
+      // Call the stop endpoint to notify the server
+      (async () => {
+        try {
+          const url = `${API_BASE}/import/stop`;
+          await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: sessionId })
+          }).catch(() => {}); // Ignore errors
+        } catch (e) {
+          console.warn("Failed to notify server of stop:", e);
+        }
+      })();
+      clearTimeout(timerRef.current);
+      return;
+    }
+
     clearTimeout(timerRef.current);
     failureCountRef.current = 0;
     lastActivityRef.current = Date.now();
