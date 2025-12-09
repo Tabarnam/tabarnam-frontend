@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { API_BASE } from "@/lib/api";
 
-export default function BulkImportStream({ 
-  sessionId, 
+export default function BulkImportStream({
+  sessionId,
   targetResults = 10,
-  take = 200, 
-  pollingMs = 1500, 
+  take = 200,
+  pollingMs = 1500,
+  stopRequested = false,
   onStats = () => {},
   onSuccess = () => {},
   onFailure = () => {}
