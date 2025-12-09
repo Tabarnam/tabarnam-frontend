@@ -230,7 +230,21 @@ export default function XAIBulkImportPage() {
     // Clock continues to show the elapsed time when stopped
   };
 
-  const handleClear = () => {
+  const handleClear = async () => {
+    // If there's an active import, stop it first
+    if (sessionId) {
+      try {
+        await fetch(`${API_BASE}/import/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId })
+        }).catch(() => {}); // Ignore errors
+      } catch (e) {
+        console.warn("Failed to stop import during clear:", e);
+      }
+    }
+
+    // Clear everything
     setSessionId("");
     setStatus("");
     setSearchValue("");
