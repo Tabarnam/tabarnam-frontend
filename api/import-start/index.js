@@ -684,7 +684,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           );
 
           // Location refinement pass: if too many companies have missing locations, run a refinement
-          if (companiesNeedingLocationRefinement.length > 0 && enriched.length > 0) {
+          // But skip if we're running out of time
+          if (companiesNeedingLocationRefinement.length > 0 && enriched.length > 0 && !shouldAbort()) {
             console.log(`[import-start] ${companiesNeedingLocationRefinement.length} companies need location refinement`);
 
             try {
