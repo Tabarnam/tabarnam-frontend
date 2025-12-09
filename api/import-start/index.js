@@ -261,20 +261,23 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
     let failed = 0;
     let skipped = 0;
 
-    // Process companies with concurrency limit of 4
-    const CONCURRENCY_LIMIT = 4;
-    const processQueue = async () => {
-      const results = await Promise.allSettled(
-        companies.map(async (company, index) => {
-          // Check if import was stopped
-          if (index > 0 && index % 10 === 0) {
-            const stopped = await checkIfSessionStopped(sessionId);
-            if (stopped) {
-              console.log(`[import-start] Import stopped by user after processing ${index} companies`);
-              throw new Error("IMPORT_STOPPED");
-            }
-          }
+    // Process companies in batches for better concurrency
+    const BATCH_SIZE = 4;
+    for (let batchStart = 0; batchStart < companies.length; batchStart += BATCH_SIZE) {
+      // Check if import was stopped
+      if (batchStart > 0) {
+        const stopped = await checkIfSessionStopped(sessionId);
+        if (stopped) {
+          console.log(`[import-start] Import stopped by user after ${saved} companies`);
+          break;
+        }
+      }
 
+      const batch = companies.slice(batchStart, Math.min(batchStart + BATCH_SIZE, companies.length));
+
+      // Process batch in parallel
+      const batchResults = await Promise.allSettled(
+        batch.map(async (company) => {
           const companyName = company.company_name || company.name || "";
           const normalizedDomain = company.normalized_domain || "unknown";
 
@@ -345,18 +348,8 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
         })
       );
 
-      // Limit concurrency by processing in batches
-      let activePromises = [];
-      for (let i = 0; i < companies.length; i++) {
-        // Wait if we have too many active promises
-        while (activePromises.length >= CONCURRENCY_LIMIT) {
-          await Promise.race(activePromises);
-          activePromises = activePromises.filter(p => p.state === "pending");
-        }
-      }
-
-      // Process results
-      for (const result of results) {
+      // Process batch results
+      for (const result of batchResults) {
         if (result.status === "fulfilled") {
           if (result.value.type === "skipped") {
             skipped++;
@@ -364,22 +357,10 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
             saved++;
           }
         } else {
-          const err = result.reason;
-          if (err?.message === "IMPORT_STOPPED") {
-            console.log(`[import-start] Import was stopped`);
-            break;
-          }
           failed++;
-          console.warn(`[import-start] Failed to save company: ${err?.message}`);
+          console.warn(`[import-start] Failed to save company: ${result.reason?.message}`);
         }
       }
-    };
-
-    // Execute the processing queue
-    try {
-      await processQueue();
-    } catch (e) {
-      console.error(`[import-start] Error in processQueue: ${e.message}`);
     }
 
     return { saved, failed, skipped };
