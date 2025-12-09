@@ -48,6 +48,25 @@ app.http("import-progress", {
     const container = client.database(databaseId).container(containerId);
 
     try {
+      // Check if import was stopped
+      let stopped = false;
+      try {
+        const controlContainer = client.database(databaseId).container("import_control");
+        const { resources: stopResources } = await controlContainer.items
+          .query({
+            query: "SELECT c.id FROM c WHERE c.session_id = @sid AND c.type = @type",
+            parameters: [
+              { name: "@sid", value: sessionId },
+              { name: "@type", value: "import_stop" }
+            ]
+          }, { enableCrossPartitionQuery: true })
+          .fetchAll();
+        stopped = stopResources && stopResources.length > 0;
+      } catch (e) {
+        // Control container doesn't exist yet, import is not stopped
+        stopped = false;
+      }
+
       // Query companies from Cosmos DB for this session
       const q = {
         query: `
@@ -66,7 +85,7 @@ app.http("import-progress", {
       const saved = resources.length || 0;
       const lastCreatedAt = resources?.[0]?.created_at || "";
 
-      console.log(`[import-progress] Found ${saved} companies in Cosmos DB for session ${sessionId}`);
+      console.log(`[import-progress] Found ${saved} companies in Cosmos DB for session ${sessionId}, stopped: ${stopped}`);
 
       // Return what we found in Cosmos DB
       return json({
@@ -74,7 +93,7 @@ app.http("import-progress", {
         session_id: sessionId,
         items: resources.slice(0, take),
         steps: [],
-        stopped: false,
+        stopped: stopped,
         saved,
         lastCreatedAt
       }, 200, req);
