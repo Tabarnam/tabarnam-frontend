@@ -70,7 +70,7 @@ function enrichCompany(company, center) {
   const c = { ...(company || {}) };
   c.industries = normalizeIndustries(c.industries);
   c.product_keywords = normalizeKeywords(c.product_keywords, c.industries);
-  const urlForDomain = c.canonical_url || c.url || "";
+  const urlForDomain = c.canonical_url || c.website_url || c.url || c.amazon_url || "";
   c.normalized_domain = toNormalizedDomain(urlForDomain);
 
   // Ensure location fields are present
@@ -155,17 +155,40 @@ async function geocodeHQLocation(headquarters_location) {
 // Check if company already exists by normalized domain
 async function findExistingCompany(container, normalizedDomain, companyName) {
   if (!container) return null;
+
+  const nameValue = (companyName || "").toLowerCase();
+
   try {
-    const query = {
-      query: "SELECT c.id FROM c WHERE c.normalized_domain = @domain OR LOWER(c.company_name) = @name",
-      parameters: [
+    let query;
+    let parameters;
+
+    if (normalizedDomain && normalizedDomain !== "unknown") {
+      query = `
+        SELECT c.id
+        FROM c
+        WHERE c.normalized_domain = @domain
+           OR LOWER(c.company_name) = @name
+      `;
+      parameters = [
         { name: "@domain", value: normalizedDomain },
-        { name: "@name", value: (companyName || "").toLowerCase() },
-      ],
-    };
+        { name: "@name", value: nameValue },
+      ];
+    } else {
+      // If domain is unknown, only dedupe by name, not by 'unknown'
+      query = `
+        SELECT c.id
+        FROM c
+        WHERE LOWER(c.company_name) = @name
+      `;
+      parameters = [
+        { name: "@name", value: nameValue },
+      ];
+    }
+
     const { resources } = await container.items
-      .query(query, { enableCrossPartitionQuery: true })
+      .query({ query, parameters }, { enableCrossPartitionQuery: true })
       .fetchAll();
+
     return resources && resources.length > 0 ? resources[0] : null;
   } catch (e) {
     console.warn(`[import-start] Error checking for existing company: ${e.message}`);
