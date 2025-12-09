@@ -623,6 +623,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
         };
 
         try {
+          console.log(`[import-start] session=${sessionId} xai request payload = ${JSON.stringify(xaiPayload)}`);
           console.log(`[import-start] Calling XAI API at: ${xaiUrl}`);
           const xaiResponse = await axios.post(xaiUrl, xaiRequestPayload, {
           headers: {
@@ -633,7 +634,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
         });
 
         const elapsed = Date.now() - startTime;
-        console.log(`[import-start] XAI response received after ${elapsed}ms, status: ${xaiResponse.status}`);
+        console.log(`[import-start] session=${sessionId} xai response status=${xaiResponse.status}`);
 
         if (xaiResponse.status >= 200 && xaiResponse.status < 300) {
           // Extract the response content
@@ -649,11 +650,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               if (!Array.isArray(companies)) companies = [];
             }
           } catch (parseErr) {
-            console.warn(`[import-start] Failed to parse companies from response: ${parseErr.message}`);
+            console.warn(`[import-start] session=${sessionId} failed to parse companies from response: ${parseErr.message}`);
             companies = [];
           }
 
-          console.log(`[import-start] Found ${companies.length} companies in XAI response`);
+          console.log(`[import-start] session=${sessionId} xai response status=${xaiResponse.status} companies=${companies.length}`);
 
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
