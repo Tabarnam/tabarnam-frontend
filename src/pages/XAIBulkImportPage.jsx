@@ -44,6 +44,20 @@ export default function XAIBulkImportPage() {
     setLastSessionId(prev);
   }, []);
 
+  // Runtime clock timer
+  useEffect(() => {
+    if (!sessionId) {
+      // Stop the timer if no active import
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [sessionId]);
+
   // sanity ping
   useEffect(() => {
     if (window.__xaiPingOnce) return;
