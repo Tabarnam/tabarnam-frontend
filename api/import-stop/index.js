@@ -69,15 +69,27 @@ app.http("import-stop", {
         type: "import_stop",
       };
 
-      await container.items.create(stopControlDoc);
+      const createResult = await container.items.create(stopControlDoc);
+      context.log(`[import-stop] session=${sessionId} stop signal written, resource=${JSON.stringify(createResult?.resource?.id)}`);
 
-      context.log(`[import-stop] Stop signal written for session ${sessionId}`);
-      return json({ ok: true, session_id: sessionId, message: "Import stop signal sent" }, 200, req);
+      // Verify the stop signal was actually written
+      const verifyRead = await container.item(`_import_stop_${sessionId}`).read().catch(e => {
+        context.log(`[import-stop] session=${sessionId} failed to verify stop signal: ${e.message}`);
+        return { resource: null };
+      });
+
+      if (verifyRead?.resource) {
+        context.log(`[import-stop] session=${sessionId} stop signal verified in Cosmos`);
+      } else {
+        context.log(`[import-stop] session=${sessionId} WARNING: stop signal not verified after write`);
+      }
+
+      return json({ ok: true, session_id: sessionId, message: "Import stop signal sent", written: !!verifyRead?.resource }, 200, req);
     } catch (e) {
-      context.log("[import-stop] Error writing stop signal:", e.message);
+      context.log(`[import-stop] session=${sessionId} error writing stop signal: ${e.message}`);
       // Even if there's an error, return success so the frontend doesn't retry
       // The worst case is the import continues, but frontend will stop polling
-      return json({ ok: true, session_id: sessionId, message: "Stop signal received" }, 200, req);
+      return json({ ok: true, session_id: sessionId, message: "Stop signal received", error: e.message }, 200, req);
     }
   },
 });

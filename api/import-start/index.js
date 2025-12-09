@@ -454,7 +454,7 @@ app.http("import-start", {
         // Early check: if import was already stopped, return immediately
         const wasAlreadyStopped = await checkIfSessionStopped(sessionId);
         if (wasAlreadyStopped) {
-          console.log(`[import-start] Import stop signal detected before XAI call`);
+          console.log(`[import-start] session=${sessionId} stop signal detected before XAI call`);
           return json({
             ok: false,
             error: "Import was stopped",
@@ -623,6 +623,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
         };
 
         try {
+          console.log(`[import-start] session=${sessionId} xai request payload = ${JSON.stringify(xaiPayload)}`);
           console.log(`[import-start] Calling XAI API at: ${xaiUrl}`);
           const xaiResponse = await axios.post(xaiUrl, xaiRequestPayload, {
           headers: {
@@ -633,7 +634,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
         });
 
         const elapsed = Date.now() - startTime;
-        console.log(`[import-start] XAI response received after ${elapsed}ms, status: ${xaiResponse.status}`);
+        console.log(`[import-start] session=${sessionId} xai response status=${xaiResponse.status}`);
 
         if (xaiResponse.status >= 200 && xaiResponse.status < 300) {
           // Extract the response content
@@ -649,27 +650,72 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               if (!Array.isArray(companies)) companies = [];
             }
           } catch (parseErr) {
-            console.warn(`[import-start] Failed to parse companies from response: ${parseErr.message}`);
+            console.warn(`[import-start] session=${sessionId} failed to parse companies from response: ${parseErr.message}`);
             companies = [];
           }
 
-          console.log(`[import-start] Found ${companies.length} companies in XAI response`);
+          console.log(`[import-start] session=${sessionId} xai response status=${xaiResponse.status} companies=${companies.length}`);
 
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
 
+          // Early exit if no companies found
+          if (enriched.length === 0) {
+            console.log(`[import-start] session=${sessionId} no companies found in XAI response, returning early`);
+
+            // Write a completion marker so import-progress knows this session is done with 0 results
+            try {
+              const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+              const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+              if (endpoint && key) {
+                const client = new CosmosClient({ endpoint, key });
+                const database = client.database((process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim());
+                const container = database.container((process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim());
+                const completionDoc = {
+                  id: `_import_complete_${sessionId}`,
+                  session_id: sessionId,
+                  completed_at: new Date().toISOString(),
+                  reason: "no_results_from_xai",
+                  saved: 0,
+                };
+                await container.items.create(completionDoc).catch(e => {
+                  console.warn(`[import-start] session=${sessionId} failed to write completion marker: ${e.message}`);
+                }); // Ignore errors
+                console.log(`[import-start] session=${sessionId} completion marker written`);
+              }
+            } catch (e) {
+              console.warn(`[import-start] session=${sessionId} error writing completion marker: ${e.message}`);
+            }
+
+            return json({
+              ok: true,
+              session_id: sessionId,
+              companies: [],
+              meta: {
+                mode: "direct",
+                expanded: false,
+                timedOut: false,
+                elapsedMs: Date.now() - startTime,
+                no_results_reason: "XAI returned empty response"
+              },
+              saved: 0,
+              skipped: 0,
+              failed: 0,
+            }, 200);
+          }
+
           // Geocode headquarters locations to get lat/lng
-          console.log(`[import-start] Geocoding ${enriched.length} companies' headquarters locations`);
+          console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
           for (let i = 0; i < enriched.length; i++) {
             // Check if import was stopped OR we're running out of time
             if (shouldAbort()) {
-              console.log(`[import-start] Aborting during geocoding: time limit exceeded`);
+              console.log(`[import-start] session=${sessionId} aborting during geocoding: time limit exceeded`);
               break;
             }
 
             const stopped = await checkIfSessionStopped(sessionId);
             if (stopped) {
-              console.log(`[import-start] Import stopped by user during geocoding`);
+              console.log(`[import-start] session=${sessionId} stop signal detected, aborting during geocoding`);
               break;
             }
 
@@ -678,10 +724,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               const geoResult = await geocodeHQLocation(company.headquarters_location);
               if (geoResult.hq_lat !== undefined && geoResult.hq_lng !== undefined) {
                 enriched[i] = { ...company, ...geoResult };
-                console.log(`[import-start] Geocoded ${company.company_name}: ${company.headquarters_location} → (${geoResult.hq_lat}, ${geoResult.hq_lng})`);
+                console.log(`[import-start] session=${sessionId} geocoded ${company.company_name}: ${company.headquarters_location} → (${geoResult.hq_lat}, ${geoResult.hq_lng})`);
               }
             }
           }
+          console.log(`[import-start] session=${sessionId} geocoding done success=${enriched.filter(c => c.hq_lat && c.hq_lng).length} failed=${enriched.filter(c => !c.hq_lat || !c.hq_lng).length}`);
 
           // Check if any companies have missing or weak location data
           // Trigger refinement if: HQ is missing, manufacturing is missing, or confidence is low (aggressive approach)
@@ -833,8 +880,9 @@ Return ONLY the JSON array, no other text.`,
 
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
           if (enriched.length > 0) {
+            console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos start count=${enriched.length}`);
             saveResult = await saveCompaniesToCosmos(enriched, sessionId, timeout);
-            console.log(`[import-start] Saved ${saveResult.saved} companies, skipped: ${saveResult.skipped}, failed: ${saveResult.failed}`);
+            console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos done saved=${saveResult.saved} skipped=${saveResult.skipped} duplicates=${saveResult.skipped}`);
           }
 
           // If expand_if_few is enabled and we got very few results (or all were skipped), try alternative search
@@ -949,27 +997,49 @@ Return ONLY the JSON array, no other text.`,
           const elapsed = Date.now() - startTime;
           const timedOut = isOutOfTime();
 
-          // If we timed out, write a signal document so import-progress knows
-          if (timedOut) {
-            try {
-              const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
-              const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
-              if (endpoint && key) {
-                const client = new CosmosClient({ endpoint, key });
-                const database = client.database((process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim());
-                const container = database.container((process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim());
-                const timeoutDoc = {
+          // Write a completion marker so import-progress knows this session is done
+          try {
+            const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+            const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+            if (endpoint && key) {
+              const client = new CosmosClient({ endpoint, key });
+              const database = client.database((process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim());
+              const container = database.container((process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim());
+
+              let completionDoc;
+              if (timedOut) {
+                console.log(`[import-start] session=${sessionId} timeout detected, writing timeout signal`);
+                completionDoc = {
                   id: `_import_timeout_${sessionId}`,
                   session_id: sessionId,
                   completed_at: new Date().toISOString(),
                   elapsed_ms: elapsed,
                   reason: "max processing time exceeded",
                 };
-                await container.items.create(timeoutDoc).catch(() => {}); // Ignore errors
+              } else {
+                // Write completion marker for successful finish
+                completionDoc = {
+                  id: `_import_complete_${sessionId}`,
+                  session_id: sessionId,
+                  completed_at: new Date().toISOString(),
+                  elapsed_ms: elapsed,
+                  reason: "completed_normally",
+                  saved: saveResult.saved,
+                };
               }
-            } catch (e) {
-              console.warn(`[import-start] Failed to write timeout signal: ${e.message}`);
+
+              await container.items.create(completionDoc).catch(e => {
+                console.warn(`[import-start] session=${sessionId} failed to write completion marker: ${e.message}`);
+              }); // Ignore errors
+
+              if (timedOut) {
+                console.log(`[import-start] session=${sessionId} timeout signal written`);
+              } else {
+                console.log(`[import-start] session=${sessionId} completion marker written (saved=${saveResult.saved})`);
+              }
             }
+          } catch (e) {
+            console.warn(`[import-start] session=${sessionId} error writing completion marker: ${e.message}`);
           }
 
           return json({
@@ -999,16 +1069,17 @@ Return ONLY the JSON array, no other text.`,
         }
       } catch (xaiError) {
         const elapsed = Date.now() - startTime;
-        console.error(`[import-start] XAI call failed after ${elapsed}ms:`, xaiError.message);
-        console.error(`[import-start] Error code: ${xaiError.code}`);
+        console.error(`[import-start] session=${sessionId} xai call failed: ${xaiError.message}`);
+        console.error(`[import-start] session=${sessionId} error code: ${xaiError.code}`);
         if (xaiError.response) {
-          console.error(`[import-start] XAI error status: ${xaiError.response.status}`);
-          console.error(`[import-start] XAI error data:`, JSON.stringify(xaiError.response.data).substring(0, 200));
+          console.error(`[import-start] session=${sessionId} xai error status: ${xaiError.response.status}`);
+          console.error(`[import-start] session=${sessionId} xai error data:`, JSON.stringify(xaiError.response.data).substring(0, 200));
         }
 
         // Write timeout signal if this took too long
         if (isOutOfTime() || (xaiError.code === 'ECONNABORTED' || xaiError.message.includes('timeout'))) {
           try {
+            console.log(`[import-start] session=${sessionId} timeout detected during XAI call, writing timeout signal`);
             const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
             const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
             if (endpoint && key) {
@@ -1023,9 +1094,10 @@ Return ONLY the JSON array, no other text.`,
                 error: xaiError.message,
               };
               await container.items.create(timeoutDoc).catch(() => {}); // Ignore errors
+              console.log(`[import-start] session=${sessionId} timeout signal written`);
             }
           } catch (e) {
-            console.warn(`[import-start] Failed to write timeout signal: ${e.message}`);
+            console.warn(`[import-start] session=${sessionId} failed to write timeout signal: ${e.message}`);
           }
         }
 

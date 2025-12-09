@@ -223,8 +223,28 @@ export default function XAIBulkImportPage() {
     setStopRequested(true);
   };
 
+  const handleImportStopped = (data) => {
+    console.log("Import stopped by user:", data);
+    setStopRequested(false);
+    setStatus(`🛑 Import stopped by user. ${data.saved > 0 ? `Found ${data.saved} ${data.saved === 1 ? 'company' : 'companies'}.` : 'No companies imported.'}`);
+    // Clock continues to show the elapsed time when stopped
+  };
 
-  const handleClear = () => {
+  const handleClear = async () => {
+    // If there's an active import, stop it first
+    if (sessionId) {
+      try {
+        await fetch(`${API_BASE}/import/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId })
+        }).catch(() => {}); // Ignore errors
+      } catch (e) {
+        console.warn("Failed to stop import during clear:", e);
+      }
+    }
+
+    // Clear everything
     setSessionId("");
     setStatus("");
     setSearchValue("");
@@ -376,11 +396,17 @@ export default function XAIBulkImportPage() {
                  className="w-full border rounded px-3 py-2" placeholder="-118.325" />
         </div>
         <div className="flex items-end gap-2">
-          <button onClick={handleImport} className="rounded px-4 py-2 text-white bg-lime-500 hover:bg-lime-600">Start Import</button>
+          <button
+            onClick={handleImport}
+            disabled={!!sessionId}
+            className={`rounded px-4 py-2 text-white ${sessionId ? 'bg-gray-300 cursor-not-allowed' : 'bg-lime-500 hover:bg-lime-600'}`}
+          >
+            Start Import
+          </button>
           <button
             onClick={handleStop}
-            disabled={!sessionId}
-            className={`rounded px-4 py-2 text-white ${sessionId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-gray-300 cursor-not-allowed'}`}
+            disabled={!sessionId || stopRequested}
+            className={`rounded px-4 py-2 text-white ${sessionId && !stopRequested ? 'bg-amber-500 hover:bg-amber-600' : 'bg-gray-300 cursor-not-allowed'}`}
           >
             Stop Import
           </button>
@@ -416,6 +442,7 @@ export default function XAIBulkImportPage() {
             onStats={(s) => { setSavedSoFar(s.saved || 0); setLastRowTs(s.lastCreatedAt || ""); }}
             onSuccess={handleImportSuccess}
             onFailure={handleImportFailure}
+            onStopped={handleImportStopped}
           />
           {savedSoFar > 0 && (
             <div className="mt-4 p-3 border rounded bg-emerald-50 text-emerald-800 text-sm">

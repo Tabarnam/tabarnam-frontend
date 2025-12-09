@@ -9,7 +9,8 @@ export default function BulkImportStream({
   stopRequested = false,
   onStats = () => {},
   onSuccess = () => {},
-  onFailure = () => {}
+  onFailure = () => {},
+  onStopped = () => {}
 }) {
   const [items, setItems] = useState([]);
   const [steps, setSteps] = useState([]);
@@ -42,6 +43,7 @@ export default function BulkImportStream({
       const items = j.items || [];
       const isStopped = !!j.stopped;
       const isTimedOut = !!j.timedOut;
+      const isCompleted = !!j.completed;  // 0-results completion
 
       setItems(items);
       setSteps(j.steps || []);
@@ -67,14 +69,21 @@ export default function BulkImportStream({
         return;
       }
 
-      // Check if import was stopped
-      if (isStopped && !hasEmittedRef.current) {
+      // Check if import was explicitly stopped by user
+      if (isStopped && !isCompleted && !hasEmittedRef.current) {
         hasEmittedRef.current = true;
         if (saved > 0) {
           onFailure({ saved, target: targetResults });
         } else {
           setErr("❌ Import was stopped.");
         }
+        return;
+      }
+
+      // Check if import completed with no results (XAI returned nothing)
+      if (isCompleted && saved === 0 && !hasEmittedRef.current) {
+        hasEmittedRef.current = true;
+        setErr("❌ No companies found for this search. The XAI API returned no matches. Try a different search term or be less specific.");
         return;
       }
 
@@ -147,6 +156,9 @@ export default function BulkImportStream({
         }
       })();
       clearTimeout(timerRef.current);
+      // Signal to parent that import was stopped by user
+      setStopped(true);
+      onStopped({ stopped: true, saved: items.length });
       return;
     }
 
@@ -165,7 +177,11 @@ export default function BulkImportStream({
     <div className="mt-4 border rounded p-3 bg-white">
       <div className="flex items-center justify-between mb-2">
         <div className="font-semibold">Streaming Results ({items.length}/{targetResults})</div>
-        {stopped ? <span className="text-xs px-2 py-1 bg-gray-200 rounded">Stopped</span> : <span className="text-xs px-2 py-1 bg-emerald-100 text-emerald-800 rounded">Running</span>}
+        {stopped ? (
+          <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded">Stopped by user</span>
+        ) : (
+          <span className="text-xs px-2 py-1 bg-emerald-100 text-emerald-800 rounded">Running</span>
+        )}
       </div>
       
       {/* Progress bar */}

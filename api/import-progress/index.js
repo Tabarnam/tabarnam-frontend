@@ -32,7 +32,7 @@ app.http("import-progress", {
       return json({ error: "session_id is required" }, 400, req);
     }
 
-    console.log(`[import-progress] Polling for session_id: ${sessionId}, take: ${take}`);
+    console.log(`[import-progress] session=${sessionId} polling take=${take}`);
 
     const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
     const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
@@ -48,9 +48,10 @@ app.http("import-progress", {
     const container = client.database(databaseId).container(containerId);
 
     try {
-      // Check if import was stopped or timed out
+      // Check if import was stopped, timed out, or completed
       let stopped = false;
       let timedOut = false;
+      let completed = false;
 
       try {
         const stopDocId = `_import_stop_${sessionId}`;
@@ -59,7 +60,7 @@ app.http("import-progress", {
       } catch (e) {
         // Stop document doesn't exist, import is not stopped
         if (e.code !== 404) {
-          console.warn(`[import-progress] Error checking stop signal: ${e.message}`);
+          console.warn(`[import-progress] session=${sessionId} error checking stop signal: ${e.message}`);
         }
       }
 
@@ -70,7 +71,18 @@ app.http("import-progress", {
       } catch (e) {
         // Timeout document doesn't exist
         if (e.code !== 404) {
-          console.warn(`[import-progress] Error checking timeout signal: ${e.message}`);
+          console.warn(`[import-progress] session=${sessionId} error checking timeout signal: ${e.message}`);
+        }
+      }
+
+      try {
+        const completionDocId = `_import_complete_${sessionId}`;
+        const { resource } = await container.item(completionDocId).read();
+        completed = !!resource;
+      } catch (e) {
+        // Completion document doesn't exist
+        if (e.code !== 404) {
+          console.warn(`[import-progress] session=${sessionId} error checking completion signal: ${e.message}`);
         }
       }
 
@@ -92,16 +104,18 @@ app.http("import-progress", {
       const saved = resources.length || 0;
       const lastCreatedAt = resources?.[0]?.created_at || "";
 
-      console.log(`[import-progress] Found ${saved} companies in Cosmos DB for session ${sessionId}, stopped: ${stopped}, timedOut: ${timedOut}`);
+      console.log(`[import-progress] session=${sessionId} found=${saved} stopped=${stopped} timedOut=${timedOut} completed=${completed}`);
 
       // Return what we found in Cosmos DB
+      // Note: completed flag signals that import-start finished (0 results or successful save)
       return json({
         ok: true,
         session_id: sessionId,
         items: resources.slice(0, take),
         steps: [],
-        stopped: stopped || timedOut,
+        stopped: stopped || timedOut || completed,  // Include completed as a "stopped" state for UI
         timedOut: timedOut,
+        completed: completed,  // Explicitly signal 0-results completion
         saved,
         lastCreatedAt
       }, 200, req);
