@@ -129,22 +129,20 @@ app.http("delete-logo-blob", {
       );
     } catch (error) {
       ctx.error("[delete-logo-blob] Deletion error:", error.message);
+      ctx.error("[delete-logo-blob] Error code:", error.code);
       ctx.error("[delete-logo-blob] Stack:", error.stack);
 
       const { accountName } = getStorageCredentials(ctx);
-      return json(
-        {
-          ok: false,
-          error: error.message || "Deletion failed - please try again",
-          ...(process.env.NODE_ENV !== "production" && {
-            accountName,
-            containerName: CONTAINER_NAME,
-            debug: true
-          })
-        },
-        500,
-        req
-      );
+      const errorResponse = {
+        ok: false,
+        error: error.message || "Deletion failed - please try again",
+        errorCode: error.code,
+        accountName,
+        containerName: CONTAINER_NAME,
+        endpoint: `https://${accountName}.blob.core.windows.net`,
+        debug: true
+      };
+      return json(errorResponse, 500, req);
     }
   },
 });
