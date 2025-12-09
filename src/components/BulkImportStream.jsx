@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { API_BASE } from "@/lib/api";
 
-export default function BulkImportStream({ 
-  sessionId, 
+export default function BulkImportStream({
+  sessionId,
   targetResults = 10,
-  take = 200, 
-  pollingMs = 1500, 
+  take = 200,
+  pollingMs = 1500,
+  stopRequested = false,
   onStats = () => {},
   onSuccess = () => {},
   onFailure = () => {}
@@ -97,6 +98,9 @@ export default function BulkImportStream({
   }
 
   function scheduleNextTick() {
+    if (stopRequested) {
+      return;
+    }
     timerRef.current = setTimeout(tick, pollingMs);
   }
 
@@ -105,10 +109,10 @@ export default function BulkImportStream({
     failureCountRef.current = 0;
     lastActivityRef.current = Date.now();
     hasEmittedRef.current = false;
-    if (sessionId) tick();
+    if (sessionId && !stopRequested) tick();
     return () => clearTimeout(timerRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, take, pollingMs, targetResults]);
+  }, [sessionId, take, pollingMs, targetResults, stopRequested]);
 
   const progressPercent = Math.min(100, Math.round((items.length / Math.max(1, targetResults)) * 100));
 

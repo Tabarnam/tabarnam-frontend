@@ -26,6 +26,13 @@ export default function XAIBulkImportPage() {
   const [savedSoFar, setSavedSoFar] = useState(0);
   const [lastRowTs, setLastRowTs] = useState("");
 
+  // Runtime clock state
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [startTime, setStartTime] = useState(null);
+
+  // Stop import state
+  const [stopRequested, setStopRequested] = useState(false);
+
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [modalStatus, setModalStatus] = useState("success"); // "success" or "failure"
@@ -36,6 +43,20 @@ export default function XAIBulkImportPage() {
     const prev = localStorage.getItem("last_session_id") || "";
     setLastSessionId(prev);
   }, []);
+
+  // Runtime clock timer
+  useEffect(() => {
+    if (!sessionId) {
+      // Stop the timer if no active import
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [sessionId]);
 
   // sanity ping
   useEffect(() => {
@@ -51,6 +72,18 @@ export default function XAIBulkImportPage() {
       }
     })();
   }, []);
+
+  // Format elapsed time as MM:SS or HH:MM:SS
+  function formatElapsedTime(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+
+    if (hours > 0) {
+      return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
 
   const fields = [
     { value: "company_name",           label: "Company Name" },
@@ -110,6 +143,9 @@ export default function XAIBulkImportPage() {
     setSavedSoFar(0);
     setLastRowTs("");
     setModalOpen(false);
+    setStartTime(Date.now());
+    setElapsedSeconds(0);
+    setStopRequested(false);
 
     const isSpecificSearch = searchMode === "specific";
     setStatus(isSpecificSearch ? "🔍 Searching for specific company… (may take longer for thorough location search)" : "Starting import… (rows will stream in below)");
@@ -183,6 +219,10 @@ export default function XAIBulkImportPage() {
     setModalOpen(false);
   };
 
+  const handleStop = () => {
+    setStopRequested(true);
+  };
+
 
   const handleClear = () => {
     setSessionId("");
@@ -199,6 +239,9 @@ export default function XAIBulkImportPage() {
     setCountry("");
     setSearchMode("multiple");
     setModalOpen(false);
+    setElapsedSeconds(0);
+    setStartTime(null);
+    setStopRequested(false);
   };
 
   return (
@@ -334,7 +377,17 @@ export default function XAIBulkImportPage() {
         </div>
         <div className="flex items-end gap-2">
           <button onClick={handleImport} className="rounded px-4 py-2 text-white bg-lime-500 hover:bg-lime-600">Start Import</button>
+          <button
+            onClick={handleStop}
+            disabled={!sessionId}
+            className={`rounded px-4 py-2 text-white ${sessionId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-gray-300 cursor-not-allowed'}`}
+          >
+            Stop Import
+          </button>
           <button onClick={handleClear} className="bg-red-600 hover:bg-red-700 text-white rounded px-4 py-2">Clear</button>
+          <div className="ml-auto text-sm font-medium text-gray-700">
+            Runtime: <code className="bg-gray-100 px-2 py-1 rounded">{formatElapsedTime(elapsedSeconds)}</code>
+          </div>
         </div>
       </div>
 
@@ -359,6 +412,7 @@ export default function XAIBulkImportPage() {
             targetResults={maxImports}
             take={400}
             pollingMs={1500}
+            stopRequested={stopRequested}
             onStats={(s) => { setSavedSoFar(s.saved || 0); setLastRowTs(s.lastCreatedAt || ""); }}
             onSuccess={handleImportSuccess}
             onFailure={handleImportFailure}
