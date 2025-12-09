@@ -181,22 +181,20 @@ app.http("upload-logo-blob", {
       );
     } catch (error) {
       ctx.error("[upload-logo-blob] Upload error:", error.message);
+      ctx.error("[upload-logo-blob] Error code:", error.code);
       ctx.error("[upload-logo-blob] Stack:", error.stack);
 
       const { accountName } = getStorageCredentials(ctx);
-      return json(
-        {
-          ok: false,
-          error: error.message || "Upload failed - please try again",
-          ...(process.env.NODE_ENV !== "production" && {
-            accountName,
-            containerName: "company-logos",
-            debug: true
-          })
-        },
-        500,
-        req
-      );
+      const errorResponse = {
+        ok: false,
+        error: error.message || "Upload failed - please try again",
+        errorCode: error.code,
+        accountName,
+        containerName: "company-logos",
+        endpoint: `https://${accountName}.blob.core.windows.net`,
+        debug: true
+      };
+      return json(errorResponse, 500, req);
     }
   },
 });
