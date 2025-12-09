@@ -661,7 +661,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           // Geocode headquarters locations to get lat/lng
           console.log(`[import-start] Geocoding ${enriched.length} companies' headquarters locations`);
           for (let i = 0; i < enriched.length; i++) {
-            // Check if import was stopped
+            // Check if import was stopped OR we're running out of time
+            if (shouldAbort()) {
+              console.log(`[import-start] Aborting during geocoding: time limit exceeded`);
+              break;
+            }
+
             const stopped = await checkIfSessionStopped(sessionId);
             if (stopped) {
               console.log(`[import-start] Import stopped by user during geocoding`);
