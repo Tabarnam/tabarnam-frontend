@@ -579,7 +579,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             "Content-Type": "application/json",
             "Authorization": `Bearer ${xaiKey}`,
           },
-          timeout: Math.max(1000, Number(process.env.XAI_TIMEOUT_MS) || 60000),
+          timeout: timeout,
         });
 
         const elapsed = Date.now() - startTime;
