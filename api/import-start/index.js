@@ -211,27 +211,26 @@ async function checkIfSessionStopped(sessionId) {
     const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
     const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
     const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+    const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
     if (!endpoint || !key) return false;
 
     const client = new CosmosClient({ endpoint, key });
     const database = client.database(databaseId);
+    const container = database.container(containerId);
 
+    // Check for stop signal document in the companies container
     try {
-      const controlContainer = database.container("import_control");
-      const { resources } = await controlContainer.items
-        .query({
-          query: "SELECT c.id FROM c WHERE c.session_id = @sid AND c.type = @type",
-          parameters: [
-            { name: "@sid", value: sessionId },
-            { name: "@type", value: "import_stop" }
-          ]
-        }, { enableCrossPartitionQuery: true })
-        .fetchAll();
-
-      return resources && resources.length > 0;
-    } catch {
-      // Control container doesn't exist yet, session is not stopped
+      const stopDocId = `_import_stop_${sessionId}`;
+      const { resource } = await container.item(stopDocId).read();
+      return !!resource;
+    } catch (e) {
+      // Document doesn't exist, session is not stopped
+      if (e.code === 404) {
+        return false;
+      }
+      // For other errors, log and assume not stopped
+      console.warn(`[import-start] Error checking stop status: ${e.message}`);
       return false;
     }
   } catch (e) {
