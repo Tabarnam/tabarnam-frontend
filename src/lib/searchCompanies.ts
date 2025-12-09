@@ -36,6 +36,7 @@ export interface Company {
   red_flag?: boolean;
   red_flag_reason?: string;
   location_confidence?: "high" | "medium" | "low";
+  tagline?: string;
 }
 
 export async function searchCompanies(opts: SearchOptions) {
