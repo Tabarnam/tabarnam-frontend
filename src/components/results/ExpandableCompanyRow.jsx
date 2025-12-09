@@ -252,8 +252,8 @@ export default function ExpandableCompanyRow({
                 {company.company_name}
               </a>
             </h2>
-            {company.company_tagline && (
-              <div className="text-sm text-gray-600 mt-1">{company.company_tagline}</div>
+            {company.tagline && (
+              <div className="text-sm text-gray-600 mt-1">{company.tagline}</div>
             )}
 
             {(affiliateLinks.length > 0 || amazonLink) && (
@@ -397,8 +397,8 @@ export default function ExpandableCompanyRow({
             {company.company_name}
           </a>
         </h2>
-        {company.company_tagline && (
-          <div className="text-xs text-gray-600 mt-1">{company.company_tagline}</div>
+        {company.tagline && (
+          <div className="text-xs text-gray-600 mt-1">{company.tagline}</div>
         )}
 
         {(affiliateLinks.length > 0 || amazonLink) && (
