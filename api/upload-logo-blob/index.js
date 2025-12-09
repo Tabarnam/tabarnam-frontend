@@ -1,5 +1,5 @@
 const { app } = require("@azure/functions");
-const { BlobServiceClient, StorageSharedKeyCredential, generateBlobSASUrl } = require("@azure/storage-blob");
+const { BlobServiceClient, StorageSharedKeyCredential, generateBlobSASUrl, BlobSASPermissions } = require("@azure/storage-blob");
 const { CosmosClient } = require("@azure/cosmos");
 const sharp = require("sharp");
 const { v4: uuidv4 } = require("uuid");
