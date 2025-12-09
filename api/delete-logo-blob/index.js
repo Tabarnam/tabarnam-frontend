@@ -1,5 +1,6 @@
 const { app } = require("@azure/functions");
 const { BlobServiceClient, StorageSharedKeyCredential } = require("@azure/storage-blob");
+const { CosmosClient } = require("@azure/cosmos");
 
 const CONTAINER_NAME = "company-logos";
 
@@ -13,6 +14,39 @@ function getStorageCredentials(ctx) {
   ctx.log(`[delete-logo-blob] Account key present: ${!!accountKey}`);
 
   return { accountName, accountKey };
+}
+
+// Helper function to get Cosmos DB connection
+function getCosmosContainer(ctx) {
+  const endpoint = process.env.COSMOS_DB_ENDPOINT || "";
+  const key = process.env.COSMOS_DB_KEY || "";
+  const database = process.env.COSMOS_DB_DATABASE || "tabarnam-db";
+  const container = process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies";
+
+  if (!endpoint || !key) {
+    ctx.log("[delete-logo-blob] Cosmos DB not configured - logo URL will not be cleared from company document");
+    return null;
+  }
+
+  try {
+    const client = new CosmosClient({ endpoint, key });
+    return client.database(database).container(container);
+  } catch (e) {
+    ctx.error("[delete-logo-blob] Failed to create Cosmos client:", e?.message);
+    return null;
+  }
+}
+
+// Helper to normalize domain from URL
+function toNormalizedDomain(s = "") {
+  try {
+    const u = s.startsWith("http") ? new URL(s) : new URL(`https://${s}`);
+    let h = u.hostname.toLowerCase();
+    if (h.startsWith("www.")) h = h.slice(4);
+    return h || "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 function cors(req) {
