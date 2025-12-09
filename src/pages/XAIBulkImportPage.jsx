@@ -412,6 +412,7 @@ export default function XAIBulkImportPage() {
             targetResults={maxImports}
             take={400}
             pollingMs={1500}
+            stopRequested={stopRequested}
             onStats={(s) => { setSavedSoFar(s.saved || 0); setLastRowTs(s.lastCreatedAt || ""); }}
             onSuccess={handleImportSuccess}
             onFailure={handleImportFailure}
