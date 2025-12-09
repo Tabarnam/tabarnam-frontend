@@ -109,10 +109,10 @@ export default function BulkImportStream({
     failureCountRef.current = 0;
     lastActivityRef.current = Date.now();
     hasEmittedRef.current = false;
-    if (sessionId) tick();
+    if (sessionId && !stopRequested) tick();
     return () => clearTimeout(timerRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, take, pollingMs, targetResults]);
+  }, [sessionId, take, pollingMs, targetResults, stopRequested]);
 
   const progressPercent = Math.min(100, Math.round((items.length / Math.max(1, targetResults)) * 100));
 
