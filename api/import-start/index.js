@@ -941,11 +941,19 @@ Return ONLY the JSON array, no other text.`,
             }
           }
 
+          const elapsed = Date.now() - startTime;
+          const timedOut = isOutOfTime();
+
           return json({
             ok: true,
             session_id: sessionId,
             companies: enriched,
-            meta: { mode: "direct", expanded: xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold },
+            meta: {
+              mode: "direct",
+              expanded: xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold,
+              timedOut: timedOut,
+              elapsedMs: elapsed
+            },
             saved: saveResult.saved,
             skipped: saveResult.skipped,
             failed: saveResult.failed,
