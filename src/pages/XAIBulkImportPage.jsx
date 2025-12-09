@@ -377,7 +377,17 @@ export default function XAIBulkImportPage() {
         </div>
         <div className="flex items-end gap-2">
           <button onClick={handleImport} className="rounded px-4 py-2 text-white bg-lime-500 hover:bg-lime-600">Start Import</button>
+          <button
+            onClick={handleStop}
+            disabled={!sessionId}
+            className={`rounded px-4 py-2 text-white ${sessionId ? 'bg-amber-500 hover:bg-amber-600' : 'bg-gray-300 cursor-not-allowed'}`}
+          >
+            Stop Import
+          </button>
           <button onClick={handleClear} className="bg-red-600 hover:bg-red-700 text-white rounded px-4 py-2">Clear</button>
+          <div className="ml-auto text-sm font-medium text-gray-700">
+            Runtime: <code className="bg-gray-100 px-2 py-1 rounded">{formatElapsedTime(elapsedSeconds)}</code>
+          </div>
         </div>
       </div>
 
