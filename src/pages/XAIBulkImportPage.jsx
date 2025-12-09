@@ -219,6 +219,10 @@ export default function XAIBulkImportPage() {
     setModalOpen(false);
   };
 
+  const handleStop = () => {
+    setStopRequested(true);
+  };
+
 
   const handleClear = () => {
     setSessionId("");
