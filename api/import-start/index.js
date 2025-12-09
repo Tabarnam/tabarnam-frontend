@@ -659,18 +659,38 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
 
+          // Early exit if no companies found
+          if (enriched.length === 0) {
+            console.log(`[import-start] session=${sessionId} no companies found in XAI response, returning early`);
+            return json({
+              ok: true,
+              session_id: sessionId,
+              companies: [],
+              meta: {
+                mode: "direct",
+                expanded: false,
+                timedOut: false,
+                elapsedMs: Date.now() - startTime,
+                no_results_reason: "XAI returned empty response"
+              },
+              saved: 0,
+              skipped: 0,
+              failed: 0,
+            }, 200);
+          }
+
           // Geocode headquarters locations to get lat/lng
-          console.log(`[import-start] Geocoding ${enriched.length} companies' headquarters locations`);
+          console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
           for (let i = 0; i < enriched.length; i++) {
             // Check if import was stopped OR we're running out of time
             if (shouldAbort()) {
-              console.log(`[import-start] Aborting during geocoding: time limit exceeded`);
+              console.log(`[import-start] session=${sessionId} aborting during geocoding: time limit exceeded`);
               break;
             }
 
             const stopped = await checkIfSessionStopped(sessionId);
             if (stopped) {
-              console.log(`[import-start] Import stopped by user during geocoding`);
+              console.log(`[import-start] session=${sessionId} stop signal detected, aborting during geocoding`);
               break;
             }
 
