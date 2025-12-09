@@ -51,28 +51,25 @@ app.http("import-progress", {
       // Check if import was stopped
       let stopped = false;
       try {
-        const controlContainer = client.database(databaseId).container("import_control");
-        const { resources: stopResources } = await controlContainer.items
-          .query({
-            query: "SELECT c.id FROM c WHERE c.session_id = @sid AND c.type = @type",
-            parameters: [
-              { name: "@sid", value: sessionId },
-              { name: "@type", value: "import_stop" }
-            ]
-          }, { enableCrossPartitionQuery: true })
-          .fetchAll();
-        stopped = stopResources && stopResources.length > 0;
+        const stopDocId = `_import_stop_${sessionId}`;
+        const { resource } = await container.item(stopDocId).read();
+        stopped = !!resource;
       } catch (e) {
-        // Control container doesn't exist yet, import is not stopped
-        stopped = false;
+        // Stop document doesn't exist, import is not stopped
+        if (e.code === 404) {
+          stopped = false;
+        } else {
+          console.warn(`[import-progress] Error checking stop signal: ${e.message}`);
+          stopped = false;
+        }
       }
 
-      // Query companies from Cosmos DB for this session
+      // Query companies from Cosmos DB for this session (exclude reserved control documents)
       const q = {
         query: `
           SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.industries, c.product_keywords, c.created_at
           FROM c
-          WHERE c.session_id = @sid
+          WHERE c.session_id = @sid AND NOT STARTSWITH(c.id, '_import_')
           ORDER BY c.created_at DESC
         `,
         parameters: [

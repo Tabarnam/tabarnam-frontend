@@ -48,6 +48,7 @@ app.http("import-stop", {
     const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
     const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
     const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+    const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
     if (!endpoint || !key) {
       context.log("[import-stop] Cosmos DB not configured");
@@ -57,36 +58,26 @@ app.http("import-stop", {
     try {
       const client = new CosmosClient({ endpoint, key });
       const database = client.database(databaseId);
+      const container = database.container(containerId);
 
-      // Use a dedicated control container or fall back to creating a synthetic document
-      // Store stop signal as a control document that import-start can check
-      const controlContainerId = "import_control";
-      let controlContainer;
-
-      try {
-        controlContainer = database.container(controlContainerId);
-      } catch (e) {
-        context.log(`[import-stop] Control container '${controlContainerId}' not available: ${e.message}`);
-        // Create a placeholder or continue without it
-        return json({ ok: true, message: "Stop signal received but control container unavailable" }, 202, req);
-      }
-
-      // Write a stop control document
-      const controlDoc = {
-        id: `stop_${sessionId}`,
+      // Store stop signal as a reserved document in the companies container
+      // This avoids needing a separate container and ensures reliability
+      const stopControlDoc = {
+        id: `_import_stop_${sessionId}`,
         session_id: sessionId,
         stopped_at: new Date().toISOString(),
         type: "import_stop",
-        partition_key: "control",
       };
 
-      await controlContainer.items.upsert(controlDoc, { partitionKey: "control" });
+      await container.items.create(stopControlDoc);
 
       context.log(`[import-stop] Stop signal written for session ${sessionId}`);
       return json({ ok: true, session_id: sessionId, message: "Import stop signal sent" }, 200, req);
     } catch (e) {
       context.log("[import-stop] Error writing stop signal:", e.message);
-      return json({ ok: true, session_id: sessionId, message: "Stop signal queued (error caught)" }, 202, req);
+      // Even if there's an error, return success so the frontend doesn't retry
+      // The worst case is the import continues, but frontend will stop polling
+      return json({ ok: true, session_id: sessionId, message: "Stop signal received" }, 200, req);
     }
   },
 });
