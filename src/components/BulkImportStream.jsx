@@ -169,7 +169,11 @@ export default function BulkImportStream({
     <div className="mt-4 border rounded p-3 bg-white">
       <div className="flex items-center justify-between mb-2">
         <div className="font-semibold">Streaming Results ({items.length}/{targetResults})</div>
-        {stopped ? <span className="text-xs px-2 py-1 bg-gray-200 rounded">Stopped</span> : <span className="text-xs px-2 py-1 bg-emerald-100 text-emerald-800 rounded">Running</span>}
+        {stopped ? (
+          <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded">Stopped by user</span>
+        ) : (
+          <span className="text-xs px-2 py-1 bg-emerald-100 text-emerald-800 rounded">Running</span>
+        )}
       </div>
       
       {/* Progress bar */}
