@@ -205,8 +205,28 @@ app.http("upload-logo-blob", {
         blobHTTPHeaders: { blobContentType: file.type || "image/png" },
       });
 
-      const blobUrl = blockBlobClient.url;
-      ctx.log(`[upload-logo-blob] Successfully uploaded logo for company ${companyId}: ${blobUrl}`);
+      // Generate SAS URL with 1-year expiration for secure blob access
+      let logoUrl = blockBlobClient.url;
+      try {
+        const { accountName, accountKey } = getStorageCredentials(ctx);
+        const credentials = new StorageSharedKeyCredential(accountName, accountKey);
+
+        // Generate SAS URL valid for 1 year
+        logoUrl = generateBlobSASUrl({
+          containerName: containerName,
+          blobName: blobName,
+          accountName: accountName,
+          accountKey: accountKey,
+          permissions: require("@azure/storage-blob").BlobSASPermissions.parse("r"),
+          expiresOn: new Date(new Date().getTime() + 365 * 24 * 60 * 60 * 1000),
+        });
+        ctx.log(`[upload-logo-blob] Generated SAS URL for blob: ${logoUrl.substring(0, 100)}...`);
+      } catch (sasError) {
+        ctx.warn(`[upload-logo-blob] Failed to generate SAS URL, using plain blob URL instead: ${sasError.message}`);
+        // Fall back to plain URL if SAS generation fails
+      }
+
+      ctx.log(`[upload-logo-blob] Successfully uploaded logo for company ${companyId}`);
 
       // Now update the company document in Cosmos with the new logo URL
       try {
@@ -244,13 +264,13 @@ app.http("upload-logo-blob", {
             // Update the document with the new logo_url
             const updatedDoc = {
               ...doc,
-              logo_url: blobUrl,
+              logo_url: logoUrl,
               updated_at: new Date().toISOString(),
             };
 
             ctx.log(`[upload-logo-blob] Upserting company document with logo_url...`, {
               id: doc.id,
-              logo_url: blobUrl,
+              logo_url: logoUrl.substring(0, 100),
               partitionKey: partitionKey
             });
 
@@ -279,7 +299,7 @@ app.http("upload-logo-blob", {
       }
 
       return json(
-        { ok: true, logo_url: blobUrl, message: "Logo uploaded successfully" },
+        { ok: true, logo_url: logoUrl, message: "Logo uploaded successfully" },
         200,
         req
       );
