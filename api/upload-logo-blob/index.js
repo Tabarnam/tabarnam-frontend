@@ -1,5 +1,5 @@
 const { app } = require("@azure/functions");
-const { BlobServiceClient } = require("@azure/storage-blob");
+const { BlobServiceClient, StorageSharedKeyCredential } = require("@azure/storage-blob");
 const sharp = require("sharp");
 const { v4: uuidv4 } = require("uuid");
 
@@ -21,41 +21,16 @@ function json(obj, status = 200, req) {
   };
 }
 
-// Helper function to get storage credentials with fallbacks
+// Helper function to get storage credentials - ignores any admin overrides
 function getStorageCredentials(ctx) {
-  // Log what we're looking for (for debugging)
-  ctx.log('[upload-logo-blob] Attempting to retrieve storage credentials...');
-
-  // Try multiple possible env var names (Azure may use different naming conventions)
-  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+  // Hard-target env-based storage, ignoring any admin-configurable overrides
+  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME || "tabarnamstor2356";
   const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
 
-  // If direct env vars not found, try parsing AzureWebJobsStorage
-  let fallbackName = null;
-  let fallbackKey = null;
+  ctx.log(`[upload-logo-blob] Using account: ${accountName}`);
+  ctx.log(`[upload-logo-blob] Account key present: ${!!accountKey}`);
 
-  if (process.env.AzureWebJobsStorage) {
-    const connStr = process.env.AzureWebJobsStorage;
-    const nameMatch = connStr.match(/AccountName=([^;]+)/);
-    const keyMatch = connStr.match(/AccountKey=([^;=]+)/);
-    fallbackName = nameMatch ? nameMatch[1] : null;
-    fallbackKey = keyMatch ? keyMatch[1] : null;
-    ctx.log('[upload-logo-blob] Parsed from AzureWebJobsStorage - name:', !!fallbackName, 'key:', !!fallbackKey);
-  }
-
-  const finalName = accountName || fallbackName;
-  const finalKey = accountKey || fallbackKey;
-
-  ctx.log(`[upload-logo-blob] Final credentials - name present: ${!!finalName}, key present: ${!!finalKey}`);
-  ctx.log(`[upload-logo-blob] Direct env vars - AZURE_STORAGE_ACCOUNT_NAME: ${!!accountName}, AZURE_STORAGE_ACCOUNT_KEY: ${!!accountKey}`);
-
-  // Log all environment variables containing STORAGE or AZURE for debugging
-  const storageEnvKeys = Object.keys(process.env).filter(k =>
-    k.includes('STORAGE') || (k.includes('AZURE') && !k.includes('CREDENTIAL') && !k.includes('PASSWORD'))
-  );
-  ctx.log(`[upload-logo-blob] Available storage env vars: ${storageEnvKeys.join(', ') || 'NONE'}`);
-
-  return { accountName: finalName, accountKey: finalKey };
+  return { accountName, accountKey };
 }
 
 app.http("upload-logo-blob", {
@@ -66,57 +41,42 @@ app.http("upload-logo-blob", {
     if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
 
     try {
-      // Diagnostic logging - log raw env var presence at handler entry
-      console.log('[upload-logo-blob] hasNameEnv =', !!process.env.AZURE_STORAGE_ACCOUNT_NAME);
-      console.log('[upload-logo-blob] hasKeyEnv =', !!process.env.AZURE_STORAGE_ACCOUNT_KEY);
-      console.log('[upload-logo-blob] hasConn =', !!process.env.AzureWebJobsStorage);
-      console.log('[upload-logo-blob] accountName =', process.env.AZURE_STORAGE_ACCOUNT_NAME || 'NOT SET');
-
-      // Get Azure Blob Storage credentials
+      // Get Azure Blob Storage credentials (hard-targets env vars, ignores admin overrides)
       const { accountName, accountKey } = getStorageCredentials(ctx);
 
-      if (!accountName || !accountKey) {
-        ctx.error("[upload-logo-blob] Missing storage credentials");
-        ctx.error(`[upload-logo-blob] Debug: accountName=${!!accountName}, accountKey=${!!accountKey}`);
+      if (!accountKey) {
+        ctx.error("[upload-logo-blob] Missing storage account key");
 
         return json(
           {
             ok: false,
-            error: "Server storage not configured. Please ensure AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY environment variables are set in the Function App Configuration."
+            error: "Server storage not configured. Please ensure AZURE_STORAGE_ACCOUNT_KEY is set in Function App Configuration.",
+            ...(process.env.NODE_ENV !== "production" && { accountName, debug: true })
           },
           500,
           req
         );
       }
 
-      // Initialize blob service client with fallback approach
-      // Try connection string first (primary method), but if it fails, use SharedKeyCredential
+      // Initialize blob service client using SharedKeyCredential
       let blobServiceClient;
       try {
-        const connectionString = `DefaultEndpointProtocol=https;AccountName=${accountName};AccountKey=${accountKey};EndpointSuffix=core.windows.net`;
-        blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
-        ctx.log(`[upload-logo-blob] Successfully created BlobServiceClient from connection string`);
-      } catch (connError) {
-        ctx.warn(`[upload-logo-blob] Connection string method failed: ${connError.message}. Falling back to SharedKeyCredential.`);
-        try {
-          const { StorageSharedKeyCredential } = require("@azure/storage-blob");
-          const credentials = new StorageSharedKeyCredential(accountName, accountKey);
-          const storageUrl = `https://${accountName}.blob.core.windows.net`;
-          blobServiceClient = new BlobServiceClient(storageUrl, credentials);
-          ctx.log(`[upload-logo-blob] Successfully created BlobServiceClient from SharedKeyCredential`);
-        } catch (credError) {
-          ctx.error("[upload-logo-blob] Both connection string and SharedKeyCredential methods failed");
-          ctx.error("[upload-logo-blob] Connection string error:", connError.message);
-          ctx.error("[upload-logo-blob] SharedKeyCredential error:", credError.message);
-          return json(
-            {
-              ok: false,
-              error: "Failed to initialize storage client. Please contact support."
-            },
-            500,
-            req
-          );
-        }
+        const credentials = new StorageSharedKeyCredential(accountName, accountKey);
+        const storageUrl = `https://${accountName}.blob.core.windows.net`;
+        blobServiceClient = new BlobServiceClient(storageUrl, credentials);
+        ctx.log(`[upload-logo-blob] Using account: ${accountName}`);
+        ctx.log(`[upload-logo-blob] Endpoint: ${storageUrl}`);
+      } catch (credError) {
+        ctx.error("[upload-logo-blob] Failed to initialize BlobServiceClient:", credError.message);
+        return json(
+          {
+            ok: false,
+            error: "Failed to initialize storage client.",
+            ...(process.env.NODE_ENV !== "production" && { accountName, error: credError.message })
+          },
+          500,
+          req
+        );
       }
 
       // Parse form data
@@ -208,8 +168,17 @@ app.http("upload-logo-blob", {
       ctx.error("[upload-logo-blob] Upload error:", error.message);
       ctx.error("[upload-logo-blob] Stack:", error.stack);
 
+      const { accountName } = getStorageCredentials(ctx);
       return json(
-        { ok: false, error: error.message || "Upload failed - please try again" },
+        {
+          ok: false,
+          error: error.message || "Upload failed - please try again",
+          ...(process.env.NODE_ENV !== "production" && {
+            accountName,
+            containerName: "company-logos",
+            debug: true
+          })
+        },
         500,
         req
       );
