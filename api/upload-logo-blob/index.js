@@ -44,6 +44,9 @@ app.http("upload-logo-blob", {
       // Get Azure Blob Storage credentials (hard-targets env vars, ignores admin overrides)
       const { accountName, accountKey } = getStorageCredentials(ctx);
 
+      ctx.log(`[upload-logo-blob] DEBUG accountName: ${accountName}`);
+      ctx.log(`[upload-logo-blob] DEBUG accountKey present: ${!!accountKey}`);
+
       if (!accountKey) {
         ctx.error("[upload-logo-blob] Missing storage account key");
 
@@ -51,7 +54,8 @@ app.http("upload-logo-blob", {
           {
             ok: false,
             error: "Server storage not configured. Please ensure AZURE_STORAGE_ACCOUNT_KEY is set in Function App Configuration.",
-            ...(process.env.NODE_ENV !== "production" && { accountName, debug: true })
+            accountName,
+            debug: true
           },
           500,
           req
@@ -64,15 +68,18 @@ app.http("upload-logo-blob", {
         const credentials = new StorageSharedKeyCredential(accountName, accountKey);
         const storageUrl = `https://${accountName}.blob.core.windows.net`;
         blobServiceClient = new BlobServiceClient(storageUrl, credentials);
-        ctx.log(`[upload-logo-blob] Using account: ${accountName}`);
-        ctx.log(`[upload-logo-blob] Endpoint: ${storageUrl}`);
+        ctx.log(`[upload-logo-blob] DEBUG BlobServiceClient created`);
+        ctx.log(`[upload-logo-blob] DEBUG endpoint: ${storageUrl}`);
+        ctx.log(`[upload-logo-blob] DEBUG blobServiceClient.url: ${blobServiceClient.url}`);
       } catch (credError) {
         ctx.error("[upload-logo-blob] Failed to initialize BlobServiceClient:", credError.message);
         return json(
           {
             ok: false,
             error: "Failed to initialize storage client.",
-            ...(process.env.NODE_ENV !== "production" && { accountName, error: credError.message })
+            accountName,
+            error: credError.message,
+            debug: true
           },
           500,
           req
@@ -114,17 +121,25 @@ app.http("upload-logo-blob", {
       const containerName = "company-logos";
       const containerClient = blobServiceClient.getContainerClient(containerName);
 
+      ctx.log(`[upload-logo-blob] DEBUG containerName: ${containerName}`);
+      ctx.log(`[upload-logo-blob] DEBUG containerClient.url: ${containerClient.url}`);
+
       // Try to create container if it doesn't exist
       try {
+        ctx.log(`[upload-logo-blob] DEBUG attempting containerClient.exists()...`);
         const existsResponse = await containerClient.exists();
+        ctx.log(`[upload-logo-blob] DEBUG containerClient.exists() returned: ${existsResponse}`);
         if (existsResponse) {
           ctx.log(`[upload-logo-blob] Container already exists: ${containerName}`);
         } else {
+          ctx.log(`[upload-logo-blob] DEBUG container does not exist, attempting create...`);
           await containerClient.create({ access: "blob" });
           ctx.log(`[upload-logo-blob] Created new container: ${containerName}`);
         }
       } catch (containerError) {
-        ctx.warn(`[upload-logo-blob] Container creation warning: ${containerError.message}`);
+        ctx.error(`[upload-logo-blob] Container operation error: ${containerError.message}`);
+        ctx.error(`[upload-logo-blob] Container error code: ${containerError.code}`);
+        ctx.error(`[upload-logo-blob] Container error details: ${JSON.stringify(containerError)}`);
         // Continue anyway - upload may still work if container exists
       }
 
