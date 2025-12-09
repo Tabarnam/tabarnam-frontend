@@ -156,6 +156,83 @@ app.http("delete-logo-blob", {
 
       ctx.log(`[delete-logo-blob] Successfully deleted blob: ${blobName}`);
 
+      // Now clear the logo URL from the company document in Cosmos
+      try {
+        const cosmosContainer = getCosmosContainer(ctx);
+        if (cosmosContainer) {
+          ctx.log(`[delete-logo-blob] Attempting to clear logo URL from company document in Cosmos...`);
+
+          // Extract company ID from blob name (format: company_id/uuid.ext)
+          const blobNameParts = blobName.split("/");
+          const companyId = blobNameParts.length > 0 ? blobNameParts[0] : null;
+
+          if (companyId) {
+            // Query for the company by ID (using cross-partition query)
+            const querySpec = {
+              query: "SELECT * FROM c WHERE c.id = @id OR c.company_id = @id",
+              parameters: [{ name: "@id", value: companyId }],
+            };
+
+            const queryResult = await cosmosContainer.items
+              .query(querySpec, { enableCrossPartitionQuery: true })
+              .fetchAll();
+
+            const { resources } = queryResult;
+
+            if (resources && resources.length > 0) {
+              const doc = resources[0];
+              ctx.log(`[delete-logo-blob] Found company document:`, {
+                id: doc.id,
+                company_name: doc.company_name,
+                normalized_domain: doc.normalized_domain
+              });
+
+              // Get the partition key (normalized_domain)
+              let partitionKey = doc.normalized_domain;
+              if (!partitionKey || String(partitionKey).trim() === "") {
+                partitionKey = toNormalizedDomain(doc.website_url || doc.url || doc.domain || "");
+                ctx.log(`[delete-logo-blob] No normalized_domain found, computed from URL: ${partitionKey}`);
+              }
+
+              // Update the document to clear the logo_url
+              const updatedDoc = {
+                ...doc,
+                logo_url: null,
+                updated_at: new Date().toISOString(),
+              };
+
+              ctx.log(`[delete-logo-blob] Upserting company document to clear logo_url...`, {
+                id: doc.id,
+                partitionKey: partitionKey
+              });
+
+              try {
+                await cosmosContainer.items.upsert(updatedDoc, { partitionKey });
+                ctx.log(`[delete-logo-blob] Successfully cleared logo URL from company document`);
+              } catch (upsertError) {
+                ctx.log(`[delete-logo-blob] Upsert with partition key failed, attempting fallback...`, {
+                  error: upsertError?.message
+                });
+                try {
+                  await cosmosContainer.items.upsert(updatedDoc);
+                  ctx.log(`[delete-logo-blob] Fallback upsert succeeded`);
+                } catch (fallbackError) {
+                  ctx.error(`[delete-logo-blob] Failed to clear logo URL from company document:`, fallbackError?.message);
+                }
+              }
+            } else {
+              ctx.log(`[delete-logo-blob] No company document found for ID: ${companyId}`);
+            }
+          } else {
+            ctx.log(`[delete-logo-blob] Could not extract company ID from blob name: ${blobName}`);
+          }
+        } else {
+          ctx.log(`[delete-logo-blob] Cosmos DB not available - logo deleted from blob storage but not cleared from company document`);
+        }
+      } catch (cosmosError) {
+        ctx.error(`[delete-logo-blob] Error clearing logo URL from company document:`, cosmosError?.message);
+      }
+
       return json(
         { ok: true, message: "Logo deleted successfully" },
         200,
