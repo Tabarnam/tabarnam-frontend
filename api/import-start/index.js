@@ -949,6 +949,29 @@ Return ONLY the JSON array, no other text.`,
           const elapsed = Date.now() - startTime;
           const timedOut = isOutOfTime();
 
+          // If we timed out, write a signal document so import-progress knows
+          if (timedOut) {
+            try {
+              const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+              const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+              if (endpoint && key) {
+                const client = new CosmosClient({ endpoint, key });
+                const database = client.database((process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim());
+                const container = database.container((process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim());
+                const timeoutDoc = {
+                  id: `_import_timeout_${sessionId}`,
+                  session_id: sessionId,
+                  completed_at: new Date().toISOString(),
+                  elapsed_ms: elapsed,
+                  reason: "max processing time exceeded",
+                };
+                await container.items.create(timeoutDoc).catch(() => {}); // Ignore errors
+              }
+            } catch (e) {
+              console.warn(`[import-start] Failed to write timeout signal: ${e.message}`);
+            }
+          }
+
           return json({
             ok: true,
             session_id: sessionId,
