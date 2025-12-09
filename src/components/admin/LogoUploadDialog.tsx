@@ -83,8 +83,8 @@ export function LogoUploadDialog({
       const r = await setLogoUrl(companyId, logoUrl.trim());
 
       // Validate returned URL is not a blob URL
-      if (r.logo_url && r.logo_url.startsWith('blob:')) {
-        const errorMessage = "Server returned invalid blob URL—please try uploading a file instead.";
+      if (!r.logo_url || r.logo_url.startsWith('blob:')) {
+        const errorMessage = "Server returned invalid URL—please try uploading a file instead.";
         setError(errorMessage);
         onError?.(errorMessage);
         return;
