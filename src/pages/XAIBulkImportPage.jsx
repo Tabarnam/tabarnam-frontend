@@ -239,6 +239,9 @@ export default function XAIBulkImportPage() {
     setCountry("");
     setSearchMode("multiple");
     setModalOpen(false);
+    setElapsedSeconds(0);
+    setStartTime(null);
+    setStopRequested(false);
   };
 
   return (
