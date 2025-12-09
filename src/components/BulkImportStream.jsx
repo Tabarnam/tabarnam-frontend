@@ -9,7 +9,8 @@ export default function BulkImportStream({
   stopRequested = false,
   onStats = () => {},
   onSuccess = () => {},
-  onFailure = () => {}
+  onFailure = () => {},
+  onStopped = () => {}
 }) {
   const [items, setItems] = useState([]);
   const [steps, setSteps] = useState([]);
