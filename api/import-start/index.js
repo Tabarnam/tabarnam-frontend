@@ -454,7 +454,7 @@ app.http("import-start", {
         // Early check: if import was already stopped, return immediately
         const wasAlreadyStopped = await checkIfSessionStopped(sessionId);
         if (wasAlreadyStopped) {
-          console.log(`[import-start] Import stop signal detected before XAI call`);
+          console.log(`[import-start] session=${sessionId} stop signal detected before XAI call`);
           return json({
             ok: false,
             error: "Import was stopped",
