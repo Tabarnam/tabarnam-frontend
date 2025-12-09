@@ -299,20 +299,20 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           <div className="border rounded-lg p-4 bg-slate-50">
             <div className="flex items-center justify-between mb-3">
               <Label className="text-base font-semibold">Company Logo</Label>
-              {!company?.logo_url || company?.logo_url?.startsWith('blob:') ? (
+              {!formData.logo_url || formData.logo_url.startsWith('blob:') ? (
                 <span className="text-amber-600 text-xs font-medium">⚠️ Missing</span>
               ) : null}
             </div>
 
-            {company?.logo_url && !company.logo_url.startsWith('blob:') && (
+            {formData.logo_url && !formData.logo_url.startsWith('blob:') && (
               <div className="mb-4 p-3 bg-white rounded border border-slate-200">
                 <p className="text-xs text-slate-600 mb-2">Current Logo:</p>
                 <img
-                  src={company.logo_url}
+                  src={formData.logo_url}
                   alt="Company logo"
                   className="max-h-32 max-w-32 object-contain bg-slate-100 p-2 rounded"
                   onError={(e) => {
-                    console.error('[CompanyForm] Logo image failed to load:', company.logo_url);
+                    console.error('[CompanyForm] Logo image failed to load:', formData.logo_url);
                     e.target.style.display = 'none';
                   }}
                 />
@@ -332,7 +332,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
               className="w-full flex items-center justify-center gap-2"
             >
               <Image size={16} />
-              {company?.logo_url ? "Replace or Edit Logo" : "Add Logo"}
+              {formData.logo_url ? "Replace or Edit Logo" : "Add Logo"}
             </Button>
           </div>
 
@@ -363,7 +363,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           <div>
             <Label htmlFor="website_url">
               Website URL
-              {isEditMode && !company?.logo_url && <span className="text-orange-500 text-xs ml-2">ℹ️ No logo</span>}
+              {isEditMode && !formData.logo_url && <span className="text-orange-500 text-xs ml-2">ℹ️ No logo</span>}
             </Label>
             <Input
               id="website_url"
@@ -374,7 +374,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
             />
             {isEditMode && (
               <p className="text-xs text-slate-600 mt-1">
-                {company?.logo_url ? '✅ Logo present' : '⚠️ Logo will be auto-imported on next import or can be manually added'}
+                {formData.logo_url ? '✅ Logo present' : '⚠️ Logo will be auto-imported on next import or can be manually added'}
               </p>
             )}
           </div>
