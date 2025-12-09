@@ -438,6 +438,20 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
             star5: { value: 0.0, notes: [] },
           };
 
+          // Check if review eligibility has changed with curated reviews
+          const hasCuratedReviews = Array.isArray(company.curated_reviews) && company.curated_reviews.length > 0;
+          const hasEditorialReviews = (company.editorial_review_count || 0) > 0 ||
+                                      (Array.isArray(company.reviews) && company.reviews.length > 0) ||
+                                      hasCuratedReviews;
+
+          const defaultRatingWithReviews = {
+            star1: { value: hasManufacturingLocations ? 1.0 : 0.0, notes: [] },
+            star2: { value: hasHeadquarters ? 1.0 : 0.0, notes: [] },
+            star3: { value: hasEditorialReviews ? 1.0 : 0.0, notes: [] },
+            star4: { value: 0.0, notes: [] },
+            star5: { value: 0.0, notes: [] },
+          };
+
           const doc = {
             id: `company_${Date.now()}_${Math.random().toString(36).slice(2)}`,
             company_name: companyName,
@@ -456,13 +470,14 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
             headquarters_location: company.headquarters_location || "",
             headquarters_locations: company.headquarters_locations || [],
             manufacturing_locations: company.manufacturing_locations || [],
+            curated_reviews: Array.isArray(company.curated_reviews) ? company.curated_reviews : [],
             red_flag: Boolean(company.red_flag),
             red_flag_reason: company.red_flag_reason || "",
             location_confidence: company.location_confidence || "medium",
             social: company.social || {},
             amazon_url: company.amazon_url || "",
             rating_icon_type: "star",
-            rating: defaultRating,
+            rating: defaultRatingWithReviews,
             source: "xai_import",
             session_id: sessionId,
             created_at: new Date().toISOString(),
