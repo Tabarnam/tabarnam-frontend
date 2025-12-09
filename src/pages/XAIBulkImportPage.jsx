@@ -428,6 +428,7 @@ export default function XAIBulkImportPage() {
             onStats={(s) => { setSavedSoFar(s.saved || 0); setLastRowTs(s.lastCreatedAt || ""); }}
             onSuccess={handleImportSuccess}
             onFailure={handleImportFailure}
+            onStopped={handleImportStopped}
           />
           {savedSoFar > 0 && (
             <div className="mt-4 p-3 border rounded bg-emerald-50 text-emerald-800 text-sm">
