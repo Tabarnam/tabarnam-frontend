@@ -95,9 +95,35 @@ app.http("delete-logo-blob", {
         );
       }
 
-      // Initialize blob service client
-      const connectionString = `DefaultEndpointProtocol=https;AccountName=${accountName};AccountKey=${accountKey};EndpointSuffix=core.windows.net`;
-      const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+      // Initialize blob service client with fallback approach
+      // Try connection string first (primary method), but if it fails, use SharedKeyCredential
+      let blobServiceClient;
+      try {
+        const connectionString = `DefaultEndpointProtocol=https;AccountName=${accountName};AccountKey=${accountKey};EndpointSuffix=core.windows.net`;
+        blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+        ctx.log(`[delete-logo-blob] Successfully created BlobServiceClient from connection string`);
+      } catch (connError) {
+        ctx.warn(`[delete-logo-blob] Connection string method failed: ${connError.message}. Falling back to SharedKeyCredential.`);
+        try {
+          const { StorageSharedKeyCredential } = require("@azure/storage-blob");
+          const credentials = new StorageSharedKeyCredential(accountName, accountKey);
+          const storageUrl = `https://${accountName}.blob.core.windows.net`;
+          blobServiceClient = new BlobServiceClient(storageUrl, credentials);
+          ctx.log(`[delete-logo-blob] Successfully created BlobServiceClient from SharedKeyCredential`);
+        } catch (credError) {
+          ctx.error("[delete-logo-blob] Both connection string and SharedKeyCredential methods failed");
+          ctx.error("[delete-logo-blob] Connection string error:", connError.message);
+          ctx.error("[delete-logo-blob] SharedKeyCredential error:", credError.message);
+          return json(
+            {
+              ok: false,
+              error: "Failed to initialize storage client. Please contact support."
+            },
+            500,
+            req
+          );
+        }
+      }
 
       // Extract blob name from URL
       const containerClient = blobServiceClient.getContainerClient(CONTAINER_NAME);
