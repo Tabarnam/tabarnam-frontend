@@ -855,8 +855,9 @@ Return ONLY the JSON array, no other text.`,
 
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
           if (enriched.length > 0) {
+            console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos start count=${enriched.length}`);
             saveResult = await saveCompaniesToCosmos(enriched, sessionId, timeout);
-            console.log(`[import-start] Saved ${saveResult.saved} companies, skipped: ${saveResult.skipped}, failed: ${saveResult.failed}`);
+            console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos done saved=${saveResult.saved} skipped=${saveResult.skipped} duplicates=${saveResult.skipped}`);
           }
 
           // If expand_if_few is enabled and we got very few results (or all were skipped), try alternative search
