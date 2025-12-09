@@ -1,34 +1,18 @@
 const { app } = require("@azure/functions");
-const { BlobServiceClient } = require("@azure/storage-blob");
+const { BlobServiceClient, StorageSharedKeyCredential } = require("@azure/storage-blob");
 
 const CONTAINER_NAME = "company-logos";
 
-// Helper function to get storage credentials with fallbacks
+// Helper function to get storage credentials - ignores any admin overrides
 function getStorageCredentials(ctx) {
-  ctx.log('[delete-logo-blob] Attempting to retrieve storage credentials...');
-
-  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME;
+  // Hard-target env-based storage, ignoring any admin-configurable overrides
+  const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME || "tabarnamstor2356";
   const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
 
-  let fallbackName = null;
-  let fallbackKey = null;
+  ctx.log(`[delete-logo-blob] Using account: ${accountName}`);
+  ctx.log(`[delete-logo-blob] Account key present: ${!!accountKey}`);
 
-  if (process.env.AzureWebJobsStorage) {
-    const connStr = process.env.AzureWebJobsStorage;
-    const nameMatch = connStr.match(/AccountName=([^;]+)/);
-    const keyMatch = connStr.match(/AccountKey=([^;=]+)/);
-    fallbackName = nameMatch ? nameMatch[1] : null;
-    fallbackKey = keyMatch ? keyMatch[1] : null;
-    ctx.log('[delete-logo-blob] Parsed from AzureWebJobsStorage - name:', !!fallbackName, 'key:', !!fallbackKey);
-  }
-
-  const finalName = accountName || fallbackName;
-  const finalKey = accountKey || fallbackKey;
-
-  ctx.log(`[delete-logo-blob] Final credentials - name present: ${!!finalName}, key present: ${!!finalKey}`);
-  ctx.log(`[delete-logo-blob] Direct env vars - AZURE_STORAGE_ACCOUNT_NAME: ${!!accountName}, AZURE_STORAGE_ACCOUNT_KEY: ${!!accountKey}`);
-
-  return { accountName: finalName, accountKey: finalKey };
+  return { accountName, accountKey };
 }
 
 function cors(req) {
@@ -57,22 +41,16 @@ app.http("delete-logo-blob", {
     if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
 
     try {
-      // Diagnostic logging - log raw env var presence at handler entry
-      console.log('[delete-logo-blob] hasNameEnv =', !!process.env.AZURE_STORAGE_ACCOUNT_NAME);
-      console.log('[delete-logo-blob] hasKeyEnv =', !!process.env.AZURE_STORAGE_ACCOUNT_KEY);
-      console.log('[delete-logo-blob] hasConn =', !!process.env.AzureWebJobsStorage);
-      console.log('[delete-logo-blob] accountName =', process.env.AZURE_STORAGE_ACCOUNT_NAME || 'NOT SET');
-
-      // Get Azure Blob Storage credentials
+      // Get Azure Blob Storage credentials (hard-targets env vars, ignores admin overrides)
       const { accountName, accountKey } = getStorageCredentials(ctx);
 
-      if (!accountName || !accountKey) {
-        ctx.error("[delete-logo-blob] Missing storage credentials");
-        ctx.error(`[delete-logo-blob] Debug: accountName=${!!accountName}, accountKey=${!!accountKey}`);
+      if (!accountKey) {
+        ctx.error("[delete-logo-blob] Missing storage account key");
         return json(
           {
             ok: false,
-            error: "Server storage not configured. Please ensure AZURE_STORAGE_ACCOUNT_NAME and AZURE_STORAGE_ACCOUNT_KEY environment variables are set in the Function App Configuration."
+            error: "Server storage not configured. Please ensure AZURE_STORAGE_ACCOUNT_KEY is set in Function App Configuration.",
+            ...(process.env.NODE_ENV !== "production" && { accountName, debug: true })
           },
           500,
           req
@@ -95,34 +73,25 @@ app.http("delete-logo-blob", {
         );
       }
 
-      // Initialize blob service client with fallback approach
-      // Try connection string first (primary method), but if it fails, use SharedKeyCredential
+      // Initialize blob service client using SharedKeyCredential
       let blobServiceClient;
       try {
-        const connectionString = `DefaultEndpointProtocol=https;AccountName=${accountName};AccountKey=${accountKey};EndpointSuffix=core.windows.net`;
-        blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
-        ctx.log(`[delete-logo-blob] Successfully created BlobServiceClient from connection string`);
-      } catch (connError) {
-        ctx.warn(`[delete-logo-blob] Connection string method failed: ${connError.message}. Falling back to SharedKeyCredential.`);
-        try {
-          const { StorageSharedKeyCredential } = require("@azure/storage-blob");
-          const credentials = new StorageSharedKeyCredential(accountName, accountKey);
-          const storageUrl = `https://${accountName}.blob.core.windows.net`;
-          blobServiceClient = new BlobServiceClient(storageUrl, credentials);
-          ctx.log(`[delete-logo-blob] Successfully created BlobServiceClient from SharedKeyCredential`);
-        } catch (credError) {
-          ctx.error("[delete-logo-blob] Both connection string and SharedKeyCredential methods failed");
-          ctx.error("[delete-logo-blob] Connection string error:", connError.message);
-          ctx.error("[delete-logo-blob] SharedKeyCredential error:", credError.message);
-          return json(
-            {
-              ok: false,
-              error: "Failed to initialize storage client. Please contact support."
-            },
-            500,
-            req
-          );
-        }
+        const credentials = new StorageSharedKeyCredential(accountName, accountKey);
+        const storageUrl = `https://${accountName}.blob.core.windows.net`;
+        blobServiceClient = new BlobServiceClient(storageUrl, credentials);
+        ctx.log(`[delete-logo-blob] Using account: ${accountName}`);
+        ctx.log(`[delete-logo-blob] Endpoint: ${storageUrl}`);
+      } catch (credError) {
+        ctx.error("[delete-logo-blob] Failed to initialize BlobServiceClient:", credError.message);
+        return json(
+          {
+            ok: false,
+            error: "Failed to initialize storage client.",
+            ...(process.env.NODE_ENV !== "production" && { accountName, error: credError.message })
+          },
+          500,
+          req
+        );
       }
 
       // Extract blob name from URL
@@ -152,8 +121,18 @@ app.http("delete-logo-blob", {
     } catch (error) {
       ctx.error("[delete-logo-blob] Deletion error:", error.message);
       ctx.error("[delete-logo-blob] Stack:", error.stack);
+
+      const { accountName } = getStorageCredentials(ctx);
       return json(
-        { ok: false, error: error.message || "Deletion failed - please try again" },
+        {
+          ok: false,
+          error: error.message || "Deletion failed - please try again",
+          ...(process.env.NODE_ENV !== "production" && {
+            accountName,
+            containerName: CONTAINER_NAME,
+            debug: true
+          })
+        },
         500,
         req
       );
