@@ -205,8 +205,43 @@ async function fetchLogo(domain) {
   return `https://logo.clearbit.com/${encodeURIComponent(domain)}`;
 }
 
+// Check if a session has been stopped
+async function checkIfSessionStopped(sessionId) {
+  try {
+    const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+    const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+    const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+
+    if (!endpoint || !key) return false;
+
+    const client = new CosmosClient({ endpoint, key });
+    const database = client.database(databaseId);
+
+    try {
+      const controlContainer = database.container("import_control");
+      const { resources } = await controlContainer.items
+        .query({
+          query: "SELECT c.id FROM c WHERE c.session_id = @sid AND c.type = @type",
+          parameters: [
+            { name: "@sid", value: sessionId },
+            { name: "@type", value: "import_stop" }
+          ]
+        }, { enableCrossPartitionQuery: true })
+        .fetchAll();
+
+      return resources && resources.length > 0;
+    } catch {
+      // Control container doesn't exist yet, session is not stopped
+      return false;
+    }
+  } catch (e) {
+    console.warn(`[import-start] Error checking stop status: ${e.message}`);
+    return false;
+  }
+}
+
 // Save companies to Cosmos DB (skip duplicates)
-async function saveCompaniesToCosmos(companies, sessionId) {
+async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
   try {
     const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
     const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
@@ -227,6 +262,14 @@ async function saveCompaniesToCosmos(companies, sessionId) {
     let skipped = 0;
 
     for (const company of companies) {
+      // Check if import was stopped
+      if (saved > 0 && saved % 5 === 0) {
+        const stopped = await checkIfSessionStopped(sessionId);
+        if (stopped) {
+          console.log(`[import-start] Import stopped by user after ${saved} companies`);
+          break;
+        }
+      }
       try {
         const companyName = company.company_name || company.name || "";
         const normalizedDomain = company.normalized_domain || "unknown";
