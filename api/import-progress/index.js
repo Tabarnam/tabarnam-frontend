@@ -64,12 +64,12 @@ app.http("import-progress", {
         }
       }
 
-      // Query companies from Cosmos DB for this session
+      // Query companies from Cosmos DB for this session (exclude reserved control documents)
       const q = {
         query: `
           SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.industries, c.product_keywords, c.created_at
           FROM c
-          WHERE c.session_id = @sid
+          WHERE c.session_id = @sid AND NOT STARTSWITH(c.id, '_import_')
           ORDER BY c.created_at DESC
         `,
         parameters: [
