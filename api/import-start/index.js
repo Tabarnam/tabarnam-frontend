@@ -430,6 +430,19 @@ app.http("import-start", {
           }, 500);
         }
 
+        // Early check: if import was already stopped, return immediately
+        const wasAlreadyStopped = await checkIfSessionStopped(sessionId);
+        if (wasAlreadyStopped) {
+          console.log(`[import-start] Import stop signal detected before XAI call`);
+          return json({
+            ok: false,
+            error: "Import was stopped",
+            session_id: sessionId,
+            companies: [],
+            saved: 0,
+          }, 200);
+        }
+
         // Build XAI request message with PRIORITY on HQ and manufacturing locations
         const xaiMessage = {
           role: "user",
