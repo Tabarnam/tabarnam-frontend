@@ -73,6 +73,18 @@ export default function XAIBulkImportPage() {
     })();
   }, []);
 
+  // Format elapsed time as MM:SS or HH:MM:SS
+  function formatElapsedTime(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+
+    if (hours > 0) {
+      return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+
   const fields = [
     { value: "company_name",           label: "Company Name" },
     { value: "product_keywords",       label: "Product Keywords" },
