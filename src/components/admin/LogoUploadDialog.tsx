@@ -171,6 +171,7 @@ export function LogoUploadDialog({
       ctx.rotate((editState.crop.rotation * Math.PI) / 180);
       ctx.drawImage(img, -width / 2, -height / 2, width, height);
 
+      console.log('[LogoUploadDialog] Starting image upload for company:', companyId);
       await resizeAndUploadImage(canvas);
     };
     img.src = editState.preview;
