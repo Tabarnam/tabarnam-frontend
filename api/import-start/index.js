@@ -369,6 +369,9 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
   }
 }
 
+// Max time to spend processing (4 minutes, safe from Azure's 5 minute timeout)
+const MAX_PROCESSING_TIME_MS = 4 * 60 * 1000;
+
 app.http("import-start", {
   route: "import/start",
   methods: ["POST", "OPTIONS"],
@@ -396,6 +399,21 @@ app.http("import-start", {
       console.log(`[import-start] Request body:`, JSON.stringify(bodyObj));
 
       const startTime = Date.now();
+
+      // Helper to check if we're running out of time
+      const isOutOfTime = () => {
+        const elapsed = Date.now() - startTime;
+        return elapsed > MAX_PROCESSING_TIME_MS;
+      };
+
+      // Helper to check if we need to abort
+      const shouldAbort = () => {
+        if (isOutOfTime()) {
+          console.warn(`[import-start] TIMEOUT: Processing exceeded ${MAX_PROCESSING_TIME_MS}ms limit`);
+          return true;
+        }
+        return false;
+      };
 
       try {
         const center = safeCenter(bodyObj.center);
