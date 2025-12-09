@@ -983,6 +983,29 @@ Return ONLY the JSON array, no other text.`,
           console.error(`[import-start] XAI error data:`, JSON.stringify(xaiError.response.data).substring(0, 200));
         }
 
+        // Write timeout signal if this took too long
+        if (isOutOfTime() || (xaiError.code === 'ECONNABORTED' || xaiError.message.includes('timeout'))) {
+          try {
+            const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+            const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+            if (endpoint && key) {
+              const client = new CosmosClient({ endpoint, key });
+              const database = client.database((process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim());
+              const container = database.container((process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim());
+              const timeoutDoc = {
+                id: `_import_timeout_${sessionId}`,
+                session_id: sessionId,
+                failed_at: new Date().toISOString(),
+                elapsed_ms: elapsed,
+                error: xaiError.message,
+              };
+              await container.items.create(timeoutDoc).catch(() => {}); // Ignore errors
+            }
+          } catch (e) {
+            console.warn(`[import-start] Failed to write timeout signal: ${e.message}`);
+          }
+        }
+
         return json(
           {
             ok: false,
