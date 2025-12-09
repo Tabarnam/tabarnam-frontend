@@ -223,6 +223,12 @@ export default function XAIBulkImportPage() {
     setStopRequested(true);
   };
 
+  const handleImportStopped = (data) => {
+    console.log("Import stopped by user:", data);
+    setStopRequested(false);
+    setStatus(`🛑 Import stopped by user. ${data.saved > 0 ? `Found ${data.saved} ${data.saved === 1 ? 'company' : 'companies'}.` : 'No companies imported.'}`);
+    // Clock continues to show the elapsed time when stopped
+  };
 
   const handleClear = () => {
     setSessionId("");
