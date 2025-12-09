@@ -1141,6 +1141,23 @@ Return ONLY the JSON array, no other text.`,
                     }
                   }
 
+                  // Fetch editorial reviews for expansion companies
+                  console.log(`[import-start] Fetching editorial reviews for ${enrichedExpansion.length} expansion companies`);
+                  for (let i = 0; i < enrichedExpansion.length; i++) {
+                    const company = enrichedExpansion[i];
+                    if (company.company_name && company.website_url) {
+                      const editorialReviews = await fetchEditorialReviews(company, xaiUrl, xaiKey, timeout);
+                      if (editorialReviews.length > 0) {
+                        enrichedExpansion[i] = { ...company, curated_reviews: editorialReviews };
+                        console.log(`[import-start] Fetched ${editorialReviews.length} editorial reviews for expansion company ${company.company_name}`);
+                      } else {
+                        enrichedExpansion[i] = { ...company, curated_reviews: [] };
+                      }
+                    } else {
+                      enrichedExpansion[i] = { ...company, curated_reviews: [] };
+                    }
+                  }
+
                   enriched = enriched.concat(enrichedExpansion);
 
                   // Re-save with expansion results
