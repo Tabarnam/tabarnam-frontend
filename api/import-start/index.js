@@ -695,7 +695,7 @@ Return ONLY the JSON array, no other text.`,
                   "Content-Type": "application/json",
                   "Authorization": `Bearer ${xaiKey}`,
                 },
-                timeout: Math.max(1000, Number(process.env.XAI_TIMEOUT_MS) || 60000),
+                timeout: timeout,
               });
 
               if (refinementResponse.status >= 200 && refinementResponse.status < 300) {
