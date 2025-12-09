@@ -117,21 +117,28 @@ export function LogoUploadDialog({
       // Create file from blob
       const file = new File([blob], "logo.png", { type: "image/png" });
 
+      console.log('[LogoUploadDialog] Uploading logo file:', { companyId, fileName: file.name, fileSize: file.size });
+
       // Upload using existing function
       const r = await uploadLogoFile(companyId, file);
+
+      console.log('[LogoUploadDialog] Upload response:', { ok: r.logo_url ? 'success' : 'failed', hasLogoUrl: !!r.logo_url });
 
       // Validate returned URL is not a blob URL
       if (!r.logo_url || r.logo_url.startsWith('blob:')) {
         const errorMessage = "Server returned invalid URL—upload may have failed. Please try again.";
+        console.error('[LogoUploadDialog] Upload validation failed:', { logo_url: r.logo_url?.substring(0, 100) });
         setError(errorMessage);
         onError?.(errorMessage);
         return;
       }
 
+      console.log('[LogoUploadDialog] Upload successful, calling onSaved with URL:', r.logo_url.substring(0, 100));
       onSaved?.(r.logo_url);
       onClose?.();
     } catch (e: any) {
       const errorMessage = e?.message || "Upload failed";
+      console.error('[LogoUploadDialog] Upload error:', { error: errorMessage, stack: e?.stack });
       setError(errorMessage);
       onError?.(errorMessage);
     } finally {
