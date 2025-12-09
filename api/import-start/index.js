@@ -770,7 +770,7 @@ Return ONLY the JSON array, no other text.`,
 
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
           if (enriched.length > 0) {
-            saveResult = await saveCompaniesToCosmos(enriched, sessionId);
+            saveResult = await saveCompaniesToCosmos(enriched, sessionId, timeout);
             console.log(`[import-start] Saved ${saveResult.saved} companies, skipped: ${saveResult.skipped}, failed: ${saveResult.failed}`);
           }
 
