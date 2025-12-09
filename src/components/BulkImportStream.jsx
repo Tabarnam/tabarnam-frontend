@@ -148,6 +148,9 @@ export default function BulkImportStream({
         }
       })();
       clearTimeout(timerRef.current);
+      // Signal to parent that import was stopped by user
+      setStopped(true);
+      onStopped({ stopped: true, saved: items.length });
       return;
     }
 
