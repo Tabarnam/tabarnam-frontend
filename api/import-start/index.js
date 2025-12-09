@@ -428,8 +428,11 @@ app.http("import-start", {
 
         console.log(`[import-start] XAI Payload:`, JSON.stringify(xaiPayload));
 
-        const timeout = Math.max(1000, Number(bodyObj.timeout_ms) || 600000);
-        console.log(`[import-start] Request timeout: ${timeout}ms`);
+        // Use a more aggressive timeout to ensure we finish before Azure kills the function
+        // Limit to 2 minutes per API call to stay well within Azure's 5 minute limit
+        const requestedTimeout = Number(bodyObj.timeout_ms) || 600000;
+        const timeout = Math.min(requestedTimeout, 2 * 60 * 1000);
+        console.log(`[import-start] Request timeout: ${timeout}ms (requested: ${requestedTimeout}ms)`);
 
         // Get XAI configuration (consolidated to use XAI_EXTERNAL_BASE primarily)
         const xaiUrl = getXAIEndpoint();
