@@ -369,6 +369,9 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
   }
 }
 
+// Max time to spend processing (4 minutes, safe from Azure's 5 minute timeout)
+const MAX_PROCESSING_TIME_MS = 4 * 60 * 1000;
+
 app.http("import-start", {
   route: "import/start",
   methods: ["POST", "OPTIONS"],
@@ -397,6 +400,21 @@ app.http("import-start", {
 
       const startTime = Date.now();
 
+      // Helper to check if we're running out of time
+      const isOutOfTime = () => {
+        const elapsed = Date.now() - startTime;
+        return elapsed > MAX_PROCESSING_TIME_MS;
+      };
+
+      // Helper to check if we need to abort
+      const shouldAbort = () => {
+        if (isOutOfTime()) {
+          console.warn(`[import-start] TIMEOUT: Processing exceeded ${MAX_PROCESSING_TIME_MS}ms limit`);
+          return true;
+        }
+        return false;
+      };
+
       try {
         const center = safeCenter(bodyObj.center);
         const xaiPayload = {
@@ -410,8 +428,11 @@ app.http("import-start", {
 
         console.log(`[import-start] XAI Payload:`, JSON.stringify(xaiPayload));
 
-        const timeout = Math.max(1000, Number(bodyObj.timeout_ms) || 600000);
-        console.log(`[import-start] Request timeout: ${timeout}ms`);
+        // Use a more aggressive timeout to ensure we finish before Azure kills the function
+        // Limit to 2 minutes per API call to stay well within Azure's 5 minute limit
+        const requestedTimeout = Number(bodyObj.timeout_ms) || 600000;
+        const timeout = Math.min(requestedTimeout, 2 * 60 * 1000);
+        console.log(`[import-start] Request timeout: ${timeout}ms (requested: ${requestedTimeout}ms)`);
 
         // Get XAI configuration (consolidated to use XAI_EXTERNAL_BASE primarily)
         const xaiUrl = getXAIEndpoint();
@@ -640,7 +661,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           // Geocode headquarters locations to get lat/lng
           console.log(`[import-start] Geocoding ${enriched.length} companies' headquarters locations`);
           for (let i = 0; i < enriched.length; i++) {
-            // Check if import was stopped
+            // Check if import was stopped OR we're running out of time
+            if (shouldAbort()) {
+              console.log(`[import-start] Aborting during geocoding: time limit exceeded`);
+              break;
+            }
+
             const stopped = await checkIfSessionStopped(sessionId);
             if (stopped) {
               console.log(`[import-start] Import stopped by user during geocoding`);
@@ -666,7 +692,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           );
 
           // Location refinement pass: if too many companies have missing locations, run a refinement
-          if (companiesNeedingLocationRefinement.length > 0 && enriched.length > 0) {
+          // But skip if we're running out of time
+          if (companiesNeedingLocationRefinement.length > 0 && enriched.length > 0 && !shouldAbort()) {
             console.log(`[import-start] ${companiesNeedingLocationRefinement.length} companies need location refinement`);
 
             try {
@@ -811,8 +838,9 @@ Return ONLY the JSON array, no other text.`,
           }
 
           // If expand_if_few is enabled and we got very few results (or all were skipped), try alternative search
+          // But skip if we're running out of time
           const minThreshold = Math.max(1, Math.ceil(xaiPayload.limit * 0.6));
-          if (xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold && companies.length > 0) {
+          if (xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold && companies.length > 0 && !shouldAbort()) {
             console.log(`[import-start] Few results found (${saveResult.saved} saved, ${saveResult.skipped} skipped). Attempting expansion search.`);
 
             try {
@@ -918,11 +946,42 @@ Return ONLY the JSON array, no other text.`,
             }
           }
 
+          const elapsed = Date.now() - startTime;
+          const timedOut = isOutOfTime();
+
+          // If we timed out, write a signal document so import-progress knows
+          if (timedOut) {
+            try {
+              const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+              const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+              if (endpoint && key) {
+                const client = new CosmosClient({ endpoint, key });
+                const database = client.database((process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim());
+                const container = database.container((process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim());
+                const timeoutDoc = {
+                  id: `_import_timeout_${sessionId}`,
+                  session_id: sessionId,
+                  completed_at: new Date().toISOString(),
+                  elapsed_ms: elapsed,
+                  reason: "max processing time exceeded",
+                };
+                await container.items.create(timeoutDoc).catch(() => {}); // Ignore errors
+              }
+            } catch (e) {
+              console.warn(`[import-start] Failed to write timeout signal: ${e.message}`);
+            }
+          }
+
           return json({
             ok: true,
             session_id: sessionId,
             companies: enriched,
-            meta: { mode: "direct", expanded: xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold },
+            meta: {
+              mode: "direct",
+              expanded: xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold,
+              timedOut: timedOut,
+              elapsedMs: elapsed
+            },
             saved: saveResult.saved,
             skipped: saveResult.skipped,
             failed: saveResult.failed,
@@ -945,6 +1004,29 @@ Return ONLY the JSON array, no other text.`,
         if (xaiError.response) {
           console.error(`[import-start] XAI error status: ${xaiError.response.status}`);
           console.error(`[import-start] XAI error data:`, JSON.stringify(xaiError.response.data).substring(0, 200));
+        }
+
+        // Write timeout signal if this took too long
+        if (isOutOfTime() || (xaiError.code === 'ECONNABORTED' || xaiError.message.includes('timeout'))) {
+          try {
+            const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+            const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+            if (endpoint && key) {
+              const client = new CosmosClient({ endpoint, key });
+              const database = client.database((process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim());
+              const container = database.container((process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim());
+              const timeoutDoc = {
+                id: `_import_timeout_${sessionId}`,
+                session_id: sessionId,
+                failed_at: new Date().toISOString(),
+                elapsed_ms: elapsed,
+                error: xaiError.message,
+              };
+              await container.items.create(timeoutDoc).catch(() => {}); // Ignore errors
+            }
+          } catch (e) {
+            console.warn(`[import-start] Failed to write timeout signal: ${e.message}`);
+          }
         }
 
         return json(

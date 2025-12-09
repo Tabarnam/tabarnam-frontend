@@ -41,6 +41,7 @@ export default function BulkImportStream({
       const saved = j.saved || 0;
       const items = j.items || [];
       const isStopped = !!j.stopped;
+      const isTimedOut = !!j.timedOut;
 
       setItems(items);
       setSteps(j.steps || []);
@@ -51,6 +52,20 @@ export default function BulkImportStream({
 
       // Update last activity time
       lastActivityRef.current = Date.now();
+
+      // Check if import timed out (takes precedence over normal stop)
+      if (isTimedOut && !hasEmittedRef.current) {
+        hasEmittedRef.current = true;
+        const msg = saved > 0
+          ? `⚠️ Import timed out after finding ${saved}/${targetResults} results. Try another search to find more.`
+          : `❌ Import timed out with no results. The search took too long. Try a more specific search term.`;
+        if (saved > 0) {
+          onFailure({ saved, target: targetResults });
+        } else {
+          setErr(msg);
+        }
+        return;
+      }
 
       // Check if import was stopped
       if (isStopped && !hasEmittedRef.current) {
