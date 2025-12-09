@@ -44,13 +44,17 @@ app.http("delete-logo-blob", {
       // Get Azure Blob Storage credentials (hard-targets env vars, ignores admin overrides)
       const { accountName, accountKey } = getStorageCredentials(ctx);
 
+      ctx.log(`[delete-logo-blob] DEBUG accountName: ${accountName}`);
+      ctx.log(`[delete-logo-blob] DEBUG accountKey present: ${!!accountKey}`);
+
       if (!accountKey) {
         ctx.error("[delete-logo-blob] Missing storage account key");
         return json(
           {
             ok: false,
             error: "Server storage not configured. Please ensure AZURE_STORAGE_ACCOUNT_KEY is set in Function App Configuration.",
-            ...(process.env.NODE_ENV !== "production" && { accountName, debug: true })
+            accountName,
+            debug: true
           },
           500,
           req
@@ -79,15 +83,18 @@ app.http("delete-logo-blob", {
         const credentials = new StorageSharedKeyCredential(accountName, accountKey);
         const storageUrl = `https://${accountName}.blob.core.windows.net`;
         blobServiceClient = new BlobServiceClient(storageUrl, credentials);
-        ctx.log(`[delete-logo-blob] Using account: ${accountName}`);
-        ctx.log(`[delete-logo-blob] Endpoint: ${storageUrl}`);
+        ctx.log(`[delete-logo-blob] DEBUG BlobServiceClient created`);
+        ctx.log(`[delete-logo-blob] DEBUG endpoint: ${storageUrl}`);
+        ctx.log(`[delete-logo-blob] DEBUG blobServiceClient.url: ${blobServiceClient.url}`);
       } catch (credError) {
         ctx.error("[delete-logo-blob] Failed to initialize BlobServiceClient:", credError.message);
         return json(
           {
             ok: false,
             error: "Failed to initialize storage client.",
-            ...(process.env.NODE_ENV !== "production" && { accountName, error: credError.message })
+            accountName,
+            error: credError.message,
+            debug: true
           },
           500,
           req
@@ -96,6 +103,8 @@ app.http("delete-logo-blob", {
 
       // Extract blob name from URL
       const containerClient = blobServiceClient.getContainerClient(CONTAINER_NAME);
+      ctx.log(`[delete-logo-blob] DEBUG containerName: ${CONTAINER_NAME}`);
+      ctx.log(`[delete-logo-blob] DEBUG containerClient.url: ${containerClient.url}`);
       const urlParts = blobUrl.split("/");
       const blobName = urlParts.slice(-1)[0];
 
