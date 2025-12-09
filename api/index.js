@@ -176,6 +176,14 @@ try {
   console.error("[api] ❌ Failed to load delete-logo-blob:", e?.message || e);
 }
 
+try {
+  console.log("[api] Registering: xadmin-api-logos");
+  require("./xadmin-api-logos/index.js");
+  console.log("[api] ✓ xadmin-api-logos registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-logos:", e?.message || e);
+}
+
 // -------------------------
 // Admin endpoints (v4 model)
 // -------------------------
