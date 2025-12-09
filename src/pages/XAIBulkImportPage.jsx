@@ -26,6 +26,13 @@ export default function XAIBulkImportPage() {
   const [savedSoFar, setSavedSoFar] = useState(0);
   const [lastRowTs, setLastRowTs] = useState("");
 
+  // Runtime clock state
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [startTime, setStartTime] = useState(null);
+
+  // Stop import state
+  const [stopRequested, setStopRequested] = useState(false);
+
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [modalStatus, setModalStatus] = useState("success"); // "success" or "failure"
