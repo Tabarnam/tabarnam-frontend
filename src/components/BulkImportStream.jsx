@@ -98,6 +98,9 @@ export default function BulkImportStream({
   }
 
   function scheduleNextTick() {
+    if (stopRequested) {
+      return;
+    }
     timerRef.current = setTimeout(tick, pollingMs);
   }
 
