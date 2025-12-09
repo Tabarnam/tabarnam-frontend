@@ -975,6 +975,7 @@ Return ONLY the JSON array, no other text.`,
           // If we timed out, write a signal document so import-progress knows
           if (timedOut) {
             try {
+              console.log(`[import-start] session=${sessionId} timeout detected, writing timeout signal`);
               const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
               const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
               if (endpoint && key) {
@@ -989,9 +990,10 @@ Return ONLY the JSON array, no other text.`,
                   reason: "max processing time exceeded",
                 };
                 await container.items.create(timeoutDoc).catch(() => {}); // Ignore errors
+                console.log(`[import-start] session=${sessionId} timeout signal written`);
               }
             } catch (e) {
-              console.warn(`[import-start] Failed to write timeout signal: ${e.message}`);
+              console.warn(`[import-start] session=${sessionId} failed to write timeout signal: ${e.message}`);
             }
           }
 
