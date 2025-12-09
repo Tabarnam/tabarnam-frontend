@@ -48,19 +48,29 @@ app.http("import-progress", {
     const container = client.database(databaseId).container(containerId);
 
     try {
-      // Check if import was stopped
+      // Check if import was stopped or timed out
       let stopped = false;
+      let timedOut = false;
+
       try {
         const stopDocId = `_import_stop_${sessionId}`;
         const { resource } = await container.item(stopDocId).read();
         stopped = !!resource;
       } catch (e) {
         // Stop document doesn't exist, import is not stopped
-        if (e.code === 404) {
-          stopped = false;
-        } else {
+        if (e.code !== 404) {
           console.warn(`[import-progress] Error checking stop signal: ${e.message}`);
-          stopped = false;
+        }
+      }
+
+      try {
+        const timeoutDocId = `_import_timeout_${sessionId}`;
+        const { resource } = await container.item(timeoutDocId).read();
+        timedOut = !!resource;
+      } catch (e) {
+        // Timeout document doesn't exist
+        if (e.code !== 404) {
+          console.warn(`[import-progress] Error checking timeout signal: ${e.message}`);
         }
       }
 
