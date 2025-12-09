@@ -43,6 +43,7 @@ export default function BulkImportStream({
       const items = j.items || [];
       const isStopped = !!j.stopped;
       const isTimedOut = !!j.timedOut;
+      const isCompleted = !!j.completed;  // 0-results completion
 
       setItems(items);
       setSteps(j.steps || []);
@@ -68,14 +69,21 @@ export default function BulkImportStream({
         return;
       }
 
-      // Check if import was stopped
-      if (isStopped && !hasEmittedRef.current) {
+      // Check if import was explicitly stopped by user
+      if (isStopped && !isCompleted && !hasEmittedRef.current) {
         hasEmittedRef.current = true;
         if (saved > 0) {
           onFailure({ saved, target: targetResults });
         } else {
           setErr("❌ Import was stopped.");
         }
+        return;
+      }
+
+      // Check if import completed with no results (XAI returned nothing)
+      if (isCompleted && saved === 0 && !hasEmittedRef.current) {
+        hasEmittedRef.current = true;
+        setErr("❌ No companies found for this search. The XAI API returned no matches. Try a different search term or be less specific.");
         return;
       }
 
