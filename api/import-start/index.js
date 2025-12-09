@@ -261,89 +261,125 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
     let failed = 0;
     let skipped = 0;
 
-    for (const company of companies) {
-      // Check if import was stopped
-      if (saved > 0 && saved % 5 === 0) {
-        const stopped = await checkIfSessionStopped(sessionId);
-        if (stopped) {
-          console.log(`[import-start] Import stopped by user after ${saved} companies`);
-          break;
+    // Process companies with concurrency limit of 4
+    const CONCURRENCY_LIMIT = 4;
+    const processQueue = async () => {
+      const results = await Promise.allSettled(
+        companies.map(async (company, index) => {
+          // Check if import was stopped
+          if (index > 0 && index % 10 === 0) {
+            const stopped = await checkIfSessionStopped(sessionId);
+            if (stopped) {
+              console.log(`[import-start] Import stopped by user after processing ${index} companies`);
+              throw new Error("IMPORT_STOPPED");
+            }
+          }
+
+          const companyName = company.company_name || company.name || "";
+          const normalizedDomain = company.normalized_domain || "unknown";
+
+          // Check if company already exists
+          const existing = await findExistingCompany(container, normalizedDomain, companyName);
+          if (existing) {
+            console.log(`[import-start] Skipping duplicate company: ${companyName} (${normalizedDomain})`);
+            return { type: "skipped" };
+          }
+
+          // Fetch logo for the company
+          let logoUrl = company.logo_url || null;
+          if (!logoUrl && normalizedDomain !== "unknown") {
+            logoUrl = await fetchLogo(normalizedDomain);
+          }
+
+          // Calculate default rating based on company data
+          const hasManufacturingLocations = Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0;
+          const hasHeadquarters = !!(company.headquarters_location && company.headquarters_location.trim());
+          const hasReviews = (company.editorial_review_count || 0) > 0 ||
+                            (Array.isArray(company.reviews) && company.reviews.length > 0);
+
+          const defaultRating = {
+            star1: { value: hasManufacturingLocations ? 1.0 : 0.0, notes: [] },
+            star2: { value: hasHeadquarters ? 1.0 : 0.0, notes: [] },
+            star3: { value: hasReviews ? 1.0 : 0.0, notes: [] },
+            star4: { value: 0.0, notes: [] },
+            star5: { value: 0.0, notes: [] },
+          };
+
+          const doc = {
+            id: `company_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            company_name: companyName,
+            name: company.name || companyName,
+            url: company.url || company.website_url || company.canonical_url || "",
+            website_url: company.website_url || company.canonical_url || company.url || "",
+            industries: company.industries || [],
+            product_keywords: company.product_keywords || "",
+            normalized_domain: normalizedDomain,
+            logo_url: logoUrl || null,
+            tagline: company.tagline || "",
+            location_sources: Array.isArray(company.location_sources) ? company.location_sources : [],
+            show_location_sources_to_users: Boolean(company.show_location_sources_to_users),
+            hq_lat: company.hq_lat,
+            hq_lng: company.hq_lng,
+            headquarters_location: company.headquarters_location || "",
+            headquarters_locations: company.headquarters_locations || [],
+            manufacturing_locations: company.manufacturing_locations || [],
+            red_flag: Boolean(company.red_flag),
+            red_flag_reason: company.red_flag_reason || "",
+            location_confidence: company.location_confidence || "medium",
+            social: company.social || {},
+            amazon_url: company.amazon_url || "",
+            rating_icon_type: "star",
+            rating: defaultRating,
+            source: "xai_import",
+            session_id: sessionId,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+
+          if (!doc.company_name && !doc.url) {
+            throw new Error("Missing company_name and url");
+          }
+
+          await container.items.create(doc);
+          return { type: "saved" };
+        })
+      );
+
+      // Limit concurrency by processing in batches
+      let activePromises = [];
+      for (let i = 0; i < companies.length; i++) {
+        // Wait if we have too many active promises
+        while (activePromises.length >= CONCURRENCY_LIMIT) {
+          await Promise.race(activePromises);
+          activePromises = activePromises.filter(p => p.state === "pending");
         }
       }
-      try {
-        const companyName = company.company_name || company.name || "";
-        const normalizedDomain = company.normalized_domain || "unknown";
 
-        // Check if company already exists
-        const existing = await findExistingCompany(container, normalizedDomain, companyName);
-        if (existing) {
-          console.log(`[import-start] Skipping duplicate company: ${companyName} (${normalizedDomain})`);
-          skipped++;
-          continue;
-        }
-
-        // Fetch logo for the company
-        let logoUrl = company.logo_url || null;
-        if (!logoUrl && normalizedDomain !== "unknown") {
-          logoUrl = await fetchLogo(normalizedDomain);
-        }
-
-        // Calculate default rating based on company data
-        const hasManufacturingLocations = Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0;
-        const hasHeadquarters = !!(company.headquarters_location && company.headquarters_location.trim());
-        const hasReviews = (company.editorial_review_count || 0) > 0 ||
-                          (Array.isArray(company.reviews) && company.reviews.length > 0);
-
-        const defaultRating = {
-          star1: { value: hasManufacturingLocations ? 1.0 : 0.0, notes: [] },
-          star2: { value: hasHeadquarters ? 1.0 : 0.0, notes: [] },
-          star3: { value: hasReviews ? 1.0 : 0.0, notes: [] },
-          star4: { value: 0.0, notes: [] },
-          star5: { value: 0.0, notes: [] },
-        };
-
-        const doc = {
-          id: `company_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          company_name: companyName,
-          name: company.name || companyName,
-          url: company.url || company.website_url || company.canonical_url || "",
-          website_url: company.website_url || company.canonical_url || company.url || "",
-          industries: company.industries || [],
-          product_keywords: company.product_keywords || "",
-          normalized_domain: normalizedDomain,
-          logo_url: logoUrl || null,
-          tagline: company.tagline || "",
-          location_sources: Array.isArray(company.location_sources) ? company.location_sources : [],
-          show_location_sources_to_users: Boolean(company.show_location_sources_to_users),
-          hq_lat: company.hq_lat,
-          hq_lng: company.hq_lng,
-          headquarters_location: company.headquarters_location || "",
-          headquarters_locations: company.headquarters_locations || [],
-          manufacturing_locations: company.manufacturing_locations || [],
-          red_flag: Boolean(company.red_flag),
-          red_flag_reason: company.red_flag_reason || "",
-          location_confidence: company.location_confidence || "medium",
-          social: company.social || {},
-          amazon_url: company.amazon_url || "",
-          rating_icon_type: "star",
-          rating: defaultRating,
-          source: "xai_import",
-          session_id: sessionId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-
-        if (!doc.company_name && !doc.url) {
+      // Process results
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          if (result.value.type === "skipped") {
+            skipped++;
+          } else if (result.value.type === "saved") {
+            saved++;
+          }
+        } else {
+          const err = result.reason;
+          if (err?.message === "IMPORT_STOPPED") {
+            console.log(`[import-start] Import was stopped`);
+            break;
+          }
           failed++;
-          continue;
+          console.warn(`[import-start] Failed to save company: ${err?.message}`);
         }
-
-        await container.items.create(doc);
-        saved++;
-      } catch (e) {
-        failed++;
-        console.warn(`[import-start] Failed to save company: ${e.message}`);
       }
+    };
+
+    // Execute the processing queue
+    try {
+      await processQueue();
+    } catch (e) {
+      console.error(`[import-start] Error in processQueue: ${e.message}`);
     }
 
     return { saved, failed, skipped };
