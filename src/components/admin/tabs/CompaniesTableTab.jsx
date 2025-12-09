@@ -33,7 +33,7 @@ const CompaniesTableTab = ({ companies, loading, onUpdate }) => {
     return companies.filter(c =>
       (c.company_name?.toLowerCase().includes(term)) ||
       (c.name?.toLowerCase().includes(term)) ||
-      (c.product_keywords?.toLowerCase().includes(term)) ||
+      (String(c.product_keywords || "").toLowerCase().includes(term)) ||
       (c.normalized_domain?.toLowerCase().includes(term)) ||
       (c.amazon_url?.toLowerCase().includes(term)) ||
       (c.tagline?.toLowerCase().includes(term)) ||
