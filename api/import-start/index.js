@@ -861,6 +861,38 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           }
           console.log(`[import-start] session=${sessionId} geocoding done success=${enriched.filter(c => c.hq_lat && c.hq_lng).length} failed=${enriched.filter(c => !c.hq_lat || !c.hq_lng).length}`);
 
+          // Fetch editorial reviews for companies
+          if (!shouldAbort()) {
+            console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
+            for (let i = 0; i < enriched.length; i++) {
+              // Check if import was stopped OR we're running out of time
+              if (shouldAbort()) {
+                console.log(`[import-start] session=${sessionId} aborting during review fetch: time limit exceeded`);
+                break;
+              }
+
+              const stopped = await checkIfSessionStopped(sessionId);
+              if (stopped) {
+                console.log(`[import-start] session=${sessionId} stop signal detected, aborting during review fetch`);
+                break;
+              }
+
+              const company = enriched[i];
+              if (company.company_name && company.website_url) {
+                const editorialReviews = await fetchEditorialReviews(company, xaiUrl, xaiKey, timeout);
+                if (editorialReviews.length > 0) {
+                  enriched[i] = { ...company, curated_reviews: editorialReviews };
+                  console.log(`[import-start] session=${sessionId} fetched ${editorialReviews.length} editorial reviews for ${company.company_name}`);
+                } else {
+                  enriched[i] = { ...company, curated_reviews: [] };
+                }
+              } else {
+                enriched[i] = { ...company, curated_reviews: [] };
+              }
+            }
+            console.log(`[import-start] session=${sessionId} editorial review enrichment done`);
+          }
+
           // Check if any companies have missing or weak location data
           // Trigger refinement if: HQ is missing, manufacturing is missing, or confidence is low (aggressive approach)
           const companiesNeedingLocationRefinement = enriched.filter(c =>
