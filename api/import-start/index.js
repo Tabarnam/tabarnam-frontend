@@ -228,6 +228,114 @@ async function fetchLogo(domain) {
   return `https://logo.clearbit.com/${encodeURIComponent(domain)}`;
 }
 
+// Fetch editorial reviews for a company using XAI
+async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout) {
+  if (!company.company_name || !company.website_url) {
+    return [];
+  }
+
+  try {
+    const reviewMessage = {
+      role: "user",
+      content: `You are a research assistant finding editorial and professional reviews.
+For this company, find and summarize up to 3 editorial/professional reviews ONLY.
+
+Company: ${company.company_name}
+Website: ${company.website_url}
+Industries: ${Array.isArray(company.industries) ? company.industries.join(", ") : ""}
+
+CRITICAL REVIEW SOURCE REQUIREMENTS:
+You MUST ONLY include editorial and professional sources. Do NOT include:
+- Amazon customer reviews
+- Google/Yelp reviews
+- Customer testimonials or user-generated content
+- Social media comments
+
+ONLY accept reviews from:
+- Magazines and industry publications
+- News outlets and journalists
+- Professional review websites
+- Independent testing labs (ConsumerLab, Labdoor, etc.)
+- Health/product analysis sites
+- Major retailer editorial content (blogs, articles written in editorial voice)
+- Company blog articles written in editorial/educational voice
+
+Search for editorial commentary about this company and its products. If you find some, return up to 3 reviews. Include variety when possible (positive and critical/mixed). If you find fewer than 3, return only what you find (0-3).
+
+For each review found, return a JSON object with:
+{
+  "source": "magazine|editorial_site|lab_test|news|professional_review",
+  "source_url": "https://example.com/article",
+  "title": "Article/review headline",
+  "excerpt": "1-2 sentence summary of the editorial analysis or findings",
+  "rating": null or number if the source uses a rating,
+  "author": "Publication name or author name",
+  "date": "YYYY-MM-DD or null if unknown"
+}
+
+Return ONLY a valid JSON array of review objects (0-3 items), no other text.
+If you find NO editorial reviews after exhaustive search, return an empty array: []`,
+    };
+
+    const reviewPayload = {
+      messages: [reviewMessage],
+      model: "grok-4-latest",
+      temperature: 0.2,
+      stream: false,
+    };
+
+    console.log(`[import-start] Fetching editorial reviews for ${company.company_name}`);
+    const response = await axios.post(xaiUrl, reviewPayload, {
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${xaiKey}`,
+      },
+      timeout: timeout,
+    });
+
+    if (response.status >= 200 && response.status < 300) {
+      const responseText = response.data?.choices?.[0]?.message?.content || "";
+      console.log(`[import-start] Review response preview for ${company.company_name}: ${responseText.substring(0, 80)}...`);
+
+      let reviews = [];
+      try {
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          reviews = JSON.parse(jsonMatch[0]);
+          if (!Array.isArray(reviews)) reviews = [];
+        }
+      } catch (parseErr) {
+        console.warn(`[import-start] Failed to parse reviews for ${company.company_name}: ${parseErr.message}`);
+        reviews = [];
+      }
+
+      // Transform reviews into curated review format
+      const curatedReviews = (reviews || []).slice(0, 3).map((r, idx) => ({
+        id: `xai_auto_${Date.now()}_${idx}`,
+        source: r.source || "editorial_site",
+        source_url: r.source_url || "",
+        title: r.title || "",
+        excerpt: r.excerpt || "",
+        rating: r.rating || null,
+        author: r.author || "",
+        date: r.date || null,
+        created_at: new Date().toISOString(),
+        last_updated_at: new Date().toISOString(),
+        imported_via: "xai_import",
+      }));
+
+      console.log(`[import-start] Found ${curatedReviews.length} editorial reviews for ${company.company_name}`);
+      return curatedReviews;
+    } else {
+      console.warn(`[import-start] Failed to fetch reviews for ${company.company_name}: status ${response.status}`);
+      return [];
+    }
+  } catch (e) {
+    console.warn(`[import-start] Error fetching reviews for ${company.company_name}: ${e.message}`);
+    return [];
+  }
+}
+
 // Check if a session has been stopped
 async function checkIfSessionStopped(sessionId) {
   try {
