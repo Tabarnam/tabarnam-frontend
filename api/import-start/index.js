@@ -1024,16 +1024,17 @@ Return ONLY the JSON array, no other text.`,
         }
       } catch (xaiError) {
         const elapsed = Date.now() - startTime;
-        console.error(`[import-start] XAI call failed after ${elapsed}ms:`, xaiError.message);
-        console.error(`[import-start] Error code: ${xaiError.code}`);
+        console.error(`[import-start] session=${sessionId} xai call failed: ${xaiError.message}`);
+        console.error(`[import-start] session=${sessionId} error code: ${xaiError.code}`);
         if (xaiError.response) {
-          console.error(`[import-start] XAI error status: ${xaiError.response.status}`);
-          console.error(`[import-start] XAI error data:`, JSON.stringify(xaiError.response.data).substring(0, 200));
+          console.error(`[import-start] session=${sessionId} xai error status: ${xaiError.response.status}`);
+          console.error(`[import-start] session=${sessionId} xai error data:`, JSON.stringify(xaiError.response.data).substring(0, 200));
         }
 
         // Write timeout signal if this took too long
         if (isOutOfTime() || (xaiError.code === 'ECONNABORTED' || xaiError.message.includes('timeout'))) {
           try {
+            console.log(`[import-start] session=${sessionId} timeout detected during XAI call, writing timeout signal`);
             const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
             const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
             if (endpoint && key) {
@@ -1048,9 +1049,10 @@ Return ONLY the JSON array, no other text.`,
                 error: xaiError.message,
               };
               await container.items.create(timeoutDoc).catch(() => {}); // Ignore errors
+              console.log(`[import-start] session=${sessionId} timeout signal written`);
             }
           } catch (e) {
-            console.warn(`[import-start] Failed to write timeout signal: ${e.message}`);
+            console.warn(`[import-start] session=${sessionId} failed to write timeout signal: ${e.message}`);
           }
         }
 
