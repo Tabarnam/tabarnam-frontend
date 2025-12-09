@@ -37,27 +37,39 @@ export default function BulkImportStream({
 
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error || r.statusText);
-      
+
       const saved = j.saved || 0;
       const items = j.items || [];
-      
+      const isStopped = !!j.stopped;
+
       setItems(items);
       setSteps(j.steps || []);
-      setStopped(!!j.stopped);
+      setStopped(isStopped);
       onStats({ saved, lastCreatedAt: j.lastCreatedAt || "" });
       setErr("");
       failureCountRef.current = 0;
-      
+
       // Update last activity time
       lastActivityRef.current = Date.now();
-      
+
+      // Check if import was stopped
+      if (isStopped && !hasEmittedRef.current) {
+        hasEmittedRef.current = true;
+        if (saved > 0) {
+          onFailure({ saved, target: targetResults });
+        } else {
+          setErr("❌ Import was stopped.");
+        }
+        return;
+      }
+
       // Check if target reached
       if (!hasEmittedRef.current && saved >= targetResults) {
         hasEmittedRef.current = true;
         onSuccess({ found: saved, target: targetResults });
         return;
       }
-      
+
       // Continue polling
       scheduleNextTick();
     } catch (e) {
