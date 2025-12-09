@@ -228,6 +228,114 @@ async function fetchLogo(domain) {
   return `https://logo.clearbit.com/${encodeURIComponent(domain)}`;
 }
 
+// Fetch editorial reviews for a company using XAI
+async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout) {
+  if (!company.company_name || !company.website_url) {
+    return [];
+  }
+
+  try {
+    const reviewMessage = {
+      role: "user",
+      content: `You are a research assistant finding editorial and professional reviews.
+For this company, find and summarize up to 3 editorial/professional reviews ONLY.
+
+Company: ${company.company_name}
+Website: ${company.website_url}
+Industries: ${Array.isArray(company.industries) ? company.industries.join(", ") : ""}
+
+CRITICAL REVIEW SOURCE REQUIREMENTS:
+You MUST ONLY include editorial and professional sources. Do NOT include:
+- Amazon customer reviews
+- Google/Yelp reviews
+- Customer testimonials or user-generated content
+- Social media comments
+
+ONLY accept reviews from:
+- Magazines and industry publications
+- News outlets and journalists
+- Professional review websites
+- Independent testing labs (ConsumerLab, Labdoor, etc.)
+- Health/product analysis sites
+- Major retailer editorial content (blogs, articles written in editorial voice)
+- Company blog articles written in editorial/educational voice
+
+Search for editorial commentary about this company and its products. If you find some, return up to 3 reviews. Include variety when possible (positive and critical/mixed). If you find fewer than 3, return only what you find (0-3).
+
+For each review found, return a JSON object with:
+{
+  "source": "magazine|editorial_site|lab_test|news|professional_review",
+  "source_url": "https://example.com/article",
+  "title": "Article/review headline",
+  "excerpt": "1-2 sentence summary of the editorial analysis or findings",
+  "rating": null or number if the source uses a rating,
+  "author": "Publication name or author name",
+  "date": "YYYY-MM-DD or null if unknown"
+}
+
+Return ONLY a valid JSON array of review objects (0-3 items), no other text.
+If you find NO editorial reviews after exhaustive search, return an empty array: []`,
+    };
+
+    const reviewPayload = {
+      messages: [reviewMessage],
+      model: "grok-4-latest",
+      temperature: 0.2,
+      stream: false,
+    };
+
+    console.log(`[import-start] Fetching editorial reviews for ${company.company_name}`);
+    const response = await axios.post(xaiUrl, reviewPayload, {
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${xaiKey}`,
+      },
+      timeout: timeout,
+    });
+
+    if (response.status >= 200 && response.status < 300) {
+      const responseText = response.data?.choices?.[0]?.message?.content || "";
+      console.log(`[import-start] Review response preview for ${company.company_name}: ${responseText.substring(0, 80)}...`);
+
+      let reviews = [];
+      try {
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          reviews = JSON.parse(jsonMatch[0]);
+          if (!Array.isArray(reviews)) reviews = [];
+        }
+      } catch (parseErr) {
+        console.warn(`[import-start] Failed to parse reviews for ${company.company_name}: ${parseErr.message}`);
+        reviews = [];
+      }
+
+      // Transform reviews into curated review format
+      const curatedReviews = (reviews || []).slice(0, 3).map((r, idx) => ({
+        id: `xai_auto_${Date.now()}_${idx}`,
+        source: r.source || "editorial_site",
+        source_url: r.source_url || "",
+        title: r.title || "",
+        excerpt: r.excerpt || "",
+        rating: r.rating || null,
+        author: r.author || "",
+        date: r.date || null,
+        created_at: new Date().toISOString(),
+        last_updated_at: new Date().toISOString(),
+        imported_via: "xai_import",
+      }));
+
+      console.log(`[import-start] Found ${curatedReviews.length} editorial reviews for ${company.company_name}`);
+      return curatedReviews;
+    } else {
+      console.warn(`[import-start] Failed to fetch reviews for ${company.company_name}: status ${response.status}`);
+      return [];
+    }
+  } catch (e) {
+    console.warn(`[import-start] Error fetching reviews for ${company.company_name}: ${e.message}`);
+    return [];
+  }
+}
+
 // Check if a session has been stopped
 async function checkIfSessionStopped(sessionId) {
   try {
@@ -319,13 +427,17 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
           // Calculate default rating based on company data
           const hasManufacturingLocations = Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0;
           const hasHeadquarters = !!(company.headquarters_location && company.headquarters_location.trim());
-          const hasReviews = (company.editorial_review_count || 0) > 0 ||
-                            (Array.isArray(company.reviews) && company.reviews.length > 0);
 
-          const defaultRating = {
+          // Check for reviews from curated_reviews or legacy fields
+          const hasCuratedReviews = Array.isArray(company.curated_reviews) && company.curated_reviews.length > 0;
+          const hasEditorialReviews = (company.editorial_review_count || 0) > 0 ||
+                                      (Array.isArray(company.reviews) && company.reviews.length > 0) ||
+                                      hasCuratedReviews;
+
+          const defaultRatingWithReviews = {
             star1: { value: hasManufacturingLocations ? 1.0 : 0.0, notes: [] },
             star2: { value: hasHeadquarters ? 1.0 : 0.0, notes: [] },
-            star3: { value: hasReviews ? 1.0 : 0.0, notes: [] },
+            star3: { value: hasEditorialReviews ? 1.0 : 0.0, notes: [] },
             star4: { value: 0.0, notes: [] },
             star5: { value: 0.0, notes: [] },
           };
@@ -348,13 +460,14 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
             headquarters_location: company.headquarters_location || "",
             headquarters_locations: company.headquarters_locations || [],
             manufacturing_locations: company.manufacturing_locations || [],
+            curated_reviews: Array.isArray(company.curated_reviews) ? company.curated_reviews : [],
             red_flag: Boolean(company.red_flag),
             red_flag_reason: company.red_flag_reason || "",
             location_confidence: company.location_confidence || "medium",
             social: company.social || {},
             amazon_url: company.amazon_url || "",
             rating_icon_type: "star",
-            rating: defaultRating,
+            rating: defaultRatingWithReviews,
             source: "xai_import",
             session_id: sessionId,
             created_at: new Date().toISOString(),
@@ -753,6 +866,38 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           }
           console.log(`[import-start] session=${sessionId} geocoding done success=${enriched.filter(c => c.hq_lat && c.hq_lng).length} failed=${enriched.filter(c => !c.hq_lat || !c.hq_lng).length}`);
 
+          // Fetch editorial reviews for companies
+          if (!shouldAbort()) {
+            console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
+            for (let i = 0; i < enriched.length; i++) {
+              // Check if import was stopped OR we're running out of time
+              if (shouldAbort()) {
+                console.log(`[import-start] session=${sessionId} aborting during review fetch: time limit exceeded`);
+                break;
+              }
+
+              const stopped = await checkIfSessionStopped(sessionId);
+              if (stopped) {
+                console.log(`[import-start] session=${sessionId} stop signal detected, aborting during review fetch`);
+                break;
+              }
+
+              const company = enriched[i];
+              if (company.company_name && company.website_url) {
+                const editorialReviews = await fetchEditorialReviews(company, xaiUrl, xaiKey, timeout);
+                if (editorialReviews.length > 0) {
+                  enriched[i] = { ...company, curated_reviews: editorialReviews };
+                  console.log(`[import-start] session=${sessionId} fetched ${editorialReviews.length} editorial reviews for ${company.company_name}`);
+                } else {
+                  enriched[i] = { ...company, curated_reviews: [] };
+                }
+              } else {
+                enriched[i] = { ...company, curated_reviews: [] };
+              }
+            }
+            console.log(`[import-start] session=${sessionId} editorial review enrichment done`);
+          }
+
           // Check if any companies have missing or weak location data
           // Trigger refinement if: HQ is missing, manufacturing is missing, or confidence is low (aggressive approach)
           const companiesNeedingLocationRefinement = enriched.filter(c =>
@@ -998,6 +1143,23 @@ Return ONLY the JSON array, no other text.`,
                         enrichedExpansion[i] = { ...company, ...geoResult };
                         console.log(`[import-start] Geocoded expansion company ${company.company_name}: ${company.headquarters_location} → (${geoResult.hq_lat}, ${geoResult.hq_lng})`);
                       }
+                    }
+                  }
+
+                  // Fetch editorial reviews for expansion companies
+                  console.log(`[import-start] Fetching editorial reviews for ${enrichedExpansion.length} expansion companies`);
+                  for (let i = 0; i < enrichedExpansion.length; i++) {
+                    const company = enrichedExpansion[i];
+                    if (company.company_name && company.website_url) {
+                      const editorialReviews = await fetchEditorialReviews(company, xaiUrl, xaiKey, timeout);
+                      if (editorialReviews.length > 0) {
+                        enrichedExpansion[i] = { ...company, curated_reviews: editorialReviews };
+                        console.log(`[import-start] Fetched ${editorialReviews.length} editorial reviews for expansion company ${company.company_name}`);
+                      } else {
+                        enrichedExpansion[i] = { ...company, curated_reviews: [] };
+                      }
+                    } else {
+                      enrichedExpansion[i] = { ...company, curated_reviews: [] };
                     }
                   }
 
