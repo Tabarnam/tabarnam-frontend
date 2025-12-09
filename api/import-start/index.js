@@ -830,8 +830,9 @@ Return ONLY the JSON array, no other text.`,
           }
 
           // If expand_if_few is enabled and we got very few results (or all were skipped), try alternative search
+          // But skip if we're running out of time
           const minThreshold = Math.max(1, Math.ceil(xaiPayload.limit * 0.6));
-          if (xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold && companies.length > 0) {
+          if (xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold && companies.length > 0 && !shouldAbort()) {
             console.log(`[import-start] Few results found (${saveResult.saved} saved, ${saveResult.skipped} skipped). Attempting expansion search.`);
 
             try {
