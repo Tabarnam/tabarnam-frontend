@@ -15,7 +15,7 @@ export async function uploadLogoFile(companyId: string, file: File): Promise<{ l
   formData.append('file', file);
   formData.append('companyId', companyId);
 
-  const r = await fetch('/api/upload-logo-blob', {
+  const r = await apiFetch('/upload-logo-blob', {
     method: 'POST',
     body: formData,
   });

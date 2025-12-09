@@ -142,6 +142,11 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       return;
     }
 
+    // Warn if trying to save without a logo when one was intended to be added
+    if (!formData.logo_url && isEditMode) {
+      console.log('[CompanyForm] Warning: Saving company without logo_url in edit mode');
+    }
+
     const companyId = formData.id || formData.company_id;
     const method = companyId ? "PUT" : "POST";
 
