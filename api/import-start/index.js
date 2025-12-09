@@ -699,10 +699,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               const geoResult = await geocodeHQLocation(company.headquarters_location);
               if (geoResult.hq_lat !== undefined && geoResult.hq_lng !== undefined) {
                 enriched[i] = { ...company, ...geoResult };
-                console.log(`[import-start] Geocoded ${company.company_name}: ${company.headquarters_location} → (${geoResult.hq_lat}, ${geoResult.hq_lng})`);
+                console.log(`[import-start] session=${sessionId} geocoded ${company.company_name}: ${company.headquarters_location} → (${geoResult.hq_lat}, ${geoResult.hq_lng})`);
               }
             }
           }
+          console.log(`[import-start] session=${sessionId} geocoding done success=${enriched.filter(c => c.hq_lat && c.hq_lng).length} failed=${enriched.filter(c => !c.hq_lat || !c.hq_lng).length}`);
 
           // Check if any companies have missing or weak location data
           // Trigger refinement if: HQ is missing, manufacturing is missing, or confidence is low (aggressive approach)
