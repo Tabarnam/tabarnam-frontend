@@ -10,7 +10,13 @@ export async function setLogoUrl(companyId: string, logoUrl: string): Promise<{ 
   return r.json();
 }
 
-export async function uploadLogoFile(companyId: string, file: File): Promise<{ logo_url: string }> {
+export interface UploadCompanyLogoResult {
+  ok: boolean;
+  hasLogoUrl: boolean;
+  logoUrl?: string;
+}
+
+export async function uploadCompanyLogo(companyId: string, file: File): Promise<UploadCompanyLogoResult> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('companyId', companyId);
@@ -30,5 +36,9 @@ export async function uploadLogoFile(companyId: string, file: File): Promise<{ l
     throw new Error(data.error || 'Upload failed');
   }
 
-  return { logo_url: data.logo_url };
+  return {
+    ok: data.ok,
+    hasLogoUrl: !!data.logo_url,
+    logoUrl: data.logo_url,
+  };
 }
