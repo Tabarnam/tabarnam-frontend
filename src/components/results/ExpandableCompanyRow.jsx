@@ -75,7 +75,7 @@ export default function ExpandableCompanyRow({
   }
 
   const affiliateLinks = normalizeAffiliateLinks(company);
-  const amazonLink = company.amazon_store_url || company.amazon_url || "";
+  const amazonLink = company.amazon_url || company.amazon_store_url || "";
 
   const truncateText = (text, length = 60) => {
     if (!text) return "—";
@@ -197,26 +197,42 @@ export default function ExpandableCompanyRow({
 
     if (colKey === "stars") {
       const reviews = getReviewsPreviews();
+      const hasStars = typeof company.stars === "number";
+      const hasCount = typeof company.reviews_count === "number";
       return (
-        <div className="space-y-1">
-          {reviews.map((review, idx) => (
-            <div key={idx} className="text-xs text-gray-600 border-b pb-1 line-clamp-2">
-              {review.abstract || review.text || "—"}
+        <div className="space-y-2">
+          {hasStars && (
+            <div className="flex items-center gap-1 text-xs">
+              <span>{company.stars.toFixed(1)}</span>
+              <span>★</span>
+              {hasCount && (
+                <span className="text-muted-foreground">
+                  ({company.reviews_count} reviews)
+                </span>
+              )}
             </div>
-          ))}
-
-          {[...Array(Math.max(0, 3 - reviews.length))].map((_, idx) => (
-            <div key={`empty-${idx}`} className="text-xs text-gray-400 pb-1 h-5" />
-          ))}
-
-          {reviews.length > 0 && (
-            <button
-              onClick={() => setIsExpanded(true)}
-              className="text-xs text-blue-600 hover:underline pt-1"
-            >
-              Expand reviews
-            </button>
           )}
+
+          <div className="space-y-1">
+            {reviews.map((review, idx) => (
+              <div key={idx} className="text-xs text-gray-600 border-b pb-1 line-clamp-2">
+                {review.abstract || review.text || "—"}
+              </div>
+            ))}
+
+            {[...Array(Math.max(0, 3 - reviews.length))].map((_, idx) => (
+              <div key={`empty-${idx}`} className="text-xs text-gray-400 pb-1 h-5" />
+            ))}
+
+            {reviews.length > 0 && (
+              <button
+                onClick={() => setIsExpanded(true)}
+                className="text-xs text-blue-600 hover:underline pt-1"
+              >
+                Expand reviews
+              </button>
+            )}
+          </div>
         </div>
       );
     }
