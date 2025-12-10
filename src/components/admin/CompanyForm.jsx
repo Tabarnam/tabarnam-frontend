@@ -321,8 +321,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     }
   };
 
-  const handleDialogClose = () => {
-    if (onClose) {
+  const handleDialogOpenChange = (open) => {
+    if (!open && onClose) {
       onClose();
     }
   };
@@ -340,7 +340,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const isEditMode = !!(formData?.id || formData?.company_id);
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleDialogClose}>
+    <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
       <DialogContent
         className="relative w-[95vw] sm:w-[92vw] md:w-[90vw] max-w-none h-[90vh] flex flex-col"
         aria-describedby="company-form-description"
