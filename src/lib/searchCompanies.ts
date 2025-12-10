@@ -27,16 +27,20 @@ export interface SearchOptions {
 export interface Company {
   id: string;
   company_name: string;
-  industries?: string[];
-  url?: string;
-  amazon_url?: string;
+  website_url?: string;
   normalized_domain?: string;
-  headquarters_location?: string;
+  amazon_url?: string;
+  logo_url?: string;
+  industries?: string[];
   manufacturing_locations?: string[];
+  headquarters_location?: string;
+  product_keywords?: string[];
   red_flag?: boolean;
   red_flag_reason?: string;
   location_confidence?: "high" | "medium" | "low";
   tagline?: string;
+  stars?: number | null;
+  reviews_count?: number | null;
 }
 
 export async function searchCompanies(opts: SearchOptions) {
