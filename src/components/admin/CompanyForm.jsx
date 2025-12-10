@@ -334,7 +334,9 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     if (onSuccess) {
       onSuccess(savedCompany);
     }
-    handleDialogClose();
+    if (onClose) {
+      onClose();
+    }
   };
 
   const isEditMode = !!(formData?.id || formData?.company_id);
@@ -342,7 +344,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
       <DialogContent
-        className="relative w-[95vw] sm:w-[92vw] md:w-[90vw] max-w-none h-[90vh] flex flex-col"
+        className="w-[95vw] sm:w-[92vw] md:w-[90vw] max-w-none h-[90vh] flex flex-col"
         aria-describedby="company-form-description"
       >
         <DialogHeader className="flex-shrink-0">
