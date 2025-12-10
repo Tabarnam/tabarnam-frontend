@@ -321,8 +321,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     }
   };
 
-  const handleDialogClose = () => {
-    if (onClose) {
+  const handleDialogOpenChange = (open) => {
+    if (!open && onClose) {
       onClose();
     }
   };
