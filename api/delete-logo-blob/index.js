@@ -127,7 +127,7 @@ app.http("delete-logo-blob", {
             ok: false,
             error: "Failed to initialize storage client.",
             accountName,
-            error: credError.message,
+            details: credError.message,
             debug: true
           },
           500,
@@ -135,12 +135,28 @@ app.http("delete-logo-blob", {
         );
       }
 
-      // Extract blob name from URL
+      // Extract blob name from URL, preserving folder path inside the container
       const containerClient = blobServiceClient.getContainerClient(CONTAINER_NAME);
       ctx.log(`[delete-logo-blob] DEBUG containerName: ${CONTAINER_NAME}`);
       ctx.log(`[delete-logo-blob] DEBUG containerClient.url: ${containerClient.url}`);
-      const urlParts = blobUrl.split("/");
-      const blobName = urlParts.slice(-1)[0];
+
+      let blobName = "";
+      try {
+        const url = new URL(blobUrl);
+        const rawPath = url.pathname.startsWith("/") ? url.pathname.slice(1) : url.pathname;
+        const segments = rawPath.split("/");
+        if (segments[0] === CONTAINER_NAME) {
+          blobName = segments.slice(1).join("/");
+        } else {
+          blobName = segments.slice(-1)[0] || "";
+        }
+      } catch (parseError) {
+        ctx.log(`[delete-logo-blob] Failed to parse blob_url, falling back to simple split: ${parseError.message}`);
+        const urlParts = blobUrl.split("/");
+        blobName = urlParts.slice(-1)[0] || "";
+      }
+
+      ctx.log(`[delete-logo-blob] DEBUG blobName: ${blobName}`);
 
       if (!blobName) {
         return json(

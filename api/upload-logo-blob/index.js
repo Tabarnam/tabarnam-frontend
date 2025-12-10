@@ -112,7 +112,7 @@ app.http("upload-logo-blob", {
             ok: false,
             error: "Failed to initialize storage client.",
             accountName,
-            error: credError.message,
+            details: credError.message,
             debug: true
           },
           500,
