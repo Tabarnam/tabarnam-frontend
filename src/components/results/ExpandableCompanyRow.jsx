@@ -82,8 +82,13 @@ export default function ExpandableCompanyRow({
     (company.normalized_domain ? `https://${company.normalized_domain}` : "");
 
   const websiteLabel =
-    company.normalized_domain ||
-    (company.website_url ? company.website_url.replace(/^https?:\/\//, "") : "");
+    company.company_name && websiteUrl
+      ? company.company_name
+      : websiteUrl.replace(/^https?:\/\//, "");
+
+  if (import.meta.env.DEV) {
+    console.log("[ExpandableCompanyRow] websiteUrl for", company.company_name, websiteUrl);
+  }
 
   const truncateText = (text, length = 60) => {
     if (!text) return "—";
@@ -272,9 +277,9 @@ export default function ExpandableCompanyRow({
                   href={websiteUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-gray-900 hover:text-blue-600 hover:underline transition-colors"
+                  className="text-blue-700 hover:underline"
                 >
-                  {company.company_name}
+                  {websiteLabel}
                 </a>
               ) : (
                 <span className="text-gray-900">{company.company_name}</span>
@@ -421,12 +426,12 @@ export default function ExpandableCompanyRow({
               href={websiteUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-gray-900 hover:text-blue-600 hover:underline transition-colors"
+              className="font-semibold text-sm text-blue-700 hover:underline"
             >
-              {company.company_name}
+              {websiteLabel}
             </a>
           ) : (
-            <span className="text-gray-900">{company.company_name}</span>
+            <span className="font-semibold text-sm">{company.company_name}</span>
           )}
         </h2>
         {company.tagline && (
