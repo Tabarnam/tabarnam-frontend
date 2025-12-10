@@ -267,14 +267,18 @@ export default function ExpandableCompanyRow({
         <div className="grid grid-cols-5 gap-4 mb-6 pb-6 border-b">
           <div className="col-span-2">
             <h2 className="font-bold text-lg text-gray-900">
-              <a
-                href={company.website_url || company.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-gray-900 hover:text-blue-600 hover:underline transition-colors"
-              >
-                {company.company_name}
-              </a>
+              {websiteUrl ? (
+                <a
+                  href={websiteUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-900 hover:text-blue-600 hover:underline transition-colors"
+                >
+                  {company.company_name}
+                </a>
+              ) : (
+                <span className="text-gray-900">{company.company_name}</span>
+              )}
             </h2>
             {company.tagline && (
               <div className="text-sm text-gray-600 mt-1">{company.tagline}</div>
@@ -412,14 +416,18 @@ export default function ExpandableCompanyRow({
     >
       <div className="col-span-4">
         <h2 className="font-bold text-gray-900">
-          <a
-            href={company.website_url || company.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-gray-900 hover:text-blue-600 hover:underline transition-colors"
-          >
-            {company.company_name}
-          </a>
+          {websiteUrl ? (
+            <a
+              href={websiteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-gray-900 hover:text-blue-600 hover:underline transition-colors"
+            >
+              {company.company_name}
+            </a>
+          ) : (
+            <span className="text-gray-900">{company.company_name}</span>
+          )}
         </h2>
         {company.tagline && (
           <div className="text-xs text-gray-600 mt-1">{company.tagline}</div>
