@@ -46,6 +46,161 @@ const SQL_TEXT_FILTER = `
   (IS_DEFINED(c.amazon_url) AND CONTAINS(LOWER(c.amazon_url), @q))
 `;
 
+const SELECT_FIELDS = [
+  "c.id",
+  "c.company_name",
+  "c.name",
+  "c.industries",
+  "c.url",
+  "c.website_url",
+  "c.canonical_url",
+  "c.website",
+  "c.amazon_url",
+  "c.normalized_domain",
+  "c.created_at",
+  "c.session_id",
+  "c._ts",
+  "c.manufacturing_locations",
+  "c.manufacturing_geocodes",
+  "c.headquarters",
+  "c.headquarters_location",
+  "c.hq_lat",
+  "c.hq_lng",
+  "c.product_keywords",
+  "c.keywords",
+  "c.star_rating",
+  "c.star_score",
+  "c.confidence_score",
+  "c.tagline",
+  "c.logo_url",
+  "c.star_overrides",
+  "c.admin_manual_extra",
+  "c.star_notes",
+  "c.star_explanation",
+  "c.affiliate_links",
+  "c.affiliate_link_urls",
+  "c.affiliate_link_1",
+  "c.affiliate_link_2",
+  "c.affiliate_link_3",
+  "c.affiliate_link_4",
+  "c.affiliate_link_5",
+  "c.affiliate_link_1_url",
+  "c.affiliate_link_2_url",
+  "c.affiliate_link_3_url",
+  "c.affiliate_link_4_url",
+  "c.affiliate_link_5_url",
+  "c.affiliate1_url",
+  "c.affiliate2_url",
+  "c.affiliate3_url",
+  "c.affiliate4_url",
+  "c.affiliate5_url",
+  "c.rating",
+  "c.rating_icon_type",
+  "c.review_count",
+  "c.avg_rating",
+  "c.review_count_approved",
+  "c.editorial_review_count",
+  "c.location_sources",
+  "c.show_location_sources_to_users",
+].join(", ");
+
+function normalizeStringArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function mapCompanyToPublic(doc) {
+  if (!doc) return null;
+
+  const industries = normalizeStringArray(doc.industries);
+  const manufacturing_locations = Array.isArray(doc.manufacturing_locations)
+    ? doc.manufacturing_locations
+    : normalizeStringArray(doc.manufacturing_locations);
+  const product_keywords = normalizeStringArray(doc.product_keywords);
+
+  let stars = null;
+  if (typeof doc.avg_rating === "number") stars = doc.avg_rating;
+  else if (typeof doc.star_score === "number") stars = doc.star_score;
+  else if (typeof doc.star_rating === "number") stars = doc.star_rating;
+
+  let reviews_count = null;
+  if (typeof doc.review_count === "number") reviews_count = doc.review_count;
+  else if (typeof doc.review_count_approved === "number") reviews_count = doc.review_count_approved;
+
+  const website_url =
+    doc.website_url ||
+    doc.url ||
+    doc.canonical_url ||
+    doc.website ||
+    "";
+
+  const amazon_url = doc.amazon_url || "";
+
+  return {
+    id: doc.id,
+    company_name: doc.company_name || doc.name || "",
+    website_url,
+    normalized_domain: doc.normalized_domain || "",
+    amazon_url,
+    logo_url: doc.logo_url || "",
+    industries,
+    manufacturing_locations,
+    headquarters_location: doc.headquarters_location || "",
+    tagline: doc.tagline || "",
+    product_keywords,
+    stars,
+    reviews_count,
+
+    // Extra fields used by the public UI (non-redundant with canonical shape)
+    headquarters: Array.isArray(doc.headquarters) ? doc.headquarters : [],
+    manufacturing_geocodes: Array.isArray(doc.manufacturing_geocodes) ? doc.manufacturing_geocodes : [],
+    hq_lat: doc.hq_lat,
+    hq_lng: doc.hq_lng,
+    _ts: doc._ts,
+
+    // Rating schema fields (for CompanyStarsBlock and future use)
+    star_rating: doc.star_rating,
+    star_score: doc.star_score,
+    confidence_score: doc.confidence_score,
+    rating: doc.rating,
+    rating_icon_type: doc.rating_icon_type,
+    review_count_approved: doc.review_count_approved,
+    editorial_review_count: doc.editorial_review_count,
+    star_overrides: doc.star_overrides,
+    admin_manual_extra: doc.admin_manual_extra,
+    star_notes: doc.star_notes,
+    star_explanation: doc.star_explanation,
+
+    // Affiliate links used by ExpandableCompanyRow
+    affiliate_links: doc.affiliate_links,
+    affiliate_link_urls: doc.affiliate_link_urls,
+    affiliate_link_1: doc.affiliate_link_1,
+    affiliate_link_2: doc.affiliate_link_2,
+    affiliate_link_3: doc.affiliate_link_3,
+    affiliate_link_4: doc.affiliate_link_4,
+    affiliate_link_5: doc.affiliate_link_5,
+    affiliate_link_1_url: doc.affiliate_link_1_url,
+    affiliate_link_2_url: doc.affiliate_link_2_url,
+    affiliate_link_3_url: doc.affiliate_link_3_url,
+    affiliate_link_4_url: doc.affiliate_link_4_url,
+    affiliate_link_5_url: doc.affiliate_link_5_url,
+    affiliate1_url: doc.affiliate1_url,
+    affiliate2_url: doc.affiliate2_url,
+    affiliate3_url: doc.affiliate3_url,
+    affiliate4_url: doc.affiliate4_url,
+    affiliate5_url: doc.affiliate5_url,
+
+    location_sources: doc.location_sources,
+    show_location_sources_to_users: doc.show_location_sources_to_users,
+  };
+}
+
 app.http("search-companies", {
   route: "search-companies",
   methods: ["GET", "OPTIONS"],
@@ -89,12 +244,7 @@ app.http("search-companies", {
           const whereText = q ? `AND (${SQL_TEXT_FILTER})` : "";
 
           const sqlA = `
-            SELECT TOP @take c.id, c.company_name, c.industries, c.url, c.amazon_url,
-                             c.normalized_domain, c.created_at, c.session_id, c._ts,
-                             c.manufacturing_locations, c.manufacturing_geocodes,
-                             c.headquarters, c.headquarters_location,
-                             c.hq_lat, c.hq_lng, c.product_keywords, c.keywords,
-                             c.star_rating, c.star_score, c.confidence_score, c.tagline
+            SELECT TOP @take ${SELECT_FIELDS}
             FROM c
             WHERE IS_DEFINED(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
             AND ${softDeleteFilter}
@@ -109,12 +259,7 @@ app.http("search-companies", {
           const remaining = Math.max(0, limit - items.length);
           if (remaining > 0) {
             const sqlB = `
-              SELECT TOP @take2 c.id, c.company_name, c.industries, c.url, c.amazon_url,
-                                c.normalized_domain, c.created_at, c.session_id, c._ts,
-                                c.manufacturing_locations, c.manufacturing_geocodes,
-                                c.headquarters, c.headquarters_location,
-                                c.hq_lat, c.hq_lng, c.product_keywords, c.keywords,
-                                c.star_rating, c.star_score, c.confidence_score, c.tagline
+              SELECT TOP @take2 ${SELECT_FIELDS}
               FROM c
               WHERE (NOT IS_DEFINED(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
               AND ${softDeleteFilter}
@@ -132,24 +277,14 @@ app.http("search-companies", {
           const orderBy = sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
           const sql = q
             ? `
-              SELECT TOP @take c.id, c.company_name, c.industries, c.url, c.amazon_url,
-                               c.normalized_domain, c.created_at, c.session_id, c._ts,
-                               c.manufacturing_locations, c.manufacturing_geocodes,
-                               c.headquarters, c.headquarters_location,
-                               c.hq_lat, c.hq_lng, c.product_keywords, c.keywords,
-                               c.star_rating, c.star_score, c.confidence_score, c.tagline
+              SELECT TOP @take ${SELECT_FIELDS}
               FROM c
               WHERE ${SQL_TEXT_FILTER}
               AND ${softDeleteFilter}
               ${orderBy}
             `
             : `
-              SELECT TOP @take c.id, c.company_name, c.industries, c.url, c.amazon_url,
-                               c.normalized_domain, c.created_at, c.session_id, c._ts,
-                               c.manufacturing_locations, c.manufacturing_geocodes,
-                               c.headquarters, c.headquarters_location,
-                               c.hq_lat, c.hq_lng, c.product_keywords, c.keywords,
-                               c.star_rating, c.star_score, c.confidence_score, c.tagline
+              SELECT TOP @take ${SELECT_FIELDS}
               FROM c
               WHERE ${softDeleteFilter}
               ${orderBy}
@@ -169,10 +304,14 @@ app.http("search-companies", {
           return r;
         });
 
-        const paged = normalized.slice(skip, skip + take);
+        const mapped = normalized
+          .map(mapCompanyToPublic)
+          .filter((c) => c && c.id && c.company_name);
+
+        const paged = mapped.slice(skip, skip + take);
 
         return json(
-          { ok: true, success: true, items: paged, count: normalized.length, meta: { q: qRaw, sort, skip, take } },
+          { ok: true, success: true, items: paged, count: mapped.length, meta: { q: qRaw, sort, skip, take } },
           200,
           req
         );
