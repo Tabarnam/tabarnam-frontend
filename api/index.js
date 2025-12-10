@@ -340,6 +340,14 @@ try {
   console.error("[api] ❌ Failed to load admin-recent-imports:", e?.message || e);
 }
 
+try {
+  console.log("[api] Registering: admin-refresh-import");
+  require("./admin-refresh-import/index.js");
+  console.log("[api] ✓ admin-refresh-import registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-refresh-import:", e?.message || e);
+}
+
 console.log("[api/index.js] ✅ All handler registration complete! Exporting app.");
 
 // Critical for v4 model: export the shared app so the Functions runtime can discover handlers
