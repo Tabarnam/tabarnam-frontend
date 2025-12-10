@@ -3,12 +3,14 @@
 import React, { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api";
+import { refreshCompanyImport } from "@/lib/api/adminRefreshImport";
 import { toast } from "sonner";
 import { getAdminUser } from "@/lib/azureAuth";
-import { Plus, Trash2, Edit2, Image } from "lucide-react";
+import { Plus, Trash2, Edit2, Image, Loader2 } from "lucide-react";
 import IndustriesEditor from "./form-elements/IndustriesEditor";
 import KeywordsEditor from "./form-elements/KeywordsEditor";
 import HeadquartersLocationsEditor from "./form-elements/HeadquartersLocationsEditor";
@@ -21,6 +23,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const user = getAdminUser();
   const [formData, setFormData] = useState({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [additionalHQs, setAdditionalHQs] = useState([]);
   const [manufacturingLocationInput, setManufacturingLocationInput] = useState("");
   const [rating, setRating] = useState(defaultRating());
@@ -258,6 +261,66 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     }
   };
 
+  const handleRefreshImport = async () => {
+    if (!isEditMode) {
+      toast.error("You can only refresh imports for existing companies.");
+      return;
+    }
+
+    const companyId = formData.id || formData.company_id;
+    if (!companyId) {
+      toast.error("Missing company ID for refresh.");
+      return;
+    }
+
+    const normalizedDomain = formData.normalized_domain ||
+      (formData.domain || formData.website_url || "")
+        .replace(/^(https?:\/\/)?(www\.)?/, "")
+        .replace(/\/$/, "")
+        .toLowerCase() || "";
+
+    setIsRefreshing(true);
+    try {
+      const result = await refreshCompanyImport({
+        company_id: companyId,
+        normalized_domain: normalizedDomain || undefined,
+        company_name: formData.company_name || formData.name || "",
+      });
+
+      const updatedCompany = result?.company || {};
+      const normalized = normalizeCompany(updatedCompany);
+
+      setFormData((prev) => ({
+        ...prev,
+        ...normalized,
+      }));
+      setAdditionalHQs(normalized.headquarters_locations || []);
+      setShowLocationSourcesToUsers(Boolean(updatedCompany.show_location_sources_to_users));
+      setLocationSources(Array.isArray(updatedCompany.location_sources) ? updatedCompany.location_sources : []);
+
+      const refreshedRating = getOrCalculateRating(updatedCompany);
+      setRating(refreshedRating);
+      setRatingIconType(updatedCompany.rating_icon_type || "star");
+      setVisibility(updatedCompany.visibility || {
+        hq_public: true,
+        manufacturing_public: true,
+        admin_rating_public: false,
+      });
+
+      const summary = result?.summary || { updated_field_count: 0, new_review_count: 0 };
+      if (summary.updated_field_count === 0 && summary.new_review_count === 0) {
+        toast.success("No new data found. Company details are already up to date.");
+      } else {
+        toast.success(`Import refreshed: ${summary.updated_field_count} fields updated, ${summary.new_review_count} new reviews added.`);
+      }
+    } catch (error) {
+      console.error("[CompanyForm] Refresh import failed:", error?.message || error);
+      toast.error("Refresh failed. Please try again or check logs.");
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const handleDialogClose = () => {
     if (onClose) {
       onClose();
@@ -279,7 +342,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
       <DialogContent
-        className="w-[95vw] sm:w-[92vw] md:w-[90vw] max-w-none h-[90vh] flex flex-col"
+        className="relative w-[95vw] sm:w-[92vw] md:w-[90vw] max-w-none h-[90vh] flex flex-col"
         aria-describedby="company-form-description"
       >
         <DialogHeader className="flex-shrink-0">
@@ -691,6 +754,30 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
             {isSaving ? "Saving..." : "Save"}
           </Button>
         </form>
+
+        <TooltipProvider>
+          <div className="absolute bottom-4 right-4 flex items-center justify-end">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  onClick={handleRefreshImport}
+                  disabled={isSaving || isRefreshing || !isEditMode}
+                  className="bg-[#B1DDE3] text-slate-900 hover:bg-[#A0C8D0] shadow-md"
+                >
+                  {isRefreshing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {isRefreshing ? "Refreshing..." : "Refresh Import"}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top" align="end" className="max-w-xs text-left">
+                <p>
+                  Search to fill empty fields and pull fresh reviews. This should be an exhaustive dive into the internet
+                  to fill any empty fields and grab 1–2 fresh reviews.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
       </DialogContent>
 
       {/* Logo Upload Dialog */}
