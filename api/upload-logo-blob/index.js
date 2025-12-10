@@ -1,5 +1,5 @@
 const { app } = require("@azure/functions");
-const { BlobServiceClient, StorageSharedKeyCredential, generateBlobSASUrl, BlobSASPermissions } = require("@azure/storage-blob");
+const { BlobServiceClient, StorageSharedKeyCredential, BlobSASPermissions, generateBlobSASQueryParameters } = require("@azure/storage-blob");
 const { CosmosClient } = require("@azure/cosmos");
 const sharp = require("sharp");
 const { v4: uuidv4 } = require("uuid");
@@ -98,8 +98,9 @@ app.http("upload-logo-blob", {
 
       // Initialize blob service client using SharedKeyCredential
       let blobServiceClient;
+      let credentials;
       try {
-        const credentials = new StorageSharedKeyCredential(accountName, accountKey);
+        credentials = new StorageSharedKeyCredential(accountName, accountKey);
         const storageUrl = `https://${accountName}.blob.core.windows.net`;
         blobServiceClient = new BlobServiceClient(storageUrl, credentials);
         ctx.log(`[upload-logo-blob] DEBUG BlobServiceClient created`);
@@ -208,17 +209,17 @@ app.http("upload-logo-blob", {
       // Generate SAS URL with 1-year expiration for secure blob access
       let logoUrl = blockBlobClient.url;
       try {
-        const { accountName, accountKey } = getStorageCredentials(ctx);
-
-        // Generate SAS URL valid for 1 year
-        logoUrl = generateBlobSASUrl({
-          containerName: containerName,
-          blobName: blobName,
-          accountName: accountName,
-          accountKey: accountKey,
-          permissions: BlobSASPermissions.parse("r"),
-          expiresOn: new Date(new Date().getTime() + 365 * 24 * 60 * 60 * 1000),
-        });
+        const expiresOn = new Date(new Date().getTime() + 365 * 24 * 60 * 60 * 1000);
+        const sasParams = generateBlobSASQueryParameters(
+          {
+            containerName,
+            blobName,
+            permissions: BlobSASPermissions.parse("r"),
+            expiresOn,
+          },
+          credentials
+        );
+        logoUrl = `${blockBlobClient.url}?${sasParams.toString()}`;
         ctx.log(`[upload-logo-blob] Generated SAS URL for blob access`);
       } catch (sasError) {
         ctx.warn(`[upload-logo-blob] Failed to generate SAS URL, using plain blob URL instead: ${sasError.message}`);
