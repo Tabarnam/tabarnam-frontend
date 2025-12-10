@@ -77,6 +77,14 @@ export default function ExpandableCompanyRow({
   const affiliateLinks = normalizeAffiliateLinks(company);
   const amazonLink = company.amazon_url || company.amazon_store_url || "";
 
+  const websiteUrl =
+    company.website_url ||
+    (company.normalized_domain ? `https://${company.normalized_domain}` : "");
+
+  const websiteLabel =
+    company.normalized_domain ||
+    (company.website_url ? company.website_url.replace(/^https?:\/\//, "") : "");
+
   const truncateText = (text, length = 60) => {
     if (!text) return "—";
     return text.length > length ? text.substring(0, length) + "…" : text;
@@ -259,14 +267,18 @@ export default function ExpandableCompanyRow({
         <div className="grid grid-cols-5 gap-4 mb-6 pb-6 border-b">
           <div className="col-span-2">
             <h2 className="font-bold text-lg text-gray-900">
-              <a
-                href={company.website_url || company.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-gray-900 hover:text-blue-600 hover:underline transition-colors"
-              >
-                {company.company_name}
-              </a>
+              {websiteUrl ? (
+                <a
+                  href={websiteUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-900 hover:text-blue-600 hover:underline transition-colors"
+                >
+                  {company.company_name}
+                </a>
+              ) : (
+                <span className="text-gray-900">{company.company_name}</span>
+              )}
             </h2>
             {company.tagline && (
               <div className="text-sm text-gray-600 mt-1">{company.tagline}</div>
@@ -404,14 +416,18 @@ export default function ExpandableCompanyRow({
     >
       <div className="col-span-4">
         <h2 className="font-bold text-gray-900">
-          <a
-            href={company.website_url || company.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-gray-900 hover:text-blue-600 hover:underline transition-colors"
-          >
-            {company.company_name}
-          </a>
+          {websiteUrl ? (
+            <a
+              href={websiteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-gray-900 hover:text-blue-600 hover:underline transition-colors"
+            >
+              {company.company_name}
+            </a>
+          ) : (
+            <span className="text-gray-900">{company.company_name}</span>
+          )}
         </h2>
         {company.tagline && (
           <div className="text-xs text-gray-600 mt-1">{company.tagline}</div>
