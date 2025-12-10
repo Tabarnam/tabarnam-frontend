@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { setLogoUrl, uploadLogoFile } from "@/lib/api/adminLogos";
+import { setLogoUrl, uploadCompanyLogo } from "@/lib/api/adminLogos";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -119,22 +119,24 @@ export function LogoUploadDialog({
 
       console.log('[LogoUploadDialog] Uploading logo file:', { companyId, fileName: file.name, fileSize: file.size });
 
-      // Upload using existing function
-      const r = await uploadLogoFile(companyId, file);
+      const result = await uploadCompanyLogo(companyId, file);
 
-      console.log('[LogoUploadDialog] Upload response:', { ok: r.logo_url ? 'success' : 'failed', hasLogoUrl: !!r.logo_url });
+      console.log('[LogoUploadDialog] Upload response:', result);
 
-      // Validate returned URL is not a blob URL
-      if (!r.logo_url || r.logo_url.startsWith('blob:')) {
-        const errorMessage = "Server returned invalid URL—upload may have failed. Please try again.";
-        console.error('[LogoUploadDialog] Upload validation failed:', { logo_url: r.logo_url?.substring(0, 100) });
+      if (!result.ok || !result.logoUrl || result.logoUrl.startsWith('blob:')) {
+        const errorMessage = "Server returned invalid logo URL—upload may have failed. Please try again.";
+        console.error('[LogoUploadDialog] Upload validation failed:', {
+          ok: result.ok,
+          hasLogoUrl: result.hasLogoUrl,
+          logoUrl: result.logoUrl?.substring(0, 100),
+        });
         setError(errorMessage);
         onError?.(errorMessage);
         return;
       }
 
-      console.log('[LogoUploadDialog] Upload successful, calling onSaved with URL:', r.logo_url.substring(0, 100));
-      onSaved?.(r.logo_url);
+      console.log('[LogoUploadDialog] Upload successful, calling onSaved with URL:', result.logoUrl.substring(0, 100));
+      onSaved?.(result.logoUrl);
       onClose?.();
     } catch (e: any) {
       const errorMessage = e?.message || "Upload failed";
