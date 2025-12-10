@@ -77,6 +77,14 @@ export default function ExpandableCompanyRow({
   const affiliateLinks = normalizeAffiliateLinks(company);
   const amazonLink = company.amazon_url || company.amazon_store_url || "";
 
+  const websiteUrl =
+    company.website_url ||
+    (company.normalized_domain ? `https://${company.normalized_domain}` : "");
+
+  const websiteLabel =
+    company.normalized_domain ||
+    (company.website_url ? company.website_url.replace(/^https?:\/\//, "") : "");
+
   const truncateText = (text, length = 60) => {
     if (!text) return "—";
     return text.length > length ? text.substring(0, length) + "…" : text;
