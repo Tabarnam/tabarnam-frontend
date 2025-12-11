@@ -1,13 +1,13 @@
 // api/admin-test/index.js - v4 HTTP function
 const { app } = require("@azure/functions");
 
-// Keep function name the same for Azure, change only the route prefix
+// Simple admin test endpoint for /api/admin-test
 app.http("adminTest", {
-  route: "xadmin-api-test",
+  route: "admin-test",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, ctx) => {
-    ctx.log("[xadmin-api-test] v4 handler called");
+    ctx.log("[admin-test] v4 handler called");
 
     if ((req.method || "").toUpperCase() === "OPTIONS") {
       return {
@@ -24,7 +24,7 @@ app.http("adminTest", {
       status: 200,
       jsonBody: {
         ok: true,
-        name: "xadmin-api-test",
+        name: "admin-test",
         timestamp: new Date().toISOString()
       },
       headers: {
