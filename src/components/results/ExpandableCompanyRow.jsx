@@ -2,6 +2,15 @@ import React, { useState } from "react";
 import ReviewsWidget from "@/components/ReviewsWidget";
 import { FractionalStars } from "@/components/Stars";
 
+function toFiniteNumber(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 function normalizeAffiliateLinks(company) {
   if (!company) return [];
   const links = [];
@@ -221,9 +230,9 @@ export default function ExpandableCompanyRow({
     if (colKey === "stars") {
       const reviews = getReviewsPreviews();
       const starValue =
-        typeof company.star_score === "number" ? company.star_score :
-        typeof company.stars === "number" ? company.stars :
-        typeof company.star_rating === "number" ? company.star_rating :
+        toFiniteNumber(company.star_score) ??
+        toFiniteNumber(company.stars) ??
+        toFiniteNumber(company.star_rating) ??
         null;
 
       const primaryReview = reviews[0];

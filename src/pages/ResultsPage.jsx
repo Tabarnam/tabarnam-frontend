@@ -333,8 +333,10 @@ export default function ResultsPage() {
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>{button}</TooltipTrigger>
-                        <TooltipContent className="max-w-[240px] text-xs">
-                          Quantity & Quality of info on a company, not a score.
+                        <TooltipContent className="max-w-[280px] text-xs">
+                          <ul className="list-disc list-inside">
+                            <li>Quantity & Quality of info on a company, not a score.</li>
+                          </ul>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -494,16 +496,34 @@ function attachDistances(c, userLoc, unit) {
   return out;
 }
 function normalizeStars(c) {
-  if (isNum(c.star_score)) return c;
-  if (isNum(c.star_rating)) return { ...c, star_score: clamp(c.star_rating, 0, 5) };
-  if (isNum(c.confidence_score)) return { ...c, star_score: clamp(c.confidence_score * 5, 0, 5) };
+  const starScore = toFiniteNumber(c.star_score);
+  if (starScore != null) return { ...c, star_score: clamp(starScore, 0, 5) };
+
+  const starRating = toFiniteNumber(c.star_rating);
+  if (starRating != null) return { ...c, star_score: clamp(starRating, 0, 5) };
+
+  const stars = toFiniteNumber(c.stars);
+  if (stars != null) return { ...c, star_score: clamp(stars, 0, 5) };
+
+  const confidence = toFiniteNumber(c.confidence_score);
+  if (confidence != null) return { ...c, star_score: clamp(confidence * 5, 0, 5) };
+
   return { ...c, star_score: null };
 }
 function getStarScore(c) {
-  return isNum(c.star_score) ? c.star_score
-    : isNum(c.star_rating) ? clamp(c.star_rating, 0, 5)
-    : isNum(c.confidence_score) ? clamp(c.confidence_score * 5, 0, 5)
-    : null;
+  const starScore = toFiniteNumber(c.star_score);
+  if (starScore != null) return clamp(starScore, 0, 5);
+
+  const starRating = toFiniteNumber(c.star_rating);
+  if (starRating != null) return clamp(starRating, 0, 5);
+
+  const stars = toFiniteNumber(c.stars);
+  if (stars != null) return clamp(stars, 0, 5);
+
+  const confidence = toFiniteNumber(c.confidence_score);
+  if (confidence != null) return clamp(confidence * 5, 0, 5);
+
+  return null;
 }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function toFiniteNumber(v) {
@@ -533,5 +553,3 @@ function getLatLng(obj) {
 
   return null;
 }
-
-function isNum(v){ return Number.isFinite(v); }
