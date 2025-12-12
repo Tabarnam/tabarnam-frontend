@@ -11,7 +11,8 @@
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "dev:ipv4": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "build": "vite build",
-    "preview": "vite preview --host ::1 --port 5173"
+    "preview": "vite preview --host ::1 --port 5173",
+    "test": "node --test api/get-reviews/contract.test.js"
   },
   "dependencies": {
     "@azure/cosmos": "^4.7.0",
