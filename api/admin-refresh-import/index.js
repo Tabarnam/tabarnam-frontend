@@ -451,6 +451,8 @@ function createHandler(routeName) {
             last_updated_at: nowIso,
             imported_via: "admin_refresh_import",
           });
+
+          if (freshCurated.length >= maxNewReviews) break;
         }
 
         if (freshCurated.length) {
