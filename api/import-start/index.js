@@ -626,6 +626,7 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
    - If no street address is available, that is acceptable - city + state/region + country is the minimum acceptable.
    - Use the company's official "Headquarters", "Head Office", or primary corporate address.
    - Check: Official website's About/Contact pages, LinkedIn company profile, Crunchbase, business directories.
+   - If the website's Contact page is missing/404, use the header/footer contact info and the Terms/Privacy pages for the company address.
    - Acceptable formats: "San Francisco, CA, USA" or "London, UK" or "Tokyo, Japan"
 
    IMPORTANT: Government Buyer Guides and Business Directories often list headquarters with complete address.
