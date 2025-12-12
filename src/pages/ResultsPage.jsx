@@ -334,7 +334,7 @@ export default function ResultsPage() {
                       <Tooltip>
                         <TooltipTrigger asChild>{button}</TooltipTrigger>
                         <TooltipContent className="max-w-[240px] text-xs">
-                          Quantity and Quality of the info on the company.
+                          Quantity & Quality of info on a company, not a score.
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
