@@ -29,7 +29,7 @@ export function LogoUploadDialog({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [logoUrl, setLogoUrlState] = useState("");
   const [editState, setEditState] = useState<LogoEditState | null>(null);
-  const [activeTab, setActiveTab] = useState<"url" | "upload" | "edit">("url");
+  const [activeTab, setActiveTab] = useState<"url" | "upload" | "edit">("upload");
   const [isBusy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
