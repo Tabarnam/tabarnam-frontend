@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import type { StarBundle, StarSignals } from "@/pages/types/stars";
 import { StarsTooltip } from "./StarsTooltip";
 
