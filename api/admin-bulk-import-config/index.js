@@ -11,11 +11,8 @@ const json = (obj, status = 200) => ({
   body: JSON.stringify(obj),
 });
 
-app.http('adminBulkImportConfig', {
-  route: 'xadmin-api-bulk-import-config',
-  methods: ['GET', 'OPTIONS'],
-  authLevel: 'anonymous',
-  handler: async (req, context) => {
+function createBulkImportConfigHandler(routeName) {
+  return async (req, context) => {
     if (req.method === "OPTIONS") {
       return {
         status: 204,
@@ -115,6 +112,21 @@ app.http('adminBulkImportConfig', {
       });
     }
 
-    return json({ ok: true, config }, 200);
-  }
+    return json({ ok: true, route: routeName, config }, 200);
+  };
+}
+
+app.http("adminBulkImportConfig", {
+  route: "xadmin-api-bulk-import-config",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: createBulkImportConfigHandler("xadmin-api-bulk-import-config"),
+});
+
+// Alias for older docs/links
+app.http("adminBulkImportConfigAlias", {
+  route: "admin/bulk-import-config",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: createBulkImportConfigHandler("admin/bulk-import-config"),
 });
