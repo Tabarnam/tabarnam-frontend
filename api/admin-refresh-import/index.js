@@ -1,14 +1,13 @@
 const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
 const axios = require("axios");
-const { getXAIEndpoint, getXAIKey } = require("../_shared");
 
 function env(k, d = "") {
   const v = process.env[k];
   return (v == null ? d : String(v)).trim();
 }
 
-function json(obj, status = 200) {
+function json(obj, status = 200, extraHeaders) {
   return {
     status,
     headers: {
@@ -16,15 +15,23 @@ function json(obj, status = 200) {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "POST,OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, x-functions-key",
+      ...(extraHeaders || {}),
     },
     body: JSON.stringify(obj),
   };
+}
+
+function newTraceId(req) {
+  const fromQuery = String(req.query?.trace || req.query?.trace_id || "").trim();
+  if (fromQuery) return fromQuery;
+  return `trace_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
 function isBlank(val) {
   if (val === null || val === undefined) return true;
   if (typeof val === "string" && !val.trim()) return true;
   if (Array.isArray(val) && val.length === 0) return true;
+  if (typeof val === "object" && Object.keys(val).length === 0) return true;
   return false;
 }
 
@@ -50,7 +57,13 @@ function toStringArray(value) {
   return [];
 }
 
-function getCompaniesContainer() {
+function clampTimeoutMs(value, fallbackMs) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallbackMs;
+  return Math.min(Math.max(Math.floor(n), 5000), 30000);
+}
+
+function getCompaniesContainer(context) {
   const endpoint = env("COSMOS_DB_ENDPOINT", "");
   const key = env("COSMOS_DB_KEY", "");
   const database = env("COSMOS_DB_DATABASE", "tabarnam-db");
@@ -62,18 +75,14 @@ function getCompaniesContainer() {
     const client = new CosmosClient({ endpoint, key });
     return client.database(database).container(container);
   } catch (e) {
-    console.error("[admin-refresh-import] Failed to create Cosmos client:", e?.message || e);
+    context.log("[admin-refresh-import] Failed to create Cosmos client", {
+      message: e?.message || String(e),
+    });
     return null;
   }
 }
 
-function clampTimeoutMs(value, fallbackMs) {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallbackMs;
-  return Math.min(Math.max(Math.floor(n), 5000), 30000);
-}
-
-async function geocodeHeadquarters(headquarters_location, timeoutMs) {
+async function geocodeHeadquarters(headquarters_location, timeoutMs, context) {
   const address = String(headquarters_location || "").trim();
   if (!address) return { hq_lat: undefined, hq_lng: undefined };
 
@@ -98,7 +107,9 @@ async function geocodeHeadquarters(headquarters_location, timeoutMs) {
       return { hq_lat: lat, hq_lng: lng };
     }
   } catch (e) {
-    console.warn("[admin-refresh-import] Geocode failed:", e?.message || e);
+    context.log("[admin-refresh-import] Geocode failed", {
+      message: e?.message || String(e),
+    });
   }
 
   return { hq_lat: undefined, hq_lng: undefined };
@@ -112,8 +123,7 @@ function normalizeReviewCandidate(r) {
   if (!url && !text && !title) return null;
 
   const ratingRaw = r?.rating;
-  const rating =
-    typeof ratingRaw === "number" && Number.isFinite(ratingRaw) ? Number(ratingRaw) : null;
+  const rating = typeof ratingRaw === "number" && Number.isFinite(ratingRaw) ? Number(ratingRaw) : null;
 
   const reviewDate = String(r?.review_date || r?.date || "").trim() || null;
 
@@ -128,36 +138,135 @@ function normalizeReviewCandidate(r) {
   };
 }
 
-app.http("adminRefreshImport", {
-  route: "xadmin-api-refresh-import",
-  methods: ["POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
+function buildDeltaFromBody(body) {
+  const candidate = body && typeof body === "object" ? body : {};
+  const nested = candidate.delta && typeof candidate.delta === "object" ? candidate.delta : null;
+  const direct = {
+    tagline: candidate.tagline,
+    description: candidate.description,
+    industries: candidate.industries,
+    product_keywords: candidate.product_keywords,
+    website_url: candidate.website_url,
+    canonical_website: candidate.canonical_website,
+    headquarters_location: candidate.headquarters_location,
+    manufacturing_locations: candidate.manufacturing_locations,
+    location_sources: candidate.location_sources,
+    social: candidate.social,
+    amazon_url: candidate.amazon_url,
+    normalized_domain: candidate.normalized_domain,
+  };
+
+  return {
+    ...(direct || {}),
+    ...(nested || {}),
+  };
+}
+
+async function findCompany(container, { companyId, hintDomain, hintName }) {
+  if (companyId) {
+    const queryById = {
+      query: "SELECT * FROM c WHERE c.id = @id",
+      parameters: [{ name: "@id", value: companyId }],
+    };
+    const { resources } = await container.items.query(queryById, { enableCrossPartitionQuery: true }).fetchAll();
+    if (resources?.length) return resources[0];
+  }
+
+  if (hintDomain && hintName) {
+    const queryByDomainAndName = {
+      query: "SELECT * FROM c WHERE c.normalized_domain = @domain AND LOWER(c.company_name) = @name",
+      parameters: [
+        { name: "@domain", value: hintDomain },
+        { name: "@name", value: hintName.toLowerCase() },
+      ],
+    };
+    const { resources } = await container.items
+      .query(queryByDomainAndName, { enableCrossPartitionQuery: true })
+      .fetchAll();
+    if (resources?.length) return resources[0];
+  }
+
+  if (hintDomain) {
+    const queryByDomain = {
+      query: "SELECT * FROM c WHERE c.normalized_domain = @domain",
+      parameters: [{ name: "@domain", value: hintDomain }],
+    };
+    const { resources } = await container.items.query(queryByDomain, { enableCrossPartitionQuery: true }).fetchAll();
+    if (resources?.length) return resources[0];
+  }
+
+  if (hintName) {
+    const queryByName = {
+      query: "SELECT * FROM c WHERE LOWER(c.company_name) = @name",
+      parameters: [{ name: "@name", value: hintName.toLowerCase() }],
+    };
+    const { resources } = await container.items.query(queryByName, { enableCrossPartitionQuery: true }).fetchAll();
+    if (resources?.length) return resources[0];
+  }
+
+  return null;
+}
+
+function createHandler(routeName) {
+  return async (req, context) => {
     const startedAt = Date.now();
     const method = String(req.method || "").toUpperCase();
 
     if (method === "OPTIONS") {
-      return json({}, 204);
+      return {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "POST,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization, x-functions-key",
+        },
+      };
     }
+
+    const traceId = newTraceId(req);
 
     if (method !== "POST") {
-      return json({ ok: false, error: "Method not allowed" }, 405);
+      return json(
+        {
+          ok: false,
+          route: routeName,
+          trace_id: traceId,
+          error: "Method not allowed",
+          elapsed_ms: Date.now() - startedAt,
+        },
+        405
+      );
     }
 
-    const traceId =
-      String(req.query?.trace || req.query?.trace_id || "").trim() ||
-      `trace_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-    const container = getCompaniesContainer();
+    const container = getCompaniesContainer(context);
     if (!container) {
-      return json({ ok: false, trace_id: traceId, error: "Cosmos DB not configured" }, 503);
+      return json(
+        {
+          ok: false,
+          route: routeName,
+          trace_id: traceId,
+          error: "Cosmos DB not configured",
+          elapsed_ms: Date.now() - startedAt,
+        },
+        503
+      );
     }
 
     let body = {};
     try {
       body = await req.json();
     } catch (e) {
-      return json({ ok: false, trace_id: traceId, error: "Invalid JSON", detail: e?.message }, 400);
+      return json(
+        {
+          ok: false,
+          route: routeName,
+          trace_id: traceId,
+          error: "Invalid JSON",
+          detail: e?.message || String(e),
+          elapsed_ms: Date.now() - startedAt,
+        },
+        400
+      );
     }
 
     const companyId = String(body.company_id || body.id || "").trim();
@@ -166,191 +275,35 @@ app.http("adminRefreshImport", {
 
     if (!companyId && !hintDomain && !hintName) {
       return json(
-        { ok: false, trace_id: traceId, error: "company_id or (normalized_domain/company_name) required" },
+        {
+          ok: false,
+          route: routeName,
+          trace_id: traceId,
+          error: "company_id or (normalized_domain/company_name) required",
+          elapsed_ms: Date.now() - startedAt,
+        },
         400
       );
-    }
-
-    const xaiUrl = getXAIEndpoint();
-    const xaiKey = getXAIKey();
-
-    if (!xaiUrl || !xaiKey) {
-      return json({ ok: false, trace_id: traceId, error: "XAI not configured" }, 500);
     }
 
     const timeoutMs = clampTimeoutMs(body.timeout_ms, 25000);
 
     try {
-      let companyDoc = null;
-
-      if (companyId) {
-        const queryById = {
-          query: "SELECT * FROM c WHERE c.id = @id",
-          parameters: [{ name: "@id", value: companyId }],
-        };
-        const { resources } = await container.items
-          .query(queryById, { enableCrossPartitionQuery: true })
-          .fetchAll();
-        if (resources?.length) companyDoc = resources[0];
-      }
-
-      if (!companyDoc && hintDomain && hintName) {
-        const queryByDomainAndName = {
-          query:
-            "SELECT * FROM c WHERE c.normalized_domain = @domain AND LOWER(c.company_name) = @name",
-          parameters: [
-            { name: "@domain", value: hintDomain },
-            { name: "@name", value: hintName.toLowerCase() },
-          ],
-        };
-        const { resources } = await container.items
-          .query(queryByDomainAndName, { enableCrossPartitionQuery: true })
-          .fetchAll();
-        if (resources?.length) companyDoc = resources[0];
-      }
-
-      if (!companyDoc && hintDomain) {
-        const queryByDomain = {
-          query: "SELECT * FROM c WHERE c.normalized_domain = @domain",
-          parameters: [{ name: "@domain", value: hintDomain }],
-        };
-        const { resources } = await container.items
-          .query(queryByDomain, { enableCrossPartitionQuery: true })
-          .fetchAll();
-        if (resources?.length) companyDoc = resources[0];
-      }
-
-      if (!companyDoc && hintName) {
-        const queryByName = {
-          query: "SELECT * FROM c WHERE LOWER(c.company_name) = @name",
-          parameters: [{ name: "@name", value: hintName.toLowerCase() }],
-        };
-        const { resources } = await container.items
-          .query(queryByName, { enableCrossPartitionQuery: true })
-          .fetchAll();
-        if (resources?.length) companyDoc = resources[0];
-      }
-
+      const companyDoc = await findCompany(container, { companyId, hintDomain, hintName });
       if (!companyDoc) {
-        return json({ ok: false, trace_id: traceId, error: "Company not found" }, 404);
-      }
-
-      const snapshot = {
-        company_name: companyDoc.company_name || companyDoc.name || "",
-        website_url: companyDoc.website_url || companyDoc.canonical_url || companyDoc.url || "",
-        tagline: companyDoc.tagline || "",
-        description: companyDoc.description || "",
-        industries: companyDoc.industries || [],
-        product_keywords: companyDoc.product_keywords || [],
-        normalized_domain:
-          companyDoc.normalized_domain ||
-          toNormalizedDomain(companyDoc.website_url || companyDoc.canonical_url || companyDoc.url || ""),
-        headquarters_location: companyDoc.headquarters_location || "",
-        manufacturing_locations: companyDoc.manufacturing_locations || [],
-        location_sources: companyDoc.location_sources || [],
-        social: companyDoc.social || {},
-        amazon_url: companyDoc.amazon_url || "",
-      };
-
-      const message = {
-        role: "user",
-        content: `You are a business research assistant refreshing data for ONE EXISTING COMPANY.
-
-You are given a snapshot of the current stored data:
-${JSON.stringify(snapshot, null, 2)}
-
-Your job:
-- Perform an exhaustive, deep search across the internet for this specific company (official site, LinkedIn, Crunchbase, Google Maps, major retailers, marketplaces, etc.).
-- ONLY FILL FIELDS THAT ARE CURRENTLY EMPTY OR MISSING in the snapshot.
-- DO NOT change or contradict existing non-empty values.
-
-Also, find up to 2 recent, high-quality reviews (not duplicates) from reputable sources.
-
-OUTPUT FORMAT:
-Return a single JSON object with ONLY the following top-level keys. For each key, either provide the new value or null if you found nothing credible:
-{
-  "tagline": string | null,
-  "description": string | null,
-  "industries": string[] | null,
-  "product_keywords": string[] | string | null,
-  "website_url": string | null,
-  "canonical_website": string | null,
-  "headquarters_location": string | null,
-  "manufacturing_locations": string[] | string | null,
-  "location_sources": Array<{ location: string; source_url: string; source_type: string; location_type: string }> | null,
-  "social": {
-    "linkedin"?: string | null,
-    "instagram"?: string | null,
-    "x"?: string | null,
-    "twitter"?: string | null,
-    "facebook"?: string | null,
-    "tiktok"?: string | null,
-    "youtube"?: string | null
-  } | null,
-  "amazon_url": string | null,
-  "fresh_reviews": Array<{
-    "source": "google"|"amazon"|"yelp"|"trustpilot"|"retailer"|"other",
-    "platform": string,
-    "url": string,
-    "text": string,
-    "rating": number|null,
-    "review_date": string|null
-  }> | null
-}
-
-Rules:
-- Never fabricate precise street addresses.
-- Respect existing non-empty values.
-- If you cannot confidently find new information for a field, return null for that field.
-- Return ONLY the JSON object.`,
-      };
-
-      const xaiPayload = {
-        messages: [message],
-        model: "grok-4-latest",
-        temperature: 0.2,
-        stream: false,
-      };
-
-      let delta = {};
-      try {
-        const res = await axios.post(xaiUrl, xaiPayload, {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${xaiKey}`,
-          },
-          timeout: timeoutMs,
-        });
-
-        if (res.status < 200 || res.status >= 300) {
-          return json(
-            {
-              ok: false,
-              trace_id: traceId,
-              error: `XAI returned ${res.status}`,
-              detail: res.statusText,
-            },
-            502
-          );
-        }
-
-        const responseText = res.data?.choices?.[0]?.message?.content || "";
-        const objMatch = responseText.match(/\{[\s\S]*\}/);
-        if (objMatch) {
-          try {
-            delta = JSON.parse(objMatch[0]);
-          } catch (e) {
-            delta = {};
-            context.log("[admin-refresh-import] Failed to parse XAI JSON", { traceId, err: e?.message });
-          }
-        }
-      } catch (e) {
         return json(
-          { ok: false, trace_id: traceId, error: `XAI call failed: ${e?.message || e}` },
-          502
+          {
+            ok: false,
+            route: routeName,
+            trace_id: traceId,
+            error: "Company not found",
+            elapsed_ms: Date.now() - startedAt,
+          },
+          404
         );
       }
 
+      const delta = buildDeltaFromBody(body);
       const updated = { ...companyDoc };
       let updatedFieldCount = 0;
 
@@ -441,7 +394,7 @@ Rules:
         updated.headquarters_location &&
         String(updated.headquarters_location).trim()
       ) {
-        const geo = await geocodeHeadquarters(String(updated.headquarters_location), timeoutMs);
+        const geo = await geocodeHeadquarters(String(updated.headquarters_location), timeoutMs, context);
         if (geo.hq_lat !== undefined && geo.hq_lng !== undefined) {
           updated.hq_lat = geo.hq_lat;
           updated.hq_lng = geo.hq_lng;
@@ -452,14 +405,23 @@ Rules:
 
       let newReviewCount = 0;
       try {
-        const incoming = Array.isArray(delta.fresh_reviews) ? delta.fresh_reviews : [];
-        const candidates = incoming.map(normalizeReviewCandidate).filter(Boolean).slice(0, 2);
+        const incomingTopLevel = Array.isArray(body.fresh_reviews) ? body.fresh_reviews : [];
+        const incomingDelta = Array.isArray(delta.fresh_reviews) ? delta.fresh_reviews : [];
+
+        const candidates = incomingTopLevel
+          .concat(incomingDelta)
+          .map(normalizeReviewCandidate)
+          .filter(Boolean);
 
         const existingCurated = Array.isArray(updated.curated_reviews) ? updated.curated_reviews : [];
         const existingKeys = new Set(
           existingCurated
-            .map((r) => `${String(r.source_url || r.url || "").toLowerCase()}|${String(r.title || r.excerpt || "").toLowerCase()}`)
-            .filter(Boolean)
+            .map((r) => {
+              const u = String(r.source_url || r.url || "").toLowerCase().trim();
+              const t = String(r.title || r.excerpt || r.text || "").toLowerCase().trim();
+              return `${u}|${t}`;
+            })
+            .filter((k) => k && k !== "|")
         );
 
         const nowIso = new Date().toISOString();
@@ -471,7 +433,7 @@ Rules:
           const title = String(r.title || "").trim() || excerpt.slice(0, 80);
 
           const key = `${sourceUrl.toLowerCase()}|${(title || excerpt).toLowerCase()}`;
-          if (!key.trim()) continue;
+          if (!key.trim() || key === "|") continue;
           if (existingKeys.has(key)) continue;
           existingKeys.add(key);
 
@@ -488,8 +450,6 @@ Rules:
             last_updated_at: nowIso,
             imported_via: "admin_refresh_import",
           });
-
-          if (freshCurated.length >= 2) break;
         }
 
         if (freshCurated.length) {
@@ -497,13 +457,14 @@ Rules:
           newReviewCount = freshCurated.length;
         }
       } catch (e) {
-        context.log("[admin-refresh-import] review merge failed", { traceId, err: e?.message || e });
+        context.log("[admin-refresh-import] review merge failed", {
+          trace_id: traceId,
+          message: e?.message || String(e),
+        });
       }
 
       const partitionKeyValue = String(
-        updated.normalized_domain ||
-          toNormalizedDomain(updated.website_url || updated.canonical_url || updated.url || "") ||
-          "unknown"
+        updated.normalized_domain || toNormalizedDomain(updated.website_url || updated.canonical_url || updated.url || "") || "unknown"
       ).trim();
       updated.normalized_domain = partitionKeyValue || "unknown";
       updated.updated_at = new Date().toISOString();
@@ -513,23 +474,30 @@ Rules:
           await container.items.upsert(updated, { partitionKey: partitionKeyValue || "unknown" });
         } catch (upsertError) {
           context.log("[admin-refresh-import] Upsert with partition key failed, retrying", {
-            traceId,
-            msg: upsertError?.message,
+            trace_id: traceId,
+            message: upsertError?.message || String(upsertError),
           });
           await container.items.upsert(updated);
         }
       } catch (e) {
         return json(
-          { ok: false, trace_id: traceId, error: "Failed to save refreshed company", detail: e?.message },
+          {
+            ok: false,
+            route: routeName,
+            trace_id: traceId,
+            error: "Failed to save refreshed company",
+            detail: e?.message || String(e),
+            elapsed_ms: Date.now() - startedAt,
+          },
           500
         );
       }
 
-      const elapsedMs = Date.now() - startedAt;
       return json({
         ok: true,
+        route: routeName,
         trace_id: traceId,
-        elapsed_ms: elapsedMs,
+        elapsed_ms: Date.now() - startedAt,
         company: updated,
         summary: {
           updated_field_count: updatedFieldCount,
@@ -540,6 +508,7 @@ Rules:
       return json(
         {
           ok: false,
+          route: routeName,
           trace_id: traceId,
           error: e?.message || "Internal error",
           elapsed_ms: Date.now() - startedAt,
@@ -547,5 +516,26 @@ Rules:
         500
       );
     }
-  },
+  };
+}
+
+app.http("adminRefreshImport", {
+  route: "xadmin-api-refresh-import",
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: createHandler("xadmin-api-refresh-import"),
+});
+
+app.http("adminRefreshImportAlias", {
+  route: "admin-refresh-import",
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: createHandler("admin-refresh-import"),
+});
+
+app.http("adminRefreshImportAdminSlash", {
+  route: "admin/refresh-import",
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: createHandler("admin/refresh-import"),
 });
