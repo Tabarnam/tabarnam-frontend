@@ -153,11 +153,12 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     const companyId = formData.id || formData.company_id;
     const method = companyId ? "PUT" : "POST";
 
-    const normalized_domain = formData.normalized_domain ||
-      (formData.domain || formData.website_url || "")
-        .replace(/^(https?:\/\/)?(www\.)?/, "")
-        .replace(/\/$/, "")
-        .toLowerCase() || "";
+    const computedNormalizedDomain = (formData.website_url || formData.domain || "")
+      .replace(/^(https?:\/\/)?(www\.)?/, "")
+      .replace(/\/$/, "")
+      .toLowerCase();
+
+    const normalized_domain = computedNormalizedDomain || (formData.normalized_domain || "").trim();
 
     // Build headquarters_locations array from primary and additional HQs
     const headquarters_locations = [];
@@ -295,13 +296,17 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           headers: { accept: "application/json" },
         });
 
-        const data = await reviewsResp.json().catch(() => ({ reviews: [] }));
+        const data = await reviewsResp.json().catch(() => ({ items: [], reviews: [] }));
         if (!reviewsResp.ok) {
           const msg = data?.error || data?.message || reviewsResp.statusText || `HTTP ${reviewsResp.status}`;
           throw new Error(msg);
         }
 
-        freshReviews = Array.isArray(data?.reviews) ? data.reviews : [];
+        freshReviews = Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data?.reviews)
+            ? data.reviews
+            : [];
       } catch (e) {
         console.error("[CompanyForm] Failed to fetch fresh reviews:", e?.message || e);
         toast.error(`Failed to fetch reviews for refresh: ${e?.message || "unknown error"}`);

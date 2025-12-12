@@ -17,9 +17,14 @@ export default function ReviewsWidget({ companyName }) {
     setLoading(true); setError("");
     try {
       const r = await fetch(`${API_BASE}/get-reviews?company=${encodeURIComponent(companyName)}`);
-      const data = await r.json().catch(() => ({}));
+      const data = await r.json().catch(() => ({ items: [], reviews: [] }));
       if (!r.ok) throw new Error(data?.error || r.statusText || "Failed to load");
-      setList(Array.isArray(data.reviews) ? data.reviews : []);
+      const reviews = Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data?.reviews)
+          ? data.reviews
+          : [];
+      setList(reviews);
     } catch (e) {
       setError(e?.message || "Failed to load reviews");
     } finally { setLoading(false); }
