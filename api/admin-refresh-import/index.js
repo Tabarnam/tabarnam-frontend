@@ -426,6 +426,7 @@ function createHandler(routeName) {
 
         const nowIso = new Date().toISOString();
         const freshCurated = [];
+        const maxNewReviews = 10;
 
         for (const r of candidates) {
           const sourceUrl = String(r.url || "").trim();
