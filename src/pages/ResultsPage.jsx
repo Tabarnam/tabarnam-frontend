@@ -414,7 +414,16 @@ function attachDistances(c, userLoc, unit) {
         const km = calculateDistance(user.lat, user.lng, coords.lat, coords.lng);
         if (!Number.isFinite(km)) return null;
         const d = unit === "mi" ? km * 0.621371 : km;
-        return { ...h, lat: coords.lat, lng: coords.lng, dist: d };
+
+        const formatted =
+          (typeof h?.formatted === "string" && h.formatted.trim()) ||
+          (typeof h?.full_address === "string" && h.full_address.trim()) ||
+          (typeof h?.address === "string" && h.address.trim()) ||
+          (typeof h?.location === "string" && h.location.trim()) ||
+          (typeof c?.headquarters_location === "string" && c.headquarters_location.trim()) ||
+          undefined;
+
+        return { ...h, lat: coords.lat, lng: coords.lng, dist: d, formatted };
       })
       .filter(Boolean)
       .sort((a, b) => a.dist - b.dist);
@@ -439,13 +448,26 @@ function attachDistances(c, userLoc, unit) {
 
   if (Array.isArray(manuGeoListRaw) && manuGeoListRaw.length) {
     const dists = manuGeoListRaw
-      .map((m) => {
+      .map((m, idx) => {
         const coords = getLatLng(m);
         if (!coords) return null;
         const km = calculateDistance(user.lat, user.lng, coords.lat, coords.lng);
         if (!Number.isFinite(km)) return null;
         const d = unit === "mi" ? km * 0.621371 : km;
-        return { ...m, lat: coords.lat, lng: coords.lng, dist: d };
+
+        const fallbackLabel =
+          Array.isArray(c.manufacturing_locations) && typeof c.manufacturing_locations[idx] === "string"
+            ? c.manufacturing_locations[idx].trim()
+            : "";
+
+        const formatted =
+          (typeof m?.formatted === "string" && m.formatted.trim()) ||
+          (typeof m?.full_address === "string" && m.full_address.trim()) ||
+          (typeof m?.address === "string" && m.address.trim()) ||
+          (typeof m?.location === "string" && m.location.trim()) ||
+          (fallbackLabel || undefined);
+
+        return { ...m, lat: coords.lat, lng: coords.lng, dist: d, formatted };
       })
       .filter(Boolean)
       .sort((a, b) => a.dist - b.dist);
