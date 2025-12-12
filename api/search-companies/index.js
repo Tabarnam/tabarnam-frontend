@@ -1,4 +1,10 @@
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("@azure/functions"));
+} catch {
+  app = { http() {} };
+}
+
 const { CosmosClient } = require("@azure/cosmos");
 
 function env(k, d = "") {
