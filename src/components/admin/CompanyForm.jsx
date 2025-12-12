@@ -273,18 +273,46 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       return;
     }
 
-    const normalizedDomain = formData.normalized_domain ||
+    const companyName = (formData.company_name || formData.name || "").trim();
+    if (!companyName) {
+      toast.error("Missing company name for refresh.");
+      return;
+    }
+
+    const normalizedDomain =
+      formData.normalized_domain ||
       (formData.domain || formData.website_url || "")
         .replace(/^(https?:\/\/)?(www\.)?/, "")
         .replace(/\/$/, "")
-        .toLowerCase() || "";
+        .toLowerCase() ||
+      "";
 
     setIsRefreshing(true);
     try {
+      let freshReviews = [];
+      try {
+        const reviewsResp = await apiFetch(`/get-reviews?company=${encodeURIComponent(companyName)}`, {
+          headers: { accept: "application/json" },
+        });
+
+        const data = await reviewsResp.json().catch(() => ({ reviews: [] }));
+        if (!reviewsResp.ok) {
+          const msg = data?.error || data?.message || reviewsResp.statusText || `HTTP ${reviewsResp.status}`;
+          throw new Error(msg);
+        }
+
+        freshReviews = Array.isArray(data?.reviews) ? data.reviews : [];
+      } catch (e) {
+        console.error("[CompanyForm] Failed to fetch fresh reviews:", e?.message || e);
+        toast.error(`Failed to fetch reviews for refresh: ${e?.message || "unknown error"}`);
+        return;
+      }
+
       const result = await refreshCompanyImport({
         company_id: companyId,
         normalized_domain: normalizedDomain || undefined,
-        company_name: formData.company_name || formData.name || "",
+        company_name: companyName,
+        fresh_reviews: freshReviews,
       });
 
       const updatedCompany = result?.company || {};
@@ -301,21 +329,25 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       const refreshedRating = getOrCalculateRating(updatedCompany);
       setRating(refreshedRating);
       setRatingIconType(updatedCompany.rating_icon_type || "star");
-      setVisibility(updatedCompany.visibility || {
-        hq_public: true,
-        manufacturing_public: true,
-        admin_rating_public: false,
-      });
+      setVisibility(
+        updatedCompany.visibility || {
+          hq_public: true,
+          manufacturing_public: true,
+          admin_rating_public: false,
+        }
+      );
 
       const summary = result?.summary || { updated_field_count: 0, new_review_count: 0 };
       if (summary.updated_field_count === 0 && summary.new_review_count === 0) {
         toast.success("No new data found. Company details are already up to date.");
       } else {
-        toast.success(`Import refreshed: ${summary.updated_field_count} fields updated, ${summary.new_review_count} new reviews added.`);
+        toast.success(
+          `Import refreshed: ${summary.updated_field_count} fields updated, ${summary.new_review_count} new reviews added.`
+        );
       }
     } catch (error) {
       console.error("[CompanyForm] Refresh import failed:", error?.message || error);
-      toast.error("Refresh failed. Please try again or check logs.");
+      toast.error(error?.message || "Refresh failed. Please try again or check logs.");
     } finally {
       setIsRefreshing(false);
     }

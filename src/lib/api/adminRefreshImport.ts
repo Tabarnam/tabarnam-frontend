@@ -29,6 +29,9 @@ export interface AdminRefreshImportResponse {
   ok: boolean;
   company: any;
   summary: AdminRefreshImportSummary;
+  trace_id?: string;
+  route?: string;
+  elapsed_ms?: number;
 }
 
 export async function refreshCompanyImport(
@@ -43,16 +46,29 @@ export async function refreshCompanyImport(
   const json = (await res.json().catch(() => ({}))) as Partial<AdminRefreshImportResponse> & {
     error?: string;
     message?: string;
+    detail?: string;
   };
 
   if (!res.ok || json.ok === false) {
-    const message = json.error || json.message || `Refresh import failed (${res.status})`;
-    throw new Error(message);
+    const baseMessage =
+      json.error ||
+      json.message ||
+      (typeof json.detail === "string" && json.detail.trim()) ||
+      `Refresh import failed (${res.status})`;
+
+    const meta: string[] = [];
+    if (json.route) meta.push(`route=${json.route}`);
+    if (json.trace_id) meta.push(`trace_id=${json.trace_id}`);
+
+    throw new Error(meta.length ? `${baseMessage} (${meta.join(", ")})` : baseMessage);
   }
 
   return {
     ok: Boolean(json.ok),
     company: json.company,
     summary: json.summary || { updated_field_count: 0, new_review_count: 0 },
+    trace_id: json.trace_id,
+    route: json.route,
+    elapsed_ms: json.elapsed_ms,
   };
 }
