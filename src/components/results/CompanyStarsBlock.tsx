@@ -1,9 +1,9 @@
 import React from "react";
 import { Stars } from "@/components/Stars";
 import { calcStars } from "@/lib/stars/calcStars";
-import { calculateTotalScore, getOrCalculateRating } from "@/lib/stars/calculateRating";
+import { getQQFilledCount, getQQScore, getQQStarIcons } from "@/lib/stars/qqRating";
 import type { StarSignals } from "@/pages/types/stars";
-import type { Company, RatingIconType } from "@/types/company";
+import type { Company } from "@/types/company";
 
 type StarExplanation = {
   star_level: number;
@@ -24,49 +24,21 @@ type CompanyLike = Company & {
 };
 
 export function CompanyStarsBlock({ company }: { company: CompanyLike }) {
-  // Try new rating schema first
-  if (company.rating) {
-    const totalScore = calculateTotalScore(company.rating);
-    const defaultIconType = (company.rating_icon_type || "star") as RatingIconType;
+  const score = getQQScore(company);
+  const filled = getQQFilledCount(company);
+  const starIcons = getQQStarIcons(company);
 
-    // Build starIcons map based on per-star icon types (with fallback to default)
-    const starIcons: Record<number, 'star' | 'heart'> = {};
-    const starKeys = ["star1", "star2", "star3", "star4", "star5"] as const;
-    for (let i = 1; i <= 5; i++) {
-      const starKey = starKeys[i - 1];
-      const star = company.rating[starKey];
-      starIcons[i] = star?.icon_type || defaultIconType;
-    }
-
-    // Create a bundle-like object for the Stars component
-    const mockBundle = {
-      autoSubtotal: 0,
-      manualExtra: 0,
-      final: totalScore,
-      reasons: [],
-      overrides: { hq: null, manufacturing: null, review: null },
-    };
-
-    // Collect public notes from all stars
-    const publicNotes: StarSignals["notes"] = [];
-    if (company.rating) {
-      for (const starKey of ["star1", "star2", "star3", "star4", "star5"] as const) {
-        const star = company.rating[starKey];
-        if (star?.notes) {
-          publicNotes.push(...star.notes.filter((n) => n.is_public));
-        }
+  const publicNotes: StarSignals["notes"] = [];
+  const rating = (company as any)?.rating;
+  if (rating && typeof rating === "object") {
+    for (const starKey of ["star1", "star2", "star3", "star4", "star5"] as const) {
+      const star = (rating as any)[starKey];
+      if (star?.notes && Array.isArray(star.notes)) {
+        publicNotes.push(...star.notes.filter((n: any) => n?.is_public));
       }
     }
-
-    return (
-      <div className="flex items-center gap-2 justify-end">
-        <Stars bundle={mockBundle} notes={publicNotes} size={18} starIcons={starIcons} />
-        <span className="text-sm text-slate-600">{totalScore.toFixed(0)}/5</span>
-      </div>
-    );
   }
 
-  // Fallback to legacy rating system
   const signals: StarSignals = {
     hqEligible: !!company.hqVerified,
     manufacturingEligible: !!company.mfgVerified,
@@ -77,22 +49,19 @@ export function CompanyStarsBlock({ company }: { company: CompanyLike }) {
     notes: company.star_notes ?? [],
   };
 
-  const bundle = calcStars(signals);
+  const legacyBundle = calcStars(signals);
 
-  // Build starIcons map from star_explanation
-  const starIcons: Record<number, 'star' | 'heart'> = {};
-  if (Array.isArray(company.star_explanation)) {
-    for (const exp of company.star_explanation) {
-      if (exp.star_level >= 1 && exp.star_level <= 5) {
-        starIcons[exp.star_level] = (exp.icon === 'heart' ? 'heart' : 'star');
-      }
-    }
-  }
+  const bundle = {
+    ...legacyBundle,
+    final: score,
+  };
+
+  const notesToUse = publicNotes.length > 0 ? publicNotes : signals.notes;
 
   return (
     <div className="flex items-center gap-2 justify-end">
-      <Stars bundle={bundle} notes={signals.notes} size={18} starIcons={starIcons} />
-      <span className="text-sm text-slate-600">{bundle.final.toFixed(0)}/5</span>
+      <Stars bundle={bundle} notes={notesToUse} size={18} starIcons={starIcons} />
+      <span className="text-sm text-slate-600">{filled}/5</span>
     </div>
   );
 }

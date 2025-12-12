@@ -1,7 +1,8 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Building2, Globe, Tag } from 'lucide-react';
-import { RatingDots } from "@/components/Stars";
+import { RatingDots, RatingHearts } from "@/components/Stars";
+import { getQQDefaultIconType, getQQFilledCount, hasQQRating } from "@/lib/stars/qqRating";
 
 const CompanyCard = ({ company, index }) => {
   const cardVariants = {
@@ -43,10 +44,14 @@ const CompanyCard = ({ company, index }) => {
         )}
 
         <div className="flex items-center gap-2 mb-4 text-sm text-gray-400">
-          {company.rating ? (
+          {hasQQRating(company) ? (
             <>
-              <RatingDots value={Number(company.rating)} size={14} />
-              <span className="text-[#649BA0]">{Number(company.rating).toFixed(1)}/5.0</span>
+              {getQQDefaultIconType(company) === "heart" ? (
+                <RatingHearts value={getQQFilledCount(company)} size={14} />
+              ) : (
+                <RatingDots value={getQQFilledCount(company)} size={14} />
+              )}
+              <span className="text-[#649BA0]">{getQQFilledCount(company).toFixed(1)}/5.0</span>
             </>
           ) : (
             <span>No rating</span>

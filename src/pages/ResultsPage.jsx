@@ -510,20 +510,11 @@ function normalizeStars(c) {
 
   return { ...c, star_score: null };
 }
+import { getQQScore } from "@/lib/stars/qqRating";
+
 function getStarScore(c) {
-  const starScore = toFiniteNumber(c.star_score);
-  if (starScore != null) return clamp(starScore, 0, 5);
-
-  const starRating = toFiniteNumber(c.star_rating);
-  if (starRating != null) return clamp(starRating, 0, 5);
-
-  const stars = toFiniteNumber(c.stars);
-  if (stars != null) return clamp(stars, 0, 5);
-
-  const confidence = toFiniteNumber(c.confidence_score);
-  if (confidence != null) return clamp(confidence * 5, 0, 5);
-
-  return null;
+  const score = getQQScore(c);
+  return Number.isFinite(score) ? score : null;
 }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function toFiniteNumber(v) {
