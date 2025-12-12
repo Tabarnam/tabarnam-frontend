@@ -10,6 +10,7 @@ import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchCompanies } from "@/lib/searchCompanies";
 import { API_BASE } from "@/lib/api";
+import { getQQScore } from "@/lib/stars/qqRating";
 
 // Countries that use miles (for distance unit inference)
 const milesCountries = new Set([
@@ -510,8 +511,6 @@ function normalizeStars(c) {
 
   return { ...c, star_score: null };
 }
-import { getQQScore } from "@/lib/stars/qqRating";
-
 function getStarScore(c) {
   const score = getQQScore(c);
   return Number.isFinite(score) ? score : null;
