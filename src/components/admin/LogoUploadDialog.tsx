@@ -29,7 +29,7 @@ export function LogoUploadDialog({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [logoUrl, setLogoUrlState] = useState("");
   const [editState, setEditState] = useState<LogoEditState | null>(null);
-  const [activeTab, setActiveTab] = useState<"url" | "upload" | "edit">("url");
+  const [activeTab, setActiveTab] = useState<"url" | "upload" | "edit">("upload");
   const [isBusy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -198,16 +198,6 @@ export function LogoUploadDialog({
       {/* Tabs */}
       <div className="flex gap-2 mb-4 border-b">
         <button
-          onClick={() => setActiveTab("url")}
-          className={`px-4 py-2 font-medium text-sm ${
-            activeTab === "url"
-              ? "border-b-2 border-[#B1DDE3] text-slate-900"
-              : "text-slate-600 hover:text-slate-900"
-          }`}
-        >
-          From URL
-        </button>
-        <button
           onClick={() => setActiveTab("upload")}
           className={`px-4 py-2 font-medium text-sm ${
             activeTab === "upload"
@@ -216,6 +206,16 @@ export function LogoUploadDialog({
           }`}
         >
           Upload File
+        </button>
+        <button
+          onClick={() => setActiveTab("url")}
+          className={`px-4 py-2 font-medium text-sm ${
+            activeTab === "url"
+              ? "border-b-2 border-[#B1DDE3] text-slate-900"
+              : "text-slate-600 hover:text-slate-900"
+          }`}
+        >
+          From URL
         </button>
       </div>
 
