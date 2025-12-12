@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import ReviewsWidget from "@/components/ReviewsWidget";
+import { FractionalStars } from "@/components/Stars";
 
 function normalizeAffiliateLinks(company) {
   if (!company) return [];
@@ -219,32 +220,30 @@ export default function ExpandableCompanyRow({
 
     if (colKey === "stars") {
       const reviews = getReviewsPreviews();
-      const hasStars = typeof company.stars === "number";
-      const hasCount = typeof company.reviews_count === "number";
+      const starValue =
+        typeof company.star_score === "number" ? company.star_score :
+        typeof company.stars === "number" ? company.stars :
+        typeof company.star_rating === "number" ? company.star_rating :
+        null;
+
+      const primaryReview = reviews[0];
+
       return (
         <div className="space-y-2">
-          {hasStars && (
-            <div className="flex items-center gap-1 text-xs">
-              <span>{company.stars.toFixed(1)}</span>
-              <span>★</span>
-              {hasCount && (
-                <span className="text-muted-foreground">
-                  ({company.reviews_count} reviews)
-                </span>
-              )}
-            </div>
-          )}
+          <div className="flex items-center">
+            <FractionalStars value={typeof starValue === "number" ? starValue : 0} size={18} />
+          </div>
+
+          <div className="text-xs font-semibold text-gray-700">Reviews</div>
 
           <div className="space-y-1">
-            {reviews.map((review, idx) => (
-              <div key={idx} className="text-xs text-gray-600 border-b pb-1 line-clamp-2">
-                {review.abstract || review.text || "—"}
+            {primaryReview ? (
+              <div className="text-xs text-gray-600 line-clamp-3">
+                {primaryReview.abstract || primaryReview.text || "—"}
               </div>
-            ))}
-
-            {[...Array(Math.max(0, 3 - reviews.length))].map((_, idx) => (
-              <div key={`empty-${idx}`} className="text-xs text-gray-400 pb-1 h-5" />
-            ))}
+            ) : (
+              <div className="text-xs text-gray-400">No reviews available</div>
+            )}
 
             {reviews.length > 0 && (
               <button
@@ -405,7 +404,7 @@ export default function ExpandableCompanyRow({
           {rightColsOrder.map((colKey) => (
             <div key={colKey}>
               <div className="text-sm font-semibold text-gray-700 mb-2">
-                {colKey === "manu" ? "Manufacturing" : colKey === "hq" ? "HQ" : "Reviews"}
+                {colKey === "manu" ? "Manufacturing" : colKey === "hq" ? "Home/HQ" : "QQ"}
               </div>
               {renderRightColumn(colKey)}
             </div>
@@ -545,7 +544,7 @@ export default function ExpandableCompanyRow({
       {rightColsOrder.map((colKey, colIdx) => (
         <div key={colKey} className="col-span-2">
           <div className="text-xs font-semibold text-gray-700 flex items-center gap-1 mb-2">
-            {colKey === "manu" ? "Manufacturing" : colKey === "hq" ? "HQ" : "Reviews"}
+            {colKey === "manu" ? "Manufacturing" : colKey === "hq" ? "Home/HQ" : "QQ"}
           </div>
           {renderRightColumn(colKey)}
         </div>
