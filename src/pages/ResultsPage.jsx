@@ -400,51 +400,60 @@ export default function ResultsPage() {
 function attachDistances(c, userLoc, unit) {
   const out = { ...c, _hqDist: null, _nearestManuDist: null, _manuDists: [], _hqDists: [] };
 
-  // HQ - try headquarters array first, then fall back to hq_lat/hq_lng
-  if (userLoc) {
-    let hqList = [];
-    if (Array.isArray(c.headquarters) && c.headquarters.length > 0) {
-      hqList = c.headquarters;
-    }
+  const user = getLatLng(userLoc);
+  if (!user) return out;
 
-    if (hqList.length > 0) {
-      const dists = hqList
-        .filter(h => isNum(h.lat) && isNum(h.lng))
-        .map(h => {
-          const km = calculateDistance(userLoc.lat, userLoc.lng, h.lat, h.lng);
-          const d = unit === "mi" ? km * 0.621371 : km;
-          return { ...h, dist: d };
-        })
-        .sort((a, b) => a.dist - b.dist);
-      out._hqDists = dists;
-      out._hqDist = dists.length ? dists[0].dist : null;
-    } else if (isNum(c.hq_lat) && isNum(c.hq_lng)) {
-      const km = calculateDistance(userLoc.lat, userLoc.lng, c.hq_lat, c.hq_lng);
-      out._hqDist = unit === "mi" ? km * 0.621371 : km;
+  // HQ - try headquarters array first, then fall back to hq_lat/hq_lng
+  const hqList = Array.isArray(c.headquarters) ? c.headquarters : [];
+
+  if (hqList.length > 0) {
+    const dists = hqList
+      .map((h) => {
+        const coords = getLatLng(h);
+        if (!coords) return null;
+        const km = calculateDistance(user.lat, user.lng, coords.lat, coords.lng);
+        if (!Number.isFinite(km)) return null;
+        const d = unit === "mi" ? km * 0.621371 : km;
+        return { ...h, lat: coords.lat, lng: coords.lng, dist: d };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.dist - b.dist);
+
+    out._hqDists = dists;
+    out._hqDist = dists.length ? dists[0].dist : null;
+  } else {
+    const hqLat = toFiniteNumber(c.hq_lat);
+    const hqLng = toFiniteNumber(c.hq_lng);
+    if (hqLat != null && hqLng != null) {
+      const km = calculateDistance(user.lat, user.lng, hqLat, hqLng);
+      if (Number.isFinite(km)) out._hqDist = unit === "mi" ? km * 0.621371 : km;
     }
   }
 
   // Manufacturing
-  if (userLoc) {
-    // Try manufacturing_geocodes first, then manufacturing_locations
-    let manuGeoList = c.manufacturing_geocodes;
-    if (!Array.isArray(manuGeoList) || !manuGeoList.length) {
-      manuGeoList = c.manufacturing_locations;
-    }
+  const manuGeoListRaw = Array.isArray(c.manufacturing_geocodes) && c.manufacturing_geocodes.length
+    ? c.manufacturing_geocodes
+    : Array.isArray(c.manufacturing_locations)
+      ? c.manufacturing_locations
+      : [];
 
-    if (Array.isArray(manuGeoList) && manuGeoList.length) {
-      const dists = manuGeoList
-        .filter(m => isNum(m.lat) && isNum(m.lng))
-        .map(m => {
-          const km = calculateDistance(userLoc.lat, userLoc.lng, m.lat, m.lng);
-          const d = unit === "mi" ? km * 0.621371 : km;
-          return { ...m, dist: d };
-        })
-        .sort((a, b) => a.dist - b.dist);
-      out._manuDists = dists;
-      out._nearestManuDist = dists.length ? dists[0].dist : null;
-    }
+  if (Array.isArray(manuGeoListRaw) && manuGeoListRaw.length) {
+    const dists = manuGeoListRaw
+      .map((m) => {
+        const coords = getLatLng(m);
+        if (!coords) return null;
+        const km = calculateDistance(user.lat, user.lng, coords.lat, coords.lng);
+        if (!Number.isFinite(km)) return null;
+        const d = unit === "mi" ? km * 0.621371 : km;
+        return { ...m, lat: coords.lat, lng: coords.lng, dist: d };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.dist - b.dist);
+
+    out._manuDists = dists;
+    out._nearestManuDist = dists.length ? dists[0].dist : null;
   }
+
   return out;
 }
 function normalizeStars(c) {
@@ -460,4 +469,32 @@ function getStarScore(c) {
     : null;
 }
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function toFiniteNumber(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function getLatLng(obj) {
+  if (!obj || typeof obj !== "object") return null;
+
+  // supports {lat,lng}, {latitude,longitude}, and common variants
+  const lat = toFiniteNumber(obj.lat ?? obj.latitude);
+  const lng = toFiniteNumber(obj.lng ?? obj.lon ?? obj.longitude);
+
+  if (lat != null && lng != null) return { lat, lng };
+
+  // supports {location:{lat,lng}}
+  if (obj.location && typeof obj.location === "object") {
+    const locLat = toFiniteNumber(obj.location.lat ?? obj.location.latitude);
+    const locLng = toFiniteNumber(obj.location.lng ?? obj.location.lon ?? obj.location.longitude);
+    if (locLat != null && locLng != null) return { lat: locLat, lng: locLng };
+  }
+
+  return null;
+}
+
 function isNum(v){ return Number.isFinite(v); }
