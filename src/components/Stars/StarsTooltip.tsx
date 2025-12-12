@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from "react";
-import React, { useMemo, useState } from "react";
 import type { StarBundle, StarSignals } from "../../pages/types/stars";
 
 /**
