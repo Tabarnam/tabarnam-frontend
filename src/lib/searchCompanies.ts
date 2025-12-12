@@ -35,6 +35,7 @@ export interface Company {
   manufacturing_locations?: string[];
   headquarters_location?: string;
   product_keywords?: string[];
+  keywords?: string[];
   red_flag?: boolean;
   red_flag_reason?: string;
   location_confidence?: "high" | "medium" | "low";
