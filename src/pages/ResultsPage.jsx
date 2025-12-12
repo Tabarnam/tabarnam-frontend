@@ -7,6 +7,7 @@ import { geocode } from "@/lib/google";
 import { calculateDistance, usesMiles } from "@/lib/distance";
 import SearchCard from "@/components/home/SearchCard";
 import ExpandableCompanyRow from "@/components/results/ExpandableCompanyRow";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { searchCompanies } from "@/lib/searchCompanies";
 import { API_BASE } from "@/lib/api";
 
@@ -297,14 +298,28 @@ export default function ResultsPage() {
           {rightColsOrder.map((colKey, idx) => {
             const colLabel =
               colKey === "manu" ? "Manufacturing" :
-              colKey === "hq" ? "Home" :
-              "Stars";
+              colKey === "hq" ? "Home/HQ" :
+              "QQ";
             const isSelected = sortBy === colKey;
-            return (
-              <div
-                key={colKey}
-                className="col-span-2 text-center"
+
+            const button = (
+              <button
+                onClick={() => clickSort(colKey)}
+                className="font-semibold rounded transition-colors"
+                style={{
+                  fontSize: "15px",
+                  padding: "6.25px 10px",
+                  backgroundColor: isSelected ? "#B1DDE3" : "transparent",
+                  color: isSelected ? "#374151" : "#649BA0",
+                  border: `1px solid ${isSelected ? "#B1DDE3" : "#649BA0"}`
+                }}
               >
+                {colLabel}
+              </button>
+            );
+
+            return (
+              <div key={colKey} className="col-span-2 text-center">
                 <div className="flex items-center justify-center gap-1">
                   {idx === 0 && (
                     <img
@@ -313,19 +328,19 @@ export default function ResultsPage() {
                       style={{ width: "1.1em", height: "1.1em" }}
                     />
                   )}
-                  <button
-                    onClick={() => clickSort(colKey)}
-                    className="font-semibold rounded transition-colors"
-                    style={{
-                      fontSize: "15px",
-                      padding: "6.25px 10px",
-                      backgroundColor: isSelected ? "#B1DDE3" : "transparent",
-                      color: isSelected ? "#374151" : "#649BA0",
-                      border: `1px solid ${isSelected ? "#B1DDE3" : "#649BA0"}`
-                    }}
-                  >
-                    {colLabel}
-                  </button>
+
+                  {colKey === "stars" ? (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>{button}</TooltipTrigger>
+                        <TooltipContent className="max-w-[240px] text-xs">
+                          Quantity and Quality of the info on the company.
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : (
+                    button
+                  )}
                 </div>
               </div>
             );
