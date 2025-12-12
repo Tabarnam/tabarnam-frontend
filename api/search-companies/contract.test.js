@@ -22,17 +22,23 @@ function makeContainer(queryResponder) {
 }
 
 test("/api/search-companies maps keywords to public payload", async () => {
-  const companiesContainer = makeContainer(async () => [
-    {
-      id: "company_1",
-      company_name: "Wiley's Finest",
-      normalized_domain: "wileysfinest.com",
-      keywords: ["fish oil", "omega-3", "wild Alaskan", "Alaska"],
-      product_keywords: "",
-      industries: ["Supplements"],
-      _ts: 1700000000,
-    },
-  ]);
+  const doc = {
+    id: "company_1",
+    company_name: "Wiley's Finest",
+    normalized_domain: "wileysfinest.com",
+    keywords: ["fish oil", "omega-3", "wild Alaskan", "Alaska"],
+    product_keywords: "",
+    industries: ["Supplements"],
+    manufacturing_locations: ["Alaska, US"],
+    _ts: 1700000000,
+  };
+
+  const companiesContainer = makeContainer(async (spec) => {
+    const q = String(spec?.query || "");
+    if (q.includes("ARRAY_LENGTH(c.manufacturing_locations) > 0")) return [doc];
+    if (q.includes("ARRAY_LENGTH(c.manufacturing_locations) = 0")) return [];
+    return [doc];
+  });
 
   const res = await _test.searchCompaniesHandler(
     makeReq("https://example.test/api/search-companies?q=wiley%27s&sort=manu&take=10"),
