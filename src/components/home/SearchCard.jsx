@@ -18,7 +18,7 @@ const SORTS = [
 
 function toQs(o){ return new URLSearchParams(Object.entries(o).filter(([,v]) => v !== undefined && v !== '' && v !== null)).toString(); }
 
-export default function SearchCard({ onSubmitParams }) {
+export default function SearchCard({ onSubmitParams, filtersRightSlot = null }) {
   const nav = useNavigate();
   const { search } = useLocation();
 
@@ -273,7 +273,11 @@ export default function SearchCard({ onSubmitParams }) {
       </div>
 
       {/* Row 2: City/Postal Code, State/Province, Country, Sort Results */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <div
+        className={filtersRightSlot
+          ? "grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_1fr_auto] gap-3"
+          : "grid grid-cols-1 md:grid-cols-4 gap-3"}
+      >
         <Popover open={openCitySuggest && citySuggestions.length > 0}>
           <PopoverTrigger asChild>
             <div className="relative">
@@ -460,6 +464,12 @@ export default function SearchCard({ onSubmitParams }) {
             {SORTS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
           </SelectContent>
         </Select>
+
+        {filtersRightSlot && (
+          <div className="flex items-center md:justify-end">
+            {filtersRightSlot}
+          </div>
+        )}
       </div>
     </div>
   );
