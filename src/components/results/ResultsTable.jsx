@@ -84,7 +84,7 @@ const ResultsTable = ({ companies, userLocation, onKeywordSearch, language, view
   else if (sortKey === 'hq_distance') dynamicOrder = ['hq_distance', 'mfg_distance', 'star_rating'];
   else if (sortKey === 'mfg_distance') dynamicOrder = ['mfg_distance', 'hq_distance', 'star_rating'];
 
-  const headerLabel = { star_rating: 'Stars', hq_distance: 'Home', mfg_distance: 'Manufacturing' };
+  const headerLabel = { star_rating: 'QQ', hq_distance: 'Home/HQ', mfg_distance: 'Manufacturing' };
   const headerIcon  = { star_rating: <Star size={16} />, hq_distance: <MapPin size={16} />, mfg_distance: <Factory size={16} /> };
 
   const handleHeaderClick = (column) => {
@@ -99,9 +99,9 @@ const ResultsTable = ({ companies, userLocation, onKeywordSearch, language, view
       <div className="md:hidden sticky top-4 z-10 p-2">
         <MultiToggle
           options={[
-            { value: 'hq_distance', label: 'Home', icon: <MapPin size={16} /> },
+            { value: 'hq_distance', label: 'Home/HQ', icon: <MapPin size={16} /> },
             { value: 'mfg_distance', label: 'Mfg', icon: <Factory size={16} /> },
-            { value: 'star_rating', label: 'Stars', icon: <Star size={16} /> },
+            { value: 'star_rating', label: 'QQ', icon: <Star size={16} /> },
           ]}
           selected={sortKey}
           onSelect={(value) => setSortConfig({ key: value, direction: value === 'star_rating' ? 'descending' : 'ascending' })}
