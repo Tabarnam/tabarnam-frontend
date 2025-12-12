@@ -44,14 +44,14 @@ export function getQQScore(company: Partial<Company> | null | undefined): number
     return clamp(ratingAsNumber, 0, 5);
   }
 
-  const starScore = toFiniteNumber((company as any).star_score);
-  if (starScore != null) {
-    return clamp(starScore, 0, 5);
-  }
-
   const starRating = toFiniteNumber((company as any).star_rating);
   if (starRating != null) {
     return clamp(starRating, 0, 5);
+  }
+
+  const starScore = toFiniteNumber((company as any).star_score);
+  if (starScore != null) {
+    return clamp(starScore, 0, 5);
   }
 
   const stars = toFiniteNumber((company as any).stars);
@@ -106,5 +106,25 @@ export function getQQStarIcons(company: Partial<Company> | null | undefined): Re
 }
 
 export function hasQQRating(company: Partial<Company> | null | undefined): boolean {
-  return getQQScore(company) > 0;
+  if (!company) return false;
+
+  const rating = (company as any).rating;
+  if (isCompanyRating(rating)) return calculateTotalScore(rating) > 0;
+
+  const ratingAsNumber = toFiniteNumber(rating);
+  if (ratingAsNumber != null) return ratingAsNumber > 0;
+
+  const starRating = toFiniteNumber((company as any).star_rating);
+  if (starRating != null) return starRating > 0;
+
+  const starScore = toFiniteNumber((company as any).star_score);
+  if (starScore != null) return starScore > 0;
+
+  const stars = toFiniteNumber((company as any).stars);
+  if (stars != null) return stars > 0;
+
+  const confidence = toFiniteNumber((company as any).confidence_score);
+  if (confidence != null) return confidence > 0;
+
+  return false;
 }
