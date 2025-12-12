@@ -224,11 +224,29 @@ export default function ResultsPage() {
     setSearchParams(next, { replace: true });
   }
 
+  const languageSelector = (
+    <select
+      className="h-11 text-sm border border-gray-300 rounded-md px-3 bg-gray-50 text-gray-900 font-medium hover:border-gray-400 transition-colors"
+      defaultValue="en"
+      aria-label="Language"
+    >
+      <option value="en">English</option>
+      <option value="es">Español</option>
+      <option value="fr">Français</option>
+      <option value="de">Deutsch</option>
+      <option value="zh">中文</option>
+      <option value="ja">日本語</option>
+    </select>
+  );
+
   return (
     <div className="px-1 pb-10 max-w-6xl mx-auto">
       {/* Two-row search under the site header */}
       <div className="mt-6 mb-4">
-        <SearchCard onSubmitParams={handleInlineSearch} />
+        <SearchCard
+          onSubmitParams={handleInlineSearch}
+          filtersRightSlot={results.length > 0 ? languageSelector : null}
+        />
       </div>
 
       {/* --- XAI Import Debug (dev-only; safe to remove later) --- */}
@@ -274,20 +292,6 @@ export default function ResultsPage() {
           </div>
         )}
       </div>
-
-      {/* Translation Toggle */}
-      {results.length > 0 && (
-        <div className="mb-4 flex justify-end">
-          <select className="text-xs border border-gray-300 rounded px-2 py-1.5 bg-white text-gray-700 font-medium hover:border-gray-400 transition-colors" defaultValue="en">
-            <option value="en">English</option>
-            <option value="es">Español</option>
-            <option value="fr">Français</option>
-            <option value="de">Deutsch</option>
-            <option value="zh">中文</option>
-            <option value="ja">日本語</option>
-          </select>
-        </div>
-      )}
 
       {/* Column Headers */}
       {results.length > 0 && (
