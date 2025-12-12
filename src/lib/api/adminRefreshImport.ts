@@ -5,6 +5,19 @@ export interface AdminRefreshImportPayload {
   normalized_domain?: string;
   company_name?: string;
   timeout_ms?: number;
+  fresh_reviews?: any[];
+  delta?: any;
+  tagline?: string;
+  description?: string;
+  industries?: string[];
+  product_keywords?: string[] | string;
+  website_url?: string;
+  canonical_website?: string;
+  headquarters_location?: string;
+  manufacturing_locations?: string[] | string;
+  location_sources?: any[];
+  social?: Record<string, any>;
+  amazon_url?: string;
 }
 
 export interface AdminRefreshImportSummary {
