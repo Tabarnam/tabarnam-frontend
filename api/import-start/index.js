@@ -409,7 +409,15 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
       const batchResults = await Promise.allSettled(
         batch.map(async (company) => {
           const companyName = company.company_name || company.name || "";
-          const normalizedDomain = company.normalized_domain || "unknown";
+
+          const normalizedDomain = toNormalizedDomain(
+            company.website_url ||
+              company.canonical_url ||
+              company.url ||
+              company.amazon_url ||
+              company.normalized_domain ||
+              ""
+          );
 
           // Check if company already exists
           const existing = await findExistingCompany(container, normalizedDomain, companyName);
@@ -418,10 +426,12 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
             return { type: "skipped" };
           }
 
-          // Fetch logo for the company
+          const finalNormalizedDomain = normalizedDomain && normalizedDomain !== "unknown" ? normalizedDomain : "unknown";
+
+          // Fetch logo for the company (Clearbit domain must be derived from the final saved document domain)
           let logoUrl = company.logo_url || null;
-          if (!logoUrl && normalizedDomain !== "unknown") {
-            logoUrl = await fetchLogo(normalizedDomain);
+          if (!logoUrl && finalNormalizedDomain !== "unknown") {
+            logoUrl = await fetchLogo(finalNormalizedDomain);
           }
 
           // Calculate default rating based on company data
@@ -450,7 +460,7 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
             website_url: company.website_url || company.canonical_url || company.url || "",
             industries: company.industries || [],
             product_keywords: company.product_keywords || "",
-            normalized_domain: normalizedDomain,
+            normalized_domain: finalNormalizedDomain,
             logo_url: logoUrl || null,
             tagline: company.tagline || "",
             location_sources: Array.isArray(company.location_sources) ? company.location_sources : [],
@@ -616,6 +626,7 @@ These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULT
    - If no street address is available, that is acceptable - city + state/region + country is the minimum acceptable.
    - Use the company's official "Headquarters", "Head Office", or primary corporate address.
    - Check: Official website's About/Contact pages, LinkedIn company profile, Crunchbase, business directories.
+   - If the website's Contact page is missing/404, use the header/footer contact info and the Terms/Privacy pages for the company address.
    - Acceptable formats: "San Francisco, CA, USA" or "London, UK" or "Tokyo, Japan"
 
    IMPORTANT: Government Buyer Guides and Business Directories often list headquarters with complete address.

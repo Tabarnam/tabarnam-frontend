@@ -42,10 +42,15 @@ export default function ResultsPage() {
       companies.map(async (c) => {
         try {
           const r = await fetch(`${API_BASE}/get-reviews?company=${encodeURIComponent(c.company_name)}`);
-          const data = await r.json().catch(() => ({ reviews: [] }));
+          const data = await r.json().catch(() => ({ items: [], reviews: [] }));
+          const reviews = Array.isArray(data?.items)
+            ? data.items
+            : Array.isArray(data?.reviews)
+              ? data.reviews
+              : [];
           return {
             ...c,
-            _reviews: Array.isArray(data.reviews) ? data.reviews : [],
+            _reviews: reviews,
           };
         } catch {
           return { ...c, _reviews: [] };

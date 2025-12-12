@@ -10,7 +10,7 @@ import { apiFetch } from "@/lib/api";
 import { refreshCompanyImport } from "@/lib/api/adminRefreshImport";
 import { toast } from "sonner";
 import { getAdminUser } from "@/lib/azureAuth";
-import { Plus, Trash2, Edit2, Image, Loader2 } from "lucide-react";
+import { Plus, Trash2, Edit2, Image, Loader2, Copy } from "lucide-react";
 import IndustriesEditor from "./form-elements/IndustriesEditor";
 import KeywordsEditor from "./form-elements/KeywordsEditor";
 import HeadquartersLocationsEditor from "./form-elements/HeadquartersLocationsEditor";
@@ -153,11 +153,12 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     const companyId = formData.id || formData.company_id;
     const method = companyId ? "PUT" : "POST";
 
-    const normalized_domain = formData.normalized_domain ||
-      (formData.domain || formData.website_url || "")
-        .replace(/^(https?:\/\/)?(www\.)?/, "")
-        .replace(/\/$/, "")
-        .toLowerCase() || "";
+    const computedNormalizedDomain = (formData.website_url || formData.domain || "")
+      .replace(/^(https?:\/\/)?(www\.)?/, "")
+      .replace(/\/$/, "")
+      .toLowerCase();
+
+    const normalized_domain = computedNormalizedDomain || (formData.normalized_domain || "").trim();
 
     // Build headquarters_locations array from primary and additional HQs
     const headquarters_locations = [];
@@ -295,13 +296,17 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           headers: { accept: "application/json" },
         });
 
-        const data = await reviewsResp.json().catch(() => ({ reviews: [] }));
+        const data = await reviewsResp.json().catch(() => ({ items: [], reviews: [] }));
         if (!reviewsResp.ok) {
           const msg = data?.error || data?.message || reviewsResp.statusText || `HTTP ${reviewsResp.status}`;
           throw new Error(msg);
         }
 
-        freshReviews = Array.isArray(data?.reviews) ? data.reviews : [];
+        freshReviews = Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data?.reviews)
+            ? data.reviews
+            : [];
       } catch (e) {
         console.error("[CompanyForm] Failed to fetch fresh reviews:", e?.message || e);
         toast.error(`Failed to fetch reviews for refresh: ${e?.message || "unknown error"}`);
@@ -372,6 +377,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   };
 
   const isEditMode = !!(formData?.id || formData?.company_id);
+  const companyIdValue = String(formData?.id || formData?.company_id || "").trim();
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
@@ -386,6 +392,38 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto flex-1 pr-4">
+          <div>
+            <Label htmlFor="company_id">Company ID</Label>
+            <div className="flex gap-2">
+              <Input
+                id="company_id"
+                name="company_id"
+                value={companyIdValue}
+                readOnly
+                placeholder={isEditMode ? "" : "Will be generated after save"}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0"
+                disabled={!companyIdValue}
+                onClick={() => {
+                  if (!companyIdValue) return;
+                  navigator.clipboard
+                    .writeText(companyIdValue)
+                    .then(() => toast.success("Company ID copied"))
+                    .catch(() => toast.error("Failed to copy"));
+                }}
+                title={companyIdValue ? "Copy Company ID" : "Save the company first to generate an ID"}
+              >
+                <Copy size={16} />
+              </Button>
+            </div>
+            <p className="text-xs text-slate-600 mt-1">
+              Use this ID for support, review lookups, and cross-referencing imports.
+            </p>
+          </div>
+
           <div>
             <Label htmlFor="company_name">Company Name</Label>
             <Input

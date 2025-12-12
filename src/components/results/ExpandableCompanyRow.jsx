@@ -65,14 +65,6 @@ export default function ExpandableCompanyRow({
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  if (import.meta.env.DEV && company?.company_name === "The Hershey Company") {
-    console.log('[ExpandableCompanyRow] Hershey company data:', {
-      company_name: company.company_name,
-      keywords: company.keywords,
-      product_keywords: company.product_keywords,
-      industries: company.industries,
-    });
-  }
 
   const affiliateLinks = normalizeAffiliateLinks(company);
   const amazonLink = company.amazon_url || company.amazon_store_url || "";
@@ -86,9 +78,6 @@ export default function ExpandableCompanyRow({
       ? company.company_name
       : websiteUrl.replace(/^https?:\/\//, "");
 
-  if (import.meta.env.DEV) {
-    console.log("[ExpandableCompanyRow] websiteUrl for", company.company_name, websiteUrl);
-  }
 
   const truncateText = (text, length = 60) => {
     if (!text) return "—";
@@ -99,28 +88,48 @@ export default function ExpandableCompanyRow({
     return typeof dist === "number" ? `${dist.toFixed(1)} ${unitLabel}` : "—";
   };
 
-  const formatLocationDisplayName = (geo) => {
-    // Format as "City, State/Province, Country" without street address
+  const formatLocationDisplayName = (loc) => {
+    if (typeof loc === "string") {
+      const s = loc.trim();
+      return s ? s : "—";
+    }
+
+    if (!loc || typeof loc !== "object") return "—";
+
+    const formatted = typeof loc.formatted === "string" ? loc.formatted.trim() : "";
+    if (formatted) return formatted;
+
+    const address =
+      (typeof loc.full_address === "string" && loc.full_address.trim()) ||
+      (typeof loc.address === "string" && loc.address.trim()) ||
+      "";
+    if (address) return address;
+
     const parts = [];
-    if (geo.city) parts.push(geo.city);
-    if (geo.state) parts.push(geo.state);
-    if (geo.country) parts.push(geo.country);
+    if (typeof loc.city === "string" && loc.city.trim()) parts.push(loc.city.trim());
+    if (typeof loc.state === "string" && loc.state.trim()) parts.push(loc.state.trim());
+    if (typeof loc.country === "string" && loc.country.trim()) parts.push(loc.country.trim());
+
     return parts.length > 0 ? parts.join(", ") : "—";
   };
 
   const getLocationsList = (locations, geocodes, distances = [], isManu = false) => {
-    // For manufacturing, prefer the pre-calculated distances array which already has geo data with distances
     if (isManu && Array.isArray(distances) && distances.length > 0) {
-      return distances.slice(0, 5).map((geo) => ({
-        formatted: formatLocationDisplayName(geo),
-        distance: typeof geo.dist === "number" ? geo.dist : null,
+      return distances.slice(0, 5).map((loc) => ({
+        formatted: formatLocationDisplayName(loc),
+        distance: typeof loc?.dist === "number" ? loc.dist : null,
       }));
     }
-    // Otherwise use geocodes or locations
-    const sourceArray = Array.isArray(geocodes) && geocodes.length > 0 ? geocodes : (Array.isArray(locations) ? locations : []);
-    if (!sourceArray || !Array.isArray(sourceArray)) return [];
-    return sourceArray.slice(0, 5).map((geo) => ({
-      formatted: formatLocationDisplayName(geo),
+
+    const sourceArray =
+      Array.isArray(geocodes) && geocodes.length > 0
+        ? geocodes
+        : Array.isArray(locations) && locations.length > 0
+          ? locations
+          : [];
+
+    return sourceArray.slice(0, 5).map((loc) => ({
+      formatted: formatLocationDisplayName(loc),
       distance: null,
     }));
   };
@@ -137,14 +146,14 @@ export default function ExpandableCompanyRow({
         formatted: formatLocationDisplayName(hq),
         distance: typeof hq.dist === "number" ? hq.dist : null,
       }))
-    : company.headquarters && Array.isArray(company.headquarters)
-    ? company.headquarters.slice(0, 5).map((hq) => ({
-        formatted: formatLocationDisplayName(hq),
-        distance: null,
-      }))
-    : company.headquarters_location
-    ? [{ formatted: company.headquarters_location, distance: null }]
-    : [];
+    : Array.isArray(company.headquarters) && company.headquarters.length > 0
+      ? company.headquarters.slice(0, 5).map((hq) => ({
+          formatted: formatLocationDisplayName(hq),
+          distance: null,
+        }))
+      : typeof company.headquarters_location === "string" && company.headquarters_location.trim()
+        ? [{ formatted: company.headquarters_location.trim(), distance: null }]
+        : [];
 
   const hqLocation = hqLocations;
 

@@ -120,8 +120,15 @@ app.http('adminCompanies', {
           id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
         }
 
-        const urlForDomain = incoming.canonical_url || incoming.url || incoming.website || "unknown";
-        const normalizedDomain = incoming.normalized_domain || toNormalizedDomain(urlForDomain);
+        const urlForDomain =
+          incoming.website_url ||
+          incoming.canonical_url ||
+          incoming.url ||
+          incoming.website ||
+          "unknown";
+
+        const computedDomain = toNormalizedDomain(urlForDomain);
+        const normalizedDomain = computedDomain !== "unknown" ? computedDomain : (incoming.normalized_domain || computedDomain);
 
         if (!normalizedDomain) {
           return json({ error: "Unable to determine company domain for partition key" }, 400);
@@ -134,7 +141,7 @@ app.http('adminCompanies', {
           ...incoming,
           id: String(id).trim(),
           company_id: String(id).trim(),
-          normalized_domain: normalizedDomain,
+          normalized_domain: String(normalizedDomain || "unknown").trim(),
           company_name: incoming.company_name || incoming.name || "",
           name: incoming.name || incoming.company_name || "",
           updated_at: now,
