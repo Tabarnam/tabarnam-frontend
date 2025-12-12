@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import ReviewsWidget from "@/components/ReviewsWidget";
-import { FractionalStars } from "@/components/Stars";
+import { RatingDots, RatingHearts } from "@/components/Stars";
+import { getQQDefaultIconType, getQQFilledCount } from "@/lib/stars/qqRating";
 
 function toFiniteNumber(v) {
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
@@ -229,18 +230,19 @@ export default function ExpandableCompanyRow({
 
     if (colKey === "stars") {
       const reviews = getReviewsPreviews();
-      const starValue =
-        toFiniteNumber(company.star_score) ??
-        toFiniteNumber(company.stars) ??
-        toFiniteNumber(company.star_rating) ??
-        null;
+      const filled = getQQFilledCount(company);
+      const iconType = getQQDefaultIconType(company);
 
       const primaryReview = reviews[0];
 
       return (
         <div className="space-y-2">
           <div className="flex items-center">
-            <FractionalStars value={typeof starValue === "number" ? starValue : 0} size={18} />
+            {iconType === "heart" ? (
+              <RatingHearts value={filled} size={18} />
+            ) : (
+              <RatingDots value={filled} size={18} />
+            )}
           </div>
 
           <div className="text-xs font-semibold text-gray-700">Reviews</div>

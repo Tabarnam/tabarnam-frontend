@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import MultiToggle from '@/components/ui/multi-toggle';
 import { isAdmin as getIsAdmin } from '@/lib/auth';
+import { getQQScore } from '@/lib/stars/qqRating';
 
 function SortedPin() {
   return (
@@ -61,7 +62,7 @@ const ResultsTable = ({ companies, userLocation, onKeywordSearch, language, view
       let aValue, bValue;
       if (sortConfig.key === 'hq_distance') { aValue = a._hqDist; bValue = b._hqDist; }
       else if (sortConfig.key === 'mfg_distance') { aValue = a._mfgDist; bValue = b._mfgDist; }
-      else if (sortConfig.key === 'star_rating') { aValue = a.star_rating ?? -1; bValue = b.star_rating ?? -1; }
+      else if (sortConfig.key === 'star_rating') { aValue = getQQScore(a); bValue = getQQScore(b); }
       else { aValue = a.relevance_score ?? -1; bValue = b.relevance_score ?? -1; }
 
       if (aValue < bValue) return sortConfig.direction === 'ascending' ? -1 : 1;
