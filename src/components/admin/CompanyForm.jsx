@@ -10,7 +10,7 @@ import { apiFetch } from "@/lib/api";
 import { refreshCompanyImport } from "@/lib/api/adminRefreshImport";
 import { toast } from "sonner";
 import { getAdminUser } from "@/lib/azureAuth";
-import { Plus, Trash2, Edit2, Image, Loader2 } from "lucide-react";
+import { Plus, Trash2, Edit2, Image, Loader2, Copy } from "lucide-react";
 import IndustriesEditor from "./form-elements/IndustriesEditor";
 import KeywordsEditor from "./form-elements/KeywordsEditor";
 import HeadquartersLocationsEditor from "./form-elements/HeadquartersLocationsEditor";
@@ -377,6 +377,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   };
 
   const isEditMode = !!(formData?.id || formData?.company_id);
+  const companyIdValue = String(formData?.id || formData?.company_id || "").trim();
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
@@ -391,6 +392,38 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto flex-1 pr-4">
+          <div>
+            <Label htmlFor="company_id">Company ID</Label>
+            <div className="flex gap-2">
+              <Input
+                id="company_id"
+                name="company_id"
+                value={companyIdValue}
+                readOnly
+                placeholder={isEditMode ? "" : "Will be generated after save"}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0"
+                disabled={!companyIdValue}
+                onClick={() => {
+                  if (!companyIdValue) return;
+                  navigator.clipboard
+                    .writeText(companyIdValue)
+                    .then(() => toast.success("Company ID copied"))
+                    .catch(() => toast.error("Failed to copy"));
+                }}
+                title={companyIdValue ? "Copy Company ID" : "Save the company first to generate an ID"}
+              >
+                <Copy size={16} />
+              </Button>
+            </div>
+            <p className="text-xs text-slate-600 mt-1">
+              Use this ID for support, review lookups, and cross-referencing imports.
+            </p>
+          </div>
+
           <div>
             <Label htmlFor="company_name">Company Name</Label>
             <Input
