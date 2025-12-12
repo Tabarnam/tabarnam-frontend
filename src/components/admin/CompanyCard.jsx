@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Building2, Globe, Star, Tag, Edit, Trash2 } from 'lucide-react';
+import { Building2, Globe, Tag, Edit, Trash2 } from 'lucide-react';
+import { RatingDots } from "@/components/Stars";
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -105,8 +106,14 @@ const CompanyCard = ({ company, index, onEdit, onDelete }) => {
         )}
 
         <div className="flex items-center gap-2 mb-4 text-sm text-gray-400">
-            <Star className={`w-4 h-4 ${company.star_rating > 0 ? 'text-yellow-400 fill-yellow-400' : 'text-gray-500'}`} />
-            <span>{company.star_rating ? `${Number(company.star_rating).toFixed(1)}/5.0` : 'No rating'}</span>
+          {company.star_rating ? (
+            <>
+              <RatingDots value={Number(company.star_rating)} size={14} />
+              <span className="text-[#649BA0]">{Number(company.star_rating).toFixed(1)}/5.0</span>
+            </>
+          ) : (
+            <span>No rating</span>
+          )}
         </div>
       </div>
 

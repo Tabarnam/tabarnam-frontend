@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Building2, Globe, Star, Tag } from 'lucide-react';
+import { Building2, Globe, Tag } from 'lucide-react';
+import { RatingDots } from "@/components/Stars";
 
 const CompanyCard = ({ company, index }) => {
   const cardVariants = {
@@ -42,8 +43,14 @@ const CompanyCard = ({ company, index }) => {
         )}
 
         <div className="flex items-center gap-2 mb-4 text-sm text-gray-400">
-            <Star className={`w-4 h-4 ${company.rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-500'}`} />
-            <span>{company.rating ? `${Number(company.rating).toFixed(1)}/5.0` : 'No rating'}</span>
+          {company.rating ? (
+            <>
+              <RatingDots value={Number(company.rating)} size={14} />
+              <span className="text-[#649BA0]">{Number(company.rating).toFixed(1)}/5.0</span>
+            </>
+          ) : (
+            <span>No rating</span>
+          )}
         </div>
       </div>
 

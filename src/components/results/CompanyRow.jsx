@@ -1,12 +1,12 @@
 import React, { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Copy, MapPin, Factory, Tag, FileText, Star as LucideStar } from "lucide-react";
+import { Copy, MapPin, Factory, Tag, FileText } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { calculateDistance, formatDistance } from "@/lib/distance";
 import { cn } from "@/lib/utils";
 import useTranslation from "@/hooks/useTranslation";
-import { CompanyStarsBlock } from "@/components/Results/CompanyStarsBlock";
+import { CompanyStarsBlock } from "@/components/results/CompanyStarsBlock";
 import { calcStars } from "@/lib/stars/calcStars";
 import { LogoUploadDialog } from "@/components/admin/LogoUploadDialog";
 

@@ -27,8 +27,8 @@ describe("CompanyStarsBlock", () => {
     // shows numeric label like "3/5"
     expect(screen.getByText(/\/5$/)).toBeInTheDocument();
 
-    // Stars button contains sr-only text "X out of 5 stars"
+    // Rating button contains sr-only text "X out of 5"
     const control = screen.getByRole("button");
-    expect(control.querySelector(".sr-only")?.textContent).toMatch(/out of 5 stars/);
+    expect(control.querySelector(".sr-only")?.textContent).toMatch(/out of 5/);
   });
 });

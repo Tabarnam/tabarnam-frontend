@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, Factory, Star } from 'lucide-react';
+import { MapPin, Factory } from 'lucide-react';
 import CompanyRow from './CompanyRow';
 import { calculateDistance } from '@/lib/location';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,16 @@ function SortedPin() {
     <span className="inline-block ml-2 align-middle" title="sorted by this column" aria-label="sorted by this column">
       <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: 'rgb(101,188,200)' }} />
     </span>
+  );
+}
+
+function RatingHeaderIcon() {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-block w-4 h-4 rounded-full"
+      style={{ background: "#B1DDE3", border: "2px solid #649BA0" }}
+    />
   );
 }
 
@@ -85,7 +95,7 @@ const ResultsTable = ({ companies, userLocation, onKeywordSearch, language, view
   else if (sortKey === 'mfg_distance') dynamicOrder = ['mfg_distance', 'hq_distance', 'star_rating'];
 
   const headerLabel = { star_rating: 'QQ', hq_distance: 'Home/HQ', mfg_distance: 'Manufacturing' };
-  const headerIcon  = { star_rating: <Star size={16} />, hq_distance: <MapPin size={16} />, mfg_distance: <Factory size={16} /> };
+  const headerIcon  = { star_rating: <RatingHeaderIcon />, hq_distance: <MapPin size={16} />, mfg_distance: <Factory size={16} /> };
 
   const handleHeaderClick = (column) => {
     const direction = (column === 'star_rating') ? 'descending' : 'ascending';
@@ -101,7 +111,7 @@ const ResultsTable = ({ companies, userLocation, onKeywordSearch, language, view
           options={[
             { value: 'hq_distance', label: 'Home/HQ', icon: <MapPin size={16} /> },
             { value: 'mfg_distance', label: 'Mfg', icon: <Factory size={16} /> },
-            { value: 'star_rating', label: 'QQ', icon: <Star size={16} /> },
+            { value: 'star_rating', label: 'QQ', icon: <RatingHeaderIcon /> },
           ]}
           selected={sortKey}
           onSelect={(value) => setSortConfig({ key: value, direction: value === 'star_rating' ? 'descending' : 'ascending' })}
