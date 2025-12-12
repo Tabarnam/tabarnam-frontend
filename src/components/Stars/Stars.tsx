@@ -1,6 +1,8 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import type { StarBundle, StarSignals } from "@/pages/types/stars";
 import { StarsTooltip } from "./StarsTooltip";
+import { DotGlyph } from "./RatingDots";
+import { HeartGlyph } from "./RatingHearts";
 
 export interface StarsProps {
   bundle: StarBundle;           // from calcStars()
@@ -11,43 +13,6 @@ export interface StarsProps {
   starIcons?: Record<number, 'star' | 'heart'>; // icons for each star level 1-5
 }
 
-function StarIcon({ filled }: { filled: boolean }) {
-  // Fill/Stroke from Tabarnam tokens; size follows surrounding text (1em)
-  return (
-    <svg
-      width="1em"
-      height="1em"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      style={{ verticalAlign: "text-bottom" }}
-      className={filled ? "fill-[rgb(177,221,227)] stroke-[rgb(101,188,200)]" : "fill-slate-100 stroke-[rgb(101,188,200)]"}
-    >
-      <path
-        strokeWidth="1.2"
-        d="M12 17.27L18.18 21l-1.64-7.03L22 9.245l-7.19-.62L12 2 9.19 8.625 2 9.245l5.46 4.725L5.82 21z"
-      />
-    </svg>
-  );
-}
-
-function HeartIcon({ filled }: { filled: boolean }) {
-  // Heart icon with Tabarnam colors
-  return (
-    <svg
-      width="1em"
-      height="1em"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      style={{ verticalAlign: "text-bottom" }}
-      className={filled ? "fill-[rgb(177,221,227)] stroke-[rgb(101,188,200)]" : "fill-slate-100 stroke-[rgb(101,188,200)]"}
-    >
-      <path
-        strokeWidth="1.2"
-        d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
-      />
-    </svg>
-  );
-}
 
 export const Stars: React.FC<StarsProps> = ({
   bundle,
@@ -82,11 +47,11 @@ export const Stars: React.FC<StarsProps> = ({
   const full = Math.max(0, Math.min(5, Math.round(bundle.final))); // ensure 0..5 int
 
   const renderIcon = (starLevel: number, filled: boolean) => {
-    const iconType = starIcons[starLevel] || 'star';
-    if (iconType === 'heart') {
-      return <HeartIcon key={starLevel} filled={filled} />;
+    const iconType = starIcons[starLevel] || "star";
+    if (iconType === "heart") {
+      return <HeartGlyph key={starLevel} filled={filled} />;
     }
-    return <StarIcon key={starLevel} filled={filled} />;
+    return <DotGlyph key={starLevel} fraction={filled ? 1 : 0} />;
   };
 
   return (
@@ -111,7 +76,7 @@ export const Stars: React.FC<StarsProps> = ({
         <div className="flex">
           {Array.from({ length: 5 }).map((_, i) => renderIcon(i + 1, i < full))}
         </div>
-        <span className="sr-only">{full} out of 5 stars</span>
+        <span className="sr-only">{full} out of 5</span>
       </button>
 
       {/* Tooltip */}

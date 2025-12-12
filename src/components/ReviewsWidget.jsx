@@ -1,6 +1,7 @@
 // src/components/ReviewsWidget.jsx
 import React, { useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
+import { RatingDots } from "@/components/Stars";
 
 export default function ReviewsWidget({ companyName }) {
   const [list, setList] = useState([]);
@@ -87,9 +88,10 @@ export default function ReviewsWidget({ companyName }) {
                   <div className="mt-2">
                     <p className="text-sm text-gray-700 mb-2">{r.abstract}</p>
 
-                    {r.rating && (
-                      <div className="text-sm font-medium text-amber-600 mb-2">
-                        {r.rating}★
+                    {r.rating != null && (
+                      <div className="flex items-center gap-2 mb-2">
+                        <RatingDots value={Number(r.rating)} size={14} />
+                        <div className="text-sm font-medium text-[#649BA0]">{Number(r.rating)}/5</div>
                       </div>
                     )}
 
