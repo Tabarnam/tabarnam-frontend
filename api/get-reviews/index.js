@@ -18,7 +18,7 @@ const cors = (req) => {
 
 const json = (obj, status = 200, req) => ({
   status,
-  headers: { ...cors(req), "Content-Type": "application/json" },
+  headers: { ...cors(req), "Content-Type": "application/json", "Cache-Control": "no-store" },
   body: JSON.stringify(obj),
 });
 
