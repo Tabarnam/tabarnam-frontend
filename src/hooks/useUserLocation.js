@@ -36,7 +36,7 @@ export default function useUserLocation() {
 
       try {
         // 2) IP
-        const r = await geocode({ ip: true });
+        const r = await geocode({ ipLookup: true });
         if (cancelled) return;
         const loc = r?.best?.location;
         if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
