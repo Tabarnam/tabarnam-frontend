@@ -414,8 +414,6 @@ function createHandler(routeName) {
             ? updated.manufacturing_geocodes
             : Array.isArray(updated.manufacturing_locations)
               ? updated.manufacturing_locations
-                  .map((loc) => ({ address: String(loc || "").trim() }))
-                  .filter((l) => l.address)
               : [];
 
         const [headquarters, manufacturing_geocodes] = await Promise.all([
@@ -431,6 +429,7 @@ function createHandler(routeName) {
 
         if (manufacturing_geocodes.length) {
           updated.manufacturing_geocodes = manufacturing_geocodes;
+          updated.manufacturing_locations = manufacturing_geocodes;
           geoUpdated = true;
         }
 

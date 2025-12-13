@@ -32,7 +32,7 @@ export interface Company {
   amazon_url?: string;
   logo_url?: string;
   industries?: string[];
-  manufacturing_locations?: string[];
+  manufacturing_locations?: Array<string | { address?: string; formatted?: string; full_address?: string; lat?: number; lng?: number; geocode_status?: string }>;
   headquarters_location?: string;
   product_keywords?: string[];
   keywords?: string[];

@@ -84,8 +84,6 @@ async function geocodeCompanyLocations(base, headquarters_locations, { timeoutMs
       ? base.manufacturing_geocodes
       : Array.isArray(base.manufacturing_locations)
         ? base.manufacturing_locations
-            .map((loc) => ({ address: String(loc || "").trim() }))
-            .filter((l) => l.address)
         : [];
 
   const [headquarters, manufacturing_geocodes] = await Promise.all([
@@ -381,6 +379,7 @@ app.http("companies-list", {
           headquarters_locations:
             headquarters.length > 0 ? headquarters : base.headquarters_locations,
           headquarters,
+          manufacturing_locations: manufacturing_geocodes,
           manufacturing_geocodes,
           rating_icon_type: base.rating_icon_type || "star",
           rating: base.rating || defaultRating,
