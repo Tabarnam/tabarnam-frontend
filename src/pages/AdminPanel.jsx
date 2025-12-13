@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { toast } from 'sonner';
+import { toast } from '@/lib/toast';
 import AdminHeader from '@/components/AdminHeader';
 import { getAdminUser } from '@/lib/azureAuth';
 import { apiFetch } from '@/lib/api';

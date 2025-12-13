@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eye, EyeOff, Trash2, Plus, Heart, Star as StarIcon } from "lucide-react";
 import { CompanyRating, StarUnit, RatingIconType, StarNote } from "@/types/company";
 import { clampStarValue, calculateTotalScore } from "@/lib/stars/calculateRating";
-import { toast } from "sonner";
+import { toast } from '@/lib/toast';
 
 interface StarRatingEditorProps {
   rating: CompanyRating;

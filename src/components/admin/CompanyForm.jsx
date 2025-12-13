@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { apiFetch } from "@/lib/api";
 import { refreshCompanyImport } from "@/lib/api/adminRefreshImport";
 import { retryLogoImport } from "@/lib/api/adminLogos";
-import { toast } from "sonner";
+import { toast } from '@/lib/toast';
 import { getAdminUser } from "@/lib/azureAuth";
 import { Plus, Trash2, Edit2, Image, Loader2, Copy } from "lucide-react";
 import IndustriesEditor from "./form-elements/IndustriesEditor";
