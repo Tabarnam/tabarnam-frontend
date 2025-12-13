@@ -173,6 +173,19 @@ export default function ExpandableCompanyRow({
     return company._reviews.slice(0, 3);
   };
 
+  const normalizeReview = (r) => {
+    if (!r || typeof r !== "object") return null;
+    const sourceName = (r.source_name || r.source || "").toString().trim();
+    const sourceUrl = (r.source_url || r.url || "").toString().trim();
+    const text = (r.text || r.abstract || r.excerpt || "").toString().trim();
+
+    return {
+      sourceName: sourceName || "Unknown Source",
+      sourceUrl: sourceUrl || "",
+      text,
+    };
+  };
+
   const renderRightColumn = (colKey) => {
     if (colKey === "manu") {
       return (
@@ -229,11 +242,9 @@ export default function ExpandableCompanyRow({
     }
 
     if (colKey === "stars") {
-      const reviews = getReviewsPreviews();
+      const reviews = getReviewsPreviews().map(normalizeReview).filter(Boolean);
       const filled = getQQFilledCount(company);
       const iconType = getQQDefaultIconType(company);
-
-      const primaryReview = reviews[0];
 
       return (
         <div className="space-y-2">
@@ -247,28 +258,35 @@ export default function ExpandableCompanyRow({
 
           <div className="text-xs font-semibold text-gray-700">Reviews</div>
 
-          <div className="space-y-1">
-            {primaryReview ? (
-              <div className="text-xs text-gray-600 line-clamp-3">
-                {primaryReview.abstract || primaryReview.text || "—"}
-              </div>
-            ) : typeof company.reviews_count === "number" && company.reviews_count > 0 ? (
-              <div className="text-xs text-gray-500">
-                {company.reviews_count} review{company.reviews_count === 1 ? "" : "s"} available
-              </div>
-            ) : (
-              <div className="text-xs text-gray-400">No reviews available</div>
-            )}
-
-            {reviews.length > 0 && (
-              <button
-                onClick={() => setIsExpanded(true)}
-                className="text-xs text-blue-600 hover:underline pt-1"
-              >
-                Expand reviews
-              </button>
-            )}
-          </div>
+          {reviews.length > 0 ? (
+            <div className="space-y-2">
+              {reviews.map((r, idx) => (
+                <div key={idx} className="text-xs text-gray-600">
+                  <div className="line-clamp-2">{r.text || "—"}</div>
+                  {r.sourceUrl ? (
+                    <a
+                      href={r.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 hover:underline"
+                      onClick={(e) => e.stopPropagation()}
+                      title={r.sourceUrl}
+                    >
+                      Source: {r.sourceName}
+                    </a>
+                  ) : (
+                    <div className="text-gray-500">Source: {r.sourceName}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : typeof company.reviews_count === "number" && company.reviews_count > 0 ? (
+            <div className="text-xs text-gray-500">
+              {company.reviews_count} review{company.reviews_count === 1 ? "" : "s"} available
+            </div>
+          ) : (
+            <div className="text-xs text-gray-400">No reviews available</div>
+          )}
         </div>
       );
     }
@@ -428,7 +446,7 @@ export default function ExpandableCompanyRow({
 
         <div className="mt-6 col-span-5">
           <div className="text-lg font-bold text-gray-900 mb-4">Reviews</div>
-          <ReviewsWidget companyName={company.company_name} />
+          <ReviewsWidget companyId={company.id || company.company_id} companyName={company.company_name} />
         </div>
 
         <div className="text-xs text-gray-500 mt-4 text-center">Click anywhere to collapse</div>
