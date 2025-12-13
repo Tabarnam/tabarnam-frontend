@@ -242,7 +242,10 @@ export default function ExpandableCompanyRow({
     }
 
     if (colKey === "stars") {
-      const reviews = getReviewsPreviews().map(normalizeReview).filter(Boolean);
+      const showReviewPreview = !isExpanded;
+      const reviews = showReviewPreview
+        ? getReviewsPreviews().map(normalizeReview).filter(Boolean)
+        : [];
       const filled = getQQFilledCount(company);
       const iconType = getQQDefaultIconType(company);
 
@@ -256,36 +259,40 @@ export default function ExpandableCompanyRow({
             )}
           </div>
 
-          <div className="text-xs font-semibold text-gray-700">Reviews</div>
+          {showReviewPreview && (
+            <>
+              <div className="text-xs font-semibold text-gray-700">Reviews</div>
 
-          {reviews.length > 0 ? (
-            <div className="space-y-2">
-              {reviews.map((r, idx) => (
-                <div key={idx} className="text-xs text-gray-600">
-                  <div className="line-clamp-2">{r.text || "—"}</div>
-                  {r.sourceUrl ? (
-                    <a
-                      href={r.sourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-blue-600 hover:underline"
-                      onClick={(e) => e.stopPropagation()}
-                      title={r.sourceUrl}
-                    >
-                      Source: {r.sourceName}
-                    </a>
-                  ) : (
-                    <div className="text-gray-500">Source: {r.sourceName}</div>
-                  )}
+              {reviews.length > 0 ? (
+                <div className="space-y-2">
+                  {reviews.map((r, idx) => (
+                    <div key={idx} className="text-xs text-gray-600">
+                      <div className="line-clamp-2">{r.text || "—"}</div>
+                      {r.sourceUrl ? (
+                        <a
+                          href={r.sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-600 hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                          title={r.sourceUrl}
+                        >
+                          Source: {r.sourceName}
+                        </a>
+                      ) : (
+                        <div className="text-gray-500">Source: {r.sourceName}</div>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : typeof company.reviews_count === "number" && company.reviews_count > 0 ? (
-            <div className="text-xs text-gray-500">
-              {company.reviews_count} review{company.reviews_count === 1 ? "" : "s"} available
-            </div>
-          ) : (
-            <div className="text-xs text-gray-400">No reviews available</div>
+              ) : typeof company.reviews_count === "number" && company.reviews_count > 0 ? (
+                <div className="text-xs text-gray-500">
+                  {company.reviews_count} review{company.reviews_count === 1 ? "" : "s"} available
+                </div>
+              ) : (
+                <div className="text-xs text-gray-400">No reviews available</div>
+              )}
+            </>
           )}
         </div>
       );
@@ -445,7 +452,6 @@ export default function ExpandableCompanyRow({
         </div>
 
         <div className="mt-6 col-span-5">
-          <div className="text-lg font-bold text-gray-900 mb-4">Reviews</div>
           <ReviewsWidget companyId={company.id || company.company_id} companyName={company.company_name} />
         </div>
 
