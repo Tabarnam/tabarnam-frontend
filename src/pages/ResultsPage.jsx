@@ -360,9 +360,7 @@ export default function ResultsPage() {
                       <Tooltip>
                         <TooltipTrigger asChild>{button}</TooltipTrigger>
                         <TooltipContent className="max-w-[280px] text-xs">
-                          <ul className="list-disc list-inside">
-                            <li>Quantity & Quality of info on a company, not a score.</li>
-                          </ul>
+                          <p className="m-0">Quantity & Quality of info on a company, not a score.</p>
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
