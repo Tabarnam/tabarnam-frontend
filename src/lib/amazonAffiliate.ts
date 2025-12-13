@@ -87,7 +87,7 @@ export function stripAmazonAffiliateTag(inputUrl: string) {
 
 /**
  * Ensures any outbound Amazon link includes the required Associate tag.
- * - Only applies to amazon.com domains (including subdomains)
+ * - Only applies to Amazon retail domains (including subdomains)
  * - Strips any existing tag= before appending the correct one
  * - Preserves all other query params
  */
