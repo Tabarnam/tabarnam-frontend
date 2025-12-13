@@ -1,5 +1,10 @@
 const axios = require("axios");
 
+function env(k, d = "") {
+  const v = process.env[k];
+  return (v == null ? d : String(v)).trim();
+}
+
 function toFiniteNumber(v) {
   const n = typeof v === "string" ? Number(v) : v;
   return Number.isFinite(n) ? n : null;
@@ -41,70 +46,123 @@ function getLocationAddress(loc) {
   return "";
 }
 
-function getInternalApiBase() {
-  const proxyBase = (process.env.XAI_EXTERNAL_BASE || process.env.XAI_PROXY_BASE || "").trim();
-  return proxyBase ? `${proxyBase.replace(/\/api$/, "")}/api` : "/api";
+function inferPrecisionFromGoogleResult(result) {
+  const types = Array.isArray(result?.types) ? result.types : [];
+  const comps = Array.isArray(result?.address_components) ? result.address_components : [];
+  const hasType = (t) => types.includes(t) || comps.some((c) => Array.isArray(c?.types) && c.types.includes(t));
+
+  if (hasType("street_address") || hasType("premise") || hasType("subpremise") || hasType("route")) {
+    return "address";
+  }
+  if (hasType("postal_code")) return "postal_code";
+  if (hasType("locality") || hasType("postal_town")) return "locality";
+  if (hasType("administrative_area_level_1")) return "administrative_area";
+  if (hasType("country")) return "country";
+  return "unknown";
 }
 
-function confidenceFromSource(source) {
-  const s = String(source || "").toLowerCase();
-  if (s === "google") return "high";
-  if (s === "ipapi") return "medium";
-  if (s === "fallback") return "low";
-  return "medium";
+function confidenceFromPrecision(precision, { partialMatch } = {}) {
+  const p = String(precision || "").toLowerCase();
+  let base = "medium";
+  if (p === "address" || p === "postal_code" || p === "locality") base = "high";
+  else if (p === "administrative_area") base = "medium";
+  else if (p === "country") base = "low";
+
+  if (partialMatch && base === "high") return "medium";
+  if (partialMatch && base === "medium") return "low";
+  return base;
 }
 
 const _geocodeCache = new Map();
 
 async function geocodeAddress(address, { timeoutMs = 5000, strict = true } = {}) {
   const normalized = String(address || "").trim();
+  const now = new Date().toISOString();
+
   if (!normalized) {
-    return { ok: false, geocode_status: "failed", geocoded_at: new Date().toISOString() };
+    return { ok: false, geocode_status: "failed", geocoded_at: now, geocode_source: "empty" };
   }
 
   const cacheKey = normalized.toLowerCase();
   const hit = _geocodeCache.get(cacheKey);
   if (hit) return { ...hit };
 
-  const baseUrl = getInternalApiBase();
-  const geocodeUrl = `${baseUrl}/google/geocode`;
+  const key = env("GOOGLE_MAPS_KEY", "") || env("GOOGLE_GEOCODE_KEY", "");
+  if (!key) {
+    const out = {
+      ok: false,
+      geocode_status: "failed",
+      geocode_source: "missing_key",
+      geocoded_at: now,
+      geocode_confidence: "low",
+    };
+    _geocodeCache.set(cacheKey, out);
+    return { ...out };
+  }
 
   try {
-    const response = await axios.post(
-      geocodeUrl,
-      { address: normalized, ipLookup: false, strict: !!strict },
-      {
-        timeout: timeoutMs,
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    const res = await axios.get("https://maps.googleapis.com/maps/api/geocode/json", {
+      params: {
+        address: normalized,
+        key,
+      },
+      timeout: timeoutMs,
+      validateStatus: () => true,
+    });
 
-    const bestLoc = response?.data?.best?.location;
-    const lat = toFiniteNumber(bestLoc?.lat);
-    const lng = toFiniteNumber(bestLoc?.lng);
-    if (lat == null || lng == null) {
+    const status = String(res?.data?.status || "").toUpperCase();
+    const results = Array.isArray(res?.data?.results) ? res.data.results : [];
+
+    if (status !== "OK" || results.length === 0) {
       const out = {
         ok: false,
         geocode_status: "failed",
-        geocode_source: response?.data?.source || "unknown",
-        geocoded_at: new Date().toISOString(),
-        geocode_confidence: confidenceFromSource(response?.data?.source),
+        geocode_source: "google",
+        geocoded_at: now,
+        geocode_confidence: "low",
+        geocode_error: strict ? "geocode_failed" : "geocode_failed_non_strict",
+        geocode_google_status: status || "UNKNOWN",
       };
       _geocodeCache.set(cacheKey, out);
       return { ...out };
     }
+
+    const first = results[0];
+    const loc = first?.geometry?.location;
+    const lat = toFiniteNumber(loc?.lat);
+    const lng = toFiniteNumber(loc?.lng);
+
+    if (lat == null || lng == null) {
+      const out = {
+        ok: false,
+        geocode_status: "failed",
+        geocode_source: "google",
+        geocoded_at: now,
+        geocode_confidence: "low",
+        geocode_error: "missing_lat_lng",
+        geocode_google_status: status || "UNKNOWN",
+      };
+      _geocodeCache.set(cacheKey, out);
+      return { ...out };
+    }
+
+    const precision = inferPrecisionFromGoogleResult(first);
+    const partialMatch = Boolean(first?.partial_match);
 
     const out = {
       ok: true,
       lat,
       lng,
       geocode_status: "ok",
-      geocode_source: response?.data?.source || "google",
-      geocoded_at: new Date().toISOString(),
-      geocode_confidence: confidenceFromSource(response?.data?.source),
+      geocode_source: "google",
+      geocoded_at: now,
+      geocode_confidence: confidenceFromPrecision(precision, { partialMatch }),
+      geocode_precision: precision,
+      geocode_partial_match: partialMatch,
+      geocode_formatted_address: typeof first?.formatted_address === "string" ? first.formatted_address : undefined,
+      geocode_result_types: Array.isArray(first?.types) ? first.types : undefined,
     };
+
     _geocodeCache.set(cacheKey, out);
     return { ...out };
   } catch (e) {
@@ -112,7 +170,7 @@ async function geocodeAddress(address, { timeoutMs = 5000, strict = true } = {})
       ok: false,
       geocode_status: "failed",
       geocode_source: "error",
-      geocoded_at: new Date().toISOString(),
+      geocoded_at: now,
       geocode_confidence: "low",
       error: e?.message || String(e),
     };
@@ -180,6 +238,12 @@ async function geocodeLocationEntry(locRaw, { timeoutMs = 5000 } = {}) {
       geocode_source: res.geocode_source,
       geocoded_at: res.geocoded_at,
       geocode_confidence: res.geocode_confidence,
+      geocode_precision: res.geocode_precision,
+      geocode_partial_match: res.geocode_partial_match,
+      geocode_formatted_address: res.geocode_formatted_address,
+      geocode_result_types: res.geocode_result_types,
+      geocode_google_status: res.geocode_google_status,
+      geocode_error: res.geocode_error,
     };
   }
 
@@ -190,6 +254,13 @@ async function geocodeLocationEntry(locRaw, { timeoutMs = 5000 } = {}) {
     geocode_source: res.geocode_source,
     geocoded_at: res.geocoded_at,
     geocode_confidence: res.geocode_confidence,
+    geocode_precision: res.geocode_precision,
+    geocode_partial_match: res.geocode_partial_match,
+    geocode_formatted_address: res.geocode_formatted_address,
+    geocode_result_types: res.geocode_result_types,
+    geocode_google_status: res.geocode_google_status,
+    geocode_error: res.geocode_error,
+    error: res.error,
   };
 }
 

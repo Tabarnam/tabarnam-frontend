@@ -41,13 +41,12 @@ function normalizeLocationEntries(entries) {
 async function geocodeCompanyLocations(company, headquarters_locations, { timeoutMs = 5000 } = {}) {
   const hqBase = normalizeLocationEntries(headquarters_locations);
 
-  const manuBase = Array.isArray(company.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0
-    ? company.manufacturing_geocodes
-    : Array.isArray(company.manufacturing_locations)
-      ? company.manufacturing_locations
-          .map((loc) => ({ address: String(loc || "").trim() }))
-          .filter((l) => l.address)
-      : [];
+  const manuBase =
+    Array.isArray(company.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0
+      ? company.manufacturing_geocodes
+      : Array.isArray(company.manufacturing_locations)
+        ? company.manufacturing_locations
+        : [];
 
   const [headquarters, manufacturing_geocodes] = await Promise.all([
     geocodeLocationArray(hqBase, { timeoutMs, concurrency: 4 }),
@@ -173,7 +172,7 @@ app.http("save-companies", {
             headquarters_location: company.headquarters_location || "",
             headquarters_locations: headquarters.length > 0 ? headquarters : company.headquarters_locations,
             headquarters,
-            manufacturing_locations: Array.isArray(company.manufacturing_locations) ? company.manufacturing_locations : [],
+            manufacturing_locations: Array.isArray(manufacturing_geocodes) ? manufacturing_geocodes : [],
             manufacturing_geocodes,
             red_flag: Boolean(company.red_flag),
             red_flag_reason: company.red_flag_reason || "",

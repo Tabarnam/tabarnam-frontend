@@ -153,7 +153,7 @@ function buildImportLocations(company) {
     Array.isArray(company.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0
       ? company.manufacturing_geocodes
       : Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0
-        ? company.manufacturing_locations.map((loc) => ({ address: String(loc || "").trim() })).filter((l) => l.address)
+        ? company.manufacturing_locations
         : [];
 
   return {
@@ -181,6 +181,7 @@ async function geocodeCompanyLocations(company, { timeoutMs = 5000 } = {}) {
     ...c,
     headquarters,
     headquarters_locations: headquarters,
+    manufacturing_locations: manufacturing_geocodes,
     manufacturing_geocodes,
     hq_lat,
     hq_lng,

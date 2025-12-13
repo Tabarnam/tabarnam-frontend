@@ -503,10 +503,18 @@ function attachDistances(c, userLoc, unit) {
         if (!Number.isFinite(km)) return null;
         const d = unit === "mi" ? km * 0.621371 : km;
 
+        const fallbackLoc = Array.isArray(c.manufacturing_locations) ? c.manufacturing_locations[idx] : null;
         const fallbackLabel =
-          Array.isArray(c.manufacturing_locations) && typeof c.manufacturing_locations[idx] === "string"
-            ? c.manufacturing_locations[idx].trim()
-            : "";
+          typeof fallbackLoc === "string"
+            ? fallbackLoc.trim()
+            : fallbackLoc && typeof fallbackLoc === "object"
+              ? (
+                  (typeof fallbackLoc.formatted === "string" && fallbackLoc.formatted.trim()) ||
+                  (typeof fallbackLoc.full_address === "string" && fallbackLoc.full_address.trim()) ||
+                  (typeof fallbackLoc.address === "string" && fallbackLoc.address.trim()) ||
+                  ""
+                )
+              : "";
 
         const formatted =
           (typeof m?.formatted === "string" && m.formatted.trim()) ||
