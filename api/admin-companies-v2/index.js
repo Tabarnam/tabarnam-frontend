@@ -120,32 +120,60 @@ app.http('adminCompanies', {
           id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
         }
 
+        let existingDoc = null;
+        if (method === "PUT") {
+          try {
+            const querySpec = {
+              query: "SELECT TOP 1 * FROM c WHERE c.id = @id ORDER BY c._ts DESC",
+              parameters: [{ name: "@id", value: String(id).trim() }],
+            };
+
+            const { resources } = await container.items
+              .query(querySpec, { enableCrossPartitionQuery: true })
+              .fetchAll();
+
+            existingDoc = resources?.[0] || null;
+          } catch (e) {
+            context.log("[admin-companies-v2] PUT: Failed to lookup existing document", {
+              id: String(id).trim(),
+              error: e?.message,
+            });
+          }
+        }
+
+        const base = existingDoc ? { ...existingDoc, ...incoming } : { ...incoming };
+
         const urlForDomain =
-          incoming.website_url ||
-          incoming.canonical_url ||
-          incoming.url ||
-          incoming.website ||
+          base.website_url ||
+          base.canonical_url ||
+          base.url ||
+          base.website ||
           "unknown";
 
         const computedDomain = toNormalizedDomain(urlForDomain);
-        const normalizedDomain = computedDomain !== "unknown" ? computedDomain : (incoming.normalized_domain || computedDomain);
+        const incomingDomain =
+          computedDomain !== "unknown" ? computedDomain : (incoming.normalized_domain || computedDomain);
+
+        const normalizedDomain = String(
+          (existingDoc && existingDoc.normalized_domain) || incomingDomain || "unknown"
+        ).trim();
 
         if (!normalizedDomain) {
           return json({ error: "Unable to determine company domain for partition key" }, 400);
         }
 
-        const partitionKeyValue = String(normalizedDomain).trim();
+        const partitionKeyValue = normalizedDomain;
 
         const now = new Date().toISOString();
         const doc = {
-          ...incoming,
+          ...base,
           id: String(id).trim(),
           company_id: String(id).trim(),
-          normalized_domain: String(normalizedDomain || "unknown").trim(),
-          company_name: incoming.company_name || incoming.name || "",
-          name: incoming.name || incoming.company_name || "",
+          normalized_domain: normalizedDomain,
+          company_name: base.company_name || base.name || "",
+          name: base.name || base.company_name || "",
           updated_at: now,
-          created_at: incoming.created_at || now,
+          created_at: (existingDoc && existingDoc.created_at) || base.created_at || now,
         };
 
         context.log(`[admin-companies-v2] Upserting company`, { id: partitionKeyValue, method, company_name: doc.company_name });

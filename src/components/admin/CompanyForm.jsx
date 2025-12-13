@@ -15,6 +15,7 @@ import IndustriesEditor from "./form-elements/IndustriesEditor";
 import KeywordsEditor from "./form-elements/KeywordsEditor";
 import HeadquartersLocationsEditor from "./form-elements/HeadquartersLocationsEditor";
 import StarRatingEditor from "./form-elements/StarRatingEditor";
+import CompanyReviewsPreview from "./CompanyReviewsPreview";
 import LogoUploadDialog from "./LogoUploadDialog";
 import { defaultRating } from "@/types/company";
 import { getOrCalculateRating } from "@/lib/stars/calculateRating";
@@ -752,6 +753,11 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
             iconType={ratingIconType}
             onRatingChange={setRating}
             onIconTypeChange={setRatingIconType}
+          />
+
+          <CompanyReviewsPreview
+            companyId={formData.id || formData.company_id}
+            companyName={formData.company_name || formData.name}
           />
 
           <div className="border-t pt-4 mt-4">
