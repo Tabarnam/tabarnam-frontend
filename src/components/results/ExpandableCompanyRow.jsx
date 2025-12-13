@@ -463,10 +463,10 @@ export default function ExpandableCompanyRow({
   return (
     <div
       onClick={handleRowClick}
-      className="grid grid-cols-12 gap-3 border rounded-lg p-2 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors"
+      className="grid grid-cols-12 lg:grid-cols-[minmax(0,_2fr)_minmax(0,_2fr)_minmax(0,_2.6667fr)_minmax(0,_2.6667fr)_minmax(0,_2.6667fr)] gap-3 border rounded-lg p-2 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors"
       style={{ borderColor: "#649BA0" }}
     >
-      <div className="col-span-4">
+      <div className="col-span-4 lg:col-span-1">
         <h2 className="font-bold text-gray-900">
           {websiteUrl ? (
             <a
@@ -525,7 +525,7 @@ export default function ExpandableCompanyRow({
         </div>
       </div>
 
-      <div className="col-span-2">
+      <div className="col-span-2 lg:col-span-1">
         {company.logo_url ? (
           <img
             src={company.logo_url}
@@ -581,7 +581,7 @@ export default function ExpandableCompanyRow({
       </div>
 
       {rightColsOrder.map((colKey, colIdx) => (
-        <div key={colKey} className="col-span-2">
+        <div key={colKey} className="col-span-2 lg:col-span-1">
           <div className="text-xs font-semibold text-gray-700 flex items-center gap-1 mb-2">
             {colKey === "manu" ? "Manufacturing" : colKey === "hq" ? "Home/HQ" : "QQ"}
           </div>
@@ -591,7 +591,7 @@ export default function ExpandableCompanyRow({
 
       {/* Location Sources Section */}
       {company.show_location_sources_to_users && Array.isArray(company.location_sources) && company.location_sources.length > 0 && (
-        <div className="col-span-5 border-t pt-4 mt-4">
+        <div className="col-span-12 lg:col-span-5 border-t pt-4 mt-4">
           <div className="text-xs font-semibold text-gray-700 mb-3">📍 Location Sources</div>
           <div className="grid grid-cols-2 gap-3 text-xs">
             {company.location_sources.map((source, idx) => (
