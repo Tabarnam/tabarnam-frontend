@@ -316,9 +316,9 @@ export default function ResultsPage() {
 
       {/* Column Headers */}
       {results.length > 0 && (
-        <div className="grid grid-cols-12 gap-3 mb-4">
-          <div className="col-span-4"></div>
-          <div className="col-span-2">
+        <div className="grid grid-cols-12 lg:grid-cols-[minmax(0,_2fr)_minmax(0,_2fr)_minmax(0,_2.6667fr)_minmax(0,_2.6667fr)_minmax(0,_2.6667fr)] gap-3 mb-4">
+          <div className="col-span-4 lg:col-span-1"></div>
+          <div className="col-span-2 lg:col-span-1">
             <div className="text-right font-semibold" style={{ color: "#649BA0", fontSize: "15px" }}>Sort Results:</div>
           </div>
           {rightColsOrder.map((colKey, idx) => {
@@ -345,7 +345,7 @@ export default function ResultsPage() {
             );
 
             return (
-              <div key={colKey} className="col-span-2 text-center">
+              <div key={colKey} className="col-span-2 lg:col-span-1 text-center">
                 <div className="flex items-center justify-center gap-1">
                   {idx === 0 && (
                     <img
