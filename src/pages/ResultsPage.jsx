@@ -476,7 +476,14 @@ function attachDistances(c, userLoc, unit) {
     const hqLng = toFiniteNumber(c.hq_lng);
     if (hqLat != null && hqLng != null) {
       const km = calculateDistance(user.lat, user.lng, hqLat, hqLng);
-      if (Number.isFinite(km)) out._hqDist = unit === "mi" ? km * 0.621371 : km;
+      if (Number.isFinite(km)) {
+        const d = unit === "mi" ? km * 0.621371 : km;
+        out._hqDist = d;
+        const formatted =
+          (typeof c?.headquarters_location === "string" && c.headquarters_location.trim()) ||
+          undefined;
+        out._hqDists = [{ lat: hqLat, lng: hqLng, dist: d, formatted, geocode_status: "ok" }];
+      }
     }
   }
 

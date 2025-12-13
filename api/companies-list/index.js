@@ -2,6 +2,7 @@
 console.log("[companies-list] Starting module load...");
 const { app } = require("@azure/functions");
 const axios = require("axios");
+const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
 console.log("[companies-list] @azure/functions imported, app object created");
 
 let CosmosClientCtor = null;
@@ -53,42 +54,53 @@ function getCompaniesContainer() {
   }
 }
 
-// Helper: geocode a headquarters location string to get lat/lng
-async function geocodeHQLocation(headquarters_location) {
-  if (!headquarters_location || headquarters_location.trim() === "") {
-    return { hq_lat: undefined, hq_lng: undefined };
+function toFiniteNumber(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
   }
+  return undefined;
+}
 
-  try {
-    const proxyBase = (process.env.XAI_EXTERNAL_BASE || process.env.XAI_PROXY_BASE || "").trim();
-    const baseUrl = proxyBase ? `${proxyBase.replace(/\/api$/, '')}/api` : '/api';
-
-    const geocodeUrl = `${baseUrl}/google/geocode`;
-
-    const response = await axios.post(geocodeUrl,
-      {
-        address: headquarters_location,
-        ipLookup: false
-      },
-      {
-        timeout: 5000,
-        headers: {
-          "Content-Type": "application/json"
-        }
+function normalizeLocationEntries(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .map((entry) => {
+      if (typeof entry === "string") {
+        const address = entry.trim();
+        return address ? { address } : null;
       }
-    );
+      if (entry && typeof entry === "object") return entry;
+      return null;
+    })
+    .filter(Boolean);
+}
 
-    if (response.data && response.data.best && response.data.best.location) {
-      const { lat, lng } = response.data.best.location;
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        return { hq_lat: lat, hq_lng: lng };
-      }
-    }
-  } catch (e) {
-    console.log(`[companies-list] Geocoding failed for "${headquarters_location}": ${e.message}`);
-  }
+async function geocodeCompanyLocations(base, headquarters_locations, { timeoutMs = 5000 } = {}) {
+  const hqBase = normalizeLocationEntries(headquarters_locations);
+  const manuBase =
+    Array.isArray(base.manufacturing_geocodes) && base.manufacturing_geocodes.length > 0
+      ? base.manufacturing_geocodes
+      : Array.isArray(base.manufacturing_locations)
+        ? base.manufacturing_locations
+            .map((loc) => ({ address: String(loc || "").trim() }))
+            .filter((l) => l.address)
+        : [];
 
-  return { hq_lat: undefined, hq_lng: undefined };
+  const [headquarters, manufacturing_geocodes] = await Promise.all([
+    geocodeLocationArray(hqBase, { timeoutMs, concurrency: 4 }),
+    geocodeLocationArray(normalizeLocationEntries(manuBase), { timeoutMs, concurrency: 4 }),
+  ]);
+
+  const primary = pickPrimaryLatLng(headquarters);
+
+  return {
+    headquarters,
+    manufacturing_geocodes,
+    hq_lat: primary ? primary.lat : toFiniteNumber(base.hq_lat),
+    hq_lng: primary ? primary.lng : toFiniteNumber(base.hq_lng),
+  };
 }
 
 // Helper: normalize domain from URL
@@ -318,52 +330,26 @@ app.http("companies-list", {
         const partitionKeyValue = String(normalizedDomain).trim();
         context.log("[companies-list] Using partition key (normalized_domain):", partitionKeyValue);
 
-        // Geocode headquarters location if present and no lat/lng already provided
-        let hq_lat = base.hq_lat;
-        let hq_lng = base.hq_lng;
+        // Build HQ locations array and geocode per-location (HQ + manufacturing)
+        let headquarters_locations = Array.isArray(base.headquarters_locations) ? base.headquarters_locations : [];
 
-        if (!Number.isFinite(hq_lat) || !Number.isFinite(hq_lng)) {
-          if (base.headquarters_location && String(base.headquarters_location).trim()) {
-            const geoResult = await geocodeHQLocation(String(base.headquarters_location).trim());
-            if (geoResult.hq_lat !== undefined && geoResult.hq_lng !== undefined) {
-              hq_lat = geoResult.hq_lat;
-              hq_lng = geoResult.hq_lng;
-              context.log(
-                `[companies-list] Geocoded ${base.company_name || base.name}: ${String(base.headquarters_location).trim()} → (${hq_lat}, ${hq_lng})`
-              );
-            }
+        if (base.headquarters_location && String(base.headquarters_location).trim()) {
+          const primaryAddr = String(base.headquarters_location).trim();
+          const alreadyHasPrimary = headquarters_locations.some((hq) => {
+            if (!hq) return false;
+            if (typeof hq === "string") return hq.trim() === primaryAddr;
+            return typeof hq.address === "string" && String(hq.address).trim() === primaryAddr;
+          });
+          if (!alreadyHasPrimary) {
+            headquarters_locations = [{ address: primaryAddr }, ...headquarters_locations];
           }
         }
 
-        // Geocode additional headquarters locations
-        let headquarters_locations = [];
-        if (Array.isArray(base.headquarters_locations) && base.headquarters_locations.length > 0) {
-          headquarters_locations = await Promise.all(
-            base.headquarters_locations.map(async (hqLocRaw) => {
-              const hqLoc =
-                typeof hqLocRaw === "string"
-                  ? { address: hqLocRaw }
-                  : hqLocRaw && typeof hqLocRaw === "object"
-                    ? hqLocRaw
-                    : null;
-
-              if (!hqLoc) return hqLocRaw;
-
-              if (!hqLoc.lat || !hqLoc.lng) {
-                if (hqLoc.address && String(hqLoc.address).trim()) {
-                  const geoResult = await geocodeHQLocation(String(hqLoc.address).trim());
-                  return {
-                    ...hqLoc,
-                    lat: geoResult.hq_lat,
-                    lng: geoResult.hq_lng,
-                  };
-                }
-              }
-
-              return hqLoc;
-            })
-          );
-        }
+        const geoCompany = await geocodeCompanyLocations(base, headquarters_locations, { timeoutMs: 5000 });
+        const headquarters = geoCompany.headquarters;
+        const manufacturing_geocodes = geoCompany.manufacturing_geocodes;
+        const hq_lat = geoCompany.hq_lat;
+        const hq_lng = geoCompany.hq_lng;
 
         // Calculate default rating if not provided
         const hasManufacturingLocations =
@@ -393,7 +379,9 @@ app.http("companies-list", {
           hq_lat: hq_lat,
           hq_lng: hq_lng,
           headquarters_locations:
-            headquarters_locations.length > 0 ? headquarters_locations : base.headquarters_locations,
+            headquarters.length > 0 ? headquarters : base.headquarters_locations,
+          headquarters,
+          manufacturing_geocodes,
           rating_icon_type: base.rating_icon_type || "star",
           rating: base.rating || defaultRating,
           updated_at: now,

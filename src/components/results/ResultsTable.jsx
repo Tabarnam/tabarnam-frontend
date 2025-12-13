@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MapPin, Factory } from 'lucide-react';
 import CompanyRow from './CompanyRow';
-import { calculateDistance } from '@/lib/location';
+import { calculateDistance } from '@/lib/distance';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import MultiToggle from '@/components/ui/multi-toggle';

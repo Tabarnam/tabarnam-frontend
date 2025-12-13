@@ -95,6 +95,8 @@ export default function ExpandableCompanyRow({
     return text.length > length ? text.substring(0, length) + "…" : text;
   };
 
+  const DISTANCE_COLOR = "hsl(187, 47%, 32%)";
+
   const formatDistance = (dist, unitLabel) => {
     return typeof dist === "number" ? `${dist.toFixed(1)} ${unitLabel}` : "—";
   };
@@ -129,6 +131,7 @@ export default function ExpandableCompanyRow({
       return distances.slice(0, 5).map((loc) => ({
         formatted: formatLocationDisplayName(loc),
         distance: typeof loc?.dist === "number" ? loc.dist : null,
+        geocode_status: typeof loc?.geocode_status === "string" ? loc.geocode_status : null,
       }));
     }
 
@@ -142,6 +145,7 @@ export default function ExpandableCompanyRow({
     return sourceArray.slice(0, 5).map((loc) => ({
       formatted: formatLocationDisplayName(loc),
       distance: null,
+      geocode_status: loc && typeof loc === "object" && typeof loc.geocode_status === "string" ? loc.geocode_status : null,
     }));
   };
 
@@ -156,14 +160,16 @@ export default function ExpandableCompanyRow({
     ? company._hqDists.slice(0, 5).map((hq) => ({
         formatted: formatLocationDisplayName(hq),
         distance: typeof hq.dist === "number" ? hq.dist : null,
+        geocode_status: typeof hq?.geocode_status === "string" ? hq.geocode_status : null,
       }))
     : Array.isArray(company.headquarters) && company.headquarters.length > 0
       ? company.headquarters.slice(0, 5).map((hq) => ({
           formatted: formatLocationDisplayName(hq),
           distance: null,
+          geocode_status: typeof hq?.geocode_status === "string" ? hq.geocode_status : null,
         }))
       : typeof company.headquarters_location === "string" && company.headquarters_location.trim()
-        ? [{ formatted: company.headquarters_location.trim(), distance: null }]
+        ? [{ formatted: company.headquarters_location.trim(), distance: null, geocode_status: null }]
         : [];
 
   const hqLocation = hqLocations;
@@ -192,9 +198,9 @@ export default function ExpandableCompanyRow({
         <div className="space-y-2">
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
-              {typeof loc.distance === "number" && (
-                <div className="text-xs font-medium whitespace-nowrap pt-0.5" style={{ color: "#B1DDE3" }}>
-                  {formatDistance(loc.distance, unit)}
+              {(typeof loc.distance === "number" || loc.geocode_status === "failed") && (
+                <div className="text-xs font-semibold whitespace-nowrap pt-0.5" style={{ color: DISTANCE_COLOR }}>
+                  {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
               )}
               <div className="text-gray-900">{loc.formatted}</div>
@@ -210,9 +216,9 @@ export default function ExpandableCompanyRow({
         <div className="space-y-2">
           {hqLocation.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
-              {typeof loc.distance === "number" && (
-                <div className="text-xs font-medium whitespace-nowrap pt-0.5" style={{ color: "#B1DDE3" }}>
-                  {formatDistance(loc.distance, unit)}
+              {(typeof loc.distance === "number" || loc.geocode_status === "failed") && (
+                <div className="text-xs font-semibold whitespace-nowrap pt-0.5" style={{ color: DISTANCE_COLOR }}>
+                  {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
               )}
               <div className="text-gray-900">{loc.formatted}</div>
@@ -228,9 +234,9 @@ export default function ExpandableCompanyRow({
         <div className="space-y-2">
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
-              {typeof loc.distance === "number" && (
-                <div className="text-xs font-medium whitespace-nowrap pt-0.5" style={{ color: "#B1DDE3" }}>
-                  {formatDistance(loc.distance, unit)}
+              {(typeof loc.distance === "number" || loc.geocode_status === "failed") && (
+                <div className="text-xs font-semibold whitespace-nowrap pt-0.5" style={{ color: DISTANCE_COLOR }}>
+                  {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
               )}
               <div className="text-gray-900">{loc.formatted}</div>

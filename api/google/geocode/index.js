@@ -60,7 +60,7 @@ async function lookupIpLocation() {
 }
 
 async function googleGeocode({ address, lat, lng }) {
-  const key = (process.env.GOOGLE_MAPS_KEY || "").trim();
+  const key = (process.env.GOOGLE_MAPS_KEY || process.env.GOOGLE_GEOCODE_KEY || "").trim();
   if (!key) return null;
 
   const params = new URLSearchParams();
@@ -132,6 +132,7 @@ async function handle(req) {
   const lng = Number(body.lng);
   const hasLatLng = Number.isFinite(lat) && Number.isFinite(lng);
   const ipLookup = body.ipLookup === true || body.ipLookup === "true";
+  const strict = body.strict === true || body.strict === "true";
 
   let result = null;
 
@@ -152,6 +153,10 @@ async function handle(req) {
   }
 
   if (!result) {
+    if (strict) {
+      return json({ error: "geocode_failed", source: "none", best: null }, 200, req);
+    }
+
     result = {
       best: {
         location: { lat: 34.0983, lng: -117.8076 },
