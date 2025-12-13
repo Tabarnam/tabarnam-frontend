@@ -2,6 +2,7 @@
 console.log("[companies-list] Starting module load...");
 const { app } = require("@azure/functions");
 const axios = require("axios");
+const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
 console.log("[companies-list] @azure/functions imported, app object created");
 
 let CosmosClientCtor = null;

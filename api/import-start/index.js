@@ -3,6 +3,7 @@ const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
 const { getXAIEndpoint, getXAIKey, getProxyBase } = require("../_shared");
 const { importCompanyLogo } = require("../_logoImport");
+const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
 
 function json(obj, status = 200) {
   return {
@@ -115,42 +116,75 @@ function enrichCompany(company, center) {
   return c;
 }
 
-// Helper: geocode a headquarters location string to get lat/lng
-async function geocodeHQLocation(headquarters_location) {
-  if (!headquarters_location || headquarters_location.trim() === "") {
-    return { hq_lat: undefined, hq_lng: undefined };
+function toFiniteNumber(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
   }
+  return undefined;
+}
 
-  try {
-    const proxyBase = (process.env.XAI_EXTERNAL_BASE || process.env.XAI_PROXY_BASE || "").trim();
-    const baseUrl = proxyBase ? `${proxyBase.replace(/\/api$/, '')}/api` : '/api';
-
-    const geocodeUrl = `${baseUrl}/google/geocode`;
-
-    const response = await axios.post(geocodeUrl,
-      {
-        address: headquarters_location,
-        ipLookup: false
-      },
-      {
-        timeout: 5000,
-        headers: {
-          "Content-Type": "application/json"
-        }
+function normalizeLocationEntries(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .map((entry) => {
+      if (typeof entry === "string") {
+        const address = entry.trim();
+        return address ? { address } : null;
       }
-    );
+      if (entry && typeof entry === "object") return entry;
+      return null;
+    })
+    .filter(Boolean);
+}
 
-    if (response.data && response.data.best && response.data.best.location) {
-      const { lat, lng } = response.data.best.location;
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        return { hq_lat: lat, hq_lng: lng };
-      }
-    }
-  } catch (e) {
-    console.log(`[import-start] Geocoding failed for "${headquarters_location}": ${e.message}`);
-  }
+function buildImportLocations(company) {
+  const headquartersBase =
+    Array.isArray(company.headquarters) && company.headquarters.length > 0
+      ? company.headquarters
+      : Array.isArray(company.headquarters_locations) && company.headquarters_locations.length > 0
+        ? company.headquarters_locations
+        : company.headquarters_location && String(company.headquarters_location).trim()
+          ? [{ address: String(company.headquarters_location).trim() }]
+          : [];
 
-  return { hq_lat: undefined, hq_lng: undefined };
+  const manufacturingBase =
+    Array.isArray(company.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0
+      ? company.manufacturing_geocodes
+      : Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0
+        ? company.manufacturing_locations.map((loc) => ({ address: String(loc || "").trim() })).filter((l) => l.address)
+        : [];
+
+  return {
+    headquartersBase: normalizeLocationEntries(headquartersBase),
+    manufacturingBase: normalizeLocationEntries(manufacturingBase),
+  };
+}
+
+async function geocodeCompanyLocations(company, { timeoutMs = 5000 } = {}) {
+  const c = { ...(company || {}) };
+
+  const { headquartersBase, manufacturingBase } = buildImportLocations(c);
+
+  const [headquarters, manufacturing_geocodes] = await Promise.all([
+    geocodeLocationArray(headquartersBase, { timeoutMs, concurrency: 4 }),
+    geocodeLocationArray(manufacturingBase, { timeoutMs, concurrency: 4 }),
+  ]);
+
+  const primary = pickPrimaryLatLng(headquarters);
+
+  const hq_lat = primary ? primary.lat : toFiniteNumber(c.hq_lat);
+  const hq_lng = primary ? primary.lng : toFiniteNumber(c.hq_lng);
+
+  return {
+    ...c,
+    headquarters,
+    headquarters_locations: headquarters,
+    manufacturing_geocodes,
+    hq_lat,
+    hq_lng,
+  };
 }
 
 // Check if company already exists by normalized domain
@@ -474,7 +508,9 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
             hq_lng: company.hq_lng,
             headquarters_location: company.headquarters_location || "",
             headquarters_locations: company.headquarters_locations || [],
+            headquarters: Array.isArray(company.headquarters) ? company.headquarters : Array.isArray(company.headquarters_locations) ? company.headquarters_locations : [],
             manufacturing_locations: company.manufacturing_locations || [],
+            manufacturing_geocodes: Array.isArray(company.manufacturing_geocodes) ? company.manufacturing_geocodes : [],
             curated_reviews: Array.isArray(company.curated_reviews) ? company.curated_reviews : [],
             red_flag: Boolean(company.red_flag),
             red_flag_reason: company.red_flag_reason || "",
@@ -856,10 +892,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             }, 200);
           }
 
-          // Geocode headquarters locations to get lat/lng
+          // Geocode and persist per-location coordinates (HQ + manufacturing)
           console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
           for (let i = 0; i < enriched.length; i++) {
-            // Check if import was stopped OR we're running out of time
             if (shouldAbort()) {
               console.log(`[import-start] session=${sessionId} aborting during geocoding: time limit exceeded`);
               break;
@@ -872,15 +907,15 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             }
 
             const company = enriched[i];
-            if (company.headquarters_location && company.headquarters_location.trim()) {
-              const geoResult = await geocodeHQLocation(company.headquarters_location);
-              if (geoResult.hq_lat !== undefined && geoResult.hq_lng !== undefined) {
-                enriched[i] = { ...company, ...geoResult };
-                console.log(`[import-start] session=${sessionId} geocoded ${company.company_name}: ${company.headquarters_location} → (${geoResult.hq_lat}, ${geoResult.hq_lng})`);
-              }
+            try {
+              enriched[i] = await geocodeCompanyLocations(company, { timeoutMs: 5000 });
+            } catch (e) {
+              console.log(`[import-start] session=${sessionId} geocoding failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`);
             }
           }
-          console.log(`[import-start] session=${sessionId} geocoding done success=${enriched.filter(c => c.hq_lat && c.hq_lng).length} failed=${enriched.filter(c => !c.hq_lat || !c.hq_lng).length}`);
+
+          const okCount = enriched.filter((c) => Number.isFinite(c.hq_lat) && Number.isFinite(c.hq_lng)).length;
+          console.log(`[import-start] session=${sessionId} geocoding done success=${okCount} failed=${enriched.length - okCount}`);
 
           // Fetch editorial reviews for companies
           if (!shouldAbort()) {
@@ -1039,17 +1074,18 @@ Return ONLY the JSON array, no other text.`,
                     return company;
                   });
 
-                  // Re-geocode any companies with updated headquarters locations from refinement
+                  // Re-geocode refined companies (HQ + manufacturing)
                   console.log(`[import-start] Re-geocoding refined companies`);
                   for (let i = 0; i < enriched.length; i++) {
                     const company = enriched[i];
-                    const hasUpdatedHQ = refinedLocations.some(rl => (rl.company_name || "").toLowerCase() === (company.company_name || "").toLowerCase());
-                    if (hasUpdatedHQ && company.headquarters_location && company.headquarters_location.trim()) {
-                      const geoResult = await geocodeHQLocation(company.headquarters_location);
-                      if (geoResult.hq_lat !== undefined && geoResult.hq_lng !== undefined) {
-                        enriched[i] = { ...company, ...geoResult };
-                        console.log(`[import-start] Re-geocoded ${company.company_name}: ${company.headquarters_location} → (${geoResult.hq_lat}, ${geoResult.hq_lng})`);
-                      }
+                    const wasUpdated = refinedLocations.some(
+                      (rl) => (rl.company_name || "").toLowerCase() === (company.company_name || "").toLowerCase()
+                    );
+                    if (!wasUpdated) continue;
+                    try {
+                      enriched[i] = await geocodeCompanyLocations(company, { timeoutMs: 5000 });
+                    } catch (e) {
+                      console.log(`[import-start] Re-geocoding failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`);
                     }
                   }
 
