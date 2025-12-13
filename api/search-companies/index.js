@@ -78,6 +78,7 @@ const SELECT_FIELDS = [
   "c.manufacturing_locations",
   "c.manufacturing_geocodes",
   "c.headquarters",
+  "c.headquarters_locations",
   "c.headquarters_location",
   "c.hq_lat",
   "c.hq_lng",
@@ -175,7 +176,12 @@ function mapCompanyToPublic(doc) {
     reviews_count,
 
     // Extra fields used by the public UI (non-redundant with canonical shape)
-    headquarters: Array.isArray(doc.headquarters) ? doc.headquarters : [],
+    headquarters:
+      Array.isArray(doc.headquarters) && doc.headquarters.length
+        ? doc.headquarters
+        : Array.isArray(doc.headquarters_locations)
+          ? doc.headquarters_locations
+          : [],
     manufacturing_geocodes: Array.isArray(doc.manufacturing_geocodes) ? doc.manufacturing_geocodes : [],
     hq_lat: doc.hq_lat,
     hq_lng: doc.hq_lng,
@@ -239,6 +245,9 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   const qRaw = (url.searchParams.get("q") || "").trim();
   const q = qRaw.toLowerCase();
   const sort = (url.searchParams.get("sort") || "recent").toLowerCase();
+  const lat = Number(url.searchParams.get("lat"));
+  const lng = Number(url.searchParams.get("lng"));
+  const user_location = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
   const take = Math.min(200, Math.max(1, Number(url.searchParams.get("take") || 50)));
   const rawSkip = url.searchParams.get("skip");
   const skip = Math.max(0, Number(rawSkip || 0) || 0);
@@ -324,7 +333,13 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const paged = mapped.slice(skip, skip + take);
 
       return json(
-        { ok: true, success: true, items: paged, count: mapped.length, meta: { q: qRaw, sort, skip, take } },
+        {
+          ok: true,
+          success: true,
+          items: paged,
+          count: mapped.length,
+          meta: { q: qRaw, sort, skip, take, user_location },
+        },
         200,
         req
       );
