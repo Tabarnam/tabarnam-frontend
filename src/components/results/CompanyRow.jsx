@@ -9,6 +9,7 @@ import useTranslation from "@/hooks/useTranslation";
 import { CompanyStarsBlock } from "@/components/results/CompanyStarsBlock";
 import { calcStars } from "@/lib/stars/calcStars";
 import { LogoUploadDialog } from "@/components/admin/LogoUploadDialog";
+import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 
 const TranslatedText = ({ originalText, translation, loading }) => {
   if (loading)

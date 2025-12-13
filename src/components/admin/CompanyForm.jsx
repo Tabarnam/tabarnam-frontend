@@ -20,6 +20,7 @@ import CompanyReviewsPreview from "./CompanyReviewsPreview";
 import LogoUploadDialog from "./LogoUploadDialog";
 import { defaultRating } from "@/types/company";
 import { getOrCalculateRating } from "@/lib/stars/calculateRating";
+import { stripAmazonAffiliateTag } from "@/lib/amazonAffiliate";
 
 const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const user = getAdminUser();
@@ -70,8 +71,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       tagline: comp.tagline || "",
       website_url: comp.website_url || comp.domain || comp.url || "",
       domain: comp.domain || comp.website_url || comp.url || "",
-      amazon_store_url: comp.amazon_store_url || comp.amazon_url || "",
-      amazon_url: comp.amazon_url || comp.amazon_store_url || "",
+      amazon_store_url: stripAmazonAffiliateTag(comp.amazon_store_url || comp.amazon_url || ""),
+      amazon_url: stripAmazonAffiliateTag(comp.amazon_url || comp.amazon_store_url || ""),
       logo_url: comp.logo_url || "",
       logo_source_url: comp.logo_source_url || "",
       logo_import_status: comp.logo_import_status || "",
@@ -197,8 +198,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       tagline: formData.tagline || "",
       website_url: formData.website_url || formData.domain || "",
       domain: formData.domain || formData.website_url || "",
-      amazon_store_url: formData.amazon_store_url || formData.amazon_url || "",
-      amazon_url: formData.amazon_url || formData.amazon_store_url || "",
+      amazon_store_url: stripAmazonAffiliateTag(formData.amazon_store_url || formData.amazon_url || ""),
+      amazon_url: stripAmazonAffiliateTag(formData.amazon_url || formData.amazon_store_url || ""),
       logo_url: formData.logo_url || "",
       industries: Array.isArray(formData.industries) ? formData.industries : [],
       product_keywords: Array.isArray(formData.product_keywords) ? formData.product_keywords : [],
