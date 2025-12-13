@@ -4,12 +4,37 @@ function normalizeHostname(hostname) {
   return String(hostname || "")
     .trim()
     .toLowerCase()
-    .replace(/^www\./, "");
+    .replace(/^www\./, "")
+    .replace(/\.$/, "");
 }
+
+const AMAZON_ROOT_DOMAINS = [
+  "amazon.com",
+  "amazon.ca",
+  "amazon.co.uk",
+  "amazon.de",
+  "amazon.fr",
+  "amazon.it",
+  "amazon.es",
+  "amazon.co.jp",
+  "amazon.com.au",
+  "amazon.in",
+  "amazon.com.mx",
+  "amazon.com.br",
+  "amazon.sg",
+  "amazon.ae",
+  "amazon.sa",
+  "amazon.se",
+  "amazon.nl",
+  "amazon.pl",
+  "amazon.eg",
+  "amazon.tr",
+];
 
 function isAmazonHostname(hostname) {
   const h = normalizeHostname(hostname);
-  return h === "amazon.com" || h.endsWith(".amazon.com");
+  if (!h) return false;
+  return AMAZON_ROOT_DOMAINS.some((root) => h === root || h.endsWith(`.${root}`));
 }
 
 function safeParseUrl(raw) {
