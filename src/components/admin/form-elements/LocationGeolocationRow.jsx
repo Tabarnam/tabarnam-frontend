@@ -87,6 +87,7 @@ export default function LocationGeolocationRow({
   onChange,
   onRegeocode,
   isRegeocoding = false,
+  actions = null,
 }) {
   const address =
     (typeof location?.address === "string" && location.address.trim()) ||
@@ -181,6 +182,7 @@ export default function LocationGeolocationRow({
         </div>
 
         <div className="flex items-center gap-2">
+          {actions}
           <Button
             type="button"
             variant="outline"
