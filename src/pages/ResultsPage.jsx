@@ -444,8 +444,13 @@ function attachDistances(c, userLoc, unit) {
   const user = getLatLng(userLoc);
   if (!user) return out;
 
-  // HQ - try headquarters array first, then fall back to hq_lat/hq_lng
-  const hqList = Array.isArray(c.headquarters) ? c.headquarters : [];
+  // HQ - prefer headquarters_locations, with legacy fallback to headquarters, then fall back to hq_lat/hq_lng
+  let hqList = [];
+  if (Array.isArray(c.headquarters_locations) && c.headquarters_locations.length > 0) {
+    hqList = c.headquarters_locations;
+  } else if (Array.isArray(c.headquarters) && c.headquarters.length > 0) {
+    hqList = c.headquarters;
+  }
 
   if (hqList.length > 0) {
     const dists = hqList

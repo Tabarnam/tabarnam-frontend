@@ -42,6 +42,31 @@ export interface HeadquartersLocation {
   geocode_partial_match?: boolean;
   geocode_formatted_address?: string;
   geocode_result_types?: string[];
+  geocode_google_status?: string;
+  geocode_error?: string;
+  geocoded_at?: string;
+}
+
+export interface ManufacturingLocation {
+  location?: string;
+  address?: string;
+  full_address?: string;
+  formatted?: string;
+  city?: string;
+  country?: string;
+  lat?: number;
+  lng?: number;
+
+  geocode_status?: "ok" | "failed";
+  geocode_source?: string;
+  geocode_confidence?: string;
+  geocode_precision?: string;
+  geocode_partial_match?: boolean;
+  geocode_formatted_address?: string;
+  geocode_result_types?: string[];
+  geocode_google_status?: string;
+  geocode_error?: string;
+  geocoded_at?: string;
 }
 
 export interface LocationSource {
@@ -68,7 +93,8 @@ export interface Company {
   headquarters_locations?: HeadquartersLocation[];
   hq_lat?: number;
   hq_lng?: number;
-  manufacturing_locations?: Array<string | HeadquartersLocation>;
+  manufacturing_locations?: Array<string | ManufacturingLocation>;
+  manufacturing_geocodes?: ManufacturingLocation[];
   red_flag?: boolean;
   red_flag_reason?: string;
   location_confidence?: "low" | "medium" | "high";
