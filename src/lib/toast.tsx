@@ -79,8 +79,9 @@ function startTimer(id: ToastId) {
 }
 
 function ensureTimerState(id: ToastId, durationInput: number | typeof Infinity | undefined) {
+  clearTimer(id);
+
   if (durationInput === Infinity) {
-    clearTimer(id);
     stateById.delete(id);
     emit(id);
     return;
