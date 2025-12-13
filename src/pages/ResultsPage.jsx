@@ -43,8 +43,29 @@ export default function ResultsPage() {
     const enriched = await Promise.all(
       companies.map(async (c) => {
         try {
-          const r = await fetch(`${API_BASE}/get-reviews?company=${encodeURIComponent(c.company_name)}`);
+          const companyId = c.id || c.company_id;
+          const qs = companyId
+            ? `company_id=${encodeURIComponent(companyId)}`
+            : `company=${encodeURIComponent(c.company_name)}`;
+          const r = await fetch(`${API_BASE}/get-reviews?${qs}`);
           const data = await r.json().catch(() => ({ items: [], reviews: [] }));
+
+          if (
+            data?.meta &&
+            typeof data.meta.company_curated_count === "number" &&
+            data.meta.company_curated_count > 1 &&
+            typeof data.count === "number" &&
+            data.count < data.meta.company_curated_count
+          ) {
+            console.warn("[ResultsPage] Reviews regression: fewer reviews returned than stored", {
+              company_id: companyId,
+              company_name: c.company_name,
+              returned: data.count,
+              stored_curated: data.meta.company_curated_count,
+              company_record_id: data.meta.company_record_id,
+            });
+          }
+
           const reviews = Array.isArray(data?.items)
             ? data.items
             : Array.isArray(data?.reviews)
