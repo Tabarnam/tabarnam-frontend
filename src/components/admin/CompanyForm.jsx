@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api";
 import { refreshCompanyImport } from "@/lib/api/adminRefreshImport";
+import { retryLogoImport } from "@/lib/api/adminLogos";
 import { toast } from "sonner";
 import { getAdminUser } from "@/lib/azureAuth";
 import { Plus, Trash2, Edit2, Image, Loader2, Copy } from "lucide-react";
@@ -37,6 +38,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const [showLocationSourcesToUsers, setShowLocationSourcesToUsers] = useState(false);
   const [locationSources, setLocationSources] = useState([]);
   const [showLogoDialog, setShowLogoDialog] = useState(false);
+  const [isRetryingLogo, setIsRetryingLogo] = useState(false);
   const [newSourceInput, setNewSourceInput] = useState({ url: "", type: "official_website", location: "" });
 
   // Normalize incoming company data from snake_case to form structure
@@ -71,6 +73,9 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       amazon_store_url: comp.amazon_store_url || comp.amazon_url || "",
       amazon_url: comp.amazon_url || comp.amazon_store_url || "",
       logo_url: comp.logo_url || "",
+      logo_source_url: comp.logo_source_url || "",
+      logo_import_status: comp.logo_import_status || "",
+      logo_error: comp.logo_error || "",
       industries: Array.isArray(comp.industries) ? comp.industries : [],
       product_keywords: Array.isArray(comp.product_keywords) ? comp.product_keywords : [],
       keywords: Array.isArray(comp.keywords) ? comp.keywords : (Array.isArray(comp.product_keywords) ? comp.product_keywords : []),
@@ -462,8 +467,78 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
 
             <div className="space-y-2 mb-3">
               <p className="text-xs text-slate-600">
-                Supported formats: PNG, JPG, SVG, GIF (max 5MB, will be optimized to 500x500px)
+                Supported formats: PNG, JPG, SVG, GIF, WEBP (max 5MB, will be normalized to PNG at 500x500px)
               </p>
+
+              {isEditMode && (
+                <div className="text-xs text-slate-700 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">Import status:</span>
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        formData.logo_import_status === "imported"
+                          ? "bg-emerald-100 text-emerald-800"
+                          : formData.logo_import_status === "failed"
+                            ? "bg-red-100 text-red-800"
+                            : "bg-amber-100 text-amber-800"
+                      }`}
+                    >
+                      {formData.logo_import_status || "missing"}
+                    </span>
+                  </div>
+
+                  {formData.logo_source_url && (
+                    <a
+                      href={formData.logo_source_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 hover:underline break-all"
+                      onClick={(e) => e.stopPropagation()}
+                      title={formData.logo_source_url}
+                    >
+                      logo_source_url
+                    </a>
+                  )}
+
+                  {formData.logo_error && formData.logo_import_status === "failed" && (
+                    <div className="text-red-700">logo_error: {String(formData.logo_error).slice(0, 140)}</div>
+                  )}
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!companyIdValue || isRetryingLogo}
+                    className="w-full"
+                    onClick={async () => {
+                      if (!companyIdValue) return;
+                      setIsRetryingLogo(true);
+                      try {
+                        const r = await retryLogoImport(companyIdValue);
+                        setFormData((prev) => ({
+                          ...prev,
+                          logo_url: r.logo_url || prev.logo_url,
+                          logo_source_url: r.logo_source_url || prev.logo_source_url,
+                          logo_import_status: r.logo_import_status || prev.logo_import_status,
+                          logo_error: r.logo_error || "",
+                        }));
+                        if (r.logo_import_status === "imported") {
+                          toast.success("Logo imported successfully");
+                        } else if (r.logo_import_status === "missing") {
+                          toast.warning("No logo found to import");
+                        } else {
+                          toast.error(r.logo_error || "Logo import failed");
+                        }
+                      } catch (e) {
+                        toast.error(e?.message || "Logo import failed");
+                      } finally {
+                        setIsRetryingLogo(false);
+                      }
+                    }}
+                  >
+                    {isRetryingLogo ? "Retrying logo import…" : "Retry logo import"}
+                  </Button>
+                </div>
+              )}
             </div>
 
             <Button
