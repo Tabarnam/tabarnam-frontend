@@ -9,6 +9,7 @@ import useTranslation from "@/hooks/useTranslation";
 import { CompanyStarsBlock } from "@/components/results/CompanyStarsBlock";
 import { calcStars } from "@/lib/stars/calcStars";
 import { LogoUploadDialog } from "@/components/admin/LogoUploadDialog";
+import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 
 const TranslatedText = ({ originalText, translation, loading }) => {
   if (loading)
@@ -348,7 +349,7 @@ const CompanyRow = ({
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <a
-                              href={company.amazon_store_url}
+                              href={withAmazonAffiliate(company.amazon_store_url)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-blue-600 hover:underline"
@@ -366,7 +367,7 @@ const CompanyRow = ({
                         className="text-xs text-gray-500 underline"
                         onClick={(e) => {
                           e.stopPropagation();
-                          copyToClipboard(company.amazon_store_url);
+                          copyToClipboard(withAmazonAffiliate(company.amazon_store_url));
                         }}
                       >
                         Copy

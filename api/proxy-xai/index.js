@@ -2,6 +2,7 @@
 const { app } = require("@azure/functions");
 const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
+const { stripAmazonAffiliateTagForStorage } = require("../_amazonAffiliate");
 
 const BUILD_STAMP = "proxy-xai build 2025-11-23T03:00Z";
 
@@ -80,17 +81,12 @@ function normalizeKeywords(value, industries) {
   while (merged.length && merged.length < 5) merged.push(merged[merged.length - 1]);
   return merged.join(", ");
 }
-function ensureAmazonAffiliateTag(input) {
+function ensureAmazonCleanUrl(input) {
   if (!input) return { amazon_url: input, tagged: false };
-  try {
-    const url = new URL(input.startsWith("http") ? input : `https://${input}`);
-    if (!/amazon\./i.test(url.hostname))
-      return { amazon_url: url.toString(), tagged: false };
-    url.searchParams.set("tag", "tabarnam00-20");
-    return { amazon_url: url.toString(), tagged: true };
-  } catch {
-    return { amazon_url: input, tagged: false };
-  }
+  const cleaned = stripAmazonAffiliateTagForStorage(input);
+
+  // Keep the existing field for backwards compatibility, but we no longer persist tags.
+  return { amazon_url: cleaned, tagged: false };
 }
 function haversineMiles(lat1, lon1, lat2, lon2) {
   const toRad = (d) => (d * Math.PI) / 180,
@@ -106,7 +102,7 @@ function enrichCompany(company, center) {
   const c = { ...(company || {}) };
   c.industries = normalizeIndustries(c.industries);
   c.product_keywords = normalizeKeywords(c.product_keywords, c.industries);
-  const { amazon_url, tagged } = ensureAmazonAffiliateTag(c.amazon_url);
+  const { amazon_url, tagged } = ensureAmazonCleanUrl(c.amazon_url);
   c.amazon_url = amazon_url;
   c.amazon_url_tagged = tagged;
   const urlForDomain = c.canonical_url || c.url || "";

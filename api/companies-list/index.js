@@ -2,6 +2,7 @@
 console.log("[companies-list] Starting module load...");
 const { app } = require("@azure/functions");
 const axios = require("axios");
+const { stripAmazonAffiliateTagForStorage } = require("../_amazonAffiliate");
 const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
 console.log("[companies-list] @azure/functions imported, app object created");
 
@@ -302,6 +303,13 @@ app.http("companies-list", {
         }
 
         const base = existingDoc ? { ...existingDoc, ...incoming } : { ...incoming };
+
+        if (typeof base.amazon_url === "string") {
+          base.amazon_url = stripAmazonAffiliateTagForStorage(base.amazon_url);
+        }
+        if (typeof base.amazon_store_url === "string") {
+          base.amazon_store_url = stripAmazonAffiliateTagForStorage(base.amazon_store_url);
+        }
 
         // Compute normalized_domain for partition key (Cosmos DB partition key is /normalized_domain)
         const urlForDomain = base.canonical_url || base.url || base.website || "unknown";
