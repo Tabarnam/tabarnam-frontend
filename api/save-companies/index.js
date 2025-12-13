@@ -1,5 +1,6 @@
 const { app } = require("@azure/functions");
 const axios = require("axios");
+const { stripAmazonAffiliateTagForStorage } = require("../_amazonAffiliate");
 const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
 
 function json(obj, status = 200) {
@@ -161,12 +162,14 @@ app.http("save-companies", {
             star5: { value: 0.0, notes: [] },
           };
 
+          const cleanUrl = company.url ? stripAmazonAffiliateTagForStorage(company.url) : "";
+
           const doc = {
             id: `company_${Date.now()}_${Math.random().toString(36).slice(2)}`,
             company_name: company.company_name || company.name || "",
             name: company.name || company.company_name || "",
-            url: company.url || "",
-            website_url: company.url || "",
+            url: cleanUrl,
+            website_url: cleanUrl,
             industries: company.industries || [],
             product_keywords: company.product_keywords || "",
             headquarters_location: company.headquarters_location || "",

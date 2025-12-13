@@ -78,6 +78,44 @@ function normalizeLocationEntries(entries) {
     .filter(Boolean);
 }
 
+function stripAmazonTagIfString(value) {
+  return typeof value === "string" ? stripAmazonAffiliateTagForStorage(value) : value;
+}
+
+function stripAmazonTagsFromUrlArray(value) {
+  if (!Array.isArray(value)) return value;
+  return value.map((v) => (typeof v === "string" ? stripAmazonAffiliateTagForStorage(v) : v));
+}
+
+function stripAmazonTagsFromAffiliateLinks(value) {
+  if (!Array.isArray(value)) return value;
+  return value.map((entry) => {
+    if (typeof entry === "string") return stripAmazonAffiliateTagForStorage(entry);
+    if (entry && typeof entry === "object" && typeof entry.url === "string") {
+      return { ...entry, url: stripAmazonAffiliateTagForStorage(entry.url) };
+    }
+    return entry;
+  });
+}
+
+function stripAmazonTagsFromLocationSources(value) {
+  if (!Array.isArray(value)) return value;
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object") return entry;
+    if (typeof entry.source_url !== "string") return entry;
+    return { ...entry, source_url: stripAmazonAffiliateTagForStorage(entry.source_url) };
+  });
+}
+
+function stripAmazonTagsFromSocial(value) {
+  if (!value || typeof value !== "object") return value;
+  const next = { ...value };
+  for (const k of ["linkedin", "instagram", "x", "twitter", "facebook", "tiktok", "youtube"]) {
+    next[k] = stripAmazonTagIfString(next[k]);
+  }
+  return next;
+}
+
 async function geocodeCompanyLocations(base, headquarters_locations, { timeoutMs = 5000 } = {}) {
   const hqBase = normalizeLocationEntries(headquarters_locations);
   const manuBase =
@@ -304,12 +342,28 @@ app.http("companies-list", {
 
         const base = existingDoc ? { ...existingDoc, ...incoming } : { ...incoming };
 
-        if (typeof base.amazon_url === "string") {
-          base.amazon_url = stripAmazonAffiliateTagForStorage(base.amazon_url);
+        for (const key of [
+          "amazon_url",
+          "amazon_store_url",
+          "url",
+          "website_url",
+          "website",
+          "canonical_url",
+        ]) {
+          base[key] = stripAmazonTagIfString(base[key]);
         }
-        if (typeof base.amazon_store_url === "string") {
-          base.amazon_store_url = stripAmazonAffiliateTagForStorage(base.amazon_store_url);
+
+        base.affiliate_links = stripAmazonTagsFromAffiliateLinks(base.affiliate_links);
+        base.affiliate_link_urls = stripAmazonTagsFromUrlArray(base.affiliate_link_urls);
+
+        for (let i = 1; i <= 5; i += 1) {
+          base[`affiliate_link_${i}`] = stripAmazonTagIfString(base[`affiliate_link_${i}`]);
+          base[`affiliate_link_${i}_url`] = stripAmazonTagIfString(base[`affiliate_link_${i}_url`]);
+          base[`affiliate${i}_url`] = stripAmazonTagIfString(base[`affiliate${i}_url`]);
         }
+
+        base.location_sources = stripAmazonTagsFromLocationSources(base.location_sources);
+        base.social = stripAmazonTagsFromSocial(base.social);
 
         // Compute normalized_domain for partition key (Cosmos DB partition key is /normalized_domain)
         const urlForDomain = base.canonical_url || base.url || base.website || "unknown";
