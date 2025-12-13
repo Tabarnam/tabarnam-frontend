@@ -198,7 +198,7 @@ export default function ExpandableCompanyRow({
         <div className="space-y-2">
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
-              {(typeof loc.distance === "number" || loc.geocode_status === "failed") && (
+              {loc.formatted !== "—" && (
                 <div className="text-xs font-semibold whitespace-nowrap pt-0.5" style={{ color: DISTANCE_COLOR }}>
                   {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
@@ -216,7 +216,7 @@ export default function ExpandableCompanyRow({
         <div className="space-y-2">
           {hqLocation.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
-              {(typeof loc.distance === "number" || loc.geocode_status === "failed") && (
+              {loc.formatted !== "—" && (
                 <div className="text-xs font-semibold whitespace-nowrap pt-0.5" style={{ color: DISTANCE_COLOR }}>
                   {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
@@ -234,7 +234,7 @@ export default function ExpandableCompanyRow({
         <div className="space-y-2">
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
-              {(typeof loc.distance === "number" || loc.geocode_status === "failed") && (
+              {loc.formatted !== "—" && (
                 <div className="text-xs font-semibold whitespace-nowrap pt-0.5" style={{ color: DISTANCE_COLOR }}>
                   {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
