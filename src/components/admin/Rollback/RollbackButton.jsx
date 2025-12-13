@@ -1,6 +1,6 @@
 // src/components/admin/Rollback/RollbackButton.jsx
 import { useState } from 'react';
-import toast from 'react-hot-toast';
+import { toast } from '@/lib/toast';
 
 export default function RollbackButton() {
   const [loading, setLoading] = useState(false);

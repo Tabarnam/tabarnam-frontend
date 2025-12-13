@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eye, EyeOff, Trash2, Plus } from "lucide-react";
 import { apiFetch } from "@/lib/api";
-import { toast } from "sonner";
+import { toast } from '@/lib/toast';
 
 const StarNotesEditor = ({ companyId, starRating, onStarChange, userName }) => {
   const [notes, setNotes] = useState([]);
