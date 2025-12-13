@@ -22,6 +22,8 @@ export interface SearchOptions {
   country?: unknown;
   state?: unknown;
   city?: unknown;
+  lat?: unknown;
+  lng?: unknown;
 }
 
 export interface Company {
@@ -60,6 +62,13 @@ export async function searchCompanies(opts: SearchOptions) {
   if (country) params.set("country", country);
   if (state) params.set("state", state);
   if (city) params.set("city", city);
+
+  const lat = Number(asStr(opts.lat));
+  const lng = Number(asStr(opts.lng));
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    params.set("lat", String(lat));
+    params.set("lng", String(lng));
+  }
 
   try {
     const r = await apiFetch(`/search-companies?${params.toString()}`, { headers: { accept: "application/json" } });

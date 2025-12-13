@@ -175,8 +175,24 @@ export default function ResultsPage() {
     setLoading(true);
     setStatus("Searching…");
     try {
-      const { items = [], meta } = await searchCompanies({ q, sort, country, state, city, take, skip });
-      const effectiveLocation = location || userLoc;
+      const fallbackLocation = { lat: 34.0983, lng: -117.8076 };
+      const effectiveLocation = location || userLoc || fallbackLocation;
+
+      if (!userLoc && effectiveLocation) {
+        setUserLoc({ lat: effectiveLocation.lat, lng: effectiveLocation.lng });
+      }
+
+      const { items = [], meta } = await searchCompanies({
+        q,
+        sort,
+        country,
+        state,
+        city,
+        take,
+        skip,
+        lat: effectiveLocation?.lat,
+        lng: effectiveLocation?.lng,
+      });
       const withDistances = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
       const withReviews = await loadReviews(withDistances);
 
