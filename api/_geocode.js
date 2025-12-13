@@ -238,6 +238,12 @@ async function geocodeLocationEntry(locRaw, { timeoutMs = 5000 } = {}) {
       geocode_source: res.geocode_source,
       geocoded_at: res.geocoded_at,
       geocode_confidence: res.geocode_confidence,
+      geocode_precision: res.geocode_precision,
+      geocode_partial_match: res.geocode_partial_match,
+      geocode_formatted_address: res.geocode_formatted_address,
+      geocode_result_types: res.geocode_result_types,
+      geocode_google_status: res.geocode_google_status,
+      geocode_error: res.geocode_error,
     };
   }
 
@@ -248,6 +254,13 @@ async function geocodeLocationEntry(locRaw, { timeoutMs = 5000 } = {}) {
     geocode_source: res.geocode_source,
     geocoded_at: res.geocoded_at,
     geocode_confidence: res.geocode_confidence,
+    geocode_precision: res.geocode_precision,
+    geocode_partial_match: res.geocode_partial_match,
+    geocode_formatted_address: res.geocode_formatted_address,
+    geocode_result_types: res.geocode_result_types,
+    geocode_google_status: res.geocode_google_status,
+    geocode_error: res.geocode_error,
+    error: res.error,
   };
 }
 
