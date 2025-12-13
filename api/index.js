@@ -184,6 +184,14 @@ try {
   console.error("[api] ❌ Failed to load xadmin-api-logos:", e?.message || e);
 }
 
+try {
+  console.log("[api] Registering: retry-logo-import");
+  require("./retry-logo-import/index.js");
+  console.log("[api] ✓ retry-logo-import registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load retry-logo-import:", e?.message || e);
+}
+
 // -------------------------
 // Admin endpoints (v4 model)
 // -------------------------
