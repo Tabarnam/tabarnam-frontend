@@ -27,6 +27,12 @@ type ToastTimerState = {
 
 const DEFAULT_DURATION_MS = 4000;
 
+let toastIdSeq = 0;
+function generateToastId(): ToastId {
+  toastIdSeq = (toastIdSeq + 1) % Number.MAX_SAFE_INTEGER;
+  return `t_${toastIdSeq}`;
+}
+
 const stateById = new Map<ToastId, ToastTimerState>();
 const listenersById = new Map<ToastId, Set<() => void>>();
 
@@ -116,7 +122,8 @@ function resume(id: ToastId) {
 
 function dismiss(id?: ToastId) {
   if (typeof id === 'undefined') {
-    stateById.forEach((_, key) => dismiss(key));
+    const ids = Array.from(stateById.keys());
+    ids.forEach((key) => dismiss(key));
     sonnerToast.dismiss();
     return;
   }
@@ -201,21 +208,14 @@ function renderToastContent(id: ToastId, variant: ToastVariant, title?: React.Re
 
 function show(variant: ToastVariant, title?: React.ReactNode, description?: React.ReactNode, options?: ToastUpdateOptions) {
   const duration = options?.duration;
-
-  const id = sonnerToast.custom(
-    () => renderToastContent(options?.id ?? 'new', variant, title, description),
-    {
-      id: options?.id,
-      duration: Infinity,
-    }
-  ) as ToastId;
-
-  ensureTimerState(id, duration);
+  const id: ToastId = options?.id ?? generateToastId();
 
   sonnerToast.custom(() => renderToastContent(id, variant, title, description), {
     id,
     duration: Infinity,
   });
+
+  ensureTimerState(id, duration);
 
   return id;
 }
