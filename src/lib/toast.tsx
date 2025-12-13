@@ -157,7 +157,14 @@ function resolveVariant(input?: ToastObjectInput['variant']): ToastVariant {
   return input;
 }
 
-function renderToastContent(id: ToastId, variant: ToastVariant, title?: React.ReactNode, description?: React.ReactNode) {
+type ToastContentProps = {
+  id: ToastId;
+  variant: ToastVariant;
+  title?: React.ReactNode;
+  description?: React.ReactNode;
+};
+
+function ToastContent({ id, variant, title, description }: ToastContentProps) {
   const st = React.useSyncExternalStore(
     React.useCallback((l) => subscribe(id, l), [id]),
     React.useCallback(() => getSnapshot(id), [id]),
@@ -204,6 +211,10 @@ function renderToastContent(id: ToastId, variant: ToastVariant, title?: React.Re
       </div>
     </div>
   );
+}
+
+function renderToastContent(id: ToastId, variant: ToastVariant, title?: React.ReactNode, description?: React.ReactNode) {
+  return <ToastContent id={id} variant={variant} title={title} description={description} />;
 }
 
 function show(variant: ToastVariant, title?: React.ReactNode, description?: React.ReactNode, options?: ToastUpdateOptions) {
