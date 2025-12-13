@@ -111,13 +111,16 @@ async function getReviewsHandler(req, context, deps = {}) {
   const reviewsContainer = deps.reviewsContainer ?? getReviewsContainer();
   const companiesContainer = deps.companiesContainer ?? getCompaniesContainer();
 
+  const companyIdParam = String(url.searchParams.get("company_id") || url.searchParams.get("id") || "").trim();
+  const domainParam = String(url.searchParams.get("normalized_domain") || url.searchParams.get("domain") || "").trim();
+
   const companyName = await resolveCompanyName(
     {
       company: url.searchParams.get("company"),
-      company_id: url.searchParams.get("company_id"),
-      id: url.searchParams.get("id"),
-      normalized_domain: url.searchParams.get("normalized_domain"),
-      domain: url.searchParams.get("domain"),
+      company_id: companyIdParam,
+      id: companyIdParam,
+      normalized_domain: domainParam,
+      domain: domainParam,
     },
     companiesContainer,
     context
@@ -175,12 +178,22 @@ async function getReviewsHandler(req, context, deps = {}) {
     // 2) curated reviews from company record
     if (companiesContainer) {
       try {
-        const sql = `SELECT TOP 5 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c._ts FROM c WHERE c.company_name = @company ORDER BY c._ts DESC`;
+        let sql;
+        let parameters;
+
+        if (companyIdParam) {
+          sql = `SELECT TOP 1 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c._ts FROM c WHERE c.id = @id OR c.company_id = @id ORDER BY c._ts DESC`;
+          parameters = [{ name: "@id", value: companyIdParam }];
+        } else if (domainParam) {
+          sql = `SELECT TOP 1 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c._ts FROM c WHERE LOWER(c.normalized_domain) = @domain ORDER BY c._ts DESC`;
+          parameters = [{ name: "@domain", value: domainParam.toLowerCase() }];
+        } else {
+          sql = `SELECT TOP 5 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c._ts FROM c WHERE c.company_name = @company ORDER BY c._ts DESC`;
+          parameters = [{ name: "@company", value: companyName }];
+        }
+
         const { resources } = await companiesContainer.items
-          .query(
-            { query: sql, parameters: [{ name: "@company", value: companyName }] },
-            { enableCrossPartitionQuery: true }
-          )
+          .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
           .fetchAll();
 
         if (resources && resources.length > 0) {
