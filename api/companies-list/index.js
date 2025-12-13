@@ -265,9 +265,49 @@ app.http("companies-list", {
           }
         }
 
+        let existingDoc = null;
+        if (method === "PUT") {
+          try {
+            const querySpec = {
+              query: "SELECT TOP 1 * FROM c WHERE c.id = @id ORDER BY c._ts DESC",
+              parameters: [{ name: "@id", value: String(id).trim() }],
+            };
+
+            const { resources } = await container.items
+              .query(querySpec, { enableCrossPartitionQuery: true })
+              .fetchAll();
+
+            existingDoc = resources?.[0] || null;
+            context.log("[companies-list] PUT: Existing document lookup", {
+              id: String(id).trim(),
+              found: !!existingDoc,
+              existingNormalizedDomain: existingDoc?.normalized_domain,
+            });
+          } catch (e) {
+            context.log("[companies-list] PUT: Failed to lookup existing document", {
+              id: String(id).trim(),
+              error: e?.message,
+            });
+          }
+        }
+
+        const base = existingDoc ? { ...existingDoc, ...incoming } : { ...incoming };
+
         // Compute normalized_domain for partition key (Cosmos DB partition key is /normalized_domain)
-        const urlForDomain = incoming.canonical_url || incoming.url || incoming.website || "unknown";
-        const normalizedDomain = incoming.normalized_domain || toNormalizedDomain(urlForDomain);
+        const urlForDomain = base.canonical_url || base.url || base.website || "unknown";
+        const incomingNormalizedDomain = incoming.normalized_domain || toNormalizedDomain(urlForDomain);
+        let normalizedDomain = incomingNormalizedDomain;
+
+        if (existingDoc) {
+          const existingNormalizedDomain = String(existingDoc.normalized_domain || "").trim();
+          if (existingNormalizedDomain) {
+            normalizedDomain = existingNormalizedDomain;
+          } else {
+            const existingUrlForDomain =
+              existingDoc.canonical_url || existingDoc.url || existingDoc.website || "unknown";
+            normalizedDomain = toNormalizedDomain(existingUrlForDomain) || incomingNormalizedDomain;
+          }
+        }
 
         if (!normalizedDomain) {
           context.log("[companies-list] Unable to determine company domain for partition key");
@@ -279,28 +319,39 @@ app.http("companies-list", {
         context.log("[companies-list] Using partition key (normalized_domain):", partitionKeyValue);
 
         // Geocode headquarters location if present and no lat/lng already provided
-        let hq_lat = incoming.hq_lat;
-        let hq_lng = incoming.hq_lng;
+        let hq_lat = base.hq_lat;
+        let hq_lng = base.hq_lng;
 
         if (!Number.isFinite(hq_lat) || !Number.isFinite(hq_lng)) {
-          if (incoming.headquarters_location && incoming.headquarters_location.trim()) {
-            const geoResult = await geocodeHQLocation(incoming.headquarters_location);
+          if (base.headquarters_location && String(base.headquarters_location).trim()) {
+            const geoResult = await geocodeHQLocation(String(base.headquarters_location).trim());
             if (geoResult.hq_lat !== undefined && geoResult.hq_lng !== undefined) {
               hq_lat = geoResult.hq_lat;
               hq_lng = geoResult.hq_lng;
-              context.log(`[companies-list] Geocoded ${incoming.company_name || incoming.name}: ${incoming.headquarters_location} → (${hq_lat}, ${hq_lng})`);
+              context.log(
+                `[companies-list] Geocoded ${base.company_name || base.name}: ${String(base.headquarters_location).trim()} → (${hq_lat}, ${hq_lng})`
+              );
             }
           }
         }
 
         // Geocode additional headquarters locations
         let headquarters_locations = [];
-        if (Array.isArray(incoming.headquarters_locations) && incoming.headquarters_locations.length > 0) {
+        if (Array.isArray(base.headquarters_locations) && base.headquarters_locations.length > 0) {
           headquarters_locations = await Promise.all(
-            incoming.headquarters_locations.map(async (hqLoc) => {
+            base.headquarters_locations.map(async (hqLocRaw) => {
+              const hqLoc =
+                typeof hqLocRaw === "string"
+                  ? { address: hqLocRaw }
+                  : hqLocRaw && typeof hqLocRaw === "object"
+                    ? hqLocRaw
+                    : null;
+
+              if (!hqLoc) return hqLocRaw;
+
               if (!hqLoc.lat || !hqLoc.lng) {
-                if (hqLoc.address && hqLoc.address.trim()) {
-                  const geoResult = await geocodeHQLocation(hqLoc.address);
+                if (hqLoc.address && String(hqLoc.address).trim()) {
+                  const geoResult = await geocodeHQLocation(String(hqLoc.address).trim());
                   return {
                     ...hqLoc,
                     lat: geoResult.hq_lat,
@@ -308,15 +359,20 @@ app.http("companies-list", {
                   };
                 }
               }
+
               return hqLoc;
             })
           );
         }
 
         // Calculate default rating if not provided
-        const hasManufacturingLocations = Array.isArray(incoming.manufacturing_locations) && incoming.manufacturing_locations.length > 0;
-        const hasHeadquarters = !!(incoming.headquarters_location && incoming.headquarters_location.trim());
-        const hasReviews = (incoming.editorial_review_count || 0) > 0;
+        const hasManufacturingLocations =
+          Array.isArray(base.manufacturing_locations) && base.manufacturing_locations.length > 0;
+        const hasHeadquarters = !!(base.headquarters_location && String(base.headquarters_location).trim());
+        const hasReviews =
+          (base.editorial_review_count || 0) > 0 ||
+          (base.review_count || 0) > 0 ||
+          (base.review_count_approved || 0) > 0;
 
         const defaultRating = {
           star1: { value: hasManufacturingLocations ? 1.0 : 0.0, notes: [] },
@@ -328,19 +384,20 @@ app.http("companies-list", {
 
         const now = new Date().toISOString();
         const doc = {
-          ...incoming,
+          ...base,
           id: String(id).trim(),
           company_id: String(id).trim(),
-          normalized_domain: normalizedDomain,
-          company_name: incoming.company_name || incoming.name || "",
-          name: incoming.name || incoming.company_name || "",
+          normalized_domain: String(normalizedDomain || "unknown").trim(),
+          company_name: base.company_name || base.name || "",
+          name: base.name || base.company_name || "",
           hq_lat: hq_lat,
           hq_lng: hq_lng,
-          headquarters_locations: headquarters_locations.length > 0 ? headquarters_locations : incoming.headquarters_locations,
-          rating_icon_type: incoming.rating_icon_type || "star",
-          rating: incoming.rating || defaultRating,
+          headquarters_locations:
+            headquarters_locations.length > 0 ? headquarters_locations : base.headquarters_locations,
+          rating_icon_type: base.rating_icon_type || "star",
+          rating: base.rating || defaultRating,
           updated_at: now,
-          created_at: incoming.created_at || now,
+          created_at: (existingDoc && existingDoc.created_at) || base.created_at || now,
         };
 
         context.log(`[companies-list] Document prepared for upsert`, {
