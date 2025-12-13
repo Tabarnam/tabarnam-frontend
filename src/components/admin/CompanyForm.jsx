@@ -20,7 +20,7 @@ import CompanyReviewsPreview from "./CompanyReviewsPreview";
 import LogoUploadDialog from "./LogoUploadDialog";
 import { defaultRating } from "@/types/company";
 import { getOrCalculateRating } from "@/lib/stars/calculateRating";
-import { stripAmazonAffiliateTag } from "@/lib/amazonAffiliate";
+import { stripAmazonAffiliateTag, withAmazonAffiliate } from "@/lib/amazonAffiliate";
 
 const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const user = getAdminUser();
@@ -490,12 +490,12 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
 
                   {formData.logo_source_url && (
                     <a
-                      href={formData.logo_source_url}
+                      href={withAmazonAffiliate(formData.logo_source_url)}
                       target="_blank"
                       rel="noreferrer"
                       className="text-blue-600 hover:underline break-all"
                       onClick={(e) => e.stopPropagation()}
-                      title={formData.logo_source_url}
+                      title={withAmazonAffiliate(formData.logo_source_url)}
                     >
                       logo_source_url
                     </a>

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { API_BASE } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { RatingDots } from "@/components/Stars";
+import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 
 function formatDate(v) {
   if (!v) return "";
@@ -115,13 +116,13 @@ export default function CompanyReviewsPreview({ companyId, companyName }) {
                 {r.url ? (
                   <div className="mt-2 text-xs">
                     <a
-                      href={r.url}
+                      href={withAmazonAffiliate(r.url)}
                       target="_blank"
                       rel="noreferrer"
                       className="text-blue-700 hover:underline"
-                      title={r.url}
+                      title={withAmazonAffiliate(r.url)}
                     >
-                      {truncate(r.url, 70)}
+                      {truncate(withAmazonAffiliate(r.url), 70)}
                     </a>
                   </div>
                 ) : null}
