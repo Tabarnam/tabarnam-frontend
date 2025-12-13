@@ -252,6 +252,10 @@ export default function ExpandableCompanyRow({
               <div className="text-xs text-gray-600 line-clamp-3">
                 {primaryReview.abstract || primaryReview.text || "—"}
               </div>
+            ) : typeof company.reviews_count === "number" && company.reviews_count > 0 ? (
+              <div className="text-xs text-gray-500">
+                {company.reviews_count} review{company.reviews_count === 1 ? "" : "s"} available
+              </div>
             ) : (
               <div className="text-xs text-gray-400">No reviews available</div>
             )}
