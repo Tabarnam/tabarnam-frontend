@@ -73,7 +73,7 @@ export default function ReviewsWidget({ companyId, companyName }) {
           <div className="text-sm text-gray-500">No reviews yet.</div>
         ) : (
           <ul className="space-y-3">
-            {list.map((r) => {
+            {list.map((r, idx) => {
               const sourceName = r.source_name || r.source || "";
               const sourceUrl = r.source_url || r.url || null;
               const text = r.text || r.abstract || "";
@@ -83,7 +83,7 @@ export default function ReviewsWidget({ companyId, companyName }) {
               };
 
               return (
-                <li key={r.id || `${sourceName}-${Math.random().toString(36).slice(2)}`} className="bg-white border rounded p-3">
+                <li key={r.id || `${companyName || companyId || "company"}-${idx}`} className="bg-white border rounded p-3">
                   <div className="flex items-center justify-between">
                     <div className="font-medium text-amber-600">{sourceName || "Unknown Source"}</div>
                     <div className="text-xs text-gray-500">
