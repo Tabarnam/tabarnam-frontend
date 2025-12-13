@@ -477,7 +477,7 @@ export default function ExpandableCompanyRow({
         <h2 className="font-bold text-gray-900">
           {websiteUrl ? (
             <a
-              href={websiteUrl}
+              href={withAmazonAffiliate(websiteUrl)}
               target="_blank"
               rel="noopener noreferrer"
               className="font-semibold text-sm text-blue-700 hover:underline"
