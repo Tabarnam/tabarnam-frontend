@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import ReviewsWidget from "@/components/ReviewsWidget";
+import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { RatingDots, RatingHearts } from "@/components/Stars";
 import { getQQDefaultIconType, getQQFilledCount } from "@/lib/stars/qqRating";
 
@@ -348,7 +349,7 @@ export default function ExpandableCompanyRow({
                 {affiliateLinks.map((link, idx) => (
                   <div key={link.url || idx} className="text-sm">
                     <a
-                      href={link.url}
+                      href={withAmazonAffiliate(link.url)}
                       target="_blank"
                       rel="noreferrer"
                       className="text-blue-600 hover:underline"
@@ -361,7 +362,7 @@ export default function ExpandableCompanyRow({
                 {amazonLink && (
                   <div className="text-sm">
                     <a
-                      href={amazonLink}
+                      href={withAmazonAffiliate(amazonLink)}
                       target="_blank"
                       rel="noreferrer"
                       className="text-blue-600 hover:underline"

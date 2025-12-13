@@ -1,5 +1,6 @@
 // src/UserTools.js
 import React, { useEffect, useState } from "react";
+import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import PinIcon from "@/assets/tabarnam-pin.jpg";
 import { API_BASE } from "@/lib/api";
 
@@ -171,10 +172,10 @@ const UserTools = () => {
                   {String(c.product_keywords || "").split(",").map(s=>s.trim()).filter(Boolean).slice(0,6).join(", ")}
                 </td>
                 <td className="p-2">
-                  {c.url ? <a href={c.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">{c.url}</a> : "—"}
+                  {c.url ? <a href={withAmazonAffiliate(c.url)} target="_blank" rel="noreferrer" className="text-blue-600 underline">{c.url}</a> : "—"}
                 </td>
                 <td className="p-2">
-                  {c.amazon_url ? <a href={c.amazon_url} target="_blank" rel="noreferrer" className="text-blue-600 underline">Amazon</a> : "—"}
+                  {c.amazon_url ? <a href={withAmazonAffiliate(c.amazon_url)} target="_blank" rel="noreferrer" className="text-blue-600 underline">Amazon</a> : "—"}
                 </td>
                 <td className="p-2">{c.amazon_url ? (c.amazon_url_tagged ? "Yes" : "No") : "—"}</td>
                 <td className="p-2">{c.confidence_score != null ? `${(c.confidence_score*100).toFixed(0)}%` : "—"}</td>
