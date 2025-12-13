@@ -1,6 +1,7 @@
 const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
 const axios = require("axios");
+const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -389,18 +390,60 @@ function createHandler(routeName) {
       applyStringField("amazon_url", delta.amazon_url);
 
       let geoUpdated = false;
-      if (
-        (updated.hq_lat === undefined || updated.hq_lat === null || updated.hq_lng === undefined || updated.hq_lng === null) &&
-        updated.headquarters_location &&
-        String(updated.headquarters_location).trim()
-      ) {
-        const geo = await geocodeHeadquarters(String(updated.headquarters_location), timeoutMs, context);
-        if (geo.hq_lat !== undefined && geo.hq_lng !== undefined) {
-          updated.hq_lat = geo.hq_lat;
-          updated.hq_lng = geo.hq_lng;
+      try {
+        let headquarters_locations = Array.isArray(updated.headquarters_locations)
+          ? updated.headquarters_locations
+          : Array.isArray(updated.headquarters)
+            ? updated.headquarters
+            : [];
+
+        if (updated.headquarters_location && String(updated.headquarters_location).trim()) {
+          const primaryAddr = String(updated.headquarters_location).trim();
+          const alreadyHasPrimary = headquarters_locations.some((hq) => {
+            if (!hq) return false;
+            if (typeof hq === "string") return hq.trim() === primaryAddr;
+            return typeof hq.address === "string" && String(hq.address).trim() === primaryAddr;
+          });
+          if (!alreadyHasPrimary) {
+            headquarters_locations = [{ address: primaryAddr }, ...headquarters_locations];
+          }
+        }
+
+        const manufacturingBase =
+          Array.isArray(updated.manufacturing_geocodes) && updated.manufacturing_geocodes.length > 0
+            ? updated.manufacturing_geocodes
+            : Array.isArray(updated.manufacturing_locations)
+              ? updated.manufacturing_locations
+                  .map((loc) => ({ address: String(loc || "").trim() }))
+                  .filter((l) => l.address)
+              : [];
+
+        const [headquarters, manufacturing_geocodes] = await Promise.all([
+          geocodeLocationArray(headquarters_locations, { timeoutMs, concurrency: 4 }),
+          geocodeLocationArray(manufacturingBase, { timeoutMs, concurrency: 4 }),
+        ]);
+
+        if (headquarters.length) {
+          updated.headquarters = headquarters;
+          updated.headquarters_locations = headquarters;
           geoUpdated = true;
         }
+
+        if (manufacturing_geocodes.length) {
+          updated.manufacturing_geocodes = manufacturing_geocodes;
+          geoUpdated = true;
+        }
+
+        const primary = pickPrimaryLatLng(headquarters);
+        if (primary && (!Number.isFinite(updated.hq_lat) || !Number.isFinite(updated.hq_lng))) {
+          updated.hq_lat = primary.lat;
+          updated.hq_lng = primary.lng;
+          geoUpdated = true;
+        }
+      } catch (e) {
+        context.log("[admin-refresh-import] Per-location geocode failed", { message: e?.message || String(e) });
       }
+
       if (geoUpdated) updatedFieldCount++;
 
       let newReviewCount = 0;
