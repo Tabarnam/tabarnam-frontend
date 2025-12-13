@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { Building2, Globe, Tag } from 'lucide-react';
 import { RatingDots, RatingHearts } from "@/components/Stars";
+import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { getQQDefaultIconType, getQQFilledCount, getQQScore, hasQQRating } from "@/lib/stars/qqRating";
 
 const CompanyCard = ({ company, index }) => {
@@ -61,7 +62,7 @@ const CompanyCard = ({ company, index }) => {
 
       <div>
         <a
-          href={company.website_url || '#'}
+          href={withAmazonAffiliate(company.website_url || '#')}
           target="_blank"
           rel="noopener noreferrer"
           className={`flex items-center justify-center gap-2 w-full text-center px-4 py-2 rounded-lg font-semibold transition-all duration-300 ${company.website_url ? 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white' : 'bg-gray-600 text-gray-400 cursor-not-allowed'}`}

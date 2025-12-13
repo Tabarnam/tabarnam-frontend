@@ -5,12 +5,36 @@ function hasProtocol(input: string) {
 }
 
 function normalizeHostname(hostname: string) {
-  return hostname.trim().toLowerCase().replace(/^www\./, "");
+  return hostname.trim().toLowerCase().replace(/^www\./, "").replace(/\.$/, "");
 }
+
+const AMAZON_ROOT_DOMAINS = [
+  "amazon.com",
+  "amazon.ca",
+  "amazon.co.uk",
+  "amazon.de",
+  "amazon.fr",
+  "amazon.it",
+  "amazon.es",
+  "amazon.co.jp",
+  "amazon.com.au",
+  "amazon.in",
+  "amazon.com.mx",
+  "amazon.com.br",
+  "amazon.sg",
+  "amazon.ae",
+  "amazon.sa",
+  "amazon.se",
+  "amazon.nl",
+  "amazon.pl",
+  "amazon.eg",
+  "amazon.tr",
+];
 
 export function isAmazonHostname(hostname: string) {
   const h = normalizeHostname(hostname);
-  return h === "amazon.com" || h.endsWith(".amazon.com");
+  if (!h) return false;
+  return AMAZON_ROOT_DOMAINS.some((root) => h === root || h.endsWith(`.${root}`));
 }
 
 function safeParseUrl(raw: string): { url: URL; hadProtocol: boolean } | null {
@@ -63,7 +87,7 @@ export function stripAmazonAffiliateTag(inputUrl: string) {
 
 /**
  * Ensures any outbound Amazon link includes the required Associate tag.
- * - Only applies to amazon.com domains (including subdomains)
+ * - Only applies to Amazon retail domains (including subdomains)
  * - Strips any existing tag= before appending the correct one
  * - Preserves all other query params
  */

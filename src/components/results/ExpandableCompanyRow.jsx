@@ -277,7 +277,7 @@ export default function ExpandableCompanyRow({
                       <div className="line-clamp-2">{r.text || "—"}</div>
                       {r.sourceUrl ? (
                         <a
-                          href={r.sourceUrl}
+                          href={withAmazonAffiliate(r.sourceUrl)}
                           target="_blank"
                           rel="noreferrer"
                           className="text-blue-600 hover:underline"
@@ -329,7 +329,7 @@ export default function ExpandableCompanyRow({
             <h2 className="font-bold text-lg text-gray-900">
               {websiteUrl ? (
                 <a
-                  href={websiteUrl}
+                  href={withAmazonAffiliate(websiteUrl)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-blue-700 hover:underline"
@@ -477,7 +477,7 @@ export default function ExpandableCompanyRow({
         <h2 className="font-bold text-gray-900">
           {websiteUrl ? (
             <a
-              href={websiteUrl}
+              href={withAmazonAffiliate(websiteUrl)}
               target="_blank"
               rel="noopener noreferrer"
               className="font-semibold text-sm text-blue-700 hover:underline"
@@ -610,7 +610,7 @@ export default function ExpandableCompanyRow({
                 {source.source_url && (
                   <div className="mt-2">
                     <a
-                      href={source.source_url}
+                      href={withAmazonAffiliate(source.source_url)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-blue-600 hover:underline text-xs"

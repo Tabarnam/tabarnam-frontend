@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { API_BASE } from '@/lib/api';
+import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 
 export default function RecentImportsPanel({ take = 25 }) {
   const [imports, setImports] = useState([]);
@@ -77,7 +78,7 @@ export default function RecentImportsPanel({ take = 25 }) {
                     <td className="py-2 px-3 font-medium">{imp.company_name || imp.name || '—'}</td>
                     <td className="py-2 px-3 text-blue-600 truncate">
                       {imp.url || imp.website_url ? (
-                        <a href={imp.url || imp.website_url} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                        <a href={withAmazonAffiliate(imp.url || imp.website_url)} target="_blank" rel="noopener noreferrer" className="hover:underline">
                           {imp.url || imp.website_url}
                         </a>
                       ) : (

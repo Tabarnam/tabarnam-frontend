@@ -303,7 +303,7 @@ const CompanyRow = ({
                   {company.website_url && (
                     <div className="flex items-center gap-2 text-sm text-blue-600">
                       <a
-                        href={company.website_url}
+                        href={withAmazonAffiliate(company.website_url)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="hover:underline truncate"

@@ -7,6 +7,7 @@ import { searchCompanies } from "../lib/searchCompanies";
 // If these imports 404, just remove them and use plain <input>/<button>.
 import { Input } from "../components/ui/input.jsx";
 import { Button } from "../components/ui/button.jsx";
+import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 
 export default function SearchCompaniesDemo() {
   const [q, setQ] = React.useState("candle");
@@ -90,7 +91,7 @@ export default function SearchCompaniesDemo() {
                 <td style={td}>{c.company_tagline || ""}</td>
                 <td style={td}>{Array.isArray(c.industries) ? c.industries.join(", ") : ""}</td>
                 <td style={td}>
-                  {c.url ? <a href={c.url} target="_blank" rel="noreferrer">{c.url}</a> : "—"}
+                  {c.url ? <a href={withAmazonAffiliate(c.url)} target="_blank" rel="noreferrer">{c.url}</a> : "—"}
                 </td>
               </tr>
             ))}

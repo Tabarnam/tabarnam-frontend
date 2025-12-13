@@ -98,8 +98,57 @@ function haversineMiles(lat1, lon1, lat2, lon2) {
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
 }
+function stripAmazonTagsFromCompanyRecord(c) {
+  for (const key of ["amazon_url", "amazon_store_url", "url", "website_url", "website", "canonical_url"]) {
+    if (typeof c[key] === "string") c[key] = stripAmazonAffiliateTagForStorage(c[key]);
+  }
+
+  if (Array.isArray(c.affiliate_links)) {
+    c.affiliate_links = c.affiliate_links.map((entry) => {
+      if (typeof entry === "string") return stripAmazonAffiliateTagForStorage(entry);
+      if (entry && typeof entry === "object" && typeof entry.url === "string") {
+        return { ...entry, url: stripAmazonAffiliateTagForStorage(entry.url) };
+      }
+      return entry;
+    });
+  }
+
+  if (Array.isArray(c.affiliate_link_urls)) {
+    c.affiliate_link_urls = c.affiliate_link_urls.map((u) =>
+      typeof u === "string" ? stripAmazonAffiliateTagForStorage(u) : u
+    );
+  }
+
+  for (let i = 1; i <= 5; i += 1) {
+    if (typeof c[`affiliate_link_${i}`] === "string") {
+      c[`affiliate_link_${i}`] = stripAmazonAffiliateTagForStorage(c[`affiliate_link_${i}`]);
+    }
+    if (typeof c[`affiliate_link_${i}_url`] === "string") {
+      c[`affiliate_link_${i}_url`] = stripAmazonAffiliateTagForStorage(c[`affiliate_link_${i}_url`]);
+    }
+    if (typeof c[`affiliate${i}_url`] === "string") {
+      c[`affiliate${i}_url`] = stripAmazonAffiliateTagForStorage(c[`affiliate${i}_url`]);
+    }
+  }
+
+  if (Array.isArray(c.location_sources)) {
+    c.location_sources = c.location_sources.map((entry) => {
+      if (!entry || typeof entry !== "object") return entry;
+      if (typeof entry.source_url !== "string") return entry;
+      return { ...entry, source_url: stripAmazonAffiliateTagForStorage(entry.source_url) };
+    });
+  }
+
+  if (c.social && typeof c.social === "object") {
+    for (const k of ["linkedin", "instagram", "x", "twitter", "facebook", "tiktok", "youtube"]) {
+      if (typeof c.social[k] === "string") c.social[k] = stripAmazonAffiliateTagForStorage(c.social[k]);
+    }
+  }
+}
+
 function enrichCompany(company, center) {
   const c = { ...(company || {}) };
+  stripAmazonTagsFromCompanyRecord(c);
   c.industries = normalizeIndustries(c.industries);
   c.product_keywords = normalizeKeywords(c.product_keywords, c.industries);
   const { amazon_url, tagged } = ensureAmazonCleanUrl(c.amazon_url);
