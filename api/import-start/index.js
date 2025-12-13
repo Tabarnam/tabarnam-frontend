@@ -2,6 +2,7 @@ const { app } = require("@azure/functions");
 const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
 const { getXAIEndpoint, getXAIKey, getProxyBase } = require("../_shared");
+const { importCompanyLogo } = require("../_logoImport");
 
 function json(obj, status = 200) {
   return {
@@ -196,36 +197,33 @@ async function findExistingCompany(container, normalizedDomain, companyName) {
   }
 }
 
-// Helper: fetch logo for a company domain
-async function fetchLogo(domain) {
-  if (!domain || domain === "unknown") return null;
-
-  try {
-    const proxyBase = (process.env.XAI_EXTERNAL_BASE || process.env.XAI_PROXY_BASE || "").trim();
-    if (!proxyBase) {
-      // Fallback to Clearbit API
-      return `https://logo.clearbit.com/${encodeURIComponent(domain)}`;
-    }
-
-    // Use logo-scrape API if available
-    const xaiKey = (process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || "").trim();
-    const logoUrl = `${proxyBase}/logo-scrape`;
-
-    const response = await axios.post(logoUrl, { domain }, {
-      timeout: 5000,
-      headers: xaiKey ? { "Authorization": `Bearer ${xaiKey}` } : {}
-    });
-
-    if (response.data && response.data.logo_url) {
-      console.log(`[import-start] Fetched logo for ${domain}`);
-      return response.data.logo_url;
-    }
-  } catch (e) {
-    console.log(`[import-start] Could not fetch logo for ${domain}: ${e.message}`);
+// Helper: import logo (discover -> fetch w/ retries -> rasterize SVG -> upload to blob)
+async function fetchLogo({ companyId, domain, websiteUrl, existingLogoUrl }) {
+  if (existingLogoUrl) {
+    return {
+      ok: true,
+      logo_import_status: "imported",
+      logo_source_url: existingLogoUrl,
+      logo_url: existingLogoUrl,
+      logo_error: "",
+      logo_discovery_strategy: "provided",
+      logo_discovery_page_url: "",
+    };
   }
 
-  // Fallback to Clearbit
-  return `https://logo.clearbit.com/${encodeURIComponent(domain)}`;
+  if (!domain || domain === "unknown") {
+    return {
+      ok: true,
+      logo_import_status: "missing",
+      logo_source_url: "",
+      logo_url: null,
+      logo_error: "missing domain",
+      logo_discovery_strategy: "",
+      logo_discovery_page_url: "",
+    };
+  }
+
+  return importCompanyLogo({ companyId, domain, websiteUrl }, console);
 }
 
 // Fetch editorial reviews for a company using XAI
@@ -428,11 +426,15 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
 
           const finalNormalizedDomain = normalizedDomain && normalizedDomain !== "unknown" ? normalizedDomain : "unknown";
 
-          // Fetch logo for the company (Clearbit domain must be derived from the final saved document domain)
-          let logoUrl = company.logo_url || null;
-          if (!logoUrl && finalNormalizedDomain !== "unknown") {
-            logoUrl = await fetchLogo(finalNormalizedDomain);
-          }
+          // Fetch + upload logo for the company
+          const companyId = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+          const logoImport = await fetchLogo({
+            companyId,
+            domain: finalNormalizedDomain,
+            websiteUrl: company.website_url || company.canonical_url || company.url || "",
+            existingLogoUrl: company.logo_url || null,
+          });
 
           // Calculate default rating based on company data
           const hasManufacturingLocations = Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0;
@@ -453,7 +455,7 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
           };
 
           const doc = {
-            id: `company_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            id: companyId,
             company_name: companyName,
             name: company.name || companyName,
             url: company.url || company.website_url || company.canonical_url || "",
@@ -461,7 +463,10 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
             industries: company.industries || [],
             product_keywords: company.product_keywords || "",
             normalized_domain: finalNormalizedDomain,
-            logo_url: logoUrl || null,
+            logo_url: logoImport.logo_url || null,
+            logo_source_url: logoImport.logo_source_url || null,
+            logo_import_status: logoImport.logo_import_status || "missing",
+            logo_error: logoImport.logo_error || "",
             tagline: company.tagline || "",
             location_sources: Array.isArray(company.location_sources) ? company.location_sources : [],
             show_location_sources_to_users: Boolean(company.show_location_sources_to_users),

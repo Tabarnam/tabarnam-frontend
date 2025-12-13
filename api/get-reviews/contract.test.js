@@ -46,7 +46,7 @@ test("/api/get-reviews?normalized_domain=... resolves company name and succeeds"
     if (q.includes("LOWER(c.normalized_domain)")) {
       return [{ company_name: "Obrilo" }];
     }
-    if (q.includes("c.curated_reviews") && q.includes("WHERE c.company_name")) {
+    if (q.includes("c.curated_reviews") && (q.includes("WHERE c.company_name") || q.includes("LOWER(c.normalized_domain)"))) {
       return [{ company_name: "Obrilo", curated_reviews: [] }];
     }
     return [];

@@ -59,7 +59,7 @@ async function resolveCompanyName(params, companiesContainer, context) {
   const companyId = String(params.company_id || params.id || "").trim();
   if (companyId && companiesContainer) {
     try {
-      const sql = `SELECT TOP 1 c.company_name FROM c WHERE c.id = @id`;
+      const sql = `SELECT TOP 1 c.company_name FROM c WHERE c.id = @id ORDER BY c._ts DESC`;
       const { resources } = await companiesContainer.items
         .query(
           { query: sql, parameters: [{ name: "@id", value: companyId }] },
@@ -77,7 +77,7 @@ async function resolveCompanyName(params, companiesContainer, context) {
   const normalizedDomain = String(params.normalized_domain || params.domain || "").trim().toLowerCase();
   if (normalizedDomain && companiesContainer) {
     try {
-      const sql = `SELECT TOP 1 c.company_name FROM c WHERE LOWER(c.normalized_domain) = @domain`;
+      const sql = `SELECT TOP 1 c.company_name FROM c WHERE LOWER(c.normalized_domain) = @domain ORDER BY c._ts DESC`;
       const { resources } = await companiesContainer.items
         .query(
           { query: sql, parameters: [{ name: "@domain", value: normalizedDomain }] },
@@ -111,13 +111,16 @@ async function getReviewsHandler(req, context, deps = {}) {
   const reviewsContainer = deps.reviewsContainer ?? getReviewsContainer();
   const companiesContainer = deps.companiesContainer ?? getCompaniesContainer();
 
+  const companyIdParam = String(url.searchParams.get("company_id") || url.searchParams.get("id") || "").trim();
+  const domainParam = String(url.searchParams.get("normalized_domain") || url.searchParams.get("domain") || "").trim();
+
   const companyName = await resolveCompanyName(
     {
       company: url.searchParams.get("company"),
-      company_id: url.searchParams.get("company_id"),
-      id: url.searchParams.get("id"),
-      normalized_domain: url.searchParams.get("normalized_domain"),
-      domain: url.searchParams.get("domain"),
+      company_id: companyIdParam,
+      id: companyIdParam,
+      normalized_domain: domainParam,
+      domain: domainParam,
     },
     companiesContainer,
     context
@@ -141,19 +144,30 @@ async function getReviewsHandler(req, context, deps = {}) {
           )
           .fetchAll();
 
-        const userReviews = (resources || []).map((r) => ({
-          id: r.id,
-          source: r.user_name
+        const userReviews = (resources || []).map((r) => {
+          const sourceName = r.user_name
             ? `${r.user_name}${r.user_location ? ` (${r.user_location})` : ""}`
-            : "Anonymous User",
-          abstract: r.text,
-          url: null,
-          rating: r.rating,
-          type: "user",
-          created_at: r.created_at,
-          flagged_bot: r.flagged_bot,
-          bot_reason: r.bot_reason,
-        }));
+            : "Anonymous User";
+
+          return {
+            // New canonical fields
+            type: "user",
+            text: r.text,
+            source_name: sourceName,
+            source_url: null,
+            imported_at: r.created_at,
+
+            // Backwards-compatible fields
+            id: r.id,
+            source: sourceName,
+            abstract: r.text,
+            url: null,
+            rating: r.rating,
+            created_at: r.created_at,
+            flagged_bot: r.flagged_bot,
+            bot_reason: r.bot_reason,
+          };
+        });
 
         allReviews = allReviews.concat(userReviews);
       } catch (e) {
@@ -164,30 +178,78 @@ async function getReviewsHandler(req, context, deps = {}) {
     // 2) curated reviews from company record
     if (companiesContainer) {
       try {
-        const sql = `SELECT c.company_name, c.curated_reviews FROM c WHERE c.company_name = @company`;
+        let sql;
+        let parameters;
+
+        if (companyIdParam) {
+          sql = `SELECT TOP 1 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c._ts FROM c WHERE c.id = @id OR c.company_id = @id ORDER BY c._ts DESC`;
+          parameters = [{ name: "@id", value: companyIdParam }];
+        } else if (domainParam) {
+          sql = `SELECT TOP 1 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c._ts FROM c WHERE LOWER(c.normalized_domain) = @domain ORDER BY c._ts DESC`;
+          parameters = [{ name: "@domain", value: domainParam.toLowerCase() }];
+        } else {
+          sql = `SELECT TOP 5 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c._ts FROM c WHERE c.company_name = @company ORDER BY c._ts DESC`;
+          parameters = [{ name: "@company", value: companyName }];
+        }
+
         const { resources } = await companiesContainer.items
-          .query(
-            { query: sql, parameters: [{ name: "@company", value: companyName }] },
-            { enableCrossPartitionQuery: true }
-          )
+          .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
           .fetchAll();
 
         if (resources && resources.length > 0) {
           const companyRecord = resources[0];
-          if (Array.isArray(companyRecord.curated_reviews)) {
-            const curatedReviews = companyRecord.curated_reviews.map((r, idx) => ({
-              id: `curated-${companyName}-${idx}`,
-              source: r.source || "Unknown Source",
-              abstract: r.abstract || r.excerpt || "",
-              url: r.url || r.source_url || null,
-              rating: r.rating || null,
-              type: "curated",
-              created_at: r.created_at || null,
-              last_updated_at: r.last_updated_at || null,
-            }));
+          const dupes = resources.slice(1);
+          const dupeTs = dupes.map((d) => d?._ts).filter(Boolean);
 
-            allReviews = allReviews.concat(curatedReviews);
+          const curatedArr = Array.isArray(companyRecord.curated_reviews)
+            ? companyRecord.curated_reviews
+            : Array.isArray(companyRecord.reviews)
+              ? companyRecord.reviews
+              : [];
+
+          const curatedReviews = curatedArr.map((r, idx) => {
+            const sourceName = (r?.author || r?.source_name || r?.source || "Unknown Source").toString();
+            const sourceUrl = r?.source_url || r?.url || null;
+            const text = r?.abstract || r?.excerpt || r?.text || "";
+            const importedAt = r?.imported_at || r?.created_at || r?.last_updated_at || r?.date || null;
+
+            return {
+              // New canonical fields
+              type: "curated",
+              text,
+              source_name: sourceName,
+              source_url: sourceUrl,
+              imported_at: importedAt,
+
+              // Backwards-compatible fields used by existing UI
+              id: r?.id || `curated-${companyName}-${idx}`,
+              source: sourceName,
+              abstract: text,
+              url: sourceUrl,
+              rating: r?.rating ?? null,
+              created_at: importedAt,
+              last_updated_at: r?.last_updated_at || null,
+            };
+          });
+
+          if (dupes.length > 0) {
+            context?.log?.("Warning: Multiple company records found for company_name; using newest", {
+              company: companyName,
+              primary_id: companyRecord?.id,
+              dupe_count: dupes.length,
+              dupe_ts: dupeTs,
+            });
           }
+
+          allReviews = allReviews.concat(curatedReviews);
+
+          // Attach metadata so the UI can detect regressions.
+          allReviews._meta = {
+            company_record_id: companyRecord?.id || null,
+            company_record_ts: companyRecord?._ts || null,
+            company_curated_count: curatedReviews.length,
+            dupe_company_records: dupes.length,
+          };
         }
       } catch (e) {
         context?.log?.("Warning: Failed to fetch curated reviews:", e?.message || e);
@@ -202,6 +264,10 @@ async function getReviewsHandler(req, context, deps = {}) {
       return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     });
 
+    const meta = allReviews._meta || {};
+    // remove accidental enumerable metadata if attached
+    if (allReviews._meta) delete allReviews._meta;
+
     return json(
       {
         ok: true,
@@ -210,6 +276,7 @@ async function getReviewsHandler(req, context, deps = {}) {
         items: allReviews,
         reviews: allReviews,
         count: allReviews.length,
+        meta,
       },
       200,
       req

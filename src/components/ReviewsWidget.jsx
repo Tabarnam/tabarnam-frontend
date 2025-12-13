@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
 import { RatingDots } from "@/components/Stars";
 
-export default function ReviewsWidget({ companyName }) {
+export default function ReviewsWidget({ companyId, companyName }) {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [rating, setRating] = useState(5);
@@ -14,10 +14,13 @@ export default function ReviewsWidget({ companyName }) {
   const [error, setError] = useState("");
 
   async function load() {
-    if (!companyName) return;
+    if (!companyId && !companyName) return;
     setLoading(true); setError("");
     try {
-      const r = await fetch(`${API_BASE}/get-reviews?company=${encodeURIComponent(companyName)}`);
+      const qs = companyId
+        ? `company_id=${encodeURIComponent(companyId)}`
+        : `company=${encodeURIComponent(companyName)}`;
+      const r = await fetch(`${API_BASE}/get-reviews?${qs}`);
       const data = await r.json().catch(() => ({ items: [], reviews: [] }));
       if (!r.ok) throw new Error(data?.error || r.statusText || "Failed to load");
       const reviews = Array.isArray(data?.items)
@@ -30,7 +33,7 @@ export default function ReviewsWidget({ companyName }) {
       setError(e?.message || "Failed to load reviews");
     } finally { setLoading(false); }
   }
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [companyName]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [companyId, companyName]);
 
   async function submit() {
     setError("");
@@ -70,23 +73,26 @@ export default function ReviewsWidget({ companyName }) {
           <div className="text-sm text-gray-500">No reviews yet.</div>
         ) : (
           <ul className="space-y-3">
-            {list.map((r) => {
+            {list.map((r, idx) => {
+              const sourceName = r.source_name || r.source || "";
+              const sourceUrl = r.source_url || r.url || null;
+              const text = r.text || r.abstract || "";
               const truncateUrl = (url, maxLen = 40) => {
                 if (!url) return null;
                 return url.length > maxLen ? url.substring(0, maxLen) + "…" : url;
               };
 
               return (
-                <li key={r.id} className="bg-white border rounded p-3">
+                <li key={r.id || `${companyName || companyId || "company"}-${idx}`} className="bg-white border rounded p-3">
                   <div className="flex items-center justify-between">
-                    <div className="font-medium text-amber-600">{r.source}</div>
+                    <div className="font-medium text-amber-600">{sourceName || "Unknown Source"}</div>
                     <div className="text-xs text-gray-500">
                       {r.created_at ? new Date(r.created_at).toLocaleString() : ""}
                     </div>
                   </div>
 
                   <div className="mt-2">
-                    <p className="text-sm text-gray-700 mb-2">{r.abstract}</p>
+                    <p className="text-sm text-gray-700 mb-2">{text}</p>
 
                     {r.rating != null && (
                       <div className="flex items-center gap-2 mb-2">
@@ -95,16 +101,16 @@ export default function ReviewsWidget({ companyName }) {
                       </div>
                     )}
 
-                    {r.url && (
+                    {sourceUrl && (
                       <div className="text-xs">
                         <a
-                          href={r.url}
+                          href={sourceUrl}
                           target="_blank"
                           rel="noreferrer"
                           className="text-blue-600 hover:underline inline-flex items-center gap-1"
-                          title={r.url}
+                          title={sourceUrl}
                         >
-                          {truncateUrl(r.url)}
+                          {truncateUrl(sourceUrl)}
                           <span className="text-gray-400">↗</span>
                         </a>
                       </div>

@@ -1,12 +1,12 @@
 const { app } = require("@azure/functions");
-const { httpRequest } = require("../_http");
-const { getProxyBase, json: sharedJson } = require("../_shared");
+const { discoverLogoSourceUrl } = require("../_logoImport");
 
 function json(obj, status = 200) {
   return {
     status,
     headers: {
       "Content-Type": "application/json",
+      "Cache-Control": "no-store",
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
       "Access-Control-Allow-Headers": "content-type,x-functions-key",
@@ -33,38 +33,32 @@ app.http("logo-scrape", {
       };
     }
 
-    const base = getProxyBase();
     const bodyObj = await req.json().catch(() => ({}));
-    const domain = (bodyObj.domain || "").trim();
-    if (!domain) {
+    const domain = String(bodyObj.domain || "").trim();
+    const websiteUrl = String(bodyObj.website_url || bodyObj.url || "").trim();
+
+    if (!domain && !websiteUrl) {
       return json({ ok: false, error: "Missing domain" }, 400);
     }
 
-    if (base) {
-      try {
-        const out = await httpRequest("POST", `${base}/logo-scrape`, {
-          body: { domain },
-        });
-        let b = out.body;
-        try {
-          b = JSON.parse(out.body);
-        } catch {}
-        return json(b, out.status || 502);
-      } catch (e) {
-        return json(
-          { ok: false, error: `Proxy error: ${e.message || String(e)}` },
-          502
-        );
-      }
+    try {
+      const out = await discoverLogoSourceUrl({ domain, websiteUrl }, context);
+      return json(
+        {
+          ok: Boolean(out?.ok),
+          domain: domain || "",
+          website_url: websiteUrl || "",
+          logo_source_url: out?.logo_source_url || "",
+          logo_url: out?.logo_source_url || "",
+          strategy: out?.strategy || "",
+          page_url: out?.page_url || "",
+          warning: out?.warning || "",
+          error: out?.error || "",
+        },
+        out?.ok ? 200 : 404
+      );
+    } catch (e) {
+      return json({ ok: false, error: e?.message || String(e) }, 500);
     }
-
-    return json(
-      {
-        ok: true,
-        domain,
-        logo_url: `https://logo.clearbit.com/${encodeURIComponent(domain)}`,
-      },
-      200
-    );
   },
 });

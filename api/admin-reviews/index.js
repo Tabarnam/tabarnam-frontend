@@ -69,7 +69,7 @@ app.http('adminReviews', {
       if (method === "GET") {
         if (!company) return json({ error: "company parameter required" }, 400);
 
-        const sql = `SELECT c.company_name, c.curated_reviews FROM c WHERE c.company_name = @company`;
+        const sql = `SELECT TOP 1 c.company_name, c.curated_reviews FROM c WHERE c.company_name = @company ORDER BY c._ts DESC`;
         const { resources } = await container.items
           .query(
             { query: sql, parameters: [{ name: "@company", value: company }] },
