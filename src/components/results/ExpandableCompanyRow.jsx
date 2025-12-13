@@ -282,7 +282,7 @@ export default function ExpandableCompanyRow({
                           rel="noreferrer"
                           className="text-blue-600 hover:underline"
                           onClick={(e) => e.stopPropagation()}
-                          title={r.sourceUrl}
+                          title={withAmazonAffiliate(r.sourceUrl)}
                         >
                           Source: {r.sourceName}
                         </a>
@@ -368,7 +368,7 @@ export default function ExpandableCompanyRow({
                       className="text-blue-600 hover:underline"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      Amazon Store
+                      Amazon
                     </a>
                   </div>
                 )}
@@ -505,7 +505,7 @@ export default function ExpandableCompanyRow({
             {amazonLink && (
               <div className="truncate">
                 <span className="font-semibold text-gray-700 mr-1">Aff.</span>
-                <span className="text-blue-600 hover:underline">Amazon Store</span>
+                <span className="text-blue-600 hover:underline">Amazon</span>
               </div>
             )}
           </div>

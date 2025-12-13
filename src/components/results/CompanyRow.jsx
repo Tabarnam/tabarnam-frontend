@@ -120,6 +120,15 @@ const CompanyRow = ({
     toast({ title: "Copied!", description: "Link copied to clipboard." });
   };
 
+  const websiteUrl = typeof company.website_url === "string" ? company.website_url.trim() : "";
+  const websiteOutboundUrl = websiteUrl ? withAmazonAffiliate(websiteUrl) : "";
+
+  const amazonRawUrl = typeof (company.amazon_store_url || company.amazon_url) === "string"
+    ? String(company.amazon_store_url || company.amazon_url).trim()
+    : "";
+  const amazonOutboundUrl = amazonRawUrl ? withAmazonAffiliate(amazonRawUrl) : "";
+  const amazonLabel = company.amazon_store_url ? "Amazon Store" : "Amazon";
+
   return (
     <>
       <tr
@@ -300,16 +309,16 @@ const CompanyRow = ({
 
                 {/* Row 2 */}
                 <div className="col-[1] row-[2]">
-                  {company.website_url && (
+                  {websiteUrl && (
                     <div className="flex items-center gap-2 text-sm text-blue-600">
                       <a
-                        href={withAmazonAffiliate(company.website_url)}
+                        href={websiteOutboundUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="hover:underline truncate"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {company.website_url}
+                        {websiteOutboundUrl}
                       </a>
                       <TooltipProvider>
                         <Tooltip>
@@ -317,7 +326,7 @@ const CompanyRow = ({
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                copyToClipboard(company.website_url);
+                                copyToClipboard(websiteOutboundUrl);
                               }}
                               className="text-xs text-gray-500 underline"
                             >
@@ -343,23 +352,23 @@ const CompanyRow = ({
 
                 {/* Row 3 */}
                 <div className="col-[1] row-[3]">
-                  {company.amazon_store_url && (
+                  {amazonRawUrl && (
                     <div className="flex items-center gap-2 text-sm">
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <a
-                              href={withAmazonAffiliate(company.amazon_store_url)}
+                              href={amazonOutboundUrl}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-blue-600 hover:underline"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              Amazon Store
+                              {amazonLabel}
                             </a>
                           </TooltipTrigger>
                           <TooltipContent className="max-w-xs break-words">
-                            {company.amazon_store_url}
+                            {amazonOutboundUrl}
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
@@ -367,7 +376,7 @@ const CompanyRow = ({
                         className="text-xs text-gray-500 underline"
                         onClick={(e) => {
                           e.stopPropagation();
-                          copyToClipboard(withAmazonAffiliate(company.amazon_store_url));
+                          copyToClipboard(amazonOutboundUrl);
                         }}
                       >
                         Copy
