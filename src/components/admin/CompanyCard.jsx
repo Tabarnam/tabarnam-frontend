@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { Building2, Globe, Tag, Edit, Trash2 } from 'lucide-react';
 import { RatingDots, RatingHearts } from "@/components/Stars";
+import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { getQQDefaultIconType, getQQFilledCount, getQQScore, hasQQRating } from "@/lib/stars/qqRating";
 import { Button } from '@/components/ui/button';
 import {
@@ -124,7 +125,7 @@ const CompanyCard = ({ company, index, onEdit, onDelete }) => {
 
       <div>
         <a
-          href={company.website_url || undefined}
+          href={company.website_url ? withAmazonAffiliate(company.website_url) : undefined}
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => !company.website_url && e.preventDefault()}

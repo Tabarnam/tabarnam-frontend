@@ -1,6 +1,7 @@
 // src/components/ReviewsWidget.jsx
 import React, { useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
+import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { RatingDots } from "@/components/Stars";
 
 export default function ReviewsWidget({ companyId, companyName }) {
@@ -104,13 +105,13 @@ export default function ReviewsWidget({ companyId, companyName }) {
                     {sourceUrl && (
                       <div className="text-xs">
                         <a
-                          href={sourceUrl}
+                          href={withAmazonAffiliate(sourceUrl)}
                           target="_blank"
                           rel="noreferrer"
                           className="text-blue-600 hover:underline inline-flex items-center gap-1"
-                          title={sourceUrl}
+                          title={withAmazonAffiliate(sourceUrl)}
                         >
-                          {truncateUrl(sourceUrl)}
+                          {truncateUrl(withAmazonAffiliate(sourceUrl))}
                           <span className="text-gray-400">↗</span>
                         </a>
                       </div>

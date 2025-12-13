@@ -1,6 +1,7 @@
 // src/components/SocialBadges.jsx
 import React from "react";
 import { Linkedin, Facebook, Instagram, Twitter, Youtube } from "lucide-react";
+import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 
 // Inline TikTok logo (monochrome, uses currentColor)
 function TikTokIcon({ size = 14, style = {}, className = "" }) {
@@ -70,7 +71,7 @@ function BrandButton({ brandKey, href, brandColors, variant }) {
   const Icon = b.Icon;
   return (
     <a
-      href={url}
+      href={withAmazonAffiliate(url)}
       title={b.label}
       aria-label={b.label}
       target="_blank"
