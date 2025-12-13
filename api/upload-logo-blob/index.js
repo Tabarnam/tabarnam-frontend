@@ -143,11 +143,17 @@ app.http("upload-logo-blob", {
         );
       }
 
-      // Validate file type (PNG, JPG, SVG, GIF)
-      const allowedTypes = ["image/png", "image/jpeg", "image/svg+xml", "image/gif"];
+      // Validate file type (PNG, JPG, SVG, GIF, WEBP)
+      const allowedTypes = [
+        "image/png",
+        "image/jpeg",
+        "image/svg+xml",
+        "image/gif",
+        "image/webp",
+      ];
       if (!allowedTypes.includes(file.type)) {
         return json(
-          { ok: false, error: "Invalid file type (PNG, JPG, SVG, GIF only)" },
+          { ok: false, error: "Invalid file type (PNG, JPG, SVG, GIF, WEBP only)" },
           400,
           req
         );
@@ -182,28 +188,28 @@ app.http("upload-logo-blob", {
       const buffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(buffer);
 
-      // Process image with sharp (resize to max 500x500)
+      // Normalize all uploads to PNG for consistent UI (SVG is rasterized)
       let processedBuffer = uint8Array;
-      if (file.type !== "image/svg+xml") {
-        try {
-          processedBuffer = await sharp(uint8Array)
-            .resize({ width: 500, height: 500, fit: "inside", withoutEnlargement: true })
-            .toBuffer();
-          ctx.log(`[upload-logo-blob] Resized image for company ${companyId}`);
-        } catch (sharpError) {
-          ctx.warn(`[upload-logo-blob] Sharp resize failed, using original: ${sharpError.message}`);
-          processedBuffer = uint8Array;
-        }
+      try {
+        const isSvg = file.type === "image/svg+xml";
+        const pipeline = sharp(uint8Array, isSvg ? { density: 300 } : undefined)
+          .resize({ width: 500, height: 500, fit: "inside", withoutEnlargement: true })
+          .png({ quality: 90 });
+
+        processedBuffer = await pipeline.toBuffer();
+        ctx.log(`[upload-logo-blob] Processed logo to PNG for company ${companyId}`);
+      } catch (sharpError) {
+        ctx.warn(`[upload-logo-blob] Sharp processing failed, using original bytes: ${sharpError.message}`);
+        processedBuffer = uint8Array;
       }
 
-      // Generate unique blob name (e.g., companyId-uuid.ext)
-      const fileExtension = file.type.split("/")[1] === "svg+xml" ? "svg" : file.type.split("/")[1];
-      const blobName = `${companyId}/${uuidv4()}.${fileExtension}`;
+      // Generate unique blob name (always .png for normalized output)
+      const blobName = `${companyId}/${uuidv4()}.png`;
 
       // Get blob client and upload
       const blockBlobClient = containerClient.getBlockBlobClient(blobName);
       await blockBlobClient.upload(processedBuffer, processedBuffer.length, {
-        blobHTTPHeaders: { blobContentType: file.type || "image/png" },
+        blobHTTPHeaders: { blobContentType: "image/png" },
       });
 
       // Generate SAS URL with 1-year expiration for secure blob access
