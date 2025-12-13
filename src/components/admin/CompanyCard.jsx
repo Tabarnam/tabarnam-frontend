@@ -43,6 +43,9 @@ const CompanyCard = ({ company, index, onEdit, onDelete }) => {
     }
   };
 
+  const primaryUrl = company.website_url || company.amazon_url || company.amazon_store_url || "";
+  const primaryLabel = company.website_url ? "Visit Website" : primaryUrl ? "View on Amazon" : "Visit Website";
+
   return (
     <motion.div
       variants={cardVariants}
@@ -125,14 +128,14 @@ const CompanyCard = ({ company, index, onEdit, onDelete }) => {
 
       <div>
         <a
-          href={company.website_url ? withAmazonAffiliate(company.website_url) : undefined}
+          href={primaryUrl ? withAmazonAffiliate(primaryUrl) : undefined}
           target="_blank"
           rel="noopener noreferrer"
-          onClick={(e) => !company.website_url && e.preventDefault()}
-          className={`flex items-center justify-center gap-2 w-full text-center px-4 py-2 rounded-lg font-semibold transition-all duration-300 ${company.website_url ? 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white' : 'bg-gray-600 text-gray-400 cursor-not-allowed'}`}
+          onClick={(e) => !primaryUrl && e.preventDefault()}
+          className={`flex items-center justify-center gap-2 w-full text-center px-4 py-2 rounded-lg font-semibold transition-all duration-300 ${primaryUrl ? 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white' : 'bg-gray-600 text-gray-400 cursor-not-allowed'}`}
         >
           <Globe className="w-4 h-4" />
-          Visit Website
+          {primaryLabel}
         </a>
       </div>
     </motion.div>

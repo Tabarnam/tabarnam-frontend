@@ -282,7 +282,7 @@ export default function ExpandableCompanyRow({
                           rel="noreferrer"
                           className="text-blue-600 hover:underline"
                           onClick={(e) => e.stopPropagation()}
-                          title={r.sourceUrl}
+                          title={withAmazonAffiliate(r.sourceUrl)}
                         >
                           Source: {r.sourceName}
                         </a>
@@ -368,7 +368,7 @@ export default function ExpandableCompanyRow({
                       className="text-blue-600 hover:underline"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      Amazon Store
+                      Amazon
                     </a>
                   </div>
                 )}
@@ -497,15 +497,29 @@ export default function ExpandableCompanyRow({
             {affiliateLinks.map((link, idx) => (
               <div key={link.url || idx} className="truncate">
                 <span className="font-semibold text-gray-700 mr-1">Aff.</span>
-                <span className="text-blue-600 hover:underline">
+                <a
+                  href={withAmazonAffiliate(link.url)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-600 hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   {inferAffiliateLabel(link, `Affiliate ${idx + 1}`)}
-                </span>
+                </a>
               </div>
             ))}
             {amazonLink && (
               <div className="truncate">
                 <span className="font-semibold text-gray-700 mr-1">Aff.</span>
-                <span className="text-blue-600 hover:underline">Amazon Store</span>
+                <a
+                  href={withAmazonAffiliate(amazonLink)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-600 hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  Amazon
+                </a>
               </div>
             )}
           </div>
