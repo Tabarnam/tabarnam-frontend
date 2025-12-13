@@ -202,6 +202,8 @@ app.http('adminCompanies', {
           return json({ error: "Invalid JSON" }, 400);
         }
 
+        const { getContainerPartitionKeyPath, buildPartitionKeyCandidates } = require("../_cosmosPartitionKey");
+
         const id = body.id || body.company_id;
         if (!id) {
           return json({ error: "id required" }, 400);
@@ -215,178 +217,110 @@ app.http('adminCompanies', {
         context.log(`[admin-companies-v2] DELETE: Deleting company with id:`, { id: requestedId });
 
         try {
-          context.log("[admin-companies-v2] DELETE: Querying for document with id:", requestedId);
+          const containerPkPath = await getContainerPartitionKeyPath(container, "/normalized_domain");
+          context.log("[admin-companies-v2] DELETE: container partition key path resolved", { containerPkPath });
+
           const querySpec = {
             query: "SELECT * FROM c WHERE c.id = @id",
             parameters: [{ name: "@id", value: requestedId }],
           };
 
-          const queryResult = await container.items
+          const { resources } = await container.items
             .query(querySpec, { enableCrossPartitionQuery: true })
             .fetchAll();
 
-          const { resources } = queryResult;
+          const docs = Array.isArray(resources) ? resources : [];
+          context.log("[admin-companies-v2] DELETE query result count:", docs.length);
 
-          context.log("[admin-companies-v2] DELETE query result count:", resources.length);
-
-          if (!resources || resources.length === 0) {
-            context.log("[admin-companies-v2] DELETE no document found for id:", requestedId);
+          if (docs.length === 0) {
             return json({ error: "Company not found", id: requestedId }, 404);
           }
-
-          let doc = resources[0];
-
-          let documentNormalizedDomain = doc.normalized_domain;
-
-          if (!documentNormalizedDomain || String(documentNormalizedDomain).trim() === "") {
-            const urlForDomain = doc.canonical_url || doc.url || doc.website || "";
-            documentNormalizedDomain = toNormalizedDomain(urlForDomain);
-
-            context.log("[admin-companies-v2] DELETE: Document missing normalized_domain, computed from URL", {
-              id: doc.id,
-              company_name: doc.company_name,
-              urlForDomain: urlForDomain,
-              computedNormalizedDomain: documentNormalizedDomain
-            });
-
-            doc.normalized_domain = documentNormalizedDomain;
-          }
-
-          if (!documentNormalizedDomain || String(documentNormalizedDomain).trim() === "" || String(documentNormalizedDomain).trim() === "unknown") {
-            context.log("[admin-companies-v2] DELETE ERROR: Cannot determine normalized_domain for document", {
-              id: doc.id,
-              company_name: doc.company_name,
-              canonicalUrl: doc.canonical_url,
-              url: doc.url,
-              website: doc.website,
-              docKeys: Object.keys(doc).slice(0, 20)
-            });
-            return json({
-              error: "Cannot delete company: unable to determine partition key from document URL fields",
-              id: requestedId
-            }, 500);
-          }
-
-          const partitionKeyValue = String(documentNormalizedDomain).trim();
-          context.log("[admin-companies-v2] DELETE: Partition key ready", {
-            itemId: doc.id,
-            partitionKeyValue: partitionKeyValue,
-            typeOf: typeof partitionKeyValue,
-            length: partitionKeyValue.length,
-            wasComputed: !resources[0].normalized_domain
-          });
 
           const now = new Date().toISOString();
           const actor = (body && body.actor) || "admin_ui";
 
-          const updatedDoc = {
-            ...doc,
-            is_deleted: true,
-            deleted_at: now,
-            deleted_by: actor
-          };
+          let softDeleted = 0;
+          let hardDeleted = 0;
+          const failures = [];
 
-          context.log("[admin-companies-v2] SOFT DELETE prepared:", {
-            id: doc.id,
-            company_id: doc.company_id,
-            company_name: doc.company_name,
-            is_deleted: updatedDoc.is_deleted,
-            deleted_at: updatedDoc.deleted_at,
-            deleted_by: updatedDoc.deleted_by,
-            partitionKeyValue: partitionKeyValue,
-            normalized_domain: doc.normalized_domain
-          });
+          for (const doc of docs) {
+            const updatedDoc = {
+              ...doc,
+              is_deleted: true,
+              deleted_at: now,
+              deleted_by: actor,
+            };
 
-          try {
-            context.log("[admin-companies-v2] SOFT DELETE attempting upsert with partition key:", {
-              itemId: doc.id,
-              partitionKeyValue: partitionKeyValue,
-              docId: updatedDoc.id,
-              updatedDocNormalizedDomain: updatedDoc.normalized_domain
-            });
+            const candidates = buildPartitionKeyCandidates({ doc, containerPkPath, requestedId });
+            let deletedThisDoc = false;
 
-            const upsertResult = await container.items.upsert(updatedDoc, { partitionKey: partitionKeyValue });
-
-            context.log(`[admin-companies-v2] DELETE soft-delete succeeded:`, {
-              id: requestedId,
-              itemId: doc.id,
-              deletedAt: now,
-              deletedBy: actor,
-              statusCode: upsertResult?.statusCode,
-              returnedId: upsertResult?.resource?.id,
-              returnedIsDeleted: upsertResult?.resource?.is_deleted,
-              returnedNormalizedDomain: upsertResult?.resource?.normalized_domain
-            });
-            return json({ ok: true, softDeleted: true }, 200);
-          } catch (upsertError) {
-            context.log("[admin-companies-v2] SOFT DELETE upsert with partition key failed:", {
-              requestedId: requestedId,
-              itemId: doc.id,
-              partitionKeyValue: partitionKeyValue,
-              code: upsertError?.code,
-              statusCode: upsertError?.statusCode,
-              message: upsertError?.message,
-              errorBody: upsertError?.body
-            });
-
-            context.log("[admin-companies-v2] SOFT DELETE: Attempting direct item replace with partition key...");
             try {
-              const itemRef = container.item(doc.id, partitionKeyValue);
-              const replaceResult = await itemRef.replace(updatedDoc);
+              await container.items.upsert(updatedDoc);
+              softDeleted++;
+              deletedThisDoc = true;
+              continue;
+            } catch {
+            }
 
-              context.log("[admin-companies-v2] SOFT DELETE direct replace succeeded:", {
-                requestedId: requestedId,
-                itemId: doc.id,
-                partitionKeyValue: partitionKeyValue,
-                statusCode: replaceResult?.statusCode,
-                returnedId: replaceResult?.resource?.id,
-                returnedIsDeleted: replaceResult?.resource?.is_deleted,
-                returnedNormalizedDomain: replaceResult?.resource?.normalized_domain
-              });
-              return json({ ok: true, softDeleted: true }, 200);
-            } catch (replaceError) {
-              context.log("[admin-companies-v2] SOFT DELETE direct replace also failed:", {
-                error: replaceError?.message,
-                code: replaceError?.code,
-                statusCode: replaceError?.statusCode
-              });
-
-              context.log("[admin-companies-v2] SOFT DELETE: Attempting fallback upsert without explicit partition key parameter...");
+            for (const partitionKeyValue of candidates) {
+              if (deletedThisDoc) break;
               try {
-                const fallbackResult = await container.items.upsert(updatedDoc);
+                await container.items.upsert(updatedDoc, { partitionKey: partitionKeyValue });
+                softDeleted++;
+                deletedThisDoc = true;
+                break;
+              } catch {
+              }
 
-                context.log("[admin-companies-v2] SOFT DELETE fallback upsert succeeded:", {
-                  requestedId: requestedId,
-                  itemId: doc.id,
-                  statusCode: fallbackResult?.statusCode,
-                  returnedId: fallbackResult?.resource?.id,
-                  returnedIsDeleted: fallbackResult?.resource?.is_deleted
-                });
-                return json({ ok: true, softDeleted: true }, 200);
-              } catch (fallbackError) {
-                context.log("[admin-companies-v2] SOFT DELETE all methods failed:", {
-                  partitionKeyValue: partitionKeyValue,
-                  upsertWithKeyError: upsertError?.message,
-                  replaceError: replaceError?.message,
-                  fallbackError: fallbackError?.message
-                });
-                throw upsertError;
+              try {
+                await container.item(doc.id, partitionKeyValue).replace(updatedDoc);
+                softDeleted++;
+                deletedThisDoc = true;
+                break;
+              } catch {
               }
             }
+
+            if (deletedThisDoc) continue;
+
+            for (const partitionKeyValue of candidates) {
+              if (deletedThisDoc) break;
+              try {
+                await container.item(doc.id, partitionKeyValue).delete();
+                hardDeleted++;
+                deletedThisDoc = true;
+                break;
+              } catch {
+              }
+            }
+
+            if (!deletedThisDoc) {
+              failures.push({ itemId: doc.id, attemptedPartitionKeyCount: candidates.length });
+            }
           }
+
+          if (failures.length > 0) {
+            return json(
+              {
+                error: "Failed to delete one or more matching documents",
+                id: requestedId,
+                softDeleted,
+                hardDeleted,
+                failures,
+              },
+              500
+            );
+          }
+
+          return json({ ok: true, id: requestedId, softDeleted, hardDeleted }, 200);
         } catch (e) {
           context.log("[admin-companies-v2] DELETE error:", {
             id: requestedId,
             code: e?.code,
             statusCode: e?.statusCode,
             message: e?.message,
-            stack: e?.stack
+            stack: e?.stack,
           });
-
-          if (e?.statusCode === 404) {
-            return json({ error: "Company not found", id: requestedId }, 404);
-          }
-
           return json({ error: "Failed to delete company", detail: e?.message }, 500);
         }
       }
