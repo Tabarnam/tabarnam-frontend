@@ -9,7 +9,7 @@ const { v4: uuidv4 } = require("uuid");
 
 function env(k, d = "") {
   const v = process.env[k];
-  return (v == null ? d : String(v)).trim();
+  return v == null ? d : String(v).trim();
 }
 
 function sleep(ms) {
@@ -88,7 +88,7 @@ function* walkJson(value) {
 }
 
 function extractSchemaOrgLogo(html, baseUrl) {
-  const scriptRe = /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  const scriptRe = /<script\\b[^>]*type=["']application\\/ld\\+json["'][^>]*>([\\s\\S]*?)<\\/script>/gi;
   let m;
 
   while ((m = scriptRe.exec(html)) !== null) {
@@ -128,15 +128,113 @@ function parseImgAttributes(tag) {
   return attrs;
 }
 
-function extractLikelyLogoImg(html, baseUrl) {
+const LOGO_POSITIVE_TOKENS = ["logo", "wordmark", "logotype", "brand", "mark"];
+const LOGO_NEGATIVE_TOKENS = [
+  "hero",
+  "banner",
+  "carousel",
+  "slider",
+  "slideshow",
+  "lifestyle",
+  "campaign",
+  "collection",
+  "product",
+  "gallery",
+  "lookbook",
+  "model",
+  "people",
+  "person",
+  "press",
+  "article",
+  "blog",
+  "story",
+  "cover",
+  "background",
+];
+
+function normalizeForTokens(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function hasAnyToken(hay, tokens) {
+  const h = normalizeForTokens(hay);
+  if (!h) return false;
+  return tokens.some((t) => h.includes(t));
+}
+
+function getFileExt(url) {
+  const u = String(url || "").toLowerCase().split("?")[0].split("#")[0];
+  const m = u.match(/\.([a-z0-9]{2,5})$/);
+  return m ? m[1] : "";
+}
+
+function extScore(ext) {
+  switch (ext) {
+    case "svg":
+      return 45;
+    case "png":
+      return 30;
+    case "webp":
+      return 12;
+    case "jpg":
+    case "jpeg":
+      return 4;
+    case "gif":
+      return -10;
+    case "ico":
+      return -35;
+    default:
+      return 0;
+  }
+}
+
+function strongLogoSignal({ url, id = "", cls = "", alt = "" } = {}) {
+  const hay = `${id} ${cls} ${alt} ${url}`;
+  if (hasAnyToken(hay, ["logo", "wordmark", "logotype"])) return true;
+  const ext = getFileExt(url);
+  if (ext === "svg") return true;
+  if (ext === "png" && hasAnyToken(hay, ["brand", "mark"])) return true;
+  return false;
+}
+
+function scoreCandidate({ url, source, id = "", cls = "", alt = "", idx = 0, width = null, height = null }) {
+  const hay = `${id} ${cls} ${alt} ${url}`;
+  const ext = getFileExt(url);
+
+  let score = 0;
+
+  score += extScore(ext);
+
+  if (hasAnyToken(hay, LOGO_POSITIVE_TOKENS)) score += 90;
+  if (hasAnyToken(hay, ["header", "navbar", "nav"])) score += 10;
+
+  if (hasAnyToken(hay, LOGO_NEGATIVE_TOKENS)) score -= 140;
+
+  if (idx < 5000) score += 14;
+  else if (idx < 15000) score += 7;
+
+  const w = Number.isFinite(width) ? width : null;
+  const h = Number.isFinite(height) ? height : null;
+  if (w != null && w > 1200) score -= 50;
+  if (h != null && h > 600) score -= 70;
+
+  if (ext === "ico" && source !== "favicon") score -= 90;
+
+  return score;
+}
+
+function collectImgCandidates(html, baseUrl) {
   const imgRe = /<img\b[^>]*>/gi;
   let m;
-  let best = { score: -Infinity, url: "" };
+  const out = [];
 
   while ((m = imgRe.exec(html)) !== null) {
     const tag = m[0];
     const attrs = parseImgAttributes(tag);
-    const src = attrs.src || attrs["data-src"] || "";
+    const src = attrs.src || attrs["data-src"] || attrs["data-lazy-src"] || "";
     const abs = absolutizeUrl(src, baseUrl);
     if (!abs) continue;
 
@@ -145,31 +243,37 @@ function extractLikelyLogoImg(html, baseUrl) {
     const alt = String(attrs.alt || "").toLowerCase();
 
     const idx = m.index || 0;
-    let score = 0;
+    const width = attrs.width != null ? Number(attrs.width) : null;
+    const height = attrs.height != null ? Number(attrs.height) : null;
 
-    const hay = `${id} ${cls} ${alt}`;
-    if (hay.includes("logo")) score += 50;
-    if (hay.includes("brand")) score += 10;
-    if (hay.includes("header")) score += 5;
+    const score = scoreCandidate({ url: abs, source: "img", id, cls, alt, idx, width, height });
 
-    // Prefer images close to the top of the page.
-    if (idx < 5000) score += 12;
-    else if (idx < 15000) score += 6;
-
-    const uLower = abs.toLowerCase();
-    if (uLower.includes("logo")) score += 25;
-    if (uLower.includes("brand")) score += 6;
-    if (uLower.endsWith(".svg")) score += 5;
-
-    // Penalize obvious favicons.
-    if (uLower.includes("favicon") || uLower.endsWith(".ico")) score -= 100;
-
-    if (score > best.score) {
-      best = { score, url: abs };
+    if (!hasAnyToken(`${id} ${cls} ${alt} ${abs}`, LOGO_POSITIVE_TOKENS) && getFileExt(abs) !== "svg") {
+      if (score < 30) continue;
     }
+
+    out.push({
+      url: abs,
+      source: "img",
+      page_url: baseUrl,
+      score,
+      id,
+      cls,
+      alt,
+      idx,
+      width: Number.isFinite(width) ? width : null,
+      height: Number.isFinite(height) ? height : null,
+      strong_signal: strongLogoSignal({ url: abs, id, cls, alt }),
+    });
   }
 
-  return best.url;
+  return out;
+}
+
+function extractLikelyLogoImg(html, baseUrl) {
+  const candidates = collectImgCandidates(html, baseUrl);
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.url || "";
 }
 
 function extractFavicon(html, baseUrl) {
@@ -196,7 +300,6 @@ function extractFavicon(html, baseUrl) {
   candidates.sort((a, b) => b.score - a.score);
   if (candidates[0]?.url) return candidates[0].url;
 
-  // As a last resort, try /favicon.ico
   try {
     const u = new URL(baseUrl);
     return `${u.origin}/favicon.ico`;
@@ -223,7 +326,6 @@ function buildHomeUrlCandidates(domain, websiteUrl) {
     if (!d.startsWith("www.")) candidates.push(`https://www.${d}`);
   }
 
-  // Deduplicate
   const seen = new Set();
   const out = [];
   for (const c of candidates) {
@@ -254,68 +356,6 @@ async function fetchText(url, timeoutMs) {
   }
 }
 
-async function discoverLogoSourceUrl({ domain, websiteUrl }, logger = console) {
-  const d = normalizeDomain(domain);
-  const homes = buildHomeUrlCandidates(d, websiteUrl);
-
-  let lastError = "";
-
-  for (const home of homes) {
-    try {
-      const { ok, status, url: finalUrl, text } = await fetchText(home, 8000);
-      if (!ok || !text) {
-        lastError = `homepage fetch failed status=${status}`;
-        continue;
-      }
-
-      const baseUrl = finalUrl || home;
-
-      const og = extractMetaImage(text, baseUrl, "og");
-      if (og) {
-        return { ok: true, logo_source_url: og, strategy: "og:image", page_url: baseUrl };
-      }
-
-      const tw = extractMetaImage(text, baseUrl, "twitter");
-      if (tw) {
-        return { ok: true, logo_source_url: tw, strategy: "twitter:image", page_url: baseUrl };
-      }
-
-      const schema = extractSchemaOrgLogo(text, baseUrl);
-      if (schema) {
-        return { ok: true, logo_source_url: schema, strategy: "schema.org", page_url: baseUrl };
-      }
-
-      const img = extractLikelyLogoImg(text, baseUrl);
-      if (img) {
-        return { ok: true, logo_source_url: img, strategy: "header-img", page_url: baseUrl };
-      }
-
-      const icon = extractFavicon(text, baseUrl);
-      if (icon) {
-        return { ok: true, logo_source_url: icon, strategy: "favicon", page_url: baseUrl };
-      }
-
-      lastError = "no logo candidates found";
-    } catch (e) {
-      lastError = e?.message || String(e);
-      logger?.warn?.(`[logoImport] discover failed for ${home}: ${lastError}`);
-    }
-  }
-
-  // Final fallback: Clearbit (kept for backwards compatibility)
-  if (d) {
-    return {
-      ok: true,
-      logo_source_url: `https://logo.clearbit.com/${encodeURIComponent(d)}`,
-      strategy: "clearbit",
-      page_url: "",
-      warning: lastError || "fallback",
-    };
-  }
-
-  return { ok: false, logo_source_url: "", strategy: "", page_url: "", error: lastError || "missing domain" };
-}
-
 function sniffIsSvg(contentType, url, buf) {
   const ct = String(contentType || "").toLowerCase();
   if (ct.includes("image/svg+xml")) return true;
@@ -332,7 +372,10 @@ function sniffIsSvg(contentType, url, buf) {
   return false;
 }
 
-async function fetchImageBufferWithRetries(url, { timeoutMs = 10000, maxBytes = 8 * 1024 * 1024, retries = 2 } = {}) {
+async function fetchImageBufferWithRetries(
+  url,
+  { timeoutMs = 10000, maxBytes = 8 * 1024 * 1024, retries = 2 } = {}
+) {
   const u = String(url || "").trim();
   if (!u) throw new Error("missing logo_source_url");
 
@@ -376,6 +419,226 @@ async function fetchImageBufferWithRetries(url, { timeoutMs = 10000, maxBytes = 
   }
 
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr || "fetch failed"));
+}
+
+async function getImageMetadata(buf, isSvg) {
+  try {
+    const meta = await sharp(buf, isSvg ? { density: 200 } : undefined).metadata();
+    const width = Number.isFinite(meta?.width) ? meta.width : null;
+    const height = Number.isFinite(meta?.height) ? meta.height : null;
+    return { width, height };
+  } catch {
+    return { width: null, height: null };
+  }
+}
+
+function isLikelyHeroDimensions({ width, height }) {
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return false;
+  if (width >= 1600 && height >= 700) return true;
+  if (width >= 1200 && height >= 600) return true;
+  if (width >= 1000 && height >= 500) return true;
+  if (height >= 800) return true;
+  return false;
+}
+
+function isLikelyNonLogoByContentType(contentType, candidate) {
+  const ct = String(contentType || "").toLowerCase();
+  if (!ct) return false;
+  if (ct.includes("image/jpeg") || ct.includes("image/jpg")) {
+    if (!candidate?.strong_signal) return true;
+    if (!hasAnyToken(candidate.url, ["logo", "wordmark", "logotype"])) return true;
+  }
+  return false;
+}
+
+async function fetchAndEvaluateCandidate(candidate, logger = console) {
+  const sourceUrl = String(candidate?.url || "").trim();
+  if (!sourceUrl) return { ok: false, reason: "missing_url" };
+
+  if (hasAnyToken(sourceUrl, LOGO_NEGATIVE_TOKENS) && !candidate?.strong_signal) {
+    return { ok: false, reason: "negative_url_tokens" };
+  }
+
+  try {
+    const { buf, contentType, finalUrl } = await fetchImageBufferWithRetries(sourceUrl, {
+      retries: 1,
+      timeoutMs: 8000,
+      maxBytes: 6 * 1024 * 1024,
+    });
+
+    const resolvedUrl = finalUrl || sourceUrl;
+    const isSvg = sniffIsSvg(contentType, resolvedUrl, buf);
+
+    if (isSvg) {
+      return { ok: true, buf, contentType, finalUrl: resolvedUrl, isSvg, width: null, height: null };
+    }
+
+    if (isLikelyNonLogoByContentType(contentType, candidate)) {
+      return { ok: false, reason: "raster_jpeg_weak_signal" };
+    }
+
+    const { width, height } = await getImageMetadata(buf, isSvg);
+
+    if (isLikelyHeroDimensions({ width, height }) && !candidate?.strong_signal) {
+      return { ok: false, reason: `likely_hero_dimensions_${width}x${height}` };
+    }
+
+    return { ok: true, buf, contentType, finalUrl: resolvedUrl, isSvg, width, height };
+  } catch (e) {
+    logger?.warn?.(`[logoImport] candidate fetch/eval failed: ${candidate?.url} ${e?.message || e}`);
+    return { ok: false, reason: e?.message || String(e) };
+  }
+}
+
+function dedupeAndSortCandidates(candidates) {
+  const bestByUrl = new Map();
+
+  for (const c of candidates || []) {
+    const u = String(c?.url || "").trim();
+    if (!u) continue;
+    const key = u.toLowerCase();
+    const existing = bestByUrl.get(key);
+    if (!existing || (Number(c.score) || 0) > (Number(existing.score) || 0)) {
+      bestByUrl.set(key, c);
+    }
+  }
+
+  const out = Array.from(bestByUrl.values());
+  out.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+  return out;
+}
+
+function collectLogoCandidatesFromHtml(html, baseUrl) {
+  const candidates = [];
+
+  const schema = extractSchemaOrgLogo(html, baseUrl);
+  if (schema) {
+    candidates.push({
+      url: schema,
+      source: "schema.org",
+      page_url: baseUrl,
+      score: 180 + extScore(getFileExt(schema)) + (hasAnyToken(schema, LOGO_POSITIVE_TOKENS) ? 40 : 0),
+      strong_signal: true,
+    });
+  }
+
+  candidates.push(...collectImgCandidates(html, baseUrl));
+
+  const og = extractMetaImage(html, baseUrl, "og");
+  if (og) {
+    const hay = og;
+    candidates.push({
+      url: og,
+      source: "og:image",
+      page_url: baseUrl,
+      score:
+        60 +
+        extScore(getFileExt(og)) +
+        (hasAnyToken(hay, LOGO_POSITIVE_TOKENS) ? 50 : -10) +
+        (hasAnyToken(hay, LOGO_NEGATIVE_TOKENS) ? -120 : 0),
+      strong_signal: hasAnyToken(hay, LOGO_POSITIVE_TOKENS) || getFileExt(og) === "svg",
+    });
+  }
+
+  const tw = extractMetaImage(html, baseUrl, "twitter");
+  if (tw) {
+    const hay = tw;
+    candidates.push({
+      url: tw,
+      source: "twitter:image",
+      page_url: baseUrl,
+      score:
+        55 +
+        extScore(getFileExt(tw)) +
+        (hasAnyToken(hay, LOGO_POSITIVE_TOKENS) ? 50 : -10) +
+        (hasAnyToken(hay, LOGO_NEGATIVE_TOKENS) ? -120 : 0),
+      strong_signal: hasAnyToken(hay, LOGO_POSITIVE_TOKENS) || getFileExt(tw) === "svg",
+    });
+  }
+
+  const icon = extractFavicon(html, baseUrl);
+  if (icon) {
+    candidates.push({
+      url: icon,
+      source: "favicon",
+      page_url: baseUrl,
+      score: 5 + extScore(getFileExt(icon)),
+      strong_signal: getFileExt(icon) === "svg" || getFileExt(icon) === "png" || hasAnyToken(icon, ["favicon", "icon"]),
+    });
+  }
+
+  return dedupeAndSortCandidates(candidates);
+}
+
+async function discoverLogoCandidates({ domain, websiteUrl }, logger = console) {
+  const d = normalizeDomain(domain);
+  const homes = buildHomeUrlCandidates(d, websiteUrl);
+
+  let lastError = "";
+
+  for (const home of homes) {
+    try {
+      const { ok, status, url: finalUrl, text } = await fetchText(home, 8000);
+      if (!ok || !text) {
+        lastError = `homepage fetch failed status=${status}`;
+        continue;
+      }
+
+      const baseUrl = finalUrl || home;
+      const candidates = collectLogoCandidatesFromHtml(text, baseUrl);
+
+      if (candidates.length > 0) {
+        return { ok: true, candidates, page_url: baseUrl, warning: "" };
+      }
+
+      lastError = "no logo candidates found";
+    } catch (e) {
+      lastError = e?.message || String(e);
+      logger?.warn?.(`[logoImport] discover failed for ${home}: ${lastError}`);
+    }
+  }
+
+  return { ok: false, candidates: [], page_url: "", error: lastError || "missing domain" };
+}
+
+async function discoverLogoSourceUrl({ domain, websiteUrl }, logger = console) {
+  const d = normalizeDomain(domain);
+
+  const discovered = await discoverLogoCandidates({ domain: d, websiteUrl }, logger);
+  const candidates = dedupeAndSortCandidates(discovered?.candidates || []);
+
+  const maxToTry = 8;
+  for (let i = 0; i < Math.min(maxToTry, candidates.length); i += 1) {
+    const candidate = candidates[i];
+    const evalResult = await fetchAndEvaluateCandidate(candidate, logger);
+    if (evalResult.ok) {
+      return {
+        ok: true,
+        logo_source_url: evalResult.finalUrl || candidate.url,
+        strategy: candidate.source || "unknown",
+        page_url: candidate.page_url || discovered?.page_url || "",
+        warning: "",
+      };
+    }
+  }
+
+  if (d) {
+    return {
+      ok: true,
+      logo_source_url: `https://logo.clearbit.com/${encodeURIComponent(d)}`,
+      strategy: "clearbit",
+      page_url: "",
+      warning: discovered?.error || "fallback",
+    };
+  }
+
+  return {
+    ok: false,
+    logo_source_url: "",
+    strategy: "",
+    page_url: "",
+    error: discovered?.error || "missing domain",
+  };
 }
 
 async function rasterizeToPng(buf, { maxSize = 500, isSvg = false } = {}) {
@@ -440,10 +703,7 @@ async function uploadPngToBlob({ companyId, pngBuffer }, logger = console) {
   return logoUrl;
 }
 
-async function importCompanyLogo(
-  { companyId, domain, websiteUrl, logoSourceUrl },
-  logger = console
-) {
+async function importCompanyLogo({ companyId, domain, websiteUrl, logoSourceUrl }, logger = console) {
   if (!companyId) {
     return {
       ok: false,
@@ -454,61 +714,66 @@ async function importCompanyLogo(
     };
   }
 
-  let discovery = null;
+  const candidates = [];
+
   if (logoSourceUrl) {
-    discovery = {
-      ok: true,
-      logo_source_url: String(logoSourceUrl).trim(),
-      strategy: "provided",
-      page_url: "",
-    };
-  } else {
-    discovery = await discoverLogoSourceUrl({ domain, websiteUrl }, logger);
+    const providedUrl = String(logoSourceUrl).trim();
+    if (providedUrl) {
+      candidates.push({
+        url: providedUrl,
+        source: "provided",
+        page_url: "",
+        score: 1000 + extScore(getFileExt(providedUrl)) + (hasAnyToken(providedUrl, LOGO_POSITIVE_TOKENS) ? 50 : 0),
+        strong_signal: strongLogoSignal({ url: providedUrl }),
+      });
+    }
   }
 
-  const source = String(discovery?.logo_source_url || "").trim();
-  if (!source) {
-    return {
-      ok: true,
-      logo_import_status: "missing",
-      logo_error: discovery?.error || "missing logo_source_url",
-      logo_source_url: "",
-      logo_url: null,
-      logo_discovery_strategy: discovery?.strategy || "",
-    };
+  const discovered = await discoverLogoCandidates({ domain, websiteUrl }, logger);
+  candidates.push(...(discovered?.candidates || []));
+
+  const sorted = dedupeAndSortCandidates(candidates);
+
+  let lastReason = "";
+  const maxToTry = 10;
+
+  for (let i = 0; i < Math.min(maxToTry, sorted.length); i += 1) {
+    const candidate = sorted[i];
+    const evalResult = await fetchAndEvaluateCandidate(candidate, logger);
+
+    if (!evalResult.ok) {
+      lastReason = evalResult.reason || lastReason;
+      continue;
+    }
+
+    try {
+      const pngBuffer = await rasterizeToPng(evalResult.buf, { maxSize: 500, isSvg: evalResult.isSvg });
+      const logoUrl = await uploadPngToBlob({ companyId, pngBuffer }, logger);
+
+      return {
+        ok: true,
+        logo_import_status: "imported",
+        logo_error: "",
+        logo_source_url: evalResult.finalUrl || candidate.url,
+        logo_url: logoUrl,
+        logo_discovery_strategy: candidate.source || "",
+        logo_discovery_page_url: candidate.page_url || discovered?.page_url || "",
+      };
+    } catch (e) {
+      lastReason = e?.message || String(e);
+      continue;
+    }
   }
 
-  try {
-    const { buf, contentType, finalUrl } = await fetchImageBufferWithRetries(source, {
-      retries: 2,
-      timeoutMs: 10000,
-      maxBytes: 8 * 1024 * 1024,
-    });
-
-    const isSvg = sniffIsSvg(contentType, finalUrl || source, buf);
-    const pngBuffer = await rasterizeToPng(buf, { maxSize: 500, isSvg });
-    const logoUrl = await uploadPngToBlob({ companyId, pngBuffer }, logger);
-
-    return {
-      ok: true,
-      logo_import_status: "imported",
-      logo_error: "",
-      logo_source_url: finalUrl || source,
-      logo_url: logoUrl,
-      logo_discovery_strategy: discovery?.strategy || "",
-      logo_discovery_page_url: discovery?.page_url || "",
-    };
-  } catch (e) {
-    return {
-      ok: false,
-      logo_import_status: "failed",
-      logo_error: e?.message || String(e),
-      logo_source_url: source,
-      logo_url: null,
-      logo_discovery_strategy: discovery?.strategy || "",
-      logo_discovery_page_url: discovery?.page_url || "",
-    };
-  }
+  return {
+    ok: true,
+    logo_import_status: "missing",
+    logo_error: lastReason || discovered?.error || "no suitable logo found",
+    logo_source_url: "",
+    logo_url: null,
+    logo_discovery_strategy: "",
+    logo_discovery_page_url: discovered?.page_url || "",
+  };
 }
 
 module.exports = {
@@ -521,5 +786,8 @@ module.exports = {
     extractSchemaOrgLogo,
     extractLikelyLogoImg,
     extractFavicon,
+    collectLogoCandidatesFromHtml,
+    dedupeAndSortCandidates,
+    strongLogoSignal,
   },
 };
