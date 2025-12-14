@@ -421,7 +421,7 @@ async function getReviewsHandler(req, context, deps = {}) {
     }
 
     // 3) public admin notes (show to users)
-    if (companiesContainer && (notesContainer || notesAdminContainer)) {
+    if (notesContainer || notesAdminContainer) {
       try {
         const companyIdCandidates = await resolveCompanyIdCandidates(
           {
