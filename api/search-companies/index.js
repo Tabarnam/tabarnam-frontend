@@ -43,6 +43,134 @@ function getCompaniesContainer() {
   }
 }
 
+function clamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
+}
+
+function toFiniteNumber(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function isCompanyRating(value) {
+  if (!value || typeof value !== "object") return false;
+  return (
+    "star1" in value ||
+    "star2" in value ||
+    "star3" in value ||
+    "star4" in value ||
+    "star5" in value
+  );
+}
+
+function calculateTotalScore(rating) {
+  if (!rating || typeof rating !== "object") return 0;
+  const starKeys = ["star1", "star2", "star3", "star4", "star5"];
+  let total = 0;
+  for (const k of starKeys) {
+    const v = rating[k];
+    const n = typeof v === "object" ? toFiniteNumber(v?.value) : toFiniteNumber(v);
+    total += n || 0;
+  }
+  return clamp(total, 0, 5);
+}
+
+function getQQScoreLike(company) {
+  if (!company) return 0;
+
+  const rating = company.rating;
+  if (isCompanyRating(rating)) {
+    return calculateTotalScore(rating);
+  }
+
+  const ratingAsNumber = toFiniteNumber(rating);
+  if (ratingAsNumber != null) return clamp(ratingAsNumber, 0, 5);
+
+  const starRating = toFiniteNumber(company.star_rating);
+  if (starRating != null) return clamp(starRating, 0, 5);
+
+  const starScore = toFiniteNumber(company.star_score);
+  if (starScore != null) return clamp(starScore, 0, 5);
+
+  const stars = toFiniteNumber(company.stars);
+  if (stars != null) return clamp(stars, 0, 5);
+
+  const confidence = toFiniteNumber(company.confidence_score);
+  if (confidence != null) return clamp(confidence * 5, 0, 5);
+
+  return 0;
+}
+
+function asString(v) {
+  return typeof v === "string" ? v : v == null ? "" : String(v);
+}
+
+function joinedLower(arr) {
+  if (!Array.isArray(arr)) return "";
+  return arr.map((s) => asString(s).trim()).filter(Boolean).join(", ").toLowerCase();
+}
+
+function getTotalReviews(company) {
+  const base =
+    typeof company.review_count === "number"
+      ? company.review_count
+      : typeof company.review_count_approved === "number"
+        ? company.review_count_approved
+        : typeof company.reviews_count === "number"
+          ? company.reviews_count
+          : 0;
+  const editorial = typeof company.editorial_review_count === "number" ? company.editorial_review_count : 0;
+  return base + editorial;
+}
+
+function getComparableValue(sortField, c) {
+  switch (sortField) {
+    case "name":
+      return asString(c.company_name || c.name).toLowerCase();
+    case "industries":
+      return joinedLower(c.industries);
+    case "reviews":
+      return getTotalReviews(c);
+    case "stars":
+      return getQQScoreLike(c);
+    case "created":
+      return asString(c.created_at);
+    case "updated":
+      return asString(c.updated_at);
+    default:
+      return null;
+  }
+}
+
+function compareCompanies(sortField, dir, a, b) {
+  const av = getComparableValue(sortField, a);
+  const bv = getComparableValue(sortField, b);
+
+  const isNumber = typeof av === "number" || typeof bv === "number";
+  let cmp = 0;
+  if (isNumber) {
+    const an = typeof av === "number" ? av : 0;
+    const bn = typeof bv === "number" ? bv : 0;
+    cmp = an === bn ? 0 : an < bn ? -1 : 1;
+  } else {
+    const as = asString(av);
+    const bs = asString(bv);
+    cmp = as.localeCompare(bs);
+  }
+
+  if (cmp === 0) {
+    const an = asString(a.company_name || a.name).toLowerCase();
+    const bn = asString(b.company_name || b.name).toLowerCase();
+    cmp = an.localeCompare(bn);
+  }
+
+  return dir === "desc" ? -cmp : cmp;
+}
+
 const SQL_TEXT_FILTER = `
   (IS_DEFINED(c.company_name) AND CONTAINS(LOWER(c.company_name), @q)) OR
   (IS_DEFINED(c.product_keywords) AND CONTAINS(LOWER(c.product_keywords), @q)) OR
@@ -73,6 +201,7 @@ const SELECT_FIELDS = [
   "c.amazon_url",
   "c.normalized_domain",
   "c.created_at",
+  "c.updated_at",
   "c.session_id",
   "c._ts",
   "c.manufacturing_locations",
@@ -175,6 +304,8 @@ function mapCompanyToPublic(doc) {
     keywords,
     stars,
     reviews_count,
+    created_at: doc.created_at,
+    updated_at: doc.updated_at,
 
     // Extra fields used by the public UI (non-redundant with canonical shape)
     headquarters:
@@ -247,6 +378,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   const qRaw = (url.searchParams.get("q") || "").trim();
   const q = qRaw.toLowerCase();
   const sort = (url.searchParams.get("sort") || "recent").toLowerCase();
+  const sortField = (url.searchParams.get("sortField") || "").toLowerCase();
+  const sortDir = (url.searchParams.get("sortDir") || "asc").toLowerCase() === "desc" ? "desc" : "asc";
   const lat = Number(url.searchParams.get("lat"));
   const lng = Number(url.searchParams.get("lng"));
   const user_location = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
@@ -325,12 +458,21 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             r.created_at = new Date(r._ts * 1000).toISOString();
           } catch {}
         }
+        if (!r?.updated_at && typeof r?._ts === "number") {
+          try {
+            r.updated_at = new Date(r._ts * 1000).toISOString();
+          } catch {}
+        }
         return r;
       });
 
       const mapped = normalized
         .map(mapCompanyToPublic)
         .filter((c) => c && c.id && c.company_name);
+
+      if (sortField) {
+        mapped.sort((a, b) => compareCompanies(sortField, sortDir, a, b));
+      }
 
       const paged = mapped.slice(skip, skip + take);
 
