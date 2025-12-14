@@ -290,6 +290,7 @@ export default function ResultsPage() {
         <SearchCard
           onSubmitParams={handleInlineSearch}
           filtersRightSlot={results.length > 0 ? languageSelector : null}
+          containerClassName="max-w-none"
         />
       </div>
 
