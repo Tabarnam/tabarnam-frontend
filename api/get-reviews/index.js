@@ -161,6 +161,84 @@ async function resolveCompanyId(params, companiesContainer, context) {
   return "";
 }
 
+function normalizeIsPublicFlag(value, defaultValue = true) {
+  if (value === undefined || value === null) return defaultValue;
+  if (value === false) return false;
+  if (value === true) return true;
+
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (!v) return defaultValue;
+    if (v === "false" || v === "0" || v === "no" || v === "off") return false;
+    if (v === "true" || v === "1" || v === "yes" || v === "on") return true;
+  }
+
+  return Boolean(value);
+}
+
+async function resolveCompanyIdCandidates(
+  { companyIdParam, resolvedCompanyId, companyName, domainParam },
+  companiesContainer,
+  context
+) {
+  const candidates = new Set();
+
+  const add = (v) => {
+    const s = String(v || "").trim();
+    if (s) candidates.add(s);
+  };
+
+  add(companyIdParam);
+  add(resolvedCompanyId);
+  add(companyName);
+  add(domainParam);
+
+  if (!companiesContainer) return Array.from(candidates);
+
+  try {
+    const queries = [];
+
+    if (companyIdParam) {
+      queries.push({
+        query: `SELECT TOP 25 c.id, c.company_id, c.company_name, c.normalized_domain FROM c WHERE c.id = @id OR c.company_id = @id ORDER BY c._ts DESC`,
+        parameters: [{ name: "@id", value: companyIdParam }],
+      });
+    }
+
+    if (domainParam) {
+      queries.push({
+        query: `SELECT TOP 25 c.id, c.company_id, c.company_name, c.normalized_domain FROM c WHERE LOWER(c.normalized_domain) = @domain ORDER BY c._ts DESC`,
+        parameters: [{ name: "@domain", value: String(domainParam).toLowerCase() }],
+      });
+    }
+
+    if (companyName) {
+      queries.push({
+        query: `SELECT TOP 25 c.id, c.company_id, c.company_name, c.normalized_domain FROM c WHERE c.company_name = @company ORDER BY c._ts DESC`,
+        parameters: [{ name: "@company", value: companyName }],
+      });
+    }
+
+    for (const q of queries) {
+      const { resources } = await companiesContainer.items
+        .query(q, { enableCrossPartitionQuery: true })
+        .fetchAll();
+
+      for (const r of resources || []) {
+        add(r?.id);
+        add(r?.company_id);
+        add(r?.companyId);
+        add(r?.company_name);
+        add(r?.normalized_domain);
+      }
+    }
+  } catch (e) {
+    context?.log?.("Warning: Failed to resolve company id candidates:", e?.message || e);
+  }
+
+  return Array.from(candidates);
+}
+
 async function getReviewsHandler(req, context, deps = {}) {
   const method = String(req.method || "").toUpperCase();
 
@@ -289,7 +367,7 @@ async function getReviewsHandler(req, context, deps = {}) {
 
           const curatedArrVisible = curatedArrRaw.filter((r) => {
             const flag = r?.show_to_users ?? r?.showToUsers ?? r?.is_public ?? r?.visible_to_users ?? r?.visible;
-            return flag !== false;
+            return normalizeIsPublicFlag(flag, true) !== false;
           });
 
           const curatedReviews = curatedArrVisible.map((r, idx) => {
@@ -343,28 +421,43 @@ async function getReviewsHandler(req, context, deps = {}) {
     }
 
     // 3) public admin notes (show to users)
-    if (resolvedCompanyId && (notesContainer || notesAdminContainer)) {
+    if (companiesContainer && (notesContainer || notesAdminContainer)) {
       try {
-        const sql = "SELECT * FROM c WHERE c.company_id = @companyId ORDER BY c.created_at DESC";
+        const companyIdCandidates = await resolveCompanyIdCandidates(
+          {
+            companyIdParam: companyIdParam || "",
+            resolvedCompanyId,
+            companyName,
+            domainParam,
+          },
+          companiesContainer,
+          context
+        );
+
         const containers = [notesAdminContainer, notesContainer].filter(Boolean);
-
         const notesById = new Map();
-        for (const container of containers) {
-          const { resources } = await container.items
-            .query(
-              { query: sql, parameters: [{ name: "@companyId", value: resolvedCompanyId }] },
-              { enableCrossPartitionQuery: true }
-            )
-            .fetchAll();
 
-          for (const n of resources || []) {
-            const id = (n?.id || "").toString().trim();
-            if (id) notesById.set(id, n);
+        if (companyIdCandidates.length > 0) {
+          const sql =
+            "SELECT * FROM c WHERE ARRAY_CONTAINS(@companyIds, c.company_id) ORDER BY c.created_at DESC";
+
+          for (const container of containers) {
+            const { resources } = await container.items
+              .query(
+                { query: sql, parameters: [{ name: "@companyIds", value: companyIdCandidates }] },
+                { enableCrossPartitionQuery: true }
+              )
+              .fetchAll();
+
+            for (const n of resources || []) {
+              const id = (n?.id || "").toString().trim();
+              if (id) notesById.set(id, n);
+            }
           }
         }
 
         const publicNotes = Array.from(notesById.values())
-          .filter((n) => (n?.is_public ?? true) !== false)
+          .filter((n) => normalizeIsPublicFlag(n?.is_public, true) !== false)
           .map((n, idx) => {
             const actor = (n?.actor || "").toString().trim();
             const text = (n?.text || "").toString().trim();
@@ -377,7 +470,7 @@ async function getReviewsHandler(req, context, deps = {}) {
               source_name: sourceName,
               source_url: null,
               imported_at: createdAt,
-              id: n?.id || `admin-note-${resolvedCompanyId}-${idx}`,
+              id: n?.id || `admin-note-${companyIdCandidates[0] || resolvedCompanyId || companyName}-${idx}`,
               source: sourceName,
               abstract: text,
               url: null,
@@ -389,6 +482,13 @@ async function getReviewsHandler(req, context, deps = {}) {
           .filter(Boolean);
 
         allReviews = allReviews.concat(publicNotes);
+
+        allReviews._meta = {
+          ...(allReviews._meta || {}),
+          company_id_param: companyIdParam || null,
+          company_id_resolved: resolvedCompanyId || null,
+          company_id_candidates_count: companyIdCandidates.length,
+        };
       } catch (e) {
         context?.log?.("Warning: Failed to fetch public notes:", e?.message || e);
       }
