@@ -70,6 +70,19 @@ async function getJson(req) {
   return {};
 }
 
+function normalizeBool(value, defaultValue) {
+  if (value === undefined || value === null) return defaultValue;
+  if (value === true) return true;
+  if (value === false) return false;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (!v) return defaultValue;
+    if (v === "true" || v === "1" || v === "yes" || v === "on") return true;
+    if (v === "false" || v === "0" || v === "no" || v === "off") return false;
+  }
+  return Boolean(value);
+}
+
 app.http('adminNotes', {
   route: 'xadmin-api-notes',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -98,7 +111,7 @@ app.http('adminNotes', {
         }
 
         const queryText = isPublic
-          ? "SELECT * FROM c WHERE c.company_id = @companyId AND (NOT IS_DEFINED(c.is_public) OR c.is_public = true) ORDER BY c.created_at DESC"
+          ? "SELECT * FROM c WHERE c.company_id = @companyId AND (NOT IS_DEFINED(c.is_public) OR c.is_public = true OR c.is_public = 'true') ORDER BY c.created_at DESC"
           : "SELECT * FROM c WHERE c.company_id = @companyId ORDER BY c.created_at DESC";
 
         const query = {
@@ -130,7 +143,7 @@ app.http('adminNotes', {
           id,
           company_id: note.company_id,
           text: note.text || "",
-          is_public: isPublic ? Boolean(note.is_public ?? true) : Boolean(note.is_public ?? false),
+          is_public: isPublic ? normalizeBool(note.is_public, true) : normalizeBool(note.is_public, false),
           created_at: note.created_at || now,
           updated_at: now,
           actor: note.actor || null,
