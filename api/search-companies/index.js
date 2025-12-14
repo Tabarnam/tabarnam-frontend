@@ -125,17 +125,14 @@ function joinedLower(arr) {
   return arr.map((s) => asString(s).trim()).filter(Boolean).join(", ").toLowerCase();
 }
 
-function getTotalReviews(company) {
-  const base =
-    typeof company.review_count === "number"
-      ? company.review_count
-      : typeof company.review_count_approved === "number"
-        ? company.review_count_approved
-        : typeof company.reviews_count === "number"
-          ? company.reviews_count
-          : 0;
-  const editorial = typeof company.editorial_review_count === "number" ? company.editorial_review_count : 0;
-  return base + editorial;
+function getReviewCount(company) {
+  if (!company) return 0;
+
+  if (typeof company.review_count === "number") return company.review_count;
+  if (typeof company.reviews_count === "number") return company.reviews_count;
+  if (typeof company.review_count_approved === "number") return company.review_count_approved;
+
+  return 0;
 }
 
 function getComparableValue(sortField, c) {
@@ -145,7 +142,7 @@ function getComparableValue(sortField, c) {
     case "industries":
       return joinedLower(c.industries);
     case "reviews":
-      return getTotalReviews(c);
+      return getReviewCount(c);
     case "stars":
       return getQQScoreLike(c);
     case "created":
@@ -253,6 +250,8 @@ const SELECT_FIELDS = [
   "c.rating",
   "c.rating_icon_type",
   "c.review_count",
+  "c.public_review_count",
+  "c.private_review_count",
   "c.avg_rating",
   "c.review_count_approved",
   "c.editorial_review_count",
@@ -287,6 +286,10 @@ function mapCompanyToPublic(doc) {
   else if (typeof doc.star_score === "number") stars = doc.star_score;
   else if (typeof doc.star_rating === "number") stars = doc.star_rating;
 
+  const review_count = typeof doc.review_count === "number" ? doc.review_count : 0;
+  const public_review_count = typeof doc.public_review_count === "number" ? doc.public_review_count : 0;
+  const private_review_count = typeof doc.private_review_count === "number" ? doc.private_review_count : 0;
+
   let reviews_count = null;
   if (typeof doc.review_count === "number") reviews_count = doc.review_count;
   else if (typeof doc.review_count_approved === "number") reviews_count = doc.review_count_approved;
@@ -314,7 +317,10 @@ function mapCompanyToPublic(doc) {
     product_keywords,
     keywords,
     stars,
-    reviews_count,
+    review_count,
+    public_review_count,
+    private_review_count,
+    reviews_count: reviews_count ?? review_count,
     created_at: doc.created_at,
     updated_at: doc.updated_at,
 
