@@ -17,6 +17,7 @@ import KeywordsEditor from "./form-elements/KeywordsEditor";
 import HeadquartersLocationsEditor from "./form-elements/HeadquartersLocationsEditor";
 import LocationGeolocationRow from "./form-elements/LocationGeolocationRow";
 import StarRatingEditor from "./form-elements/StarRatingEditor";
+import AdminNotesEditor from "./form-elements/AdminNotesEditor";
 import CompanyReviewsPreview from "./CompanyReviewsPreview";
 import LogoUploadDialog from "./LogoUploadDialog";
 import { defaultRating } from "@/types/company";
@@ -1034,7 +1035,10 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
             iconType={ratingIconType}
             onRatingChange={setRating}
             onIconTypeChange={setRatingIconType}
+            actor={user?.email || "Admin"}
           />
+
+          <AdminNotesEditor companyId={formData.id || formData.company_id} actor={user?.email || "Admin"} />
 
           <CompanyReviewsPreview
             companyId={formData.id || formData.company_id}
