@@ -102,7 +102,18 @@ function getQQScoreLike(company) {
   const confidence = toFiniteNumber(company.confidence_score);
   if (confidence != null) return clamp(confidence * 5, 0, 5);
 
-  return 0;
+  const manufacturingEligible =
+    Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0;
+
+  const hqEligible =
+    (Array.isArray(company.headquarters) && company.headquarters.length > 0) ||
+    (Array.isArray(company.headquarters_locations) && company.headquarters_locations.length > 0) ||
+    (typeof company.headquarters_location === "string" && company.headquarters_location.trim());
+
+  const reviewEligible = getTotalReviews(company) > 0;
+
+  const derived = (manufacturingEligible ? 1 : 0) + (hqEligible ? 1 : 0) + (reviewEligible ? 1 : 0);
+  return clamp(derived, 0, 5);
 }
 
 function asString(v) {
