@@ -235,6 +235,33 @@ app.http("companies-list", {
 
     try {
       if (method === "GET") {
+        const id = (req.query?.id || req.query?.company_id || "").toString().trim();
+        if (id) {
+          const parameters = [{ name: "@id", value: id }];
+          const sql =
+            "SELECT TOP 1 * FROM c WHERE c.id = @id AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) ORDER BY c._ts DESC";
+
+          const { resources } = await container.items
+            .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
+            .fetchAll();
+
+          const item = Array.isArray(resources) ? resources[0] : null;
+          if (!item) return json({ ok: false, error: "Company not found", id }, 404);
+
+          if (!item.created_at && typeof item._ts === "number") {
+            try {
+              item.created_at = new Date(item._ts * 1000).toISOString();
+            } catch {}
+          }
+          if (!item.updated_at && typeof item._ts === "number") {
+            try {
+              item.updated_at = new Date(item._ts * 1000).toISOString();
+            } catch {}
+          }
+
+          return json({ ok: true, item }, 200);
+        }
+
         const search = (req.query?.search || "").toString().toLowerCase().trim();
         const take = Math.min(500, Math.max(1, parseInt((req.query?.take || "200").toString())));
 
