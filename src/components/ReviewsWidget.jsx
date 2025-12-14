@@ -70,6 +70,8 @@ export default function ReviewsWidget({ companyId, companyName }) {
       <div className="mt-4">
         {loading ? (
           <div className="text-sm text-gray-500">Loading reviews…</div>
+        ) : error ? (
+          <div className="text-sm text-red-600">{error}</div>
         ) : !list.length ? (
           <div className="text-sm text-gray-500">No reviews yet.</div>
         ) : (
