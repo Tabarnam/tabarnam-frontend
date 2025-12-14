@@ -45,22 +45,52 @@ function asNonNegativeInt(v, fallback = 0) {
   return fallback;
 }
 
-function buildWhere({ companyId, companyName }) {
+function buildIsPublicExpr() {
+  return (
+    "(IIF(IS_DEFINED(c.public), c.public, " +
+    "IIF(IS_DEFINED(c.is_public), c.is_public, " +
+    "IIF(IS_DEFINED(c.isPublic), c.isPublic, " +
+    "IIF(IS_DEFINED(c.visible_to_users), c.visible_to_users, " +
+    "IIF(IS_DEFINED(c.show_to_users), c.show_to_users, true))))) )"
+  );
+}
+
+function buildWhere({ companyId, companyName, normalizedDomain }) {
   const clauses = [];
-  if (companyId) clauses.push("(c.company_id = @id OR c.companyId = @id)");
+
+  if (companyId)
+    clauses.push(
+      "(c.company_id = @id OR c.companyId = @id OR c.companyID = @id OR c.companyid = @id OR c.company_id_str = @id)"
+    );
+
   if (companyName) clauses.push("(c.company_name = @company OR c.company = @company)");
+
+  if (normalizedDomain)
+    clauses.push(
+      "(c.normalized_domain = @domain OR c.domain = @domain OR " +
+        "(IS_DEFINED(c.normalized_domain) AND LOWER(c.normalized_domain) = @domainLower) OR " +
+        "(IS_DEFINED(c.domain) AND LOWER(c.domain) = @domainLower))"
+    );
+
   return clauses.length ? `(${clauses.join(" OR ")})` : "";
 }
 
-async function countReviews({ companyId, companyName }) {
+async function countReviews({ companyId, companyName, normalizedDomain }) {
   const id = asString(companyId).trim();
   const name = asString(companyName).trim();
-  const where = buildWhere({ companyId: id, companyName: name });
+  const domain = asString(normalizedDomain).trim();
+  const where = buildWhere({ companyId: id, companyName: name, normalizedDomain: domain });
   if (!where) return { total: 0, pub: 0, priv: 0 };
 
   const parameters = [];
   if (id) parameters.push({ name: "@id", value: id });
   if (name) parameters.push({ name: "@company", value: name });
+  if (domain) {
+    parameters.push({ name: "@domain", value: domain });
+    parameters.push({ name: "@domainLower", value: domain.toLowerCase() });
+  }
+
+  const isPublicExpr = buildIsPublicExpr();
 
   const queryCount = async (extraWhere = "") => {
     const sql = `SELECT VALUE COUNT(1) FROM c WHERE ${where} ${extraWhere}`;
@@ -72,8 +102,8 @@ async function countReviews({ companyId, companyName }) {
 
   const [total, pub, priv] = await Promise.all([
     queryCount(""),
-    queryCount("AND (NOT IS_DEFINED(c.is_public) OR c.is_public = true)"),
-    queryCount("AND (IS_DEFINED(c.is_public) AND c.is_public = false)"),
+    queryCount(`AND ${isPublicExpr} = true`),
+    queryCount(`AND ${isPublicExpr} = false`),
   ]);
 
   return { total, pub, priv };
@@ -104,7 +134,10 @@ let updated = 0;
 let failed = 0;
 
 const companyQuery = {
-  query: `SELECT c.id, c.company_name, c.normalized_domain, c.company_id, c.companyId FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) ORDER BY c._ts DESC`,
+  query:
+    `SELECT c.id, c.company_name, c.normalized_domain, c.company_id, c.companyId, ` +
+    `IIF(IS_DEFINED(c.curated_reviews), ARRAY_LENGTH(c.curated_reviews), 0) AS curated_review_count ` +
+    `FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) ORDER BY c._ts DESC`,
 };
 
 const iterator = companiesContainer.items.query(companyQuery, { enableCrossPartitionQuery: true });
@@ -121,7 +154,14 @@ while (processed < LIMIT) {
     const id = asString(c.id || c.company_id || c.companyId).trim();
     const companyName = asString(c.company_name).trim();
 
-    const counts = await countReviews({ companyId: id, companyName });
+    const countsFromReviews = await countReviews({ companyId: id, companyName, normalizedDomain: c.normalized_domain });
+    const curatedTotal = asNonNegativeInt(c.curated_review_count, 0);
+
+    const counts = {
+      total: countsFromReviews.total + curatedTotal,
+      pub: countsFromReviews.pub + curatedTotal,
+      priv: countsFromReviews.priv,
+    };
 
     const res = await patchCompanyCounts({
       id: asString(c.id).trim() || id,

@@ -100,10 +100,7 @@ function getCompanyName(c) {
 }
 
 function getReviewCount(c) {
-  if (typeof c?.review_count === "number") return c.review_count;
-  if (typeof c?.reviews_count === "number") return c.reviews_count;
-  if (typeof c?.review_count_approved === "number") return c.review_count_approved;
-  return 0;
+  return typeof c?.review_count === "number" ? c.review_count : 0;
 }
 
 function getKeywordsList(c) {
