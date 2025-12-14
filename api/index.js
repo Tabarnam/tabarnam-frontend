@@ -50,6 +50,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: admin-recalc-review-counts");
+  require("./admin-recalc-review-counts/index.js");
+} catch (e) {
+  console.error("[api] Failed to load admin-recalc-review-counts:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: search-companies");
   require("./search-companies/index.js");
 } catch (e) {

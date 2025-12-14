@@ -164,6 +164,12 @@ app.http('adminCompanies', {
 
         const partitionKeyValue = normalizedDomain;
 
+        const reviewCountRaw =
+          (typeof base.review_count === "number" ? base.review_count : null) ??
+          (typeof base.reviews_count === "number" ? base.reviews_count : null) ??
+          (typeof base.review_count_approved === "number" ? base.review_count_approved : null) ??
+          0;
+
         const now = new Date().toISOString();
         const doc = {
           ...base,
@@ -172,6 +178,9 @@ app.http('adminCompanies', {
           normalized_domain: normalizedDomain,
           company_name: base.company_name || base.name || "",
           name: base.name || base.company_name || "",
+          review_count: Math.max(0, Math.trunc(Number(reviewCountRaw) || 0)),
+          public_review_count: Math.max(0, Math.trunc(Number(base.public_review_count) || 0)),
+          private_review_count: Math.max(0, Math.trunc(Number(base.private_review_count) || 0)),
           updated_at: now,
           created_at: (existingDoc && existingDoc.created_at) || base.created_at || now,
         };

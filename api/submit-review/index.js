@@ -1,7 +1,12 @@
 // api/submit-review/index.js
 const { app } = require("@azure/functions");
-const { CosmosClient } = require("@azure/cosmos");
 const { randomUUID, randomBytes } = require("node:crypto");
+const {
+  getCompaniesContainer,
+  getReviewsContainer,
+  findCompanyByIdOrName,
+  incrementCompanyReviewCounts,
+} = require("../_reviewCounts");
 
 // -------- helpers ----------
 const E = (k, d = "") => (process.env[k] ?? d).toString().trim();
@@ -29,16 +34,15 @@ const safeUuid = () => {
   }
 };
 
-// -------- Cosmos (reuse client) ----------
-let cosmosClient;
-function getReviewsContainer() {
-  const endpoint = E("COSMOS_DB_ENDPOINT");
-  const key = E("COSMOS_DB_KEY");
-  const databaseId = E("COSMOS_DB_DATABASE", "tabarnam-db");
-  const containerId = E("COSMOS_DB_REVIEWS_CONTAINER", "reviews");
-  if (!endpoint || !key) return null;
-  cosmosClient ||= new CosmosClient({ endpoint, key });
-  return cosmosClient.database(databaseId).container(containerId);
+
+function normalizeBool(value, defaultValue = true) {
+  if (value === undefined || value === null) return defaultValue;
+  if (value === true || value === false) return value;
+  const v = String(value).trim().toLowerCase();
+  if (!v) return defaultValue;
+  if (["true", "1", "yes", "y", "on"].includes(v)) return true;
+  if (["false", "0", "no", "n", "off"].includes(v)) return false;
+  return defaultValue;
 }
 
 app.http("submit-review", {
@@ -48,8 +52,10 @@ app.http("submit-review", {
   handler: async (req, ctx) => {
     if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
 
-    const container = getReviewsContainer();
-    if (!container) return json({ error: "Cosmos env not configured" }, 500, req);
+    const reviewsContainer = getReviewsContainer();
+    if (!reviewsContainer) return json({ error: "Cosmos env not configured" }, 500, req);
+
+    const companiesContainer = getCompaniesContainer();
 
     // ---- parse & validate
     let body = {};
@@ -59,13 +65,27 @@ app.http("submit-review", {
       return json({ error: "Invalid JSON" }, 400, req);
     }
 
-    const company_name = String(body?.company_name || "").trim();
+    const companyIdInput = String(body?.company_id || body?.companyId || body?.id || "").trim();
+    const companyNameInput = String(body?.company_name || body?.company || "").trim();
+
     const rating = Number(body?.rating);
     const text = String(body?.text || "").trim();
     const user_name = String(body?.user_name || "").trim();
     const user_location = String(body?.user_location || "").trim();
+    const is_public = normalizeBool(body?.is_public, true);
 
-    if (!company_name) return json({ error: "company_name required" }, 400, req);
+    const companyDoc = await findCompanyByIdOrName(companiesContainer, {
+      companyId: companyIdInput,
+      companyName: companyNameInput,
+    }).catch(() => null);
+
+    const resolvedCompanyId =
+      String(companyDoc?.id || companyDoc?.company_id || companyDoc?.companyId || companyIdInput || "").trim() || null;
+
+    const resolvedCompanyName =
+      String(companyDoc?.company_name || companyDoc?.name || companyNameInput || "").trim() || null;
+
+    if (!resolvedCompanyName) return json({ error: "company_name required" }, 400, req);
     if (!(rating >= 1 && rating <= 5))
       return json({ error: "rating must be 1..5" }, 400, req);
     if (text.length < 10)
@@ -112,22 +132,33 @@ Name: ${user_name || "(none)"} | Location: ${user_location || "(none)"} | Length
     const doc = {
       id: safeUuid(),
       // NOTE: our reviews container is assumed to use /company as the partition key.
-      company: company_name,
-      company_name,
+      company: resolvedCompanyName,
+      company_name: resolvedCompanyName,
+      ...(resolvedCompanyId ? { company_id: resolvedCompanyId } : {}),
       rating,
       text,
       user_name: user_name || null,
       user_location: user_location || null,
+      is_public,
       flagged_bot,
       bot_reason,
       created_at: new Date().toISOString(),
     };
 
     try {
-      await container.items.upsert(doc, {
-        // If your container uses a different partition key, change this:
+      await reviewsContainer.items.upsert(doc, {
         partitionKey: doc.company || "reviews",
       });
+
+      if (companyDoc && companiesContainer) {
+        const delta = {
+          review_count: 1,
+          public_review_count: is_public ? 1 : 0,
+          private_review_count: is_public ? 0 : 1,
+        };
+        await incrementCompanyReviewCounts(companiesContainer, companyDoc, delta).catch(() => null);
+      }
+
       return json({ ok: true, review: doc }, 200, req);
     } catch (e) {
       return json({ error: e?.message || "Insert failed" }, 500, req);

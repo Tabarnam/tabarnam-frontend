@@ -524,6 +524,16 @@ app.http("companies-list", {
           admin_rating_public: rawVisibility.admin_rating_public ?? true,
         };
 
+        const reviewCountRaw =
+          toFiniteNumber(base.review_count) ??
+          toFiniteNumber(base.reviews_count) ??
+          toFiniteNumber(base.review_count_approved) ??
+          0;
+
+        const review_count = Math.max(0, Math.trunc(reviewCountRaw));
+        const public_review_count = Math.max(0, Math.trunc(toFiniteNumber(base.public_review_count) ?? 0));
+        const private_review_count = Math.max(0, Math.trunc(toFiniteNumber(base.private_review_count) ?? 0));
+
         const now = new Date().toISOString();
         const doc = {
           ...base,
@@ -532,6 +542,9 @@ app.http("companies-list", {
           normalized_domain: String(normalizedDomain || "unknown").trim(),
           company_name: base.company_name || base.name || "",
           name: base.name || base.company_name || "",
+          review_count,
+          public_review_count,
+          private_review_count,
           hq_lat: hq_lat,
           hq_lng: hq_lng,
           headquarters_locations:
