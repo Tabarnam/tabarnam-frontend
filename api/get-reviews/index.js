@@ -342,6 +342,7 @@ async function getReviewsHandler(req, context, deps = {}) {
 
   try {
     let allReviews = [];
+    let companyRecordForNotes = null;
 
     // 1) user-submitted reviews
     if (reviewsContainer && companyName) {
@@ -392,13 +393,13 @@ async function getReviewsHandler(req, context, deps = {}) {
         let parameters;
 
         if (companyIdParam) {
-          sql = `SELECT TOP 1 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c._ts FROM c WHERE c.id = @id OR c.company_id = @id ORDER BY c._ts DESC`;
+          sql = `SELECT TOP 1 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c.rating, c.star_notes, c.visibility, c.created_at, c.updated_at, c._ts FROM c WHERE c.id = @id OR c.company_id = @id ORDER BY c._ts DESC`;
           parameters = [{ name: "@id", value: companyIdParam }];
         } else if (domainParam) {
-          sql = `SELECT TOP 1 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c._ts FROM c WHERE LOWER(c.normalized_domain) = @domain ORDER BY c._ts DESC`;
+          sql = `SELECT TOP 1 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c.rating, c.star_notes, c.visibility, c.created_at, c.updated_at, c._ts FROM c WHERE LOWER(c.normalized_domain) = @domain ORDER BY c._ts DESC`;
           parameters = [{ name: "@domain", value: domainParam.toLowerCase() }];
         } else {
-          sql = `SELECT TOP 5 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c._ts FROM c WHERE c.company_name = @company ORDER BY c._ts DESC`;
+          sql = `SELECT TOP 5 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c.rating, c.star_notes, c.visibility, c.created_at, c.updated_at, c._ts FROM c WHERE c.company_name = @company ORDER BY c._ts DESC`;
           parameters = [{ name: "@company", value: companyName }];
         }
 
@@ -408,6 +409,7 @@ async function getReviewsHandler(req, context, deps = {}) {
 
         if (resources && resources.length > 0) {
           const companyRecord = resources[0];
+          companyRecordForNotes = companyRecord;
           const dupes = resources.slice(1);
           const dupeTs = dupes.map((d) => d?._ts).filter(Boolean);
 
