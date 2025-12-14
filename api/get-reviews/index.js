@@ -239,6 +239,58 @@ async function resolveCompanyIdCandidates(
   return Array.from(candidates);
 }
 
+function extractPublicAdminRatingNotes(companyRecord, normalizePublicFlag) {
+  if (!companyRecord || typeof companyRecord !== "object") return [];
+
+  const adminRatingPublic = companyRecord?.visibility?.admin_rating_public;
+  if (adminRatingPublic === false) return [];
+
+  const notes = [];
+
+  const rating = companyRecord?.rating;
+  const star3 = rating && typeof rating === "object" ? rating?.star3 : null;
+  const star3Notes = star3 && typeof star3 === "object" && Array.isArray(star3.notes) ? star3.notes : [];
+
+  for (const n of star3Notes) {
+    if (!n || typeof n !== "object") continue;
+    const text = String(n.text || "").trim();
+    if (!text) continue;
+    const isPublic = normalizePublicFlag(n.is_public, true) === true;
+    if (!isPublic) continue;
+
+    notes.push({
+      id: String(n.id || "").trim() || null,
+      text,
+      created_at: n.created_at || n.updated_at || companyRecord.updated_at || companyRecord.created_at || null,
+      actor: n.created_by || n.actor || null,
+      source: "rating.star3",
+    });
+  }
+
+  const legacy = companyRecord?.star_notes;
+  if (Array.isArray(legacy)) {
+    for (const n of legacy) {
+      if (!n || typeof n !== "object") continue;
+      const text = String(n.text ?? n.note ?? "").trim();
+      if (!text) continue;
+
+      const rawFlag = n.public ?? n.is_public ?? n.visible_to_users ?? n.show_to_users;
+      const isPublic = normalizePublicFlag(rawFlag, true) === true;
+      if (!isPublic) continue;
+
+      notes.push({
+        id: null,
+        text,
+        created_at: n.at || n.created_at || n.updated_at || companyRecord.updated_at || companyRecord.created_at || null,
+        actor: n.by || n.actor || n.created_by || null,
+        source: "star_notes",
+      });
+    }
+  }
+
+  return notes;
+}
+
 async function getReviewsHandler(req, context, deps = {}) {
   const method = String(req.method || "").toUpperCase();
 
@@ -290,6 +342,7 @@ async function getReviewsHandler(req, context, deps = {}) {
 
   try {
     let allReviews = [];
+    let companyRecordForNotes = null;
 
     // 1) user-submitted reviews
     if (reviewsContainer && companyName) {
@@ -340,13 +393,13 @@ async function getReviewsHandler(req, context, deps = {}) {
         let parameters;
 
         if (companyIdParam) {
-          sql = `SELECT TOP 1 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c._ts FROM c WHERE c.id = @id OR c.company_id = @id ORDER BY c._ts DESC`;
+          sql = `SELECT TOP 1 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c.rating, c.star_notes, c.visibility, c.created_at, c.updated_at, c._ts FROM c WHERE c.id = @id OR c.company_id = @id ORDER BY c._ts DESC`;
           parameters = [{ name: "@id", value: companyIdParam }];
         } else if (domainParam) {
-          sql = `SELECT TOP 1 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c._ts FROM c WHERE LOWER(c.normalized_domain) = @domain ORDER BY c._ts DESC`;
+          sql = `SELECT TOP 1 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c.rating, c.star_notes, c.visibility, c.created_at, c.updated_at, c._ts FROM c WHERE LOWER(c.normalized_domain) = @domain ORDER BY c._ts DESC`;
           parameters = [{ name: "@domain", value: domainParam.toLowerCase() }];
         } else {
-          sql = `SELECT TOP 5 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c._ts FROM c WHERE c.company_name = @company ORDER BY c._ts DESC`;
+          sql = `SELECT TOP 5 c.id, c.company_name, c.normalized_domain, c.curated_reviews, c.reviews, c.rating, c.star_notes, c.visibility, c.created_at, c.updated_at, c._ts FROM c WHERE c.company_name = @company ORDER BY c._ts DESC`;
           parameters = [{ name: "@company", value: companyName }];
         }
 
@@ -356,6 +409,7 @@ async function getReviewsHandler(req, context, deps = {}) {
 
         if (resources && resources.length > 0) {
           const companyRecord = resources[0];
+          companyRecordForNotes = companyRecord;
           const dupes = resources.slice(1);
           const dupeTs = dupes.map((d) => d?._ts).filter(Boolean);
 
@@ -426,6 +480,65 @@ async function getReviewsHandler(req, context, deps = {}) {
       } catch (e) {
         context?.log?.("Warning: Failed to fetch curated reviews:", e?.message || e);
       }
+    }
+
+    // 2.5) public admin rating notes (Notes for ★ Reviews Present)
+    // These are stored on the company record under the new rating schema (rating.star3.notes)
+    // and must render publicly when marked visible.
+    if (companyRecordForNotes) {
+      const dedupe = new Set();
+      for (const r of allReviews) {
+        if (!r || typeof r !== "object") continue;
+        const t = String(r.text || r.abstract || "").trim();
+        const c = String(r.created_at || "");
+        if (t) dedupe.add(`${t}::${c}`);
+      }
+
+      const adminRatingNotes = extractPublicAdminRatingNotes(companyRecordForNotes, normalizeIsPublicFlag);
+      const fallbackKey =
+        companyRecordForNotes?.id ||
+        resolvedCompanyId ||
+        companyIdParam ||
+        companyName ||
+        domainParam ||
+        "company";
+
+      let added = 0;
+      for (let idx = 0; idx < adminRatingNotes.length; idx += 1) {
+        const n = adminRatingNotes[idx];
+        const text = String(n?.text || "").trim();
+        if (!text) continue;
+        const createdAt = n?.created_at || null;
+        const key = `${text}::${String(createdAt || "")}`;
+        if (dedupe.has(key)) continue;
+        dedupe.add(key);
+
+        const actor = String(n?.actor || "").trim();
+        const sourceName = actor ? `Admin (${actor})` : "Admin";
+
+        allReviews.push({
+          type: "admin",
+          text,
+          source_name: sourceName,
+          source_url: null,
+          imported_at: createdAt,
+
+          id: n?.id || `admin-rating-${fallbackKey}-${idx}`,
+          source: sourceName,
+          abstract: text,
+          url: null,
+          rating: null,
+          created_at: createdAt,
+          last_updated_at: null,
+        });
+
+        added += 1;
+      }
+
+      allReviews._meta = {
+        ...(allReviews._meta || {}),
+        admin_rating_notes_visible_count: added,
+      };
     }
 
     // 3) public admin notes (show to users)
