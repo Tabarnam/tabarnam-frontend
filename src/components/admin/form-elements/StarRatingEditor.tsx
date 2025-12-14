@@ -24,7 +24,6 @@ const STAR_LABELS = {
   star5: { label: "★ Admin Discretionary #2", description: "Manual admin adjustment (0.0 - 1.0)" },
 };
 
-const INCREMENTS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
 
 export const StarRatingEditor: React.FC<StarRatingEditorProps> = ({
   rating,
@@ -167,7 +166,7 @@ export const StarRatingEditor: React.FC<StarRatingEditorProps> = ({
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="text-right">
-                    <div className="font-bold text-slate-900">{star.value.toFixed(1)}</div>
+                    <div className="font-bold text-slate-900">{star.value.toFixed(2)}</div>
                     <div className="text-xs text-slate-600">value</div>
                   </div>
                   {isAutomatic && (
@@ -245,23 +244,6 @@ export const StarRatingEditor: React.FC<StarRatingEditorProps> = ({
                         onChange={(e) => handleStarValueChange(starKey, parseFloat(e.target.value) || 0)}
                         className="w-full"
                       />
-                      {/* Quick Select Buttons */}
-                      <div className="grid grid-cols-6 gap-1">
-                        {INCREMENTS.map((inc) => (
-                          <button
-                            key={inc}
-                            type="button"
-                            onClick={() => handleStarValueChange(starKey, inc)}
-                            className={`py-1 px-2 text-xs rounded transition ${
-                              Math.abs(star.value - inc) < 0.01
-                                ? "bg-slate-900 text-white font-semibold"
-                                : "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                            }`}
-                          >
-                            {inc.toFixed(1)}
-                          </button>
-                        ))}
-                      </div>
                     </div>
                   </div>
 
