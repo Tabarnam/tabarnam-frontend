@@ -6,7 +6,7 @@ import { ClipLoader } from "react-spinners";
 import {
   ChevronDown,
   ChevronUp,
-  Columns2,
+  Columns,
   Download,
   Edit2,
   Plus,
@@ -603,7 +603,7 @@ const CompaniesTableTab = ({ loading: initialLoading, onUpdate }) => {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="border-slate-200">
-                <Columns2 className="mr-2 h-4 w-4" /> Columns
+                <Columns className="mr-2 h-4 w-4" /> Columns
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64">
