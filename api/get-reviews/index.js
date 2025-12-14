@@ -52,6 +52,17 @@ function getCompaniesContainer() {
   return cosmosClient.database(databaseId).container(containerId);
 }
 
+function getPublicNotesContainer() {
+  const endpoint = E("COSMOS_DB_ENDPOINT");
+  const key = E("COSMOS_DB_KEY");
+  const databaseId = E("COSMOS_DB_DATABASE", "tabarnam-db");
+  const containerId = E("COSMOS_DB_NOTES_CONTAINER", "notes");
+
+  if (!endpoint || !key) return null;
+  cosmosClient ||= new CosmosClient({ endpoint, key });
+  return cosmosClient.database(databaseId).container(containerId);
+}
+
 async function resolveCompanyName(params, companiesContainer, context) {
   const company = String(params.company || "").trim();
   if (company) return company;
@@ -95,6 +106,50 @@ async function resolveCompanyName(params, companiesContainer, context) {
   return "";
 }
 
+async function resolveCompanyId(params, companiesContainer, context) {
+  const companyId = String(params.company_id || params.id || "").trim();
+  if (companyId) return companyId;
+  if (!companiesContainer) return "";
+
+  const normalizedDomain = String(params.normalized_domain || params.domain || "").trim().toLowerCase();
+  if (normalizedDomain) {
+    try {
+      const sql = `SELECT TOP 1 c.id FROM c WHERE LOWER(c.normalized_domain) = @domain ORDER BY c._ts DESC`;
+      const { resources } = await companiesContainer.items
+        .query(
+          { query: sql, parameters: [{ name: "@domain", value: normalizedDomain }] },
+          { enableCrossPartitionQuery: true }
+        )
+        .fetchAll();
+
+      const id = resources?.[0]?.id;
+      if (typeof id === "string" && id.trim()) return id.trim();
+    } catch (e) {
+      context?.log?.("Warning: Failed to resolve company id from normalized_domain:", e?.message || e);
+    }
+  }
+
+  const company = String(params.company || "").trim();
+  if (company) {
+    try {
+      const sql = `SELECT TOP 1 c.id FROM c WHERE c.company_name = @company ORDER BY c._ts DESC`;
+      const { resources } = await companiesContainer.items
+        .query(
+          { query: sql, parameters: [{ name: "@company", value: company }] },
+          { enableCrossPartitionQuery: true }
+        )
+        .fetchAll();
+
+      const id = resources?.[0]?.id;
+      if (typeof id === "string" && id.trim()) return id.trim();
+    } catch (e) {
+      context?.log?.("Warning: Failed to resolve company id from company name:", e?.message || e);
+    }
+  }
+
+  return "";
+}
+
 async function getReviewsHandler(req, context, deps = {}) {
   const method = String(req.method || "").toUpperCase();
 
@@ -110,11 +165,24 @@ async function getReviewsHandler(req, context, deps = {}) {
 
   const reviewsContainer = deps.reviewsContainer ?? getReviewsContainer();
   const companiesContainer = deps.companiesContainer ?? getCompaniesContainer();
+  const notesContainer = deps.notesContainer ?? getPublicNotesContainer();
 
   const companyIdParam = String(url.searchParams.get("company_id") || url.searchParams.get("id") || "").trim();
   const domainParam = String(url.searchParams.get("normalized_domain") || url.searchParams.get("domain") || "").trim();
 
   const companyName = await resolveCompanyName(
+    {
+      company: url.searchParams.get("company"),
+      company_id: companyIdParam,
+      id: companyIdParam,
+      normalized_domain: domainParam,
+      domain: domainParam,
+    },
+    companiesContainer,
+    context
+  );
+
+  const resolvedCompanyId = await resolveCompanyId(
     {
       company: url.searchParams.get("company"),
       company_id: companyIdParam,
@@ -201,13 +269,18 @@ async function getReviewsHandler(req, context, deps = {}) {
           const dupes = resources.slice(1);
           const dupeTs = dupes.map((d) => d?._ts).filter(Boolean);
 
-          const curatedArr = Array.isArray(companyRecord.curated_reviews)
+          const curatedArrRaw = Array.isArray(companyRecord.curated_reviews)
             ? companyRecord.curated_reviews
             : Array.isArray(companyRecord.reviews)
               ? companyRecord.reviews
               : [];
 
-          const curatedReviews = curatedArr.map((r, idx) => {
+          const curatedArrVisible = curatedArrRaw.filter((r) => {
+            const flag = r?.show_to_users ?? r?.showToUsers ?? r?.is_public ?? r?.visible_to_users ?? r?.visible;
+            return flag !== false;
+          });
+
+          const curatedReviews = curatedArrVisible.map((r, idx) => {
             const sourceName = (r?.author || r?.source_name || r?.source || "Unknown Source").toString();
             const sourceUrl = r?.source_url || r?.url || null;
             const text = r?.abstract || r?.excerpt || r?.text || "";
@@ -247,7 +320,8 @@ async function getReviewsHandler(req, context, deps = {}) {
           allReviews._meta = {
             company_record_id: companyRecord?.id || null,
             company_record_ts: companyRecord?._ts || null,
-            company_curated_count: curatedReviews.length,
+            company_curated_count: curatedArrRaw.length,
+            company_curated_visible_count: curatedReviews.length,
             dupe_company_records: dupes.length,
           };
         }
@@ -256,10 +330,52 @@ async function getReviewsHandler(req, context, deps = {}) {
       }
     }
 
-    // curated first, then user reviews; newest first within type
+    // 3) public admin notes (show to users)
+    if (notesContainer && resolvedCompanyId) {
+      try {
+        const sql = "SELECT * FROM c WHERE c.company_id = @companyId ORDER BY c.created_at DESC";
+        const { resources } = await notesContainer.items
+          .query(
+            { query: sql, parameters: [{ name: "@companyId", value: resolvedCompanyId }] },
+            { enableCrossPartitionQuery: true }
+          )
+          .fetchAll();
+
+        const publicNotes = (resources || [])
+          .filter((n) => (n?.is_public ?? true) !== false)
+          .map((n, idx) => {
+            const actor = (n?.actor || "").toString().trim();
+            const text = (n?.text || "").toString().trim();
+            if (!text) return null;
+            const createdAt = n?.created_at || n?.updated_at || null;
+            const sourceName = actor ? `Admin (${actor})` : "Admin";
+            return {
+              type: "admin",
+              text,
+              source_name: sourceName,
+              source_url: null,
+              imported_at: createdAt,
+              id: n?.id || `admin-note-${resolvedCompanyId}-${idx}`,
+              source: sourceName,
+              abstract: text,
+              url: null,
+              rating: null,
+              created_at: createdAt,
+              last_updated_at: n?.updated_at || null,
+            };
+          })
+          .filter(Boolean);
+
+        allReviews = allReviews.concat(publicNotes);
+      } catch (e) {
+        context?.log?.("Warning: Failed to fetch public notes:", e?.message || e);
+      }
+    }
+
+    // curated/admin first, then user reviews; newest first within type
     allReviews.sort((a, b) => {
-      const aType = a.type === "curated" ? 0 : 1;
-      const bType = b.type === "curated" ? 0 : 1;
+      const aType = a.type === "curated" || a.type === "admin" ? 0 : 1;
+      const bType = b.type === "curated" || b.type === "admin" ? 0 : 1;
       if (aType !== bType) return aType - bType;
       return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     });
@@ -297,6 +413,7 @@ app.http("get-reviews", {
 module.exports = {
   _test: {
     resolveCompanyName,
+    resolveCompanyId,
     getReviewsHandler,
   },
 };
