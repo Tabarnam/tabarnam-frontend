@@ -13,6 +13,7 @@ interface StarRatingEditorProps {
   iconType: RatingIconType;
   onRatingChange: (rating: CompanyRating) => void;
   onIconTypeChange: (iconType: RatingIconType) => void;
+  actor?: string;
 }
 
 const STAR_LABELS = {
@@ -30,6 +31,7 @@ export const StarRatingEditor: React.FC<StarRatingEditorProps> = ({
   iconType,
   onRatingChange,
   onIconTypeChange,
+  actor,
 }) => {
   const [expandedStar, setExpandedStar] = useState<string | null>(null);
   const [newNoteText, setNewNoteText] = useState<Record<string, string>>({});
@@ -54,6 +56,7 @@ export const StarRatingEditor: React.FC<StarRatingEditorProps> = ({
       text,
       is_public: newNotePublic[starKey] ?? false,
       created_at: new Date().toISOString(),
+      created_by: (actor || "Admin").trim() || "Admin",
     };
 
     const updated = { ...rating };
@@ -237,7 +240,7 @@ export const StarRatingEditor: React.FC<StarRatingEditorProps> = ({
                         type="number"
                         min="0"
                         max="1"
-                        step="0.1"
+                        step="0.01"
                         value={star.value}
                         onChange={(e) => handleStarValueChange(starKey, parseFloat(e.target.value) || 0)}
                         className="w-full"
@@ -316,7 +319,8 @@ export const StarRatingEditor: React.FC<StarRatingEditorProps> = ({
                             <p className="text-sm text-slate-800">{note.text}</p>
                             <div className="flex items-center justify-between text-xs text-slate-600">
                               <span>
-                                {new Date(note.created_at || "").toLocaleDateString()}
+                                {note.created_by ? `by ${note.created_by} • ` : ""}
+                                {note.created_at ? new Date(note.created_at).toLocaleString() : ""}
                               </span>
                               <div className="flex items-center gap-2">
                                 <button
