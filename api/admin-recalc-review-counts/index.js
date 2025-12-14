@@ -36,7 +36,7 @@ app.http("admin-recalc-review-counts", {
 
     let body = {};
     try {
-      body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+      body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
     } catch {
       try {
         body = await req.json();
@@ -155,7 +155,9 @@ app.http("admin-recalc-review-counts", {
             normalized_domain: companyDoc.normalized_domain || null,
           },
           counts: result.counts || counts,
-          ...(debug ? { matched_review_ids, matched_review_samples, curated_review_ids } : {}),
+          ...(debug
+            ? { matched_review_ids, matched_review_samples, curated_review_ids, update_meta: result.meta || null }
+            : {}),
         },
         200
       );

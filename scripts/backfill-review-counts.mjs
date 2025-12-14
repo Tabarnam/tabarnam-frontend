@@ -1,7 +1,14 @@
 import * as dotenv from "dotenv";
 import { CosmosClient } from "@azure/cosmos";
+import { createRequire } from "module";
 
 dotenv.config();
+
+const require = createRequire(import.meta.url);
+const {
+  getContainerPartitionKeyPath,
+  buildPartitionKeyCandidates,
+} = require("../api/_cosmosPartitionKey.js");
 
 const endpoint = process.env.COSMOS_DB_ENDPOINT;
 const key = process.env.COSMOS_DB_KEY;
@@ -31,6 +38,8 @@ const client = new CosmosClient({ endpoint, key });
 const db = client.database(databaseId);
 const companiesContainer = db.container(companiesContainerId);
 const reviewsContainer = db.container(reviewsContainerId);
+
+const companiesPkPath = await getContainerPartitionKeyPath(companiesContainer, "/normalized_domain");
 
 function asString(v) {
   return typeof v === "string" ? v : v == null ? "" : String(v);
@@ -109,21 +118,56 @@ async function countReviews({ companyId, companyName, normalizedDomain }) {
   return { total, pub, priv };
 }
 
-async function patchCompanyCounts({ id, normalized_domain, counts }) {
-  const pk = asString(normalized_domain).trim();
-  if (!id || !pk) return { ok: false, error: "Missing id or partition key" };
+async function patchCompanyCountsForDoc(doc, counts) {
+  const id = asString(doc?.id).trim();
+  if (!id) return { ok: false, error: "Missing id" };
+
+  if (DRY_RUN) return { ok: true, dryRun: true };
+
+  const ops = [
+    { op: "set", path: "/review_count", value: counts.total },
+    { op: "set", path: "/public_review_count", value: counts.pub },
+    { op: "set", path: "/private_review_count", value: counts.priv },
+  ];
+
+  const candidates = buildPartitionKeyCandidates({ doc, containerPkPath: companiesPkPath, requestedId: id });
+  let lastErr;
+
+  for (const pk of candidates) {
+    try {
+      const item = companiesContainer.item(id, pk);
+      await item.patch(ops);
+      return { ok: true };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  return { ok: false, error: lastErr?.message || String(lastErr || "patch failed") };
+}
+
+async function patchCompanyCountsById(id, counts) {
+  const requestedId = asString(id).trim();
+  if (!requestedId) return { ok: false, error: "Missing id" };
+
+  const res = await patchCompanyCountsForDoc({ id: requestedId }, counts);
+  if (res.ok) return res;
 
   try {
-    if (DRY_RUN) return { ok: true, dryRun: true };
+    const { resources } = await companiesContainer.items
+      .query(
+        { query: "SELECT * FROM c WHERE c.id = @id", parameters: [{ name: "@id", value: requestedId }] },
+        { enableCrossPartitionQuery: true }
+      )
+      .fetchAll();
 
-    const item = companiesContainer.item(id, pk);
-    await item.patch([
-      { op: "set", path: "/review_count", value: counts.total },
-      { op: "set", path: "/public_review_count", value: counts.pub },
-      { op: "set", path: "/private_review_count", value: counts.priv },
-    ]);
+    const docs = Array.isArray(resources) ? resources : [];
+    for (const doc of docs) {
+      const r = await patchCompanyCountsForDoc(doc, counts);
+      if (r.ok) return r;
+    }
 
-    return { ok: true };
+    return { ok: false, error: res.error || "Unable to patch company counts" };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
@@ -163,11 +207,7 @@ while (processed < LIMIT) {
       priv: countsFromReviews.priv,
     };
 
-    const res = await patchCompanyCounts({
-      id: asString(c.id).trim() || id,
-      normalized_domain: c.normalized_domain,
-      counts,
-    });
+    const res = await patchCompanyCountsById(id, counts);
 
     if (res.ok) {
       updated += DRY_RUN ? 0 : 1;

@@ -1,4 +1,9 @@
 const { CosmosClient } = require("@azure/cosmos");
+const {
+  getContainerPartitionKeyPath,
+  buildPartitionKeyCandidates,
+  getValueAtPath,
+} = require("./_cosmosPartitionKey");
 
 const E = (k, d = "") => (process.env[k] ?? d).toString().trim();
 
@@ -158,16 +163,58 @@ async function getReviewCountsForCompany(reviewsContainer, { companyId, companyN
   };
 }
 
-function getCompanyItemRef(companiesContainer, companyDoc) {
-  if (!companiesContainer || !companyDoc) return null;
-  const id = asString(companyDoc.id).trim();
-  const pk = asString(companyDoc.normalized_domain).trim();
-  if (!id || !pk) return null;
+let companiesPkPathPromise;
+async function getCompaniesPartitionKeyPath(companiesContainer) {
+  if (!companiesContainer) return "/normalized_domain";
+  companiesPkPathPromise ||= getContainerPartitionKeyPath(companiesContainer, "/normalized_domain");
   try {
-    return companiesContainer.item(id, pk);
+    return await companiesPkPathPromise;
   } catch {
-    return null;
+    return "/normalized_domain";
   }
+}
+
+async function listCompanyDocsById(companiesContainer, id) {
+  if (!companiesContainer) return [];
+  const requestedId = asString(id).trim();
+  if (!requestedId) return [];
+
+  const sql = `SELECT * FROM c WHERE (c.id = @id OR c.company_id = @id OR c.companyId = @id)
+               AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
+               ORDER BY c._ts DESC`;
+
+  try {
+    const { resources } = await companiesContainer.items
+      .query({ query: sql, parameters: [{ name: "@id", value: requestedId }] }, { enableCrossPartitionQuery: true })
+      .fetchAll();
+    return Array.isArray(resources) ? resources : [];
+  } catch {
+    return [];
+  }
+}
+
+async function patchByCandidates(companiesContainer, id, containerPkPath, docForCandidates, ops) {
+  const requestedId = asString(id).trim();
+  if (!requestedId) return { ok: false };
+
+  const candidates = buildPartitionKeyCandidates({
+    doc: docForCandidates,
+    containerPkPath,
+    requestedId,
+  });
+
+  let lastError;
+  for (const pk of candidates) {
+    try {
+      const itemRef = companiesContainer.item(requestedId, pk);
+      await itemRef.patch(ops);
+      return { ok: true, pk };
+    } catch (e) {
+      lastError = e;
+    }
+  }
+
+  return { ok: false, error: lastError?.message || String(lastError || "patch failed"), candidates };
 }
 
 async function setCompanyReviewCounts(companiesContainer, companyDoc, counts) {
@@ -179,33 +226,47 @@ async function setCompanyReviewCounts(companiesContainer, companyDoc, counts) {
     private_review_count: asNonNegativeInt(counts?.private_review_count, 0),
   };
 
-  const itemRef = getCompanyItemRef(companiesContainer, companyDoc);
-  if (itemRef && typeof itemRef.patch === "function") {
-    try {
-      await itemRef.patch([
-        { op: "set", path: "/review_count", value: next.review_count },
-        { op: "set", path: "/public_review_count", value: next.public_review_count },
-        { op: "set", path: "/private_review_count", value: next.private_review_count },
-      ]);
-      return { ok: true, updated: true, counts: next };
-    } catch {
-      // fall through
+  const id = asString(companyDoc.id).trim();
+  if (!id) return { ok: false, updated: false, error: "Missing company id" };
+
+  const containerPkPath = await getCompaniesPartitionKeyPath(companiesContainer);
+
+  const docs = await listCompanyDocsById(companiesContainer, id);
+  const docsToUpdate = docs.length ? docs : [companyDoc];
+
+  let patched = 0;
+  let lastError;
+
+  for (const doc of docsToUpdate) {
+    const patchRes = await patchByCandidates(companiesContainer, id, containerPkPath, doc, [
+      { op: "set", path: "/review_count", value: next.review_count },
+      { op: "set", path: "/public_review_count", value: next.public_review_count },
+      { op: "set", path: "/private_review_count", value: next.private_review_count },
+    ]);
+
+    if (patchRes.ok) {
+      patched += 1;
+      continue;
     }
+
+    lastError = patchRes.error;
   }
 
-  const merged = {
-    ...companyDoc,
-    review_count: next.review_count,
-    public_review_count: next.public_review_count,
-    private_review_count: next.private_review_count,
+  if (patched > 0) {
+    return {
+      ok: true,
+      updated: true,
+      counts: next,
+      meta: { containerPkPath, matched_docs: docs.length, patched_docs: patched },
+    };
+  }
+
+  return {
+    ok: false,
+    updated: false,
+    error: lastError || "Failed to update company review counts",
+    meta: { containerPkPath, matched_docs: docs.length, patched_docs: patched },
   };
-
-  try {
-    await companiesContainer.items.upsert(merged);
-    return { ok: true, updated: true, counts: next };
-  } catch (e) {
-    return { ok: false, updated: false, error: e?.message || String(e) };
-  }
 }
 
 async function incrementCompanyReviewCounts(companiesContainer, companyDoc, deltas) {
@@ -219,20 +280,18 @@ async function incrementCompanyReviewCounts(companiesContainer, companyDoc, delt
     return { ok: true, updated: false };
   }
 
-  const itemRef = getCompanyItemRef(companiesContainer, companyDoc);
-  if (itemRef && typeof itemRef.patch === "function") {
-    const ops = [];
-    if (deltaReview) ops.push({ op: "incr", path: "/review_count", value: deltaReview });
-    if (deltaPublic) ops.push({ op: "incr", path: "/public_review_count", value: deltaPublic });
-    if (deltaPrivate) ops.push({ op: "incr", path: "/private_review_count", value: deltaPrivate });
+  const id = asString(companyDoc.id).trim();
+  if (!id) return { ok: false, updated: false, error: "Missing company id" };
 
-    try {
-      await itemRef.patch(ops);
-      return { ok: true, updated: true };
-    } catch {
-      // fall through
-    }
-  }
+  const containerPkPath = await getCompaniesPartitionKeyPath(companiesContainer);
+
+  const ops = [];
+  if (deltaReview) ops.push({ op: "incr", path: "/review_count", value: deltaReview });
+  if (deltaPublic) ops.push({ op: "incr", path: "/public_review_count", value: deltaPublic });
+  if (deltaPrivate) ops.push({ op: "incr", path: "/private_review_count", value: deltaPrivate });
+
+  const patchRes = await patchByCandidates(companiesContainer, id, containerPkPath, companyDoc, ops);
+  if (patchRes.ok) return { ok: true, updated: true, meta: { containerPkPath, pk: patchRes.pk } };
 
   const existingReview = asNonNegativeInt(companyDoc.review_count, 0);
   const existingPublic = asNonNegativeInt(companyDoc.public_review_count, 0);
@@ -246,14 +305,24 @@ async function incrementCompanyReviewCounts(companiesContainer, companyDoc, delt
   };
 
   try {
-    await companiesContainer.items.upsert(merged);
-    return { ok: true, updated: true, counts: {
-      review_count: merged.review_count,
-      public_review_count: merged.public_review_count,
-      private_review_count: merged.private_review_count,
-    } };
+    const pkValue = getValueAtPath(merged, containerPkPath);
+    if (pkValue !== undefined) {
+      await companiesContainer.items.upsert(merged, { partitionKey: pkValue });
+    } else {
+      await companiesContainer.items.upsert(merged);
+    }
+    return {
+      ok: true,
+      updated: true,
+      counts: {
+        review_count: merged.review_count,
+        public_review_count: merged.public_review_count,
+        private_review_count: merged.private_review_count,
+      },
+      meta: { containerPkPath },
+    };
   } catch (e) {
-    return { ok: false, updated: false, error: e?.message || String(e) };
+    return { ok: false, updated: false, error: e?.message || String(e), meta: { containerPkPath } };
   }
 }
 
