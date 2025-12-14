@@ -9,6 +9,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { getCountries } from '@/lib/location';
 import { getSuggestions, getRefinements, getCitySuggestions, getStateSuggestions } from '@/lib/searchCompanies';
 import { placesAutocomplete, placeDetails } from '@/lib/google';
+import { cn } from '@/lib/utils';
 
 const SORTS = [
   { value: 'manu',  label: 'Nearest Manufacturing' },
@@ -18,7 +19,11 @@ const SORTS = [
 
 function toQs(o){ return new URLSearchParams(Object.entries(o).filter(([,v]) => v !== undefined && v !== '' && v !== null)).toString(); }
 
-export default function SearchCard({ onSubmitParams, filtersRightSlot = null }) {
+export default function SearchCard({
+  onSubmitParams,
+  filtersRightSlot = null,
+  containerClassName = "",
+}) {
   const nav = useNavigate();
   const { search } = useLocation();
 
@@ -208,7 +213,12 @@ export default function SearchCard({ onSubmitParams, filtersRightSlot = null }) 
   };
 
   return (
-    <div className="w-full max-w-5xl bg-white border border-gray-200 rounded-2xl p-5 md:p-6 shadow">
+    <div
+      className={cn(
+        "w-full bg-white border border-gray-200 rounded-2xl p-5 md:p-6 shadow",
+        containerClassName || "max-w-5xl"
+      )}
+    >
       {/* Row 1: Search field and button spanning full width */}
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 mb-3">
         <div className="relative">
