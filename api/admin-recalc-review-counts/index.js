@@ -64,16 +64,41 @@ app.http("admin-recalc-review-counts", {
         return json({ ok: false, error: "Company not found" }, 404);
       }
 
-      const counts = await getReviewCountsForCompany(reviewsContainer, {
+      const countsFromReviews = await getReviewCountsForCompany(reviewsContainer, {
         companyId: companyDoc.id || companyDoc.company_id || companyId,
         companyName: companyDoc.company_name || companyName,
         normalizedDomain: companyDoc.normalized_domain || null,
       });
 
+      const curatedArr = Array.isArray(companyDoc.curated_reviews) ? companyDoc.curated_reviews : [];
+      const curatedTotal = curatedArr.length;
+      const curatedPublic = curatedTotal;
+      const curatedPrivate = 0;
+
+      const counts = {
+        review_count: (countsFromReviews.review_count || 0) + curatedTotal,
+        public_review_count: (countsFromReviews.public_review_count || 0) + curatedPublic,
+        private_review_count: (countsFromReviews.private_review_count || 0) + curatedPrivate,
+        total: (countsFromReviews.review_count || 0) + curatedTotal,
+        public: (countsFromReviews.public_review_count || 0) + curatedPublic,
+        private: (countsFromReviews.private_review_count || 0) + curatedPrivate,
+        sources: {
+          reviews_container: {
+            total: countsFromReviews.review_count || 0,
+            public: countsFromReviews.public_review_count || 0,
+            private: countsFromReviews.private_review_count || 0,
+          },
+          curated_reviews: { total: curatedTotal, public: curatedPublic, private: curatedPrivate },
+        },
+      };
+
       let matched_review_ids = undefined;
       let matched_review_samples = undefined;
+      let curated_review_ids = undefined;
 
       if (debug) {
+        curated_review_ids = curatedArr.map((r) => r?.id).filter(Boolean).slice(0, 10);
+
         const { where, parameters } = buildReviewMatchQuerySpec({
           companyId: companyDoc.id || companyDoc.company_id || companyId,
           companyName: companyDoc.company_name || companyName,
@@ -110,7 +135,7 @@ app.http("admin-recalc-review-counts", {
               normalized_domain: companyDoc.normalized_domain || null,
             },
             counts,
-            ...(debug ? { matched_review_ids, matched_review_samples } : {}),
+            ...(debug ? { matched_review_ids, matched_review_samples, curated_review_ids } : {}),
           },
           200
         );
@@ -130,7 +155,7 @@ app.http("admin-recalc-review-counts", {
             normalized_domain: companyDoc.normalized_domain || null,
           },
           counts: result.counts || counts,
-          ...(debug ? { matched_review_ids, matched_review_samples } : {}),
+          ...(debug ? { matched_review_ids, matched_review_samples, curated_review_ids } : {}),
         },
         200
       );
