@@ -114,7 +114,6 @@ export default function LocationGeolocationRow({
 
   const lastGeocoded = formatTimestamp(location?.geocoded_at);
 
-  const hasValidCoords = isValidLat(latNum) && isValidLng(lngNum);
 
   const latError =
     latStr !== "" && latNum === null
