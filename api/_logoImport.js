@@ -88,7 +88,7 @@ function* walkJson(value) {
 }
 
 function extractSchemaOrgLogo(html, baseUrl) {
-  const scriptRe = /<script\\b[^>]*type=["']application\\/ld\\+json["'][^>]*>([\\s\\S]*?)<\\/script>/gi;
+  const scriptRe = /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
   let m;
 
   while ((m = scriptRe.exec(html)) !== null) {
