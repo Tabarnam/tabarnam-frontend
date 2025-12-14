@@ -27,6 +27,9 @@ jobs:
         with:
           azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN_V2 }}
           action: "upload"
-          app_location: "."
+          # Important: NEVER deploy from repo root (".") because CI installs node_modules,
+          # which causes Azure Static Web Apps to reject the upload due to too many static files.
+          # Deploy the built app folder (or the committed dist/) instead.
+          app_location: "dist"
           api_location: "api"
           skip_app_build: true
