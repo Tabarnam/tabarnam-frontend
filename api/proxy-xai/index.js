@@ -248,7 +248,7 @@ Format your response as a valid JSON array of company objects. Each object must 
 - company_name (string): The name of the company
 - url (string): The company website URL
 - industries (array): List of industry categories
-- product_keywords (string): Comma-separated product keywords
+- product_keywords (string): Comma-separated list of up to 25 concrete product keywords (real products/product lines/product categories; no vague marketing terms; prefer noun phrases; include flagship + secondary products; infer industry-standard product types if needed; no near-duplicates; no services unless primarily services)
 - hq_lat (number, optional): Headquarters latitude
 - hq_lng (number, optional): Headquarters longitude
 - amazon_url (string, optional): Amazon storefront URL if applicable
