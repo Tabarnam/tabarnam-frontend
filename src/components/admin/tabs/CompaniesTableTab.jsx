@@ -10,6 +10,7 @@ import {
   Download,
   Edit2,
   Plus,
+  RefreshCcw,
   Search,
   Trash2,
 } from "lucide-react";
@@ -98,17 +99,11 @@ function getCompanyName(c) {
   return c?.company_name || c?.name || "";
 }
 
-function getReviewTotal(c) {
-  const user =
-    typeof c?.review_count === "number"
-      ? c.review_count
-      : typeof c?.review_count_approved === "number"
-        ? c.review_count_approved
-        : typeof c?.reviews_count === "number"
-          ? c.reviews_count
-          : 0;
-  const editorial = typeof c?.editorial_review_count === "number" ? c.editorial_review_count : 0;
-  return user + editorial;
+function getReviewCount(c) {
+  if (typeof c?.review_count === "number") return c.review_count;
+  if (typeof c?.reviews_count === "number") return c.reviews_count;
+  if (typeof c?.review_count_approved === "number") return c.review_count_approved;
+  return 0;
 }
 
 function getKeywordsList(c) {
@@ -179,6 +174,7 @@ const CompaniesTableTab = ({ loading: initialLoading, onUpdate }) => {
   const [rows, setRows] = useState([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loadingRows, setLoadingRows] = useState(false);
+  const [recalcCompanyId, setRecalcCompanyId] = useState(null);
 
   const [editingCompany, setEditingCompany] = useState(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -352,7 +348,7 @@ const CompaniesTableTab = ({ loading: initialLoading, onUpdate }) => {
         label: "Reviews",
         sortable: true,
         className: "text-center",
-        render: (company) => <span className="font-medium text-slate-900">{getReviewTotal(company)}</span>,
+        render: (company) => <span className="font-medium text-slate-900">{getReviewCount(company)}</span>,
       },
       {
         id: "stars",
@@ -417,6 +413,21 @@ const CompaniesTableTab = ({ loading: initialLoading, onUpdate }) => {
             <Button
               size="sm"
               variant="ghost"
+              onClick={() => void handleRecalcReviews(company)}
+              className="text-slate-600 hover:bg-slate-50"
+              title="Recalculate review count"
+              aria-label={`Recalculate reviews for ${getCompanyName(company)}`}
+              disabled={recalcCompanyId === company.id}
+            >
+              {recalcCompanyId === company.id ? (
+                <ClipLoader size={14} />
+              ) : (
+                <RefreshCcw className="h-4 w-4" />
+              )}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
               onClick={() => void handleEdit(company)}
               className="text-blue-600 hover:bg-blue-50"
               title="Edit company"
@@ -447,6 +458,51 @@ const CompaniesTableTab = ({ loading: initialLoading, onUpdate }) => {
     active.add("actions");
     return columns.filter((c) => active.has(c.id));
   }, [columns, tableState.visibleColumns]);
+
+  const handleRecalcReviews = useCallback(
+    async (company) => {
+      const companyId = company?.id;
+      if (!companyId) return;
+
+      setRecalcCompanyId(companyId);
+      try {
+        const res = await apiFetch("/admin-recalc-review-counts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ company_id: companyId }),
+        });
+
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || body?.ok !== true) {
+          throw new Error(body?.error || `Recalc failed (${res.status})`);
+        }
+
+        const counts = body?.counts || {};
+        setRows((prev) =>
+          prev.map((r) => {
+            if (r?.id !== companyId) return r;
+            const nextReviewCount = typeof counts.review_count === "number" ? counts.review_count : r.review_count;
+            return {
+              ...r,
+              review_count: nextReviewCount,
+              public_review_count:
+                typeof counts.public_review_count === "number" ? counts.public_review_count : r.public_review_count,
+              private_review_count:
+                typeof counts.private_review_count === "number" ? counts.private_review_count : r.private_review_count,
+              reviews_count: typeof r.reviews_count === "number" ? r.reviews_count : nextReviewCount,
+            };
+          })
+        );
+
+        toast.success("Review counts recalculated");
+      } catch (e) {
+        toast.error(e?.message || "Failed to recalc review counts");
+      } finally {
+        setRecalcCompanyId(null);
+      }
+    },
+    []
+  );
 
   const handleEdit = useCallback(
     async (company) => {
@@ -557,7 +613,7 @@ const CompaniesTableTab = ({ loading: initialLoading, onUpdate }) => {
           getCompanyName(c) || "",
           industries,
           keywords,
-          String(getReviewTotal(c)),
+          String(getReviewCount(c)),
           String(c?.stars ?? c?.star_rating ?? c?.star_score ?? ""),
           String(getManufacturingLocationsCount(c)),
           String(getHqLocationsCount(c)),
