@@ -133,7 +133,6 @@ app.http('adminReviews', {
         };
 
         companyRecord.curated_reviews.unshift(newReview);
-        companyRecord.curated_reviews = companyRecord.curated_reviews.slice(0, 10);
 
         const partitionKeyValue = String(companyRecord.normalized_domain || "unknown").trim();
         await container.items.upsert(companyRecord, { partitionKey: partitionKeyValue });
