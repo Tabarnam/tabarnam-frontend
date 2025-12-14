@@ -24,6 +24,12 @@ type CompanyLike = Company & {
 };
 
 export function CompanyStarsBlock({ company }: { company: CompanyLike }) {
+  const adminRatingPublic = (company as any)?.visibility?.admin_rating_public;
+  const shouldShow = adminRatingPublic ?? true;
+  if (!shouldShow) {
+    return <span className="text-sm text-slate-400">—</span>;
+  }
+
   const score = getQQScore(company);
   const filled = getQQFilledCount(company);
   const starIcons = getQQStarIcons(company);

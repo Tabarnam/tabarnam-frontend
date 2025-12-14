@@ -118,6 +118,7 @@ const SELECT_FIELDS = [
   "c.editorial_review_count",
   "c.location_sources",
   "c.show_location_sources_to_users",
+  "c.visibility",
 ].join(", ");
 
 function normalizeStringArray(value) {
@@ -221,6 +222,7 @@ function mapCompanyToPublic(doc) {
 
     location_sources: doc.location_sources,
     show_location_sources_to_users: doc.show_location_sources_to_users,
+    visibility: doc.visibility,
   };
 }
 

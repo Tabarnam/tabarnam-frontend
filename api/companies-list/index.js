@@ -428,6 +428,13 @@ app.http("companies-list", {
           star5: { value: 0.0, notes: [] },
         };
 
+        const rawVisibility = base.visibility && typeof base.visibility === "object" ? base.visibility : {};
+        const visibility = {
+          hq_public: rawVisibility.hq_public ?? true,
+          manufacturing_public: rawVisibility.manufacturing_public ?? true,
+          admin_rating_public: rawVisibility.admin_rating_public ?? true,
+        };
+
         const now = new Date().toISOString();
         const doc = {
           ...base,
@@ -445,6 +452,7 @@ app.http("companies-list", {
           manufacturing_geocodes,
           rating_icon_type: base.rating_icon_type || "star",
           rating: base.rating || defaultRating,
+          visibility,
           updated_at: now,
           created_at: (existingDoc && existingDoc.created_at) || base.created_at || now,
         };
