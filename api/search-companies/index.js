@@ -135,6 +135,12 @@ function getReviewCount(company) {
   return 0;
 }
 
+function getTotalReviews(company) {
+  const base = getReviewCount(company);
+  const editorial = typeof company?.editorial_review_count === "number" ? company.editorial_review_count : 0;
+  return base + editorial;
+}
+
 function getComparableValue(sortField, c) {
   switch (sortField) {
     case "name":
