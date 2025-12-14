@@ -239,6 +239,58 @@ async function resolveCompanyIdCandidates(
   return Array.from(candidates);
 }
 
+function extractPublicAdminRatingNotes(companyRecord, normalizePublicFlag) {
+  if (!companyRecord || typeof companyRecord !== "object") return [];
+
+  const adminRatingPublic = companyRecord?.visibility?.admin_rating_public;
+  if (adminRatingPublic === false) return [];
+
+  const notes = [];
+
+  const rating = companyRecord?.rating;
+  const star3 = rating && typeof rating === "object" ? rating?.star3 : null;
+  const star3Notes = star3 && typeof star3 === "object" && Array.isArray(star3.notes) ? star3.notes : [];
+
+  for (const n of star3Notes) {
+    if (!n || typeof n !== "object") continue;
+    const text = String(n.text || "").trim();
+    if (!text) continue;
+    const isPublic = normalizePublicFlag(n.is_public, true) === true;
+    if (!isPublic) continue;
+
+    notes.push({
+      id: String(n.id || "").trim() || null,
+      text,
+      created_at: n.created_at || n.updated_at || companyRecord.updated_at || companyRecord.created_at || null,
+      actor: n.created_by || n.actor || null,
+      source: "rating.star3",
+    });
+  }
+
+  const legacy = companyRecord?.star_notes;
+  if (Array.isArray(legacy)) {
+    for (const n of legacy) {
+      if (!n || typeof n !== "object") continue;
+      const text = String(n.text ?? n.note ?? "").trim();
+      if (!text) continue;
+
+      const rawFlag = n.public ?? n.is_public ?? n.visible_to_users ?? n.show_to_users;
+      const isPublic = normalizePublicFlag(rawFlag, true) === true;
+      if (!isPublic) continue;
+
+      notes.push({
+        id: null,
+        text,
+        created_at: n.at || n.created_at || n.updated_at || companyRecord.updated_at || companyRecord.created_at || null,
+        actor: n.by || n.actor || n.created_by || null,
+        source: "star_notes",
+      });
+    }
+  }
+
+  return notes;
+}
+
 async function getReviewsHandler(req, context, deps = {}) {
   const method = String(req.method || "").toUpperCase();
 
