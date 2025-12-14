@@ -134,7 +134,10 @@ let updated = 0;
 let failed = 0;
 
 const companyQuery = {
-  query: `SELECT c.id, c.company_name, c.normalized_domain, c.company_id, c.companyId FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) ORDER BY c._ts DESC`,
+  query:
+    `SELECT c.id, c.company_name, c.normalized_domain, c.company_id, c.companyId, ` +
+    `IIF(IS_DEFINED(c.curated_reviews), ARRAY_LENGTH(c.curated_reviews), 0) AS curated_review_count ` +
+    `FROM c WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) ORDER BY c._ts DESC`,
 };
 
 const iterator = companiesContainer.items.query(companyQuery, { enableCrossPartitionQuery: true });
@@ -151,7 +154,14 @@ while (processed < LIMIT) {
     const id = asString(c.id || c.company_id || c.companyId).trim();
     const companyName = asString(c.company_name).trim();
 
-    const counts = await countReviews({ companyId: id, companyName, normalizedDomain: c.normalized_domain });
+    const countsFromReviews = await countReviews({ companyId: id, companyName, normalizedDomain: c.normalized_domain });
+    const curatedTotal = asNonNegativeInt(c.curated_review_count, 0);
+
+    const counts = {
+      total: countsFromReviews.total + curatedTotal,
+      pub: countsFromReviews.pub + curatedTotal,
+      priv: countsFromReviews.priv,
+    };
 
     const res = await patchCompanyCounts({
       id: asString(c.id).trim() || id,
