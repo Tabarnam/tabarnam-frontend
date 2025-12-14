@@ -2,17 +2,6 @@ import React from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { MapContainer, TileLayer, Marker } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
-
-// Fix default marker icon path (Leaflet quirk)
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-});
 
 function toNumberOrNull(value) {
   if (value === null || value === undefined) return null;
@@ -240,29 +229,6 @@ export default function LocationGeolocationRow({
         </div>
       </div>
 
-      <div className="rounded-md border border-slate-200 overflow-hidden">
-        {hasValidCoords ? (
-          <div className="h-[160px] w-full">
-            <MapContainer
-              center={[latNum, lngNum]}
-              zoom={6}
-              style={{ width: "100%", height: "100%" }}
-              scrollWheelZoom={false}
-              dragging={false}
-              doubleClickZoom={false}
-              zoomControl={false}
-              attributionControl={false}
-            >
-              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-              <Marker position={[latNum, lngNum]} />
-            </MapContainer>
-          </div>
-        ) : (
-          <div className="h-[160px] w-full flex items-center justify-center text-sm text-slate-500 bg-slate-50">
-            No geolocation
-          </div>
-        )}
-      </div>
     </div>
   );
 }
