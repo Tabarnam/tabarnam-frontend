@@ -356,6 +356,14 @@ try {
   console.error("[api] ❌ Failed to load admin-refresh-import:", e?.message || e);
 }
 
+try {
+  console.log("[api] Registering: admin-geocode-location");
+  require("./admin-geocode-location/index.js");
+  console.log("[api] ✓ admin-geocode-location registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-geocode-location:", e?.message || e);
+}
+
 console.log("[api/index.js] ✅ All handler registration complete! Exporting app.");
 
 // Critical for v4 model: export the shared app so the Functions runtime can discover handlers

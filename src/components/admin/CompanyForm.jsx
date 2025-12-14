@@ -15,6 +15,7 @@ import { Plus, Trash2, Edit2, Image, Loader2, Copy } from "lucide-react";
 import IndustriesEditor from "./form-elements/IndustriesEditor";
 import KeywordsEditor from "./form-elements/KeywordsEditor";
 import HeadquartersLocationsEditor from "./form-elements/HeadquartersLocationsEditor";
+import LocationGeolocationRow from "./form-elements/LocationGeolocationRow";
 import StarRatingEditor from "./form-elements/StarRatingEditor";
 import CompanyReviewsPreview from "./CompanyReviewsPreview";
 import LogoUploadDialog from "./LogoUploadDialog";
@@ -28,6 +29,9 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [additionalHQs, setAdditionalHQs] = useState([]);
+  const [primaryHqLocation, setPrimaryHqLocation] = useState(null);
+  const [manufacturingLocations, setManufacturingLocations] = useState([]);
+  const [geoRegeocodeBusy, setGeoRegeocodeBusy] = useState({});
   const [manufacturingLocationInput, setManufacturingLocationInput] = useState("");
   const [rating, setRating] = useState(defaultRating());
   const [ratingIconType, setRatingIconType] = useState("star");
@@ -41,6 +45,29 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const [showLogoDialog, setShowLogoDialog] = useState(false);
   const [isRetryingLogo, setIsRetryingLogo] = useState(false);
   const [newSourceInput, setNewSourceInput] = useState({ url: "", type: "official_website", location: "" });
+
+  const normalizeLocationObject = (entry) => {
+    if (!entry) return null;
+    if (typeof entry === "string") {
+      const address = entry.trim();
+      return address ? { address } : null;
+    }
+    if (typeof entry !== "object") return null;
+
+    const address =
+      (typeof entry.address === "string" && entry.address.trim()) ||
+      (typeof entry.location === "string" && entry.location.trim()) ||
+      (typeof entry.formatted === "string" && entry.formatted.trim()) ||
+      (typeof entry.full_address === "string" && entry.full_address.trim()) ||
+      "";
+
+    return { ...entry, address: address || entry.address };
+  };
+
+  const normalizeLocationArray = (value) => {
+    if (!Array.isArray(value)) return [];
+    return value.map(normalizeLocationObject).filter(Boolean);
+  };
 
   // Normalize incoming company data from snake_case to form structure
   const normalizeCompany = (comp) => {
@@ -105,7 +132,34 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       }
 
       setFormData(normalized);
-      setAdditionalHQs(normalized.headquarters_locations || []);
+      setAdditionalHQs(normalizeLocationArray(normalized.headquarters_locations || []));
+
+      const hqPrimaryRaw = Array.isArray(company.headquarters_locations)
+        ? company.headquarters_locations.find((hq) => hq && typeof hq === "object" && hq.is_hq === true)
+        : null;
+
+      const primaryFallback = normalized.headquarters_location
+        ? {
+            address: normalized.headquarters_location,
+            is_hq: true,
+            lat: company?.hq_lat,
+            lng: company?.hq_lng,
+            geocode_status: Number.isFinite(company?.hq_lat) && Number.isFinite(company?.hq_lng) ? "ok" : undefined,
+            geocode_source: Number.isFinite(company?.hq_lat) && Number.isFinite(company?.hq_lng) ? "stored" : undefined,
+            geocoded_at: company?.updated_at || company?.created_at || undefined,
+          }
+        : null;
+
+      setPrimaryHqLocation(normalizeLocationObject(hqPrimaryRaw) || primaryFallback);
+
+      const manuRaw =
+        Array.isArray(company?.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0
+          ? company.manufacturing_geocodes
+          : Array.isArray(company?.manufacturing_locations)
+            ? company.manufacturing_locations
+            : [];
+
+      setManufacturingLocations(normalizeLocationArray(manuRaw));
 
       // Initialize rating from company data
       const companyRating = getOrCalculateRating(company);
@@ -124,6 +178,9 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     } else {
       setFormData({});
       setAdditionalHQs([]);
+      setPrimaryHqLocation(null);
+      setManufacturingLocations([]);
+      setGeoRegeocodeBusy({});
       setRating(defaultRating());
       setRatingIconType("star");
       setVisibility({
@@ -170,23 +227,26 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
     // Build headquarters_locations array from primary and additional HQs
     const headquarters_locations = [];
 
-    if (formData.headquarters_location && formData.headquarters_location.trim()) {
+    const primaryAddress = (formData.headquarters_location || "").trim();
+    if (primaryAddress) {
+      const basePrimary = normalizeLocationObject(primaryHqLocation) || {};
       headquarters_locations.push({
-        address: formData.headquarters_location.trim(),
+        ...basePrimary,
+        address: primaryAddress,
         is_hq: true,
       });
     }
 
     if (Array.isArray(additionalHQs) && additionalHQs.length > 0) {
       headquarters_locations.push(
-        ...additionalHQs.map(hq => ({
-          address: hq.address || '',
-          city: hq.city,
-          country: hq.country,
-          lat: hq.lat,
-          lng: hq.lng,
-          is_hq: false,
-        }))
+        ...additionalHQs
+          .map((hq) => normalizeLocationObject(hq))
+          .filter(Boolean)
+          .map((hq) => ({
+            ...hq,
+            address: typeof hq.address === "string" ? hq.address : "",
+            is_hq: false,
+          }))
       );
     }
 
@@ -207,7 +267,8 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       normalized_domain,
       headquarters_location: formData.headquarters_location || "",
       headquarters_locations: headquarters_locations.length > 0 ? headquarters_locations : undefined,
-      manufacturing_locations: Array.isArray(formData.manufacturing_locations) ? formData.manufacturing_locations : [],
+      manufacturing_locations: Array.isArray(manufacturingLocations) ? manufacturingLocations : [],
+      manufacturing_geocodes: Array.isArray(manufacturingLocations) ? manufacturingLocations : [],
       red_flag: Boolean(formData.red_flag),
       red_flag_reason: formData.red_flag_reason || "",
       location_confidence: formData.location_confidence || "medium",
@@ -266,6 +327,42 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       toast.error("Error saving company");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const isGeoBusy = (key) => Boolean(geoRegeocodeBusy && geoRegeocodeBusy[key]);
+
+  const reGeocodeOne = async ({ key, location, apply }) => {
+    const address =
+      (typeof location?.address === "string" && location.address.trim()) ||
+      (typeof location?.location === "string" && location.location.trim()) ||
+      "";
+
+    if (!address) {
+      toast.error("Missing address for geocode");
+      return;
+    }
+
+    setGeoRegeocodeBusy((prev) => ({ ...(prev || {}), [key]: true }));
+    try {
+      const resp = await apiFetch("/xadmin-api-geocode-location", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ location: { ...location, address }, force: true }),
+      });
+
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data?.ok) {
+        const msg = data?.error || data?.detail || resp.statusText || "geocode_failed";
+        throw new Error(msg);
+      }
+
+      apply?.(data.location);
+      toast.success("Geocode updated");
+    } catch (e) {
+      toast.error(`Geocode failed: ${e?.message || "unknown error"}`);
+    } finally {
+      setGeoRegeocodeBusy((prev) => ({ ...(prev || {}), [key]: false }));
     }
   };
 
@@ -334,7 +431,37 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
         ...prev,
         ...normalized,
       }));
-      setAdditionalHQs(normalized.headquarters_locations || []);
+      setAdditionalHQs(normalizeLocationArray(normalized.headquarters_locations || []));
+
+      const hqPrimaryRaw = Array.isArray(updatedCompany.headquarters_locations)
+        ? updatedCompany.headquarters_locations.find((hq) => hq && typeof hq === "object" && hq.is_hq === true)
+        : null;
+
+      const primaryFallback = normalized.headquarters_location
+        ? {
+            address: normalized.headquarters_location,
+            is_hq: true,
+            lat: updatedCompany?.hq_lat,
+            lng: updatedCompany?.hq_lng,
+            geocode_status:
+              Number.isFinite(updatedCompany?.hq_lat) && Number.isFinite(updatedCompany?.hq_lng) ? "ok" : undefined,
+            geocode_source:
+              Number.isFinite(updatedCompany?.hq_lat) && Number.isFinite(updatedCompany?.hq_lng) ? "stored" : undefined,
+            geocoded_at: updatedCompany?.updated_at || updatedCompany?.created_at || undefined,
+          }
+        : null;
+
+      setPrimaryHqLocation(normalizeLocationObject(hqPrimaryRaw) || primaryFallback);
+
+      const manuRaw =
+        Array.isArray(updatedCompany?.manufacturing_geocodes) && updatedCompany.manufacturing_geocodes.length > 0
+          ? updatedCompany.manufacturing_geocodes
+          : Array.isArray(updatedCompany?.manufacturing_locations)
+            ? updatedCompany.manufacturing_locations
+            : [];
+
+      setManufacturingLocations(normalizeLocationArray(manuRaw));
+
       setShowLocationSourcesToUsers(Boolean(updatedCompany.show_location_sources_to_users));
       setLocationSources(Array.isArray(updatedCompany.location_sources) ? updatedCompany.location_sources : []);
 
@@ -721,67 +848,148 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
               <HeadquartersLocationsEditor
                 primaryHQ={formData.headquarters_location || ""}
                 additionalHQs={additionalHQs}
-                onPrimaryChange={(value) => setFormData((prev) => ({ ...prev, headquarters_location: value }))}
-                onAdditionalsChange={setAdditionalHQs}
+                onPrimaryChange={(value) => {
+                  setFormData((prev) => ({ ...prev, headquarters_location: value }));
+                  setPrimaryHqLocation((prev) => {
+                    const prevAddr = (prev?.address || "").trim();
+                    const nextAddr = String(value || "").trim();
+                    if (!nextAddr) return null;
+                    if (prevAddr && prevAddr === nextAddr) return { ...prev, address: value };
+                    return { address: value, is_hq: true };
+                  });
+                }}
+                onAdditionalsChange={(next) => setAdditionalHQs(normalizeLocationArray(next))}
               />
+
+              <div className="mt-4">
+                <h4 className="font-semibold text-sm mb-3">Geolocation</h4>
+                <div className="space-y-3">
+                  {formData.headquarters_location?.trim() ? (
+                    <LocationGeolocationRow
+                      title="Primary HQ"
+                      location={primaryHqLocation || { address: formData.headquarters_location, is_hq: true }}
+                      onChange={(next) => setPrimaryHqLocation(next)}
+                      onRegeocode={() =>
+                        reGeocodeOne({
+                          key: "hq_primary",
+                          location: primaryHqLocation || { address: formData.headquarters_location, is_hq: true },
+                          apply: (loc) => setPrimaryHqLocation(loc),
+                        })
+                      }
+                      isRegeocoding={isGeoBusy("hq_primary")}
+                    />
+                  ) : (
+                    <div className="text-sm text-slate-500">No headquarters location</div>
+                  )}
+
+                  {Array.isArray(additionalHQs) && additionalHQs.length > 0 &&
+                    additionalHQs.map((hq, idx) => {
+                      const key = `hq_${idx}`;
+                      return (
+                        <LocationGeolocationRow
+                          key={key}
+                          title={`HQ #${idx + 2}`}
+                          location={hq}
+                          onChange={(next) =>
+                            setAdditionalHQs((prev) => prev.map((v, i) => (i === idx ? next : v)))
+                          }
+                          onRegeocode={() =>
+                            reGeocodeOne({
+                              key,
+                              location: hq,
+                              apply: (loc) =>
+                                setAdditionalHQs((prev) => prev.map((v, i) => (i === idx ? loc : v))),
+                            })
+                          }
+                          isRegeocoding={isGeoBusy(key)}
+                          actions={
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              disabled={isGeoBusy(key)}
+                              onClick={() => setAdditionalHQs((prev) => prev.filter((_, i) => i !== idx))}
+                            >
+                              Remove
+                            </Button>
+                          }
+                        />
+                      );
+                    })}
+                </div>
+              </div>
             </div>
+
             <div className="mt-4">
               <Label htmlFor="manufacturing_locations">Manufacturing Locations</Label>
-              <div className="flex gap-2 mb-2">
+              <div className="flex gap-2 mb-3">
                 <Input
                   id="manufacturing_locations_input"
                   value={manufacturingLocationInput}
                   onChange={(e) => setManufacturingLocationInput(e.target.value)}
-                  placeholder="Add location (e.g., Shanghai, China) and press Add"
+                  placeholder="Add location (e.g., Shanghai, China)"
                   onKeyPress={(e) => {
-                    if (e.key === 'Enter') {
+                    if (e.key === "Enter") {
                       e.preventDefault();
-                      if (manufacturingLocationInput.trim()) {
-                        setFormData((prev) => ({
-                          ...prev,
-                          manufacturing_locations: [...(prev.manufacturing_locations || []), manufacturingLocationInput.trim()]
-                        }));
-                        setManufacturingLocationInput("");
-                      }
+                      const addr = manufacturingLocationInput.trim();
+                      if (!addr) return;
+                      setManufacturingLocations((prev) => [...(prev || []), { address: addr }]);
+                      setManufacturingLocationInput("");
                     }
                   }}
                 />
                 <button
                   type="button"
                   onClick={() => {
-                    if (manufacturingLocationInput.trim()) {
-                      setFormData((prev) => ({
-                        ...prev,
-                        manufacturing_locations: [...(prev.manufacturing_locations || []), manufacturingLocationInput.trim()]
-                      }));
-                      setManufacturingLocationInput("");
-                    }
+                    const addr = manufacturingLocationInput.trim();
+                    if (!addr) return;
+                    setManufacturingLocations((prev) => [...(prev || []), { address: addr }]);
+                    setManufacturingLocationInput("");
                   }}
                   className="px-3 py-2 bg-[#B1DDE3] text-slate-900 rounded hover:bg-[#A0C8D0] text-sm font-medium"
                 >
                   Add
                 </button>
               </div>
-              {Array.isArray(formData.manufacturing_locations) && formData.manufacturing_locations.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {formData.manufacturing_locations.map((loc, idx) => (
-                    <div key={idx} className="bg-slate-100 text-slate-700 px-3 py-1 rounded text-sm flex items-center gap-2">
-                      {loc}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFormData((prev) => ({
-                            ...prev,
-                            manufacturing_locations: prev.manufacturing_locations.filter((_, i) => i !== idx)
-                          }));
-                        }}
-                        className="text-red-500 hover:text-red-700 font-bold"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+
+              {Array.isArray(manufacturingLocations) && manufacturingLocations.length > 0 ? (
+                <div className="space-y-3">
+                  {manufacturingLocations.map((loc, idx) => {
+                    const key = `manu_${idx}`;
+                    return (
+                      <LocationGeolocationRow
+                        key={key}
+                        title={`Manufacturing #${idx + 1}`}
+                        location={loc}
+                        onChange={(next) =>
+                          setManufacturingLocations((prev) => prev.map((v, i) => (i === idx ? next : v)))
+                        }
+                        onRegeocode={() =>
+                          reGeocodeOne({
+                            key,
+                            location: loc,
+                            apply: (next) =>
+                              setManufacturingLocations((prev) => prev.map((v, i) => (i === idx ? next : v))),
+                          })
+                        }
+                        isRegeocoding={isGeoBusy(key)}
+                        actions={
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            disabled={isGeoBusy(key)}
+                            onClick={() =>
+                              setManufacturingLocations((prev) => prev.filter((_, i) => i !== idx))
+                            }
+                          >
+                            Remove
+                          </Button>
+                        }
+                      />
+                    );
+                  })}
                 </div>
+              ) : (
+                <div className="text-sm text-slate-500">No manufacturing locations</div>
               )}
             </div>
             <div className="mt-4">
