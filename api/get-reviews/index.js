@@ -539,11 +539,13 @@ async function getReviewsHandler(req, context, deps = {}) {
     // remove accidental enumerable metadata if attached
     if (allReviews._meta) delete allReviews._meta;
 
+    const responseCompany = companyName || resolvedCompanyId || companyIdParam || domainParam || "";
+
     return json(
       {
         ok: true,
-        company: companyName,
-        company_name: companyName,
+        company: responseCompany,
+        company_name: companyName || responseCompany,
         items: allReviews,
         reviews: allReviews,
         count: allReviews.length,
