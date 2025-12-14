@@ -286,6 +286,70 @@ const CompaniesTableTab = ({ loading: initialLoading, onUpdate }) => {
     }
   }, [tableState.pageIndex, totalPages, setPageIndex]);
 
+  const handleRecalcReviews = useCallback(async (company) => {
+    const companyId = company?.id;
+    if (!companyId) return;
+
+    setRecalcCompanyId(companyId);
+    try {
+      const res = await apiFetch("/admin-recalc-review-counts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company_id: companyId }),
+      });
+
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.ok !== true) {
+        throw new Error(body?.error || `Recalc failed (${res.status})`);
+      }
+
+      const counts = body?.counts || {};
+      setRows((prev) =>
+        prev.map((r) => {
+          if (r?.id !== companyId) return r;
+          const nextReviewCount = typeof counts.review_count === "number" ? counts.review_count : r.review_count;
+          return {
+            ...r,
+            review_count: nextReviewCount,
+            public_review_count:
+              typeof counts.public_review_count === "number" ? counts.public_review_count : r.public_review_count,
+            private_review_count:
+              typeof counts.private_review_count === "number" ? counts.private_review_count : r.private_review_count,
+            reviews_count: nextReviewCount,
+          };
+        })
+      );
+
+      toast.success("Review counts recalculated");
+    } catch (e) {
+      toast.error(e?.message || "Failed to recalc review counts");
+    } finally {
+      setRecalcCompanyId(null);
+    }
+  }, []);
+
+  const handleEdit = useCallback(async (company) => {
+    const companyId = company?.id;
+    if (!companyId) return;
+
+    setLoadingEdit(true);
+    try {
+      const res = await apiFetch(`/companies-list?id=${encodeURIComponent(companyId)}`);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Failed to load company (${res.status})`);
+      }
+      const data = await res.json();
+      const full = data?.item || company;
+      setEditingCompany(full);
+      setIsFormOpen(true);
+    } catch (e) {
+      toast.error(e?.message || "Failed to open company");
+    } finally {
+      setLoadingEdit(false);
+    }
+  }, []);
+
   const columns = useMemo(() => {
     return [
       {
@@ -450,7 +514,7 @@ const CompaniesTableTab = ({ loading: initialLoading, onUpdate }) => {
         ),
       },
     ];
-  }, [loadingEdit, recalcCompanyId, handleRecalcReviews]);
+  }, [loadingEdit, recalcCompanyId, handleRecalcReviews, handleEdit]);
 
   const visibleColumns = useMemo(() => {
     const active = new Set(tableState.visibleColumns);
@@ -458,76 +522,6 @@ const CompaniesTableTab = ({ loading: initialLoading, onUpdate }) => {
     active.add("actions");
     return columns.filter((c) => active.has(c.id));
   }, [columns, tableState.visibleColumns]);
-
-  const handleRecalcReviews = useCallback(
-    async (company) => {
-      const companyId = company?.id;
-      if (!companyId) return;
-
-      setRecalcCompanyId(companyId);
-      try {
-        const res = await apiFetch("/admin-recalc-review-counts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ company_id: companyId }),
-        });
-
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok || body?.ok !== true) {
-          throw new Error(body?.error || `Recalc failed (${res.status})`);
-        }
-
-        const counts = body?.counts || {};
-        setRows((prev) =>
-          prev.map((r) => {
-            if (r?.id !== companyId) return r;
-            const nextReviewCount = typeof counts.review_count === "number" ? counts.review_count : r.review_count;
-            return {
-              ...r,
-              review_count: nextReviewCount,
-              public_review_count:
-                typeof counts.public_review_count === "number" ? counts.public_review_count : r.public_review_count,
-              private_review_count:
-                typeof counts.private_review_count === "number" ? counts.private_review_count : r.private_review_count,
-              reviews_count: nextReviewCount,
-            };
-          })
-        );
-
-        toast.success("Review counts recalculated");
-      } catch (e) {
-        toast.error(e?.message || "Failed to recalc review counts");
-      } finally {
-        setRecalcCompanyId(null);
-      }
-    },
-    []
-  );
-
-  const handleEdit = useCallback(
-    async (company) => {
-      const companyId = company?.id;
-      if (!companyId) return;
-
-      setLoadingEdit(true);
-      try {
-        const res = await apiFetch(`/companies-list?id=${encodeURIComponent(companyId)}`);
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          throw new Error(text || `Failed to load company (${res.status})`);
-        }
-        const data = await res.json();
-        const full = data?.item || company;
-        setEditingCompany(full);
-        setIsFormOpen(true);
-      } catch (e) {
-        toast.error(e?.message || "Failed to open company");
-      } finally {
-        setLoadingEdit(false);
-      }
-    },
-    []
-  );
 
   const handleDelete = useCallback(
     async (companyId) => {
