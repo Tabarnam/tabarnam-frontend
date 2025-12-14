@@ -248,23 +248,29 @@ function extractPublicAdminRatingNotes(companyRecord, normalizePublicFlag) {
   const notes = [];
 
   const rating = companyRecord?.rating;
-  const star3 = rating && typeof rating === "object" ? rating?.star3 : null;
-  const star3Notes = star3 && typeof star3 === "object" && Array.isArray(star3.notes) ? star3.notes : [];
+  const starKeys = ["star1", "star2", "star3", "star4", "star5"];
 
-  for (const n of star3Notes) {
-    if (!n || typeof n !== "object") continue;
-    const text = String(n.text || "").trim();
-    if (!text) continue;
-    const isPublic = normalizePublicFlag(n.is_public, true) === true;
-    if (!isPublic) continue;
+  if (rating && typeof rating === "object") {
+    for (const starKey of starKeys) {
+      const star = rating?.[starKey];
+      const starNotes = star && typeof star === "object" && Array.isArray(star.notes) ? star.notes : [];
 
-    notes.push({
-      id: String(n.id || "").trim() || null,
-      text,
-      created_at: n.created_at || n.updated_at || companyRecord.updated_at || companyRecord.created_at || null,
-      actor: n.created_by || n.actor || null,
-      source: "rating.star3",
-    });
+      for (const n of starNotes) {
+        if (!n || typeof n !== "object") continue;
+        const text = String(n.text || "").trim();
+        if (!text) continue;
+        const isPublic = normalizePublicFlag(n.is_public, false) === true;
+        if (!isPublic) continue;
+
+        notes.push({
+          id: String(n.id || "").trim() || null,
+          text,
+          created_at: n.created_at || n.updated_at || companyRecord.updated_at || companyRecord.created_at || null,
+          actor: n.created_by || n.actor || null,
+          source: `rating.${starKey}`,
+        });
+      }
+    }
   }
 
   const legacy = companyRecord?.star_notes;
@@ -482,9 +488,8 @@ async function getReviewsHandler(req, context, deps = {}) {
       }
     }
 
-    // 2.5) public admin rating notes (Notes for ★ Reviews Present)
-    // These are stored on the company record under the new rating schema (rating.star3.notes)
-    // and must render publicly when marked visible.
+    // 2.5) public admin rating notes (stored on company.rating[*].notes)
+    // These must render publicly when marked visible.
     if (companyRecordForNotes) {
       const dedupe = new Set();
       for (const r of allReviews) {

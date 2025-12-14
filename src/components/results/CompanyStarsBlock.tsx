@@ -39,8 +39,20 @@ export function CompanyStarsBlock({ company }: { company: CompanyLike }) {
   if (rating && typeof rating === "object") {
     for (const starKey of ["star1", "star2", "star3", "star4", "star5"] as const) {
       const star = (rating as any)[starKey];
-      if (star?.notes && Array.isArray(star.notes)) {
-        publicNotes.push(...star.notes.filter((n: any) => n?.is_public));
+      const notes = star?.notes && Array.isArray(star.notes) ? star.notes : [];
+
+      for (const n of notes) {
+        if (!n || typeof n !== "object") continue;
+        const text = String(n.text || "").trim();
+        if (!text) continue;
+
+        const isPublic = n.is_public === true || String(n.is_public).toLowerCase() === "true";
+        if (!isPublic) continue;
+
+        const by = String(n.created_by || n.actor || "Admin").trim() || "Admin";
+        const at = String(n.created_at || n.updated_at || new Date().toISOString()).trim();
+
+        publicNotes.push({ text, public: true, by, at });
       }
     }
   }
