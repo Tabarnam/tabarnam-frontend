@@ -81,7 +81,7 @@ async function resolveCompanyName(params, companiesContainer, context) {
   const companyId = String(params.company_id || params.id || "").trim();
   if (companyId && companiesContainer) {
     try {
-      const sql = `SELECT TOP 1 c.company_name FROM c WHERE c.id = @id ORDER BY c._ts DESC`;
+      const sql = `SELECT TOP 1 c.company_name FROM c WHERE c.id = @id OR c.company_id = @id OR c.companyId = @id ORDER BY c._ts DESC`;
       const { resources } = await companiesContainer.items
         .query(
           { query: sql, parameters: [{ name: "@id", value: companyId }] },
@@ -284,7 +284,7 @@ async function getReviewsHandler(req, context, deps = {}) {
     context
   );
 
-  if (!companyName) {
+  if (!companyName && !companyIdParam && !domainParam && !resolvedCompanyId) {
     return json({ ok: false, error: "company parameter required" }, 400, req);
   }
 
@@ -292,7 +292,7 @@ async function getReviewsHandler(req, context, deps = {}) {
     let allReviews = [];
 
     // 1) user-submitted reviews
-    if (reviewsContainer) {
+    if (reviewsContainer && companyName) {
       try {
         const sql = `SELECT * FROM c WHERE c.company_name = @company ORDER BY c.created_at DESC`;
         const { resources } = await reviewsContainer.items
@@ -376,6 +376,14 @@ async function getReviewsHandler(req, context, deps = {}) {
             const text = r?.abstract || r?.excerpt || r?.text || "";
             const importedAt = r?.imported_at || r?.created_at || r?.last_updated_at || r?.date || null;
 
+            const fallbackKey =
+              companyRecord?.id ||
+              resolvedCompanyId ||
+              companyIdParam ||
+              companyName ||
+              domainParam ||
+              "company";
+
             return {
               // New canonical fields
               type: "curated",
@@ -385,7 +393,7 @@ async function getReviewsHandler(req, context, deps = {}) {
               imported_at: importedAt,
 
               // Backwards-compatible fields used by existing UI
-              id: r?.id || `curated-${companyName}-${idx}`,
+              id: r?.id || `curated-${fallbackKey}-${idx}`,
               source: sourceName,
               abstract: text,
               url: sourceUrl,
@@ -439,7 +447,14 @@ async function getReviewsHandler(req, context, deps = {}) {
 
         if (companyIdCandidates.length > 0) {
           const sql =
-            "SELECT * FROM c WHERE ARRAY_CONTAINS(@companyIds, c.company_id) ORDER BY c.created_at DESC";
+            "SELECT * FROM c WHERE (" +
+            "ARRAY_CONTAINS(@companyIds, c.company_id) OR " +
+            "ARRAY_CONTAINS(@companyIds, c.companyId) OR " +
+            "ARRAY_CONTAINS(@companyIds, c.company_name) OR " +
+            "ARRAY_CONTAINS(@companyIds, c.company) OR " +
+            "ARRAY_CONTAINS(@companyIds, c.normalized_domain) OR " +
+            "ARRAY_CONTAINS(@companyIds, c.domain)" +
+            ") ORDER BY c.created_at DESC";
 
           for (const container of containers) {
             const { resources } = await container.items
@@ -449,28 +464,32 @@ async function getReviewsHandler(req, context, deps = {}) {
               )
               .fetchAll();
 
+            const defaultIsPublic = container === notesContainer;
+
             for (const n of resources || []) {
               const id = (n?.id || "").toString().trim();
-              if (id) notesById.set(id, n);
+              if (!id) continue;
+              notesById.set(id, { note: n, defaultIsPublic });
             }
           }
         }
 
         const publicNotes = Array.from(notesById.values())
-          .filter((n) => normalizeIsPublicFlag(n?.is_public, true) !== false)
-          .map((n, idx) => {
+          .filter(({ note, defaultIsPublic }) => normalizeIsPublicFlag(note?.is_public, defaultIsPublic) === true)
+          .map(({ note: n }, idx) => {
             const actor = (n?.actor || "").toString().trim();
             const text = (n?.text || "").toString().trim();
             if (!text) return null;
             const createdAt = n?.created_at || n?.updated_at || null;
             const sourceName = actor ? `Admin (${actor})` : "Admin";
+            const fallbackKey = companyIdCandidates[0] || resolvedCompanyId || companyName || domainParam || "company";
             return {
               type: "admin",
               text,
               source_name: sourceName,
               source_url: null,
               imported_at: createdAt,
-              id: n?.id || `admin-note-${companyIdCandidates[0] || resolvedCompanyId || companyName}-${idx}`,
+              id: n?.id || `admin-note-${fallbackKey}-${idx}`,
               source: sourceName,
               abstract: text,
               url: null,
@@ -520,11 +539,13 @@ async function getReviewsHandler(req, context, deps = {}) {
     // remove accidental enumerable metadata if attached
     if (allReviews._meta) delete allReviews._meta;
 
+    const responseCompany = companyName || resolvedCompanyId || companyIdParam || domainParam || "";
+
     return json(
       {
         ok: true,
-        company: companyName,
-        company_name: companyName,
+        company: responseCompany,
+        company_name: companyName || responseCompany,
         items: allReviews,
         reviews: allReviews,
         count: allReviews.length,
