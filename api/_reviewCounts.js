@@ -40,15 +40,50 @@ function asNonNegativeInt(v, fallback = 0) {
   return fallback;
 }
 
-function buildReviewMatchWhere({ companyId, companyName }) {
+function buildIsPublicExpr() {
+  // Match frontend precedence: public ?? is_public ?? isPublic ?? visible_to_users ?? show_to_users ?? true
+  return (
+    "(IIF(IS_DEFINED(c.public), c.public, " +
+    "IIF(IS_DEFINED(c.is_public), c.is_public, " +
+    "IIF(IS_DEFINED(c.isPublic), c.isPublic, " +
+    "IIF(IS_DEFINED(c.visible_to_users), c.visible_to_users, " +
+    "IIF(IS_DEFINED(c.show_to_users), c.show_to_users, true))))) )"
+  );
+}
+
+function buildReviewMatchQuerySpec({ companyId, companyName, normalizedDomain }) {
+  const id = asString(companyId).trim();
+  const name = asString(companyName).trim();
+  const domain = asString(normalizedDomain).trim();
+  const domainLower = domain.toLowerCase();
+
   const clauses = [];
-  if (companyId) {
-    clauses.push("(c.company_id = @id OR c.companyId = @id)");
+  const parameters = [];
+
+  if (id) {
+    parameters.push({ name: "@id", value: id });
+    clauses.push(
+      "(c.company_id = @id OR c.companyId = @id OR c.companyID = @id OR c.companyid = @id OR c.company_id_str = @id)"
+    );
   }
-  if (companyName) {
+
+  if (name) {
+    parameters.push({ name: "@company", value: name });
     clauses.push("(c.company_name = @company OR c.company = @company)");
   }
-  return clauses.length ? `(${clauses.join(" OR ")})` : "";
+
+  if (domain) {
+    parameters.push({ name: "@domain", value: domain });
+    parameters.push({ name: "@domainLower", value: domainLower });
+    clauses.push(
+      "(c.normalized_domain = @domain OR c.domain = @domain OR " +
+        "(IS_DEFINED(c.normalized_domain) AND LOWER(c.normalized_domain) = @domainLower) OR " +
+        "(IS_DEFINED(c.domain) AND LOWER(c.domain) = @domainLower))"
+    );
+  }
+
+  const where = clauses.length ? `(${clauses.join(" OR ")})` : "";
+  return { where, parameters, _debug: { id: id || null, name: name || null, domain: domain || null } };
 }
 
 async function findCompanyByIdOrName(companiesContainer, { companyId, companyName }) {
@@ -82,40 +117,44 @@ async function findCompanyByIdOrName(companiesContainer, { companyId, companyNam
   return Array.isArray(resources) && resources.length ? resources[0] : null;
 }
 
-async function getReviewCountsForCompany(reviewsContainer, { companyId, companyName }) {
+async function getReviewCountsForCompany(reviewsContainer, { companyId, companyName, normalizedDomain }) {
   if (!reviewsContainer) {
-    return { review_count: 0, public_review_count: 0, private_review_count: 0 };
+    return { review_count: 0, public_review_count: 0, private_review_count: 0, total: 0, public: 0, private: 0 };
   }
 
-  const id = asString(companyId).trim();
-  const name = asString(companyName).trim();
-  const where = buildReviewMatchWhere({ companyId: id, companyName: name });
+  const { where, parameters } = buildReviewMatchQuerySpec({
+    companyId,
+    companyName,
+    normalizedDomain,
+  });
+
   if (!where) {
-    return { review_count: 0, public_review_count: 0, private_review_count: 0 };
+    return { review_count: 0, public_review_count: 0, private_review_count: 0, total: 0, public: 0, private: 0 };
   }
 
-  const params = [];
-  if (id) params.push({ name: "@id", value: id });
-  if (name) params.push({ name: "@company", value: name });
+  const isPublicExpr = buildIsPublicExpr();
 
   const queryCount = async (extraWhere = "") => {
     const sql = `SELECT VALUE COUNT(1) FROM c WHERE ${where} ${extraWhere}`;
     const { resources } = await reviewsContainer.items
-      .query({ query: sql, parameters: params }, { enableCrossPartitionQuery: true })
+      .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
       .fetchAll();
     return asNonNegativeInt(resources?.[0] ?? 0, 0);
   };
 
   const [total, pub, priv] = await Promise.all([
     queryCount(""),
-    queryCount("AND (NOT IS_DEFINED(c.is_public) OR c.is_public = true)"),
-    queryCount("AND (IS_DEFINED(c.is_public) AND c.is_public = false)"),
+    queryCount(`AND ${isPublicExpr} = true`),
+    queryCount(`AND ${isPublicExpr} = false`),
   ]);
 
   return {
     review_count: total,
     public_review_count: pub,
     private_review_count: priv,
+    total,
+    public: pub,
+    private: priv,
   };
 }
 
@@ -226,5 +265,6 @@ module.exports = {
   getReviewCountsForCompany,
   setCompanyReviewCounts,
   incrementCompanyReviewCounts,
-  _test: { buildReviewMatchWhere, asNonNegativeInt },
+  buildReviewMatchQuerySpec,
+  _test: { asNonNegativeInt },
 };
