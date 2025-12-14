@@ -482,6 +482,65 @@ async function getReviewsHandler(req, context, deps = {}) {
       }
     }
 
+    // 2.5) public admin rating notes (Notes for ★ Reviews Present)
+    // These are stored on the company record under the new rating schema (rating.star3.notes)
+    // and must render publicly when marked visible.
+    if (companyRecordForNotes) {
+      const dedupe = new Set();
+      for (const r of allReviews) {
+        if (!r || typeof r !== "object") continue;
+        const t = String(r.text || r.abstract || "").trim();
+        const c = String(r.created_at || "");
+        if (t) dedupe.add(`${t}::${c}`);
+      }
+
+      const adminRatingNotes = extractPublicAdminRatingNotes(companyRecordForNotes, normalizeIsPublicFlag);
+      const fallbackKey =
+        companyRecordForNotes?.id ||
+        resolvedCompanyId ||
+        companyIdParam ||
+        companyName ||
+        domainParam ||
+        "company";
+
+      let added = 0;
+      for (let idx = 0; idx < adminRatingNotes.length; idx += 1) {
+        const n = adminRatingNotes[idx];
+        const text = String(n?.text || "").trim();
+        if (!text) continue;
+        const createdAt = n?.created_at || null;
+        const key = `${text}::${String(createdAt || "")}`;
+        if (dedupe.has(key)) continue;
+        dedupe.add(key);
+
+        const actor = String(n?.actor || "").trim();
+        const sourceName = actor ? `Admin (${actor})` : "Admin";
+
+        allReviews.push({
+          type: "admin",
+          text,
+          source_name: sourceName,
+          source_url: null,
+          imported_at: createdAt,
+
+          id: n?.id || `admin-rating-${fallbackKey}-${idx}`,
+          source: sourceName,
+          abstract: text,
+          url: null,
+          rating: null,
+          created_at: createdAt,
+          last_updated_at: null,
+        });
+
+        added += 1;
+      }
+
+      allReviews._meta = {
+        ...(allReviews._meta || {}),
+        admin_rating_notes_visible_count: added,
+      };
+    }
+
     // 3) public admin notes (show to users)
     if (notesContainer || notesAdminContainer) {
       try {
