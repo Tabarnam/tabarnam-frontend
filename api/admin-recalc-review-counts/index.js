@@ -5,6 +5,7 @@ const {
   findCompanyByIdOrName,
   getReviewCountsForCompany,
   setCompanyReviewCounts,
+  buildReviewMatchQuerySpec,
 } = require("../_reviewCounts");
 
 function json(obj, status = 200) {
@@ -47,6 +48,7 @@ app.http("admin-recalc-review-counts", {
     const companyId = String(body.company_id || body.companyId || body.id || "").trim();
     const companyName = String(body.company_name || body.company || "").trim();
     const dryRun = body.dry_run === true;
+    const debug = body.debug === true || body.include_matched_review_ids === true;
 
     if (!companyId && !companyName) {
       return json({ ok: false, error: "company_id or company_name required" }, 400);
@@ -65,7 +67,37 @@ app.http("admin-recalc-review-counts", {
       const counts = await getReviewCountsForCompany(reviewsContainer, {
         companyId: companyDoc.id || companyDoc.company_id || companyId,
         companyName: companyDoc.company_name || companyName,
+        normalizedDomain: companyDoc.normalized_domain || null,
       });
+
+      let matched_review_ids = undefined;
+      let matched_review_samples = undefined;
+
+      if (debug) {
+        const { where, parameters } = buildReviewMatchQuerySpec({
+          companyId: companyDoc.id || companyDoc.company_id || companyId,
+          companyName: companyDoc.company_name || companyName,
+          normalizedDomain: companyDoc.normalized_domain || null,
+        });
+
+        if (where) {
+          const sql =
+            "SELECT TOP 10 c.id, c.company_id, c.companyId, c.companyID, c.company_name, c.company, c.normalized_domain, c.domain, c.is_public, c.isPublic, c.public, c.visible_to_users, c.show_to_users FROM c WHERE " +
+            where +
+            " ORDER BY c._ts DESC";
+
+          const { resources } = await reviewsContainer.items
+            .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
+            .fetchAll();
+
+          const rows = Array.isArray(resources) ? resources : [];
+          matched_review_ids = rows.map((r) => r?.id).filter(Boolean);
+          matched_review_samples = rows.slice(0, 3);
+        } else {
+          matched_review_ids = [];
+          matched_review_samples = [];
+        }
+      }
 
       if (dryRun) {
         return json(
@@ -78,6 +110,7 @@ app.http("admin-recalc-review-counts", {
               normalized_domain: companyDoc.normalized_domain || null,
             },
             counts,
+            ...(debug ? { matched_review_ids, matched_review_samples } : {}),
           },
           200
         );
@@ -97,6 +130,7 @@ app.http("admin-recalc-review-counts", {
             normalized_domain: companyDoc.normalized_domain || null,
           },
           counts: result.counts || counts,
+          ...(debug ? { matched_review_ids, matched_review_samples } : {}),
         },
         200
       );
