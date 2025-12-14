@@ -1,8 +1,6 @@
 name: Deploy Azure Functions
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
