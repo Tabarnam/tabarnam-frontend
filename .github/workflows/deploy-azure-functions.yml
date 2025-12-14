@@ -19,6 +19,14 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
+      - name: Build (Vite)
+        run: npm run build
+
+      - name: Sanity check - fail fast if dist is missing
+        run: |
+          test -f dist/index.html || (echo "FATAL: dist/index.html missing" && exit 1)
+          test -f dist/staticwebapp.config.json || (echo "FATAL: dist/staticwebapp.config.json missing" && exit 1)
+
       - name: Install API dependencies
         run: cd api && npm install && cd ..
 
