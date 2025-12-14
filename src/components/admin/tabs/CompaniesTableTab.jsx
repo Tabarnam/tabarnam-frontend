@@ -450,7 +450,7 @@ const CompaniesTableTab = ({ loading: initialLoading, onUpdate }) => {
         ),
       },
     ];
-  }, [loadingEdit]);
+  }, [loadingEdit, recalcCompanyId, handleRecalcReviews]);
 
   const visibleColumns = useMemo(() => {
     const active = new Set(tableState.visibleColumns);
@@ -489,7 +489,7 @@ const CompaniesTableTab = ({ loading: initialLoading, onUpdate }) => {
                 typeof counts.public_review_count === "number" ? counts.public_review_count : r.public_review_count,
               private_review_count:
                 typeof counts.private_review_count === "number" ? counts.private_review_count : r.private_review_count,
-              reviews_count: typeof r.reviews_count === "number" ? r.reviews_count : nextReviewCount,
+              reviews_count: nextReviewCount,
             };
           })
         );
