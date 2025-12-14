@@ -64,6 +64,66 @@ function toFiniteNumber(v) {
   return undefined;
 }
 
+function normalizeBool(value, defaultValue) {
+  if (value === undefined || value === null) return defaultValue;
+  if (value === true) return true;
+  if (value === false) return false;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (!v) return defaultValue;
+    if (v === "true" || v === "1" || v === "yes" || v === "on") return true;
+    if (v === "false" || v === "0" || v === "no" || v === "off") return false;
+  }
+  return Boolean(value);
+}
+
+function clampStarValue01(value) {
+  const n = toFiniteNumber(value);
+  const clamped = Math.max(0, Math.min(1, n ?? 0));
+  return Math.round(clamped * 100) / 100;
+}
+
+function normalizeStarNote(note) {
+  if (!note || typeof note !== "object") return null;
+  const text = typeof note.text === "string" ? note.text.trim() : "";
+  if (!text) return null;
+
+  const idRaw = typeof note.id === "string" ? note.id.trim() : "";
+  const id = idRaw || `note_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  return {
+    id,
+    text,
+    is_public: normalizeBool(note.is_public, false),
+    created_at: typeof note.created_at === "string" ? note.created_at : undefined,
+    updated_at: typeof note.updated_at === "string" ? note.updated_at : undefined,
+    created_by: typeof note.created_by === "string" ? note.created_by : undefined,
+  };
+}
+
+function normalizeStarUnit(unit) {
+  const u = unit && typeof unit === "object" ? unit : {};
+  const notes = Array.isArray(u.notes) ? u.notes.map(normalizeStarNote).filter(Boolean) : [];
+  const iconType = typeof u.icon_type === "string" ? u.icon_type.trim().toLowerCase() : "";
+
+  return {
+    value: clampStarValue01(u.value),
+    notes,
+    ...(iconType === "star" || iconType === "heart" ? { icon_type: iconType } : {}),
+  };
+}
+
+function normalizeCompanyRating(rating) {
+  const r = rating && typeof rating === "object" ? rating : {};
+  return {
+    star1: normalizeStarUnit(r.star1),
+    star2: normalizeStarUnit(r.star2),
+    star3: normalizeStarUnit(r.star3),
+    star4: normalizeStarUnit(r.star4),
+    star5: normalizeStarUnit(r.star5),
+  };
+}
+
 function normalizeLocationEntries(entries) {
   if (!Array.isArray(entries)) return [];
   return entries
@@ -428,6 +488,8 @@ app.http("companies-list", {
           star5: { value: 0.0, notes: [] },
         };
 
+        const rating = normalizeCompanyRating(base.rating || defaultRating);
+
         const rawVisibility = base.visibility && typeof base.visibility === "object" ? base.visibility : {};
         const visibility = {
           hq_public: rawVisibility.hq_public ?? true,
@@ -451,7 +513,7 @@ app.http("companies-list", {
           manufacturing_locations: manufacturing_geocodes,
           manufacturing_geocodes,
           rating_icon_type: base.rating_icon_type || "star",
-          rating: base.rating || defaultRating,
+          rating,
           visibility,
           updated_at: now,
           created_at: (existingDoc && existingDoc.created_at) || base.created_at || now,
