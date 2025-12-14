@@ -76,11 +76,11 @@ export function getOrCalculateRating(company: Company): CompanyRating {
 }
 
 /**
- * Clamp a star value to valid range (0.0 - 1.0) in 0.1 increments.
+ * Clamp a star value to valid range (0.0 - 1.0), rounded to 2 decimals.
  */
 export function clampStarValue(value: number): number {
-  const clamped = Math.max(0, Math.min(1, value));
-  return Math.round(clamped * 10) / 10; // Round to nearest 0.1
+  const clamped = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+  return Math.round(clamped * 100) / 100;
 }
 
 /**
