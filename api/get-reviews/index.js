@@ -63,6 +63,17 @@ function getPublicNotesContainer() {
   return cosmosClient.database(databaseId).container(containerId);
 }
 
+function getAdminNotesContainer() {
+  const endpoint = E("COSMOS_DB_ENDPOINT");
+  const key = E("COSMOS_DB_KEY");
+  const databaseId = E("COSMOS_DB_DATABASE", "tabarnam-db");
+  const containerId = E("COSMOS_DB_NOTES_ADMIN_CONTAINER", "notes_admin");
+
+  if (!endpoint || !key) return null;
+  cosmosClient ||= new CosmosClient({ endpoint, key });
+  return cosmosClient.database(databaseId).container(containerId);
+}
+
 async function resolveCompanyName(params, companiesContainer, context) {
   const company = String(params.company || "").trim();
   if (company) return company;
@@ -166,6 +177,7 @@ async function getReviewsHandler(req, context, deps = {}) {
   const reviewsContainer = deps.reviewsContainer ?? getReviewsContainer();
   const companiesContainer = deps.companiesContainer ?? getCompaniesContainer();
   const notesContainer = deps.notesContainer ?? getPublicNotesContainer();
+  const notesAdminContainer = deps.notesAdminContainer ?? getAdminNotesContainer();
 
   const companyIdParam = String(url.searchParams.get("company_id") || url.searchParams.get("id") || "").trim();
   const domainParam = String(url.searchParams.get("normalized_domain") || url.searchParams.get("domain") || "").trim();
@@ -331,17 +343,27 @@ async function getReviewsHandler(req, context, deps = {}) {
     }
 
     // 3) public admin notes (show to users)
-    if (notesContainer && resolvedCompanyId) {
+    if (resolvedCompanyId && (notesContainer || notesAdminContainer)) {
       try {
         const sql = "SELECT * FROM c WHERE c.company_id = @companyId ORDER BY c.created_at DESC";
-        const { resources } = await notesContainer.items
-          .query(
-            { query: sql, parameters: [{ name: "@companyId", value: resolvedCompanyId }] },
-            { enableCrossPartitionQuery: true }
-          )
-          .fetchAll();
+        const containers = [notesAdminContainer, notesContainer].filter(Boolean);
 
-        const publicNotes = (resources || [])
+        const notesById = new Map();
+        for (const container of containers) {
+          const { resources } = await container.items
+            .query(
+              { query: sql, parameters: [{ name: "@companyId", value: resolvedCompanyId }] },
+              { enableCrossPartitionQuery: true }
+            )
+            .fetchAll();
+
+          for (const n of resources || []) {
+            const id = (n?.id || "").toString().trim();
+            if (id) notesById.set(id, n);
+          }
+        }
+
+        const publicNotes = Array.from(notesById.values())
           .filter((n) => (n?.is_public ?? true) !== false)
           .map((n, idx) => {
             const actor = (n?.actor || "").toString().trim();
