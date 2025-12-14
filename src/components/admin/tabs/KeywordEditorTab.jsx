@@ -79,7 +79,11 @@ const KeywordEditorTab = () => {
               placeholder="Add new keyword..."
               value={newKeyword}
               onChange={(e) => setNewKeyword(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddKeyword()}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                handleAddKeyword();
+              }}
             />
             <Button
               onClick={handleAddKeyword}

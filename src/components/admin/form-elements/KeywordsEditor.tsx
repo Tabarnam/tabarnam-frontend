@@ -101,21 +101,26 @@ const KeywordsEditor: React.FC<KeywordsEditorProps> = ({
     onChange(keywords.filter((_, idx) => idx !== indexToRemove));
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (filteredKeywords.length > 0) {
-        handleAddKeyword(filteredKeywords[0]);
-      }
+  const addFromCurrentInput = () => {
+    const trimmedInput = inputValue.trim();
+    if (!trimmedInput) return;
+
+    if (filteredKeywords.length > 0) {
+      handleAddKeyword(filteredKeywords[0]);
+      return;
     }
+
+    handleAddKeyword(trimmedInput);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    addFromCurrentInput();
   };
 
   const handleAddButtonClick = () => {
-    if (filteredKeywords.length > 0) {
-      handleAddKeyword(filteredKeywords[0]);
-    } else if (inputValue.trim()) {
-      handleAddKeyword(inputValue);
-    }
+    addFromCurrentInput();
   };
 
   return (
