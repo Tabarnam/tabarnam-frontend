@@ -503,6 +503,20 @@ async function getReviewsHandler(req, context, deps = {}) {
     });
 
     const meta = allReviews._meta || {};
+
+    meta.backend = {
+      website_hostname: process.env.WEBSITE_HOSTNAME || null,
+      website_site_name: process.env.WEBSITE_SITE_NAME || null,
+      region_name: process.env.REGION_NAME || null,
+      cosmos_database: E("COSMOS_DB_DATABASE", "tabarnam-db"),
+      cosmos_containers: {
+        companies: E("COSMOS_DB_COMPANIES_CONTAINER", "companies"),
+        reviews: E("COSMOS_DB_REVIEWS_CONTAINER", "reviews"),
+        notes: E("COSMOS_DB_NOTES_CONTAINER", "notes"),
+        notes_admin: E("COSMOS_DB_NOTES_ADMIN_CONTAINER", "notes_admin"),
+      },
+    };
+
     // remove accidental enumerable metadata if attached
     if (allReviews._meta) delete allReviews._meta;
 
