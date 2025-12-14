@@ -49,7 +49,7 @@ const StarNotesEditor = ({ companyId, starRating, onStarChange, userName }) => {
 
     setLoading(true);
     try {
-      const res = await apiFetch("/xadmin-api-notes", {
+      const res = await apiFetch("/xadmin-api-notes?kind=admin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -84,7 +84,7 @@ const StarNotesEditor = ({ companyId, starRating, onStarChange, userName }) => {
       const noteToUpdate = notes.find((n) => n.id === noteId);
       if (!noteToUpdate) return;
 
-      const res = await apiFetch("/xadmin-api-notes", {
+      const res = await apiFetch("/xadmin-api-notes?kind=admin", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -117,7 +117,7 @@ const StarNotesEditor = ({ companyId, starRating, onStarChange, userName }) => {
   const handleDeleteNote = async (noteId, companyIdVal) => {
     setLoading(true);
     try {
-      const res = await apiFetch("/xadmin-api-notes", {
+      const res = await apiFetch("/xadmin-api-notes?kind=admin", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

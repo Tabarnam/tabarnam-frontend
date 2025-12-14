@@ -50,19 +50,26 @@ export default function ResultsPage() {
           const r = await fetch(`${API_BASE}/get-reviews?${qs}`);
           const data = await r.json().catch(() => ({ items: [], reviews: [] }));
 
+          const storedCuratedVisible =
+            data?.meta && typeof data.meta.company_curated_visible_count === "number"
+              ? data.meta.company_curated_visible_count
+              : data?.meta && typeof data.meta.company_curated_count === "number"
+                ? data.meta.company_curated_count
+                : null;
+
           if (
-            data?.meta &&
-            typeof data.meta.company_curated_count === "number" &&
-            data.meta.company_curated_count > 1 &&
+            storedCuratedVisible != null &&
+            storedCuratedVisible > 1 &&
             typeof data.count === "number" &&
-            data.count < data.meta.company_curated_count
+            data.count < storedCuratedVisible
           ) {
             console.warn("[ResultsPage] Reviews regression: fewer reviews returned than stored", {
               company_id: companyId,
               company_name: c.company_name,
               returned: data.count,
-              stored_curated: data.meta.company_curated_count,
-              company_record_id: data.meta.company_record_id,
+              stored_curated_visible: storedCuratedVisible,
+              stored_curated_total: data?.meta?.company_curated_count,
+              company_record_id: data?.meta?.company_record_id,
             });
           }
 
