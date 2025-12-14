@@ -76,6 +76,12 @@ export interface LocationSource {
   location_type?: "headquarters" | "manufacturing"; // which type of location
 }
 
+export interface CompanyVisibility {
+  hq_public?: boolean;
+  manufacturing_public?: boolean;
+  admin_rating_public?: boolean;
+}
+
 export interface Company {
   id?: string;
   company_id?: string;
@@ -104,6 +110,7 @@ export interface Company {
   logo_url?: string;
   location_sources?: LocationSource[];
   show_location_sources_to_users?: boolean;
+  visibility?: CompanyVisibility;
 
   // Legacy fields (for backward compatibility)
   star_rating?: number;

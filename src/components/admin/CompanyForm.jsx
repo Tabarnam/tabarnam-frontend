@@ -23,6 +23,21 @@ import { defaultRating } from "@/types/company";
 import { getOrCalculateRating } from "@/lib/stars/calculateRating";
 import { stripAmazonAffiliateTag, withAmazonAffiliate } from "@/lib/amazonAffiliate";
 
+const DEFAULT_VISIBILITY = {
+  hq_public: true,
+  manufacturing_public: true,
+  admin_rating_public: true,
+};
+
+function normalizeVisibility(raw) {
+  const v = raw && typeof raw === "object" ? raw : {};
+  return {
+    hq_public: v.hq_public ?? true,
+    manufacturing_public: v.manufacturing_public ?? true,
+    admin_rating_public: v.admin_rating_public ?? true,
+  };
+}
+
 const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const user = getAdminUser();
   const [formData, setFormData] = useState({});
@@ -35,11 +50,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
   const [manufacturingLocationInput, setManufacturingLocationInput] = useState("");
   const [rating, setRating] = useState(defaultRating());
   const [ratingIconType, setRatingIconType] = useState("star");
-  const [visibility, setVisibility] = useState({
-    hq_public: true,
-    manufacturing_public: true,
-    admin_rating_public: false,
-  });
+  const [visibility, setVisibility] = useState(DEFAULT_VISIBILITY);
   const [showLocationSourcesToUsers, setShowLocationSourcesToUsers] = useState(false);
   const [locationSources, setLocationSources] = useState([]);
   const [showLogoDialog, setShowLogoDialog] = useState(false);
@@ -166,11 +177,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       setRating(companyRating);
       setRatingIconType(company.rating_icon_type || "star");
 
-      setVisibility(company.visibility || {
-        hq_public: true,
-        manufacturing_public: true,
-        admin_rating_public: false,
-      });
+      setVisibility(normalizeVisibility(company.visibility));
       setShowLocationSourcesToUsers(Boolean(company.show_location_sources_to_users));
       setLocationSources(Array.isArray(company.location_sources) ? company.location_sources : []);
       const isEditMode = !!(normalized.id || normalized.company_id);
@@ -183,11 +190,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       setGeoRegeocodeBusy({});
       setRating(defaultRating());
       setRatingIconType("star");
-      setVisibility({
-        hq_public: true,
-        manufacturing_public: true,
-        admin_rating_public: false,
-      });
+      setVisibility(DEFAULT_VISIBILITY);
       console.log('[CompanyForm] Rendering as new company form');
     }
   }, [company]);
@@ -468,13 +471,7 @@ const CompanyForm = ({ company, onSaved, isOpen, onClose, onSuccess }) => {
       const refreshedRating = getOrCalculateRating(updatedCompany);
       setRating(refreshedRating);
       setRatingIconType(updatedCompany.rating_icon_type || "star");
-      setVisibility(
-        updatedCompany.visibility || {
-          hq_public: true,
-          manufacturing_public: true,
-          admin_rating_public: false,
-        }
-      );
+      setVisibility(normalizeVisibility(updatedCompany.visibility));
 
       const summary = result?.summary || { updated_field_count: 0, new_review_count: 0 };
       if (summary.updated_field_count === 0 && summary.new_review_count === 0) {
