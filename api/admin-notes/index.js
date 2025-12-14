@@ -97,8 +97,12 @@ app.http('adminNotes', {
           return json({ error: "company_id required" }, 400, req);
         }
 
+        const queryText = isPublic
+          ? "SELECT * FROM c WHERE c.company_id = @companyId AND (NOT IS_DEFINED(c.is_public) OR c.is_public = true) ORDER BY c.created_at DESC"
+          : "SELECT * FROM c WHERE c.company_id = @companyId ORDER BY c.created_at DESC";
+
         const query = {
-          query: "SELECT * FROM c WHERE c.company_id = @companyId ORDER BY c.created_at DESC",
+          query: queryText,
           parameters: [{ name: "@companyId", value: companyId }],
         };
 
@@ -126,7 +130,7 @@ app.http('adminNotes', {
           id,
           company_id: note.company_id,
           text: note.text || "",
-          is_public: isPublic ? Boolean(note.is_public ?? true) : false,
+          is_public: isPublic ? Boolean(note.is_public ?? true) : Boolean(note.is_public ?? false),
           created_at: note.created_at || now,
           updated_at: now,
           actor: note.actor || null,
