@@ -65,6 +65,23 @@ test("/api/get-reviews?normalized_domain=... resolves company name and succeeds"
   assert.ok(Array.isArray(body.items));
 });
 
+test("/api/get-reviews?company_id=... succeeds even when company name cannot be resolved", async () => {
+  const reviewsContainer = makeContainer(async () => []);
+  const companiesContainer = makeContainer(async () => []);
+
+  const res = await _test.getReviewsHandler(
+    makeReq("https://example.test/api/get-reviews?company_id=company_123"),
+    { log() {} },
+    { reviewsContainer, companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.company, "company_123");
+  assert.ok(Array.isArray(body.items));
+});
+
 test("/api/get-reviews with no identifier returns 400", async () => {
   const res = await _test.getReviewsHandler(makeReq("https://example.test/api/get-reviews"), { log() {} }, {
     reviewsContainer: null,
