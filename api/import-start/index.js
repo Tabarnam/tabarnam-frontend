@@ -4,6 +4,7 @@ const { CosmosClient } = require("@azure/cosmos");
 const { getXAIEndpoint, getXAIKey, getProxyBase } = require("../_shared");
 const { importCompanyLogo } = require("../_logoImport");
 const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
+const { validateCuratedReviewCandidate } = require("../_reviewQuality");
 
 function json(obj, status = 200) {
   return {
