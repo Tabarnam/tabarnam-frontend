@@ -1,7 +1,7 @@
 const { app } = require("@azure/functions");
 const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
-const { getXAIEndpoint, getXAIKey, getProxyBase } = require("../_shared");
+const { getXAIEndpoint, getXAIKey } = require("../_shared");
 const { importCompanyLogo } = require("../_logoImport");
 const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
 const {
@@ -82,6 +82,19 @@ function extractXaiRequestId(headers) {
     get("request-id") ||
     null
   );
+}
+
+function getImportStartProxyBase() {
+  const explicit = (process.env.IMPORT_START_PROXY_BASE || process.env.XAI_IMPORT_PROXY_BASE || "").trim();
+  if (explicit) return explicit;
+
+  const external = (process.env.XAI_EXTERNAL_BASE || "").trim();
+  if (external) return external;
+
+  const legacy = (process.env.XAI_PROXY_BASE || "").trim();
+  if (legacy) return legacy;
+
+  return "";
 }
 
 function buildCounts({ enriched, debugOutput }) {
@@ -1008,7 +1021,7 @@ app.http("import-start", {
         Math.min(Number(bodyObj.hard_timeout_ms) || DEFAULT_HARD_TIMEOUT_MS, DEFAULT_HARD_TIMEOUT_MS)
       );
 
-      const proxyBase = (getProxyBase() || "").trim();
+      const proxyBase = getImportStartProxyBase();
       const proxyRequested = bodyObj?.proxy !== false;
       const shouldProxy = proxyBase && proxyRequested;
 
@@ -1017,7 +1030,8 @@ app.http("import-start", {
         return respondError(new Error("Import upstream not configured"), {
           status: 500,
           details: {
-            message: "Set XAI_EXTERNAL_BASE (or XAI_PROXY_BASE) so /api/import/start can run without Static Web Apps timing out",
+            message:
+              "Set IMPORT_START_PROXY_BASE (preferred) or XAI_EXTERNAL_BASE so /api/import/start can run without Static Web Apps timing out",
           },
         });
       }
@@ -1042,22 +1056,39 @@ app.http("import-start", {
 
         try {
           const key = getXAIKey();
-          const upstreamUrl = `${proxyBase.replace(/\/$/, "")}/import/start`;
 
-          const resp = await axios.post(upstreamUrl, bodyObj, {
-            headers: {
-              "Content-Type": "application/json",
-              ...(key
-                ? {
-                    Authorization: `Bearer ${key}`,
-                    "x-functions-key": key,
-                  }
-                : {}),
-            },
-            timeout: upstreamTimeoutMs,
-            signal: controller.signal,
-            validateStatus: () => true,
-          });
+          const base = proxyBase.replace(/\/$/, "");
+          const candidatePaths = ["/import/start", "/import-start"]; // support both route styles
+
+          let resp = null;
+          let usedPath = candidatePaths[0];
+          let usedUrl = `${base}${usedPath}`;
+
+          for (const p of candidatePaths) {
+            const url = `${base}${p}`;
+            usedPath = p;
+            usedUrl = url;
+
+            const r = await axios.post(url, bodyObj, {
+              headers: {
+                "Content-Type": "application/json",
+                ...(key
+                  ? {
+                      Authorization: `Bearer ${key}`,
+                      "x-functions-key": key,
+                    }
+                  : {}),
+              },
+              timeout: upstreamTimeoutMs,
+              signal: controller.signal,
+              validateStatus: () => true,
+            });
+
+            resp = r;
+            if (r.status !== 404) break;
+          }
+
+          setStage("proxyImportStart", { upstream_url: usedUrl, upstream_path: usedPath });
 
           const xaiRequestId = extractXaiRequestId(resp.headers);
           if (xaiRequestId) {
@@ -1080,9 +1111,15 @@ app.http("import-start", {
 
           const elapsedMs = Date.now() - startTime;
           const meta = body.meta && typeof body.meta === "object" ? body.meta : {};
-          body.meta = { ...meta, mode: meta.mode || "proxy", elapsedMs };
+          body.meta = {
+            ...meta,
+            mode: meta.mode || "proxy",
+            elapsedMs,
+            upstream: proxyBase,
+            upstream_url: usedUrl,
+          };
 
-          return json(body, resp.status || 502);
+          return json(body, resp?.status || 502);
         } catch (e) {
           const elapsedMs = Date.now() - startTime;
           const isTimeout =
