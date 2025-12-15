@@ -84,17 +84,47 @@ function extractXaiRequestId(headers) {
   );
 }
 
-function getImportStartProxyBase() {
-  const explicit = (process.env.IMPORT_START_PROXY_BASE || process.env.XAI_IMPORT_PROXY_BASE || "").trim();
-  if (explicit) return explicit;
+function tryParseUrl(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  try {
+    return new URL(s);
+  } catch {
+    try {
+      return new URL(`https://${s}`);
+    } catch {
+      return null;
+    }
+  }
+}
 
-  const external = (process.env.XAI_EXTERNAL_BASE || "").trim();
-  if (external) return external;
+function isXaiPublicApiUrl(raw) {
+  const u = tryParseUrl(raw);
+  if (!u) return false;
+  const host = u.hostname.toLowerCase();
+  if (host === "api.x.ai" || host.endsWith(".x.ai") || host === "x.ai" || host.endsWith(".x.ai")) {
+    return true;
+  }
+  const path = u.pathname.toLowerCase();
+  if (path.includes("/v1/chat/completions")) return true;
+  return false;
+}
 
-  const legacy = (process.env.XAI_PROXY_BASE || "").trim();
-  if (legacy) return legacy;
+function getImportStartProxyInfo() {
+  const candidates = [
+    { key: "IMPORT_START_PROXY_BASE", value: process.env.IMPORT_START_PROXY_BASE },
+    { key: "XAI_IMPORT_PROXY_BASE", value: process.env.XAI_IMPORT_PROXY_BASE },
+    { key: "XAI_EXTERNAL_BASE", value: process.env.XAI_EXTERNAL_BASE },
+    { key: "XAI_PROXY_BASE", value: process.env.XAI_PROXY_BASE },
+  ];
 
-  return "";
+  for (const c of candidates) {
+    const v = String(c.value || "").trim();
+    if (!v) continue;
+    return { base: v, source: c.key };
+  }
+
+  return { base: "", source: "" };
 }
 
 function buildCounts({ enriched, debugOutput }) {
@@ -1021,17 +1051,32 @@ app.http("import-start", {
         Math.min(Number(bodyObj.hard_timeout_ms) || DEFAULT_HARD_TIMEOUT_MS, DEFAULT_HARD_TIMEOUT_MS)
       );
 
-      const proxyBase = getImportStartProxyBase();
+      const { base: proxyBaseRaw, source: proxySource } = getImportStartProxyInfo();
       const proxyRequested = bodyObj?.proxy !== false;
+
+      if (proxyBaseRaw && isXaiPublicApiUrl(proxyBaseRaw)) {
+        setStage("proxy_config", { upstream: proxyBaseRaw, proxy_source: proxySource });
+        return respondError(new Error("Invalid proxy target: import-start cannot be proxied to XAI API"), {
+          status: 500,
+          details: {
+            proxy_source: proxySource,
+            upstream: proxyBaseRaw,
+            message:
+              "IMPORT_START_PROXY_BASE (or XAI_EXTERNAL_BASE) must point to a Tabarnam-controlled import worker (e.g. an Azure App Service /api base). It must not point to https://api.x.ai/...",
+          },
+        });
+      }
+
+      const proxyBase = proxyBaseRaw;
       const shouldProxy = proxyBase && proxyRequested;
 
       if (!proxyBase && proxyRequested) {
-        setStage("config");
+        setStage("proxy_config");
         return respondError(new Error("Import upstream not configured"), {
           status: 500,
           details: {
             message:
-              "Set IMPORT_START_PROXY_BASE (preferred) or XAI_EXTERNAL_BASE so /api/import/start can run without Static Web Apps timing out",
+              "Set IMPORT_START_PROXY_BASE (preferred) or XAI_EXTERNAL_BASE to a Tabarnam import worker base URL so /api/import/start can run without Static Web Apps timing out",
           },
         });
       }
