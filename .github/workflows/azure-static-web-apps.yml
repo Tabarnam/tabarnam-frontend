@@ -1,5 +1,13 @@
 name: Azure Static Web Apps CI/CD
 
+concurrency:
+  group: swa-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
 on:
   push:
     branches:
@@ -23,6 +31,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
       - name: Install
         run: npm ci
@@ -31,7 +40,10 @@ jobs:
         run: npm run build
 
       - name: Inject build id
-        run: echo "${{ github.sha }}" > api/__build_id.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf "%s" "${{ github.sha }}" > api/__build_id.txt
 
       - name: Sanity checks
         shell: bash
@@ -47,6 +59,7 @@ jobs:
             exit 1
           fi
           test -f dist/staticwebapp.config.json
+          test -s api/__build_id.txt
 
       - name: Deploy
         uses: Azure/static-web-apps-deploy@v1
@@ -58,6 +71,7 @@ jobs:
           api_location: api
           output_location: ""
           skip_app_build: true
+          production_branch: main
 
   close_pull_request:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
@@ -68,6 +82,5 @@ jobs:
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           action: close
-          app_location: dist
-          api_location: api
-          output_location: ""
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          production_branch: main
