@@ -1009,7 +1009,18 @@ app.http("import-start", {
       );
 
       const proxyBase = (getProxyBase() || "").trim();
-      const shouldProxy = proxyBase && bodyObj?.proxy !== false;
+      const proxyRequested = bodyObj?.proxy !== false;
+      const shouldProxy = proxyBase && proxyRequested;
+
+      if (!proxyBase && proxyRequested) {
+        setStage("config");
+        return respondError(new Error("Import upstream not configured"), {
+          status: 500,
+          details: {
+            message: "Set XAI_EXTERNAL_BASE (or XAI_PROXY_BASE) so /api/import/start can run without Static Web Apps timing out",
+          },
+        });
+      }
 
       if (shouldProxy) {
         const upstreamTimeoutMs = Math.max(
