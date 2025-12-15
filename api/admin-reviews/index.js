@@ -1,6 +1,7 @@
 const { app } = require('@azure/functions');
 const { CosmosClient } = require('@azure/cosmos');
 const { randomUUID } = require('node:crypto');
+const { validateCuratedReviewCandidate, normalizeUrl } = require("../_reviewQuality");
 
 const E = (key, def = "") => (process.env[key] ?? def).toString().trim();
 
