@@ -22,6 +22,71 @@ function json(obj, status = 200) {
   };
 }
 
+function safeJsonParse(text) {
+  const raw = typeof text === "string" ? text.trim() : "";
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function toErrorString(err) {
+  if (!err) return "Unknown error";
+  if (typeof err === "string") return err;
+  if (typeof err.message === "string" && err.message.trim()) return err.message;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function extractXaiRequestId(headers) {
+  const h = headers || {};
+  const get = (k) => {
+    const v = h[k] ?? h[k.toLowerCase()] ?? h[k.toUpperCase()];
+    return typeof v === "string" && v.trim() ? v.trim() : null;
+  };
+  return (
+    get("x-request-id") ||
+    get("xai-request-id") ||
+    get("x-correlation-id") ||
+    get("x-ms-request-id") ||
+    get("request-id") ||
+    null
+  );
+}
+
+function buildCounts({ enriched, debugOutput }) {
+  const candidates_found = Array.isArray(enriched) ? enriched.length : 0;
+
+  const keywords_generated = Array.isArray(debugOutput?.keywords_debug)
+    ? debugOutput.keywords_debug.reduce((sum, k) => sum + (Number(k?.generated_count) || 0), 0)
+    : 0;
+
+  let reviews_valid = 0;
+  let reviews_rejected = 0;
+
+  if (Array.isArray(debugOutput?.reviews_debug)) {
+    for (const entry of debugOutput.reviews_debug) {
+      const candidates = Array.isArray(entry?.candidates) ? entry.candidates : [];
+      for (const c of candidates) {
+        if (c?.is_valid === true) reviews_valid += 1;
+        else reviews_rejected += 1;
+      }
+    }
+  }
+
+  return {
+    candidates_found,
+    reviews_valid,
+    reviews_rejected,
+    keywords_generated,
+  };
+}
+
 // Helper: normalize industries array
 function normalizeIndustries(input) {
   if (Array.isArray(input))
