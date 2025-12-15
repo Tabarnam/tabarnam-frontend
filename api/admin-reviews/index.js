@@ -208,7 +208,18 @@ app.http('adminReviews', {
           return json({ error: "Invalid JSON" }, 400);
         }
 
-        const { company: companyName, review_id, source, abstract, url, rating } = body;
+        const {
+          company: companyName,
+          review_id,
+          source,
+          abstract,
+          url,
+          rating,
+          show_to_users,
+          is_public,
+          visible_to_users,
+          title,
+        } = body;
 
         if (!companyName || !review_id) {
           return json({ error: "company and review_id required" }, 400);
@@ -234,17 +245,80 @@ app.http('adminReviews', {
           return json({ error: "Review not found" }, 404);
         }
 
-        if (source && isExcludedSource(source)) {
-          return json({ error: `Source "${source}" is excluded` }, 400);
+        const current = reviews[reviewIndex] || {};
+
+        const showToUsers =
+          show_to_users !== undefined
+            ? !!show_to_users
+            : is_public !== undefined
+              ? !!is_public
+              : visible_to_users !== undefined
+                ? !!visible_to_users
+                : current.show_to_users !== undefined
+                  ? !!current.show_to_users
+                  : current.is_public !== undefined
+                    ? !!current.is_public
+                    : true;
+
+        const nextUrlRaw = url !== undefined ? url : current.url || current.source_url || null;
+        const normalizedUrl = nextUrlRaw ? normalizeUrl(nextUrlRaw) : null;
+
+        if (showToUsers && !normalizedUrl) {
+          return json({ error: "url required for public reviews" }, 400);
+        }
+
+        const nextSource = source ? source.trim() : String(current.source || "").trim();
+        if (isExcludedSource(nextSource) || (normalizedUrl && isExcludedSource(normalizedUrl))) {
+          return json({ error: `Source "${nextSource}" is excluded` }, 400);
+        }
+
+        let validation = null;
+        if (normalizedUrl && showToUsers) {
+          validation = await validateCuratedReviewCandidate(
+            {
+              companyName: companyRecord.company_name,
+              websiteUrl: companyRecord.website_url || companyRecord.url || "",
+              normalizedDomain: companyRecord.normalized_domain || "",
+              url: normalizedUrl,
+              title: String(title || current.title || "").trim(),
+            },
+            { timeoutMs: 8000, maxBytes: 60000, maxSnippets: 2, minWords: 10, maxWords: 25 }
+          ).catch(() => null);
+
+          if (!validation || validation.is_valid !== true) {
+            return json({ error: "Review URL failed validation", detail: validation?.reason_if_rejected || null }, 400);
+          }
+
+          if (validation.link_status !== "ok") {
+            return json({ error: `Review URL is not publishable (status: ${validation.link_status})` }, 400);
+          }
+
+          if (typeof validation.match_confidence === "number" && validation.match_confidence < 0.7) {
+            return json({ error: `Review match confidence too low (${validation.match_confidence})` }, 400);
+          }
         }
 
         const updated = {
-          ...reviews[reviewIndex],
-          ...(source && { source: source.trim() }),
+          ...current,
+          source: nextSource,
+          ...(title !== undefined && { title: String(title || "").trim() }),
           ...(abstract && { abstract: abstract.trim() }),
-          ...(url && { url: url.trim() }),
-          ...(rating !== undefined && { rating: Number(rating) }),
+          url: validation?.final_url || normalizedUrl || null,
+          source_url: validation?.final_url || normalizedUrl || current.source_url || null,
+          ...(rating !== undefined && { rating: rating === null ? null : Number(rating) }),
           last_updated_at: new Date().toISOString(),
+          show_to_users: showToUsers,
+          is_public: showToUsers,
+          link_status: validation?.link_status || (normalizedUrl ? "ok" : null),
+          last_checked_at: validation?.last_checked_at || (normalizedUrl ? new Date().toISOString() : null),
+          matched_brand_terms: validation?.matched_brand_terms || current.matched_brand_terms || [],
+          evidence_snippets: validation?.evidence_snippets || current.evidence_snippets || [],
+          match_confidence:
+            typeof validation?.match_confidence === "number"
+              ? validation.match_confidence
+              : typeof current.match_confidence === "number"
+                ? current.match_confidence
+                : null,
         };
 
         reviews[reviewIndex] = updated;
