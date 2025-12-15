@@ -8,6 +8,7 @@ const {
   validateCuratedReviewCandidate,
   checkUrlHealthAndFetchText,
 } = require("../_reviewQuality");
+const { getBuildInfo } = require("../_buildInfo");
 
 const DEFAULT_HARD_TIMEOUT_MS = 25_000;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000;
@@ -1007,6 +1008,7 @@ app.http("import-start", {
         : null;
 
       let stage = "init";
+      const buildInfo = getBuildInfo();
       const contextInfo = {
         company_name: "",
         website_url: "",
@@ -1041,6 +1043,7 @@ app.http("import-start", {
           stage,
           error,
           session_id: sessionId,
+          ...buildInfo,
           company_name: contextInfo.company_name,
           website_url: contextInfo.website_url,
           normalized_domain: contextInfo.normalized_domain,
@@ -1290,6 +1293,7 @@ app.http("import-start", {
               stage,
               error: "Import was stopped",
               session_id: sessionId,
+              ...buildInfo,
               companies: [],
               saved: 0,
             },
@@ -2215,6 +2219,7 @@ Return ONLY the JSON array, no other text.`,
           ok: false,
           stage: "fatal",
           error: `Fatal error: ${e?.message || "Unknown error"}`,
+          ...getBuildInfo(),
         },
         500
       );

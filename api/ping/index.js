@@ -1,4 +1,5 @@
 const { app } = require("@azure/functions");
+const { getBuildInfo } = require("../_buildInfo");
 
 app.http("ping", {
   route: "ping",
@@ -26,6 +27,7 @@ app.http("ping", {
         ok: true,
         name: "ping",
         ts: new Date().toISOString(),
+        ...getBuildInfo(),
       }),
     };
   },
