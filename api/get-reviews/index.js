@@ -461,6 +461,20 @@ async function getReviewsHandler(req, context, deps = {}) {
               domainParam ||
               "company";
 
+            const evidenceSnippets = Array.isArray(r?.evidence_snippets)
+              ? r.evidence_snippets
+              : typeof r?.evidence_snippet === "string" && r.evidence_snippet.trim()
+                ? [r.evidence_snippet.trim()]
+                : [];
+
+            const matchConfidenceRaw = r?.match_confidence ?? r?.matchConfidence;
+            const match_confidence =
+              typeof matchConfidenceRaw === "number"
+                ? matchConfidenceRaw
+                : typeof matchConfidenceRaw === "string" && matchConfidenceRaw.trim()
+                  ? Number(matchConfidenceRaw)
+                  : null;
+
             return {
               // New canonical fields
               type: "curated",
@@ -468,6 +482,10 @@ async function getReviewsHandler(req, context, deps = {}) {
               source_name: sourceName,
               source_url: sourceUrl,
               imported_at: importedAt,
+              evidence_snippets: evidenceSnippets,
+              match_confidence,
+              link_status: r?.link_status ?? null,
+              last_checked_at: r?.last_checked_at ?? null,
 
               // Backwards-compatible fields used by existing UI
               id: r?.id || `curated-${fallbackKey}-${idx}`,
