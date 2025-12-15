@@ -901,7 +901,7 @@ app.http("import-start", {
 
       const startTime = Date.now();
 
-      const debugEnabled = Boolean(bodyObj.debug);
+      const debugEnabled = bodyObj.debug === true || bodyObj.debug === "true";
       const debugOutput = debugEnabled
         ? {
             xai: {
@@ -913,8 +913,61 @@ app.http("import-start", {
             },
             keywords_debug: [],
             reviews_debug: [],
+            stages: [],
           }
         : null;
+
+      let stage = "init";
+      const contextInfo = {
+        company_name: "",
+        website_url: "",
+        normalized_domain: "",
+        xai_request_id: null,
+      };
+      let enrichedForCounts = [];
+
+      const setStage = (nextStage, extra = {}) => {
+        stage = String(nextStage || "unknown");
+
+        if (extra && typeof extra === "object") {
+          if (typeof extra.company_name === "string") contextInfo.company_name = extra.company_name;
+          if (typeof extra.website_url === "string") contextInfo.website_url = extra.website_url;
+          if (typeof extra.normalized_domain === "string") contextInfo.normalized_domain = extra.normalized_domain;
+          if (typeof extra.xai_request_id === "string") contextInfo.xai_request_id = extra.xai_request_id;
+        }
+
+        if (debugOutput) {
+          debugOutput.stages.push({ stage, ts: new Date().toISOString(), ...extra });
+        }
+      };
+
+      const respondError = (err, { status = 500, details = {} } = {}) => {
+        const error = toErrorString(err);
+
+        console.error(`[import-start] stage=${stage} error=${error}`);
+        if (err?.stack) console.error(err.stack);
+
+        const payload = {
+          ok: false,
+          stage,
+          error,
+          session_id: sessionId,
+          company_name: contextInfo.company_name,
+          website_url: contextInfo.website_url,
+          normalized_domain: contextInfo.normalized_domain,
+          xai_request_id: contextInfo.xai_request_id,
+          ...(debugEnabled
+            ? {
+                stack: String(err?.stack || ""),
+                counts: buildCounts({ enriched: enrichedForCounts, debugOutput }),
+                debug: debugOutput,
+              }
+            : {}),
+          ...(details && Object.keys(details).length ? { details } : {}),
+        };
+
+        return json(payload, status);
+      };
 
       // Helper to check if we're running out of time
       const isOutOfTime = () => {
