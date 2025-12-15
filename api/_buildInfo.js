@@ -59,12 +59,33 @@ function tryReadGitShaFromRepo() {
 
 function getBuildId() {
   const env = process.env || {};
+
   // In Azure App Service / Azure Functions, these env vars are commonly populated with the deployed commit.
   // Order matters: first non-empty wins.
-  const candidates = [
+  const primaryCandidates = [
     { key: "WEBSITE_COMMIT_HASH", value: env.WEBSITE_COMMIT_HASH },
     { key: "SCM_COMMIT_ID", value: env.SCM_COMMIT_ID },
     { key: "BUILD_SOURCEVERSION", value: env.BUILD_SOURCEVERSION },
+  ];
+
+  for (const c of primaryCandidates) {
+    if (!isNonEmptyString(c.value)) continue;
+    const normalized = normalizeSha(c.value);
+    return { build_id: normalized, build_id_source: c.key };
+  }
+
+  // Azure Static Web Apps commonly does NOT expose the commit env vars at runtime.
+  // Instead, we inject a deterministic build id file at deploy time.
+  const buildIdFilePath = path.join(__dirname, "__build_id.txt");
+  const buildIdFromFileRaw = tryReadFile(buildIdFilePath).trim();
+  if (isNonEmptyString(buildIdFromFileRaw)) {
+    const normalized = normalizeSha(buildIdFromFileRaw);
+    if (isNonEmptyString(normalized)) {
+      return { build_id: normalized, build_id_source: "BUILD_ID_FILE" };
+    }
+  }
+
+  const secondaryCandidates = [
     { key: "GITHUB_SHA", value: env.GITHUB_SHA },
     { key: "BUILD_ID", value: env.BUILD_ID },
 
@@ -75,7 +96,7 @@ function getBuildId() {
     { key: "VERCEL_GIT_COMMIT_SHA", value: env.VERCEL_GIT_COMMIT_SHA },
   ];
 
-  for (const c of candidates) {
+  for (const c of secondaryCandidates) {
     if (!isNonEmptyString(c.value)) continue;
     const normalized = normalizeSha(c.value);
     return { build_id: normalized, build_id_source: c.key };

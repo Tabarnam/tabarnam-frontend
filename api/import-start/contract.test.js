@@ -1,4 +1,6 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { test } = require("node:test");
 
 const { _test } = require("./index.js");
@@ -149,4 +151,38 @@ test("getBuildInfo uses WEBSITE_COMMIT_HASH when set", async () => {
       assert.equal(info.build_id_source, "WEBSITE_COMMIT_HASH");
     }
   );
+});
+
+test("getBuildInfo uses __build_id.txt when env vars are absent", async () => {
+  const buildIdFilePath = path.resolve(__dirname, "..", "__build_id.txt");
+  const sha = "999a25b2189233f348ac1a2a37a490011ee1b210";
+
+  const hadFile = fs.existsSync(buildIdFilePath);
+  const original = hadFile ? fs.readFileSync(buildIdFilePath, "utf8") : null;
+
+  fs.writeFileSync(buildIdFilePath, `${sha}\n`, "utf8");
+
+  try {
+    await withTempEnv(
+      {
+        WEBSITE_COMMIT_HASH: undefined,
+        SCM_COMMIT_ID: undefined,
+        BUILD_SOURCEVERSION: undefined,
+        GITHUB_SHA: undefined,
+        BUILD_ID: undefined,
+        COMMIT_SHA: undefined,
+        SOURCE_VERSION: undefined,
+        NETLIFY_COMMIT_SHA: undefined,
+        VERCEL_GIT_COMMIT_SHA: undefined,
+      },
+      async () => {
+        const info = getBuildInfo();
+        assert.equal(info.build_id, sha);
+        assert.equal(info.build_id_source, "BUILD_ID_FILE");
+      }
+    );
+  } finally {
+    if (hadFile) fs.writeFileSync(buildIdFilePath, original, "utf8");
+    else fs.rmSync(buildIdFilePath, { force: true });
+  }
 });
