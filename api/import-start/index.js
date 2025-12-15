@@ -1010,9 +1010,9 @@ app.http("import-start", {
       let stage = "init";
       const buildInfo = getBuildInfo();
       const contextInfo = {
-        company_name: "",
-        website_url: "",
-        normalized_domain: "",
+        company_name: String(payload?.company_name ?? "").trim(),
+        website_url: String(payload?.website_url ?? "").trim(),
+        normalized_domain: String(payload?.normalized_domain ?? "").trim(),
         xai_request_id: null,
       };
       let enrichedForCounts = [];
