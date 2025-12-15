@@ -4,7 +4,10 @@ const { CosmosClient } = require("@azure/cosmos");
 const { getXAIEndpoint, getXAIKey, getProxyBase } = require("../_shared");
 const { importCompanyLogo } = require("../_logoImport");
 const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
-const { validateCuratedReviewCandidate } = require("../_reviewQuality");
+const {
+  validateCuratedReviewCandidate,
+  checkUrlHealthAndFetchText,
+} = require("../_reviewQuality");
 
 function json(obj, status = 200) {
   return {
@@ -35,15 +38,66 @@ function normalizeIndustries(input) {
   return [];
 }
 
-// Helper: normalize keywords
-function normalizeKeywords(value, industries) {
-  let kws = [];
-  if (Array.isArray(value)) for (const v of value) kws.push(...String(v).split(","));
-  else if (typeof value === "string") kws.push(...value.split(","));
-  kws = kws.map((s) => s.trim()).filter(Boolean);
-  const merged = [...new Set([...(kws || []), ...(industries || [])])].filter(Boolean);
-  while (merged.length && merged.length < 5) merged.push(merged[merged.length - 1]);
-  return merged.join(", ");
+function toBrandTokenFromWebsiteUrl(websiteUrl) {
+  try {
+    const raw = String(websiteUrl || "").trim();
+    if (!raw) return "";
+    const u = raw.includes("://") ? new URL(raw) : new URL(`https://${raw}`);
+    let h = u.hostname.toLowerCase();
+    if (h.startsWith("www.")) h = h.slice(4);
+    const parts = h.split(".").filter(Boolean);
+    return parts[0] || "";
+  } catch {
+    return "";
+  }
+}
+
+function normalizeKeywordList(value) {
+  const raw = value;
+  const items = [];
+
+  if (Array.isArray(raw)) {
+    for (const v of raw) items.push(String(v));
+  } else if (typeof raw === "string") {
+    items.push(raw);
+  }
+
+  const split = items
+    .flatMap((s) => String(s).split(/[,;|\n]/))
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const seen = new Set();
+  const out = [];
+  for (const k of split) {
+    const key = k.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(k);
+  }
+  return out;
+}
+
+function normalizeProductKeywords(value, { companyName, websiteUrl } = {}) {
+  const list = normalizeKeywordList(value);
+  const name = String(companyName || "").trim();
+  const nameNorm = name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const brandToken = toBrandTokenFromWebsiteUrl(websiteUrl);
+
+  return list
+    .map((k) => k.trim())
+    .filter(Boolean)
+    .filter((k) => {
+      const kl = k.toLowerCase();
+      if (nameNorm && kl.includes(nameNorm)) return false;
+      if (brandToken && (kl === brandToken || kl.includes(brandToken))) return false;
+      return true;
+    })
+    .slice(0, 25);
+}
+
+function keywordListToString(list) {
+  return (Array.isArray(list) ? list : []).join(", ");
 }
 
 // Helper: get safe number
@@ -72,7 +126,18 @@ const toNormalizedDomain = (s = "") => {
 function enrichCompany(company, center) {
   const c = { ...(company || {}) };
   c.industries = normalizeIndustries(c.industries);
-  c.product_keywords = normalizeKeywords(c.product_keywords, c.industries);
+
+  const websiteUrl = c.website_url || c.canonical_url || c.url || c.amazon_url || "";
+  const companyName = c.company_name || c.name || "";
+
+  const productKeywords = normalizeProductKeywords(c.product_keywords, {
+    companyName,
+    websiteUrl,
+  });
+
+  c.keywords = productKeywords;
+  c.product_keywords = keywordListToString(productKeywords);
+
   const urlForDomain = c.canonical_url || c.website_url || c.url || c.amazon_url || "";
   c.normalized_domain = toNormalizedDomain(urlForDomain);
 
@@ -263,10 +328,47 @@ async function fetchLogo({ companyId, domain, websiteUrl, existingLogoUrl }) {
 }
 
 // Fetch editorial reviews for a company using XAI
-async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout) {
-  if (!company.company_name || !company.website_url) {
+async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugCollector) {
+  const companyName = String(company?.company_name || company?.name || "").trim();
+  const websiteUrl = String(company?.website_url || company?.url || "").trim();
+
+  if (!companyName || !websiteUrl) {
+    if (debugCollector) {
+      debugCollector.push({
+        company_name: companyName,
+        website_url: websiteUrl,
+        candidates: [],
+        kept: 0,
+        reason: "missing company_name or website_url",
+      });
+    }
     return [];
   }
+
+  const debug = {
+    company_name: companyName,
+    website_url: websiteUrl,
+    candidates: [],
+    kept: 0,
+  };
+
+  const looksLikeReviewUrl = (u) => {
+    const s = String(u || "").toLowerCase();
+    return (
+      s.includes("/review") ||
+      s.includes("/reviews") ||
+      s.includes("hands-on") ||
+      s.includes("tested") ||
+      s.includes("verdict")
+    );
+  };
+
+  const isSameDomain = (a, b) => {
+    const ah = String(a || "").toLowerCase().replace(/^www\./, "");
+    const bh = String(b || "").toLowerCase().replace(/^www\./, "");
+    if (!ah || !bh) return false;
+    return ah === bh || ah.endsWith(`.${bh}`) || bh.endsWith(`.${ah}`);
+  };
 
   try {
     const reviewMessage = {
@@ -274,8 +376,8 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout) {
       content: `You are a research assistant finding editorial and professional reviews.
 For this company, find and summarize up to 3 editorial/professional reviews ONLY.
 
-Company: ${company.company_name}
-Website: ${company.website_url}
+Company: ${companyName}
+Website: ${websiteUrl}
 Industries: ${Array.isArray(company.industries) ? company.industries.join(", ") : ""}
 
 CRITICAL REVIEW SOURCE REQUIREMENTS:
@@ -318,95 +420,186 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
       stream: false,
     };
 
-    console.log(`[import-start] Fetching editorial reviews for ${company.company_name}`);
+    console.log(`[import-start] Fetching editorial reviews for ${companyName}`);
     const response = await axios.post(xaiUrl, reviewPayload, {
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${xaiKey}`,
       },
-      timeout: timeout,
+      timeout,
     });
 
-    if (response.status >= 200 && response.status < 300) {
-      const responseText = response.data?.choices?.[0]?.message?.content || "";
-      console.log(`[import-start] Review response preview for ${company.company_name}: ${responseText.substring(0, 80)}...`);
-
-      let reviews = [];
-      try {
-        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          reviews = JSON.parse(jsonMatch[0]);
-          if (!Array.isArray(reviews)) reviews = [];
-        }
-      } catch (parseErr) {
-        console.warn(`[import-start] Failed to parse reviews for ${company.company_name}: ${parseErr.message}`);
-        reviews = [];
-      }
-
-      const candidates = (Array.isArray(reviews) ? reviews : []).filter((r) => r && typeof r === "object").slice(0, 3);
-
-      const validated = await Promise.all(
-        candidates.map(async (r) => {
-          const url = String(r.source_url || r.url || "").trim();
-          const title = String(r.title || "").trim();
-
-          const v = await validateCuratedReviewCandidate(
-            {
-              companyName: company.company_name,
-              websiteUrl: company.website_url,
-              normalizedDomain: company.normalized_domain || "",
-              url,
-              title,
-            },
-            { timeoutMs: 8000, maxBytes: 60000, maxSnippets: 2, minWords: 10, maxWords: 25 }
-          ).catch(() => null);
-
-          if (!v || v.is_valid !== true) return null;
-
-          const show_to_users = v.link_status === "ok" && (typeof v.match_confidence !== "number" || v.match_confidence >= 0.7);
-
-          const evidence = Array.isArray(v.evidence_snippets) ? v.evidence_snippets : [];
-          const evidenceSentence = evidence.length ? `Evidence: \"${evidence[0]}\".` : "";
-
-          const abstract = title
-            ? `The article \"${title}\" explicitly mentions ${company.company_name}. ${evidenceSentence}`.trim()
-            : `This article explicitly mentions ${company.company_name}. ${evidenceSentence}`.trim();
-
-          return {
-            id: `xai_auto_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.trunc(Math.random() * 1e6)}`,
-            source: String(r.source || "editorial_site").trim() || "editorial_site",
-            source_url: v.final_url || url,
-            title,
-            excerpt: "",
-            abstract,
-            rating: r.rating || null,
-            author: String(r.author || "").trim(),
-            date: r.date || null,
-            created_at: new Date().toISOString(),
-            last_updated_at: new Date().toISOString(),
-            imported_via: "xai_import",
-
-            show_to_users,
-            is_public: show_to_users,
-            link_status: v.link_status,
-            last_checked_at: v.last_checked_at,
-            matched_brand_terms: v.matched_brand_terms,
-            evidence_snippets: v.evidence_snippets,
-            match_confidence: v.match_confidence,
-          };
-        })
-      );
-
-      const curatedReviews = validated.filter(Boolean);
-
-      console.log(`[import-start] Found ${curatedReviews.length} validated editorial reviews for ${company.company_name}`);
-      return curatedReviews;
-    } else {
-      console.warn(`[import-start] Failed to fetch reviews for ${company.company_name}: status ${response.status}`);
+    if (!(response.status >= 200 && response.status < 300)) {
+      console.warn(`[import-start] Failed to fetch reviews for ${companyName}: status ${response.status}`);
+      if (debugCollector) debugCollector.push({ ...debug, reason: `xai_status_${response.status}` });
       return [];
     }
+
+    const responseText = response.data?.choices?.[0]?.message?.content || "";
+    console.log(`[import-start] Review response preview for ${companyName}: ${responseText.substring(0, 80)}...`);
+
+    let reviews = [];
+    let parseError = null;
+    try {
+      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        reviews = JSON.parse(jsonMatch[0]);
+        if (!Array.isArray(reviews)) reviews = [];
+      }
+    } catch (err) {
+      parseError = err?.message || String(err);
+      reviews = [];
+    }
+
+    if (parseError) {
+      console.warn(`[import-start] Failed to parse reviews for ${companyName}: ${parseError}`);
+    }
+
+    const candidates = (Array.isArray(reviews) ? reviews : [])
+      .filter((r) => r && typeof r === "object")
+      .slice(0, 3);
+
+    const nowIso = new Date().toISOString();
+    const curated = [];
+
+    for (const r of candidates) {
+      const url = String(r.source_url || r.url || "").trim();
+      const title = String(r.title || "").trim();
+
+      const v = await validateCuratedReviewCandidate(
+        {
+          companyName,
+          websiteUrl,
+          normalizedDomain: company.normalized_domain || "",
+          url,
+          title,
+        },
+        { timeoutMs: 8000, maxBytes: 60000, maxSnippets: 2, minWords: 10, maxWords: 25 }
+      ).catch((e) => ({
+        is_valid: false,
+        link_status: "blocked",
+        final_url: null,
+        matched_brand_terms: [],
+        evidence_snippets: [],
+        match_confidence: 0,
+        last_checked_at: nowIso,
+        reason_if_rejected: e?.message || "validation error",
+      }));
+
+      const evidenceCount = Array.isArray(v?.evidence_snippets) ? v.evidence_snippets.length : 0;
+      debug.candidates.push({
+        url,
+        title,
+        link_status: v?.link_status,
+        final_url: v?.final_url,
+        is_valid: Boolean(v?.is_valid),
+        matched_brand_terms: v?.matched_brand_terms || [],
+        match_confidence: v?.match_confidence,
+        evidence_snippets_count: evidenceCount,
+        reason_if_rejected: v?.reason_if_rejected,
+      });
+
+      if (v?.is_valid === true) {
+        const show_to_users =
+          v.link_status === "ok" &&
+          (typeof v.match_confidence !== "number" || v.match_confidence >= 0.7);
+
+        const evidence = Array.isArray(v.evidence_snippets) ? v.evidence_snippets : [];
+        const evidenceSentence = evidence.length ? `Evidence: \"${evidence[0]}\".` : "";
+
+        const abstract = title
+          ? `The article \"${title}\" explicitly mentions ${companyName}. ${evidenceSentence}`.trim()
+          : `This article explicitly mentions ${companyName}. ${evidenceSentence}`.trim();
+
+        curated.push({
+          id: `xai_auto_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.trunc(Math.random() * 1e6)}`,
+          source: String(r.source || "editorial_site").trim() || "editorial_site",
+          source_url: v.final_url || url,
+          title,
+          excerpt: "",
+          abstract,
+          rating: r.rating || null,
+          author: String(r.author || "").trim(),
+          date: r.date || null,
+          created_at: nowIso,
+          last_updated_at: nowIso,
+          imported_via: "xai_import",
+
+          show_to_users,
+          is_public: show_to_users,
+          link_status: v.link_status,
+          last_checked_at: v.last_checked_at,
+          matched_brand_terms: v.matched_brand_terms,
+          evidence_snippets: v.evidence_snippets,
+          match_confidence: v.match_confidence,
+        });
+        continue;
+      }
+
+      const finalUrl = String(v?.final_url || url || "").trim();
+      const host = (() => {
+        try {
+          return new URL(finalUrl).hostname;
+        } catch {
+          return "";
+        }
+      })();
+
+      const companyHost = (() => {
+        try {
+          return new URL(websiteUrl).hostname;
+        } catch {
+          return "";
+        }
+      })();
+
+      const shouldKeepForManual =
+        v?.link_status === "blocked" &&
+        looksLikeReviewUrl(finalUrl) &&
+        host &&
+        companyHost &&
+        !isSameDomain(host, companyHost);
+
+      if (shouldKeepForManual) {
+        curated.push({
+          id: `xai_manual_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.trunc(Math.random() * 1e6)}`,
+          source: String(r.source || "editorial_site").trim() || "editorial_site",
+          source_url: finalUrl || url,
+          title,
+          excerpt: String(r.excerpt || "").trim(),
+          abstract: "",
+          rating: r.rating || null,
+          author: String(r.author || "").trim(),
+          date: r.date || null,
+          created_at: nowIso,
+          last_updated_at: nowIso,
+          imported_via: "xai_import",
+
+          show_to_users: false,
+          is_public: false,
+          needs_manual_review: true,
+          link_status: v?.link_status,
+          last_checked_at: v?.last_checked_at || nowIso,
+          matched_brand_terms: v?.matched_brand_terms || [],
+          evidence_snippets: v?.evidence_snippets || [],
+          match_confidence: typeof v?.match_confidence === "number" ? v.match_confidence : 0,
+          validation_reason: v?.reason_if_rejected || "blocked",
+        });
+      }
+    }
+
+    debug.kept = curated.length;
+
+    console.log(`[import-start] Found ${curated.length} curated reviews for ${companyName}`);
+
+    if (debugCollector) {
+      debugCollector.push(debug);
+    }
+
+    return curated;
   } catch (e) {
-    console.warn(`[import-start] Error fetching reviews for ${company.company_name}: ${e.message}`);
+    console.warn(`[import-start] Error fetching reviews for ${companyName}: ${e.message}`);
+    if (debugCollector) debugCollector.push({ ...debug, reason: e?.message || String(e) });
     return [];
   }
 }
@@ -539,6 +732,7 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
             website_url: company.website_url || company.canonical_url || company.url || "",
             industries: company.industries || [],
             product_keywords: company.product_keywords || "",
+            keywords: Array.isArray(company.keywords) ? company.keywords : [],
             normalized_domain: finalNormalizedDomain,
             logo_url: logoImport.logo_url || null,
             logo_source_url: logoImport.logo_source_url || null,
@@ -630,6 +824,21 @@ app.http("import-start", {
 
       const startTime = Date.now();
 
+      const debugEnabled = Boolean(bodyObj.debug);
+      const debugOutput = debugEnabled
+        ? {
+            xai: {
+              payload: null,
+              prompt: null,
+              raw_response: null,
+              parse_error: null,
+              parsed_companies: 0,
+            },
+            keywords_debug: [],
+            reviews_debug: [],
+          }
+        : null;
+
       // Helper to check if we're running out of time
       const isOutOfTime = () => {
         const elapsed = Date.now() - startTime;
@@ -657,6 +866,9 @@ app.http("import-start", {
         };
 
         console.log(`[import-start] XAI Payload:`, JSON.stringify(xaiPayload));
+        if (debugOutput) {
+          debugOutput.xai.payload = xaiPayload;
+        }
 
         // Use a more aggressive timeout to ensure we finish before Azure kills the function
         // Limit to 2 minutes per API call to stay well within Azure's 5 minute limit
@@ -863,6 +1075,10 @@ IMPORTANT FINAL RULES:
 Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayload.limit)} diverse results if possible.`,
         };
 
+        if (debugOutput) {
+          debugOutput.xai.prompt = xaiMessage.content;
+        }
+
         const xaiRequestPayload = {
           messages: [xaiMessage],
           model: "grok-4-latest",
@@ -891,6 +1107,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
           // Parse the JSON array from the response
           let companies = [];
+          let parseError = null;
           try {
             const jsonMatch = responseText.match(/\[[\s\S]*\]/);
             if (jsonMatch) {
@@ -898,14 +1115,22 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               if (!Array.isArray(companies)) companies = [];
             }
           } catch (parseErr) {
-            console.warn(`[import-start] session=${sessionId} failed to parse companies from response: ${parseErr.message}`);
+            parseError = parseErr?.message || String(parseErr);
+            console.warn(`[import-start] session=${sessionId} failed to parse companies from response: ${parseError}`);
             companies = [];
+          }
+
+          if (debugOutput) {
+            debugOutput.xai.raw_response = responseText.length > 50000 ? responseText.slice(0, 50000) : responseText;
+            debugOutput.xai.parse_error = parseError;
+            debugOutput.xai.parsed_companies = Array.isArray(companies) ? companies.length : 0;
           }
 
           console.log(`[import-start] session=${sessionId} xai response status=${xaiResponse.status} companies=${companies.length}`);
 
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
+
 
           // Early exit if no companies found
           if (enriched.length === 0) {
@@ -952,6 +1177,145 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             }, 200);
           }
 
+          // Ensure product keywords exist and persistable
+          async function mapWithConcurrency(items, concurrency, mapper) {
+            const out = new Array(items.length);
+            let idx = 0;
+
+            const workers = new Array(Math.max(1, concurrency)).fill(0).map(async () => {
+              while (idx < items.length) {
+                const cur = idx++;
+                try {
+                  out[cur] = await mapper(items[cur], cur);
+                } catch {
+                  out[cur] = items[cur];
+                }
+              }
+            });
+
+            await Promise.all(workers);
+            return out;
+          }
+
+          async function generateProductKeywords(company, { timeoutMs }) {
+            const companyName = String(company?.company_name || company?.name || "").trim();
+            const websiteUrl = String(company?.website_url || company?.url || "").trim();
+            const tagline = String(company?.tagline || "").trim();
+
+            const websiteText = await (async () => {
+              const h = await checkUrlHealthAndFetchText(websiteUrl, {
+                timeoutMs: Math.min(8000, timeoutMs),
+                maxBytes: 80000,
+              }).catch(() => null);
+              return h?.ok ? String(h.text || "").slice(0, 4000) : "";
+            })();
+
+            const prompt = `SYSTEM (KEYWORDS / PRODUCTS LIST)
+You are generating a comprehensive product keyword list for a company to power search and filtering.
+Company:
+• Name: ${companyName}
+• Website: ${websiteUrl}
+• Short description/tagline (if available): ${tagline}
+Rules:
+• Output ONLY a JSON object with a single field: "keywords".
+• "keywords" must be an array of 15 to 25 short product phrases the company actually sells or makes.
+• Use product-level specificity (e.g., "insulated cooler", "hard-sided cooler", "travel tumbler") not vague categories (e.g., "outdoor", "quality", "premium").
+• Do NOT include brand name, company name, marketing adjectives, or locations.
+• Do NOT repeat near-duplicates.
+• If uncertain, infer from the website content and product collections; prioritize what is most likely sold.
+${websiteText ? `\nWebsite content excerpt:\n${websiteText}\n` : ""}
+Output JSON only:
+{ "keywords": ["...", "..."] }`;
+
+            const payload = {
+              messages: [{ role: "user", content: prompt }],
+              model: "grok-4-latest",
+              temperature: 0.2,
+              stream: false,
+            };
+
+            const res = await axios.post(xaiUrl, payload, {
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${xaiKey}`,
+              },
+              timeout: timeoutMs,
+            });
+
+            const text = res?.data?.choices?.[0]?.message?.content || "";
+
+            let obj = null;
+            try {
+              const match = text.match(/\{[\s\S]*\}/);
+              if (match) obj = JSON.parse(match[0]);
+            } catch {
+              obj = null;
+            }
+
+            const keywords = normalizeProductKeywords(obj?.keywords, {
+              companyName,
+              websiteUrl,
+            });
+
+            return {
+              prompt,
+              raw_response: text.length > 20000 ? text.slice(0, 20000) : text,
+              keywords,
+            };
+          }
+
+          async function ensureCompanyKeywords(company) {
+            const companyName = String(company?.company_name || company?.name || "").trim();
+            const websiteUrl = String(company?.website_url || company?.url || "").trim();
+
+            const initialList = normalizeProductKeywords(company?.keywords || company?.product_keywords, {
+              companyName,
+              websiteUrl,
+            });
+
+            let finalList = initialList.slice(0, 25);
+            const debugEntry = {
+              company_name: companyName,
+              website_url: websiteUrl,
+              initial_count: initialList.length,
+              initial_keywords: initialList,
+              generated: false,
+              generated_count: 0,
+              final_count: 0,
+              final_keywords: [],
+              prompt: null,
+              raw_response: null,
+            };
+
+            if (finalList.length < 10 && companyName && websiteUrl) {
+              try {
+                const gen = await generateProductKeywords(company, { timeoutMs: Math.min(timeout, 20000) });
+                debugEntry.generated = true;
+                debugEntry.prompt = gen.prompt;
+                debugEntry.raw_response = gen.raw_response;
+                debugEntry.generated_count = gen.keywords.length;
+
+                const merged = [...finalList, ...gen.keywords];
+                finalList = normalizeProductKeywords(merged, { companyName, websiteUrl }).slice(0, 25);
+              } catch (e) {
+                debugEntry.generated = true;
+                debugEntry.raw_response = e?.message || String(e);
+              }
+            }
+
+            company.keywords = finalList;
+            company.product_keywords = keywordListToString(finalList);
+
+            debugEntry.final_keywords = finalList;
+            debugEntry.final_count = finalList.length;
+
+            if (debugOutput) debugOutput.keywords_debug.push(debugEntry);
+
+            return company;
+          }
+
+          enriched = await mapWithConcurrency(enriched, 4, ensureCompanyKeywords);
+
           // Geocode and persist per-location coordinates (HQ + manufacturing)
           console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
           for (let i = 0; i < enriched.length; i++) {
@@ -995,7 +1359,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
               const company = enriched[i];
               if (company.company_name && company.website_url) {
-                const editorialReviews = await fetchEditorialReviews(company, xaiUrl, xaiKey, timeout);
+                const editorialReviews = await fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugOutput ? debugOutput.reviews_debug : null);
                 if (editorialReviews.length > 0) {
                   enriched[i] = { ...company, curated_reviews: editorialReviews };
                   console.log(`[import-start] session=${sessionId} fetched ${editorialReviews.length} editorial reviews for ${company.company_name}`);
@@ -1243,7 +1607,8 @@ Return ONLY the JSON array, no other text.`,
                 console.log(`[import-start] Found ${expansionCompanies.length} companies in expansion search`);
 
                 if (expansionCompanies.length > 0) {
-                  const enrichedExpansion = expansionCompanies.map((c) => enrichCompany(c, center));
+                  let enrichedExpansion = expansionCompanies.map((c) => enrichCompany(c, center));
+                  enrichedExpansion = await mapWithConcurrency(enrichedExpansion, 4, ensureCompanyKeywords);
 
                   // Geocode expansion companies
                   console.log(`[import-start] Geocoding ${enrichedExpansion.length} expansion companies`);
@@ -1263,7 +1628,7 @@ Return ONLY the JSON array, no other text.`,
                   for (let i = 0; i < enrichedExpansion.length; i++) {
                     const company = enrichedExpansion[i];
                     if (company.company_name && company.website_url) {
-                      const editorialReviews = await fetchEditorialReviews(company, xaiUrl, xaiKey, timeout);
+                      const editorialReviews = await fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugOutput ? debugOutput.reviews_debug : null);
                       if (editorialReviews.length > 0) {
                         enrichedExpansion[i] = { ...company, curated_reviews: editorialReviews };
                         console.log(`[import-start] Fetched ${editorialReviews.length} editorial reviews for expansion company ${company.company_name}`);
@@ -1347,11 +1712,12 @@ Return ONLY the JSON array, no other text.`,
               mode: "direct",
               expanded: xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold,
               timedOut: timedOut,
-              elapsedMs: elapsed
+              elapsedMs: elapsed,
             },
             saved: saveResult.saved,
             skipped: saveResult.skipped,
             failed: saveResult.failed,
+            ...(debugOutput ? { debug: debugOutput } : {}),
           }, 200);
         } else {
           console.error(`[import-start] XAI error status: ${xaiResponse.status}`);

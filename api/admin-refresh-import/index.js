@@ -328,12 +328,22 @@ function createHandler(routeName) {
       }
 
       const newKeywordsArray = toStringArray(delta.product_keywords);
-      const existingKeywordsEmpty =
+      const existingProductKeywordsEmpty =
         isBlank(updated.product_keywords) ||
         (Array.isArray(updated.product_keywords) && updated.product_keywords.length === 0);
-      if (existingKeywordsEmpty && newKeywordsArray.length) {
-        updated.product_keywords = newKeywordsArray;
-        updatedFieldCount++;
+      const existingKeywordsEmpty =
+        isBlank(updated.keywords) ||
+        (Array.isArray(updated.keywords) && updated.keywords.length === 0);
+
+      if (newKeywordsArray.length) {
+        if (existingProductKeywordsEmpty) {
+          updated.product_keywords = newKeywordsArray.join(", ");
+          updatedFieldCount++;
+        }
+        if (existingKeywordsEmpty) {
+          updated.keywords = newKeywordsArray;
+          updatedFieldCount++;
+        }
       }
 
       const websiteCandidate =
