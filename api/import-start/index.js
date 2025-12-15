@@ -824,6 +824,21 @@ app.http("import-start", {
 
       const startTime = Date.now();
 
+      const debugEnabled = Boolean(bodyObj.debug);
+      const debugOutput = debugEnabled
+        ? {
+            xai: {
+              payload: null,
+              prompt: null,
+              raw_response: null,
+              parse_error: null,
+              parsed_companies: 0,
+            },
+            keywords_debug: [],
+            reviews_debug: [],
+          }
+        : null;
+
       // Helper to check if we're running out of time
       const isOutOfTime = () => {
         const elapsed = Date.now() - startTime;
@@ -1109,20 +1124,10 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
 
-          const debugEnabled = Boolean(bodyObj.debug);
-          const debugOutput = debugEnabled
-            ? {
-                xai: {
-                  payload: xaiPayload,
-                  prompt: xaiMessage.content,
-                  raw_response: null,
-                  parse_error: null,
-                  parsed_companies: 0,
-                },
-                keywords_debug: [],
-                reviews_debug: [],
-              }
-            : null;
+          if (debugOutput) {
+            debugOutput.xai.payload = xaiPayload;
+            debugOutput.xai.prompt = xaiMessage.content;
+          }
 
           // Early exit if no companies found
           if (enriched.length === 0) {
