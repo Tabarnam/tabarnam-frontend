@@ -543,6 +543,15 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
       const url = String(r.source_url || r.url || "").trim();
       const title = String(r.title || "").trim();
 
+      if (stageCtx?.setStage) {
+        stageCtx.setStage("validateReviews", {
+          company_name: companyName,
+          website_url: websiteUrl,
+          normalized_domain: String(company?.normalized_domain || ""),
+          review_url: url,
+        });
+      }
+
       const v = await validateCuratedReviewCandidate(
         {
           companyName,
