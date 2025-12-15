@@ -127,6 +127,18 @@ function getImportStartProxyInfo() {
   return { base: "", source: "" };
 }
 
+function isProxyExplicitlyDisabled(value) {
+  if (value === false) return true;
+  if (value === 0) return true;
+  if (value === null) return false;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (!v) return false;
+    return v === "false" || v === "0" || v === "no" || v === "off";
+  }
+  return false;
+}
+
 function buildCounts({ enriched, debugOutput }) {
   const candidates_found = Array.isArray(enriched) ? enriched.length : 0;
 
@@ -1051,7 +1063,14 @@ app.http("import-start", {
         Math.min(Number(bodyObj.hard_timeout_ms) || DEFAULT_HARD_TIMEOUT_MS, DEFAULT_HARD_TIMEOUT_MS)
       );
 
-      const proxyRequested = bodyObj?.proxy !== false;
+      const proxyRaw =
+        Object.prototype.hasOwnProperty.call(bodyObj || {}, "proxy")
+          ? bodyObj.proxy
+          : typeof req?.query?.get === "function"
+            ? req.query.get("proxy")
+            : undefined;
+
+      const proxyRequested = !isProxyExplicitlyDisabled(proxyRaw);
 
       let proxyBase = "";
       let proxySource = "";
