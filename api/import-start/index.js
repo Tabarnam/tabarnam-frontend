@@ -1804,7 +1804,20 @@ Return ONLY the JSON array, no other text.`,
                   for (let i = 0; i < enrichedExpansion.length; i++) {
                     const company = enrichedExpansion[i];
                     if (company.company_name && company.website_url) {
-                      const editorialReviews = await fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugOutput ? debugOutput.reviews_debug : null);
+                      setStage("fetchEditorialReviews", {
+                        company_name: String(company?.company_name || company?.name || ""),
+                        website_url: String(company?.website_url || company?.url || ""),
+                        normalized_domain: String(company?.normalized_domain || ""),
+                      });
+
+                      const editorialReviews = await fetchEditorialReviews(
+                        company,
+                        xaiUrl,
+                        xaiKey,
+                        timeout,
+                        debugOutput ? debugOutput.reviews_debug : null,
+                        { setStage }
+                      );
                       if (editorialReviews.length > 0) {
                         enrichedExpansion[i] = { ...company, curated_reviews: editorialReviews };
                         console.log(`[import-start] Fetched ${editorialReviews.length} editorial reviews for expansion company ${company.company_name}`);
