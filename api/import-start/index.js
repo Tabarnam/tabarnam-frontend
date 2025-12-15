@@ -866,6 +866,9 @@ app.http("import-start", {
         };
 
         console.log(`[import-start] XAI Payload:`, JSON.stringify(xaiPayload));
+        if (debugOutput) {
+          debugOutput.xai.payload = xaiPayload;
+        }
 
         // Use a more aggressive timeout to ensure we finish before Azure kills the function
         // Limit to 2 minutes per API call to stay well within Azure's 5 minute limit
@@ -1072,6 +1075,10 @@ IMPORTANT FINAL RULES:
 Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayload.limit)} diverse results if possible.`,
         };
 
+        if (debugOutput) {
+          debugOutput.xai.prompt = xaiMessage.content;
+        }
+
         const xaiRequestPayload = {
           messages: [xaiMessage],
           model: "grok-4-latest",
@@ -1124,10 +1131,6 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
 
-          if (debugOutput) {
-            debugOutput.xai.payload = xaiPayload;
-            debugOutput.xai.prompt = xaiMessage.content;
-          }
 
           // Early exit if no companies found
           if (enriched.length === 0) {
