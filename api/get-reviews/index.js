@@ -361,30 +361,35 @@ async function getReviewsHandler(req, context, deps = {}) {
           )
           .fetchAll();
 
-        const userReviews = (resources || []).map((r) => {
-          const sourceName = r.user_name
-            ? `${r.user_name}${r.user_location ? ` (${r.user_location})` : ""}`
-            : "Anonymous User";
+        const userReviews = (resources || [])
+          .filter((r) => {
+            const flag = r?.public ?? r?.is_public ?? r?.isPublic ?? r?.visible_to_users ?? r?.show_to_users;
+            return normalizeIsPublicFlag(flag, true) === true;
+          })
+          .map((r) => {
+            const sourceName = r.user_name
+              ? `${r.user_name}${r.user_location ? ` (${r.user_location})` : ""}`
+              : "Anonymous User";
 
-          return {
-            // New canonical fields
-            type: "user",
-            text: r.text,
-            source_name: sourceName,
-            source_url: null,
-            imported_at: r.created_at,
+            return {
+              // New canonical fields
+              type: "user",
+              text: r.text,
+              source_name: sourceName,
+              source_url: null,
+              imported_at: r.created_at,
 
-            // Backwards-compatible fields
-            id: r.id,
-            source: sourceName,
-            abstract: r.text,
-            url: null,
-            rating: r.rating,
-            created_at: r.created_at,
-            flagged_bot: r.flagged_bot,
-            bot_reason: r.bot_reason,
-          };
-        });
+              // Backwards-compatible fields
+              id: r.id,
+              source: sourceName,
+              abstract: r.text,
+              url: null,
+              rating: r.rating,
+              created_at: r.created_at,
+              flagged_bot: r.flagged_bot,
+              bot_reason: r.bot_reason,
+            };
+          });
 
         allReviews = allReviews.concat(userReviews);
       } catch (e) {
