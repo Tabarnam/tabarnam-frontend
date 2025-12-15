@@ -1607,7 +1607,8 @@ Return ONLY the JSON array, no other text.`,
                 console.log(`[import-start] Found ${expansionCompanies.length} companies in expansion search`);
 
                 if (expansionCompanies.length > 0) {
-                  const enrichedExpansion = expansionCompanies.map((c) => enrichCompany(c, center));
+                  let enrichedExpansion = expansionCompanies.map((c) => enrichCompany(c, center));
+                  enrichedExpansion = await mapWithConcurrency(enrichedExpansion, 4, ensureCompanyKeywords);
 
                   // Geocode expansion companies
                   console.log(`[import-start] Geocoding ${enrichedExpansion.length} expansion companies`);
