@@ -7,7 +7,13 @@ try {
 const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
 const { getXAIEndpoint, getXAIKey } = require("../_shared");
-const { importCompanyLogo } = require("../_logoImport");
+function requireImportCompanyLogo() {
+  const mod = require("../_logoImport");
+  if (!mod || typeof mod.importCompanyLogo !== "function") {
+    throw new Error("importCompanyLogo is not available");
+  }
+  return mod.importCompanyLogo;
+}
 const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
 const {
   validateCuratedReviewCandidate,
@@ -546,6 +552,7 @@ async function fetchLogo({ companyId, domain, websiteUrl, existingLogoUrl }) {
     };
   }
 
+  const importCompanyLogo = requireImportCompanyLogo();
   return importCompanyLogo({ companyId, domain, websiteUrl }, console);
 }
 
