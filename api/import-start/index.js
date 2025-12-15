@@ -58,6 +58,65 @@ function safeJsonParse(text) {
   }
 }
 
+function readQueryParam(req, name) {
+  if (!req || !name) return undefined;
+
+  const query = req.query;
+  if (query) {
+    if (typeof query.get === "function") {
+      try {
+        const v = query.get(name);
+        if (v !== null && v !== undefined) return v;
+      } catch {}
+    }
+
+    const direct = query[name] ?? query[name.toLowerCase()] ?? query[name.toUpperCase()];
+    if (direct !== null && direct !== undefined) return direct;
+  }
+
+  const rawUrl = typeof req.url === "string" ? req.url : "";
+  if (rawUrl) {
+    try {
+      const u = new URL(rawUrl, "http://localhost");
+      const v = u.searchParams.get(name);
+      if (v !== null && v !== undefined) return v;
+    } catch {}
+  }
+
+  return undefined;
+}
+
+async function readJsonBody(req) {
+  if (!req) return {};
+
+  if (typeof req.json === "function") {
+    try {
+      const val = await req.json();
+      if (val && typeof val === "object") return val;
+    } catch {}
+  }
+
+  if (req.body && typeof req.body === "object") return req.body;
+
+  if (typeof req.body === "string" && req.body.trim()) {
+    const parsed = safeJsonParse(req.body);
+    if (parsed && typeof parsed === "object") return parsed;
+  }
+
+  const rawBody = req.rawBody;
+  if (typeof rawBody === "string" && rawBody.trim()) {
+    const parsed = safeJsonParse(rawBody);
+    if (parsed && typeof parsed === "object") return parsed;
+  }
+
+  if (rawBody && (Buffer.isBuffer(rawBody) || rawBody instanceof Uint8Array)) {
+    const parsed = safeJsonParse(Buffer.from(rawBody).toString("utf8"));
+    if (parsed && typeof parsed === "object") return parsed;
+  }
+
+  return {};
+}
+
 function toErrorString(err) {
   if (!err) return "Unknown error";
   if (typeof err === "string") return err;
