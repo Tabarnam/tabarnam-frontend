@@ -9,6 +9,31 @@ const {
   checkUrlHealthAndFetchText,
 } = require("../_reviewQuality");
 
+const DEFAULT_HARD_TIMEOUT_MS = 25_000;
+const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000;
+
+if (!globalThis.__importStartProcessHandlersInstalled) {
+  globalThis.__importStartProcessHandlersInstalled = true;
+
+  process.on("unhandledRejection", (reason) => {
+    try {
+      const msg = reason?.stack || reason?.message || String(reason);
+      console.error("[import-start] unhandledRejection:", msg);
+    } catch {
+      console.error("[import-start] unhandledRejection");
+    }
+  });
+
+  process.on("uncaughtException", (err) => {
+    try {
+      const msg = err?.stack || err?.message || String(err);
+      console.error("[import-start] uncaughtException:", msg);
+    } catch {
+      console.error("[import-start] uncaughtException");
+    }
+  });
+}
+
 function json(obj, status = 200) {
   return {
     status,
@@ -977,6 +1002,118 @@ app.http("import-start", {
 
         return json(payload, status);
       };
+
+      const hardTimeoutMs = Math.max(
+        1000,
+        Math.min(Number(bodyObj.hard_timeout_ms) || DEFAULT_HARD_TIMEOUT_MS, DEFAULT_HARD_TIMEOUT_MS)
+      );
+
+      const proxyBase = (getProxyBase() || "").trim();
+      const proxyRequested = bodyObj?.proxy !== false;
+      const shouldProxy = proxyBase && proxyRequested;
+
+      if (!proxyBase && proxyRequested) {
+        setStage("config");
+        return respondError(new Error("Import upstream not configured"), {
+          status: 500,
+          details: {
+            message: "Set XAI_EXTERNAL_BASE (or XAI_PROXY_BASE) so /api/import/start can run without Static Web Apps timing out",
+          },
+        });
+      }
+
+      if (shouldProxy) {
+        const upstreamTimeoutMs = Math.max(
+          1000,
+          Math.min(
+            Number(bodyObj.upstream_timeout_ms) || DEFAULT_UPSTREAM_TIMEOUT_MS,
+            Math.max(1000, hardTimeoutMs - 2000)
+          )
+        );
+
+        setStage("proxyImportStart", { upstream: proxyBase, upstream_timeout_ms: upstreamTimeoutMs });
+
+        const controller = new AbortController();
+        let hardTimedOut = false;
+        const timeoutId = setTimeout(() => {
+          hardTimedOut = true;
+          controller.abort();
+        }, hardTimeoutMs);
+
+        try {
+          const key = getXAIKey();
+          const upstreamUrl = `${proxyBase.replace(/\/$/, "")}/import/start`;
+
+          const resp = await axios.post(upstreamUrl, bodyObj, {
+            headers: {
+              "Content-Type": "application/json",
+              ...(key
+                ? {
+                    Authorization: `Bearer ${key}`,
+                    "x-functions-key": key,
+                  }
+                : {}),
+            },
+            timeout: upstreamTimeoutMs,
+            signal: controller.signal,
+            validateStatus: () => true,
+          });
+
+          const xaiRequestId = extractXaiRequestId(resp.headers);
+          if (xaiRequestId) {
+            setStage("proxyImportStart", { xai_request_id: xaiRequestId });
+          }
+
+          const parsed =
+            typeof resp.data === "string"
+              ? safeJsonParse(resp.data) ?? { message: resp.data }
+              : resp.data;
+
+          const body = parsed && typeof parsed === "object" ? parsed : { message: String(resp.data ?? "") };
+
+          if (typeof body.ok !== "boolean") {
+            body.ok = resp.status >= 200 && resp.status < 300;
+          }
+
+          if (!body.session_id) body.session_id = sessionId;
+          if (xaiRequestId && !body.xai_request_id) body.xai_request_id = xaiRequestId;
+
+          const elapsedMs = Date.now() - startTime;
+          const meta = body.meta && typeof body.meta === "object" ? body.meta : {};
+          body.meta = { ...meta, mode: meta.mode || "proxy", elapsedMs };
+
+          return json(body, resp.status || 502);
+        } catch (e) {
+          const elapsedMs = Date.now() - startTime;
+          const isTimeout =
+            e?.code === "ECONNABORTED" ||
+            e?.name === "CanceledError" ||
+            String(e?.message || "").toLowerCase().includes("timeout") ||
+            String(e?.message || "").toLowerCase().includes("aborted");
+
+          if (hardTimedOut || isTimeout) {
+            setStage("proxyImportStart", { timeout: true, elapsed_ms: elapsedMs });
+            return respondError(new Error("timeout"), {
+              status: 504,
+              details: {
+                upstream: proxyBase,
+                elapsed_ms: elapsedMs,
+                upstream_timeout_ms: upstreamTimeoutMs,
+                hard_timeout_ms: hardTimeoutMs,
+                original_error: toErrorString(e),
+              },
+            });
+          }
+
+          setStage("proxyImportStart");
+          return respondError(e, {
+            status: 502,
+            details: { upstream: proxyBase, elapsed_ms: elapsedMs, upstream_timeout_ms: upstreamTimeoutMs },
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      }
 
       // Helper to check if we're running out of time
       const isOutOfTime = () => {
