@@ -106,6 +106,12 @@ export default function BulkImportStream({
         return;
       }
 
+      if (isCompleted && saved > 0) {
+        hasEmittedRef.current = true;
+        onSuccess({ found: saved, target: targetResults, reason: "completed" });
+        return;
+      }
+
       if (saved >= targetResults) {
         hasEmittedRef.current = true;
         onSuccess({ found: saved, target: targetResults, reason: "target_reached" });
