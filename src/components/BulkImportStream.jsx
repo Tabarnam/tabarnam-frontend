@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE } from "@/lib/api";
 
 export default function BulkImportStream({
@@ -7,169 +7,188 @@ export default function BulkImportStream({
   take = 200,
   pollingMs = 1500,
   stopRequested = false,
+  importState = "running",
   onStats = () => {},
   onSuccess = () => {},
   onFailure = () => {},
-  onStopped = () => {}
+  onStopped = () => {},
 }) {
   const [items, setItems] = useState([]);
   const [steps, setSteps] = useState([]);
-  const [stopped, setStopped] = useState(false);
   const [err, setErr] = useState("");
+
   const timerRef = useRef(null);
   const failureCountRef = useRef(0);
   const lastActivityRef = useRef(Date.now());
+  const lastSavedRef = useRef(0);
   const hasEmittedRef = useRef(false);
+  const stopInitiatedRef = useRef(false);
+  const stopRequestSentRef = useRef(false);
+
   const MAX_CONSECUTIVE_FAILURES = 10;
-  const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+  const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+
+  const isActive = importState === "starting" || importState === "running";
+
+  const statusBadge = useMemo(() => {
+    if (importState === "stopped_by_user") {
+      return { label: "Stopped by user", className: "bg-yellow-100 text-yellow-800" };
+    }
+    if (importState === "error") {
+      return { label: "Error", className: "bg-red-100 text-red-800" };
+    }
+    if (importState === "completed_with_results" || importState === "completed_no_results") {
+      return { label: "Completed", className: "bg-emerald-100 text-emerald-800" };
+    }
+    if (isActive) {
+      return { label: "Running", className: "bg-emerald-100 text-emerald-800" };
+    }
+    return { label: "Idle", className: "bg-gray-100 text-gray-800" };
+  }, [importState, isActive]);
 
   async function tick() {
     if (!sessionId) return;
+    if (!isActive) return;
+
     try {
       const url = `${API_BASE}/import/progress?session_id=${encodeURIComponent(sessionId)}&take=${encodeURIComponent(take)}`;
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds per request
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
 
       const r = await fetch(url, {
         method: "GET",
-        signal: controller.signal
+        signal: controller.signal,
       });
       clearTimeout(timeoutId);
 
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error || r.statusText);
 
-      const saved = j.saved || 0;
-      const items = j.items || [];
+      const saved = Number(j.saved || 0);
+      const returnedItems = j.items || [];
       const isStopped = !!j.stopped;
       const isTimedOut = !!j.timedOut;
-      const isCompleted = !!j.completed;  // 0-results completion
+      const isCompleted = !!j.completed;
 
-      setItems(items);
+      const stopSignal = isStopped && !isTimedOut && !isCompleted;
+      const noResultsCompleted = isCompleted && saved === 0;
+
+      setItems(returnedItems);
       setSteps(j.steps || []);
-      setStopped(isStopped);
       onStats({ saved, lastCreatedAt: j.lastCreatedAt || "" });
+
       setErr("");
       failureCountRef.current = 0;
-
-      // Update last activity time
       lastActivityRef.current = Date.now();
+      lastSavedRef.current = saved;
 
-      // Check if import timed out (takes precedence over normal stop)
-      if (isTimedOut && !hasEmittedRef.current) {
+      if (hasEmittedRef.current) return;
+
+      if (isTimedOut) {
         hasEmittedRef.current = true;
-        const msg = saved > 0
-          ? `⚠️ Import timed out after finding ${saved}/${targetResults} results. Try another search to find more.`
-          : `❌ Import timed out with no results. The search took too long. Try a more specific search term.`;
-        if (saved > 0) {
-          onFailure({ saved, target: targetResults });
+        onFailure({ saved, target: targetResults, reason: "timed_out" });
+        return;
+      }
+
+      if (stopSignal) {
+        hasEmittedRef.current = true;
+        if (stopInitiatedRef.current) {
+          onStopped({ saved, target: targetResults, reason: "stopped_by_user" });
         } else {
-          setErr(msg);
+          onFailure({ saved, target: targetResults, reason: "stopped" });
         }
         return;
       }
 
-      // Check if import was explicitly stopped by user
-      if (isStopped && !isCompleted && !hasEmittedRef.current) {
+      if (noResultsCompleted) {
         hasEmittedRef.current = true;
-        if (saved > 0) {
-          onFailure({ saved, target: targetResults });
-        } else {
-          setErr("❌ Import was stopped.");
-        }
+        onFailure({ saved: 0, target: targetResults, reason: "completed_no_results" });
         return;
       }
 
-      // Check if import completed with no results (XAI returned nothing)
-      if (isCompleted && saved === 0 && !hasEmittedRef.current) {
+      if (saved >= targetResults) {
         hasEmittedRef.current = true;
-        setErr("❌ No companies found for this search. The XAI API returned no matches. Try a different search term or be less specific.");
+        onSuccess({ found: saved, target: targetResults, reason: "target_reached" });
         return;
       }
 
-      // Check if target reached
-      if (!hasEmittedRef.current && saved >= targetResults) {
-        hasEmittedRef.current = true;
-        onSuccess({ found: saved, target: targetResults });
-        return;
-      }
-
-      // Continue polling
       scheduleNextTick();
     } catch (e) {
       failureCountRef.current += 1;
       const errorMsg = e?.message || "fetch failed";
 
-      // Check for inactivity timeout
       const timeSinceLastActivity = Date.now() - lastActivityRef.current;
       if (timeSinceLastActivity > INACTIVITY_TIMEOUT_MS) {
         if (!hasEmittedRef.current) {
           hasEmittedRef.current = true;
-          const currentStats = { saved: items.length, target: targetResults };
-          if (items.length > 0) {
-            onFailure(currentStats);
-          } else {
-            setErr("❌ Search timed out with no results. Please try again.");
-          }
+          const saved = lastSavedRef.current;
+          onFailure({ saved, target: targetResults, reason: "inactivity_timeout" });
         }
         return;
       }
 
-      // If we've had too many consecutive failures, show a message but stop retrying
       if (failureCountRef.current >= MAX_CONSECUTIVE_FAILURES) {
         setErr(`⚠️ Progress endpoint unreachable after ${MAX_CONSECUTIVE_FAILURES} attempts. Import may have succeeded. Check database or use "Resume last stream" to retry.`);
         scheduleNextTick();
         return;
       }
 
-      // Show temporary error on initial failures
       if (failureCountRef.current <= 3) {
         setErr(`⏳ Connecting… (attempt ${failureCountRef.current}/${MAX_CONSECUTIVE_FAILURES}) — ${errorMsg}`);
       } else {
         setErr(`⏳ Still connecting (${failureCountRef.current}/${MAX_CONSECUTIVE_FAILURES})…`);
       }
-      
+
       scheduleNextTick();
     }
   }
 
   function scheduleNextTick() {
-    if (stopRequested) {
-      return;
-    }
+    if (!sessionId) return;
+    if (!isActive) return;
+    if (hasEmittedRef.current) return;
     timerRef.current = setTimeout(tick, pollingMs);
   }
 
   useEffect(() => {
-    if (stopRequested && sessionId) {
-      // Call the stop endpoint to notify the server
-      (async () => {
-        try {
-          const url = `${API_BASE}/import/stop`;
-          await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ session_id: sessionId })
-          }).catch(() => {}); // Ignore errors
-        } catch (e) {
-          console.warn("Failed to notify server of stop:", e);
-        }
-      })();
-      clearTimeout(timerRef.current);
-      // Signal to parent that import was stopped by user
-      setStopped(true);
-      onStopped({ stopped: true, saved: items.length });
-      return;
-    }
-
     clearTimeout(timerRef.current);
+
     failureCountRef.current = 0;
     lastActivityRef.current = Date.now();
+    lastSavedRef.current = 0;
     hasEmittedRef.current = false;
-    if (sessionId && !stopRequested) tick();
+    stopInitiatedRef.current = false;
+    stopRequestSentRef.current = false;
+
+    if (sessionId && isActive) tick();
+
     return () => clearTimeout(timerRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, take, pollingMs, targetResults, stopRequested]);
+  }, [sessionId, take, pollingMs, targetResults, isActive]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    if (!isActive) return;
+    if (!stopRequested) return;
+    if (stopRequestSentRef.current) return;
+    if (hasEmittedRef.current) return;
+
+    stopInitiatedRef.current = true;
+    stopRequestSentRef.current = true;
+
+    (async () => {
+      try {
+        const url = `${API_BASE}/import/stop`;
+        await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId }),
+        }).catch(() => {});
+      } catch (e) {
+        console.warn("Failed to notify server of stop:", e);
+      }
+    })();
+  }, [stopRequested, sessionId, isActive]);
 
   const progressPercent = Math.min(100, Math.round((items.length / Math.max(1, targetResults)) * 100));
 
@@ -177,23 +196,15 @@ export default function BulkImportStream({
     <div className="mt-4 border rounded p-3 bg-white">
       <div className="flex items-center justify-between mb-2">
         <div className="font-semibold">Streaming Results ({items.length}/{targetResults})</div>
-        {stopped ? (
-          <span className="text-xs px-2 py-1 bg-yellow-100 text-yellow-800 rounded">Stopped by user</span>
-        ) : (
-          <span className="text-xs px-2 py-1 bg-emerald-100 text-emerald-800 rounded">Running</span>
-        )}
+        <span className={`text-xs px-2 py-1 rounded ${statusBadge.className}`}>{statusBadge.label}</span>
       </div>
-      
-      {/* Progress bar */}
+
       <div className="mb-2 bg-gray-200 rounded-full h-2 overflow-hidden">
-        <div
-          className="bg-emerald-500 h-2 transition-all duration-300"
-          style={{ width: `${progressPercent}%` }}
-        />
+        <div className="bg-emerald-500 h-2 transition-all duration-300" style={{ width: `${progressPercent}%` }} />
       </div>
-      
-      {err && <div className="text-sm text-red-600 mb-2">{err}</div>}
-      
+
+      {isActive && err && <div className="text-sm text-red-600 mb-2">{err}</div>}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <div className="text-xs text-gray-500 mb-1">Items</div>
@@ -212,7 +223,9 @@ export default function BulkImportStream({
           <ul className="space-y-2 max-h-96 overflow-auto">
             {(steps || []).map((s, i) => (
               <li key={i} className="border rounded p-2 text-xs">
-                <div><strong>{s.status}</strong> — {s.message || ""}</div>
+                <div>
+                  <strong>{s.status}</strong> — {s.message || ""}
+                </div>
                 {s.ts && <div className="text-gray-500">{new Date(s.ts).toLocaleString()}</div>}
               </li>
             ))}
