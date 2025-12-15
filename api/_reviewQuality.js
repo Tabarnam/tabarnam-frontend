@@ -1,5 +1,7 @@
 const net = require("node:net");
 
+const net = require("node:net");
+
 function escapeRegExp(s) {
   return String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
