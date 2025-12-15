@@ -1,8 +1,19 @@
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("@azure/functions"));
+} catch {
+  app = { http() {} };
+}
 const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
 const { getXAIEndpoint, getXAIKey } = require("../_shared");
-const { importCompanyLogo } = require("../_logoImport");
+function requireImportCompanyLogo() {
+  const mod = require("../_logoImport");
+  if (!mod || typeof mod.importCompanyLogo !== "function") {
+    throw new Error("importCompanyLogo is not available");
+  }
+  return mod.importCompanyLogo;
+}
 const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
 const {
   validateCuratedReviewCandidate,
@@ -56,6 +67,65 @@ function safeJsonParse(text) {
   } catch {
     return null;
   }
+}
+
+function readQueryParam(req, name) {
+  if (!req || !name) return undefined;
+
+  const query = req.query;
+  if (query) {
+    if (typeof query.get === "function") {
+      try {
+        const v = query.get(name);
+        if (v !== null && v !== undefined) return v;
+      } catch {}
+    }
+
+    const direct = query[name] ?? query[name.toLowerCase()] ?? query[name.toUpperCase()];
+    if (direct !== null && direct !== undefined) return direct;
+  }
+
+  const rawUrl = typeof req.url === "string" ? req.url : "";
+  if (rawUrl) {
+    try {
+      const u = new URL(rawUrl, "http://localhost");
+      const v = u.searchParams.get(name);
+      if (v !== null && v !== undefined) return v;
+    } catch {}
+  }
+
+  return undefined;
+}
+
+async function readJsonBody(req) {
+  if (!req) return {};
+
+  if (typeof req.json === "function") {
+    try {
+      const val = await req.json();
+      if (val && typeof val === "object") return val;
+    } catch {}
+  }
+
+  if (req.body && typeof req.body === "object") return req.body;
+
+  if (typeof req.body === "string" && req.body.trim()) {
+    const parsed = safeJsonParse(req.body);
+    if (parsed && typeof parsed === "object") return parsed;
+  }
+
+  const rawBody = req.rawBody;
+  if (typeof rawBody === "string" && rawBody.trim()) {
+    const parsed = safeJsonParse(rawBody);
+    if (parsed && typeof parsed === "object") return parsed;
+  }
+
+  if (rawBody && (Buffer.isBuffer(rawBody) || rawBody instanceof Uint8Array)) {
+    const parsed = safeJsonParse(Buffer.from(rawBody).toString("utf8"));
+    if (parsed && typeof parsed === "object") return parsed;
+  }
+
+  return {};
 }
 
 function toErrorString(err) {
@@ -482,6 +552,7 @@ async function fetchLogo({ companyId, domain, websiteUrl, existingLogoUrl }) {
     };
   }
 
+  const importCompanyLogo = requireImportCompanyLogo();
   return importCompanyLogo({ companyId, domain, websiteUrl }, console);
 }
 
@@ -963,11 +1034,7 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
 // Max time to spend processing (4 minutes, safe from Azure's 5 minute timeout)
 const MAX_PROCESSING_TIME_MS = 4 * 60 * 1000;
 
-app.http("import-start", {
-  route: "import/start",
-  methods: ["POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
+const importStartHandler = async (req, context) => {
     console.log("[import-start] Function handler invoked");
 
     try {
@@ -983,11 +1050,18 @@ app.http("import-start", {
         };
       }
 
-      const bodyObj = await req.json().catch(() => ({}));
+      const payload = await readJsonBody(req);
+
+      const proxyQuery = readQueryParam(req, "proxy");
+      if (!Object.prototype.hasOwnProperty.call(payload || {}, "proxy") && proxyQuery !== undefined) {
+        payload.proxy = proxyQuery;
+      }
+
+      const bodyObj = payload;
       const sessionId = bodyObj.session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
       console.log(`[import-start] Received request with session_id: ${sessionId}`);
-      console.log(`[import-start] Request body:`, JSON.stringify(bodyObj));
+      console.log(`[import-start] Request body:`, JSON.stringify(payload));
 
       const startTime = Date.now();
 
@@ -1010,9 +1084,9 @@ app.http("import-start", {
       let stage = "init";
       const buildInfo = getBuildInfo();
       const contextInfo = {
-        company_name: "",
-        website_url: "",
-        normalized_domain: "",
+        company_name: String(payload?.company_name ?? "").trim(),
+        website_url: String(payload?.website_url ?? "").trim(),
+        normalized_domain: String(payload?.normalized_domain ?? "").trim(),
         xai_request_id: null,
       };
       let enrichedForCounts = [];
@@ -1038,7 +1112,7 @@ app.http("import-start", {
         console.error(`[import-start] stage=${stage} error=${error}`);
         if (err?.stack) console.error(err.stack);
 
-        const payload = {
+        const errorPayload = {
           ok: false,
           stage,
           error,
@@ -1058,7 +1132,7 @@ app.http("import-start", {
           ...(details && Object.keys(details).length ? { details } : {}),
         };
 
-        return json(payload, status);
+        return json(errorPayload, status);
       };
 
       const hardTimeoutMs = Math.max(
@@ -1069,9 +1143,7 @@ app.http("import-start", {
       const proxyRaw =
         Object.prototype.hasOwnProperty.call(bodyObj || {}, "proxy")
           ? bodyObj.proxy
-          : typeof req?.query?.get === "function"
-            ? req.query.get("proxy")
-            : undefined;
+          : readQueryParam(req, "proxy");
 
       const proxyRequested = !isProxyExplicitlyDisabled(proxyRaw);
 
@@ -1571,6 +1643,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             return json({
               ok: true,
               session_id: sessionId,
+              company_name: contextInfo.company_name,
+              website_url: contextInfo.website_url,
               companies: [],
               meta: {
                 mode: "direct",
@@ -2146,6 +2220,8 @@ Return ONLY the JSON array, no other text.`,
           return json({
             ok: true,
             session_id: sessionId,
+            company_name: contextInfo.company_name,
+            website_url: contextInfo.website_url,
             companies: enriched,
             meta: {
               mode: "direct",
@@ -2224,5 +2300,19 @@ Return ONLY the JSON array, no other text.`,
         500
       );
     }
-  },
+  };
+
+app.http("import-start", {
+  route: "import/start",
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: importStartHandler,
 });
+
+module.exports = {
+  _test: {
+    readJsonBody,
+    readQueryParam,
+    importStartHandler,
+  },
+};
