@@ -111,11 +111,11 @@ function isXaiPublicApiUrl(raw) {
 }
 
 function getImportStartProxyInfo() {
+  // Import-start proxying is ONLY for a Tabarnam-controlled import worker.
+  // Do not fall back to XAI_EXTERNAL_BASE (that is for XAI chat/search), and never to XAI public API.
   const candidates = [
     { key: "IMPORT_START_PROXY_BASE", value: process.env.IMPORT_START_PROXY_BASE },
     { key: "XAI_IMPORT_PROXY_BASE", value: process.env.XAI_IMPORT_PROXY_BASE },
-    { key: "XAI_EXTERNAL_BASE", value: process.env.XAI_EXTERNAL_BASE },
-    { key: "XAI_PROXY_BASE", value: process.env.XAI_PROXY_BASE },
   ];
 
   for (const c of candidates) {
@@ -1051,35 +1051,43 @@ app.http("import-start", {
         Math.min(Number(bodyObj.hard_timeout_ms) || DEFAULT_HARD_TIMEOUT_MS, DEFAULT_HARD_TIMEOUT_MS)
       );
 
-      const { base: proxyBaseRaw, source: proxySource } = getImportStartProxyInfo();
       const proxyRequested = bodyObj?.proxy !== false;
 
-      if (proxyBaseRaw && isXaiPublicApiUrl(proxyBaseRaw)) {
-        setStage("proxy_config", { upstream: proxyBaseRaw, proxy_source: proxySource });
-        return respondError(new Error("Invalid proxy target: import-start cannot be proxied to XAI API"), {
-          status: 500,
-          details: {
-            proxy_source: proxySource,
-            upstream: proxyBaseRaw,
-            message:
-              "IMPORT_START_PROXY_BASE (or XAI_EXTERNAL_BASE) must point to a Tabarnam-controlled import worker (e.g. an Azure App Service /api base). It must not point to https://api.x.ai/...",
-          },
-        });
+      let proxyBase = "";
+      let proxySource = "";
+
+      // If proxy is explicitly disabled, run local mode and do not evaluate proxy config.
+      if (proxyRequested) {
+        const info = getImportStartProxyInfo();
+        proxyBase = info.base;
+        proxySource = info.source;
+
+        if (proxyBase && isXaiPublicApiUrl(proxyBase)) {
+          setStage("proxy_config", { upstream: proxyBase, proxy_source: proxySource });
+          return respondError(new Error("Invalid proxy target: import-start cannot be proxied to XAI API"), {
+            status: 500,
+            details: {
+              proxy_source: proxySource,
+              upstream: proxyBase,
+              message:
+                "IMPORT_START_PROXY_BASE (or XAI_IMPORT_PROXY_BASE) must point to a Tabarnam-controlled import worker (e.g. an Azure App Service /api base). It must not point to https://api.x.ai/...",
+            },
+          });
+        }
+
+        if (!proxyBase) {
+          setStage("proxy_config");
+          return respondError(new Error("Import upstream not configured"), {
+            status: 500,
+            details: {
+              message:
+                "Set IMPORT_START_PROXY_BASE (preferred) or XAI_IMPORT_PROXY_BASE to a Tabarnam import worker base URL so /api/import/start can run without Static Web Apps timing out",
+            },
+          });
+        }
       }
 
-      const proxyBase = proxyBaseRaw;
-      const shouldProxy = proxyBase && proxyRequested;
-
-      if (!proxyBase && proxyRequested) {
-        setStage("proxy_config");
-        return respondError(new Error("Import upstream not configured"), {
-          status: 500,
-          details: {
-            message:
-              "Set IMPORT_START_PROXY_BASE (preferred) or XAI_EXTERNAL_BASE to a Tabarnam import worker base URL so /api/import/start can run without Static Web Apps timing out",
-          },
-        });
-      }
+      const shouldProxy = proxyRequested && !!proxyBase;
 
       if (shouldProxy) {
         const upstreamTimeoutMs = Math.max(
