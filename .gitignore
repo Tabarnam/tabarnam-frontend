@@ -13,6 +13,7 @@ staticwebapp.config.json  # Keep only in public/ for Vite to copy to dist/
 api/local.settings.json
 local.settings.json
 swa-token.txt
+api/__build_id.txt
 
 # Test/diagnostic probe files you created
 public/ping.txt
