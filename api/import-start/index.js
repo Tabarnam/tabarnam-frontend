@@ -1643,6 +1643,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             return json({
               ok: true,
               session_id: sessionId,
+              company_name: contextInfo.company_name,
+              website_url: contextInfo.website_url,
               companies: [],
               meta: {
                 mode: "direct",
@@ -2218,6 +2220,8 @@ Return ONLY the JSON array, no other text.`,
           return json({
             ok: true,
             session_id: sessionId,
+            company_name: contextInfo.company_name,
+            website_url: contextInfo.website_url,
             companies: enriched,
             meta: {
               mode: "direct",
