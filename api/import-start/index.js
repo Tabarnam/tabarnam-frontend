@@ -319,6 +319,18 @@ async function geocodeCompanyLocations(company, { timeoutMs = 5000 } = {}) {
   };
 }
 
+async function geocodeHQLocation(address, { timeoutMs = 5000 } = {}) {
+  const list = [{ address: String(address || "").trim() }].filter((x) => x.address);
+  if (!list.length) return { hq_lat: undefined, hq_lng: undefined };
+
+  const results = await geocodeLocationArray(list, { timeoutMs, concurrency: 1 });
+  const primary = pickPrimaryLatLng(results);
+  return {
+    hq_lat: primary ? primary.lat : undefined,
+    hq_lng: primary ? primary.lng : undefined,
+  };
+}
+
 // Check if company already exists by normalized domain
 async function findExistingCompany(container, normalizedDomain, companyName) {
   if (!container) return null;
