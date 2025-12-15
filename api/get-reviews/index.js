@@ -432,7 +432,19 @@ async function getReviewsHandler(req, context, deps = {}) {
 
           const curatedArrVisible = curatedArrRaw.filter((r) => {
             const flag = r?.show_to_users ?? r?.showToUsers ?? r?.is_public ?? r?.visible_to_users ?? r?.visible;
-            return normalizeIsPublicFlag(flag, true) !== false;
+            if (normalizeIsPublicFlag(flag, true) === false) return false;
+
+            const linkStatusRaw = r?.link_status ?? r?.linkStatus;
+            if (typeof linkStatusRaw === "string" && linkStatusRaw.trim()) {
+              const ls = linkStatusRaw.trim().toLowerCase();
+              if (ls !== "ok") return false;
+            }
+
+            const mcRaw = r?.match_confidence ?? r?.matchConfidence;
+            const mc = typeof mcRaw === "number" ? mcRaw : typeof mcRaw === "string" && mcRaw.trim() ? Number(mcRaw) : null;
+            if (typeof mc === "number" && Number.isFinite(mc) && mc < 0.7) return false;
+
+            return true;
           });
 
           const curatedReviews = curatedArrVisible.map((r, idx) => {
