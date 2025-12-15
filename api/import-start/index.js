@@ -1293,6 +1293,7 @@ app.http("import-start", {
               stage,
               error: "Import was stopped",
               session_id: sessionId,
+              ...buildInfo,
               companies: [],
               saved: 0,
             },
@@ -2218,6 +2219,7 @@ Return ONLY the JSON array, no other text.`,
           ok: false,
           stage: "fatal",
           error: `Fatal error: ${e?.message || "Unknown error"}`,
+          ...getBuildInfo(),
         },
         500
       );
