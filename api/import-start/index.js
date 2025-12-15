@@ -22,6 +22,71 @@ function json(obj, status = 200) {
   };
 }
 
+function safeJsonParse(text) {
+  const raw = typeof text === "string" ? text.trim() : "";
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function toErrorString(err) {
+  if (!err) return "Unknown error";
+  if (typeof err === "string") return err;
+  if (typeof err.message === "string" && err.message.trim()) return err.message;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+function extractXaiRequestId(headers) {
+  const h = headers || {};
+  const get = (k) => {
+    const v = h[k] ?? h[k.toLowerCase()] ?? h[k.toUpperCase()];
+    return typeof v === "string" && v.trim() ? v.trim() : null;
+  };
+  return (
+    get("x-request-id") ||
+    get("xai-request-id") ||
+    get("x-correlation-id") ||
+    get("x-ms-request-id") ||
+    get("request-id") ||
+    null
+  );
+}
+
+function buildCounts({ enriched, debugOutput }) {
+  const candidates_found = Array.isArray(enriched) ? enriched.length : 0;
+
+  const keywords_generated = Array.isArray(debugOutput?.keywords_debug)
+    ? debugOutput.keywords_debug.reduce((sum, k) => sum + (Number(k?.generated_count) || 0), 0)
+    : 0;
+
+  let reviews_valid = 0;
+  let reviews_rejected = 0;
+
+  if (Array.isArray(debugOutput?.reviews_debug)) {
+    for (const entry of debugOutput.reviews_debug) {
+      const candidates = Array.isArray(entry?.candidates) ? entry.candidates : [];
+      for (const c of candidates) {
+        if (c?.is_valid === true) reviews_valid += 1;
+        else reviews_rejected += 1;
+      }
+    }
+  }
+
+  return {
+    candidates_found,
+    reviews_valid,
+    reviews_rejected,
+    keywords_generated,
+  };
+}
+
 // Helper: normalize industries array
 function normalizeIndustries(input) {
   if (Array.isArray(input))
@@ -254,6 +319,18 @@ async function geocodeCompanyLocations(company, { timeoutMs = 5000 } = {}) {
   };
 }
 
+async function geocodeHQLocation(address, { timeoutMs = 5000 } = {}) {
+  const list = [{ address: String(address || "").trim() }].filter((x) => x.address);
+  if (!list.length) return { hq_lat: undefined, hq_lng: undefined };
+
+  const results = await geocodeLocationArray(list, { timeoutMs, concurrency: 1 });
+  const primary = pickPrimaryLatLng(results);
+  return {
+    hq_lat: primary ? primary.lat : undefined,
+    hq_lng: primary ? primary.lng : undefined,
+  };
+}
+
 // Check if company already exists by normalized domain
 async function findExistingCompany(container, normalizedDomain, companyName) {
   if (!container) return null;
@@ -328,7 +405,7 @@ async function fetchLogo({ companyId, domain, websiteUrl, existingLogoUrl }) {
 }
 
 // Fetch editorial reviews for a company using XAI
-async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugCollector) {
+async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugCollector, stageCtx) {
   const companyName = String(company?.company_name || company?.name || "").trim();
   const websiteUrl = String(company?.website_url || company?.url || "").trim();
 
@@ -465,6 +542,15 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
     for (const r of candidates) {
       const url = String(r.source_url || r.url || "").trim();
       const title = String(r.title || "").trim();
+
+      if (stageCtx?.setStage) {
+        stageCtx.setStage("validateReviews", {
+          company_name: companyName,
+          website_url: websiteUrl,
+          normalized_domain: String(company?.normalized_domain || ""),
+          review_url: url,
+        });
+      }
 
       const v = await validateCuratedReviewCandidate(
         {
@@ -824,7 +910,7 @@ app.http("import-start", {
 
       const startTime = Date.now();
 
-      const debugEnabled = Boolean(bodyObj.debug);
+      const debugEnabled = bodyObj.debug === true || bodyObj.debug === "true";
       const debugOutput = debugEnabled
         ? {
             xai: {
@@ -836,8 +922,61 @@ app.http("import-start", {
             },
             keywords_debug: [],
             reviews_debug: [],
+            stages: [],
           }
         : null;
+
+      let stage = "init";
+      const contextInfo = {
+        company_name: "",
+        website_url: "",
+        normalized_domain: "",
+        xai_request_id: null,
+      };
+      let enrichedForCounts = [];
+
+      const setStage = (nextStage, extra = {}) => {
+        stage = String(nextStage || "unknown");
+
+        if (extra && typeof extra === "object") {
+          if (typeof extra.company_name === "string") contextInfo.company_name = extra.company_name;
+          if (typeof extra.website_url === "string") contextInfo.website_url = extra.website_url;
+          if (typeof extra.normalized_domain === "string") contextInfo.normalized_domain = extra.normalized_domain;
+          if (typeof extra.xai_request_id === "string") contextInfo.xai_request_id = extra.xai_request_id;
+        }
+
+        if (debugOutput) {
+          debugOutput.stages.push({ stage, ts: new Date().toISOString(), ...extra });
+        }
+      };
+
+      const respondError = (err, { status = 500, details = {} } = {}) => {
+        const error = toErrorString(err);
+
+        console.error(`[import-start] stage=${stage} error=${error}`);
+        if (err?.stack) console.error(err.stack);
+
+        const payload = {
+          ok: false,
+          stage,
+          error,
+          session_id: sessionId,
+          company_name: contextInfo.company_name,
+          website_url: contextInfo.website_url,
+          normalized_domain: contextInfo.normalized_domain,
+          xai_request_id: contextInfo.xai_request_id,
+          ...(debugEnabled
+            ? {
+                stack: String(err?.stack || ""),
+                counts: buildCounts({ enriched: enrichedForCounts, debugOutput }),
+                debug: debugOutput,
+              }
+            : {}),
+          ...(details && Object.keys(details).length ? { details } : {}),
+        };
+
+        return json(payload, status);
+      };
 
       // Helper to check if we're running out of time
       const isOutOfTime = () => {
@@ -885,25 +1024,31 @@ app.http("import-start", {
         console.log(`[import-start] Config source: ${process.env.XAI_EXTERNAL_BASE ? "XAI_EXTERNAL_BASE" : process.env.FUNCTION_URL ? "FUNCTION_URL (legacy)" : "none"}`);
 
         if (!xaiUrl || !xaiKey) {
-          return json({
-            ok: false,
-            error: "XAI not configured",
-            message: "Please set XAI_EXTERNAL_BASE and XAI_EXTERNAL_KEY environment variables",
-            session_id: sessionId,
-          }, 500);
+          setStage("config");
+          return respondError(new Error("XAI not configured"), {
+            status: 500,
+            details: {
+              message: "Please set XAI_EXTERNAL_BASE and XAI_EXTERNAL_KEY environment variables",
+            },
+          });
         }
 
         // Early check: if import was already stopped, return immediately
         const wasAlreadyStopped = await checkIfSessionStopped(sessionId);
         if (wasAlreadyStopped) {
+          setStage("stopped");
           console.log(`[import-start] session=${sessionId} stop signal detected before XAI call`);
-          return json({
-            ok: false,
-            error: "Import was stopped",
-            session_id: sessionId,
-            companies: [],
-            saved: 0,
-          }, 200);
+          return json(
+            {
+              ok: false,
+              stage,
+              error: "Import was stopped",
+              session_id: sessionId,
+              companies: [],
+              saved: 0,
+            },
+            200
+          );
         }
 
         // Build XAI request message with PRIORITY on HQ and manufacturing locations
@@ -1087,6 +1232,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
         };
 
         try {
+          setStage("searchCompanies", {
+            queryType: xaiPayload.queryType,
+            query: xaiPayload.query,
+            limit: xaiPayload.limit,
+          });
+
           console.log(`[import-start] session=${sessionId} xai request payload = ${JSON.stringify(xaiPayload)}`);
           console.log(`[import-start] Calling XAI API at: ${xaiUrl}`);
           const xaiResponse = await axios.post(xaiUrl, xaiRequestPayload, {
@@ -1099,6 +1250,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
         const elapsed = Date.now() - startTime;
         console.log(`[import-start] session=${sessionId} xai response status=${xaiResponse.status}`);
+
+        const xaiRequestId = extractXaiRequestId(xaiResponse.headers);
+        if (xaiRequestId) {
+          setStage("searchCompanies", { xai_request_id: xaiRequestId });
+          if (debugOutput) debugOutput.xai.request_id = xaiRequestId;
+        }
 
         if (xaiResponse.status >= 200 && xaiResponse.status < 300) {
           // Extract the response content
@@ -1128,9 +1285,10 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
           console.log(`[import-start] session=${sessionId} xai response status=${xaiResponse.status} companies=${companies.length}`);
 
+          setStage("enrichCompany");
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
-
+          enrichedForCounts = enriched;
 
           // Early exit if no companies found
           if (enriched.length === 0) {
@@ -1314,9 +1472,12 @@ Output JSON only:
             return company;
           }
 
+          setStage("generateKeywords");
           enriched = await mapWithConcurrency(enriched, 4, ensureCompanyKeywords);
+          enrichedForCounts = enriched;
 
           // Geocode and persist per-location coordinates (HQ + manufacturing)
+          setStage("geocodeLocations");
           console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
           for (let i = 0; i < enriched.length; i++) {
             if (shouldAbort()) {
@@ -1343,6 +1504,7 @@ Output JSON only:
 
           // Fetch editorial reviews for companies
           if (!shouldAbort()) {
+            setStage("fetchEditorialReviews");
             console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
             for (let i = 0; i < enriched.length; i++) {
               // Check if import was stopped OR we're running out of time
@@ -1358,8 +1520,21 @@ Output JSON only:
               }
 
               const company = enriched[i];
+              setStage("fetchEditorialReviews", {
+                company_name: String(company?.company_name || company?.name || ""),
+                website_url: String(company?.website_url || company?.url || ""),
+                normalized_domain: String(company?.normalized_domain || ""),
+              });
+
               if (company.company_name && company.website_url) {
-                const editorialReviews = await fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugOutput ? debugOutput.reviews_debug : null);
+                const editorialReviews = await fetchEditorialReviews(
+                  company,
+                  xaiUrl,
+                  xaiKey,
+                  timeout,
+                  debugOutput ? debugOutput.reviews_debug : null,
+                  { setStage }
+                );
                 if (editorialReviews.length > 0) {
                   enriched[i] = { ...company, curated_reviews: editorialReviews };
                   console.log(`[import-start] session=${sessionId} fetched ${editorialReviews.length} editorial reviews for ${company.company_name}`);
@@ -1524,6 +1699,7 @@ Return ONLY the JSON array, no other text.`,
 
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
           if (enriched.length > 0) {
+            setStage("saveCompaniesToCosmos");
             console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos start count=${enriched.length}`);
             saveResult = await saveCompaniesToCosmos(enriched, sessionId, timeout);
             console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos done saved=${saveResult.saved} skipped=${saveResult.skipped} duplicates=${saveResult.skipped}`);
@@ -1628,7 +1804,20 @@ Return ONLY the JSON array, no other text.`,
                   for (let i = 0; i < enrichedExpansion.length; i++) {
                     const company = enrichedExpansion[i];
                     if (company.company_name && company.website_url) {
-                      const editorialReviews = await fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugOutput ? debugOutput.reviews_debug : null);
+                      setStage("fetchEditorialReviews", {
+                        company_name: String(company?.company_name || company?.name || ""),
+                        website_url: String(company?.website_url || company?.url || ""),
+                        normalized_domain: String(company?.normalized_domain || ""),
+                      });
+
+                      const editorialReviews = await fetchEditorialReviews(
+                        company,
+                        xaiUrl,
+                        xaiKey,
+                        timeout,
+                        debugOutput ? debugOutput.reviews_debug : null,
+                        { setStage }
+                      );
                       if (editorialReviews.length > 0) {
                         enrichedExpansion[i] = { ...company, curated_reviews: editorialReviews };
                         console.log(`[import-start] Fetched ${editorialReviews.length} editorial reviews for expansion company ${company.company_name}`);
@@ -1721,14 +1910,12 @@ Return ONLY the JSON array, no other text.`,
           }, 200);
         } else {
           console.error(`[import-start] XAI error status: ${xaiResponse.status}`);
-          return json(
-            {
-              ok: false,
-              error: `XAI returned ${xaiResponse.status}`,
-              session_id: sessionId,
+          return respondError(new Error(`XAI returned ${xaiResponse.status}`), {
+            status: 502,
+            details: {
+              xai_status: xaiResponse.status,
             },
-            502
-          );
+          });
         }
       } catch (xaiError) {
         const elapsed = Date.now() - startTime;
@@ -1764,33 +1951,24 @@ Return ONLY the JSON array, no other text.`,
           }
         }
 
-        return json(
-          {
-            ok: false,
-            error: `XAI call failed: ${xaiError.message}`,
-            session_id: sessionId,
+        return respondError(new Error(`XAI call failed: ${toErrorString(xaiError)}`), {
+          status: 502,
+          details: {
+            xai_code: xaiError?.code || null,
+            xai_status: xaiError?.response?.status || null,
           },
-          502
-        );
+        });
       }
       } catch (e) {
-        console.error(`[import-start] Unexpected error:`, e.message);
-        console.error(`[import-start] Full error:`, e);
-        return json(
-          {
-            ok: false,
-            error: `Server error: ${e.message}`,
-            session_id: sessionId,
-          },
-          500
-        );
+        return respondError(e, { status: 500 });
       }
     } catch (e) {
-      console.error("[import-start] Top-level error:", e.message || e);
+      console.error("[import-start] Top-level error:", e?.message || e);
       return json(
         {
           ok: false,
-          error: `Fatal error: ${e?.message || 'Unknown error'}`,
+          stage: "fatal",
+          error: `Fatal error: ${e?.message || "Unknown error"}`,
         },
         500
       );
