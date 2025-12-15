@@ -4,6 +4,7 @@ const { CosmosClient } = require("@azure/cosmos");
 const { getXAIEndpoint, getXAIKey, getProxyBase } = require("../_shared");
 const { importCompanyLogo } = require("../_logoImport");
 const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
+const { validateCuratedReviewCandidate } = require("../_reviewQuality");
 
 function json(obj, status = 200) {
   return {
@@ -342,22 +343,63 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
         reviews = [];
       }
 
-      // Transform reviews into curated review format
-      const curatedReviews = (reviews || []).slice(0, 3).map((r, idx) => ({
-        id: `xai_auto_${Date.now()}_${idx}`,
-        source: r.source || "editorial_site",
-        source_url: r.source_url || "",
-        title: r.title || "",
-        excerpt: r.excerpt || "",
-        rating: r.rating || null,
-        author: r.author || "",
-        date: r.date || null,
-        created_at: new Date().toISOString(),
-        last_updated_at: new Date().toISOString(),
-        imported_via: "xai_import",
-      }));
+      const candidates = (Array.isArray(reviews) ? reviews : []).filter((r) => r && typeof r === "object").slice(0, 3);
 
-      console.log(`[import-start] Found ${curatedReviews.length} editorial reviews for ${company.company_name}`);
+      const validated = await Promise.all(
+        candidates.map(async (r) => {
+          const url = String(r.source_url || r.url || "").trim();
+          const title = String(r.title || "").trim();
+
+          const v = await validateCuratedReviewCandidate(
+            {
+              companyName: company.company_name,
+              websiteUrl: company.website_url,
+              normalizedDomain: company.normalized_domain || "",
+              url,
+              title,
+            },
+            { timeoutMs: 8000, maxBytes: 60000, maxSnippets: 2, minWords: 10, maxWords: 25 }
+          ).catch(() => null);
+
+          if (!v || v.is_valid !== true) return null;
+
+          const show_to_users = v.link_status === "ok" && (typeof v.match_confidence !== "number" || v.match_confidence >= 0.7);
+
+          const evidence = Array.isArray(v.evidence_snippets) ? v.evidence_snippets : [];
+          const evidenceSentence = evidence.length ? `Evidence: \"${evidence[0]}\".` : "";
+
+          const abstract = title
+            ? `The article \"${title}\" explicitly mentions ${company.company_name}. ${evidenceSentence}`.trim()
+            : `This article explicitly mentions ${company.company_name}. ${evidenceSentence}`.trim();
+
+          return {
+            id: `xai_auto_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.trunc(Math.random() * 1e6)}`,
+            source: String(r.source || "editorial_site").trim() || "editorial_site",
+            source_url: v.final_url || url,
+            title,
+            excerpt: "",
+            abstract,
+            rating: r.rating || null,
+            author: String(r.author || "").trim(),
+            date: r.date || null,
+            created_at: new Date().toISOString(),
+            last_updated_at: new Date().toISOString(),
+            imported_via: "xai_import",
+
+            show_to_users,
+            is_public: show_to_users,
+            link_status: v.link_status,
+            last_checked_at: v.last_checked_at,
+            matched_brand_terms: v.matched_brand_terms,
+            evidence_snippets: v.evidence_snippets,
+            match_confidence: v.match_confidence,
+          };
+        })
+      );
+
+      const curatedReviews = validated.filter(Boolean);
+
+      console.log(`[import-start] Found ${curatedReviews.length} validated editorial reviews for ${company.company_name}`);
       return curatedReviews;
     } else {
       console.warn(`[import-start] Failed to fetch reviews for ${company.company_name}: status ${response.status}`);
