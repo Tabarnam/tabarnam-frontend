@@ -1,4 +1,9 @@
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("@azure/functions"));
+} catch {
+  app = { http() {} };
+}
 const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
 const { getXAIEndpoint, getXAIKey } = require("../_shared");
