@@ -1023,7 +1023,11 @@ app.http("import-start", {
         setStage("proxyImportStart", { upstream: proxyBase, upstream_timeout_ms: upstreamTimeoutMs });
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), hardTimeoutMs);
+        let hardTimedOut = false;
+        const timeoutId = setTimeout(() => {
+          hardTimedOut = true;
+          controller.abort();
+        }, hardTimeoutMs);
 
         try {
           const key = getXAIKey();
@@ -1076,9 +1080,23 @@ app.http("import-start", {
             String(e?.message || "").toLowerCase().includes("timeout") ||
             String(e?.message || "").toLowerCase().includes("aborted");
 
+          if (hardTimedOut || isTimeout) {
+            setStage("proxyImportStart", { timeout: true, elapsed_ms: elapsedMs });
+            return respondError(new Error("timeout"), {
+              status: 504,
+              details: {
+                upstream: proxyBase,
+                elapsed_ms: elapsedMs,
+                upstream_timeout_ms: upstreamTimeoutMs,
+                hard_timeout_ms: hardTimeoutMs,
+                original_error: toErrorString(e),
+              },
+            });
+          }
+
           setStage("proxyImportStart");
           return respondError(e, {
-            status: isTimeout ? 504 : 502,
+            status: 502,
             details: { upstream: proxyBase, elapsed_ms: elapsedMs, upstream_timeout_ms: upstreamTimeoutMs },
           });
         } finally {
