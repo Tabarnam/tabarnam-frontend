@@ -102,7 +102,7 @@ function isXaiPublicApiUrl(raw) {
   const u = tryParseUrl(raw);
   if (!u) return false;
   const host = u.hostname.toLowerCase();
-  if (host === "api.x.ai" || host.endsWith(".x.ai") || host === "x.ai" || host.endsWith(".x.ai")) {
+  if (host === "api.x.ai" || host === "x.ai" || host.endsWith(".x.ai")) {
     return true;
   }
   const path = u.pathname.toLowerCase();
