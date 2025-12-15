@@ -121,10 +121,36 @@ export default function XAIBulkImportPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      throw new Error(j?.error || r.statusText || "import/start failed");
+
+    const text = await r.text().catch(() => "");
+    let j = {};
+    try {
+      j = text ? JSON.parse(text) : {};
+    } catch {
+      j = {};
     }
+
+    if (!r.ok) {
+      console.error("import/start failed", {
+        status: r.status,
+        statusText: r.statusText,
+        body: text,
+      });
+
+      const parts = [];
+      if (j?.stage) parts.push(`stage=${j.stage}`);
+      if (j?.error) parts.push(String(j.error));
+      else if (j?.message) parts.push(String(j.message));
+      else if (r.statusText) parts.push(String(r.statusText));
+      else parts.push("import/start failed");
+
+      const summary = parts.filter(Boolean).join(" | ");
+      const detail = text && typeof text === "string" ? text.trim() : "";
+      const msg = detail && !detail.startsWith("{") ? `${summary}\n${detail}` : summary;
+
+      throw new Error(msg || "import/start failed");
+    }
+
     return j;
   }
 
