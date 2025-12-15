@@ -405,7 +405,7 @@ async function fetchLogo({ companyId, domain, websiteUrl, existingLogoUrl }) {
 }
 
 // Fetch editorial reviews for a company using XAI
-async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugCollector) {
+async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugCollector, stageCtx) {
   const companyName = String(company?.company_name || company?.name || "").trim();
   const websiteUrl = String(company?.website_url || company?.url || "").trim();
 
