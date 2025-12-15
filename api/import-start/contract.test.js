@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 
 const { _test } = require("./index.js");
+const { getBuildInfo } = require("../_buildInfo");
 
 function makeReq({
   url = "https://example.test/api/import/start",
@@ -127,4 +128,25 @@ test("/api/import/start respects query proxy=false when body has no proxy", asyn
     assert.equal(body.website_url, "https://example.com");
     assert.notEqual(body.stage, "proxy_config");
   });
+});
+
+test("getBuildInfo uses WEBSITE_COMMIT_HASH when set", async () => {
+  await withTempEnv(
+    {
+      WEBSITE_COMMIT_HASH: "d983a4b0fd2de51f5754fc4b9130fdc1e9d965cc",
+      SCM_COMMIT_ID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      BUILD_SOURCEVERSION: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      GITHUB_SHA: "cccccccccccccccccccccccccccccccccccccccc",
+      BUILD_ID: "some_build_id",
+      COMMIT_SHA: undefined,
+      SOURCE_VERSION: undefined,
+      NETLIFY_COMMIT_SHA: undefined,
+      VERCEL_GIT_COMMIT_SHA: undefined,
+    },
+    async () => {
+      const info = getBuildInfo();
+      assert.equal(info.build_id, "d983a4b0fd2de51f5754fc4b9130fdc1e9d965cc");
+      assert.equal(info.build_id_source, "WEBSITE_COMMIT_HASH");
+    }
+  );
 });

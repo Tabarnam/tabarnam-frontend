@@ -59,12 +59,17 @@ function tryReadGitShaFromRepo() {
 
 function getBuildId() {
   const env = process.env || {};
+  // In Azure App Service / Azure Functions, these env vars are commonly populated with the deployed commit.
+  // Order matters: first non-empty wins.
   const candidates = [
-    { key: "BUILD_ID", value: env.BUILD_ID },
-    { key: "COMMIT_SHA", value: env.COMMIT_SHA },
-    { key: "GITHUB_SHA", value: env.GITHUB_SHA },
     { key: "WEBSITE_COMMIT_HASH", value: env.WEBSITE_COMMIT_HASH },
     { key: "SCM_COMMIT_ID", value: env.SCM_COMMIT_ID },
+    { key: "BUILD_SOURCEVERSION", value: env.BUILD_SOURCEVERSION },
+    { key: "GITHUB_SHA", value: env.GITHUB_SHA },
+    { key: "BUILD_ID", value: env.BUILD_ID },
+
+    // Additional providers / legacy names
+    { key: "COMMIT_SHA", value: env.COMMIT_SHA },
     { key: "SOURCE_VERSION", value: env.SOURCE_VERSION },
     { key: "NETLIFY_COMMIT_SHA", value: env.NETLIFY_COMMIT_SHA },
     { key: "VERCEL_GIT_COMMIT_SHA", value: env.VERCEL_GIT_COMMIT_SHA },
