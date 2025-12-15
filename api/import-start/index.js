@@ -1022,11 +1022,7 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
 // Max time to spend processing (4 minutes, safe from Azure's 5 minute timeout)
 const MAX_PROCESSING_TIME_MS = 4 * 60 * 1000;
 
-app.http("import-start", {
-  route: "import/start",
-  methods: ["POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
+const importStartHandler = async (req, context) => {
     console.log("[import-start] Function handler invoked");
 
     try {
@@ -1042,11 +1038,18 @@ app.http("import-start", {
         };
       }
 
-      const bodyObj = await req.json().catch(() => ({}));
+      const payload = await readJsonBody(req);
+
+      const proxyQuery = readQueryParam(req, "proxy");
+      if (!Object.prototype.hasOwnProperty.call(payload || {}, "proxy") && proxyQuery !== undefined) {
+        payload.proxy = proxyQuery;
+      }
+
+      const bodyObj = payload;
       const sessionId = bodyObj.session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
       console.log(`[import-start] Received request with session_id: ${sessionId}`);
-      console.log(`[import-start] Request body:`, JSON.stringify(bodyObj));
+      console.log(`[import-start] Request body:`, JSON.stringify(payload));
 
       const startTime = Date.now();
 
@@ -1097,7 +1100,7 @@ app.http("import-start", {
         console.error(`[import-start] stage=${stage} error=${error}`);
         if (err?.stack) console.error(err.stack);
 
-        const payload = {
+        const errorPayload = {
           ok: false,
           stage,
           error,
@@ -1117,7 +1120,7 @@ app.http("import-start", {
           ...(details && Object.keys(details).length ? { details } : {}),
         };
 
-        return json(payload, status);
+        return json(errorPayload, status);
       };
 
       const hardTimeoutMs = Math.max(
@@ -1128,9 +1131,7 @@ app.http("import-start", {
       const proxyRaw =
         Object.prototype.hasOwnProperty.call(bodyObj || {}, "proxy")
           ? bodyObj.proxy
-          : typeof req?.query?.get === "function"
-            ? req.query.get("proxy")
-            : undefined;
+          : readQueryParam(req, "proxy");
 
       const proxyRequested = !isProxyExplicitlyDisabled(proxyRaw);
 
@@ -2283,5 +2284,19 @@ Return ONLY the JSON array, no other text.`,
         500
       );
     }
-  },
+  };
+
+app.http("import-start", {
+  route: "import/start",
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: importStartHandler,
 });
+
+module.exports = {
+  _test: {
+    readJsonBody,
+    readQueryParam,
+    importStartHandler,
+  },
+};
