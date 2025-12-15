@@ -1015,25 +1015,31 @@ app.http("import-start", {
         console.log(`[import-start] Config source: ${process.env.XAI_EXTERNAL_BASE ? "XAI_EXTERNAL_BASE" : process.env.FUNCTION_URL ? "FUNCTION_URL (legacy)" : "none"}`);
 
         if (!xaiUrl || !xaiKey) {
-          return json({
-            ok: false,
-            error: "XAI not configured",
-            message: "Please set XAI_EXTERNAL_BASE and XAI_EXTERNAL_KEY environment variables",
-            session_id: sessionId,
-          }, 500);
+          setStage("config");
+          return respondError(new Error("XAI not configured"), {
+            status: 500,
+            details: {
+              message: "Please set XAI_EXTERNAL_BASE and XAI_EXTERNAL_KEY environment variables",
+            },
+          });
         }
 
         // Early check: if import was already stopped, return immediately
         const wasAlreadyStopped = await checkIfSessionStopped(sessionId);
         if (wasAlreadyStopped) {
+          setStage("stopped");
           console.log(`[import-start] session=${sessionId} stop signal detected before XAI call`);
-          return json({
-            ok: false,
-            error: "Import was stopped",
-            session_id: sessionId,
-            companies: [],
-            saved: 0,
-          }, 200);
+          return json(
+            {
+              ok: false,
+              stage,
+              error: "Import was stopped",
+              session_id: sessionId,
+              companies: [],
+              saved: 0,
+            },
+            200
+          );
         }
 
         // Build XAI request message with PRIORITY on HQ and manufacturing locations
@@ -1217,6 +1223,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
         };
 
         try {
+          setStage("searchCompanies", {
+            queryType: xaiPayload.queryType,
+            query: xaiPayload.query,
+            limit: xaiPayload.limit,
+          });
+
           console.log(`[import-start] session=${sessionId} xai request payload = ${JSON.stringify(xaiPayload)}`);
           console.log(`[import-start] Calling XAI API at: ${xaiUrl}`);
           const xaiResponse = await axios.post(xaiUrl, xaiRequestPayload, {
@@ -1229,6 +1241,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
         const elapsed = Date.now() - startTime;
         console.log(`[import-start] session=${sessionId} xai response status=${xaiResponse.status}`);
+
+        const xaiRequestId = extractXaiRequestId(xaiResponse.headers);
+        if (xaiRequestId) {
+          setStage("searchCompanies", { xai_request_id: xaiRequestId });
+          if (debugOutput) debugOutput.xai.request_id = xaiRequestId;
+        }
 
         if (xaiResponse.status >= 200 && xaiResponse.status < 300) {
           // Extract the response content
@@ -1258,9 +1276,10 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
           console.log(`[import-start] session=${sessionId} xai response status=${xaiResponse.status} companies=${companies.length}`);
 
+          setStage("enrichCompany");
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
-
+          enrichedForCounts = enriched;
 
           // Early exit if no companies found
           if (enriched.length === 0) {
@@ -1444,9 +1463,12 @@ Output JSON only:
             return company;
           }
 
+          setStage("generateKeywords");
           enriched = await mapWithConcurrency(enriched, 4, ensureCompanyKeywords);
+          enrichedForCounts = enriched;
 
           // Geocode and persist per-location coordinates (HQ + manufacturing)
+          setStage("geocodeLocations");
           console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
           for (let i = 0; i < enriched.length; i++) {
             if (shouldAbort()) {
@@ -1473,6 +1495,7 @@ Output JSON only:
 
           // Fetch editorial reviews for companies
           if (!shouldAbort()) {
+            setStage("fetchEditorialReviews");
             console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
             for (let i = 0; i < enriched.length; i++) {
               // Check if import was stopped OR we're running out of time
@@ -1488,8 +1511,21 @@ Output JSON only:
               }
 
               const company = enriched[i];
+              setStage("fetchEditorialReviews", {
+                company_name: String(company?.company_name || company?.name || ""),
+                website_url: String(company?.website_url || company?.url || ""),
+                normalized_domain: String(company?.normalized_domain || ""),
+              });
+
               if (company.company_name && company.website_url) {
-                const editorialReviews = await fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugOutput ? debugOutput.reviews_debug : null);
+                const editorialReviews = await fetchEditorialReviews(
+                  company,
+                  xaiUrl,
+                  xaiKey,
+                  timeout,
+                  debugOutput ? debugOutput.reviews_debug : null,
+                  { setStage }
+                );
                 if (editorialReviews.length > 0) {
                   enriched[i] = { ...company, curated_reviews: editorialReviews };
                   console.log(`[import-start] session=${sessionId} fetched ${editorialReviews.length} editorial reviews for ${company.company_name}`);
@@ -1654,6 +1690,7 @@ Return ONLY the JSON array, no other text.`,
 
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
           if (enriched.length > 0) {
+            setStage("saveCompaniesToCosmos");
             console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos start count=${enriched.length}`);
             saveResult = await saveCompaniesToCosmos(enriched, sessionId, timeout);
             console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos done saved=${saveResult.saved} skipped=${saveResult.skipped} duplicates=${saveResult.skipped}`);
@@ -1851,14 +1888,12 @@ Return ONLY the JSON array, no other text.`,
           }, 200);
         } else {
           console.error(`[import-start] XAI error status: ${xaiResponse.status}`);
-          return json(
-            {
-              ok: false,
-              error: `XAI returned ${xaiResponse.status}`,
-              session_id: sessionId,
+          return respondError(new Error(`XAI returned ${xaiResponse.status}`), {
+            status: 502,
+            details: {
+              xai_status: xaiResponse.status,
             },
-            502
-          );
+          });
         }
       } catch (xaiError) {
         const elapsed = Date.now() - startTime;
@@ -1894,26 +1929,16 @@ Return ONLY the JSON array, no other text.`,
           }
         }
 
-        return json(
-          {
-            ok: false,
-            error: `XAI call failed: ${xaiError.message}`,
-            session_id: sessionId,
+        return respondError(new Error(`XAI call failed: ${toErrorString(xaiError)}`), {
+          status: 502,
+          details: {
+            xai_code: xaiError?.code || null,
+            xai_status: xaiError?.response?.status || null,
           },
-          502
-        );
+        });
       }
       } catch (e) {
-        console.error(`[import-start] Unexpected error:`, e.message);
-        console.error(`[import-start] Full error:`, e);
-        return json(
-          {
-            ok: false,
-            error: `Server error: ${e.message}`,
-            session_id: sessionId,
-          },
-          500
-        );
+        return respondError(e, { status: 500 });
       }
     } catch (e) {
       console.error("[import-start] Top-level error:", e.message || e);
