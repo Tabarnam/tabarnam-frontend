@@ -1963,11 +1963,12 @@ Return ONLY the JSON array, no other text.`,
         return respondError(e, { status: 500 });
       }
     } catch (e) {
-      console.error("[import-start] Top-level error:", e.message || e);
+      console.error("[import-start] Top-level error:", e?.message || e);
       return json(
         {
           ok: false,
-          error: `Fatal error: ${e?.message || 'Unknown error'}`,
+          stage: "fatal",
+          error: `Fatal error: ${e?.message || "Unknown error"}`,
         },
         500
       );
