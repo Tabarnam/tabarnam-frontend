@@ -26,6 +26,13 @@ jobs:
       - name: Build (Vite)
         run: npm run build
 
+      - name: Write API build id file
+        run: |
+          # SWA Functions runtime doesn't reliably expose commit env vars.
+          # Persist the commit SHA in the API package so endpoints can report it.
+          printf '%s\n' "${GITHUB_SHA}" > api/__build_id.txt
+          test -s api/__build_id.txt
+
       - name: Sanity check - fail fast if wrong files deployed
         run: |
           echo "=== Critical pre-deployment checks ==="
@@ -33,6 +40,9 @@ jobs:
 
           test -f dist/index.html || (echo "❌ FATAL: dist/index.html missing" && exit 1)
           echo "✓ dist/index.html exists"
+
+          test -s api/__build_id.txt || (echo "❌ FATAL: api/__build_id.txt missing or empty" && exit 1)
+          echo "✓ api/__build_id.txt exists (build id injected)"
 
           if grep -q "/src/main.jsx" dist/index.html; then
             echo "❌ FATAL: dist/index.html still references /src/main.jsx (dev version)"

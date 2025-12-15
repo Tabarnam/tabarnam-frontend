@@ -20,10 +20,16 @@ jobs:
       - name: Build (Vite)
         run: npm run build
 
+      - name: Write API build id file
+        run: |
+          printf '%s\n' "${GITHUB_SHA}" > api/__build_id.txt
+          test -s api/__build_id.txt
+
       - name: Sanity check - fail fast if dist is missing
         run: |
           test -f dist/index.html || (echo "FATAL: dist/index.html missing" && exit 1)
           test -f dist/staticwebapp.config.json || (echo "FATAL: dist/staticwebapp.config.json missing" && exit 1)
+          test -s api/__build_id.txt || (echo "FATAL: api/__build_id.txt missing or empty" && exit 1)
 
       - name: Install API dependencies
         run: cd api && npm install && cd ..
