@@ -287,7 +287,7 @@ app.http("proxy-xai", {
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, ctx) => {
-    if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
+    if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
 
     const started = Date.now();
     const XAI_STUB = (process.env.XAI_STUB || "").trim() === "1";

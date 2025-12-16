@@ -36,7 +36,7 @@ app.http('adminImportStats', {
   authLevel: 'anonymous',
   handler: async (req, context) => {
     if (req.method === "OPTIONS") {
-      return { status: 204, headers: { "Access-Control-Allow-Origin": "*" } };
+      return { status: 200, headers: { "Access-Control-Allow-Origin": "*" } };
     }
 
     const container = getCompaniesContainer();

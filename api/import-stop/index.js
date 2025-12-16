@@ -26,7 +26,7 @@ app.http("import-stop", {
   authLevel: "anonymous",
   handler: async (req, context) => {
     if (req.method === "OPTIONS") {
-      return { status: 204, headers: cors(req) };
+      return { status: 200, headers: cors(req) };
     }
 
     let body = {};

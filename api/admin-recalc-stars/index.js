@@ -65,7 +65,7 @@ app.http('adminRecalcStars', {
 
     if (method === "OPTIONS") {
       return {
-        status: 204,
+        status: 200,
         headers: getCorsHeaders(),
       };
     }
