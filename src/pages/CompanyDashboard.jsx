@@ -527,6 +527,41 @@ export default function CompanyDashboard() {
             </div>
           </header>
 
+          {lastError && (lastError.status === 503 || lastError.status === 404 || lastError.status >= 500) && (
+            <div className="rounded-lg border-2 border-red-500 bg-red-50 p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-6 w-6 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-red-900">
+                    Admin API Unavailable ({lastError.status})
+                  </h3>
+                  <p className="mt-1 text-sm text-red-800">
+                    {lastError.message}
+                  </p>
+                  {lastError.detail && lastError.detail !== lastError.message && (
+                    <p className="mt-1 text-xs text-red-700 font-mono">
+                      {lastError.detail}
+                    </p>
+                  )}
+                  <div className="mt-3 flex gap-2">
+                    <Button asChild variant="destructive" size="sm">
+                      <Link to="/admin/diagnostics">Go to Diagnostics</Link>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => loadCompanies()}
+                      disabled={loading}
+                    >
+                      <RefreshCcw className="h-4 w-4 mr-2" />
+                      Retry
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <section className="rounded-lg border border-slate-200 bg-white overflow-hidden">
             <DataTable
               columns={columns}
