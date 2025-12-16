@@ -91,7 +91,13 @@ if (!buildId) {
   process.exit(0);
 }
 
-const outPath = path.resolve(process.cwd(), "api", "__build_id.txt");
-fs.mkdirSync(path.dirname(outPath), { recursive: true });
-fs.writeFileSync(outPath, `${buildId}\n`, "utf8");
-console.log(`[write-build-id] Wrote ${outPath} (${buildId.slice(0, 8)}…)`);
+const targets = [
+  path.resolve(process.cwd(), "api", "__build_id.txt"),
+  path.resolve(process.cwd(), "public", "__build_id.txt"),
+];
+
+for (const outPath of targets) {
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, `${buildId}\n`, "utf8");
+  console.log(`[write-build-id] Wrote ${outPath} (${buildId.slice(0, 8)}…)`);
+}
