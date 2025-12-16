@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Copy, MapPin, Factory, Tag, FileText } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 import useTranslation from "@/hooks/useTranslation";
 import { CompanyStarsBlock } from "@/components/results/CompanyStarsBlock";
 import { calcStars } from "@/lib/stars/calcStars";
-import { LogoUploadDialog } from "@/components/admin/LogoUploadDialog";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 
 const TranslatedText = ({ originalText, translation, loading }) => {
@@ -65,7 +64,6 @@ const CompanyRow = ({
   language,
   viewTranslated,
   dynamicOrder = ["star_rating", "hq_distance", "mfg_distance"],
-  isAdmin = false,
 }) => {
   const { toast } = useToast();
 
@@ -91,8 +89,7 @@ const CompanyRow = ({
     "notes"
   );
 
-  const [logoUrl, setLogoUrl] = useState(company.logo_url || "");
-  const [showLogoDialog, setShowLogoDialog] = useState(false);
+  const logoUrl = typeof company.logo_url === "string" ? company.logo_url : "";
 
   const hqs = company.headquarters || [];
   const mfgs = company.manufacturing_sites || [];
@@ -163,18 +160,6 @@ const CompanyRow = ({
           ) : (
             <div className="w-16 h-16 md:w-20 md:h-20 rounded-md bg-gray-100 flex items-center justify-center text-xs text-gray-400 relative">
               No logo
-              {isAdmin && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowLogoDialog(true);
-                  }}
-                  className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-md bg-white border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 shadow-sm hover:bg-slate-50"
-                  title="Add logo"
-                >
-                  Add logo
-                </button>
-              )}
             </div>
           )}
         </td>
@@ -268,14 +253,6 @@ const CompanyRow = ({
                   ) : (
                     <div className="w-20 h-20 rounded-md bg-gray-100 flex items-center justify-center text-xs text-gray-400 relative">
                       No logo
-                      {isAdmin && (
-                        <button
-                          onClick={() => setShowLogoDialog(true)}
-                          className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-md bg-white border border-slate-300 px-2 py-0.5 text-[11px] text-slate-700 shadow-sm hover:bg-slate-50"
-                        >
-                          Add logo
-                        </button>
-                      )}
                     </div>
                   )}
                 </div>
@@ -481,13 +458,6 @@ const CompanyRow = ({
         )}
       </AnimatePresence>
 
-      {showLogoDialog && (
-        <LogoUploadDialog
-          companyId={company.id}
-          onClose={() => setShowLogoDialog(false)}
-          onSaved={(newUrl) => setLogoUrl(newUrl)}
-        />
-      )}
     </>
   );
 };
