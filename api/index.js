@@ -50,10 +50,10 @@ try {
 }
 
 try {
-  console.log("[api] Registering: admin-recalc-review-counts");
+  console.log("[api] Registering: xadmin-api-recalc-review-counts");
   require("./admin-recalc-review-counts/index.js");
 } catch (e) {
-  console.error("[api] Failed to load admin-recalc-review-counts:", e?.message || e);
+  console.error("[api] Failed to load xadmin-api-recalc-review-counts:", e?.message || e);
 }
 
 try {
@@ -337,14 +337,6 @@ try {
   console.log("[api] ✓ admin-update-logos registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-update-logos:", e?.message || e);
-}
-
-try {
-  console.log("[api] Registering: admin-test");
-  require("./admin-test/index.js");
-  console.log("[api] ✓ admin-test registered");
-} catch (e) {
-  console.error("[api] ❌ Failed to load admin-test:", e?.message || e);
 }
 
 try {
