@@ -28,7 +28,7 @@ app.http("xai", {
     }
 
     console.warn(`[xai] Deprecated endpoint: /api/xai should not be called directly`);
-    console.warn(`[xai] Use /api/admin/bulk-import-config for configuration diagnostics instead`);
+    console.warn(`[xai] Use /api/xadmin-api-bulk-import-config for configuration diagnostics instead`);
 
     return json(
       {
