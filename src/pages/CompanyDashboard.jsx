@@ -100,6 +100,7 @@ export default function CompanyDashboard() {
 
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
+  const [lastError, setLastError] = useState(null);
 
   const [selectedRows, setSelectedRows] = useState([]);
 
