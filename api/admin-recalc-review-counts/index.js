@@ -21,7 +21,7 @@ function json(obj, status = 200) {
   };
 }
 
-app.http("admin-recalc-review-counts", {
+app.http("xadminApiRecalcReviewCounts", {
   route: "xadmin-api-recalc-review-counts",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
@@ -162,7 +162,7 @@ app.http("admin-recalc-review-counts", {
         200
       );
     } catch (e) {
-      context?.log?.("admin-recalc-review-counts error", e?.message || e);
+      context?.log?.("xadmin-api-recalc-review-counts error", e?.message || e);
       return json({ ok: false, error: e?.message || "Internal error" }, 500);
     }
   },
