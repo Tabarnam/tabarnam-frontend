@@ -91,7 +91,7 @@ app.http('adminNotes', {
     const method = String(req.method || "").toUpperCase();
 
     if (method === "OPTIONS") {
-      return { status: 204, headers: cors(req) };
+      return { status: 200, headers: cors(req) };
     }
 
     const url = new URL(req.url);
