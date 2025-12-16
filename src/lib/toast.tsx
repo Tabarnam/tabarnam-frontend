@@ -1,5 +1,4 @@
 import * as React from 'react';
-import React from 'react';
 import { toast as sonnerToast } from 'sonner';
 
 type ToastId = string | number;
