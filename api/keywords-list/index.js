@@ -1,8 +1,8 @@
-console.log('[keywords-list] Module loading started');
+console.log("[keywords-list] Module loading started");
 const { app } = require("@azure/functions");
 
 let CosmosClientCtor = null;
-function loadCosmosClientCtor() {
+function loadCosmosCtor() {
   if (CosmosClientCtor !== null) return CosmosClientCtor;
   try {
     CosmosClientCtor = require("@azure/cosmos").CosmosClient;
@@ -14,121 +14,90 @@ function loadCosmosClientCtor() {
   }
   return CosmosClientCtor;
 }
-console.log('[keywords-list] Dependencies imported, app object acquired');
 
 function env(k, d = "") {
   const v = process.env[k];
   return (v == null ? d : String(v)).trim();
 }
 
-function getCorsHeaders() {
+function json(obj, status = 200) {
   return {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, x-functions-key",
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, x-functions-key",
+    },
+    body: JSON.stringify(obj),
   };
 }
 
-let cosmosClient = null;
-
-function getCosmosClientInfo() {
+function getCompaniesContainerInfo() {
   const endpoint = env("COSMOS_DB_ENDPOINT", "");
   const key = env("COSMOS_DB_KEY", "");
 
   const databaseEnvRaw = env("COSMOS_DB_DATABASE", "");
-  const companiesContainerEnvRaw = env("COSMOS_DB_COMPANIES_CONTAINER", "");
-  const keywordsContainerEnvRaw = env("COSMOS_DB_KEYWORDS_CONTAINER", "");
+  const containerEnvRaw = env("COSMOS_DB_COMPANIES_CONTAINER", "");
 
-  const databaseId = env("COSMOS_DB_DATABASE", "tabarnam-db");
-  const containerId = env(
-    "COSMOS_DB_KEYWORDS_CONTAINER",
-    companiesContainerEnvRaw || "keywords"
-  );
+  const database = env("COSMOS_DB_DATABASE", "tabarnam-db");
+  const containerId = env("COSMOS_DB_COMPANIES_CONTAINER", "companies");
 
   const config = {
     hasEndpoint: Boolean(endpoint),
     hasKey: Boolean(key),
     hasDatabase: Boolean(databaseEnvRaw),
-    hasContainer: Boolean(keywordsContainerEnvRaw || companiesContainerEnvRaw),
-    effectiveDatabase: databaseId,
+    hasContainer: Boolean(containerEnvRaw),
+    effectiveDatabase: database,
     effectiveContainer: containerId,
   };
 
-  const C = loadCosmosClientCtor();
-  if (!C) return { client: null, cosmosModuleAvailable: false, config };
+  const C = loadCosmosCtor();
+  if (!C) {
+    return { container: null, cosmosModuleAvailable: false, config };
+  }
 
-  if (!endpoint || !key) return { client: null, cosmosModuleAvailable: true, config };
+  if (!endpoint || !key || !databaseEnvRaw || !containerEnvRaw) {
+    return { container: null, cosmosModuleAvailable: true, config };
+  }
 
   try {
-    cosmosClient ||= new C({ endpoint, key });
-    return { client: cosmosClient, cosmosModuleAvailable: true, config };
+    const client = new C({ endpoint, key });
+    return {
+      container: client.database(database).container(containerId),
+      cosmosModuleAvailable: true,
+      config,
+    };
   } catch (e) {
     console.error("[keywords-list] Failed to create Cosmos client", { error: e?.message });
-    return { client: null, cosmosModuleAvailable: true, config, clientError: e?.message };
+    return { container: null, cosmosModuleAvailable: true, config, clientError: e?.message };
   }
 }
 
-function getKeywordsContainerInfo() {
-  const cosmos = getCosmosClientInfo();
-  if (!cosmos.client) return { container: null, ...cosmos };
-
-  const db = cosmos.config?.effectiveDatabase;
-  const containerId = cosmos.config?.effectiveContainer;
-
-  try {
-    return {
-      ...cosmos,
-      container: cosmos.client.database(db).container(containerId),
-    };
-  } catch (e) {
-    console.error("[keywords-list] Failed to access database/container", { error: e?.message });
-    return { container: null, ...cosmos, containerError: e?.message };
-  }
-}
-
-async function keywordsListHandler(request, context) {
+async function keywordsListHandler(req, context) {
   context.log("keywords-list function invoked");
 
-  const method = String(request.method || "").toUpperCase();
+  const method = String(req.method || "").toUpperCase();
 
   if (method === "OPTIONS") {
-    return {
-      status: 204,
-      headers: getCorsHeaders(),
-    };
+    return json({}, 204);
   }
 
-  const cosmos = getKeywordsContainerInfo();
+  const cosmos = getCompaniesContainerInfo();
   const container = cosmos.container;
 
   if (!container) {
     const cfg = cosmos.config || {};
-    const missing = {
-      endpoint: !cfg.hasEndpoint,
-      key: !cfg.hasKey,
-      database: !cfg.hasDatabase,
-      container: !cfg.hasContainer,
-    };
 
-    context.log("[keywords-list] Cosmos config missing", {
-      missing,
+    context.log("[keywords-list] Cosmos DB not configured", {
+      hasEndpoint: Boolean(cfg.hasEndpoint),
+      hasKey: Boolean(cfg.hasKey),
+      hasDatabase: Boolean(cfg.hasDatabase),
+      hasContainer: Boolean(cfg.hasContainer),
       cosmosModuleAvailable: Boolean(cosmos.cosmosModuleAvailable),
-      effectiveDatabase: cfg.effectiveDatabase,
-      effectiveContainer: cfg.effectiveContainer,
-      hasClientError: Boolean(cosmos.clientError),
-      hasContainerError: Boolean(cosmos.containerError),
     });
 
-    if (!cosmos.cosmosModuleAvailable) {
-      console.error("[keywords-list] @azure/cosmos unavailable; returning 503");
-    }
-
-    return {
-      status: 503,
-      headers: getCorsHeaders(),
-      body: JSON.stringify({ error: "Cosmos DB not configured" }),
-    };
+    return json({ error: "Cosmos DB not configured" }, 503);
   }
 
   try {
@@ -136,33 +105,26 @@ async function keywordsListHandler(request, context) {
       try {
         context.log("[keywords-list] Reading industries document from Cosmos...");
         const { resource } = await container.item("industries", "industries").read();
-        context.log("[keywords-list] Successfully read industries document");
-        return {
-          status: 200,
-          headers: getCorsHeaders(),
-          body: JSON.stringify({ keywords: resource.list || [] }),
-        };
+        return json({ keywords: resource?.list || [] }, 200);
       } catch (e) {
         context.log("[keywords-list] Failed to read industries document (expected on first run)", { error: e?.message });
-        return {
-          status: 200,
-          headers: getCorsHeaders(),
-          body: JSON.stringify({ keywords: [] }),
-        };
+        return json({ keywords: [] }, 200);
       }
     }
 
     if (method === "PUT") {
       let body = {};
+
       try {
-        body = typeof request.body === "string" ? JSON.parse(request.body) : (request.body || {});
-      } catch {
-        context.log("[keywords-list] JSON parse error on PUT");
-        return {
-          status: 400,
-          headers: getCorsHeaders(),
-          body: JSON.stringify({ error: "Invalid JSON" }),
-        };
+        try {
+          body = await req.json();
+        } catch (jsonErr) {
+          const text = await req.text();
+          if (text) body = JSON.parse(text);
+        }
+      } catch (e) {
+        context.log("[keywords-list] JSON parse error on PUT", { error: e?.message });
+        return json({ error: "Invalid JSON", detail: e?.message }, 400);
       }
 
       const keywords = Array.isArray(body.keywords) ? body.keywords : [];
@@ -170,57 +132,41 @@ async function keywordsListHandler(request, context) {
       const doc = {
         id: docId,
         type: "industry",
-        list: keywords.filter(k => typeof k === "string" && k.trim()).map(k => k.trim()),
+        list: keywords
+          .filter((k) => typeof k === "string" && k.trim())
+          .map((k) => k.trim()),
         updated_at: new Date().toISOString(),
         actor: body.actor || null,
       };
 
       try {
-        context.log("[keywords-list] Upserting keywords document", { id: docId, keywordCount: doc.list.length });
         let result;
         try {
           result = await container.items.upsert(doc, { partitionKey: docId });
-          context.log("[keywords-list] Upsert with partition key successful", { id: docId, statusCode: result?.statusCode });
         } catch (upsertError) {
           context.log("[keywords-list] Upsert with partition key failed, retrying without...", { error: upsertError?.message });
           result = await container.items.upsert(doc);
-          context.log("[keywords-list] Fallback upsert successful", { id: docId });
         }
-        return {
-          status: 200,
-          headers: getCorsHeaders(),
-          body: JSON.stringify({ ok: true, keywords: (result?.resource?.list || doc.list) }),
-        };
+
+        return json({ ok: true, keywords: result?.resource?.list || doc.list }, 200);
       } catch (e) {
-        context.log("[keywords-list] Upsert failed completely", { error: e?.message, stack: e?.stack });
-        return {
-          status: 500,
-          headers: getCorsHeaders(),
-          body: JSON.stringify({ error: "Failed to save keywords", detail: e?.message }),
-        };
+        context.log("[keywords-list] Upsert failed completely", { error: e?.message });
+        return json({ error: "Failed to save keywords", detail: e?.message }, 500);
       }
     }
 
-    return {
-      status: 405,
-      headers: getCorsHeaders(),
-      body: JSON.stringify({ error: "Method not allowed" }),
-    };
+    return json({ error: "Method not allowed" }, 405);
   } catch (e) {
-    context.log("Error in keywords-list:", e?.message || e);
-    return {
-      status: 500,
-      headers: getCorsHeaders(),
-      body: JSON.stringify({ error: e?.message || "Internal error" }),
-    };
+    context.log("[keywords-list] Unhandled error", { error: e?.message });
+    return json({ error: e?.message || "Internal error" }, 500);
   }
 }
 
-console.log('[keywords-list] Registering with app.http...');
-app.http('keywords-list', {
-  methods: ['GET', 'PUT', 'OPTIONS'],
-  authLevel: 'anonymous',
-  route: 'keywords-list',
+console.log("[keywords-list] Registering with app.http...");
+app.http("keywords-list", {
+  route: "keywords-list",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  authLevel: "anonymous",
   handler: keywordsListHandler,
 });
-console.log('[keywords-list] ✅ Successfully registered app.http with route: keywords-list');
+console.log("[keywords-list] ✅ Successfully registered app.http with route: keywords-list");
