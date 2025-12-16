@@ -24,6 +24,14 @@ function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
+function prettyJson(value) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return asString(value);
+  }
+}
+
 function normalizeLocationList(value) {
   if (Array.isArray(value)) {
     return value.map((v) => asString(v).trim()).filter(Boolean);
@@ -101,6 +109,7 @@ export default function CompanyDashboard() {
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
   const [lastError, setLastError] = useState(null);
+  const [rowErrors, setRowErrors] = useState({});
 
   const [selectedRows, setSelectedRows] = useState([]);
 
@@ -145,11 +154,24 @@ export default function CompanyDashboard() {
           });
 
           toast.error(msg);
-          setItems([]);
           return;
         }
 
-        setItems(Array.isArray(body?.items) ? body.items : []);
+        const nextItems = Array.isArray(body?.items) ? body.items : [];
+        setItems(nextItems);
+        setRowErrors((prev) => {
+          if (!prev || typeof prev !== "object") return {};
+          const ids = new Set(
+            nextItems
+              .map((c) => asString(c?.id || c?.company_id).trim())
+              .filter(Boolean)
+          );
+          const keep = {};
+          for (const [key, value] of Object.entries(prev)) {
+            if (ids.has(key)) keep[key] = value;
+          }
+          return keep;
+        });
         setLastError(null);
       } catch (e) {
         const errMsg = e?.message || "Failed to load companies";
@@ -159,7 +181,6 @@ export default function CompanyDashboard() {
           detail: e?.message || "Network or API unavailable",
         });
         toast.error(errMsg);
-        setItems([]);
       } finally {
         setLoading(false);
       }
@@ -279,37 +300,58 @@ export default function CompanyDashboard() {
     }
   }, [editorDraft, editorOriginalId]);
 
-  const deleteCompany = useCallback(
-    async (id) => {
-      const safeId = asString(id).trim();
-      if (!safeId) {
-        toast.error("Missing company id");
+  const deleteCompany = useCallback(async (id) => {
+    const safeId = asString(id).trim();
+    if (!safeId) {
+      toast.error("Missing company id");
+      return false;
+    }
+
+    setRowErrors((prev) => {
+      const next = { ...(prev || {}) };
+      delete next[safeId];
+      return next;
+    });
+
+    try {
+      const res = await apiFetch("/xadmin-api-companies", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: safeId, actor: "admin_ui" }),
+      });
+
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.ok !== true) {
+        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Delete failed (${res.status})`;
+        const detail = body?.detail || body?.error || res.statusText || "Unknown error";
+
+        setRowErrors((prev) => ({
+          ...(prev || {}),
+          [safeId]: { status: res.status, message: msg, detail, body },
+        }));
+
+        toast.error(msg);
         return false;
       }
 
-      try {
-        const res = await apiFetch("/xadmin-api-companies", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: safeId, actor: "admin_ui" }),
-        });
+      setItems((prev) => prev.filter((c) => asString(c?.id || c?.company_id).trim() !== safeId));
+      setRowErrors((prev) => {
+        const next = { ...(prev || {}) };
+        delete next[safeId];
+        return next;
+      });
 
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok || body?.ok !== true) {
-          const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Delete failed (${res.status})`;
-          toast.error(msg);
-          return false;
-        }
-
-        setItems((prev) => prev.filter((c) => asString(c?.id || c?.company_id).trim() !== safeId));
-        return true;
-      } catch (e) {
-        toast.error(e?.message || "Delete failed");
-        return false;
-      }
-    },
-    []
-  );
+      return true;
+    } catch (e) {
+      const msg = e?.message || "Delete failed";
+      setRowErrors((prev) => ({
+        ...(prev || {}),
+        [safeId]: { status: 0, message: msg, detail: msg },
+      }));
+      toast.error(msg);
+      return false;
+    }
+  }, []);
 
   const deleteSelected = useCallback(async () => {
     const ids = selectedRows
@@ -401,31 +443,48 @@ export default function CompanyDashboard() {
         button: true,
         cell: (row) => {
           const id = asString(row?.id || row?.company_id).trim();
+          const rowError = id ? rowErrors?.[id] : null;
+
           return (
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant="outline" onClick={() => openEditorForCompany(row)}>
-                <Pencil className="h-4 w-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
-                onClick={async () => {
-                  const ok = window.confirm(`Delete ${getCompanyName(row) || id || "this company"}?`);
-                  if (!ok) return;
-                  const did = await deleteCompany(id);
-                  if (did) toast.success("Company deleted");
-                }}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => openEditorForCompany(row)}>
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                  onClick={async () => {
+                    const ok = window.confirm(`Delete ${getCompanyName(row) || id || "this company"}?`);
+                    if (!ok) return;
+                    const did = await deleteCompany(id);
+                    if (did) toast.success("Company deleted");
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {rowError ? (
+                <div className="max-w-[520px] rounded border border-red-200 bg-red-50 p-2 text-[11px] text-red-900">
+                  <div className="font-medium">Delete failed</div>
+                  <div>{asString(rowError.message || "Delete failed")}</div>
+                  {rowError.detail && rowError.detail !== rowError.message ? (
+                    <div className="mt-1 whitespace-pre-wrap break-words font-mono text-red-800">{asString(rowError.detail)}</div>
+                  ) : null}
+                  {rowError.body && typeof rowError.body === "object" ? (
+                    <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-red-800">{prettyJson(rowError.body)}</pre>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           );
         },
         width: "140px",
       },
     ];
-  }, [deleteCompany, openEditorForCompany]);
+  }, [deleteCompany, openEditorForCompany, rowErrors]);
 
   const tableTheme = useMemo(
     () => ({
@@ -459,6 +518,17 @@ export default function CompanyDashboard() {
       </Button>
     );
   }, [deleteSelected, selectedRows]);
+
+  const noDataComponent = useMemo(() => {
+    if (lastError && (lastError.status === 503 || lastError.status === 404 || lastError.status >= 500)) {
+      return <div className="p-6 text-sm text-slate-600">Unable to load companies (see error above).</div>;
+    }
+    return <div className="p-6 text-sm text-slate-600">No companies found.</div>;
+  }, [lastError]);
+
+  const progressComponent = useMemo(() => {
+    return <div className="p-6 text-sm text-slate-600">Loading companies…</div>;
+  }, []);
 
   return (
     <>
@@ -567,6 +637,7 @@ export default function CompanyDashboard() {
               columns={columns}
               data={filteredItems}
               progressPending={loading}
+              progressComponent={progressComponent}
               pagination
               paginationPerPage={25}
               paginationRowsPerPageOptions={[10, 25, 50, 100]}
@@ -579,7 +650,7 @@ export default function CompanyDashboard() {
               clearSelectedRows={selectedRows.length === 0}
               contextActions={contextActions}
               onRowClicked={(row) => openEditorForCompany(row)}
-              noDataComponent={<div className="p-6 text-sm text-slate-600">No companies found.</div>}
+              noDataComponent={noDataComponent}
             />
           </section>
 
