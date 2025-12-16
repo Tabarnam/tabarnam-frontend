@@ -11,8 +11,11 @@ function loadCosmosCtor() {
   if (CosmosClientCtor !== null) return CosmosClientCtor;
   try {
     CosmosClientCtor = require("@azure/cosmos").CosmosClient;
-  } catch {
+  } catch (e) {
     CosmosClientCtor = undefined;
+    console.error("[companies-list] Failed to load @azure/cosmos; Cosmos DB queries will be unavailable", {
+      error: e?.message,
+    });
   }
   return CosmosClientCtor;
 }
@@ -35,23 +38,44 @@ function json(obj, status = 200) {
   };
 }
 
-function getCompaniesContainer() {
+function getCompaniesContainerInfo() {
   const endpoint = env("COSMOS_DB_ENDPOINT", "");
   const key = env("COSMOS_DB_KEY", "");
-  const database = env("COSMOS_DB_DATABASE", "tabarnam-db");
-  const container = env("COSMOS_DB_COMPANIES_CONTAINER", "companies");
 
-  if (!endpoint || !key) return null;
+  const databaseEnvRaw = env("COSMOS_DB_DATABASE", "");
+  const containerEnvRaw = env("COSMOS_DB_COMPANIES_CONTAINER", "");
+
+  const database = env("COSMOS_DB_DATABASE", "tabarnam-db");
+  const containerId = env("COSMOS_DB_COMPANIES_CONTAINER", "companies");
+
+  const config = {
+    hasEndpoint: Boolean(endpoint),
+    hasKey: Boolean(key),
+    hasDatabase: Boolean(databaseEnvRaw),
+    hasContainer: Boolean(containerEnvRaw),
+    effectiveDatabase: database,
+    effectiveContainer: containerId,
+  };
 
   const C = loadCosmosCtor();
-  if (!C) return null;
+  if (!C) {
+    return { container: null, cosmosModuleAvailable: false, config };
+  }
+
+  if (!endpoint || !key) {
+    return { container: null, cosmosModuleAvailable: true, config };
+  }
 
   try {
     const client = new C({ endpoint, key });
-    return client.database(database).container(container);
+    return {
+      container: client.database(database).container(containerId),
+      cosmosModuleAvailable: true,
+      config,
+    };
   } catch (e) {
-    console.error("[companies-list] Failed to create Cosmos client:", e?.message);
-    return null;
+    console.error("[companies-list] Failed to create Cosmos client", { error: e?.message });
+    return { container: null, cosmosModuleAvailable: true, config, clientError: e?.message };
   }
 }
 
@@ -228,8 +252,30 @@ app.http("companies-list", {
       return json({}, 204);
     }
 
-    const container = getCompaniesContainer();
+    const cosmos = getCompaniesContainerInfo();
+    const container = cosmos.container;
+
     if (!container) {
+      const cfg = cosmos.config || {};
+      const missing = {
+        endpoint: !cfg.hasEndpoint,
+        key: !cfg.hasKey,
+        database: !cfg.hasDatabase,
+        container: !cfg.hasContainer,
+      };
+
+      context.log("[companies-list] Cosmos config missing", {
+        missing,
+        cosmosModuleAvailable: Boolean(cosmos.cosmosModuleAvailable),
+        effectiveDatabase: cfg.effectiveDatabase,
+        effectiveContainer: cfg.effectiveContainer,
+        hasClientError: Boolean(cosmos.clientError),
+      });
+
+      if (!cosmos.cosmosModuleAvailable) {
+        console.error("[companies-list] @azure/cosmos unavailable; returning 503");
+      }
+
       return json({ error: "Cosmos DB not configured" }, 503);
     }
 
