@@ -26,7 +26,7 @@ jobs:
           fi
           echo "OK: no json({}, 204) found."
 
-      - name: Block status: 204 in Functions responses
+      - name: "Block status: 204 in Functions responses"
         shell: bash
         run: |
           set -euo pipefail
