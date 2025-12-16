@@ -10,7 +10,7 @@
     "build:geo": "node scripts/build-geo.mjs",
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "dev:ipv4": "vite --host 127.0.0.1 --port 5173 --strictPort",
-    "build": "vite build",
+    "build": "node scripts/write-build-id.mjs && vite build",
     "preview": "vite preview --host ::1 --port 5173",
     "test": "node --test api/get-reviews/contract.test.js api/search-companies/contract.test.js api/import-start/contract.test.js"
   },
