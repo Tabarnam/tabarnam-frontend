@@ -22,7 +22,7 @@ function json(obj, status = 200) {
 }
 
 app.http("admin-recalc-review-counts", {
-  route: "admin-recalc-review-counts",
+  route: "xadmin-api-recalc-review-counts",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {

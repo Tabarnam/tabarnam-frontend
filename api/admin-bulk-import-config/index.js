@@ -122,11 +122,3 @@ app.http("adminBulkImportConfig", {
   authLevel: "anonymous",
   handler: createBulkImportConfigHandler("xadmin-api-bulk-import-config"),
 });
-
-// Alias for older docs/links
-app.http("adminBulkImportConfigAlias", {
-  route: "admin/bulk-import-config",
-  methods: ["GET", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: createBulkImportConfigHandler("admin/bulk-import-config"),
-});
