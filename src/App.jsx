@@ -11,6 +11,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { initializeAzureUser } from "@/lib/azureAuth";
 
 import AdminPanel from "@pages/AdminPanel";
+import CompanyDashboard from "@pages/CompanyDashboard";
+import AdminImport from "@pages/AdminImport";
 import ResultsPage from "@pages/ResultsPage";
 import HomePage from "@pages/HomePage";
 import Login from "@pages/Login";
@@ -96,6 +98,22 @@ export default function App() {
               {/* admin - protected */}
               <Route
                 path="/admin"
+                element={
+                  <AdminRoute>
+                    <CompanyDashboard />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/import"
+                element={
+                  <AdminRoute>
+                    <AdminImport />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/admin/diagnostics"
                 element={
                   <AdminRoute>
                     <AdminPanel />
