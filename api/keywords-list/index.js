@@ -1,6 +1,19 @@
 console.log('[keywords-list] Module loading started');
 const { app } = require("@azure/functions");
-const { CosmosClient } = require("@azure/cosmos");
+
+let CosmosClientCtor = null;
+function loadCosmosClientCtor() {
+  if (CosmosClientCtor !== null) return CosmosClientCtor;
+  try {
+    CosmosClientCtor = require("@azure/cosmos").CosmosClient;
+  } catch (e) {
+    CosmosClientCtor = undefined;
+    console.error("[keywords-list] Failed to load @azure/cosmos; Cosmos DB queries will be unavailable", {
+      error: e?.message,
+    });
+  }
+  return CosmosClientCtor;
+}
 console.log('[keywords-list] Dependencies imported, app object acquired');
 
 function env(k, d = "") {
@@ -13,26 +26,65 @@ function getCorsHeaders() {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, x-functions-key",
   };
 }
 
 let cosmosClient = null;
 
-function getCosmosClient() {
-  const endpoint = env("COSMOS_DB_ENDPOINT");
-  const key = env("COSMOS_DB_KEY");
-  if (!endpoint || !key) return null;
-  cosmosClient ||= new CosmosClient({ endpoint, key });
-  return cosmosClient;
+function getCosmosClientInfo() {
+  const endpoint = env("COSMOS_DB_ENDPOINT", "");
+  const key = env("COSMOS_DB_KEY", "");
+
+  const databaseEnvRaw = env("COSMOS_DB_DATABASE", "");
+  const companiesContainerEnvRaw = env("COSMOS_DB_COMPANIES_CONTAINER", "");
+  const keywordsContainerEnvRaw = env("COSMOS_DB_KEYWORDS_CONTAINER", "");
+
+  const databaseId = env("COSMOS_DB_DATABASE", "tabarnam-db");
+  const containerId = env(
+    "COSMOS_DB_KEYWORDS_CONTAINER",
+    companiesContainerEnvRaw || "keywords"
+  );
+
+  const config = {
+    hasEndpoint: Boolean(endpoint),
+    hasKey: Boolean(key),
+    hasDatabase: Boolean(databaseEnvRaw),
+    hasContainer: Boolean(keywordsContainerEnvRaw || companiesContainerEnvRaw),
+    effectiveDatabase: databaseId,
+    effectiveContainer: containerId,
+  };
+
+  const C = loadCosmosClientCtor();
+  if (!C) return { client: null, cosmosModuleAvailable: false, config };
+
+  if (!endpoint || !key) return { client: null, cosmosModuleAvailable: true, config };
+
+  try {
+    cosmosClient ||= new C({ endpoint, key });
+    return { client: cosmosClient, cosmosModuleAvailable: true, config };
+  } catch (e) {
+    console.error("[keywords-list] Failed to create Cosmos client", { error: e?.message });
+    return { client: null, cosmosModuleAvailable: true, config, clientError: e?.message };
+  }
 }
 
-function getKeywordsContainer() {
-  const client = getCosmosClient();
-  if (!client) return null;
-  const databaseId = env("COSMOS_DB_DATABASE", "tabarnam-db");
-  const containerId = "keywords";
-  return client.database(databaseId).container(containerId);
+function getKeywordsContainerInfo() {
+  const cosmos = getCosmosClientInfo();
+  if (!cosmos.client) return { container: null, ...cosmos };
+
+  const db = cosmos.config?.effectiveDatabase;
+  const containerId = cosmos.config?.effectiveContainer;
+
+  try {
+    return {
+      ...cosmos,
+      container: cosmos.client.database(db).container(containerId),
+    };
+  } catch (e) {
+    console.error("[keywords-list] Failed to access database/container", { error: e?.message });
+    return { container: null, ...cosmos, containerError: e?.message };
+  }
 }
 
 async function keywordsListHandler(request, context) {
@@ -47,10 +99,33 @@ async function keywordsListHandler(request, context) {
     };
   }
 
-  const container = getKeywordsContainer();
+  const cosmos = getKeywordsContainerInfo();
+  const container = cosmos.container;
+
   if (!container) {
+    const cfg = cosmos.config || {};
+    const missing = {
+      endpoint: !cfg.hasEndpoint,
+      key: !cfg.hasKey,
+      database: !cfg.hasDatabase,
+      container: !cfg.hasContainer,
+    };
+
+    context.log("[keywords-list] Cosmos config missing", {
+      missing,
+      cosmosModuleAvailable: Boolean(cosmos.cosmosModuleAvailable),
+      effectiveDatabase: cfg.effectiveDatabase,
+      effectiveContainer: cfg.effectiveContainer,
+      hasClientError: Boolean(cosmos.clientError),
+      hasContainerError: Boolean(cosmos.containerError),
+    });
+
+    if (!cosmos.cosmosModuleAvailable) {
+      console.error("[keywords-list] @azure/cosmos unavailable; returning 503");
+    }
+
     return {
-      status: 500,
+      status: 503,
       headers: getCorsHeaders(),
       body: JSON.stringify({ error: "Cosmos DB not configured" }),
     };
