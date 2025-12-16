@@ -244,11 +244,11 @@ try {
 }
 
 try {
-  console.log("[api] Registering: admin-debug");
+  console.log("[api] Registering: xadmin-api-debug");
   require("./admin-debug/index.js");
-  console.log("[api] ✓ admin-debug registered");
+  console.log("[api] ✓ xadmin-api-debug registered");
 } catch (e) {
-  console.error("[api] ❌ Failed to load admin-debug:", e?.message || e);
+  console.error("[api] ❌ Failed to load xadmin-api-debug:", e?.message || e);
 }
 
 try {

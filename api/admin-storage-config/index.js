@@ -18,8 +18,8 @@ function json(obj, status = 200, req) {
   };
 }
 
-app.http("admin-storage-config", {
-  route: "admin-storage-config",
+app.http("xadminApiStorageConfig", {
+  route: "xadmin-api-storage-config",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, ctx) => {

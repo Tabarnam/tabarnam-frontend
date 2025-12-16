@@ -5,16 +5,16 @@ app.http('adminDebug', {
   methods: ['GET'],
   authLevel: 'anonymous',
   handler: async (req, context) => {
-    context.log("✅ adminDebug handler successfully invoked!");
+    context.log("✅ xadminApiDebug handler successfully invoked!");
     return {
       status: 200,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ok: true,
-        message: "admin-debug endpoint is working!",
-        route: "admin-debug",
+        message: "xadmin-api-debug endpoint is working!",
+        route: "xadmin-api-debug",
         timestamp: new Date().toISOString(),
       }),
     };
-  }
+  },
 });
