@@ -1,46 +1,186 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Helmet } from 'react-helmet-async';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { toast } from '@/lib/toast';
-import AdminHeader from '@/components/AdminHeader';
-import { getAdminUser } from '@/lib/azureAuth';
-import { apiFetch } from '@/lib/api';
-import CompaniesTableTab from '@/components/admin/tabs/CompaniesTableTab';
-import StarRatingDashboard from '@/components/admin/tabs/StarRatingDashboard';
-import UserManagementTab from '@/components/admin/tabs/UserManagementTab';
-import ImportToolsTab from '@/components/admin/tabs/ImportToolsTab';
-import KeywordEditorTab from '@/components/admin/tabs/KeywordEditorTab';
-import UndoHistoryTab from '@/components/admin/tabs/UndoHistoryTab';
-import AnalyticsViewerTab from '@/components/admin/tabs/AnalyticsViewerTab';
-import ManagementConsoleTab from '@/components/admin/tabs/ManagementConsoleTab';
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Helmet } from "react-helmet-async";
+import AdminHeader from "@/components/AdminHeader";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { toast } from "@/lib/toast";
+import { apiFetch, getUserFacingConfigMessage } from "@/lib/api";
+import { getAdminUser } from "@/lib/azureAuth";
 
-const AdminPanel = () => {
-  const user = getAdminUser();
-  const [companies, setCompanies] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('companies');
+function prettyJson(value) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
 
-  const fetchCompanies = useCallback(async () => {
-    setLoading(true);
+async function readJsonOrText(res) {
+  let cloned;
+  try {
+    cloned = res.clone();
+  } catch {
+    cloned = res;
+  }
+
+  const contentType = cloned.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
     try {
-      const res = await apiFetch('/companies-list');
-      if (!res.ok) throw new Error('Failed to load companies');
-      const data = await res.json();
-      setCompanies(data.items || []);
-    } catch (error) {
-      toast.error(error?.message || 'Failed to load companies');
+      return await cloned.json();
+    } catch {
+      return { error: "Invalid JSON" };
+    }
+  }
+
+  const text = await cloned.text().catch(() => "");
+  return text ? { text } : {};
+}
+
+function StatusPill({ ok, label }) {
+  const cls = ok
+    ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+    : "bg-amber-50 text-amber-900 border-amber-200";
+  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${cls}`}>{label}</span>;
+}
+
+export default function AdminPanel() {
+  const user = getAdminUser();
+
+  const [diagnostic, setDiagnostic] = useState(null);
+  const [diagnosticLoading, setDiagnosticLoading] = useState(false);
+
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugBody, setDebugBody] = useState(null);
+
+  const [companiesLoading, setCompaniesLoading] = useState(false);
+  const [companiesBody, setCompaniesBody] = useState(null);
+
+  const [recalcLoading, setRecalcLoading] = useState(false);
+  const [recalcResult, setRecalcResult] = useState(null);
+  const [recalcCompanyId, setRecalcCompanyId] = useState("");
+  const [recalcCompanyName, setRecalcCompanyName] = useState("");
+
+  const refreshDiagnostic = useCallback(async () => {
+    setDiagnosticLoading(true);
+    try {
+      const res = await apiFetch("/xadmin-api-save-diagnostic");
+      const body = await readJsonOrText(res);
+      setDiagnostic(body);
+
+      if (!res.ok) {
+        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Diagnostic failed (${res.status})`;
+        toast.error(msg);
+      }
+    } catch (e) {
+      toast.error(e?.message || "Failed to load diagnostics");
     } finally {
-      setLoading(false);
+      setDiagnosticLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchCompanies();
-  }, [fetchCompanies]);
+    refreshDiagnostic();
+  }, [refreshDiagnostic]);
 
-  const handleCompaniesUpdate = () => {
-    fetchCompanies();
-  };
+  const cosmosConfigured = Boolean(diagnostic?.cosmosConfigured);
+
+  const configBanner = useMemo(() => {
+    if (diagnosticLoading && !diagnostic) return null;
+    if (cosmosConfigured) return null;
+
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+        <div className="text-amber-900 font-semibold">Backend configuration incomplete</div>
+        <div className="mt-1 text-sm text-amber-900/80">
+          Cosmos DB environment variables are missing or incomplete. This is expected in local development.
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button variant="outline" onClick={refreshDiagnostic} disabled={diagnosticLoading}>
+            {diagnosticLoading ? "Checking…" : "Re-check configuration"}
+          </Button>
+        </div>
+      </div>
+    );
+  }, [cosmosConfigured, diagnostic, diagnosticLoading, refreshDiagnostic]);
+
+  const runDebug = useCallback(async () => {
+    setDebugLoading(true);
+    setDebugBody(null);
+    try {
+      const res = await apiFetch("/xadmin-api-debug");
+      const body = await readJsonOrText(res);
+      setDebugBody(body);
+      if (!res.ok) {
+        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Debug failed (${res.status})`;
+        toast.error(msg);
+      } else {
+        toast.success("Debug endpoint OK");
+      }
+    } catch (e) {
+      toast.error(e?.message || "Debug failed");
+    } finally {
+      setDebugLoading(false);
+    }
+  }, []);
+
+  const loadCompanies = useCallback(async () => {
+    if (!cosmosConfigured) {
+      toast.warning("Cosmos DB is not configured yet.");
+      return;
+    }
+
+    setCompaniesLoading(true);
+    setCompaniesBody(null);
+    try {
+      const res = await apiFetch("/xadmin-api-companies?take=200");
+      const body = await readJsonOrText(res);
+      setCompaniesBody(body);
+
+      if (!res.ok) {
+        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Failed to load companies (${res.status})`;
+        toast.error(msg);
+      }
+    } catch (e) {
+      toast.error(e?.message || "Failed to load companies");
+    } finally {
+      setCompaniesLoading(false);
+    }
+  }, [cosmosConfigured]);
+
+  const runRecalc = useCallback(async () => {
+    const company_id = String(recalcCompanyId || "").trim();
+    const company_name = String(recalcCompanyName || "").trim();
+
+    if (!company_id && !company_name) {
+      toast.error("Enter a company_id or company_name.");
+      return;
+    }
+
+    setRecalcLoading(true);
+    setRecalcResult(null);
+
+    try {
+      const res = await apiFetch("/xadmin-api-recalc-review-counts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company_id: company_id || undefined, company_name: company_name || undefined }),
+      });
+
+      const body = await readJsonOrText(res);
+      setRecalcResult(body);
+
+      if (!res.ok || body?.ok !== true) {
+        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Recalc failed (${res.status})`;
+        toast.error(msg);
+      } else {
+        toast.success("Review counts recalculated");
+      }
+    } catch (e) {
+      toast.error(e?.message || "Recalc failed");
+    } finally {
+      setRecalcLoading(false);
+    }
+  }, [recalcCompanyId, recalcCompanyName]);
 
   return (
     <>
@@ -48,64 +188,100 @@ const AdminPanel = () => {
         <title>Tabarnam Admin Panel</title>
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
+
       <div className="min-h-screen bg-slate-50">
         <AdminHeader user={user} />
-        <main className="container mx-auto py-6 px-4">
-          <div className="mb-6">
+
+        <main className="container mx-auto py-6 px-4 space-y-6">
+          <header className="flex flex-col gap-2">
             <h1 className="text-3xl font-bold text-slate-900">Admin Dashboard</h1>
-            <p className="text-slate-600 mt-1">Manage companies, configurations, and system data</p>
-          </div>
-
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-1 bg-white border border-slate-200 p-1 rounded-lg">
-              <TabsTrigger value="companies" className="text-xs md:text-sm">Companies</TabsTrigger>
-              <TabsTrigger value="stars" className="text-xs md:text-sm">Star Rating</TabsTrigger>
-              <TabsTrigger value="users" className="text-xs md:text-sm">Users</TabsTrigger>
-              <TabsTrigger value="imports" className="text-xs md:text-sm">Imports</TabsTrigger>
-              <TabsTrigger value="keywords" className="text-xs md:text-sm">Keywords</TabsTrigger>
-              <TabsTrigger value="undo" className="text-xs md:text-sm">Undo</TabsTrigger>
-              <TabsTrigger value="analytics" className="text-xs md:text-sm">Analytics</TabsTrigger>
-              <TabsTrigger value="console" className="text-xs md:text-sm">Console</TabsTrigger>
-            </TabsList>
-
-            <div className="bg-white rounded-lg border border-slate-200 p-6">
-              <TabsContent value="companies" className="space-y-4">
-                <CompaniesTableTab companies={companies} loading={loading} onUpdate={handleCompaniesUpdate} />
-              </TabsContent>
-
-              <TabsContent value="stars" className="space-y-4">
-                <StarRatingDashboard companies={companies} onUpdate={handleCompaniesUpdate} />
-              </TabsContent>
-
-              <TabsContent value="users" className="space-y-4">
-                <UserManagementTab />
-              </TabsContent>
-
-              <TabsContent value="imports" className="space-y-4">
-                <ImportToolsTab />
-              </TabsContent>
-
-              <TabsContent value="keywords" className="space-y-4">
-                <KeywordEditorTab />
-              </TabsContent>
-
-              <TabsContent value="undo" className="space-y-4">
-                <UndoHistoryTab />
-              </TabsContent>
-
-              <TabsContent value="analytics" className="space-y-4">
-                <AnalyticsViewerTab />
-              </TabsContent>
-
-              <TabsContent value="console" className="space-y-4">
-                <ManagementConsoleTab companies={companies} onUpdate={handleCompaniesUpdate} />
-              </TabsContent>
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusPill ok={cosmosConfigured} label={cosmosConfigured ? "Cosmos configured" : "Cosmos not configured"} />
+              <StatusPill ok={true} label="Using /api + xadmin-api-*" />
             </div>
-          </Tabs>
+          </header>
+
+          {configBanner}
+
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="rounded-lg border border-slate-200 bg-white p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-slate-900">Configuration diagnostics</h2>
+                <Button variant="outline" onClick={refreshDiagnostic} disabled={diagnosticLoading}>
+                  {diagnosticLoading ? "Loading…" : "Refresh"}
+                </Button>
+              </div>
+              <p className="mt-2 text-sm text-slate-600">
+                Reads <code>/api/xadmin-api-save-diagnostic</code> and reports environment status.
+              </p>
+              <pre className="mt-4 max-h-[420px] overflow-auto rounded bg-slate-950 text-slate-100 p-3 text-xs">
+                {prettyJson(diagnostic)}
+              </pre>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-white p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-slate-900">Debug endpoint</h2>
+                <Button onClick={runDebug} disabled={debugLoading}>
+                  {debugLoading ? "Pinging…" : "Ping /xadmin-api-debug"}
+                </Button>
+              </div>
+              <p className="mt-2 text-sm text-slate-600">
+                Calls <code>/api/xadmin-api-debug</code>.
+              </p>
+              <pre className="mt-4 max-h-[420px] overflow-auto rounded bg-slate-950 text-slate-100 p-3 text-xs">
+                {prettyJson(debugBody)}
+              </pre>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-white p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-slate-900">Companies (read-only)</h2>
+                <Button onClick={loadCompanies} disabled={companiesLoading || !cosmosConfigured}>
+                  {companiesLoading ? "Loading…" : "Load /xadmin-api-companies"}
+                </Button>
+              </div>
+              <p className="mt-2 text-sm text-slate-600">
+                Calls <code>/api/xadmin-api-companies</code>. Disabled until Cosmos is configured.
+              </p>
+              <pre className="mt-4 max-h-[420px] overflow-auto rounded bg-slate-950 text-slate-100 p-3 text-xs">
+                {prettyJson(companiesBody)}
+              </pre>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-white p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-slate-900">Recalc review counts</h2>
+                <Button onClick={runRecalc} disabled={recalcLoading || !cosmosConfigured}>
+                  {recalcLoading ? "Running…" : "Run"}
+                </Button>
+              </div>
+              <p className="mt-2 text-sm text-slate-600">
+                Calls <code>/api/xadmin-api-recalc-review-counts</code>. Disabled until Cosmos is configured.
+              </p>
+
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-700">company_id</label>
+                  <Input value={recalcCompanyId} onChange={(e) => setRecalcCompanyId(e.target.value)} placeholder="company_123" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-700">company_name (optional)</label>
+                  <Input
+                    value={recalcCompanyName}
+                    onChange={(e) => setRecalcCompanyName(e.target.value)}
+                    placeholder="Acme Corp"
+                  />
+                </div>
+              </div>
+
+              <pre className="mt-4 max-h-[320px] overflow-auto rounded bg-slate-950 text-slate-100 p-3 text-xs">
+                {prettyJson(recalcResult)}
+              </pre>
+            </div>
+          </section>
         </main>
       </div>
     </>
   );
-};
-
-export default AdminPanel;
+}
