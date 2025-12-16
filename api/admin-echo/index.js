@@ -7,7 +7,7 @@ app.http("adminEcho", {
   handler: async (req, context) => {
     if ((req.method || "").toUpperCase() === "OPTIONS") {
       return {
-        status: 204,
+        status: 200,
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,OPTIONS",

@@ -141,7 +141,7 @@ app.http("suggest-refinements", {
     const method = String(req.method || "").toUpperCase();
     if (method === "OPTIONS") {
       return {
-        status: 204,
+        status: 200,
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,OPTIONS",

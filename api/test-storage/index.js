@@ -24,7 +24,7 @@ app.http("test-storage", {
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, ctx) => {
-    if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
+    if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
 
     try {
       const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME || "tabarnamstor2356";

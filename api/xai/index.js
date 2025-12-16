@@ -24,7 +24,7 @@ app.http("xai", {
   authLevel: "anonymous",
   handler: async (req, context) => {
     if (req.method === "OPTIONS") {
-      return { status: 204, headers: cors(req) };
+      return { status: 200, headers: cors(req) };
     }
 
     console.warn(`[xai] Deprecated endpoint: /api/xai should not be called directly`);

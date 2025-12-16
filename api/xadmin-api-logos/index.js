@@ -51,7 +51,7 @@ app.http("xadmin-api-logos", {
   handler: async (req, ctx) => {
     if (req.method === "OPTIONS") {
       return {
-        status: 204,
+        status: 200,
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "PUT, OPTIONS",
