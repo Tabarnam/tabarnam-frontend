@@ -22,8 +22,8 @@ const getAPIBase = () => {
     if (isDev && typeof console !== "undefined" && console.warn) {
       console.warn(
         `[API Config] VITE_API_BASE is set to an absolute URL: ${base}. ` +
-        `Using relative /api path instead. ` +
-        `Absolute URLs cause CORS issues and should not be used in production.`
+          `Using relative /api path instead. ` +
+          `Absolute URLs cause CORS issues and should not be used in production.`
       );
     }
     return "/api";
@@ -37,30 +37,27 @@ export const API_BASE = getAPIBase();
 
 // Small helpers
 export function join(base: string, path: string) {
-  if (!base.endsWith('/')) base += '/';
-  return base + path.replace(/^\//, '');
+  if (!base.endsWith("/")) base += "/";
+  return base + path.replace(/^\//, "");
 }
 
 export async function apiFetch(path: string, init?: RequestInit) {
   const url = join(API_BASE, path);
+
   try {
-    const response = await fetch(url, init);
-    if (!response.ok) {
-      console.error(`API ${url} returned ${response.status}:`, response.statusText);
-    }
-    return response;
-  } catch (e) {
-    console.error(`API fetch failed for ${url}:`, e?.message);
-    // Return a fake 503 error response instead of throwing
-    return new Response(JSON.stringify({ error: 'API unavailable', detail: e?.message }), {
+    return await fetch(url, init);
+  } catch (e: any) {
+    // Return a fake 503 error response instead of throwing.
+    // Callers can treat this as a configuration/availability state.
+    return new Response(JSON.stringify({ error: "API unavailable", detail: e?.message }), {
       status: 503,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { "Content-Type": "application/json" },
     });
   }
 }
 
 // Health check (optional)
 export async function ping() {
-  const r = await apiFetch('/ping');
+  const r = await apiFetch("/ping");
   return r.json();
 }
