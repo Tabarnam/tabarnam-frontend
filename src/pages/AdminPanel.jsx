@@ -77,7 +77,6 @@ export default function AdminPanel() {
       setDiagnosticLoading(false);
     }
 
-    setDiagnosticStatus("error");
   }, []);
 
   useEffect(() => {
