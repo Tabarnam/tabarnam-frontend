@@ -76,6 +76,8 @@ export default function AdminPanel() {
     } finally {
       setDiagnosticLoading(false);
     }
+
+    setDiagnosticStatus("error");
   }, []);
 
   useEffect(() => {
@@ -185,7 +187,7 @@ export default function AdminPanel() {
   return (
     <>
       <Helmet>
-        <title>Tabarnam Admin Panel</title>
+        <title>Tabarnam Admin</title>
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
 

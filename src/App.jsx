@@ -13,7 +13,6 @@ import { initializeAzureUser } from "@/lib/azureAuth";
 import AdminPanel from "@pages/AdminPanel";
 import ResultsPage from "@pages/ResultsPage";
 import HomePage from "@pages/HomePage";
-import XAIBulkImportPage from "@pages/XAIBulkImportPage";
 import Login from "@pages/Login";
 
 import SiteHeader from "@/components/SiteHeader";
@@ -102,28 +101,6 @@ export default function App() {
                     <AdminPanel />
                   </AdminRoute>
                 }
-              />
-              <Route
-                path="/admin/xai-bulk-import"
-                element={
-                  <AdminRoute>
-                    <XAIBulkImportPage />
-                  </AdminRoute>
-                }
-              />
-
-              {/* convenience alias to the bulk importer */}
-              <Route
-                path="/bulk-import"
-                element={
-                  <AdminRoute>
-                    <XAIBulkImportPage />
-                  </AdminRoute>
-                }
-              />
-              <Route
-                path="/admin/bulk-import"
-                element={<Navigate to="/admin/xai-bulk-import" replace />}
               />
 
               {/* fallback */}

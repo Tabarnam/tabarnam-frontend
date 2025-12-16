@@ -301,7 +301,7 @@ async function getReviewsHandler(req, context, deps = {}) {
   const method = String(req.method || "").toUpperCase();
 
   if (method === "OPTIONS") {
-    return json({}, 204, req);
+    return json({}, 200, req);
   }
 
   if (method !== "GET") {
