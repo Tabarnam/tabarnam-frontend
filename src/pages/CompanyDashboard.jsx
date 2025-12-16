@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Helmet } from "react-helmet-async";
+import { Link } from "react-router-dom";
 import DataTable from "react-data-table-component";
-import { Save, Trash2, Pencil, RefreshCcw, AlertTriangle, Plus } from "lucide-react";
+import { Save, Trash2, Pencil, RefreshCcw, AlertTriangle, Plus, AlertCircle } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
@@ -99,6 +100,7 @@ export default function CompanyDashboard() {
 
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
+  const [lastError, setLastError] = useState(null);
 
   const [selectedRows, setSelectedRows] = useState([]);
 
@@ -122,6 +124,7 @@ export default function CompanyDashboard() {
       const t = Number.isFinite(opts.take) ? opts.take : take;
 
       setLoading(true);
+      setLastError(null);
       try {
         const params = new URLSearchParams();
         if (q.trim()) params.set("search", q.trim());
@@ -131,15 +134,31 @@ export default function CompanyDashboard() {
         const body = await res.json().catch(() => ({}));
 
         if (!res.ok) {
-          const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Failed to load companies (${res.status})`;
+          const configMsg = await getUserFacingConfigMessage(res);
+          const msg = configMsg || body?.error || `Failed to load companies (${res.status})`;
+          const errorDetail = body?.detail || body?.error || res.statusText || "Unknown error";
+
+          setLastError({
+            status: res.status,
+            message: msg,
+            detail: errorDetail,
+          });
+
           toast.error(msg);
           setItems([]);
           return;
         }
 
         setItems(Array.isArray(body?.items) ? body.items : []);
+        setLastError(null);
       } catch (e) {
-        toast.error(e?.message || "Failed to load companies");
+        const errMsg = e?.message || "Failed to load companies";
+        setLastError({
+          status: 503,
+          message: errMsg,
+          detail: e?.message || "Network or API unavailable",
+        });
+        toast.error(errMsg);
         setItems([]);
       } finally {
         setLoading(false);
@@ -507,6 +526,41 @@ export default function CompanyDashboard() {
               <div className="text-sm text-slate-600">Showing {filteredItems.length} companies</div>
             </div>
           </header>
+
+          {lastError && (lastError.status === 503 || lastError.status === 404 || lastError.status >= 500) && (
+            <div className="rounded-lg border-2 border-red-500 bg-red-50 p-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-6 w-6 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-red-900">
+                    Admin API Unavailable ({lastError.status})
+                  </h3>
+                  <p className="mt-1 text-sm text-red-800">
+                    {lastError.message}
+                  </p>
+                  {lastError.detail && lastError.detail !== lastError.message && (
+                    <p className="mt-1 text-xs text-red-700 font-mono">
+                      {lastError.detail}
+                    </p>
+                  )}
+                  <div className="mt-3 flex gap-2">
+                    <Button asChild variant="destructive" size="sm">
+                      <Link to="/admin/diagnostics">Go to Diagnostics</Link>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => loadCompanies()}
+                      disabled={loading}
+                    >
+                      <RefreshCcw className="h-4 w-4 mr-2" />
+                      Retry
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <section className="rounded-lg border border-slate-200 bg-white overflow-hidden">
             <DataTable
