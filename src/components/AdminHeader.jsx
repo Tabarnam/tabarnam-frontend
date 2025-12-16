@@ -24,12 +24,6 @@ export default function AdminHeader() {
           />
         </Link>
         <span className="ml-5 text-2xl font-bold text-white">Admin</span>
-        <Link
-          to="/admin/xai-bulk-import"
-          className="ml-5 text-sm text-teal-200 hover:text-white underline"
-        >
-          Deep Dive Tool
-        </Link>
       </div>
       <Button
         onClick={handleLogout}
