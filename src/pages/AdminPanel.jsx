@@ -15,6 +15,13 @@ function prettyJson(value) {
   }
 }
 
+function normalizeBuildIdString(value) {
+  const s = String(value || "").trim();
+  if (!s) return "";
+  const m = s.match(/[0-9a-f]{7,40}/i);
+  return m ? m[0] : s;
+}
+
 async function readJsonOrText(res) {
   let cloned;
   try {
@@ -48,6 +55,8 @@ export default function AdminPanel() {
 
   const [diagnostic, setDiagnostic] = useState(null);
   const [diagnosticLoading, setDiagnosticLoading] = useState(false);
+
+  const [staticBuildId, setStaticBuildId] = useState("");
 
   const [debugLoading, setDebugLoading] = useState(false);
   const [debugBody, setDebugBody] = useState(null);
@@ -83,9 +92,32 @@ export default function AdminPanel() {
     refreshDiagnostic();
   }, [refreshDiagnostic]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/__build_id.txt")
+      .then((res) => (res.ok ? res.text() : ""))
+      .then((txt) => {
+        if (cancelled) return;
+        setStaticBuildId(normalizeBuildIdString(txt));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setStaticBuildId("");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const cosmosConfigured = Boolean(diagnostic?.cosmosConfigured);
-  const buildId = String(diagnostic?.build_info?.build_id || "").trim();
-  const buildSource = String(diagnostic?.build_info?.build_id_source || "").trim();
+
+  const apiBuildId = normalizeBuildIdString(diagnostic?.build_info?.build_id);
+  const apiBuildSource = String(diagnostic?.build_info?.build_id_source || "").trim();
+
+  const buildId = apiBuildId && apiBuildId !== "unknown" ? apiBuildId : staticBuildId;
+  const buildSource = apiBuildId && apiBuildId !== "unknown" ? apiBuildSource : staticBuildId ? "STATIC_BUILD_ID_FILE" : apiBuildSource;
 
   const configBanner = useMemo(() => {
     if (diagnosticLoading && !diagnostic) return null;
