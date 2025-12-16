@@ -16,16 +16,23 @@ function prettyJson(value) {
 }
 
 async function readJsonOrText(res) {
-  const contentType = res.headers.get("content-type") || "";
+  let cloned;
+  try {
+    cloned = res.clone();
+  } catch {
+    cloned = res;
+  }
+
+  const contentType = cloned.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
     try {
-      return await res.json();
+      return await cloned.json();
     } catch {
       return { error: "Invalid JSON" };
     }
   }
 
-  const text = await res.text().catch(() => "");
+  const text = await cloned.text().catch(() => "");
   return text ? { text } : {};
 }
 
