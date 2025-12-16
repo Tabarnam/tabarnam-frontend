@@ -580,17 +580,3 @@ app.http("adminRefreshImport", {
   authLevel: "anonymous",
   handler: createHandler("xadmin-api-refresh-import"),
 });
-
-app.http("adminRefreshImportAlias", {
-  route: "admin-refresh-import",
-  methods: ["POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: createHandler("admin-refresh-import"),
-});
-
-app.http("adminRefreshImportAdminSlash", {
-  route: "admin/refresh-import",
-  methods: ["POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: createHandler("admin/refresh-import"),
-});

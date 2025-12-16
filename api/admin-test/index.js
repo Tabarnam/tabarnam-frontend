@@ -28,15 +28,6 @@ function handleAdminTest(req, ctx, name) {
   };
 }
 
-// Diagnostic endpoint (preferred)
-app.http("adminTest", {
-  route: "admin-test",
-  methods: ["GET", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, ctx) => handleAdminTest(req, ctx, "admin-test"),
-});
-
-// Legacy alias (kept for backwards compatibility / debugging)
 app.http("xadminApiTest", {
   route: "xadmin-api-test",
   methods: ["GET", "OPTIONS"],
