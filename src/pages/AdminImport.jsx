@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
-import { Play, Square, RefreshCcw, Copy, AlertTriangle } from "lucide-react";
+import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
@@ -63,6 +63,9 @@ export default function AdminImport() {
   const [runs, setRuns] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [activeStatus, setActiveStatus] = useState("idle"); // idle | running | stopping | done | error
+
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [savingSessionId, setSavingSessionId] = useState(null);
 
   const pollTimerRef = useRef(null);
   const startFetchAbortRef = useRef(null);
@@ -164,6 +167,8 @@ export default function AdminImport() {
       stopped: false,
       start_error: null,
       progress_error: null,
+      save_result: null,
+      save_error: null,
     };
 
     setRuns((prev) => [newRun, ...prev]);
@@ -257,6 +262,73 @@ export default function AdminImport() {
     }
   }, [activeSessionId, stopPolling]);
 
+  const saveResults = useCallback(async () => {
+    if (!activeRun) {
+      toast.error("No active run");
+      return;
+    }
+
+    const session_id = asString(activeRun.session_id).trim();
+    if (!session_id) {
+      toast.error("Missing session id");
+      return;
+    }
+
+    const runCompleted = Boolean(activeRun.completed || activeRun.timedOut || activeRun.stopped);
+    if (!runCompleted) {
+      toast.error("Run is still in progress. Wait until it completes.");
+      return;
+    }
+
+    if (activeRun.save_result?.ok === true) {
+      toast.success("This run has already been saved.");
+      return;
+    }
+
+    const companies = normalizeItems(activeRun.items);
+    if (companies.length === 0) {
+      toast.error("No companies to save.");
+      return;
+    }
+
+    setSaveLoading(true);
+    setSavingSessionId(session_id);
+    setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, save_error: null } : r)));
+
+    try {
+      const res = await apiFetch("/save-companies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companies }),
+      });
+
+      const body = await readJsonOrText(res);
+
+      if (!res.ok || body?.ok !== true) {
+        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Save failed (${res.status})`;
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === session_id
+              ? { ...r, save_error: msg, save_result: body || { ok: false, error: msg } }
+              : r
+          )
+        );
+        toast.error(msg);
+        return;
+      }
+
+      setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, save_result: body, save_error: null } : r)));
+      toast.success(`Saved ${Number(body?.saved ?? 0) || 0} compan${Number(body?.saved ?? 0) === 1 ? "y" : "ies"}`);
+    } catch (e) {
+      const msg = e?.message || "Save failed";
+      setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, save_error: msg } : r)));
+      toast.error(msg);
+    } finally {
+      setSaveLoading(false);
+      setSavingSessionId(null);
+    }
+  }, [activeRun]);
+
   useEffect(() => {
     return () => {
       stopPolling();
@@ -265,6 +337,12 @@ export default function AdminImport() {
   }, [stopPolling]);
 
   const activeItemsCount = activeRun?.items?.length || 0;
+  const canSaveActive = Boolean(
+    activeRun &&
+      (activeRun.completed || activeRun.timedOut || activeRun.stopped) &&
+      Array.isArray(activeRun.items) &&
+      activeRun.items.length > 0
+  );
 
   const activeSummary = useMemo(() => {
     if (!activeRun) return null;
@@ -348,6 +426,20 @@ export default function AdminImport() {
                 Stop
               </Button>
 
+              {canSaveActive ? (
+                <Button
+                  onClick={saveResults}
+                  disabled={saveLoading || activeRun?.save_result?.ok === true}
+                >
+                  <Save className="h-4 w-4 mr-2" />
+                  {saveLoading && savingSessionId === activeSessionId
+                    ? "Saving…"
+                    : activeRun?.save_result?.ok === true
+                      ? `Saved (${Number(activeRun?.save_result?.saved ?? 0) || 0})`
+                      : "Save results"}
+                </Button>
+              ) : null}
+
               {activeSessionId ? (
                 <Button
                   variant="outline"
@@ -380,6 +472,17 @@ export default function AdminImport() {
 
             {activeRun?.progress_error ? (
               <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{activeRun.progress_error}</div>
+            ) : null}
+
+            {activeRun?.save_error ? (
+              <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">{activeRun.save_error}</div>
+            ) : null}
+
+            {activeRun?.save_result?.ok === true ? (
+              <div className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                Saved {Number(activeRun.save_result.saved ?? 0) || 0} / {Number(activeRun.save_result.total ?? activeItemsCount) || activeItemsCount} companies
+                {Number(activeRun.save_result.failed ?? 0) ? ` (failed ${Number(activeRun.save_result.failed)})` : ""}.
+              </div>
             ) : null}
           </section>
 
@@ -459,7 +562,14 @@ export default function AdminImport() {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="font-semibold text-slate-900 truncate">{r.query}</div>
-                        <div className="text-xs text-slate-600">{r.items.length} items</div>
+                        <div className="flex items-center gap-2 text-xs text-slate-600">
+                          <span>{r.items.length} items</span>
+                          {r.save_result?.ok === true ? (
+                            <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">
+                              saved {Number(r.save_result.saved ?? 0) || 0}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                       <div className="mt-1 text-xs text-slate-600">
                         <code className="rounded bg-slate-100 px-1 py-0.5">{r.session_id}</code>
