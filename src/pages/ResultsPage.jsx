@@ -1,5 +1,4 @@
 // src/pages/ResultsPage.jsx
-import { xaiImport } from "@/lib/api/xaiImport";
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import PinIcon from "@/assets/tabarnam-pin.jpg";
