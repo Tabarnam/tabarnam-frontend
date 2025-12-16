@@ -1,5 +1,6 @@
 const { app } = require('@azure/functions');
 const { CosmosClient } = require('@azure/cosmos');
+const { getBuildInfo } = require("../_buildInfo");
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -53,6 +54,13 @@ app.http('adminSaveDiagnostic', {
       const diagnostics = {
         timestamp: new Date().toISOString(),
         cosmosConfigured: !!container,
+        build_info: (() => {
+          try {
+            return getBuildInfo();
+          } catch (e) {
+            return { build_id: "unknown", build_id_source: "error", error: e?.message || String(e) };
+          }
+        })(),
         environment: {
           endpoint: env("COSMOS_DB_ENDPOINT") ? "✓ Set" : "✗ Missing",
           key: env("COSMOS_DB_KEY") ? "✓ Set" : "✗ Missing",

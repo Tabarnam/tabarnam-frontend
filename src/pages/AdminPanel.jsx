@@ -52,8 +52,8 @@ export default function AdminPanel() {
   const [debugLoading, setDebugLoading] = useState(false);
   const [debugBody, setDebugBody] = useState(null);
 
-  const [companiesLoading, setCompaniesLoading] = useState(false);
-  const [companiesBody, setCompaniesBody] = useState(null);
+  const [companiesTestLoading, setCompaniesTestLoading] = useState(false);
+  const [companiesTest, setCompaniesTest] = useState(null);
 
   const [recalcLoading, setRecalcLoading] = useState(false);
   const [recalcResult, setRecalcResult] = useState(null);
@@ -84,6 +84,8 @@ export default function AdminPanel() {
   }, [refreshDiagnostic]);
 
   const cosmosConfigured = Boolean(diagnostic?.cosmosConfigured);
+  const buildId = String(diagnostic?.build_info?.build_id || "").trim();
+  const buildSource = String(diagnostic?.build_info?.build_id_source || "").trim();
 
   const configBanner = useMemo(() => {
     if (diagnosticLoading && !diagnostic) return null;
@@ -124,29 +126,29 @@ export default function AdminPanel() {
     }
   }, []);
 
-  const loadCompanies = useCallback(async () => {
-    if (!cosmosConfigured) {
-      toast.warning("Cosmos DB is not configured yet.");
-      return;
-    }
+  const testCompaniesApi = useCallback(async () => {
+    setCompaniesTestLoading(true);
+    setCompaniesTest(null);
 
-    setCompaniesLoading(true);
-    setCompaniesBody(null);
     try {
-      const res = await apiFetch("/xadmin-api-companies?take=200");
+      const res = await apiFetch("/xadmin-api-companies?take=1");
       const body = await readJsonOrText(res);
-      setCompaniesBody(body);
+      setCompaniesTest({ status: res.status, ok: res.ok, body });
 
       if (!res.ok) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Failed to load companies (${res.status})`;
+        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Companies API failed (${res.status})`;
         toast.error(msg);
+      } else {
+        toast.success("Companies API OK");
       }
     } catch (e) {
-      toast.error(e?.message || "Failed to load companies");
+      const msg = e?.message || "Companies API failed";
+      setCompaniesTest({ status: 0, ok: false, body: { error: msg } });
+      toast.error(msg);
     } finally {
-      setCompaniesLoading(false);
+      setCompaniesTestLoading(false);
     }
-  }, [cosmosConfigured]);
+  }, []);
 
   const runRecalc = useCallback(async () => {
     const company_id = String(recalcCompanyId || "").trim();
@@ -199,6 +201,10 @@ export default function AdminPanel() {
             <div className="flex flex-wrap items-center gap-2">
               <StatusPill ok={cosmosConfigured} label={cosmosConfigured ? "Cosmos configured" : "Cosmos not configured"} />
               <StatusPill ok={true} label="Using /api + xadmin-api-*" />
+              <StatusPill
+                ok={Boolean(buildId && buildId !== "unknown")}
+                label={buildId ? `Build ${buildId.slice(0, 8)}${buildSource ? ` (${buildSource})` : ""}` : "Build unknown"}
+              />
             </div>
           </header>
 
@@ -237,16 +243,24 @@ export default function AdminPanel() {
 
             <div className="rounded-lg border border-slate-200 bg-white p-5">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold text-slate-900">Companies (read-only)</h2>
-                <Button onClick={loadCompanies} disabled={companiesLoading || !cosmosConfigured}>
-                  {companiesLoading ? "Loading…" : "Load /xadmin-api-companies"}
+                <h2 className="text-lg font-semibold text-slate-900">Companies API health</h2>
+                <Button onClick={testCompaniesApi} disabled={companiesTestLoading}>
+                  {companiesTestLoading ? "Testing…" : "Test Companies API"}
                 </Button>
               </div>
               <p className="mt-2 text-sm text-slate-600">
-                Calls <code>/api/xadmin-api-companies</code>. Disabled until Cosmos is configured.
+                Calls <code>/api/xadmin-api-companies?take=1</code> and shows status + response body.
               </p>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-slate-700">Status:</span>
+                <code className="rounded bg-slate-100 px-2 py-1 text-xs">
+                  {companiesTest ? (companiesTest.status ? `${companiesTest.status}${companiesTest.ok ? " OK" : ""}` : "(network error)") : "(not run)"}
+                </code>
+              </div>
+
               <pre className="mt-4 max-h-[420px] overflow-auto rounded bg-slate-950 text-slate-100 p-3 text-xs">
-                {prettyJson(companiesBody)}
+                {prettyJson(companiesTest?.body)}
               </pre>
             </div>
 
