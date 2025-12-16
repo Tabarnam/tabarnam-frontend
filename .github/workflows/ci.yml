@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Block json({}, 204) (undici/Functions runtime crashes on 204)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Scanning for forbidden pattern: json({}, 204)"
+          if grep -RIn --include='*.js' --include='*.ts' --include='*.jsx' --include='*.tsx' \
+            -E 'json\(\s*\{\s*\}\s*,\s*204\s*\)' api/; then
+            echo "::error::Forbidden pattern found: json({}, 204). Use json({}, 200) for OPTIONS responses."
+            exit 1
+          fi
+          echo "OK: no json({}, 204) found."
+
+      - name: "Block status: 204 in Functions responses"
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Scanning for forbidden pattern: status: 204"
+          if grep -RIn --include='*.js' --include='*.ts' --include='*.jsx' --include='*.tsx' \
+            -E 'status\s*:\s*204\b' api/; then
+            echo "::error::Forbidden status code 204 found. Use 200 with empty body for preflight."
+            exit 1
+          fi
+          echo "OK: no status: 204 found."
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build

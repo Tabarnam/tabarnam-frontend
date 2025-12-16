@@ -54,7 +54,7 @@ app.http("retry-logo-import", {
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
-    if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
+    if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
 
     let body = {};
     try {

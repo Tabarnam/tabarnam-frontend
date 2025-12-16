@@ -44,7 +44,7 @@ app.http('adminSaveDiagnostic', {
     const method = (req.method || "").toUpperCase();
 
     if (method === "OPTIONS") {
-      return json({}, 204);
+      return json({}, 200);
     }
 
     const container = getCompaniesContainer();

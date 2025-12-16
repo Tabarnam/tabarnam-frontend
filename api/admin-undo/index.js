@@ -53,7 +53,7 @@ app.http('adminUndo', {
 
     if (method === "OPTIONS") {
       return {
-        status: 204,
+        status: 200,
         headers: getCorsHeaders(),
       };
     }

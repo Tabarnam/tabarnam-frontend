@@ -80,7 +80,7 @@ async function keywordsListHandler(req, context) {
   const method = String(req.method || "").toUpperCase();
 
   if (method === "OPTIONS") {
-    return json({}, 204);
+    return json({}, 200);
   }
 
   const cosmos = getCompaniesContainerInfo();

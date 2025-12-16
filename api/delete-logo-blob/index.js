@@ -72,7 +72,7 @@ app.http("delete-logo-blob", {
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, ctx) => {
-    if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
+    if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
 
     try {
       // Get Azure Blob Storage credentials (hard-targets env vars, ignores admin overrides)

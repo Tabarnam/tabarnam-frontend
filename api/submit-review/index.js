@@ -50,7 +50,7 @@ app.http("submit-review", {
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, ctx) => {
-    if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
+    if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
 
     const reviewsContainer = getReviewsContainer();
     if (!reviewsContainer) return json({ error: "Cosmos env not configured" }, 500, req);

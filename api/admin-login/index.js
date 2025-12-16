@@ -87,7 +87,7 @@ app.http('adminLogin', {
   authLevel: 'anonymous',
   handler: async (req, context) => {
     const method = String(req.method || "").toUpperCase();
-    if (method === "OPTIONS") return { status: 204, headers: cors(req) };
+    if (method === "OPTIONS") return { status: 200, headers: cors(req) };
 
     let body = await getJson(req);
 

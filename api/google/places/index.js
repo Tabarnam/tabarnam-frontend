@@ -93,7 +93,7 @@ async function googlePlacesDetails({ placeId }) {
 
 async function handle(req) {
   if (req.method === "OPTIONS") {
-    return { status: 204, headers: cors(req) };
+    return { status: 200, headers: cors(req) };
   }
 
   const input = (req.query?.input || "").trim();

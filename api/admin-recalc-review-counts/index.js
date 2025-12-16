@@ -26,7 +26,7 @@ app.http("xadminApiRecalcReviewCounts", {
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
-    if (String(req.method || "").toUpperCase() === "OPTIONS") return json({}, 204);
+    if (String(req.method || "").toUpperCase() === "OPTIONS") return json({}, 200);
 
     const companiesContainer = getCompaniesContainer();
     const reviewsContainer = getReviewsContainer();

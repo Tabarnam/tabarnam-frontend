@@ -23,7 +23,7 @@ app.http("import-progress", {
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, ctx) => {
-    if (req.method === "OPTIONS") return { status: 204, headers: cors(req) };
+    if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
 
     const sessionId = new URL(req.url).searchParams.get("session_id");
     const take = Number(new URL(req.url).searchParams.get("take") || "200") || 200;
