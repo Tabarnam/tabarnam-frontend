@@ -5,6 +5,8 @@
 // - Local dev: Uses relative /api paths (proxied via vite.config.js)
 // - Never use absolute URLs to avoid cross-origin issues
 
+type JsonRecord = Record<string, unknown>;
+
 const getAPIBase = () => {
   const base = import.meta.env.VITE_API_BASE?.trim();
   const isDev = import.meta.env.MODE === "development";
@@ -41,14 +43,61 @@ export function join(base: string, path: string) {
   return base + path.replace(/^\//, "");
 }
 
+function safeLower(s: unknown) {
+  return typeof s === "string" ? s.toLowerCase() : "";
+}
+
+async function safeReadText(res: Response): Promise<string> {
+  try {
+    return await res.clone().text();
+  } catch {
+    return "";
+  }
+}
+
+async function safeReadJson(res: Response): Promise<JsonRecord | null> {
+  try {
+    const data = await res.clone().json();
+    if (data && typeof data === "object") return data as JsonRecord;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function isCosmosNotConfiguredResponse(res: Response): Promise<boolean> {
+  if (res.status !== 503) return false;
+
+  const data = await safeReadJson(res);
+  const err = safeLower(data?.error);
+  if (err.includes("cosmos db not configured")) return true;
+
+  const text = safeLower(await safeReadText(res));
+  return text.includes("cosmos db not configured");
+}
+
+export async function getUserFacingConfigMessage(res: Response): Promise<string | null> {
+  if (!(await isCosmosNotConfiguredResponse(res))) return null;
+  return "Backend configuration incomplete: Cosmos DB environment variables are missing.";
+}
+
 export async function apiFetch(path: string, init?: RequestInit) {
   const url = join(API_BASE, path);
 
   try {
-    return await fetch(url, init);
+    const response = await fetch(url, init);
+
+    if (!response.ok) {
+      const configMsg = await getUserFacingConfigMessage(response);
+      if (!configMsg) {
+        console.error(`API ${url} returned ${response.status}:`, response.statusText);
+      }
+    }
+
+    return response;
   } catch (e: any) {
-    // Return a fake 503 error response instead of throwing.
-    // Callers can treat this as a configuration/availability state.
+    console.error(`API fetch failed for ${url}:`, e?.message);
+    // Return a fake 503 error response instead of throwing
     return new Response(JSON.stringify({ error: "API unavailable", detail: e?.message }), {
       status: 503,
       headers: { "Content-Type": "application/json" },
