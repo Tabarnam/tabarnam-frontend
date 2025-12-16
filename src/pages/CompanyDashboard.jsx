@@ -124,6 +124,7 @@ export default function CompanyDashboard() {
       const t = Number.isFinite(opts.take) ? opts.take : take;
 
       setLoading(true);
+      setLastError(null);
       try {
         const params = new URLSearchParams();
         if (q.trim()) params.set("search", q.trim());
@@ -133,15 +134,31 @@ export default function CompanyDashboard() {
         const body = await res.json().catch(() => ({}));
 
         if (!res.ok) {
-          const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Failed to load companies (${res.status})`;
+          const configMsg = await getUserFacingConfigMessage(res);
+          const msg = configMsg || body?.error || `Failed to load companies (${res.status})`;
+          const errorDetail = body?.detail || body?.error || res.statusText || "Unknown error";
+
+          setLastError({
+            status: res.status,
+            message: msg,
+            detail: errorDetail,
+          });
+
           toast.error(msg);
           setItems([]);
           return;
         }
 
         setItems(Array.isArray(body?.items) ? body.items : []);
+        setLastError(null);
       } catch (e) {
-        toast.error(e?.message || "Failed to load companies");
+        const errMsg = e?.message || "Failed to load companies";
+        setLastError({
+          status: 503,
+          message: errMsg,
+          detail: e?.message || "Network or API unavailable",
+        });
+        toast.error(errMsg);
         setItems([]);
       } finally {
         setLoading(false);
