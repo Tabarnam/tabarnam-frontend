@@ -1,0 +1,478 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Helmet } from "react-helmet-async";
+import { Play, Square, RefreshCcw, Copy, AlertTriangle } from "lucide-react";
+
+import AdminHeader from "@/components/AdminHeader";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { toast } from "@/lib/toast";
+import { apiFetch, getUserFacingConfigMessage } from "@/lib/api";
+
+function safeJsonParse(text) {
+  try {
+    const v = JSON.parse(text);
+    return v && typeof v === "object" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function asString(value) {
+  return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function normalizeItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items.filter((it) => it && typeof it === "object");
+}
+
+function mergeById(prev, next) {
+  const map = new Map();
+  for (const item of prev) {
+    const id = asString(item?.id || item?.company_id).trim();
+    if (!id) continue;
+    map.set(id, item);
+  }
+  for (const item of next) {
+    const id = asString(item?.id || item?.company_id).trim();
+    if (!id) continue;
+    map.set(id, item);
+  }
+  return Array.from(map.values());
+}
+
+async function readJsonOrText(res) {
+  const contentType = res.headers?.get?.("content-type") || "";
+  if (contentType.includes("application/json")) {
+    try {
+      return await res.json();
+    } catch {
+      return { error: "Invalid JSON" };
+    }
+  }
+
+  const text = await res.text().catch(() => "");
+  return safeJsonParse(text) || (text ? { text } : {});
+}
+
+export default function AdminImport() {
+  const [query, setQuery] = useState("");
+  const [queryType, setQueryType] = useState("product_keyword");
+  const [limit, setLimit] = useState(10);
+
+  const [runs, setRuns] = useState([]);
+  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [activeStatus, setActiveStatus] = useState("idle"); // idle | running | stopping | done | error
+
+  const pollTimerRef = useRef(null);
+  const startFetchAbortRef = useRef(null);
+
+  const activeRun = useMemo(() => {
+    if (!activeSessionId) return null;
+    return runs.find((r) => r.session_id === activeSessionId) || null;
+  }, [activeSessionId, runs]);
+
+  const stopPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  }, []);
+
+  const pollProgress = useCallback(
+    async ({ session_id }) => {
+      const take = 500;
+      try {
+        const res = await apiFetch(`/import/progress?session_id=${encodeURIComponent(session_id)}&take=${take}`);
+        const body = await readJsonOrText(res);
+
+        if (!res.ok) {
+          const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Progress failed (${res.status})`;
+          toast.error(msg);
+          setRuns((prev) =>
+            prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r))
+          );
+          return { shouldStop: false };
+        }
+
+        const items = normalizeItems(body?.items);
+        const completed = Boolean(body?.completed);
+        const timedOut = Boolean(body?.timedOut);
+        const stopped = Boolean(body?.stopped);
+
+        setRuns((prev) =>
+          prev.map((r) => {
+            if (r.session_id !== session_id) return r;
+            return {
+              ...r,
+              items: mergeById(r.items, items),
+              lastCreatedAt: asString(body?.lastCreatedAt || r.lastCreatedAt),
+              saved: Number(body?.saved ?? r.saved ?? 0),
+              completed,
+              timedOut,
+              stopped,
+              updatedAt: new Date().toISOString(),
+            };
+          })
+        );
+
+        return { shouldStop: completed || timedOut || stopped };
+      } catch (e) {
+        setRuns((prev) =>
+          prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: e?.message || "Progress failed" } : r))
+        );
+        return { shouldStop: false };
+      }
+    },
+    []
+  );
+
+  const schedulePoll = useCallback(
+    ({ session_id }) => {
+      stopPolling();
+      pollTimerRef.current = setTimeout(async () => {
+        const { shouldStop } = await pollProgress({ session_id });
+        if (shouldStop) return;
+        schedulePoll({ session_id });
+      }, 2500);
+    },
+    [pollProgress, stopPolling]
+  );
+
+  const beginImport = useCallback(async () => {
+    const q = query.trim();
+    if (!q) {
+      toast.error("Enter a query to import.");
+      return;
+    }
+
+    const session_id = (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+
+    const normalizedLimit = Math.max(1, Math.min(25, Math.trunc(Number(limit) || 10)));
+
+    const newRun = {
+      session_id,
+      query: q,
+      queryType: asString(queryType).trim() || "product_keyword",
+      limit: normalizedLimit,
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      items: [],
+      saved: 0,
+      completed: false,
+      timedOut: false,
+      stopped: false,
+      start_error: null,
+      progress_error: null,
+    };
+
+    setRuns((prev) => [newRun, ...prev]);
+    setActiveSessionId(session_id);
+    setActiveStatus("running");
+
+    startFetchAbortRef.current?.abort?.();
+    const abort = new AbortController();
+    startFetchAbortRef.current = abort;
+
+    schedulePoll({ session_id });
+
+    try {
+      const res = await apiFetch("/import/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id,
+          query: q,
+          queryType: asString(queryType).trim() || "product_keyword",
+          limit: normalizedLimit,
+          expand_if_few: true,
+        }),
+        signal: abort.signal,
+      });
+
+      const body = await readJsonOrText(res);
+
+      if (!res.ok || body?.ok === false) {
+        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Import failed (${res.status})`;
+        setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
+        setActiveStatus("error");
+        toast.error(msg);
+        return;
+      }
+
+      const finalCompanies = normalizeItems(body?.companies);
+      setRuns((prev) =>
+        prev.map((r) => {
+          if (r.session_id !== session_id) return r;
+          return {
+            ...r,
+            items: mergeById(r.items, finalCompanies),
+            completed: true,
+            updatedAt: new Date().toISOString(),
+          };
+        })
+      );
+
+      setActiveStatus("done");
+      toast.success(`Import finished (${finalCompanies.length} companies)`);
+    } catch (e) {
+      const msg = e?.name === "AbortError" ? "Import aborted" : e?.message || "Import failed";
+      setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
+      if (e?.name === "AbortError") {
+        setActiveStatus("idle");
+      } else {
+        setActiveStatus("error");
+        toast.error(msg);
+      }
+    } finally {
+      stopPolling();
+    }
+  }, [limit, query, queryType, schedulePoll, stopPolling]);
+
+  const stopImport = useCallback(async () => {
+    if (!activeSessionId) return;
+
+    setActiveStatus("stopping");
+    startFetchAbortRef.current?.abort?.();
+
+    try {
+      const res = await apiFetch("/import/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: activeSessionId }),
+      });
+
+      const body = await readJsonOrText(res);
+      if (!res.ok) {
+        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Stop failed (${res.status})`;
+        toast.error(msg);
+      } else {
+        toast.success("Stop signal sent");
+      }
+    } catch (e) {
+      toast.error(e?.message || "Stop failed");
+    } finally {
+      stopPolling();
+      setActiveStatus("idle");
+    }
+  }, [activeSessionId, stopPolling]);
+
+  useEffect(() => {
+    return () => {
+      stopPolling();
+      startFetchAbortRef.current?.abort?.();
+    };
+  }, [stopPolling]);
+
+  const activeItemsCount = activeRun?.items?.length || 0;
+
+  const activeSummary = useMemo(() => {
+    if (!activeRun) return null;
+    const flags = [];
+    if (activeRun.completed) flags.push("completed");
+    if (activeRun.timedOut) flags.push("timed out");
+    if (activeRun.stopped) flags.push("stopped");
+    if (activeRun.start_error) flags.push("error");
+    return flags.join(" · ");
+  }, [activeRun]);
+
+  return (
+    <>
+      <Helmet>
+        <title>Tabarnam Admin — Bulk Company Import</title>
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
+
+      <div className="min-h-screen bg-slate-50">
+        <AdminHeader />
+
+        <main className="container mx-auto py-6 px-4 space-y-6">
+          <header className="flex flex-col gap-2">
+            <h1 className="text-3xl font-bold text-slate-900">Bulk Company Import using openAI</h1>
+            <p className="text-sm text-slate-600">
+              Starts an import session and continuously polls progress until the run completes.
+            </p>
+          </header>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
+              <div className="lg:col-span-2 space-y-1">
+                <label className="text-sm text-slate-700">Search query</label>
+                <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="e.g. running shoes" />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm text-slate-700">Query type</label>
+                <Input value={queryType} onChange={(e) => setQueryType(e.target.value)} placeholder="product_keyword" />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm text-slate-700">Limit (1–25)</label>
+                <Input
+                  value={String(limit)}
+                  onChange={(e) => setLimit(Number(e.target.value || 10))}
+                  inputMode="numeric"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={beginImport} disabled={activeStatus === "running" || activeStatus === "stopping"}>
+                <Play className="h-4 w-4 mr-2" />
+                {activeStatus === "running" ? "Running…" : "Start import"}
+              </Button>
+
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (!activeSessionId) {
+                    toast.error("No active session");
+                    return;
+                  }
+                  schedulePoll({ session_id: activeSessionId });
+                  toast.success("Polling refresh started");
+                }}
+                disabled={!activeSessionId}
+              >
+                <RefreshCcw className="h-4 w-4 mr-2" />
+                Poll now
+              </Button>
+
+              <Button
+                variant="outline"
+                className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                onClick={stopImport}
+                disabled={!activeSessionId || activeStatus !== "running"}
+              >
+                <Square className="h-4 w-4 mr-2" />
+                Stop
+              </Button>
+
+              {activeSessionId ? (
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(activeSessionId);
+                      toast.success("Session id copied");
+                    } catch {
+                      toast.error("Could not copy");
+                    }
+                  }}
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy session id
+                </Button>
+              ) : null}
+
+              {activeSessionId ? (
+                <div className="text-sm text-slate-700">
+                  Session: <code className="rounded bg-slate-100 px-1 py-0.5">{activeSessionId}</code>
+                </div>
+              ) : null}
+
+              {activeSummary ? <div className="text-sm text-slate-600">{activeSummary}</div> : null}
+            </div>
+
+            {activeRun?.start_error ? (
+              <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">{activeRun.start_error}</div>
+            ) : null}
+
+            {activeRun?.progress_error ? (
+              <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{activeRun.progress_error}</div>
+            ) : null}
+          </section>
+
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="rounded-lg border border-slate-200 bg-white p-5">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold text-slate-900">Active results</h2>
+                <div className="text-sm text-slate-600">{activeItemsCount} companies</div>
+              </div>
+
+              {!activeSessionId ? (
+                <div className="mt-4 text-sm text-slate-600">Start an import to see results.</div>
+              ) : (
+                <div className="mt-4 space-y-2 max-h-[520px] overflow-auto">
+                  {(activeRun?.items || []).map((c) => {
+                    const name = asString(c?.company_name || c?.name).trim() || "(unnamed)";
+                    const url = asString(c?.website_url || c?.url).trim();
+                    const keywords = asString(c?.product_keywords).trim();
+
+                    const issues = [];
+                    if (!url) issues.push("missing url");
+                    if (!keywords) issues.push("missing keywords");
+
+                    return (
+                      <div key={asString(c?.id || c?.company_id)} className="rounded border border-slate-200 p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="font-semibold text-slate-900">{name}</div>
+                            {url ? (
+                              <a
+                                className="text-sm text-blue-700 underline break-all"
+                                href={url}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                {url}
+                              </a>
+                            ) : (
+                              <div className="text-sm text-slate-500">No URL</div>
+                            )}
+                          </div>
+
+                          {issues.length > 0 ? (
+                            <div className="flex items-center gap-1 text-xs text-amber-900">
+                              <AlertTriangle className="h-4 w-4" />
+                              {issues.join(", ")}
+                            </div>
+                          ) : null}
+                        </div>
+
+                        {keywords ? (
+                          <div className="mt-2 text-xs text-slate-600">{keywords}</div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-white p-5">
+              <h2 className="text-lg font-semibold text-slate-900">Run history</h2>
+              <div className="mt-4 space-y-2 max-h-[520px] overflow-auto">
+                {runs.length === 0 ? (
+                  <div className="text-sm text-slate-600">No runs yet.</div>
+                ) : (
+                  runs.map((r) => (
+                    <button
+                      key={r.session_id}
+                      className={`w-full text-left rounded border p-3 transition ${
+                        r.session_id === activeSessionId
+                          ? "border-slate-900 bg-slate-50"
+                          : "border-slate-200 bg-white hover:bg-slate-50"
+                      }`}
+                      onClick={() => setActiveSessionId(r.session_id)}
+                      type="button"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-semibold text-slate-900 truncate">{r.query}</div>
+                        <div className="text-xs text-slate-600">{r.items.length} items</div>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-600">
+                        <code className="rounded bg-slate-100 px-1 py-0.5">{r.session_id}</code>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">{new Date(r.startedAt).toLocaleString()}</div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </>
+  );
+}
