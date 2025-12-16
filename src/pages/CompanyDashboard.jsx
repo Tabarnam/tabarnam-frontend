@@ -593,7 +593,9 @@ export default function CompanyDashboard() {
                 Incomplete ({incompleteCount})
               </Button>
 
-              <div className="text-sm text-slate-600">Showing {filteredItems.length} companies</div>
+              <div className="text-sm text-slate-600">
+                Showing {filteredItems.length} companies{loading ? " · Loading…" : ""}
+              </div>
             </div>
           </header>
 
@@ -636,7 +638,7 @@ export default function CompanyDashboard() {
             <DataTable
               columns={columns}
               data={filteredItems}
-              progressPending={loading}
+              progressPending={loading && items.length === 0}
               progressComponent={progressComponent}
               pagination
               paginationPerPage={25}
