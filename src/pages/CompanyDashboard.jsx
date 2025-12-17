@@ -835,7 +835,7 @@ export default function CompanyDashboard() {
       industries: normalizeStringList(company?.industries),
       keywords: normalizeStringList(company?.keywords || company?.product_keywords),
       product_keywords: "",
-      rating: normalizeRating(company?.rating) || null,
+      rating: company?.rating ? normalizeRating(company.rating) : null,
       notes: asString(company?.notes).trim(),
       tagline: asString(company?.tagline).trim(),
       logo_url: asString(company?.logo_url).trim(),
