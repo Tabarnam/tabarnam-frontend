@@ -1011,13 +1011,84 @@ export default function CompanyDashboard() {
                           />
                         </div>
 
-                        <div className="space-y-1">
-                          <label className="text-sm text-slate-700">Logo URL (legacy)</label>
-                          <Input
-                            value={asString(editorDraft.logo_url)}
-                            onChange={(e) => setEditorDraft((d) => ({ ...d, logo_url: e.target.value }))}
-                            placeholder="https://…"
-                          />
+                        <div className="space-y-2">
+                          <label className="text-sm text-slate-700">Logo</label>
+
+                          {asString(editorDraft.logo_url).trim() ? (
+                            <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-2">
+                              <img
+                                src={asString(editorDraft.logo_url).trim()}
+                                alt="Company logo"
+                                className="h-12 w-12 rounded border border-slate-200 object-contain bg-white"
+                                loading="lazy"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = "none";
+                                }}
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs text-slate-500">Current logo_url</div>
+                                <div className="text-xs text-slate-800 break-all">
+                                  {asString(editorDraft.logo_url).trim()}
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-xs text-slate-500">No logo uploaded.</div>
+                          )}
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              onChange={handleLogoFileChange}
+                              className="block w-full max-w-[360px] text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-900/90"
+                              disabled={logoUploading || logoDeleting}
+                            />
+
+                            <Button
+                              variant="outline"
+                              onClick={uploadLogo}
+                              disabled={!editorOriginalId || !logoFile || logoUploading || Boolean(logoUploadError) || logoDeleting}
+                            >
+                              {logoUploading ? "Uploading…" : "Upload"}
+                            </Button>
+
+                            <Button
+                              variant="outline"
+                              onClick={clearLogoReference}
+                              disabled={logoUploading || logoDeleting || !asString(editorDraft.logo_url).trim()}
+                            >
+                              Clear
+                            </Button>
+
+                            <Button
+                              variant="outline"
+                              className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                              onClick={deleteLogoFromStorage}
+                              disabled={
+                                logoUploading ||
+                                logoDeleting ||
+                                !editorOriginalId ||
+                                !asString(editorDraft.logo_url).trim() ||
+                                !(asString(editorDraft.logo_url).includes(".blob.core.windows.net") &&
+                                  asString(editorDraft.logo_url).includes("/company-logos/"))
+                              }
+                            >
+                              {logoDeleting ? "Deleting…" : "Delete from storage"}
+                            </Button>
+                          </div>
+
+                          {logoFile ? (
+                            <div className="text-xs text-slate-600">
+                              Selected: {logoFile.name} ({Math.round((logoFile.size / 1024) * 10) / 10}KB)
+                            </div>
+                          ) : null}
+
+                          {logoUploadError ? <div className="text-xs text-red-700">{logoUploadError}</div> : null}
+
+                          {!editorOriginalId ? (
+                            <div className="text-xs text-slate-600">Save the company first to enable uploads.</div>
+                          ) : null}
                         </div>
 
                         <div className="space-y-1">
