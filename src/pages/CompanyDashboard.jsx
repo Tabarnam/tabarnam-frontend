@@ -465,6 +465,183 @@ function computeAutoRatingInput(draft) {
   };
 }
 
+function normalizeCompanyNotes(value) {
+  const list = Array.isArray(value) ? value : [];
+  const out = [];
+  for (const n of list) {
+    if (!n || typeof n !== "object") continue;
+    const title = asString(n.title).trim();
+    const body = asString(n.body).trim();
+    const createdAt = asString(n.created_at || n.createdAt).trim() || new Date().toISOString();
+    const isPublic = n.is_public === true || String(n.is_public).toLowerCase() === "true";
+
+    if (!title && !body) continue;
+
+    out.push({
+      id: asString(n.id).trim() || `note_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      title,
+      body,
+      is_public: isPublic,
+      created_at: createdAt,
+      updated_at: asString(n.updated_at || n.updatedAt).trim() || createdAt,
+      created_by: asString(n.created_by || n.createdBy || n.actor).trim() || "admin_ui",
+    });
+  }
+
+  out.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  return out;
+}
+
+function CompanyNotesEditor({ value, onChange }) {
+  const notes = normalizeCompanyNotes(value);
+
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [isPublic, setIsPublic] = useState(false);
+
+  const canAdd = Boolean(asString(title).trim() || asString(body).trim());
+
+  const add = useCallback(() => {
+    const t = asString(title).trim();
+    const b = asString(body).trim();
+    if (!t && !b) return;
+
+    const now = new Date().toISOString();
+    const entry = {
+      id: `note_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      title: t,
+      body: b,
+      is_public: isPublic,
+      created_at: now,
+      updated_at: now,
+      created_by: "admin_ui",
+    };
+
+    onChange([entry, ...notes]);
+    setTitle("");
+    setBody("");
+    setIsPublic(false);
+    setOpen(false);
+  }, [body, isPublic, notes, onChange, title]);
+
+  const remove = useCallback(
+    (idx) => {
+      onChange(notes.filter((_, i) => i !== idx));
+    },
+    [notes, onChange]
+  );
+
+  const update = useCallback(
+    (idx, patch) => {
+      const next = notes.map((n, i) => {
+        if (i !== idx) return n;
+        const updated_at = new Date().toISOString();
+        return { ...n, ...(patch || {}), updated_at };
+      });
+      onChange(next);
+    },
+    [notes, onChange]
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm text-slate-700 font-medium">Notes</div>
+        <Button type="button" onClick={() => setOpen((v) => !v)}>
+          <Plus className="h-4 w-4 mr-2" />
+          Note
+        </Button>
+      </div>
+
+      {open && (
+        <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+          <div className="grid grid-cols-1 gap-2">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700">Title</label>
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Short title…" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700">Body</label>
+              <textarea
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                className="min-h-[120px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                placeholder="Write details…"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
+              Public
+            </label>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={add} disabled={!canAdd}>
+                Add note
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {notes.length === 0 ? (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">No notes yet.</div>
+      ) : (
+        <div className="space-y-3">
+          {notes.map((n, idx) => (
+            <div key={n.id} className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <Input
+                    value={asString(n.title)}
+                    onChange={(e) => update(idx, { title: e.target.value })}
+                    placeholder="Title"
+                    className="font-medium"
+                  />
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                    <span>{n.is_public ? "Public" : "Private"}</span>
+                    <span>·</span>
+                    <span>{n.created_at ? new Date(n.created_at).toLocaleString() : ""}</span>
+                  </div>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                  onClick={() => remove(idx)}
+                  title="Delete note"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <textarea
+                value={asString(n.body)}
+                onChange={(e) => update(idx, { body: e.target.value })}
+                className="min-h-[100px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                placeholder="Body"
+              />
+
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={Boolean(n.is_public)}
+                  onChange={(e) => update(idx, { is_public: e.target.checked })}
+                />
+                Public
+              </label>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StarNotesEditor({ star, onChange }) {
   const [text, setText] = useState("");
   const [isPublic, setIsPublic] = useState(false);
@@ -835,6 +1012,7 @@ export default function CompanyDashboard() {
       industries: normalizeStringList(company?.industries),
       keywords: normalizeStringList(company?.keywords || company?.product_keywords),
       rating: company?.rating ? normalizeRating(company.rating) : null,
+      notes_entries: normalizeCompanyNotes(company?.notes_entries || company?.notesEntries),
       notes: asString(company?.notes).trim(),
       tagline: asString(company?.tagline).trim(),
       logo_url: asString(company?.logo_url).trim(),
@@ -865,6 +1043,7 @@ export default function CompanyDashboard() {
       industries: [],
       keywords: [],
       rating: calculateInitialRating({ hasManufacturingLocations: false, hasHeadquarters: false, hasReviews: false }),
+      notes_entries: [],
       notes: "",
     };
 
@@ -900,6 +1079,7 @@ export default function CompanyDashboard() {
       const industries = normalizeStringList(editorDraft.industries);
       const keywords = normalizeStringList(editorDraft.keywords);
       const rating = normalizeRating(editorDraft.rating);
+      const notes_entries = normalizeCompanyNotes(editorDraft.notes_entries);
 
       const payload = {
         ...editorDraft,
@@ -918,6 +1098,7 @@ export default function CompanyDashboard() {
         keywords,
         product_keywords: keywords,
         rating,
+        notes_entries,
         notes: asString(editorDraft.notes).trim(),
         tagline: asString(editorDraft.tagline).trim(),
         logo_url: asString(editorDraft.logo_url).trim(),
@@ -1692,8 +1873,15 @@ export default function CompanyDashboard() {
                           />
                         </div>
 
+                        <div className="lg:col-span-2">
+                          <CompanyNotesEditor
+                            value={editorDraft.notes_entries}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), notes_entries: next }))}
+                          />
+                        </div>
+
                         <div className="lg:col-span-2 space-y-1">
-                          <label className="text-sm text-slate-700">Notes</label>
+                          <label className="text-sm text-slate-700">Internal notes (legacy)</label>
                           <textarea
                             value={asString(editorDraft.notes)}
                             onChange={(e) => setEditorDraft((d) => ({ ...d, notes: e.target.value }))}
