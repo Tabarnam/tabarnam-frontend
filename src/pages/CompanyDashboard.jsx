@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { Link } from "react-router-dom";
 import DataTable from "react-data-table-component";
@@ -18,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/lib/toast";
 import { apiFetch, getUserFacingConfigMessage } from "@/lib/api";
+import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
 import {
   Dialog,
   DialogContent,
@@ -183,6 +185,12 @@ export default function CompanyDashboard() {
   const [editorDraft, setEditorDraft] = useState(null);
   const [editorOriginalId, setEditorOriginalId] = useState(null);
 
+  const [logoFile, setLogoFile] = useState(null);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoUpdating, setLogoUpdating] = useState(false);
+  const [logoUploadError, setLogoUploadError] = useState(null);
+  const [logoDeleting, setLogoDeleting] = useState(false);
+
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleteConfirmLoading, setDeleteConfirmLoading] = useState(false);
@@ -316,6 +324,8 @@ export default function CompanyDashboard() {
 
     setEditorOriginalId(id || null);
     setEditorDraft(draft);
+    setLogoFile(null);
+    setLogoUploadError(null);
     setEditorOpen(true);
   }, []);
 
@@ -335,6 +345,8 @@ export default function CompanyDashboard() {
 
     setEditorOriginalId(null);
     setEditorDraft(draft);
+    setLogoFile(null);
+    setLogoUploadError(null);
     setEditorOpen(true);
   }, []);
 
@@ -412,6 +424,124 @@ export default function CompanyDashboard() {
       setEditorSaving(false);
     }
   }, [editorDraft, editorOriginalId]);
+
+  const updateCompanyInState = useCallback((companyId, patch) => {
+    const id = asString(companyId).trim();
+    if (!id) return;
+    setItems((prev) =>
+      prev.map((c) => {
+        if (getCompanyId(c) !== id) return c;
+        return { ...c, ...(patch || {}) };
+      })
+    );
+  }, []);
+
+  const isAllowedLogoType = useCallback((type) => {
+    return type === "image/png" || type === "image/jpeg" || type === "image/webp";
+  }, []);
+
+  const handleLogoFileChange = useCallback(
+    (e) => {
+      const file = e?.target?.files?.[0] || null;
+      setLogoUploadError(null);
+      setLogoFile(null);
+
+      if (!file) return;
+
+      if (!isAllowedLogoType(file.type)) {
+        setLogoUploadError("Invalid file type. Use PNG, JPG, or WebP.");
+        return;
+      }
+
+      const maxBytes = 300 * 1024;
+      if (typeof file.size === "number" && file.size > maxBytes) {
+        setLogoUploadError("File too large. Max size is 300KB.");
+        return;
+      }
+
+      setLogoFile(file);
+    },
+    [isAllowedLogoType]
+  );
+
+  const uploadLogo = useCallback(async () => {
+    const companyId = asString(editorOriginalId).trim();
+    if (!companyId) {
+      toast.error("Save the company first to generate a company_id, then upload the logo.");
+      return;
+    }
+
+    if (!logoFile) {
+      toast.error("Choose a logo file first.");
+      return;
+    }
+
+    setLogoUploading(true);
+    setLogoUploadError(null);
+
+    try {
+      const url = await uploadLogoBlobFile(logoFile, companyId);
+      if (!url) {
+        setLogoUploadError("Upload failed.");
+        toast.error("Logo upload failed");
+        return;
+      }
+
+      setEditorDraft((d) => ({ ...(d || {}), logo_url: url }));
+      updateCompanyInState(companyId, { logo_url: url });
+      setLogoFile(null);
+      toast.success("Logo uploaded");
+    } catch (e) {
+      const msg = e?.message || "Logo upload failed";
+      setLogoUploadError(msg);
+      toast.error(msg);
+    } finally {
+      setLogoUploading(false);
+    }
+  }, [editorOriginalId, logoFile, updateCompanyInState]);
+
+  const clearLogoReference = useCallback(() => {
+    const companyId = asString(editorOriginalId).trim();
+    setEditorDraft((d) => ({ ...(d || {}), logo_url: "" }));
+    if (companyId) updateCompanyInState(companyId, { logo_url: "" });
+    toast.success("Logo cleared (save to persist)");
+  }, [editorOriginalId, updateCompanyInState]);
+
+  const deleteLogoFromStorage = useCallback(async () => {
+    const companyId = asString(editorOriginalId).trim();
+    const current = asString(editorDraft?.logo_url).trim();
+
+    if (!companyId) {
+      toast.error("Missing company_id");
+      return;
+    }
+
+    if (!current) {
+      toast.error("No logo to delete");
+      return;
+    }
+
+    const isAzure = current.includes(".blob.core.windows.net") && current.includes("/company-logos/");
+    if (!isAzure) {
+      toast.error("This logo is not stored in Azure Blob Storage. Use Clear instead.");
+      return;
+    }
+
+    setLogoDeleting(true);
+    try {
+      const ok = await deleteLogoBlob(current);
+      if (!ok) {
+        toast.error("Failed to delete logo");
+        return;
+      }
+
+      setEditorDraft((d) => ({ ...(d || {}), logo_url: "" }));
+      updateCompanyInState(companyId, { logo_url: "" });
+      toast.success("Logo deleted");
+    } finally {
+      setLogoDeleting(false);
+    }
+  }, [editorDraft, editorOriginalId, updateCompanyInState]);
 
   const deleteCompany = useCallback(async (companyId) => {
     const safeId = asString(companyId).trim();
@@ -882,13 +1012,84 @@ export default function CompanyDashboard() {
                           />
                         </div>
 
-                        <div className="space-y-1">
-                          <label className="text-sm text-slate-700">Logo URL (legacy)</label>
-                          <Input
-                            value={asString(editorDraft.logo_url)}
-                            onChange={(e) => setEditorDraft((d) => ({ ...d, logo_url: e.target.value }))}
-                            placeholder="https://…"
-                          />
+                        <div className="space-y-2">
+                          <label className="text-sm text-slate-700">Logo</label>
+
+                          {asString(editorDraft.logo_url).trim() ? (
+                            <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-2">
+                              <img
+                                src={asString(editorDraft.logo_url).trim()}
+                                alt="Company logo"
+                                className="h-12 w-12 rounded border border-slate-200 object-contain bg-white"
+                                loading="lazy"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = "none";
+                                }}
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs text-slate-500">Current logo_url</div>
+                                <div className="text-xs text-slate-800 break-all">
+                                  {asString(editorDraft.logo_url).trim()}
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-xs text-slate-500">No logo uploaded.</div>
+                          )}
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              onChange={handleLogoFileChange}
+                              className="block w-full max-w-[360px] text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-900/90"
+                              disabled={logoUploading || logoDeleting}
+                            />
+
+                            <Button
+                              variant="outline"
+                              onClick={uploadLogo}
+                              disabled={!editorOriginalId || !logoFile || logoUploading || Boolean(logoUploadError) || logoDeleting}
+                            >
+                              {logoUploading ? "Uploading…" : "Upload"}
+                            </Button>
+
+                            <Button
+                              variant="outline"
+                              onClick={clearLogoReference}
+                              disabled={logoUploading || logoDeleting || !asString(editorDraft.logo_url).trim()}
+                            >
+                              Clear
+                            </Button>
+
+                            <Button
+                              variant="outline"
+                              className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                              onClick={deleteLogoFromStorage}
+                              disabled={
+                                logoUploading ||
+                                logoDeleting ||
+                                !editorOriginalId ||
+                                !asString(editorDraft.logo_url).trim() ||
+                                !(asString(editorDraft.logo_url).includes(".blob.core.windows.net") &&
+                                  asString(editorDraft.logo_url).includes("/company-logos/"))
+                              }
+                            >
+                              {logoDeleting ? "Deleting…" : "Delete from storage"}
+                            </Button>
+                          </div>
+
+                          {logoFile ? (
+                            <div className="text-xs text-slate-600">
+                              Selected: {logoFile.name} ({Math.round((logoFile.size / 1024) * 10) / 10}KB)
+                            </div>
+                          ) : null}
+
+                          {logoUploadError ? <div className="text-xs text-red-700">{logoUploadError}</div> : null}
+
+                          {!editorOriginalId ? (
+                            <div className="text-xs text-slate-600">Save the company first to enable uploads.</div>
+                          ) : null}
                         </div>
 
                         <div className="space-y-1">
