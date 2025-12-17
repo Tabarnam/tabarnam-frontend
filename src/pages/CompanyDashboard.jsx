@@ -1070,13 +1070,13 @@ export default function CompanyDashboard() {
                               accept="image/png,image/jpeg,image/webp"
                               onChange={handleLogoFileChange}
                               className="block w-full max-w-[360px] text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-900/90"
-                              disabled={logoUploading || logoDeleting}
+                              disabled={logoUploading || logoUpdating || logoDeleting}
                             />
 
                             <Button
                               variant="outline"
                               onClick={uploadLogo}
-                              disabled={!editorOriginalId || !logoFile || logoUploading || Boolean(logoUploadError) || logoDeleting}
+                              disabled={!editorOriginalId || !logoFile || logoUploading || logoUpdating || Boolean(logoUploadError) || logoDeleting}
                             >
                               {logoUploading ? "Uploading…" : "Upload"}
                             </Button>
@@ -1084,7 +1084,7 @@ export default function CompanyDashboard() {
                             <Button
                               variant="outline"
                               onClick={clearLogoReference}
-                              disabled={logoUploading || logoDeleting || !asString(editorDraft.logo_url).trim()}
+                              disabled={logoUploading || logoUpdating || logoDeleting || !asString(editorDraft.logo_url).trim()}
                             >
                               Clear
                             </Button>
@@ -1095,6 +1095,7 @@ export default function CompanyDashboard() {
                               onClick={deleteLogoFromStorage}
                               disabled={
                                 logoUploading ||
+                                logoUpdating ||
                                 logoDeleting ||
                                 !editorOriginalId ||
                                 !asString(editorDraft.logo_url).trim() ||
