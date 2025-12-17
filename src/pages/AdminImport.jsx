@@ -57,7 +57,8 @@ async function readJsonOrText(res) {
 
 export default function AdminImport() {
   const [query, setQuery] = useState("");
-  const [queryType, setQueryType] = useState("product_keyword");
+  const [queryTypes, setQueryTypes] = useState(["product_keyword"]);
+  const [location, setLocation] = useState("");
   const [limit, setLimit] = useState(10);
 
   const [runs, setRuns] = useState([]);
@@ -153,10 +154,13 @@ export default function AdminImport() {
 
     const normalizedLimit = Math.max(1, Math.min(25, Math.trunc(Number(limit) || 10)));
 
+    const selectedTypes = Array.isArray(queryTypes) && queryTypes.length > 0 ? queryTypes : ["product_keyword"];
+
     const newRun = {
       session_id,
       query: q,
-      queryType: asString(queryType).trim() || "product_keyword",
+      queryTypes: selectedTypes,
+      location: asString(location).trim() || "",
       limit: normalizedLimit,
       startedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -188,7 +192,9 @@ export default function AdminImport() {
         body: JSON.stringify({
           session_id,
           query: q,
-          queryType: asString(queryType).trim() || "product_keyword",
+          queryTypes: selectedTypes,
+          queryType: selectedTypes[0] || "product_keyword",
+          location: asString(location).trim() || undefined,
           limit: normalizedLimit,
           expand_if_few: true,
         }),
@@ -232,7 +238,7 @@ export default function AdminImport() {
     } finally {
       stopPolling();
     }
-  }, [limit, query, queryType, schedulePoll, stopPolling]);
+  }, [limit, location, query, queryTypes, schedulePoll, stopPolling]);
 
   const stopImport = useCallback(async () => {
     if (!activeSessionId) return;
@@ -357,7 +363,7 @@ export default function AdminImport() {
   return (
     <>
       <Helmet>
-        <title>Tabarnam Admin — Bulk Company Import</title>
+        <title>Tabarnam Admin — Company Import</title>
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
 
@@ -366,10 +372,8 @@ export default function AdminImport() {
 
         <main className="container mx-auto py-6 px-4 space-y-6">
           <header className="flex flex-col gap-2">
-            <h1 className="text-3xl font-bold text-slate-900">Bulk Company Import using openAI</h1>
-            <p className="text-sm text-slate-600">
-              Starts an import session and continuously polls progress until the run completes.
-            </p>
+            <h1 className="text-3xl font-bold text-slate-900">Company Import</h1>
+            <p className="text-sm text-slate-600">Start an import session and poll progress until it completes.</p>
           </header>
 
           <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
@@ -380,8 +384,12 @@ export default function AdminImport() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-sm text-slate-700">Query type</label>
-                <Input value={queryType} onChange={(e) => setQueryType(e.target.value)} placeholder="product_keyword" />
+                <label className="text-sm text-slate-700">Location (optional)</label>
+                <Input
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="e.g. United States or Austin, TX"
+                />
               </div>
 
               <div className="space-y-1">
@@ -392,6 +400,41 @@ export default function AdminImport() {
                   inputMode="numeric"
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-slate-700">Query types</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {[
+                  { key: "product_keyword", label: "Keyword" },
+                  { key: "company_name", label: "Company name" },
+                  { key: "company_url", label: "Company URL/domain" },
+                  { key: "industry", label: "Industry" },
+                  { key: "hq_country", label: "HQ country" },
+                  { key: "manufacturing_country", label: "Manufacturing country" },
+                ].map((opt) => (
+                  <label
+                    key={opt.key}
+                    className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={queryTypes.includes(opt.key)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setQueryTypes((prev) => {
+                          const list = Array.isArray(prev) ? prev : [];
+                          if (checked) return Array.from(new Set([...list, opt.key]));
+                          const next = list.filter((v) => v !== opt.key);
+                          return next.length > 0 ? next : ["product_keyword"];
+                        });
+                      }}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+              <div className="text-xs text-slate-600">If you provide a location, results that match it are ranked higher.</div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
