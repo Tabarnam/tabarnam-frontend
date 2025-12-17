@@ -959,18 +959,24 @@ export default function CompanyDashboard() {
                             <div className="text-xs font-medium text-slate-700">company_id</div>
                             <div className="mt-1 flex items-center gap-2">
                               <code className="rounded bg-white border border-slate-200 px-2 py-1 text-xs text-slate-900">
-                                {editorOriginalId ? getCompanyId(editorDraft) || "(missing)" : editorCompanyId || "(auto)"}
+                                {editorOriginalId ? asString(editorDraft.company_id).trim() || "(missing)" : editorCompanyId || "(auto)"}
                               </code>
                               <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={async () => {
-                                  const value = editorOriginalId ? getCompanyId(editorDraft) : editorCompanyId;
+                                  const value = editorOriginalId
+                                    ? asString(editorDraft.company_id).trim()
+                                    : asString(editorCompanyId).trim();
                                   const ok = await copyToClipboard(value);
                                   if (ok) toast.success("Copied");
                                   else toast.error("Copy failed");
                                 }}
-                                disabled={!(editorOriginalId ? getCompanyId(editorDraft) : editorCompanyId)}
+                                disabled={
+                                  !(editorOriginalId
+                                    ? asString(editorDraft.company_id).trim()
+                                    : asString(editorCompanyId).trim())
+                                }
                                 title="Copy company_id"
                               >
                                 <Copy className="h-4 w-4" />

@@ -1,5 +1,7 @@
 import { API_BASE } from "@/lib/api";
 
+import { API_BASE, join } from "@/lib/api";
+
 export interface BlobUploadResponse {
   ok: boolean;
   logo_url?: string;
@@ -10,52 +12,43 @@ export interface BlobUploadResponse {
 /**
  * Upload a logo file to Azure Blob Storage.
  */
-export async function uploadLogoBlobFile(file: File, companyId: string): Promise<string | null> {
-  try {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("companyId", companyId);
+export async function uploadLogoBlobFile(file: File, companyId: string): Promise<string> {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("companyId", companyId);
 
-    const response = await fetch(`${API_BASE}/upload-logo-blob`, {
-      method: "POST",
-      body: formData,
-    });
+  const response = await fetch(join(API_BASE, "/upload-logo-blob"), {
+    method: "POST",
+    body: formData,
+  });
 
-    const data: BlobUploadResponse = await response.json().catch(() => ({ ok: false, error: "Invalid JSON" }));
+  const data: BlobUploadResponse = await response.json().catch(() => ({ ok: false, error: "Invalid JSON" }));
 
-    if (!response.ok || !data.ok) {
-      console.error("Logo upload failed:", data.error || "Unknown error");
-      return null;
-    }
-
-    return data.logo_url || null;
-  } catch (error) {
-    console.error("Logo upload error:", error);
-    return null;
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || data.message || `Logo upload failed (${response.status})`);
   }
+
+  const url = typeof data.logo_url === "string" ? data.logo_url.trim() : "";
+  if (!url) {
+    throw new Error("Logo upload succeeded but no logo_url was returned.");
+  }
+
+  return url;
 }
 
 /**
  * Delete a logo from Azure Blob Storage.
  */
-export async function deleteLogoBlob(blobUrl: string): Promise<boolean> {
-  try {
-    const response = await fetch(`${API_BASE}/delete-logo-blob`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ blob_url: blobUrl }),
-    });
+export async function deleteLogoBlob(blobUrl: string): Promise<void> {
+  const response = await fetch(join(API_BASE, "/delete-logo-blob"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ blob_url: blobUrl }),
+  });
 
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      console.error("Logo deletion failed", body);
-      return false;
-    }
+  const data = await response.json().catch(() => ({ ok: false, error: "Invalid JSON" }));
 
-    const data = await response.json().catch(() => null);
-    return Boolean(data?.ok ?? true);
-  } catch (error) {
-    console.error("Logo deletion error:", error);
-    return false;
+  if (!response.ok || data?.ok === false) {
+    throw new Error(data?.error || data?.message || `Logo deletion failed (${response.status})`);
   }
 }

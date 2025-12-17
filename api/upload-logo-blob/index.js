@@ -134,29 +134,14 @@ app.http("upload-logo-blob", {
         );
       }
 
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        return json(
-          { ok: false, error: "File too large (max 5MB)" },
-          400,
-          req
-        );
+      const MAX_BYTES = 300 * 1024;
+      if (typeof file.size === "number" && file.size > MAX_BYTES) {
+        return json({ ok: false, error: "File too large (max 300KB)" }, 400, req);
       }
 
-      // Validate file type (PNG, JPG, SVG, GIF, WEBP)
-      const allowedTypes = [
-        "image/png",
-        "image/jpeg",
-        "image/svg+xml",
-        "image/gif",
-        "image/webp",
-      ];
+      const allowedTypes = ["image/png", "image/jpeg", "image/webp"];
       if (!allowedTypes.includes(file.type)) {
-        return json(
-          { ok: false, error: "Invalid file type (PNG, JPG, SVG, GIF, WEBP only)" },
-          400,
-          req
-        );
+        return json({ ok: false, error: "Invalid file type (PNG, JPG, WebP only)" }, 400, req);
       }
 
       const containerName = "company-logos";
@@ -188,28 +173,27 @@ app.http("upload-logo-blob", {
       const buffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(buffer);
 
-      // Normalize all uploads to PNG for consistent UI (SVG is rasterized)
-      let processedBuffer = uint8Array;
+      let processedBuffer;
       try {
-        const isSvg = file.type === "image/svg+xml";
-        const pipeline = sharp(uint8Array, isSvg ? { density: 300 } : undefined)
-          .resize({ width: 500, height: 500, fit: "inside", withoutEnlargement: true })
-          .png({ quality: 90 });
+        processedBuffer = await sharp(uint8Array)
+          .resize(256, 256, {
+            fit: "contain",
+            background: { r: 0, g: 0, b: 0, alpha: 0 },
+          })
+          .webp({ quality: 80 })
+          .toBuffer();
 
-        processedBuffer = await pipeline.toBuffer();
-        ctx.log(`[upload-logo-blob] Processed logo to PNG for company ${companyId}`);
+        ctx.log(`[upload-logo-blob] Processed logo to 256x256 WebP for company ${companyId}`);
       } catch (sharpError) {
-        ctx.warn(`[upload-logo-blob] Sharp processing failed, using original bytes: ${sharpError.message}`);
-        processedBuffer = uint8Array;
+        ctx.error(`[upload-logo-blob] Failed to process image: ${sharpError.message}`);
+        return json({ ok: false, error: "Failed to process image. Please try a different file." }, 400, req);
       }
 
-      // Generate unique blob name (always .png for normalized output)
-      const blobName = `${companyId}/${uuidv4()}.png`;
+      const blobName = `${companyId}/${uuidv4()}.webp`;
 
-      // Get blob client and upload
       const blockBlobClient = containerClient.getBlockBlobClient(blobName);
       await blockBlobClient.upload(processedBuffer, processedBuffer.length, {
-        blobHTTPHeaders: { blobContentType: "image/png" },
+        blobHTTPHeaders: { blobContentType: "image/webp" },
       });
 
       // Generate SAS URL with 1-year expiration for secure blob access
