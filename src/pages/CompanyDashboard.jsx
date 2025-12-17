@@ -500,11 +500,38 @@ export default function CompanyDashboard() {
     }
   }, [editorOriginalId, logoFile, updateCompanyInState]);
 
-  const clearLogoReference = useCallback(() => {
+  const clearLogoReference = useCallback(async () => {
     const companyId = asString(editorOriginalId).trim();
+    setLogoUploadError(null);
     setEditorDraft((d) => ({ ...(d || {}), logo_url: "" }));
-    if (companyId) updateCompanyInState(companyId, { logo_url: "" });
-    toast.success("Logo cleared (save to persist)");
+
+    if (!companyId) {
+      toast.success("Logo cleared");
+      return;
+    }
+
+    setLogoUpdating(true);
+    try {
+      const res = await apiFetch("/xadmin-api-companies", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company: { id: companyId, company_id: companyId, logo_url: "" } }),
+      });
+
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.ok !== true) {
+        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Logo update failed (${res.status})`;
+        toast.error(msg);
+        return;
+      }
+
+      updateCompanyInState(companyId, { logo_url: "" });
+      toast.success("Logo cleared");
+    } catch (e) {
+      toast.error(e?.message || "Logo update failed");
+    } finally {
+      setLogoUpdating(false);
+    }
   }, [editorOriginalId, updateCompanyInState]);
 
   const deleteLogoFromStorage = useCallback(async () => {
