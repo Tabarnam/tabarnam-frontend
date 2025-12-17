@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/lib/toast";
 import { apiFetch, getUserFacingConfigMessage } from "@/lib/api";
+import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
 import {
   Dialog,
   DialogContent,
