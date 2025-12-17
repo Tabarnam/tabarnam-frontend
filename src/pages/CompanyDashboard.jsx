@@ -80,6 +80,149 @@ function normalizeStringList(value) {
     .filter(Boolean);
 }
 
+function normalizeLocationSources(value) {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((v) => v && typeof v === "object")
+    .map((v) => {
+      const location = asString(v.location).trim();
+      if (!location) return null;
+      const source_url = asString(v.source_url).trim();
+      const source_type = asString(v.source_type).trim();
+      const location_type = asString(v.location_type).trim();
+      return {
+        location,
+        ...(source_url ? { source_url } : {}),
+        ...(source_type ? { source_type } : {}),
+        ...(location_type ? { location_type } : {}),
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeVisibility(value) {
+  const v = value && typeof value === "object" ? value : {};
+  const out = {
+    hq_public: v.hq_public == null ? true : Boolean(v.hq_public),
+    manufacturing_public: v.manufacturing_public == null ? true : Boolean(v.manufacturing_public),
+    admin_rating_public: v.admin_rating_public == null ? true : Boolean(v.admin_rating_public),
+  };
+  return out;
+}
+
+function LocationSourcesEditor({ value, onChange }) {
+  const list = normalizeLocationSources(value);
+
+  const add = useCallback(() => {
+    const next = [
+      ...list,
+      {
+        location: "",
+        source_url: "",
+        source_type: "official_website",
+        location_type: "headquarters",
+      },
+    ];
+    onChange(next);
+  }, [list, onChange]);
+
+  const remove = useCallback(
+    (idx) => {
+      onChange(list.filter((_, i) => i !== idx));
+    },
+    [list, onChange]
+  );
+
+  const update = useCallback(
+    (idx, patch) => {
+      onChange(list.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+    },
+    [list, onChange]
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm text-slate-700 font-medium">Location sources</div>
+      <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+        {list.length === 0 ? (
+          <div className="p-3 text-xs text-slate-600">No sources yet.</div>
+        ) : (
+          <div className="p-3 space-y-3">
+            {list.map((entry, idx) => (
+              <div key={`${entry.location}-${idx}`} className="rounded border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-700">Location</label>
+                    <Input
+                      value={asString(entry.location)}
+                      onChange={(e) => update(idx, { location: e.target.value })}
+                      placeholder="e.g. Austin, TX, USA"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-700">Source URL</label>
+                    <Input
+                      value={asString(entry.source_url)}
+                      onChange={(e) => update(idx, { source_url: e.target.value })}
+                      placeholder="https://..."
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-700">Source type</label>
+                    <select
+                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                      value={asString(entry.source_type || "other")}
+                      onChange={(e) => update(idx, { source_type: e.target.value })}
+                    >
+                      <option value="official_website">Official website</option>
+                      <option value="government_guide">Government guide</option>
+                      <option value="b2b_directory">B2B directory</option>
+                      <option value="trade_data">Trade data</option>
+                      <option value="packaging">Packaging</option>
+                      <option value="media">Media</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-700">Location type</label>
+                    <select
+                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                      value={asString(entry.location_type || "headquarters")}
+                      onChange={(e) => update(idx, { location_type: e.target.value })}
+                    >
+                      <option value="headquarters">Headquarters</option>
+                      <option value="manufacturing">Manufacturing</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button type="button" variant="outline" size="sm" onClick={() => remove(idx)}>
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="border-t border-slate-200 p-3">
+          <Button type="button" variant="outline" onClick={add}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add source
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StringListEditor({ label, value, onChange, placeholder = "" }) {
   const list = normalizeStringList(value);
   const [draft, setDraft] = useState("");
@@ -1006,7 +1149,6 @@ export default function CompanyDashboard() {
 
     const draft = {
       ...company,
-      id: asString(company?.id).trim(),
       company_id: asString(company?.company_id || company?.id).trim(),
       company_name: getCompanyName(company),
       website_url: getCompanyUrl(company),
@@ -1017,6 +1159,12 @@ export default function CompanyDashboard() {
       manufacturing_locations: normalizeStructuredLocationList(manuBase),
       industries: normalizeStringList(company?.industries),
       keywords: normalizeStringList(company?.keywords || company?.product_keywords),
+      amazon_url: asString(company?.amazon_url).trim(),
+      amazon_store_url: asString(company?.amazon_store_url).trim(),
+      affiliate_link_urls: normalizeStringList(company?.affiliate_link_urls),
+      show_location_sources_to_users: Boolean(company?.show_location_sources_to_users),
+      visibility: normalizeVisibility(company?.visibility),
+      location_sources: normalizeLocationSources(company?.location_sources),
       rating: company?.rating ? normalizeRating(company.rating) : null,
       notes_entries: normalizeCompanyNotes(company?.notes_entries || company?.notesEntries),
       notes: asString(company?.notes).trim(),
@@ -1041,12 +1189,17 @@ export default function CompanyDashboard() {
 
   const createNewCompany = useCallback(() => {
     const draft = {
-      id: "",
       company_id: "",
       company_name: "",
       website_url: "",
       tagline: "",
       logo_url: "",
+      amazon_url: "",
+      amazon_store_url: "",
+      affiliate_link_urls: [],
+      show_location_sources_to_users: false,
+      visibility: { hq_public: true, manufacturing_public: true, admin_rating_public: true },
+      location_sources: [],
       headquarters_location: "",
       headquarters_locations: [],
       manufacturing_locations: [],
@@ -1226,7 +1379,7 @@ export default function CompanyDashboard() {
   }, [diffRows, refreshProposed, refreshSelection, selectedDiffCount]);
 
   const refreshCompany = useCallback(async () => {
-    const companyId = asString(editorOriginalId || editorDraft?.company_id || editorDraft?.id).trim();
+    const companyId = asString(editorOriginalId || editorDraft?.company_id).trim();
     if (!companyId) {
       toast.error("Save the company first.");
       return;
@@ -1307,6 +1460,9 @@ export default function CompanyDashboard() {
       const keywords = normalizeStringList(editorDraft.keywords);
       const rating = normalizeRating(editorDraft.rating);
       const notes_entries = normalizeCompanyNotes(editorDraft.notes_entries);
+      const location_sources = normalizeLocationSources(editorDraft.location_sources);
+      const visibility = normalizeVisibility(editorDraft.visibility);
+      const affiliate_link_urls = normalizeStringList(editorDraft.affiliate_link_urls);
 
       const payload = {
         ...editorDraft,
@@ -1329,6 +1485,12 @@ export default function CompanyDashboard() {
         notes: asString(editorDraft.notes).trim(),
         tagline: asString(editorDraft.tagline).trim(),
         logo_url: asString(editorDraft.logo_url).trim(),
+        amazon_url: asString(editorDraft.amazon_url).trim(),
+        amazon_store_url: asString(editorDraft.amazon_store_url).trim(),
+        affiliate_link_urls,
+        show_location_sources_to_users: Boolean(editorDraft.show_location_sources_to_users),
+        visibility,
+        location_sources,
       };
 
       if (!payload.company_id) {
@@ -2150,6 +2312,103 @@ export default function CompanyDashboard() {
                             value={asString(editorDraft.tagline)}
                             onChange={(e) => setEditorDraft((d) => ({ ...d, tagline: e.target.value }))}
                             placeholder="Mission statement…"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-sm text-slate-700">Amazon URL</label>
+                          <Input
+                            value={asString(editorDraft.amazon_url)}
+                            onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_url: e.target.value }))}
+                            placeholder="https://amazon.com/..."
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-sm text-slate-700">Amazon store URL</label>
+                          <Input
+                            value={asString(editorDraft.amazon_store_url)}
+                            onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_store_url: e.target.value }))}
+                            placeholder="https://amazon.com/stores/..."
+                          />
+                        </div>
+
+                        <div className="lg:col-span-2">
+                          <StringListEditor
+                            label="Affiliate link URLs"
+                            value={editorDraft.affiliate_link_urls}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), affiliate_link_urls: next }))}
+                            placeholder="https://..."
+                          />
+                        </div>
+
+                        <div className="lg:col-span-2 space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+                          <div className="text-sm font-semibold text-slate-900">Visibility</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <label className="flex items-start gap-2 text-sm text-slate-800">
+                              <Checkbox
+                                checked={Boolean(editorDraft.show_location_sources_to_users)}
+                                onCheckedChange={(v) =>
+                                  setEditorDraft((d) => ({
+                                    ...(d || {}),
+                                    show_location_sources_to_users: Boolean(v),
+                                  }))
+                                }
+                              />
+                              <span>Show location sources to users</span>
+                            </label>
+
+                            <label className="flex items-start gap-2 text-sm text-slate-800">
+                              <Checkbox
+                                checked={Boolean(editorDraft.visibility?.hq_public)}
+                                onCheckedChange={(v) =>
+                                  setEditorDraft((d) => ({
+                                    ...(d || {}),
+                                    visibility: { ...normalizeVisibility(d?.visibility), hq_public: Boolean(v) },
+                                  }))
+                                }
+                              />
+                              <span>Show HQ location</span>
+                            </label>
+
+                            <label className="flex items-start gap-2 text-sm text-slate-800">
+                              <Checkbox
+                                checked={Boolean(editorDraft.visibility?.manufacturing_public)}
+                                onCheckedChange={(v) =>
+                                  setEditorDraft((d) => ({
+                                    ...(d || {}),
+                                    visibility: {
+                                      ...normalizeVisibility(d?.visibility),
+                                      manufacturing_public: Boolean(v),
+                                    },
+                                  }))
+                                }
+                              />
+                              <span>Show manufacturing locations</span>
+                            </label>
+
+                            <label className="flex items-start gap-2 text-sm text-slate-800">
+                              <Checkbox
+                                checked={Boolean(editorDraft.visibility?.admin_rating_public)}
+                                onCheckedChange={(v) =>
+                                  setEditorDraft((d) => ({
+                                    ...(d || {}),
+                                    visibility: {
+                                      ...normalizeVisibility(d?.visibility),
+                                      admin_rating_public: Boolean(v),
+                                    },
+                                  }))
+                                }
+                              />
+                              <span>Show QQ rating</span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <div className="lg:col-span-2">
+                          <LocationSourcesEditor
+                            value={editorDraft.location_sources}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), location_sources: next }))}
                           />
                         </div>
 
