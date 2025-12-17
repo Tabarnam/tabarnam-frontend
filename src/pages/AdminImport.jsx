@@ -61,6 +61,10 @@ export default function AdminImport() {
   const [location, setLocation] = useState("");
   const [limit, setLimit] = useState(10);
 
+  const [importConfigLoading, setImportConfigLoading] = useState(true);
+  const [importReady, setImportReady] = useState(true);
+  const [importConfigMessage, setImportConfigMessage] = useState("");
+
   const [runs, setRuns] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [activeStatus, setActiveStatus] = useState("idle"); // idle | running | stopping | done | error
@@ -147,6 +151,11 @@ export default function AdminImport() {
     const q = query.trim();
     if (!q) {
       toast.error("Enter a query to import.");
+      return;
+    }
+
+    if (!importConfigLoading && !importReady) {
+      toast.error(importConfigMessage || "Import is not configured.");
       return;
     }
 
@@ -238,7 +247,7 @@ export default function AdminImport() {
     } finally {
       stopPolling();
     }
-  }, [limit, location, query, queryTypes, schedulePoll, stopPolling]);
+  }, [importConfigLoading, importConfigMessage, importReady, limit, location, query, queryTypes, schedulePoll, stopPolling]);
 
   const stopImport = useCallback(async () => {
     if (!activeSessionId) return;
@@ -336,7 +345,48 @@ export default function AdminImport() {
   }, [activeRun]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      setImportConfigLoading(true);
+      try {
+        const res = await apiFetch("/xadmin-api-bulk-import-config");
+        const body = await readJsonOrText(res);
+
+        if (cancelled) return;
+
+        if (!res.ok || body?.ok !== true) {
+          const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Config check failed (${res.status})`;
+          setImportReady(false);
+          setImportConfigMessage(msg);
+          return;
+        }
+
+        const ready = Boolean(body?.config?.status?.import_ready);
+        setImportReady(ready);
+
+        if (!ready) {
+          const recs = Array.isArray(body?.config?.recommendations) ? body.config.recommendations : [];
+          const critical = recs.find((r) => String(r?.severity || "").toLowerCase() === "critical");
+          setImportConfigMessage(
+            critical?.message
+              ? String(critical.message)
+              : "Import is not ready. Configure XAI and Cosmos DB environment variables."
+          );
+        } else {
+          setImportConfigMessage("");
+        }
+      } catch (e) {
+        if (cancelled) return;
+        setImportReady(false);
+        setImportConfigMessage(e?.message || "Config check failed");
+      } finally {
+        if (!cancelled) setImportConfigLoading(false);
+      }
+    })();
+
     return () => {
+      cancelled = true;
       stopPolling();
       startFetchAbortRef.current?.abort?.();
     };
@@ -375,6 +425,16 @@ export default function AdminImport() {
             <h1 className="text-3xl font-bold text-slate-900">Company Import</h1>
             <p className="text-sm text-slate-600">Start an import session and poll progress until it completes.</p>
           </header>
+
+          {!importConfigLoading && !importReady ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-semibold">Import is not configured</div>
+                <div className="text-amber-900/90">{importConfigMessage || "Configure XAI and Cosmos DB to enable imports."}</div>
+              </div>
+            </div>
+          ) : null}
 
           <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
@@ -438,7 +498,15 @@ export default function AdminImport() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={beginImport} disabled={activeStatus === "running" || activeStatus === "stopping"}>
+              <Button
+                onClick={beginImport}
+                disabled={
+                  importConfigLoading ||
+                  !importReady ||
+                  activeStatus === "running" ||
+                  activeStatus === "stopping"
+                }
+              >
                 <Play className="h-4 w-4 mr-2" />
                 {activeStatus === "running" ? "Running…" : "Start import"}
               </Button>
