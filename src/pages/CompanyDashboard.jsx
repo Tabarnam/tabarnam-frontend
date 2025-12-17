@@ -323,6 +323,8 @@ export default function CompanyDashboard() {
 
     setEditorOriginalId(id || null);
     setEditorDraft(draft);
+    setLogoFile(null);
+    setLogoUploadError(null);
     setEditorOpen(true);
   }, []);
 
@@ -342,6 +344,8 @@ export default function CompanyDashboard() {
 
     setEditorOriginalId(null);
     setEditorDraft(draft);
+    setLogoFile(null);
+    setLogoUploadError(null);
     setEditorOpen(true);
   }, []);
 
