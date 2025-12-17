@@ -118,6 +118,7 @@ export interface Company {
   amazon_url?: string;
   tagline?: string;
   logo_url?: string;
+  notes_entries?: CompanyNote[];
   location_sources?: LocationSource[];
   show_location_sources_to_users?: boolean;
   visibility?: CompanyVisibility;
