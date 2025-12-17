@@ -1,8 +1,17 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { Link } from "react-router-dom";
 import DataTable from "react-data-table-component";
-import { Save, Trash2, Pencil, RefreshCcw, AlertTriangle, Plus, AlertCircle } from "lucide-react";
+import {
+  Save,
+  Trash2,
+  Pencil,
+  RefreshCcw,
+  AlertTriangle,
+  Plus,
+  AlertCircle,
+  Copy,
+} from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
@@ -12,11 +21,20 @@ import { apiFetch, getUserFacingConfigMessage } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const DEFAULT_TAKE = 200;
 
@@ -50,7 +68,10 @@ function keywordStringToList(value) {
 
 function keywordListToString(list) {
   if (!Array.isArray(list)) return "";
-  return list.map((v) => asString(v).trim()).filter(Boolean).join(", ");
+  return list
+    .map((v) => asString(v).trim())
+    .filter(Boolean)
+    .join(", ");
 }
 
 function getCompanyName(company) {
@@ -58,7 +79,22 @@ function getCompanyName(company) {
 }
 
 function getCompanyUrl(company) {
-  return asString(company?.website_url || company?.url || company?.canonical_url).trim();
+  return asString(company?.website_url || company?.url || company?.canonical_url || company?.website).trim();
+}
+
+function getCompanyId(company) {
+  return asString(company?.company_id || company?.id).trim();
+}
+
+function slugifyCompanyId(name) {
+  const base = asString(name)
+    .trim()
+    .toLowerCase()
+    .replace(/[']/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return base;
 }
 
 function toIssueTags(company) {
@@ -101,6 +137,35 @@ function validateCompanyDraft(draft) {
   return null;
 }
 
+async function copyToClipboard(value) {
+  const s = asString(value).trim();
+  if (!s) return false;
+
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(s);
+      return true;
+    }
+  } catch {
+    // fall through
+  }
+
+  try {
+    const el = document.createElement("textarea");
+    el.value = s;
+    el.setAttribute("readonly", "");
+    el.style.position = "absolute";
+    el.style.left = "-9999px";
+    document.body.appendChild(el);
+    el.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(el);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export default function CompanyDashboard() {
   const [search, setSearch] = useState("");
   const [take, setTake] = useState(DEFAULT_TAKE);
@@ -118,6 +183,14 @@ export default function CompanyDashboard() {
   const [editorDraft, setEditorDraft] = useState(null);
   const [editorOriginalId, setEditorOriginalId] = useState(null);
 
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [deleteConfirmLoading, setDeleteConfirmLoading] = useState(false);
+  const [deleteConfirmError, setDeleteConfirmError] = useState(null);
+
+  const requestSeqRef = useRef(0);
+  const abortRef = useRef(null);
+
   const incompleteCount = useMemo(() => {
     return items.reduce((sum, c) => sum + (toIssueTags(c).length > 0 ? 1 : 0), 0);
   }, [items]);
@@ -132,6 +205,17 @@ export default function CompanyDashboard() {
       const q = typeof opts.search === "string" ? opts.search : search;
       const t = Number.isFinite(opts.take) ? opts.take : take;
 
+      const seq = (requestSeqRef.current += 1);
+      if (abortRef.current) {
+        try {
+          abortRef.current.abort();
+        } catch {
+          // ignore
+        }
+      }
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       setLoading(true);
       setLastError(null);
       try {
@@ -139,8 +223,10 @@ export default function CompanyDashboard() {
         if (q.trim()) params.set("search", q.trim());
         params.set("take", String(Math.max(1, Math.min(500, Math.trunc(t || DEFAULT_TAKE)))));
 
-        const res = await apiFetch(`/xadmin-api-companies?${params.toString()}`);
+        const res = await apiFetch(`/xadmin-api-companies?${params.toString()}`, { signal: controller.signal });
         const body = await res.json().catch(() => ({}));
+
+        if (seq !== requestSeqRef.current) return;
 
         if (!res.ok) {
           const configMsg = await getUserFacingConfigMessage(res);
@@ -161,11 +247,7 @@ export default function CompanyDashboard() {
         setItems(nextItems);
         setRowErrors((prev) => {
           if (!prev || typeof prev !== "object") return {};
-          const ids = new Set(
-            nextItems
-              .map((c) => asString(c?.id || c?.company_id).trim())
-              .filter(Boolean)
-          );
+          const ids = new Set(nextItems.map((c) => getCompanyId(c)).filter(Boolean));
           const keep = {};
           for (const [key, value] of Object.entries(prev)) {
             if (ids.has(key)) keep[key] = value;
@@ -174,6 +256,7 @@ export default function CompanyDashboard() {
         });
         setLastError(null);
       } catch (e) {
+        if (controller.signal.aborted) return;
         const errMsg = e?.message || "Failed to load companies";
         setLastError({
           status: 503,
@@ -182,21 +265,45 @@ export default function CompanyDashboard() {
         });
         toast.error(errMsg);
       } finally {
-        setLoading(false);
+        if (seq === requestSeqRef.current) setLoading(false);
       }
     },
     [search, take]
   );
 
   useEffect(() => {
-    loadCompanies();
-  }, [loadCompanies]);
+    const q = search.trim();
+    const timeout = window.setTimeout(
+      () => {
+        loadCompanies({ search: q, take });
+      },
+      q ? 300 : 0
+    );
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [loadCompanies, search, take]);
+
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) {
+        try {
+          abortRef.current.abort();
+        } catch {
+          // ignore
+        }
+      }
+    };
+  }, []);
 
   const openEditorForCompany = useCallback((company) => {
-    const id = asString(company?.id || company?.company_id).trim();
+    const id = getCompanyId(company);
 
     const draft = {
       ...company,
+      id: asString(company?.id).trim(),
+      company_id: asString(company?.company_id || company?.id).trim(),
       company_name: getCompanyName(company),
       website_url: getCompanyUrl(company),
       headquarters_location: asString(company?.headquarters_location).trim(),
@@ -234,20 +341,28 @@ export default function CompanyDashboard() {
   const saveEditor = useCallback(async () => {
     if (!editorDraft) return;
 
-    const err = validateCompanyDraft(editorDraft);
-    if (err) {
-      toast.error(err);
+    const validationError = validateCompanyDraft(editorDraft);
+    if (validationError) {
+      toast.error(validationError);
       return;
     }
 
+    const isNew = !editorOriginalId;
+
     setEditorSaving(true);
     try {
+      const draftCompanyId = asString(editorDraft.company_id).trim();
+      const draftName = getCompanyName(editorDraft);
+      const suggestedId = slugifyCompanyId(draftName);
+
+      const resolvedCompanyId = draftCompanyId || (isNew ? suggestedId : "") || "";
+
       const payload = {
         ...editorDraft,
-        id: asString(editorDraft.id || editorDraft.company_id || editorDraft.company_name).trim(),
-        company_id: asString(editorDraft.company_id || editorDraft.id || editorDraft.company_name).trim(),
-        company_name: getCompanyName(editorDraft),
-        name: asString(editorDraft.name || getCompanyName(editorDraft)).trim(),
+        company_id: resolvedCompanyId,
+        id: resolvedCompanyId,
+        company_name: draftName,
+        name: asString(editorDraft.name || draftName).trim(),
         website_url: getCompanyUrl(editorDraft),
         url: asString(editorDraft.url || getCompanyUrl(editorDraft)).trim(),
         headquarters_location: asString(editorDraft.headquarters_location).trim(),
@@ -258,8 +373,15 @@ export default function CompanyDashboard() {
         logo_url: asString(editorDraft.logo_url).trim(),
       };
 
+      if (!payload.company_id) {
+        payload.company_id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        payload.id = payload.company_id;
+      }
+
+      const method = isNew ? "POST" : "PUT";
+
       const res = await apiFetch("/xadmin-api-companies", {
-        method: "PUT",
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ company: payload }),
       });
@@ -272,27 +394,18 @@ export default function CompanyDashboard() {
       }
 
       const savedCompany = body?.company || payload;
+      const savedId = getCompanyId(savedCompany);
 
       setItems((prev) => {
-        const savedId = asString(savedCompany?.id || savedCompany?.company_id).trim();
-        const matchId = editorOriginalId || savedId;
-        if (!matchId) return [savedCompany, ...prev];
-
-        let replaced = false;
-        const next = prev.map((c) => {
-          const cid = asString(c?.id || c?.company_id).trim();
-          if (cid && cid === matchId) {
-            replaced = true;
-            return savedCompany;
-          }
-          return c;
-        });
-
-        return replaced ? next : [savedCompany, ...next];
+        if (!savedId) return [savedCompany, ...prev];
+        const next = prev.filter((c) => getCompanyId(c) !== savedId);
+        return [savedCompany, ...next];
       });
 
-      toast.success("Company saved");
+      toast.success(isNew ? "Company created" : "Company saved");
       setEditorOpen(false);
+      setEditorDraft(null);
+      setEditorOriginalId(null);
     } catch (e) {
       toast.error(e?.message || "Save failed");
     } finally {
@@ -300,11 +413,11 @@ export default function CompanyDashboard() {
     }
   }, [editorDraft, editorOriginalId]);
 
-  const deleteCompany = useCallback(async (id) => {
-    const safeId = asString(id).trim();
+  const deleteCompany = useCallback(async (companyId) => {
+    const safeId = asString(companyId).trim();
     if (!safeId) {
-      toast.error("Missing company id");
-      return false;
+      toast.error("Missing company_id");
+      return { ok: false, id: safeId, message: "Missing company_id" };
     }
 
     setRowErrors((prev) => {
@@ -317,7 +430,7 @@ export default function CompanyDashboard() {
       const res = await apiFetch("/xadmin-api-companies", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: safeId, actor: "admin_ui" }),
+        body: JSON.stringify({ company_id: safeId, actor: "admin_ui" }),
       });
 
       const body = await res.json().catch(() => ({}));
@@ -330,48 +443,78 @@ export default function CompanyDashboard() {
           [safeId]: { status: res.status, message: msg, detail, body },
         }));
 
-        toast.error(msg);
-        return false;
+        return { ok: false, id: safeId, message: msg, detail, body, status: res.status };
       }
 
-      setItems((prev) => prev.filter((c) => asString(c?.id || c?.company_id).trim() !== safeId));
+      setItems((prev) => prev.filter((c) => getCompanyId(c) !== safeId));
       setRowErrors((prev) => {
         const next = { ...(prev || {}) };
         delete next[safeId];
         return next;
       });
 
-      return true;
+      return { ok: true, id: safeId };
     } catch (e) {
       const msg = e?.message || "Delete failed";
       setRowErrors((prev) => ({
         ...(prev || {}),
         [safeId]: { status: 0, message: msg, detail: msg },
       }));
-      toast.error(msg);
-      return false;
+      return { ok: false, id: safeId, message: msg, detail: msg, status: 0 };
     }
   }, []);
 
-  const deleteSelected = useCallback(async () => {
-    const ids = selectedRows
-      .map((r) => asString(r?.id || r?.company_id).trim())
-      .filter(Boolean);
+  const openDeleteConfirm = useCallback((spec) => {
+    setDeleteConfirmError(null);
+    setDeleteConfirm(spec);
+    setDeleteConfirmOpen(true);
+  }, []);
 
+  const confirmDelete = useCallback(async () => {
+    if (!deleteConfirm) return;
+    setDeleteConfirmLoading(true);
+    setDeleteConfirmError(null);
+
+    try {
+      if (deleteConfirm.kind === "bulk") {
+        let deleted = 0;
+        for (const id of deleteConfirm.ids) {
+          const res = await deleteCompany(id);
+          if (res.ok) deleted += 1;
+        }
+        if (deleted > 0) toast.success(`Deleted ${deleted} compan${deleted === 1 ? "y" : "ies"}`);
+        setSelectedRows([]);
+        setDeleteConfirmOpen(false);
+        return;
+      }
+
+      const res = await deleteCompany(deleteConfirm.company_id);
+      if (!res.ok) {
+        setDeleteConfirmError({
+          message: asString(res.message || "Delete failed"),
+          detail: asString(res.detail || ""),
+          body: res.body,
+        });
+        toast.error(asString(res.message || "Delete failed"));
+        return;
+      }
+
+      toast.success("Company deleted");
+      setDeleteConfirmOpen(false);
+      setEditorOpen(false);
+      setEditorDraft(null);
+      setEditorOriginalId(null);
+    } finally {
+      setDeleteConfirmLoading(false);
+    }
+  }, [deleteCompany, deleteConfirm]);
+
+  const deleteSelected = useCallback(() => {
+    const ids = selectedRows.map((r) => getCompanyId(r)).filter(Boolean);
     if (ids.length === 0) return;
 
-    const ok = window.confirm(`Delete ${ids.length} selected compan${ids.length === 1 ? "y" : "ies"}?`);
-    if (!ok) return;
-
-    let deleted = 0;
-    for (const id of ids) {
-      const success = await deleteCompany(id);
-      if (success) deleted += 1;
-    }
-
-    if (deleted > 0) toast.success(`Deleted ${deleted} compan${deleted === 1 ? "y" : "ies"}`);
-    setSelectedRows([]);
-  }, [deleteCompany, selectedRows]);
+    openDeleteConfirm({ kind: "bulk", ids, label: `${ids.length} selected compan${ids.length === 1 ? "y" : "ies"}` });
+  }, [openDeleteConfirm, selectedRows]);
 
   const columns = useMemo(() => {
     return [
@@ -411,7 +554,9 @@ export default function CompanyDashboard() {
         name: "Updated",
         selector: (row) => asString(row?.updated_at || row?.created_at).trim(),
         sortable: true,
-        cell: (row) => <span className="text-xs text-slate-700">{toDisplayDate(row?.updated_at || row?.created_at)}</span>,
+        cell: (row) => (
+          <span className="text-xs text-slate-700">{toDisplayDate(row?.updated_at || row?.created_at)}</span>
+        ),
         width: "160px",
       },
       {
@@ -426,12 +571,17 @@ export default function CompanyDashboard() {
           return (
             <div className="flex flex-wrap gap-1">
               {shown.map((t) => (
-                <span key={t} className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] text-amber-900">
+                <span
+                  key={t}
+                  className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] text-amber-900"
+                >
                   {t}
                 </span>
               ))}
               {more > 0 ? (
-                <span className="rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-[11px] text-slate-700">+{more}</span>
+                <span className="rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-[11px] text-slate-700">
+                  +{more}
+                </span>
               ) : null}
             </div>
           );
@@ -442,7 +592,7 @@ export default function CompanyDashboard() {
         name: "Actions",
         button: true,
         cell: (row) => {
-          const id = asString(row?.id || row?.company_id).trim();
+          const id = getCompanyId(row);
           const rowError = id ? rowErrors?.[id] : null;
 
           return (
@@ -455,12 +605,14 @@ export default function CompanyDashboard() {
                   size="sm"
                   variant="outline"
                   className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
-                  onClick={async () => {
-                    const ok = window.confirm(`Delete ${getCompanyName(row) || id || "this company"}?`);
-                    if (!ok) return;
-                    const did = await deleteCompany(id);
-                    if (did) toast.success("Company deleted");
-                  }}
+                  onClick={() =>
+                    openDeleteConfirm({
+                      kind: "single",
+                      company_id: id,
+                      company_name: getCompanyName(row),
+                    })
+                  }
+                  disabled={!id}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -471,10 +623,14 @@ export default function CompanyDashboard() {
                   <div className="font-medium">Delete failed</div>
                   <div>{asString(rowError.message || "Delete failed")}</div>
                   {rowError.detail && rowError.detail !== rowError.message ? (
-                    <div className="mt-1 whitespace-pre-wrap break-words font-mono text-red-800">{asString(rowError.detail)}</div>
+                    <div className="mt-1 whitespace-pre-wrap break-words font-mono text-red-800">
+                      {asString(rowError.detail)}
+                    </div>
                   ) : null}
                   {rowError.body && typeof rowError.body === "object" ? (
-                    <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-red-800">{prettyJson(rowError.body)}</pre>
+                    <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-red-800">
+                      {prettyJson(rowError.body)}
+                    </pre>
                   ) : null}
                 </div>
               ) : null}
@@ -484,7 +640,7 @@ export default function CompanyDashboard() {
         width: "140px",
       },
     ];
-  }, [deleteCompany, openEditorForCompany, rowErrors]);
+  }, [openDeleteConfirm, openEditorForCompany, rowErrors]);
 
   const tableTheme = useMemo(
     () => ({
@@ -530,6 +686,21 @@ export default function CompanyDashboard() {
     return <div className="p-6 text-sm text-slate-600">Loading companies…</div>;
   }, []);
 
+  const editorValidationError = useMemo(() => {
+    return editorDraft ? validateCompanyDraft(editorDraft) : null;
+  }, [editorDraft]);
+
+  const editorCompanyId = useMemo(() => {
+    if (!editorDraft) return "";
+    const isNew = !editorOriginalId;
+    const existing = asString(editorDraft.company_id).trim();
+    if (existing) return existing;
+    if (!isNew) return "";
+
+    const suggested = slugifyCompanyId(getCompanyName(editorDraft));
+    return suggested;
+  }, [editorDraft, editorOriginalId]);
+
   return (
     <>
       <Helmet>
@@ -546,7 +717,7 @@ export default function CompanyDashboard() {
               <h1 className="text-3xl font-bold text-slate-900">Companies</h1>
 
               <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" onClick={() => loadCompanies()} disabled={loading}>
+                <Button variant="outline" onClick={() => loadCompanies({ search: search.trim(), take })} disabled={loading}>
                   <RefreshCcw className="h-4 w-4 mr-2" />
                   {loading ? "Loading…" : "Refresh"}
                 </Button>
@@ -562,16 +733,9 @@ export default function CompanyDashboard() {
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search name, keyword, domain…"
+                  placeholder="Search companies (server-side)…"
                   className="w-[320px]"
                 />
-                <Button
-                  variant="outline"
-                  onClick={() => loadCompanies({ search, take })}
-                  disabled={loading}
-                >
-                  Search
-                </Button>
               </div>
 
               <div className="flex items-center gap-2">
@@ -604,16 +768,10 @@ export default function CompanyDashboard() {
               <div className="flex items-start gap-3">
                 <AlertCircle className="h-6 w-6 text-red-600 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-red-900">
-                    Admin API Unavailable ({lastError.status})
-                  </h3>
-                  <p className="mt-1 text-sm text-red-800">
-                    {lastError.message}
-                  </p>
+                  <h3 className="text-lg font-semibold text-red-900">Admin API Unavailable ({lastError.status})</h3>
+                  <p className="mt-1 text-sm text-red-800">{lastError.message}</p>
                   {lastError.detail && lastError.detail !== lastError.message && (
-                    <p className="mt-1 text-xs text-red-700 font-mono">
-                      {lastError.detail}
-                    </p>
+                    <p className="mt-1 text-xs text-red-700 font-mono">{lastError.detail}</p>
                   )}
                   <div className="mt-3 flex gap-2">
                     <Button asChild variant="destructive" size="sm">
@@ -622,7 +780,7 @@ export default function CompanyDashboard() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => loadCompanies()}
+                      onClick={() => loadCompanies({ search: search.trim(), take })}
                       disabled={loading}
                     >
                       <RefreshCcw className="h-4 w-4 mr-2" />
@@ -657,102 +815,227 @@ export default function CompanyDashboard() {
           </section>
 
           <Dialog open={editorOpen} onOpenChange={(open) => !editorSaving && setEditorOpen(open)}>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>{editorOriginalId ? "Edit company" : "New company"}</DialogTitle>
-                <DialogDescription>
-                  Update company fields and save to Cosmos. Missing fields are highlighted in the table.
-                </DialogDescription>
-              </DialogHeader>
+            <DialogContent className="max-w-none w-[90vw] h-[90vh] p-0">
+              <div className="flex h-full flex-col">
+                <DialogHeader className="px-6 py-4 border-b sticky top-0 bg-background z-10">
+                  <DialogTitle>{editorOriginalId ? "Edit company" : "New company"}</DialogTitle>
+                </DialogHeader>
 
-              {editorDraft ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-sm text-slate-700">Company name</label>
-                    <Input
-                      value={asString(editorDraft.company_name)}
-                      onChange={(e) => setEditorDraft((d) => ({ ...d, company_name: e.target.value }))}
-                      placeholder="Acme Corp"
-                    />
-                  </div>
+                <div className="flex-1 overflow-auto px-6 py-4">
+                  {editorDraft ? (
+                    <div className="space-y-5">
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <div className="text-xs font-medium text-slate-700">company_id</div>
+                            <div className="mt-1 flex items-center gap-2">
+                              <code className="rounded bg-white border border-slate-200 px-2 py-1 text-xs text-slate-900">
+                                {editorOriginalId ? getCompanyId(editorDraft) || "(missing)" : editorCompanyId || "(auto)"}
+                              </code>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={async () => {
+                                  const value = editorOriginalId ? getCompanyId(editorDraft) : editorCompanyId;
+                                  const ok = await copyToClipboard(value);
+                                  if (ok) toast.success("Copied");
+                                  else toast.error("Copy failed");
+                                }}
+                                disabled={!(editorOriginalId ? getCompanyId(editorDraft) : editorCompanyId)}
+                                title="Copy company_id"
+                              >
+                                <Copy className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
 
-                  <div className="space-y-1">
-                    <label className="text-sm text-slate-700">Website URL</label>
-                    <Input
-                      value={asString(editorDraft.website_url)}
-                      onChange={(e) => setEditorDraft((d) => ({ ...d, website_url: e.target.value }))}
-                      placeholder="https://example.com"
-                    />
-                  </div>
+                          {!editorOriginalId ? (
+                            <div className="min-w-[260px]">
+                              <label className="text-xs font-medium text-slate-700">Override company_id (optional)</label>
+                              <Input
+                                value={asString(editorDraft.company_id)}
+                                onChange={(e) => setEditorDraft((d) => ({ ...d, company_id: e.target.value }))}
+                                placeholder={slugifyCompanyId(getCompanyName(editorDraft)) || "auto-generated"}
+                                className="mt-1"
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
 
-                  <div className="space-y-1">
-                    <label className="text-sm text-slate-700">Logo URL</label>
-                    <Input
-                      value={asString(editorDraft.logo_url)}
-                      onChange={(e) => setEditorDraft((d) => ({ ...d, logo_url: e.target.value }))}
-                      placeholder="https://…"
-                    />
-                  </div>
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <label className="text-sm text-slate-700">Company name</label>
+                          <Input
+                            value={asString(editorDraft.company_name)}
+                            onChange={(e) => setEditorDraft((d) => ({ ...d, company_name: e.target.value }))}
+                            placeholder="Acme Corp"
+                          />
+                        </div>
 
-                  <div className="space-y-1">
-                    <label className="text-sm text-slate-700">Tagline</label>
-                    <Input
-                      value={asString(editorDraft.tagline)}
-                      onChange={(e) => setEditorDraft((d) => ({ ...d, tagline: e.target.value }))}
-                      placeholder="Mission statement…"
-                    />
-                  </div>
+                        <div className="space-y-1">
+                          <label className="text-sm text-slate-700">Website URL</label>
+                          <Input
+                            value={asString(editorDraft.website_url)}
+                            onChange={(e) => setEditorDraft((d) => ({ ...d, website_url: e.target.value }))}
+                            placeholder="https://example.com"
+                          />
+                        </div>
 
-                  <div className="space-y-1">
-                    <label className="text-sm text-slate-700">HQ location</label>
-                    <Input
-                      value={asString(editorDraft.headquarters_location)}
-                      onChange={(e) => setEditorDraft((d) => ({ ...d, headquarters_location: e.target.value }))}
-                      placeholder="City, State/Region, Country"
-                    />
-                  </div>
+                        <div className="space-y-1">
+                          <label className="text-sm text-slate-700">Logo URL (legacy)</label>
+                          <Input
+                            value={asString(editorDraft.logo_url)}
+                            onChange={(e) => setEditorDraft((d) => ({ ...d, logo_url: e.target.value }))}
+                            placeholder="https://…"
+                          />
+                        </div>
 
-                  <div className="space-y-1">
-                    <label className="text-sm text-slate-700">Manufacturing locations</label>
-                    <Input
-                      value={normalizeLocationList(editorDraft.manufacturing_locations).join(", ")}
-                      onChange={(e) => setEditorDraft((d) => ({ ...d, manufacturing_locations: normalizeLocationList(e.target.value) }))}
-                      placeholder="City, Region, Country; …"
-                    />
-                  </div>
+                        <div className="space-y-1">
+                          <label className="text-sm text-slate-700">Tagline</label>
+                          <Input
+                            value={asString(editorDraft.tagline)}
+                            onChange={(e) => setEditorDraft((d) => ({ ...d, tagline: e.target.value }))}
+                            placeholder="Mission statement…"
+                          />
+                        </div>
 
-                  <div className="md:col-span-2 space-y-1">
-                    <label className="text-sm text-slate-700">Product keywords</label>
-                    <Input
-                      value={asString(editorDraft.product_keywords)}
-                      onChange={(e) => setEditorDraft((d) => ({ ...d, product_keywords: e.target.value }))}
-                      placeholder="running shoes, socks, …"
-                    />
-                  </div>
+                        <div className="space-y-1">
+                          <label className="text-sm text-slate-700">HQ location</label>
+                          <Input
+                            value={asString(editorDraft.headquarters_location)}
+                            onChange={(e) => setEditorDraft((d) => ({ ...d, headquarters_location: e.target.value }))}
+                            placeholder="City, State/Region, Country"
+                          />
+                        </div>
 
-                  <div className="md:col-span-2 space-y-1">
-                    <label className="text-sm text-slate-700">Notes</label>
-                    <textarea
-                      value={asString(editorDraft.notes)}
-                      onChange={(e) => setEditorDraft((d) => ({ ...d, notes: e.target.value }))}
-                      className="min-h-[120px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
-                      placeholder="Internal notes…"
-                    />
-                  </div>
+                        <div className="space-y-1">
+                          <label className="text-sm text-slate-700">Manufacturing locations</label>
+                          <Input
+                            value={normalizeLocationList(editorDraft.manufacturing_locations).join(", ")}
+                            onChange={(e) =>
+                              setEditorDraft((d) => ({
+                                ...d,
+                                manufacturing_locations: normalizeLocationList(e.target.value),
+                              }))
+                            }
+                            placeholder="City, Region, Country; …"
+                          />
+                        </div>
+
+                        <div className="lg:col-span-2 space-y-1">
+                          <label className="text-sm text-slate-700">Product keywords</label>
+                          <Input
+                            value={asString(editorDraft.product_keywords)}
+                            onChange={(e) => setEditorDraft((d) => ({ ...d, product_keywords: e.target.value }))}
+                            placeholder="running shoes, socks, …"
+                          />
+                        </div>
+
+                        <div className="lg:col-span-2 space-y-1">
+                          <label className="text-sm text-slate-700">Notes</label>
+                          <textarea
+                            value={asString(editorDraft.notes)}
+                            onChange={(e) => setEditorDraft((d) => ({ ...d, notes: e.target.value }))}
+                            className="min-h-[200px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                            placeholder="Internal notes…"
+                          />
+                        </div>
+                      </div>
+
+                      {editorValidationError ? (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                          {editorValidationError}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
 
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setEditorOpen(false)} disabled={editorSaving}>
-                  Cancel
-                </Button>
-                <Button onClick={saveEditor} disabled={editorSaving}>
-                  <Save className="h-4 w-4 mr-2" />
-                  {editorSaving ? "Saving…" : "Save"}
-                </Button>
-              </DialogFooter>
+                <DialogFooter className="px-6 py-4 border-t">
+                  {editorOriginalId ? (
+                    <Button
+                      variant="outline"
+                      className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white mr-auto"
+                      onClick={() =>
+                        openDeleteConfirm({
+                          kind: "single",
+                          company_id: editorOriginalId,
+                          company_name: getCompanyName(editorDraft),
+                        })
+                      }
+                      disabled={editorSaving}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete
+                    </Button>
+                  ) : (
+                    <span className="mr-auto" />
+                  )}
+                  <Button variant="outline" onClick={() => setEditorOpen(false)} disabled={editorSaving}>
+                    Cancel
+                  </Button>
+                  <Button onClick={saveEditor} disabled={editorSaving || Boolean(editorValidationError)}>
+                    <Save className="h-4 w-4 mr-2" />
+                    {editorSaving ? "Saving…" : editorOriginalId ? "Save changes" : "Create"}
+                  </Button>
+                </DialogFooter>
+              </div>
             </DialogContent>
           </Dialog>
+
+          <AlertDialog open={deleteConfirmOpen} onOpenChange={(open) => !deleteConfirmLoading && setDeleteConfirmOpen(open)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Confirm delete</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This action is irreversible. The company will be removed from the admin list immediately.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+
+              <div className="space-y-2">
+                {deleteConfirm?.kind === "bulk" ? (
+                  <div className="text-sm text-slate-700">Delete {asString(deleteConfirm.label)}?</div>
+                ) : (
+                  <div className="text-sm text-slate-700">
+                    Delete <span className="font-semibold">{asString(deleteConfirm?.company_name) || "this company"}</span> (
+                    <code className="text-xs">{asString(deleteConfirm?.company_id)}</code>)?
+                  </div>
+                )}
+
+                {deleteConfirmError ? (
+                  <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-900">
+                    <div className="font-medium">Delete failed</div>
+                    <div>{asString(deleteConfirmError.message)}</div>
+                    {deleteConfirmError.detail ? (
+                      <div className="mt-1 whitespace-pre-wrap break-words font-mono text-red-800">
+                        {asString(deleteConfirmError.detail)}
+                      </div>
+                    ) : null}
+                    {deleteConfirmError.body && typeof deleteConfirmError.body === "object" ? (
+                      <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-red-800">
+                        {prettyJson(deleteConfirmError.body)}
+                      </pre>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={deleteConfirmLoading}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-red-600 hover:bg-red-600/90"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    confirmDelete();
+                  }}
+                  disabled={deleteConfirmLoading}
+                >
+                  {deleteConfirmLoading ? "Deleting…" : "Delete"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </main>
       </div>
     </>
