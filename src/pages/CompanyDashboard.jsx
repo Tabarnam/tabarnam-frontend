@@ -573,6 +573,36 @@ export default function CompanyDashboard() {
 
       const resolvedCompanyId = draftCompanyId || (isNew ? suggestedId : "") || "";
 
+      const headquarters_locations = normalizeStructuredLocationList(editorDraft.headquarters_locations);
+      const normalizedHQ = headquarters_locations.map((entry) => {
+        const address = asString(entry.address).trim() || locationEntryToText(entry);
+        return {
+          ...entry,
+          ...(address ? { address } : {}),
+          ...(asString(entry.city).trim() ? { city: asString(entry.city).trim() } : {}),
+          ...(asString(entry.region || entry.state).trim() ? { region: asString(entry.region || entry.state).trim() } : {}),
+          ...(asString(entry.country).trim() ? { country: asString(entry.country).trim() } : {}),
+        };
+      });
+
+      const manufacturing_locations = normalizeStructuredLocationList(editorDraft.manufacturing_locations);
+      const normalizedMFG = manufacturing_locations.map((entry) => {
+        const locLabel = locationEntryToText(entry);
+        const location = asString(entry.location).trim() || locLabel;
+        const address = asString(entry.address).trim();
+        const region = asString(entry.region || entry.state).trim();
+        return {
+          ...entry,
+          ...(location ? { location } : {}),
+          ...(address ? { address } : {}),
+          ...(asString(entry.city).trim() ? { city: asString(entry.city).trim() } : {}),
+          ...(region ? { region } : {}),
+          ...(asString(entry.country).trim() ? { country: asString(entry.country).trim() } : {}),
+        };
+      });
+
+      const derivedHeadquartersLocation = normalizedHQ.length > 0 ? locationEntryToText(normalizedHQ[0]) : "";
+
       const payload = {
         ...editorDraft,
         company_id: resolvedCompanyId,
@@ -581,8 +611,9 @@ export default function CompanyDashboard() {
         name: asString(editorDraft.name || draftName).trim(),
         website_url: getCompanyUrl(editorDraft),
         url: asString(editorDraft.url || getCompanyUrl(editorDraft)).trim(),
-        headquarters_location: asString(editorDraft.headquarters_location).trim(),
-        manufacturing_locations: normalizeLocationList(editorDraft.manufacturing_locations),
+        headquarters_location: derivedHeadquartersLocation,
+        headquarters_locations: normalizedHQ,
+        manufacturing_locations: normalizedMFG,
         product_keywords: keywordListToString(keywordStringToList(editorDraft.product_keywords)),
         notes: asString(editorDraft.notes).trim(),
         tagline: asString(editorDraft.tagline).trim(),
