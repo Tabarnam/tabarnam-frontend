@@ -2056,7 +2056,7 @@ Return ONLY the JSON array, no other text.`,
               const expansionMessage = {
                 role: "user",
                 content: `You previously found companies for "${xaiPayload.query}" (${xaiPayload.queryType}).
-Find ${xaiPayload.limit} MORE DIFFERENT companies that are related to "${xaiPayload.query}" but were not in the previous results.
+Find ${xaiPayload.limit} MORE DIFFERENT companies that are related to "${xaiPayload.query}" (search type(s): ${xaiPayload.queryType}${xaiPayload.location ? `, location boost: ${xaiPayload.location}` : ""}) but were not in the previous results.
 PRIORITIZE finding smaller, regional, and lesser-known companies that are alternatives to major brands.
 Focus on independent manufacturers, craft producers, specialty companies, and regional players that serve the same market.
 
