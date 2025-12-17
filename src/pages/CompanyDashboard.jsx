@@ -17,6 +17,7 @@ import { calculateInitialRating, clampStarValue, normalizeRating } from "@/lib/s
 
 import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/lib/toast";
 import { apiFetch, getUserFacingConfigMessage } from "@/lib/api";
@@ -870,6 +871,11 @@ export default function CompanyDashboard() {
   const [editorDraft, setEditorDraft] = useState(null);
   const [editorOriginalId, setEditorOriginalId] = useState(null);
 
+  const [refreshLoading, setRefreshLoading] = useState(false);
+  const [refreshError, setRefreshError] = useState(null);
+  const [refreshProposed, setRefreshProposed] = useState(null);
+  const [refreshSelection, setRefreshSelection] = useState({});
+
   const [logoFile, setLogoFile] = useState(null);
   const [logoUploading, setLogoUploading] = useState(false);
   const [logoUpdating, setLogoUpdating] = useState(false);
@@ -1026,6 +1032,10 @@ export default function CompanyDashboard() {
     setEditorDraft(draft);
     setLogoFile(null);
     setLogoUploadError(null);
+    setRefreshLoading(false);
+    setRefreshError(null);
+    setRefreshProposed(null);
+    setRefreshSelection({});
     setEditorOpen(true);
   }, []);
 
@@ -1051,8 +1061,225 @@ export default function CompanyDashboard() {
     setEditorDraft(draft);
     setLogoFile(null);
     setLogoUploadError(null);
+    setRefreshLoading(false);
+    setRefreshError(null);
+    setRefreshProposed(null);
+    setRefreshSelection({});
     setEditorOpen(true);
   }, []);
+
+  const refreshDiffFields = useMemo(
+    () => [
+      { key: "company_name", label: "Company name" },
+      { key: "website_url", label: "Website URL" },
+      { key: "tagline", label: "Tagline" },
+      { key: "headquarters_locations", label: "HQ locations" },
+      { key: "manufacturing_locations", label: "Manufacturing locations" },
+      { key: "industries", label: "Industries" },
+      { key: "keywords", label: "Keywords" },
+      { key: "red_flag", label: "Red flag" },
+      { key: "red_flag_reason", label: "Red flag reason" },
+      { key: "location_confidence", label: "Location confidence" },
+      { key: "location_sources", label: "Location sources" },
+    ],
+    []
+  );
+
+  const normalizeForDiff = useCallback((key, value) => {
+    switch (key) {
+      case "industries":
+      case "keywords": {
+        return normalizeStringList(value)
+          .map((v) => v.trim())
+          .filter(Boolean)
+          .map((v) => v.toLowerCase())
+          .sort();
+      }
+      case "headquarters_locations":
+      case "manufacturing_locations": {
+        return normalizeStructuredLocationList(value)
+          .map((v) => formatStructuredLocation(v))
+          .map((v) => v.trim())
+          .filter(Boolean)
+          .map((v) => v.toLowerCase())
+          .sort();
+      }
+      case "location_sources": {
+        const list = Array.isArray(value) ? value : [];
+        return list
+          .filter((v) => v && typeof v === "object")
+          .map((v) => {
+            const location = asString(v.location).trim();
+            const source_url = asString(v.source_url).trim();
+            const source_type = asString(v.source_type).trim();
+            const location_type = asString(v.location_type).trim();
+            return [location, source_type, location_type, source_url]
+              .filter(Boolean)
+              .join(" | ")
+              .toLowerCase();
+          })
+          .filter(Boolean)
+          .sort();
+      }
+      case "red_flag": {
+        return Boolean(value);
+      }
+      default:
+        return asString(value).trim();
+    }
+  }, []);
+
+  const diffToDisplay = useCallback((key, value) => {
+    switch (key) {
+      case "industries":
+      case "keywords": {
+        const list = normalizeStringList(value);
+        return list.length ? list.join("\n") : "(empty)";
+      }
+      case "headquarters_locations":
+      case "manufacturing_locations": {
+        const list = normalizeStructuredLocationList(value).map((v) => formatStructuredLocation(v)).filter(Boolean);
+        return list.length ? list.join("\n") : "(empty)";
+      }
+      case "location_sources": {
+        const list = Array.isArray(value) ? value : [];
+        const lines = list
+          .filter((v) => v && typeof v === "object")
+          .map((v) => {
+            const location = asString(v.location).trim();
+            const source_url = asString(v.source_url).trim();
+            const source_type = asString(v.source_type).trim();
+            const location_type = asString(v.location_type).trim();
+            return [location, source_type, location_type, source_url].filter(Boolean).join(" — ");
+          })
+          .filter(Boolean);
+        return lines.length ? lines.join("\n") : "(empty)";
+      }
+      case "red_flag": {
+        return Boolean(value) ? "true" : "false";
+      }
+      default: {
+        const s = asString(value).trim();
+        return s || "(empty)";
+      }
+    }
+  }, []);
+
+  const diffRows = useMemo(() => {
+    if (!editorDraft || !refreshProposed || typeof refreshProposed !== "object") return [];
+
+    const rows = [];
+    for (const f of refreshDiffFields) {
+      if (!Object.prototype.hasOwnProperty.call(refreshProposed, f.key)) continue;
+
+      const currentVal = editorDraft?.[f.key];
+      const proposedVal = refreshProposed?.[f.key];
+
+      const a = normalizeForDiff(f.key, currentVal);
+      const b = normalizeForDiff(f.key, proposedVal);
+      const changed = JSON.stringify(a) !== JSON.stringify(b);
+      if (!changed) continue;
+
+      rows.push({
+        key: f.key,
+        label: f.label,
+        currentText: diffToDisplay(f.key, currentVal),
+        proposedText: diffToDisplay(f.key, proposedVal),
+      });
+    }
+
+    return rows;
+  }, [diffToDisplay, editorDraft, normalizeForDiff, refreshDiffFields, refreshProposed]);
+
+  const selectedDiffCount = useMemo(() => {
+    return diffRows.reduce((sum, row) => sum + (refreshSelection[row.key] ? 1 : 0), 0);
+  }, [diffRows, refreshSelection]);
+
+  const selectAllDiffs = useCallback(() => {
+    const next = {};
+    for (const row of diffRows) next[row.key] = true;
+    setRefreshSelection(next);
+  }, [diffRows]);
+
+  const clearAllDiffs = useCallback(() => {
+    setRefreshSelection({});
+  }, []);
+
+  const applySelectedDiffs = useCallback(() => {
+    if (!refreshProposed || typeof refreshProposed !== "object") return;
+
+    setEditorDraft((prev) => {
+      const base = prev && typeof prev === "object" ? prev : {};
+      let next = base;
+
+      for (const row of diffRows) {
+        if (!refreshSelection[row.key]) continue;
+        if (!Object.prototype.hasOwnProperty.call(refreshProposed, row.key)) continue;
+        if (next === base) next = { ...base };
+        next[row.key] = refreshProposed[row.key];
+      }
+
+      return next;
+    });
+
+    toast.success(`Applied ${selectedDiffCount} change${selectedDiffCount === 1 ? "" : "s"}`);
+  }, [diffRows, refreshProposed, refreshSelection, selectedDiffCount]);
+
+  const refreshCompany = useCallback(async () => {
+    const companyId = asString(editorOriginalId || editorDraft?.company_id || editorDraft?.id).trim();
+    if (!companyId) {
+      toast.error("Save the company first.");
+      return;
+    }
+
+    setRefreshLoading(true);
+    setRefreshError(null);
+    setRefreshProposed(null);
+    setRefreshSelection({});
+
+    try {
+      const res = await apiFetch("/xadmin-api-refresh-company", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company_id: companyId }),
+      });
+
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.ok !== true) {
+        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Refresh failed (${res.status})`;
+        setRefreshError(msg);
+        toast.error(msg);
+        return;
+      }
+
+      const proposed = body?.proposed && typeof body.proposed === "object" ? body.proposed : null;
+      if (!proposed) {
+        const msg = "No proposed updates returned.";
+        setRefreshError(msg);
+        toast.error(msg);
+        return;
+      }
+
+      setRefreshProposed(proposed);
+
+      const defaults = {};
+      for (const f of refreshDiffFields) {
+        if (!Object.prototype.hasOwnProperty.call(proposed, f.key)) continue;
+        const a = normalizeForDiff(f.key, editorDraft?.[f.key]);
+        const b = normalizeForDiff(f.key, proposed?.[f.key]);
+        if (JSON.stringify(a) !== JSON.stringify(b)) defaults[f.key] = true;
+      }
+      setRefreshSelection(defaults);
+
+      toast.success("Proposed updates loaded");
+    } catch (e) {
+      const msg = e?.message || "Refresh failed";
+      setRefreshError(msg);
+      toast.error(msg);
+    } finally {
+      setRefreshLoading(false);
+    }
+  }, [editorDraft, editorOriginalId, normalizeForDiff, refreshDiffFields]);
 
   const saveEditor = useCallback(async () => {
     if (!editorDraft) return;
@@ -1683,30 +1910,45 @@ export default function CompanyDashboard() {
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
                             <div className="text-xs font-medium text-slate-700">company_id</div>
-                            <div className="mt-1 flex items-center gap-2">
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
                               <code className="rounded bg-white border border-slate-200 px-2 py-1 text-xs text-slate-900">
                                 {editorOriginalId ? asString(editorDraft.company_id).trim() || "(missing)" : editorCompanyId || "(auto)"}
                               </code>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={async () => {
-                                  const value = editorOriginalId
-                                    ? asString(editorDraft.company_id).trim()
-                                    : asString(editorCompanyId).trim();
-                                  const ok = await copyToClipboard(value);
-                                  if (ok) toast.success("Copied");
-                                  else toast.error("Copy failed");
-                                }}
-                                disabled={
-                                  !(editorOriginalId
-                                    ? asString(editorDraft.company_id).trim()
-                                    : asString(editorCompanyId).trim())
-                                }
-                                title="Copy company_id"
-                              >
-                                <Copy className="h-4 w-4" />
-                              </Button>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={async () => {
+                                    const value = editorOriginalId
+                                      ? asString(editorDraft.company_id).trim()
+                                      : asString(editorCompanyId).trim();
+                                    const ok = await copyToClipboard(value);
+                                    if (ok) toast.success("Copied");
+                                    else toast.error("Copy failed");
+                                  }}
+                                  disabled={
+                                    !(editorOriginalId
+                                      ? asString(editorDraft.company_id).trim()
+                                      : asString(editorCompanyId).trim())
+                                  }
+                                  title="Copy company_id"
+                                >
+                                  <Copy className="h-4 w-4" />
+                                </Button>
+
+                                {editorOriginalId ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={refreshCompany}
+                                    disabled={refreshLoading || editorSaving}
+                                    title="Refresh search"
+                                  >
+                                    <RefreshCcw className="h-4 w-4 mr-2" />
+                                    {refreshLoading ? "Refreshing…" : "Refresh search"}
+                                  </Button>
+                                ) : null}
+                              </div>
                             </div>
                           </div>
 
@@ -1723,6 +1965,85 @@ export default function CompanyDashboard() {
                           ) : null}
                         </div>
                       </div>
+
+                      {editorOriginalId ? (
+                        <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-sm font-semibold text-slate-900">Proposed refresh</div>
+                            {refreshProposed && diffRows.length > 0 ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Button type="button" size="sm" variant="outline" onClick={selectAllDiffs}>
+                                  Select all
+                                </Button>
+                                <Button type="button" size="sm" variant="outline" onClick={clearAllDiffs}>
+                                  Clear
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={applySelectedDiffs}
+                                  disabled={selectedDiffCount === 0}
+                                >
+                                  Apply selected ({selectedDiffCount})
+                                </Button>
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {refreshError ? (
+                            <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">{refreshError}</div>
+                          ) : null}
+
+                          {refreshProposed ? (
+                            diffRows.length > 0 ? (
+                              <div className="space-y-3">
+                                {diffRows.map((row) => (
+                                  <div key={row.key} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                    <div className="flex items-start gap-3">
+                                      <Checkbox
+                                        checked={Boolean(refreshSelection[row.key])}
+                                        onCheckedChange={(checked) =>
+                                          setRefreshSelection((prev) => ({
+                                            ...(prev || {}),
+                                            [row.key]: Boolean(checked),
+                                          }))
+                                        }
+                                        aria-label={`Overwrite ${row.label}`}
+                                      />
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-medium text-slate-900">{row.label}</div>
+                                        <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                          <div className="rounded border border-slate-200 bg-white p-2">
+                                            <div className="text-xs font-semibold text-slate-700">Current</div>
+                                            <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-800">{row.currentText}</pre>
+                                          </div>
+                                          <div className="rounded border border-slate-200 bg-white p-2">
+                                            <div className="text-xs font-semibold text-slate-700">Proposed</div>
+                                            <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-800">{row.proposedText}</pre>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+
+                                <div className="text-xs text-slate-600">
+                                  Protected fields are never overwritten: logo, structured notes, and manual stars.
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                                No differences found.
+                              </div>
+                            )
+                          ) : (
+                            <div className="text-xs text-slate-600">
+                              Click “Refresh search” to fetch proposed updates. Protected fields (logo, notes, manual stars)
+                              are never overwritten.
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
 
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         <div className="space-y-1">
