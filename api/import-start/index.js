@@ -1316,9 +1316,20 @@ const importStartHandler = async (req, context) => {
 
       try {
         const center = safeCenter(bodyObj.center);
+        const queryTypesRaw = Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [];
+        const queryTypes = queryTypesRaw
+          .map((t) => String(t || "").trim())
+          .filter(Boolean)
+          .slice(0, 10);
+
+        const queryType = String(bodyObj.queryType || queryTypes[0] || "product_keyword").trim() || "product_keyword";
+        const location = String(bodyObj.location || "").trim();
+
         const xaiPayload = {
-          queryType: bodyObj.queryType || "product_keyword",
+          queryType: queryTypes.length > 0 ? queryTypes.join(", ") : queryType,
+          queryTypes: queryTypes.length > 0 ? queryTypes : [queryType],
           query: bodyObj.query || "",
+          location,
           limit: Math.max(1, Math.min(Number(bodyObj.limit) || 10, 25)),
           expand_if_few: bodyObj.expand_if_few ?? true,
           session_id: sessionId,
@@ -1379,7 +1390,12 @@ const importStartHandler = async (req, context) => {
           content: `You are a business research assistant specializing in manufacturing location extraction. Find and return information about ${xaiPayload.limit} DIFFERENT companies or products based on this search.
 
 Search query: "${xaiPayload.query}"
-Search type: ${xaiPayload.queryType}
+Search type(s): ${xaiPayload.queryType}
+${xaiPayload.location ? `
+Location boost: "${xaiPayload.location}"
+- If you can, prefer and rank higher companies whose HQ or manufacturing locations match this location.
+- The location is OPTIONAL; do not block the import if it is empty.
+` : ""}
 
 CRITICAL PRIORITY #1: HEADQUARTERS & MANUFACTURING LOCATIONS (THIS IS THE TOP VALUE PROP)
 These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULTI-SOURCE in extraction - do not accept "website is vague" as final answer.
