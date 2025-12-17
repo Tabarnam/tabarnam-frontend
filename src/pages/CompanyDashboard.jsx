@@ -264,6 +264,114 @@ async function copyToClipboard(value) {
   }
 }
 
+function StructuredLocationListEditor({ title, value, onChange, disabled }) {
+  const items = Array.isArray(value) ? value : [];
+
+  const [draft, setDraft] = useState({ city: "", region: "", country: "" });
+
+  const canAdd = Boolean(
+    asString(draft.city).trim() || asString(draft.region).trim() || asString(draft.country).trim()
+  );
+
+  const add = useCallback(() => {
+    const city = asString(draft.city).trim();
+    const region = asString(draft.region).trim();
+    const country = asString(draft.country).trim();
+
+    if (!city && !region && !country) return;
+
+    const entry = {
+      ...(city ? { city } : {}),
+      ...(region ? { region } : {}),
+      ...(country ? { country } : {}),
+    };
+
+    onChange([...(items || []), entry]);
+    setDraft({ city: "", region: "", country: "" });
+  }, [draft.city, draft.country, draft.region, items, onChange]);
+
+  const removeAt = useCallback(
+    (idx) => {
+      const next = items.filter((_, i) => i !== idx);
+      onChange(next);
+    },
+    [items, onChange]
+  );
+
+  const onKeyDown = useCallback(
+    (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      add();
+    },
+    [add]
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm text-slate-700 font-medium">{title}</div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <Input
+          value={asString(draft.city)}
+          onChange={(e) => setDraft((d) => ({ ...d, city: e.target.value }))}
+          onKeyDown={onKeyDown}
+          placeholder="City"
+          disabled={disabled}
+        />
+        <Input
+          value={asString(draft.region)}
+          onChange={(e) => setDraft((d) => ({ ...d, region: e.target.value }))}
+          onKeyDown={onKeyDown}
+          placeholder="Region/State"
+          disabled={disabled}
+        />
+        <Input
+          value={asString(draft.country)}
+          onChange={(e) => setDraft((d) => ({ ...d, country: e.target.value }))}
+          onKeyDown={onKeyDown}
+          placeholder="Country"
+          disabled={disabled}
+        />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Button variant="outline" onClick={add} disabled={disabled || !canAdd}>
+          Add
+        </Button>
+        <div className="text-xs text-slate-500">Press Enter to add</div>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="space-y-2">
+          {items.map((loc, idx) => {
+            const label = locationEntryToText(loc);
+            return (
+              <div
+                key={`${label}-${idx}`}
+                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+              >
+                <div className="text-sm text-slate-800 min-w-0 break-words">{label || "(empty)"}</div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                  onClick={() => removeAt(idx)}
+                  disabled={disabled}
+                >
+                  Remove
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="text-xs text-slate-500">No entries yet.</div>
+      )}
+    </div>
+  );
+}
+
 export default function CompanyDashboard() {
   const [search, setSearch] = useState("");
   const [take, setTake] = useState(DEFAULT_TAKE);
