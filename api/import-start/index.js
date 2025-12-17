@@ -210,6 +210,17 @@ function isProxyExplicitlyDisabled(value) {
   return false;
 }
 
+function isProxyExplicitlyEnabled(value) {
+  if (value === true) return true;
+  if (value === 1) return true;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (!v) return false;
+    return v === "true" || v === "1" || v === "yes" || v === "on";
+  }
+  return false;
+}
+
 function buildCounts({ enriched, debugOutput }) {
   const candidates_found = Array.isArray(enriched) ? enriched.length : 0;
 
@@ -1145,17 +1156,21 @@ const importStartHandler = async (req, context) => {
           ? bodyObj.proxy
           : readQueryParam(req, "proxy");
 
-      const proxyRequested = !isProxyExplicitlyDisabled(proxyRaw);
+      const proxyDisabled = isProxyExplicitlyDisabled(proxyRaw);
+      const proxyEnabled = isProxyExplicitlyEnabled(proxyRaw);
 
       let proxyBase = "";
       let proxySource = "";
 
-      // If proxy is explicitly disabled, run local mode and do not evaluate proxy config.
-      if (proxyRequested) {
-        const info = getImportStartProxyInfo();
-        proxyBase = info.base;
-        proxySource = info.source;
+      const proxyInfo = !proxyDisabled ? getImportStartProxyInfo() : { base: "", source: "" };
+      proxyBase = proxyInfo.base;
+      proxySource = proxyInfo.source;
 
+      const proxyConfigured = Boolean(proxyBase);
+      const proxyRequested = !proxyDisabled && (proxyEnabled || proxyConfigured);
+
+      // Proxy is an optimization (to avoid SWA timeouts) and should never block production.
+      if (proxyRequested) {
         if (proxyBase && isXaiPublicApiUrl(proxyBase)) {
           setStage("proxy_config", { upstream: proxyBase, proxy_source: proxySource });
           return respondError(new Error("Invalid proxy target: import-start cannot be proxied to XAI API"), {
@@ -1169,15 +1184,14 @@ const importStartHandler = async (req, context) => {
           });
         }
 
-        if (!proxyBase) {
-          setStage("proxy_config");
-          return respondError(new Error("Import upstream not configured"), {
-            status: 500,
-            details: {
-              message:
-                "Set IMPORT_START_PROXY_BASE (preferred) or XAI_IMPORT_PROXY_BASE to a Tabarnam import worker base URL so /api/import/start can run without Static Web Apps timing out",
-            },
-          });
+        if (proxyEnabled && !proxyBase) {
+          const warning = {
+            message:
+              "Proxy was explicitly requested, but IMPORT_START_PROXY_BASE (or XAI_IMPORT_PROXY_BASE) is not configured. Falling back to local import.",
+          };
+          setStage("proxy_config", warning);
+          if (debugOutput) debugOutput.proxy_warning = warning;
+          console.warn("[import-start]", warning.message);
         }
       }
 
