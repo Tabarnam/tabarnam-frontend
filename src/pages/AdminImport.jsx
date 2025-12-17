@@ -540,7 +540,27 @@ export default function AdminImport() {
                 <div className="mt-4 text-sm text-slate-600">Start an import to see results.</div>
               ) : (
                 <div className="mt-4 space-y-2 max-h-[520px] overflow-auto">
-                  {(activeRun?.items || []).map((c) => {
+                  {(() => {
+                    const items = Array.isArray(activeRun?.items) ? activeRun.items.slice() : [];
+                    const loc = asString(activeRun?.location).trim().toLowerCase();
+                    if (!loc) return items;
+
+                    const scoreFor = (company) => {
+                      const hq = asString(company?.headquarters_location).toLowerCase();
+                      const manu = Array.isArray(company?.manufacturing_locations)
+                        ? company.manufacturing_locations
+                            .map((m) => (typeof m === "string" ? m : asString(m?.formatted || m?.address || m?.location)))
+                            .join(" ")
+                            .toLowerCase()
+                        : "";
+                      const ind = Array.isArray(company?.industries) ? company.industries.join(" ").toLowerCase() : "";
+                      const combined = `${hq} ${manu} ${ind}`;
+                      return combined.includes(loc) ? 1 : 0;
+                    };
+
+                    items.sort((a, b) => scoreFor(b) - scoreFor(a));
+                    return items;
+                  })().map((c) => {
                     const name = asString(c?.company_name || c?.name).trim() || "(unnamed)";
                     const url = asString(c?.website_url || c?.url).trim();
                     const keywords = asString(c?.product_keywords).trim();
