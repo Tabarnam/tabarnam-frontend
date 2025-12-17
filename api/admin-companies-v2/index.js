@@ -1,5 +1,5 @@
-const { app } = require('@azure/functions');
-const { CosmosClient } = require('@azure/cosmos');
+const { app } = require("@azure/functions");
+const { CosmosClient } = require("@azure/cosmos");
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -47,10 +47,142 @@ const toNormalizedDomain = (s = "") => {
   }
 };
 
-app.http('adminCompanies', {
-  route: 'xadmin-api-companies',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  authLevel: 'anonymous',
+function slugifyCompanyId(value) {
+  const s = String(value || "").trim().toLowerCase();
+  if (!s) return "";
+  const slug = s
+    .replace(/['\u001a]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return slug;
+}
+
+function sqlContainsString(fieldExpr) {
+  return `(IS_DEFINED(${fieldExpr}) AND IS_STRING(${fieldExpr}) AND CONTAINS(LOWER(${fieldExpr}), @q))`;
+}
+
+function sqlContainsStringOrArray(fieldExpr) {
+  return `(
+    IS_DEFINED(${fieldExpr}) AND (
+      (IS_STRING(${fieldExpr}) AND CONTAINS(LOWER(${fieldExpr}), @q)) OR
+      (IS_ARRAY(${fieldExpr}) AND ARRAY_LENGTH(
+        ARRAY(SELECT VALUE v FROM v IN ${fieldExpr} WHERE IS_STRING(v) AND CONTAINS(LOWER(v), @q))
+      ) > 0)
+    )
+  )`;
+}
+
+function sqlLocationObjectContains(alias) {
+  const parts = [
+    "address",
+    "full_address",
+    "formatted",
+    "location",
+    "city",
+    "region",
+    "state",
+    "country",
+  ];
+
+  return (
+    "(" +
+    parts
+      .map(
+        (p) =>
+          `(IS_DEFINED(${alias}.${p}) AND IS_STRING(${alias}.${p}) AND CONTAINS(LOWER(${alias}.${p}), @q))`
+      )
+      .join(" OR ") +
+    ")"
+  );
+}
+
+function sqlContainsLocationArray(fieldExpr) {
+  return `(
+    IS_DEFINED(${fieldExpr}) AND IS_ARRAY(${fieldExpr}) AND ARRAY_LENGTH(
+      ARRAY(
+        SELECT VALUE l
+        FROM l IN ${fieldExpr}
+        WHERE
+          (IS_STRING(l) AND CONTAINS(LOWER(l), @q)) OR
+          (IS_OBJECT(l) AND ${sqlLocationObjectContains("l")})
+      )
+    ) > 0
+  )`;
+}
+
+function sqlContainsNotesArray(fieldExpr) {
+  return `(
+    IS_DEFINED(${fieldExpr}) AND IS_ARRAY(${fieldExpr}) AND ARRAY_LENGTH(
+      ARRAY(
+        SELECT VALUE n
+        FROM n IN ${fieldExpr}
+        WHERE
+          (IS_STRING(n) AND CONTAINS(LOWER(n), @q)) OR
+          (IS_OBJECT(n) AND IS_DEFINED(n.text) AND IS_STRING(n.text) AND CONTAINS(LOWER(n.text), @q))
+      )
+    ) > 0
+  )`;
+}
+
+function sqlContainsRatingNotes() {
+  const stars = ["star1", "star2", "star3", "star4", "star5"];
+  const clauses = stars.map((s) => sqlContainsNotesArray(`c.rating.${s}.notes`));
+  return `(IS_DEFINED(c.rating) AND IS_OBJECT(c.rating) AND (${clauses.join(" OR ")}))`;
+}
+
+function buildSearchWhereClause() {
+  const clauses = [
+    sqlContainsString("c.company_name"),
+    sqlContainsString("c.name"),
+    sqlContainsString("c.normalized_domain"),
+    sqlContainsString("c.website_url"),
+    sqlContainsString("c.url"),
+    sqlContainsString("c.canonical_url"),
+    sqlContainsString("c.website"),
+    sqlContainsStringOrArray("c.product_keywords"),
+    sqlContainsStringOrArray("c.keywords"),
+    `(
+      IS_DEFINED(c.industries) AND IS_ARRAY(c.industries) AND ARRAY_LENGTH(
+        ARRAY(SELECT VALUE i FROM i IN c.industries WHERE IS_STRING(i) AND CONTAINS(LOWER(i), @q))
+      ) > 0
+    )`,
+    sqlContainsString("c.headquarters_location"),
+    sqlContainsLocationArray("c.headquarters_locations"),
+    sqlContainsLocationArray("c.headquarters"),
+    sqlContainsStringOrArray("c.manufacturing_locations"),
+    sqlContainsLocationArray("c.manufacturing_locations"),
+    sqlContainsLocationArray("c.manufacturing_geocodes"),
+    sqlContainsString("c.notes"),
+    sqlContainsNotesArray("c.star_notes"),
+    sqlContainsRatingNotes(),
+  ];
+
+  return `(${clauses.join(" OR ")})`;
+}
+
+async function doesCompanyIdExist(container, id) {
+  if (!id) return false;
+  try {
+    const { resources } = await container.items
+      .query(
+        {
+          query: "SELECT TOP 1 c.id FROM c WHERE c.id = @id",
+          parameters: [{ name: "@id", value: String(id).trim() }],
+        },
+        { enableCrossPartitionQuery: true }
+      )
+      .fetchAll();
+    return Array.isArray(resources) && resources.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+app.http("adminCompanies", {
+  route: "xadmin-api-companies",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  authLevel: "anonymous",
   handler: async (req, context) => {
     console.log("[admin-companies-v2-handler] Request received:", { method: req.method, url: req.url });
     context.log("admin-companies-v2 function invoked");
@@ -72,22 +204,11 @@ app.http('adminCompanies', {
         const take = Math.min(500, Math.max(1, parseInt((req.query?.take || "200").toString())));
 
         const parameters = [{ name: "@take", value: take }];
-        let whereClauses = [
-          "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)"
-        ];
+        const whereClauses = ["(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)"];
 
         if (search) {
           parameters.push({ name: "@q", value: search });
-          whereClauses.push(
-            "(" +
-            [
-              "CONTAINS(LOWER(c.company_name), @q)",
-              "CONTAINS(LOWER(c.name), @q)",
-              "CONTAINS(LOWER(c.product_keywords), @q)",
-              "CONTAINS(LOWER(c.normalized_domain), @q)",
-            ].join(" OR ") +
-            ")"
-          );
+          whereClauses.push(buildSearchWhereClause());
         }
 
         const whereClause = whereClauses.length > 0 ? "WHERE " + whereClauses.join(" AND ") : "";
@@ -105,7 +226,7 @@ app.http('adminCompanies', {
       if (method === "POST" || method === "PUT") {
         let body = {};
         try {
-          body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+          body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
         } catch (e) {
           return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
@@ -115,9 +236,26 @@ app.http('adminCompanies', {
           return json({ error: "company payload required" }, 400);
         }
 
-        let id = incoming.id || incoming.company_id || incoming.company_name;
+        const incomingName = String(incoming.company_name || incoming.name || "").trim();
+        const incomingUrl = String(
+          incoming.website_url || incoming.canonical_url || incoming.url || incoming.website || ""
+        ).trim();
+
+        let id = String(incoming.company_id || incoming.id || "").trim();
+        const generatedFromName = !id && Boolean(incomingName);
+
+        if (!id) {
+          id = slugifyCompanyId(incomingName);
+        }
         if (!id) {
           id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+        }
+
+        if (method === "POST" && generatedFromName) {
+          const exists = await doesCompanyIdExist(container, id);
+          if (exists) {
+            id = `${id}-${Date.now().toString(36)}`;
+          }
         }
 
         let existingDoc = null;
@@ -144,19 +282,13 @@ app.http('adminCompanies', {
         const base = existingDoc ? { ...existingDoc, ...incoming } : { ...incoming };
 
         const urlForDomain =
-          base.website_url ||
-          base.canonical_url ||
-          base.url ||
-          base.website ||
-          "unknown";
+          base.website_url || base.canonical_url || base.url || base.website || incomingUrl || "unknown";
 
         const computedDomain = toNormalizedDomain(urlForDomain);
         const incomingDomain =
-          computedDomain !== "unknown" ? computedDomain : (incoming.normalized_domain || computedDomain);
+          computedDomain !== "unknown" ? computedDomain : incoming.normalized_domain || computedDomain;
 
-        const normalizedDomain = String(
-          (existingDoc && existingDoc.normalized_domain) || incomingDomain || "unknown"
-        ).trim();
+        const normalizedDomain = String((existingDoc && existingDoc.normalized_domain) || incomingDomain || "unknown").trim();
 
         if (!normalizedDomain) {
           return json({ error: "Unable to determine company domain for partition key" }, 400);
@@ -185,20 +317,37 @@ app.http('adminCompanies', {
           created_at: (existingDoc && existingDoc.created_at) || base.created_at || now,
         };
 
-        context.log(`[admin-companies-v2] Upserting company`, { id: partitionKeyValue, method, company_name: doc.company_name });
+        context.log("[admin-companies-v2] Upserting company", {
+          id: partitionKeyValue,
+          method,
+          company_id: doc.company_id,
+          company_name: doc.company_name,
+        });
 
         try {
           let result;
           try {
             result = await container.items.upsert(doc, { partitionKey: partitionKeyValue });
           } catch (upsertError) {
-            context.log(`[admin-companies-v2] First upsert attempt failed, retrying without partition key`, { error: upsertError?.message });
+            context.log(
+              "[admin-companies-v2] First upsert attempt failed, retrying without partition key",
+              { error: upsertError?.message }
+            );
             result = await container.items.upsert(doc);
           }
-          context.log(`[admin-companies-v2] Upsert completed successfully`, { id: partitionKeyValue, statusCode: result.statusCode, resourceId: result.resource?.id });
+          context.log("[admin-companies-v2] Upsert completed successfully", {
+            id: partitionKeyValue,
+            statusCode: result.statusCode,
+            resourceId: result.resource?.id,
+          });
           return json({ ok: true, company: doc }, 200);
         } catch (e) {
-          context.log("[admin-companies-v2] Upsert failed completely", { id: partitionKeyValue, message: e?.message, code: e?.code, statusCode: e?.statusCode });
+          context.log("[admin-companies-v2] Upsert failed completely", {
+            id: partitionKeyValue,
+            message: e?.message,
+            code: e?.code,
+            statusCode: e?.statusCode,
+          });
           return json({ error: "Failed to save company", detail: e?.message }, 500);
         }
       }
@@ -206,14 +355,14 @@ app.http('adminCompanies', {
       if (method === "DELETE") {
         let body = {};
         try {
-          body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+          body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
         } catch {
           return json({ error: "Invalid JSON" }, 400);
         }
 
         const { getContainerPartitionKeyPath, buildPartitionKeyCandidates } = require("../_cosmosPartitionKey");
 
-        const id = body.id || body.company_id;
+        const id = body.company_id || body.id;
         if (!id) {
           return json({ error: "id required" }, 400);
         }
@@ -223,7 +372,7 @@ app.http('adminCompanies', {
           return json({ error: "Invalid company ID" }, 400);
         }
 
-        context.log(`[admin-companies-v2] DELETE: Deleting company with id:`, { id: requestedId });
+        context.log("[admin-companies-v2] DELETE: Deleting company", { id: requestedId });
 
         try {
           const containerPkPath = await getContainerPartitionKeyPath(container, "/normalized_domain");
@@ -269,6 +418,7 @@ app.http('adminCompanies', {
               deletedThisDoc = true;
               continue;
             } catch {
+              // continue
             }
 
             for (const partitionKeyValue of candidates) {
@@ -279,6 +429,7 @@ app.http('adminCompanies', {
                 deletedThisDoc = true;
                 break;
               } catch {
+                // continue
               }
 
               try {
@@ -287,6 +438,7 @@ app.http('adminCompanies', {
                 deletedThisDoc = true;
                 break;
               } catch {
+                // continue
               }
             }
 
@@ -300,6 +452,7 @@ app.http('adminCompanies', {
                 deletedThisDoc = true;
                 break;
               } catch {
+                // continue
               }
             }
 
@@ -323,7 +476,7 @@ app.http('adminCompanies', {
 
           return json({ ok: true, id: requestedId, softDeleted, hardDeleted }, 200);
         } catch (e) {
-          context.log("[admin-companies-v2] DELETE error:", {
+          context.log("[admin-companies-v2] DELETE error", {
             id: requestedId,
             code: e?.code,
             statusCode: e?.statusCode,
@@ -336,8 +489,8 @@ app.http('adminCompanies', {
 
       return json({ error: "Method not allowed" }, 405);
     } catch (e) {
-      context.log("[admin-companies-v2] Error:", e?.message || e);
+      context.log("[admin-companies-v2] Error", e?.message || e);
       return json({ error: e?.message || "Internal error" }, 500);
     }
-  }
+  },
 });
