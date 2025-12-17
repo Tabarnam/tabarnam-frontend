@@ -1,4 +1,4 @@
-import { API_BASE } from "./api";
+import { API_BASE } from "@/lib/api";
 
 export interface BlobUploadResponse {
   ok: boolean;
@@ -8,15 +8,9 @@ export interface BlobUploadResponse {
 }
 
 /**
- * Upload a logo file to Azure Blob Storage
- * @param file - The image file to upload
- * @param companyId - The company ID for organizing the blob
- * @returns The blob URL or null if upload fails
+ * Upload a logo file to Azure Blob Storage.
  */
-export async function uploadLogoBlobFile(
-  file: File,
-  companyId: string
-): Promise<string | null> {
+export async function uploadLogoBlobFile(file: File, companyId: string): Promise<string | null> {
   try {
     const formData = new FormData();
     formData.append("file", file);
@@ -27,7 +21,7 @@ export async function uploadLogoBlobFile(
       body: formData,
     });
 
-    const data: BlobUploadResponse = await response.json();
+    const data: BlobUploadResponse = await response.json().catch(() => ({ ok: false, error: "Invalid JSON" }));
 
     if (!response.ok || !data.ok) {
       console.error("Logo upload failed:", data.error || "Unknown error");
@@ -42,9 +36,7 @@ export async function uploadLogoBlobFile(
 }
 
 /**
- * Delete a logo from Azure Blob Storage
- * @param blobUrl - The full blob URL to delete
- * @returns true if deletion was successful
+ * Delete a logo from Azure Blob Storage.
  */
 export async function deleteLogoBlob(blobUrl: string): Promise<boolean> {
   try {
@@ -55,40 +47,15 @@ export async function deleteLogoBlob(blobUrl: string): Promise<boolean> {
     });
 
     if (!response.ok) {
-      console.error("Logo deletion failed");
+      const body = await response.json().catch(() => null);
+      console.error("Logo deletion failed", body);
       return false;
     }
 
-    return true;
+    const data = await response.json().catch(() => null);
+    return Boolean(data?.ok ?? true);
   } catch (error) {
     console.error("Logo deletion error:", error);
     return false;
-  }
-}
-
-/**
- * Generate a presigned URL for blob upload (not implemented yet, for future use)
- */
-export async function generatePresignedUploadUrl(
-  companyId: string,
-  fileName: string
-): Promise<string | null> {
-  try {
-    const response = await fetch(`${API_BASE}/presigned-logo-upload-url`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ companyId, fileName }),
-    });
-
-    if (!response.ok) {
-      console.error("Failed to generate presigned URL");
-      return null;
-    }
-
-    const data = await response.json();
-    return data.presigned_url || null;
-  } catch (error) {
-    console.error("Presigned URL error:", error);
-    return null;
   }
 }
