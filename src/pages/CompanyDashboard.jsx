@@ -13,6 +13,8 @@ import {
   Copy,
 } from "lucide-react";
 
+import { calculateInitialRating, clampStarValue, normalizeRating } from "@/lib/stars/calculateRating";
+
 import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +63,96 @@ function normalizeLocationList(value) {
     .split(/\s*[,;|]\s*/g)
     .map((v) => v.trim())
     .filter(Boolean);
+}
+
+function normalizeStringList(value) {
+  if (Array.isArray(value)) {
+    return value.map((v) => asString(v).trim()).filter(Boolean);
+  }
+
+  const s = asString(value).trim();
+  if (!s) return [];
+
+  return s
+    .split(/\s*[,;|]\s*/g)
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+function StringListEditor({ label, value, onChange, placeholder = "" }) {
+  const list = normalizeStringList(value);
+  const [draft, setDraft] = useState("");
+
+  const add = useCallback(() => {
+    const next = asString(draft).trim();
+    if (!next) return;
+    if (list.some((v) => v.toLowerCase() === next.toLowerCase())) {
+      setDraft("");
+      return;
+    }
+    onChange([...list, next]);
+    setDraft("");
+  }, [draft, list, onChange]);
+
+  const onKeyDown = useCallback(
+    (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      add();
+    },
+    [add]
+  );
+
+  const remove = useCallback(
+    (idx) => {
+      onChange(list.filter((_, i) => i !== idx));
+    },
+    [list, onChange]
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm text-slate-700 font-medium">{label}</div>
+
+      <div className="rounded-lg border border-slate-200 bg-white">
+        {list.length === 0 ? (
+          <div className="p-3 text-xs text-slate-500">None yet.</div>
+        ) : (
+          <div className="p-3 flex flex-wrap gap-2">
+            {list.map((item, idx) => (
+              <span
+                key={`${item}-${idx}`}
+                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-800"
+              >
+                {item}
+                <button
+                  type="button"
+                  className="text-slate-500 hover:text-red-600"
+                  onClick={() => remove(idx)}
+                  aria-label={`Remove ${item}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="border-t border-slate-200 p-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[240px] flex-1 space-y-1">
+              <label className="text-xs font-medium text-slate-700">Add</label>
+              <Input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKeyDown} placeholder={placeholder} />
+            </div>
+            <Button type="button" onClick={add} disabled={!asString(draft).trim()}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function keywordStringToList(value) {
@@ -332,7 +424,7 @@ function toIssueTags(company) {
   const mfgList = normalizeStructuredLocationList(manuBase);
   if (mfgList.length === 0) issues.push("missing MFG");
 
-  const keywords = keywordStringToList(company?.product_keywords || company?.keywords);
+  const keywords = normalizeStringList(company?.keywords || company?.product_keywords);
   if (keywords.length === 0) issues.push("missing keywords");
 
   return issues;
@@ -352,6 +444,207 @@ function validateCompanyDraft(draft) {
   if (!name) return "Company name is required.";
   if (!url) return "Website URL is required.";
   return null;
+}
+
+function computeAutoRatingInput(draft) {
+  const manuList = normalizeStructuredLocationList(draft?.manufacturing_locations);
+  const hqList = normalizeStructuredLocationList(draft?.headquarters_locations);
+
+  const reviewCount =
+    Number(draft?.review_count ?? draft?.reviews_count ?? draft?.review_count_approved ?? 0) ||
+    Number(draft?.editorial_review_count ?? 0) ||
+    Number(draft?.amazon_review_count ?? 0) ||
+    Number(draft?.public_review_count ?? 0) ||
+    Number(draft?.private_review_count ?? 0) ||
+    0;
+
+  return {
+    hasManufacturingLocations: manuList.length > 0,
+    hasHeadquarters: hqList.length > 0,
+    hasReviews: reviewCount >= 1,
+  };
+}
+
+function StarNotesEditor({ star, onChange }) {
+  const [text, setText] = useState("");
+  const [isPublic, setIsPublic] = useState(false);
+
+  const notes = star?.notes && Array.isArray(star.notes) ? star.notes : [];
+
+  const addNote = useCallback(() => {
+    const t = asString(text).trim();
+    if (!t) return;
+
+    const next = {
+      id: `note_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      text: t,
+      is_public: isPublic,
+      created_at: new Date().toISOString(),
+      created_by: "admin_ui",
+    };
+
+    onChange({ ...(star || {}), notes: [...notes, next] });
+    setText("");
+    setIsPublic(false);
+  }, [isPublic, notes, onChange, star, text]);
+
+  const deleteNote = useCallback(
+    (idx) => {
+      onChange({ ...(star || {}), notes: notes.filter((_, i) => i !== idx) });
+    },
+    [notes, onChange, star]
+  );
+
+  return (
+    <div className="space-y-2">
+      {notes.length > 0 ? (
+        <div className="space-y-2">
+          {notes.map((n, idx) => (
+            <div key={n?.id || idx} className="rounded border border-slate-200 bg-slate-50 p-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium text-slate-700">
+                    {n?.is_public ? "Public" : "Private"}
+                    {n?.created_at ? ` · ${new Date(n.created_at).toLocaleString()}` : ""}
+                  </div>
+                  <div className="mt-1 text-sm text-slate-900 whitespace-pre-wrap break-words">{asString(n?.text)}</div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                  onClick={() => deleteNote(idx)}
+                  title="Delete note"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-xs text-slate-500">No notes.</div>
+      )}
+
+      <div className="rounded border border-slate-200 bg-white p-3 space-y-2">
+        <div className="text-xs font-medium text-slate-700">Add note</div>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          className="min-h-[80px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+          placeholder="Write a note…"
+        />
+        <div className="flex items-center justify-between gap-2">
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
+            Public
+          </label>
+          <Button type="button" onClick={addNote} disabled={!asString(text).trim()}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add note
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RatingEditor({ draft, onChange }) {
+  const rating = normalizeRating(draft?.rating);
+  const auto = calculateInitialRating(computeAutoRatingInput(draft));
+
+  const setStar = (starKey, patch) => {
+    const nextRating = {
+      ...rating,
+      [starKey]: {
+        ...(rating[starKey] || {}),
+        ...(patch || {}),
+      },
+    };
+    onChange({ ...(draft || {}), rating: nextRating });
+  };
+
+  const renderRow = (starKey, label, autoValue) => {
+    const star = rating[starKey] || { value: 0, notes: [] };
+    const autoText = typeof autoValue === "number" ? String(autoValue.toFixed(1)) : null;
+    const currentValue = clampStarValue(Number(star.value ?? 0));
+
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-semibold text-slate-900">{label}</div>
+          {autoText != null ? (
+            <div className="text-xs text-slate-600">Auto: {autoText}</div>
+          ) : (
+            <div className="text-xs text-slate-600">Manual</div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:items-end">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Value (0.0–1.0)</label>
+            <Input
+              value={String(currentValue)}
+              inputMode="decimal"
+              onChange={(e) => setStar(starKey, { value: clampStarValue(Number(e.target.value)) })}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Icon</label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={star.icon_type === "heart" ? "outline" : "default"}
+                onClick={() => setStar(starKey, { icon_type: "star" })}
+              >
+                Circle
+              </Button>
+              <Button
+                type="button"
+                variant={star.icon_type === "heart" ? "default" : "outline"}
+                onClick={() => setStar(starKey, { icon_type: "heart" })}
+              >
+                Heart
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Quick set</label>
+            <div className="flex gap-2 flex-wrap">
+              {[0, 0.5, 1].map((v) => (
+                <Button key={v} type="button" variant="outline" onClick={() => setStar(starKey, { value: v })}>
+                  {v.toFixed(1)}
+                </Button>
+              ))}
+              {autoValue != null ? (
+                <Button type="button" variant="outline" onClick={() => setStar(starKey, { value: autoValue })}>
+                  Use auto
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        <StarNotesEditor star={star} onChange={(nextStar) => setStar(starKey, nextStar)} />
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="text-sm text-slate-700 font-medium">Stars</div>
+      <div className="space-y-3">
+        {renderRow("star1", "Manufacturing (auto)", auto.star1.value)}
+        {renderRow("star2", "HQ/Home (auto)", auto.star2.value)}
+        {renderRow("star3", "Reviews (auto)", auto.star3.value)}
+        {renderRow("star4", "Admin1 (manual)", null)}
+        {renderRow("star5", "Admin2 (manual)", null)}
+      </div>
+    </div>
+  );
 }
 
 async function copyToClipboard(value) {
@@ -539,11 +832,18 @@ export default function CompanyDashboard() {
         company?.headquarters_locations || company?.headquarters || company?.headquarters_location
       ),
       manufacturing_locations: normalizeStructuredLocationList(manuBase),
-      product_keywords: keywordListToString(keywordStringToList(company?.product_keywords || company?.keywords)),
+      industries: normalizeStringList(company?.industries),
+      keywords: normalizeStringList(company?.keywords || company?.product_keywords),
+      product_keywords: "",
+      rating: normalizeRating(company?.rating) || null,
       notes: asString(company?.notes).trim(),
       tagline: asString(company?.tagline).trim(),
       logo_url: asString(company?.logo_url).trim(),
     };
+
+    if (!draft.rating) {
+      draft.rating = calculateInitialRating(computeAutoRatingInput(draft));
+    }
 
     setEditorOriginalId(id || null);
     setEditorDraft(draft);
@@ -563,7 +863,9 @@ export default function CompanyDashboard() {
       headquarters_location: "",
       headquarters_locations: [],
       manufacturing_locations: [],
-      product_keywords: "",
+      industries: [],
+      keywords: [],
+      rating: calculateInitialRating({ hasManufacturingLocations: false, hasHeadquarters: false, hasReviews: false }),
       notes: "",
     };
 
@@ -596,6 +898,10 @@ export default function CompanyDashboard() {
       const hqLocations = normalizeStructuredLocationList(editorDraft.headquarters_locations);
       const manuLocations = normalizeStructuredLocationList(editorDraft.manufacturing_locations);
 
+      const industries = normalizeStringList(editorDraft.industries);
+      const keywords = normalizeStringList(editorDraft.keywords);
+      const rating = normalizeRating(editorDraft.rating);
+
       const payload = {
         ...editorDraft,
         company_id: resolvedCompanyId,
@@ -609,7 +915,10 @@ export default function CompanyDashboard() {
         headquarters: hqLocations,
         manufacturing_locations: manuLocations,
         manufacturing_geocodes: manuLocations,
-        product_keywords: keywordListToString(keywordStringToList(editorDraft.product_keywords)),
+        industries,
+        keywords,
+        product_keywords: keywords,
+        rating,
         notes: asString(editorDraft.notes).trim(),
         tagline: asString(editorDraft.tagline).trim(),
         logo_url: asString(editorDraft.logo_url).trim(),
@@ -1359,12 +1668,28 @@ export default function CompanyDashboard() {
                           />
                         </div>
 
-                        <div className="lg:col-span-2 space-y-1">
-                          <label className="text-sm text-slate-700">Product keywords</label>
-                          <Input
-                            value={asString(editorDraft.product_keywords)}
-                            onChange={(e) => setEditorDraft((d) => ({ ...d, product_keywords: e.target.value }))}
-                            placeholder="running shoes, socks, …"
+                        <div className="lg:col-span-2">
+                          <StringListEditor
+                            label="Industries"
+                            value={editorDraft.industries}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), industries: next }))}
+                            placeholder="Add an industry…"
+                          />
+                        </div>
+
+                        <div className="lg:col-span-2">
+                          <StringListEditor
+                            label="Keywords"
+                            value={editorDraft.keywords}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), keywords: next }))}
+                            placeholder="Add a keyword…"
+                          />
+                        </div>
+
+                        <div className="lg:col-span-2">
+                          <RatingEditor
+                            draft={editorDraft}
+                            onChange={(next) => setEditorDraft(next)}
                           />
                         </div>
 
