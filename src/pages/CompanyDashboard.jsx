@@ -101,6 +101,11 @@ function normalizeLocationSources(value) {
     .filter(Boolean);
 }
 
+function normalizeRatingIconType(value) {
+  const v = asString(value).trim().toLowerCase();
+  return v === "heart" ? "heart" : "star";
+}
+
 function normalizeVisibility(value) {
   const v = value && typeof value === "object" ? value : {};
   const out = {
@@ -1163,6 +1168,7 @@ export default function CompanyDashboard() {
       show_location_sources_to_users: Boolean(company?.show_location_sources_to_users),
       visibility: normalizeVisibility(company?.visibility),
       location_sources: normalizeLocationSources(company?.location_sources),
+      rating_icon_type: normalizeRatingIconType(company?.rating_icon_type),
       rating: company?.rating ? normalizeRating(company.rating) : null,
       notes_entries: normalizeCompanyNotes(company?.notes_entries || company?.notesEntries),
       notes: asString(company?.notes).trim(),
@@ -1203,6 +1209,7 @@ export default function CompanyDashboard() {
       manufacturing_locations: [],
       industries: [],
       keywords: [],
+      rating_icon_type: "star",
       rating: calculateInitialRating({ hasManufacturingLocations: false, hasHeadquarters: false, hasReviews: false }),
       notes_entries: [],
       notes: "",
@@ -1457,6 +1464,7 @@ export default function CompanyDashboard() {
       const industries = normalizeStringList(editorDraft.industries);
       const keywords = normalizeStringList(editorDraft.keywords);
       const rating = normalizeRating(editorDraft.rating);
+      const rating_icon_type = normalizeRatingIconType(editorDraft.rating_icon_type);
       const notes_entries = normalizeCompanyNotes(editorDraft.notes_entries);
       const location_sources = normalizeLocationSources(editorDraft.location_sources);
       const visibility = normalizeVisibility(editorDraft.visibility);
@@ -1479,6 +1487,7 @@ export default function CompanyDashboard() {
         keywords,
         product_keywords: keywords,
         rating,
+        rating_icon_type,
         notes_entries,
         notes: asString(editorDraft.notes).trim(),
         tagline: asString(editorDraft.tagline).trim(),
@@ -2439,6 +2448,23 @@ export default function CompanyDashboard() {
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), keywords: next }))}
                             placeholder="Add a keyword…"
                           />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-sm text-slate-700">QQ icon</label>
+                          <select
+                            className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                            value={asString(editorDraft.rating_icon_type || "star")}
+                            onChange={(e) =>
+                              setEditorDraft((d) => ({
+                                ...(d || {}),
+                                rating_icon_type: normalizeRatingIconType(e.target.value),
+                              }))
+                            }
+                          >
+                            <option value="star">Star</option>
+                            <option value="heart">Heart</option>
+                          </select>
                         </div>
 
                         <div className="lg:col-span-2">
