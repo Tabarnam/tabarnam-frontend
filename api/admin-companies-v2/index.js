@@ -125,6 +125,22 @@ function sqlContainsNotesArray(fieldExpr) {
   )`;
 }
 
+function sqlContainsStructuredNotesArray(fieldExpr) {
+  return `(
+    IS_DEFINED(${fieldExpr}) AND IS_ARRAY(${fieldExpr}) AND ARRAY_LENGTH(
+      ARRAY(
+        SELECT VALUE n
+        FROM n IN ${fieldExpr}
+        WHERE
+          (IS_OBJECT(n) AND (
+            (IS_DEFINED(n.title) AND IS_STRING(n.title) AND CONTAINS(LOWER(n.title), @q)) OR
+            (IS_DEFINED(n.body) AND IS_STRING(n.body) AND CONTAINS(LOWER(n.body), @q))
+          ))
+      )
+    ) > 0
+  )`;
+}
+
 function sqlContainsRatingNotes() {
   const stars = ["star1", "star2", "star3", "star4", "star5"];
   const clauses = stars.map((s) => sqlContainsNotesArray(`c.rating.${s}.notes`));
