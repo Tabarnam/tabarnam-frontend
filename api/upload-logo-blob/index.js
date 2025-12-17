@@ -134,29 +134,16 @@ app.http("upload-logo-blob", {
         );
       }
 
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        return json(
-          { ok: false, error: "File too large (max 5MB)" },
-          400,
-          req
-        );
+      // Validate file size (max 300KB)
+      const maxBytes = 300 * 1024;
+      if (typeof file.size === "number" && file.size > maxBytes) {
+        return json({ ok: false, error: "File too large (max 300KB)" }, 400, req);
       }
 
-      // Validate file type (PNG, JPG, SVG, GIF, WEBP)
-      const allowedTypes = [
-        "image/png",
-        "image/jpeg",
-        "image/svg+xml",
-        "image/gif",
-        "image/webp",
-      ];
+      // Validate file type (PNG, JPG, WEBP)
+      const allowedTypes = ["image/png", "image/jpeg", "image/webp"];
       if (!allowedTypes.includes(file.type)) {
-        return json(
-          { ok: false, error: "Invalid file type (PNG, JPG, SVG, GIF, WEBP only)" },
-          400,
-          req
-        );
+        return json({ ok: false, error: "Invalid file type (PNG, JPG, WEBP only)" }, 400, req);
       }
 
       const containerName = "company-logos";
@@ -188,28 +175,46 @@ app.http("upload-logo-blob", {
       const buffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(buffer);
 
-      // Normalize all uploads to PNG for consistent UI (SVG is rasterized)
-      let processedBuffer = uint8Array;
+      // Resize to 256x256 and compress to stay under 300KB
+      let processedBuffer;
       try {
-        const isSvg = file.type === "image/svg+xml";
-        const pipeline = sharp(uint8Array, isSvg ? { density: 300 } : undefined)
-          .resize({ width: 500, height: 500, fit: "inside", withoutEnlargement: true })
-          .png({ quality: 90 });
+        const base = sharp(uint8Array)
+          .resize(256, 256, {
+            fit: "cover",
+            position: "centre",
+          })
+          .ensureAlpha();
 
-        processedBuffer = await pipeline.toBuffer();
-        ctx.log(`[upload-logo-blob] Processed logo to PNG for company ${companyId}`);
+        const qualities = [80, 70, 60, 50, 40];
+        let last;
+        for (const q of qualities) {
+          const buf = await base.clone().webp({ quality: q }).toBuffer();
+          last = buf;
+          if (buf.length <= maxBytes) break;
+        }
+
+        processedBuffer = last;
+        if (!processedBuffer || processedBuffer.length > maxBytes) {
+          return json(
+            { ok: false, error: "Processed image exceeds 300KB. Please use a simpler image." },
+            400,
+            req
+          );
+        }
+
+        ctx.log(
+          `[upload-logo-blob] Processed logo to 256x256 WebP (${Math.round(processedBuffer.length / 1024)}KB) for company ${companyId}`
+        );
       } catch (sharpError) {
-        ctx.warn(`[upload-logo-blob] Sharp processing failed, using original bytes: ${sharpError.message}`);
-        processedBuffer = uint8Array;
+        ctx.warn(`[upload-logo-blob] Sharp processing failed: ${sharpError.message}`);
+        return json({ ok: false, error: "Failed to process image" }, 400, req);
       }
 
-      // Generate unique blob name (always .png for normalized output)
-      const blobName = `${companyId}/${uuidv4()}.png`;
+      const blobName = `${companyId}/${uuidv4()}.webp`;
 
-      // Get blob client and upload
       const blockBlobClient = containerClient.getBlockBlobClient(blobName);
       await blockBlobClient.upload(processedBuffer, processedBuffer.length, {
-        blobHTTPHeaders: { blobContentType: "image/png" },
+        blobHTTPHeaders: { blobContentType: "image/webp" },
       });
 
       // Generate SAS URL with 1-year expiration for secure blob access
