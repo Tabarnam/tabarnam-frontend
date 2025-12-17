@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { Link } from "react-router-dom";
 import DataTable from "react-data-table-component";
@@ -14,8 +13,11 @@ import {
   Copy,
 } from "lucide-react";
 
+import { calculateInitialRating, clampStarValue, normalizeRating } from "@/lib/stars/calculateRating";
+
 import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/lib/toast";
 import { apiFetch, getUserFacingConfigMessage } from "@/lib/api";
@@ -64,6 +66,242 @@ function normalizeLocationList(value) {
     .filter(Boolean);
 }
 
+function normalizeStringList(value) {
+  if (Array.isArray(value)) {
+    return value.map((v) => asString(v).trim()).filter(Boolean);
+  }
+
+  const s = asString(value).trim();
+  if (!s) return [];
+
+  return s
+    .split(/\s*[,;|]\s*/g)
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+function normalizeLocationSources(value) {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((v) => v && typeof v === "object")
+    .map((v) => {
+      const location = asString(v.location).trim();
+      if (!location) return null;
+      const source_url = asString(v.source_url).trim();
+      const source_type = asString(v.source_type).trim();
+      const location_type = asString(v.location_type).trim();
+      return {
+        location,
+        ...(source_url ? { source_url } : {}),
+        ...(source_type ? { source_type } : {}),
+        ...(location_type ? { location_type } : {}),
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeRatingIconType(value) {
+  const v = asString(value).trim().toLowerCase();
+  return v === "heart" ? "heart" : "star";
+}
+
+function normalizeVisibility(value) {
+  const v = value && typeof value === "object" ? value : {};
+  const out = {
+    hq_public: v.hq_public == null ? true : Boolean(v.hq_public),
+    manufacturing_public: v.manufacturing_public == null ? true : Boolean(v.manufacturing_public),
+    admin_rating_public: v.admin_rating_public == null ? true : Boolean(v.admin_rating_public),
+  };
+  return out;
+}
+
+function LocationSourcesEditor({ value, onChange }) {
+  const list = normalizeLocationSources(value);
+
+  const add = useCallback(() => {
+    const next = [
+      ...list,
+      {
+        location: "",
+        source_url: "",
+        source_type: "official_website",
+        location_type: "headquarters",
+      },
+    ];
+    onChange(next);
+  }, [list, onChange]);
+
+  const remove = useCallback(
+    (idx) => {
+      onChange(list.filter((_, i) => i !== idx));
+    },
+    [list, onChange]
+  );
+
+  const update = useCallback(
+    (idx, patch) => {
+      onChange(list.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+    },
+    [list, onChange]
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm text-slate-700 font-medium">Location sources</div>
+      <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+        {list.length === 0 ? (
+          <div className="p-3 text-xs text-slate-600">No sources yet.</div>
+        ) : (
+          <div className="p-3 space-y-3">
+            {list.map((entry, idx) => (
+              <div key={`${entry.location}-${idx}`} className="rounded border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-700">Location</label>
+                    <Input
+                      value={asString(entry.location)}
+                      onChange={(e) => update(idx, { location: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-700">Source URL</label>
+                    <Input
+                      value={asString(entry.source_url)}
+                      onChange={(e) => update(idx, { source_url: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-700">Source type</label>
+                    <select
+                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                      value={asString(entry.source_type || "other")}
+                      onChange={(e) => update(idx, { source_type: e.target.value })}
+                    >
+                      <option value="official_website">Official website</option>
+                      <option value="government_guide">Government guide</option>
+                      <option value="b2b_directory">B2B directory</option>
+                      <option value="trade_data">Trade data</option>
+                      <option value="packaging">Packaging</option>
+                      <option value="media">Media</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-slate-700">Location type</label>
+                    <select
+                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                      value={asString(entry.location_type || "headquarters")}
+                      onChange={(e) => update(idx, { location_type: e.target.value })}
+                    >
+                      <option value="headquarters">Headquarters</option>
+                      <option value="manufacturing">Manufacturing</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button type="button" variant="outline" size="sm" onClick={() => remove(idx)}>
+                    Remove
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="border-t border-slate-200 p-3">
+          <Button type="button" variant="outline" onClick={add}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add source
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StringListEditor({ label, value, onChange, placeholder = "" }) {
+  const list = normalizeStringList(value);
+  const [draft, setDraft] = useState("");
+
+  const add = useCallback(() => {
+    const next = asString(draft).trim();
+    if (!next) return;
+    if (list.some((v) => v.toLowerCase() === next.toLowerCase())) {
+      setDraft("");
+      return;
+    }
+    onChange([...list, next]);
+    setDraft("");
+  }, [draft, list, onChange]);
+
+  const onKeyDown = useCallback(
+    (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      add();
+    },
+    [add]
+  );
+
+  const remove = useCallback(
+    (idx) => {
+      onChange(list.filter((_, i) => i !== idx));
+    },
+    [list, onChange]
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm text-slate-700 font-medium">{label}</div>
+
+      <div className="rounded-lg border border-slate-200 bg-white">
+        {list.length === 0 ? (
+          <div className="p-3 text-xs text-slate-500">None yet.</div>
+        ) : (
+          <div className="p-3 flex flex-wrap gap-2">
+            {list.map((item, idx) => (
+              <span
+                key={`${item}-${idx}`}
+                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-800"
+              >
+                {item}
+                <button
+                  type="button"
+                  className="text-slate-500 hover:text-red-600"
+                  onClick={() => remove(idx)}
+                  aria-label={`Remove ${item}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="border-t border-slate-200 p-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[240px] flex-1 space-y-1">
+              <label className="text-xs font-medium text-slate-700">Add</label>
+              <Input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKeyDown} placeholder={placeholder} />
+            </div>
+            <Button type="button" onClick={add} disabled={!asString(draft).trim()}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function keywordStringToList(value) {
   return normalizeLocationList(value);
 }
@@ -74,6 +312,218 @@ function keywordListToString(list) {
     .map((v) => asString(v).trim())
     .filter(Boolean)
     .join(", ");
+}
+
+function normalizeStructuredLocationEntry(value) {
+  if (!value) return null;
+
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (!s) return null;
+    return { city: s, state: "", region: "", country: "" };
+  }
+
+  if (typeof value !== "object") return null;
+
+  const city = asString(value.city).trim();
+  const region = asString(value.region || value.state).trim();
+  const state = asString(value.state || value.region).trim();
+  const country = asString(value.country).trim();
+
+  const address = asString(value.address).trim();
+  const formatted = asString(value.formatted).trim();
+  const location = asString(value.location).trim();
+
+  const latRaw = value.lat;
+  const lngRaw = value.lng;
+  const lat = Number.isFinite(latRaw) ? latRaw : Number.isFinite(Number(latRaw)) ? Number(latRaw) : null;
+  const lng = Number.isFinite(lngRaw) ? lngRaw : Number.isFinite(Number(lngRaw)) ? Number(lngRaw) : null;
+
+  const hasAny = Boolean(city || region || state || country || address || formatted || location);
+  if (!hasAny) return null;
+
+  return {
+    ...value,
+    city,
+    region,
+    state,
+    country,
+    address: address || undefined,
+    formatted: formatted || undefined,
+    location: location || undefined,
+    lat: lat == null ? undefined : lat,
+    lng: lng == null ? undefined : lng,
+  };
+}
+
+function normalizeStructuredLocationList(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => normalizeStructuredLocationEntry(v))
+      .filter(Boolean);
+  }
+
+  const single = normalizeStructuredLocationEntry(value);
+  return single ? [single] : [];
+}
+
+function formatStructuredLocation(loc) {
+  if (!loc) return "";
+  if (typeof loc === "string") return loc.trim();
+  if (typeof loc !== "object") return "";
+
+  const formatted = asString(loc.formatted).trim();
+  if (formatted) return formatted;
+
+  const address = asString(loc.full_address || loc.address || loc.location).trim();
+  if (address) return address;
+
+  const parts = [];
+  const city = asString(loc.city).trim();
+  const region = asString(loc.region || loc.state).trim();
+  const country = asString(loc.country).trim();
+
+  if (city) parts.push(city);
+  if (region) parts.push(region);
+  if (country) parts.push(country);
+
+  return parts.join(", ");
+}
+
+function getLocationGeocodeStatus(loc) {
+  if (!loc) return "missing";
+  if (typeof loc === "string") return "missing";
+  if (typeof loc !== "object") return "missing";
+
+  const lat = Number.isFinite(loc.lat) ? loc.lat : Number.isFinite(Number(loc.lat)) ? Number(loc.lat) : null;
+  const lng = Number.isFinite(loc.lng) ? loc.lng : Number.isFinite(Number(loc.lng)) ? Number(loc.lng) : null;
+
+  if (lat != null && lng != null) return "found";
+  if (asString(loc.geocode_status).trim() === "failed") return "failed";
+  return "missing";
+}
+
+function LocationStatusBadge({ loc }) {
+  const status = getLocationGeocodeStatus(loc);
+  const cls =
+    status === "found"
+      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+      : status === "failed"
+        ? "bg-red-50 text-red-800 border-red-200"
+        : "bg-slate-50 text-slate-700 border-slate-200";
+
+  const label = status === "found" ? "Found" : status === "failed" ? "Failed" : "Missing";
+  const detail =
+    loc && typeof loc === "object"
+      ? asString(loc.geocode_error || loc.geocode_google_status || loc.geocode_source).trim()
+      : "";
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${cls}`}
+      title={detail || label}
+    >
+      {label}
+    </span>
+  );
+}
+
+function StructuredLocationListEditor({ label, value, onChange }) {
+  const list = normalizeStructuredLocationList(value);
+
+  const [city, setCity] = useState("");
+  const [region, setRegion] = useState("");
+  const [country, setCountry] = useState("");
+
+  const addEntry = useCallback(() => {
+    const next = normalizeStructuredLocationEntry({ city, region, state: region, country });
+    if (!next) return;
+
+    onChange([...list, next]);
+    setCity("");
+    setRegion("");
+    setCountry("");
+  }, [city, country, list, onChange, region]);
+
+  const onKeyDown = useCallback(
+    (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      addEntry();
+    },
+    [addEntry]
+  );
+
+  const removeEntry = useCallback(
+    (idx) => {
+      const next = list.filter((_, i) => i !== idx);
+      onChange(next);
+    },
+    [list, onChange]
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm text-slate-700 font-medium">{label}</div>
+
+      <div className="rounded-lg border border-slate-200 bg-white">
+        {list.length === 0 ? (
+          <div className="p-3 text-xs text-slate-500">No locations yet.</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {list.map((loc, idx) => {
+              const display = formatStructuredLocation(loc) || "—";
+              return (
+                <div key={idx} className="flex items-center gap-2 p-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm text-slate-900">{display}</div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <LocationStatusBadge loc={loc} />
+                      {asString(loc?.geocode_source).trim() ? (
+                        <span className="text-[11px] text-slate-500">{asString(loc.geocode_source).trim()}</span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                    onClick={() => removeEntry(idx)}
+                    title="Remove"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="border-t border-slate-200 p-3">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-4 md:items-end">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700">City</label>
+              <Input value={city} onChange={(e) => setCity(e.target.value)} onKeyDown={onKeyDown} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700">Region/State</label>
+              <Input value={region} onChange={(e) => setRegion(e.target.value)} onKeyDown={onKeyDown} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700">Country</label>
+              <Input value={country} onChange={(e) => setCountry(e.target.value)} onKeyDown={onKeyDown} />
+            </div>
+            <Button type="button" onClick={addEntry} disabled={!normalizeStructuredLocationEntry({ city, region, state: region, country })}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function getCompanyName(company) {
@@ -111,13 +561,17 @@ function toIssueTags(company) {
   const logo = asString(company?.logo_url).trim();
   if (!logo) issues.push("missing logo");
 
-  const hq = asString(company?.headquarters_location).trim();
-  if (!hq) issues.push("missing HQ");
+  const hqList = normalizeStructuredLocationList(company?.headquarters_locations || company?.headquarters || company?.headquarters_location);
+  if (hqList.length === 0) issues.push("missing HQ");
 
-  const mfg = normalizeLocationList(company?.manufacturing_locations);
-  if (mfg.length === 0) issues.push("missing MFG");
+  const manuBase =
+    Array.isArray(company?.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0
+      ? company.manufacturing_geocodes
+      : company?.manufacturing_locations;
+  const mfgList = normalizeStructuredLocationList(manuBase);
+  if (mfgList.length === 0) issues.push("missing MFG");
 
-  const keywords = keywordStringToList(company?.product_keywords || company?.keywords);
+  const keywords = normalizeStringList(company?.keywords || company?.product_keywords);
   if (keywords.length === 0) issues.push("missing keywords");
 
   return issues;
@@ -137,6 +591,384 @@ function validateCompanyDraft(draft) {
   if (!name) return "Company name is required.";
   if (!url) return "Website URL is required.";
   return null;
+}
+
+function computeAutoRatingInput(draft) {
+  const manuList = normalizeStructuredLocationList(draft?.manufacturing_locations);
+  const hqList = normalizeStructuredLocationList(draft?.headquarters_locations);
+
+  const reviewCount =
+    Number(draft?.review_count ?? draft?.reviews_count ?? draft?.review_count_approved ?? 0) ||
+    Number(draft?.editorial_review_count ?? 0) ||
+    Number(draft?.amazon_review_count ?? 0) ||
+    Number(draft?.public_review_count ?? 0) ||
+    Number(draft?.private_review_count ?? 0) ||
+    0;
+
+  return {
+    hasManufacturingLocations: manuList.length > 0,
+    hasHeadquarters: hqList.length > 0,
+    hasReviews: reviewCount >= 1,
+  };
+}
+
+function normalizeCompanyNotes(value) {
+  const list = Array.isArray(value) ? value : [];
+  const out = [];
+  for (const n of list) {
+    if (!n || typeof n !== "object") continue;
+    const title = asString(n.title).trim();
+    const body = asString(n.body).trim();
+    const createdAt = asString(n.created_at || n.createdAt).trim() || new Date().toISOString();
+    const isPublic = n.is_public === true || String(n.is_public).toLowerCase() === "true";
+
+    if (!title && !body) continue;
+
+    out.push({
+      id: asString(n.id).trim() || `note_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      title,
+      body,
+      is_public: isPublic,
+      created_at: createdAt,
+      updated_at: asString(n.updated_at || n.updatedAt).trim() || createdAt,
+      created_by: asString(n.created_by || n.createdBy || n.actor).trim() || "admin_ui",
+    });
+  }
+
+  out.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  return out;
+}
+
+function CompanyNotesEditor({ value, onChange }) {
+  const notes = normalizeCompanyNotes(value);
+
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [isPublic, setIsPublic] = useState(false);
+
+  const canAdd = Boolean(asString(title).trim() || asString(body).trim());
+
+  const add = useCallback(() => {
+    const t = asString(title).trim();
+    const b = asString(body).trim();
+    if (!t && !b) return;
+
+    const now = new Date().toISOString();
+    const entry = {
+      id: `note_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      title: t,
+      body: b,
+      is_public: isPublic,
+      created_at: now,
+      updated_at: now,
+      created_by: "admin_ui",
+    };
+
+    onChange([entry, ...notes]);
+    setTitle("");
+    setBody("");
+    setIsPublic(false);
+    setOpen(false);
+  }, [body, isPublic, notes, onChange, title]);
+
+  const remove = useCallback(
+    (idx) => {
+      onChange(notes.filter((_, i) => i !== idx));
+    },
+    [notes, onChange]
+  );
+
+  const update = useCallback(
+    (idx, patch) => {
+      const next = notes.map((n, i) => {
+        if (i !== idx) return n;
+        const updated_at = new Date().toISOString();
+        return { ...n, ...(patch || {}), updated_at };
+      });
+      onChange(next);
+    },
+    [notes, onChange]
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm text-slate-700 font-medium">Notes</div>
+        <Button type="button" onClick={() => setOpen((v) => !v)}>
+          <Plus className="h-4 w-4 mr-2" />
+          Note
+        </Button>
+      </div>
+
+      {open && (
+        <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+          <div className="grid grid-cols-1 gap-2">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700">Title</label>
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Short title…" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700">Body</label>
+              <textarea
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                className="min-h-[120px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                placeholder="Write details…"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
+              Public
+            </label>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={add} disabled={!canAdd}>
+                Add note
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {notes.length === 0 ? (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">No notes yet.</div>
+      ) : (
+        <div className="space-y-3">
+          {notes.map((n, idx) => (
+            <div key={n.id} className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <Input
+                    value={asString(n.title)}
+                    onChange={(e) => update(idx, { title: e.target.value })}
+                    placeholder="Title"
+                    className="font-medium"
+                  />
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                    <span>{n.is_public ? "Public" : "Private"}</span>
+                    <span>·</span>
+                    <span>{n.created_at ? new Date(n.created_at).toLocaleString() : ""}</span>
+                  </div>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                  onClick={() => remove(idx)}
+                  title="Delete note"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <textarea
+                value={asString(n.body)}
+                onChange={(e) => update(idx, { body: e.target.value })}
+                className="min-h-[100px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                placeholder="Body"
+              />
+
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={Boolean(n.is_public)}
+                  onChange={(e) => update(idx, { is_public: e.target.checked })}
+                />
+                Public
+              </label>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StarNotesEditor({ star, onChange }) {
+  const [text, setText] = useState("");
+  const [isPublic, setIsPublic] = useState(false);
+
+  const notes = star?.notes && Array.isArray(star.notes) ? star.notes : [];
+
+  const addNote = useCallback(() => {
+    const t = asString(text).trim();
+    if (!t) return;
+
+    const next = {
+      id: `note_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      text: t,
+      is_public: isPublic,
+      created_at: new Date().toISOString(),
+      created_by: "admin_ui",
+    };
+
+    onChange({ ...(star || {}), notes: [...notes, next] });
+    setText("");
+    setIsPublic(false);
+  }, [isPublic, notes, onChange, star, text]);
+
+  const deleteNote = useCallback(
+    (idx) => {
+      onChange({ ...(star || {}), notes: notes.filter((_, i) => i !== idx) });
+    },
+    [notes, onChange, star]
+  );
+
+  return (
+    <div className="space-y-2">
+      {notes.length > 0 ? (
+        <div className="space-y-2">
+          {notes.map((n, idx) => (
+            <div key={n?.id || idx} className="rounded border border-slate-200 bg-slate-50 p-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium text-slate-700">
+                    {n?.is_public ? "Public" : "Private"}
+                    {n?.created_at ? ` · ${new Date(n.created_at).toLocaleString()}` : ""}
+                  </div>
+                  <div className="mt-1 text-sm text-slate-900 whitespace-pre-wrap break-words">{asString(n?.text)}</div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                  onClick={() => deleteNote(idx)}
+                  title="Delete note"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-xs text-slate-500">No notes.</div>
+      )}
+
+      <div className="rounded border border-slate-200 bg-white p-3 space-y-2">
+        <div className="text-xs font-medium text-slate-700">Add note</div>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          className="min-h-[80px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+          placeholder="Write a note…"
+        />
+        <div className="flex items-center justify-between gap-2">
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
+            Public
+          </label>
+          <Button type="button" onClick={addNote} disabled={!asString(text).trim()}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add note
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RatingEditor({ draft, onChange }) {
+  const rating = normalizeRating(draft?.rating);
+  const auto = calculateInitialRating(computeAutoRatingInput(draft));
+
+  const setStar = (starKey, patch) => {
+    const nextRating = {
+      ...rating,
+      [starKey]: {
+        ...(rating[starKey] || {}),
+        ...(patch || {}),
+      },
+    };
+    onChange({ ...(draft || {}), rating: nextRating });
+  };
+
+  const renderRow = (starKey, label, autoValue) => {
+    const star = rating[starKey] || { value: 0, notes: [] };
+    const autoText = typeof autoValue === "number" ? String(autoValue.toFixed(1)) : null;
+    const currentValue = clampStarValue(Number(star.value ?? 0));
+
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-semibold text-slate-900">{label}</div>
+          {autoText != null ? (
+            <div className="text-xs text-slate-600">Auto: {autoText}</div>
+          ) : (
+            <div className="text-xs text-slate-600">Manual</div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:items-end">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Value (0.0–1.0)</label>
+            <Input
+              value={String(currentValue)}
+              inputMode="decimal"
+              onChange={(e) => setStar(starKey, { value: clampStarValue(Number(e.target.value)) })}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Icon</label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={star.icon_type === "heart" ? "outline" : "default"}
+                onClick={() => setStar(starKey, { icon_type: "star" })}
+              >
+                Circle
+              </Button>
+              <Button
+                type="button"
+                variant={star.icon_type === "heart" ? "default" : "outline"}
+                onClick={() => setStar(starKey, { icon_type: "heart" })}
+              >
+                Heart
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-700">Quick set</label>
+            <div className="flex gap-2 flex-wrap">
+              {[0, 0.5, 1].map((v) => (
+                <Button key={v} type="button" variant="outline" onClick={() => setStar(starKey, { value: v })}>
+                  {v.toFixed(1)}
+                </Button>
+              ))}
+              {autoValue != null ? (
+                <Button type="button" variant="outline" onClick={() => setStar(starKey, { value: autoValue })}>
+                  Use auto
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        <StarNotesEditor star={star} onChange={(nextStar) => setStar(starKey, nextStar)} />
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="text-sm text-slate-700 font-medium">Stars</div>
+      <div className="space-y-3">
+        {renderRow("star1", "Manufacturing (auto)", auto.star1.value)}
+        {renderRow("star2", "HQ/Home (auto)", auto.star2.value)}
+        {renderRow("star3", "Reviews (auto)", auto.star3.value)}
+        {renderRow("star4", "Admin1 (manual)", null)}
+        {renderRow("star5", "Admin2 (manual)", null)}
+      </div>
+    </div>
+  );
 }
 
 async function copyToClipboard(value) {
@@ -184,6 +1016,11 @@ export default function CompanyDashboard() {
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorDraft, setEditorDraft] = useState(null);
   const [editorOriginalId, setEditorOriginalId] = useState(null);
+
+  const [refreshLoading, setRefreshLoading] = useState(false);
+  const [refreshError, setRefreshError] = useState(null);
+  const [refreshProposed, setRefreshProposed] = useState(null);
+  const [refreshSelection, setRefreshSelection] = useState({});
 
   const [logoFile, setLogoFile] = useState(null);
   const [logoUploading, setLogoUploading] = useState(false);
@@ -308,38 +1145,73 @@ export default function CompanyDashboard() {
   const openEditorForCompany = useCallback((company) => {
     const id = getCompanyId(company);
 
+    const manuBase =
+      Array.isArray(company?.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0
+        ? company.manufacturing_geocodes
+        : company?.manufacturing_locations;
+
     const draft = {
       ...company,
-      id: asString(company?.id).trim(),
       company_id: asString(company?.company_id || company?.id).trim(),
       company_name: getCompanyName(company),
       website_url: getCompanyUrl(company),
       headquarters_location: asString(company?.headquarters_location).trim(),
-      manufacturing_locations: normalizeLocationList(company?.manufacturing_locations),
-      product_keywords: keywordListToString(keywordStringToList(company?.product_keywords || company?.keywords)),
+      headquarters_locations: normalizeStructuredLocationList(
+        company?.headquarters_locations || company?.headquarters || company?.headquarters_location
+      ),
+      manufacturing_locations: normalizeStructuredLocationList(manuBase),
+      industries: normalizeStringList(company?.industries),
+      keywords: normalizeStringList(company?.keywords || company?.product_keywords),
+      amazon_url: asString(company?.amazon_url).trim(),
+      amazon_store_url: asString(company?.amazon_store_url).trim(),
+      affiliate_link_urls: normalizeStringList(company?.affiliate_link_urls),
+      show_location_sources_to_users: Boolean(company?.show_location_sources_to_users),
+      visibility: normalizeVisibility(company?.visibility),
+      location_sources: normalizeLocationSources(company?.location_sources),
+      rating_icon_type: normalizeRatingIconType(company?.rating_icon_type),
+      rating: company?.rating ? normalizeRating(company.rating) : null,
+      notes_entries: normalizeCompanyNotes(company?.notes_entries || company?.notesEntries),
       notes: asString(company?.notes).trim(),
       tagline: asString(company?.tagline).trim(),
       logo_url: asString(company?.logo_url).trim(),
     };
 
+    if (!draft.rating) {
+      draft.rating = calculateInitialRating(computeAutoRatingInput(draft));
+    }
+
     setEditorOriginalId(id || null);
     setEditorDraft(draft);
     setLogoFile(null);
     setLogoUploadError(null);
+    setRefreshLoading(false);
+    setRefreshError(null);
+    setRefreshProposed(null);
+    setRefreshSelection({});
     setEditorOpen(true);
   }, []);
 
   const createNewCompany = useCallback(() => {
     const draft = {
-      id: "",
       company_id: "",
       company_name: "",
       website_url: "",
       tagline: "",
       logo_url: "",
+      amazon_url: "",
+      amazon_store_url: "",
+      affiliate_link_urls: [],
+      show_location_sources_to_users: false,
+      visibility: { hq_public: true, manufacturing_public: true, admin_rating_public: true },
+      location_sources: [],
       headquarters_location: "",
+      headquarters_locations: [],
       manufacturing_locations: [],
-      product_keywords: "",
+      industries: [],
+      keywords: [],
+      rating_icon_type: "star",
+      rating: calculateInitialRating({ hasManufacturingLocations: false, hasHeadquarters: false, hasReviews: false }),
+      notes_entries: [],
       notes: "",
     };
 
@@ -347,8 +1219,225 @@ export default function CompanyDashboard() {
     setEditorDraft(draft);
     setLogoFile(null);
     setLogoUploadError(null);
+    setRefreshLoading(false);
+    setRefreshError(null);
+    setRefreshProposed(null);
+    setRefreshSelection({});
     setEditorOpen(true);
   }, []);
+
+  const refreshDiffFields = useMemo(
+    () => [
+      { key: "company_name", label: "Company name" },
+      { key: "website_url", label: "Website URL" },
+      { key: "tagline", label: "Tagline" },
+      { key: "headquarters_locations", label: "HQ locations" },
+      { key: "manufacturing_locations", label: "Manufacturing locations" },
+      { key: "industries", label: "Industries" },
+      { key: "keywords", label: "Keywords" },
+      { key: "red_flag", label: "Red flag" },
+      { key: "red_flag_reason", label: "Red flag reason" },
+      { key: "location_confidence", label: "Location confidence" },
+      { key: "location_sources", label: "Location sources" },
+    ],
+    []
+  );
+
+  const normalizeForDiff = useCallback((key, value) => {
+    switch (key) {
+      case "industries":
+      case "keywords": {
+        return normalizeStringList(value)
+          .map((v) => v.trim())
+          .filter(Boolean)
+          .map((v) => v.toLowerCase())
+          .sort();
+      }
+      case "headquarters_locations":
+      case "manufacturing_locations": {
+        return normalizeStructuredLocationList(value)
+          .map((v) => formatStructuredLocation(v))
+          .map((v) => v.trim())
+          .filter(Boolean)
+          .map((v) => v.toLowerCase())
+          .sort();
+      }
+      case "location_sources": {
+        const list = Array.isArray(value) ? value : [];
+        return list
+          .filter((v) => v && typeof v === "object")
+          .map((v) => {
+            const location = asString(v.location).trim();
+            const source_url = asString(v.source_url).trim();
+            const source_type = asString(v.source_type).trim();
+            const location_type = asString(v.location_type).trim();
+            return [location, source_type, location_type, source_url]
+              .filter(Boolean)
+              .join(" | ")
+              .toLowerCase();
+          })
+          .filter(Boolean)
+          .sort();
+      }
+      case "red_flag": {
+        return Boolean(value);
+      }
+      default:
+        return asString(value).trim();
+    }
+  }, []);
+
+  const diffToDisplay = useCallback((key, value) => {
+    switch (key) {
+      case "industries":
+      case "keywords": {
+        const list = normalizeStringList(value);
+        return list.length ? list.join("\n") : "(empty)";
+      }
+      case "headquarters_locations":
+      case "manufacturing_locations": {
+        const list = normalizeStructuredLocationList(value).map((v) => formatStructuredLocation(v)).filter(Boolean);
+        return list.length ? list.join("\n") : "(empty)";
+      }
+      case "location_sources": {
+        const list = Array.isArray(value) ? value : [];
+        const lines = list
+          .filter((v) => v && typeof v === "object")
+          .map((v) => {
+            const location = asString(v.location).trim();
+            const source_url = asString(v.source_url).trim();
+            const source_type = asString(v.source_type).trim();
+            const location_type = asString(v.location_type).trim();
+            return [location, source_type, location_type, source_url].filter(Boolean).join(" — ");
+          })
+          .filter(Boolean);
+        return lines.length ? lines.join("\n") : "(empty)";
+      }
+      case "red_flag": {
+        return Boolean(value) ? "true" : "false";
+      }
+      default: {
+        const s = asString(value).trim();
+        return s || "(empty)";
+      }
+    }
+  }, []);
+
+  const diffRows = useMemo(() => {
+    if (!editorDraft || !refreshProposed || typeof refreshProposed !== "object") return [];
+
+    const rows = [];
+    for (const f of refreshDiffFields) {
+      if (!Object.prototype.hasOwnProperty.call(refreshProposed, f.key)) continue;
+
+      const currentVal = editorDraft?.[f.key];
+      const proposedVal = refreshProposed?.[f.key];
+
+      const a = normalizeForDiff(f.key, currentVal);
+      const b = normalizeForDiff(f.key, proposedVal);
+      const changed = JSON.stringify(a) !== JSON.stringify(b);
+      if (!changed) continue;
+
+      rows.push({
+        key: f.key,
+        label: f.label,
+        currentText: diffToDisplay(f.key, currentVal),
+        proposedText: diffToDisplay(f.key, proposedVal),
+      });
+    }
+
+    return rows;
+  }, [diffToDisplay, editorDraft, normalizeForDiff, refreshDiffFields, refreshProposed]);
+
+  const selectedDiffCount = useMemo(() => {
+    return diffRows.reduce((sum, row) => sum + (refreshSelection[row.key] ? 1 : 0), 0);
+  }, [diffRows, refreshSelection]);
+
+  const selectAllDiffs = useCallback(() => {
+    const next = {};
+    for (const row of diffRows) next[row.key] = true;
+    setRefreshSelection(next);
+  }, [diffRows]);
+
+  const clearAllDiffs = useCallback(() => {
+    setRefreshSelection({});
+  }, []);
+
+  const applySelectedDiffs = useCallback(() => {
+    if (!refreshProposed || typeof refreshProposed !== "object") return;
+
+    setEditorDraft((prev) => {
+      const base = prev && typeof prev === "object" ? prev : {};
+      let next = base;
+
+      for (const row of diffRows) {
+        if (!refreshSelection[row.key]) continue;
+        if (!Object.prototype.hasOwnProperty.call(refreshProposed, row.key)) continue;
+        if (next === base) next = { ...base };
+        next[row.key] = refreshProposed[row.key];
+      }
+
+      return next;
+    });
+
+    toast.success(`Applied ${selectedDiffCount} change${selectedDiffCount === 1 ? "" : "s"}`);
+  }, [diffRows, refreshProposed, refreshSelection, selectedDiffCount]);
+
+  const refreshCompany = useCallback(async () => {
+    const companyId = asString(editorOriginalId || editorDraft?.company_id).trim();
+    if (!companyId) {
+      toast.error("Save the company first.");
+      return;
+    }
+
+    setRefreshLoading(true);
+    setRefreshError(null);
+    setRefreshProposed(null);
+    setRefreshSelection({});
+
+    try {
+      const res = await apiFetch("/xadmin-api-refresh-company", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ company_id: companyId }),
+      });
+
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body?.ok !== true) {
+        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Refresh failed (${res.status})`;
+        setRefreshError(msg);
+        toast.error(msg);
+        return;
+      }
+
+      const proposed = body?.proposed && typeof body.proposed === "object" ? body.proposed : null;
+      if (!proposed) {
+        const msg = "No proposed updates returned.";
+        setRefreshError(msg);
+        toast.error(msg);
+        return;
+      }
+
+      setRefreshProposed(proposed);
+
+      const defaults = {};
+      for (const f of refreshDiffFields) {
+        if (!Object.prototype.hasOwnProperty.call(proposed, f.key)) continue;
+        const a = normalizeForDiff(f.key, editorDraft?.[f.key]);
+        const b = normalizeForDiff(f.key, proposed?.[f.key]);
+        if (JSON.stringify(a) !== JSON.stringify(b)) defaults[f.key] = true;
+      }
+      setRefreshSelection(defaults);
+
+      toast.success("Proposed updates loaded");
+    } catch (e) {
+      const msg = e?.message || "Refresh failed";
+      setRefreshError(msg);
+      toast.error(msg);
+    } finally {
+      setRefreshLoading(false);
+    }
+  }, [editorDraft, editorOriginalId, normalizeForDiff, refreshDiffFields]);
 
   const saveEditor = useCallback(async () => {
     if (!editorDraft) return;
@@ -369,6 +1458,18 @@ export default function CompanyDashboard() {
 
       const resolvedCompanyId = draftCompanyId || (isNew ? suggestedId : "") || "";
 
+      const hqLocations = normalizeStructuredLocationList(editorDraft.headquarters_locations);
+      const manuLocations = normalizeStructuredLocationList(editorDraft.manufacturing_locations);
+
+      const industries = normalizeStringList(editorDraft.industries);
+      const keywords = normalizeStringList(editorDraft.keywords);
+      const rating = normalizeRating(editorDraft.rating);
+      const rating_icon_type = normalizeRatingIconType(editorDraft.rating_icon_type);
+      const notes_entries = normalizeCompanyNotes(editorDraft.notes_entries);
+      const location_sources = normalizeLocationSources(editorDraft.location_sources);
+      const visibility = normalizeVisibility(editorDraft.visibility);
+      const affiliate_link_urls = normalizeStringList(editorDraft.affiliate_link_urls);
+
       const payload = {
         ...editorDraft,
         company_id: resolvedCompanyId,
@@ -377,12 +1478,26 @@ export default function CompanyDashboard() {
         name: asString(editorDraft.name || draftName).trim(),
         website_url: getCompanyUrl(editorDraft),
         url: asString(editorDraft.url || getCompanyUrl(editorDraft)).trim(),
-        headquarters_location: asString(editorDraft.headquarters_location).trim(),
-        manufacturing_locations: normalizeLocationList(editorDraft.manufacturing_locations),
-        product_keywords: keywordListToString(keywordStringToList(editorDraft.product_keywords)),
+        headquarters_location: hqLocations.length > 0 ? formatStructuredLocation(hqLocations[0]) : "",
+        headquarters_locations: hqLocations,
+        headquarters: hqLocations,
+        manufacturing_locations: manuLocations,
+        manufacturing_geocodes: manuLocations,
+        industries,
+        keywords,
+        product_keywords: keywords,
+        rating,
+        rating_icon_type,
+        notes_entries,
         notes: asString(editorDraft.notes).trim(),
         tagline: asString(editorDraft.tagline).trim(),
         logo_url: asString(editorDraft.logo_url).trim(),
+        amazon_url: asString(editorDraft.amazon_url).trim(),
+        amazon_store_url: asString(editorDraft.amazon_store_url).trim(),
+        affiliate_link_urls,
+        show_location_sources_to_users: Boolean(editorDraft.show_location_sources_to_users),
+        visibility,
+        location_sources,
       };
 
       if (!payload.company_id) {
@@ -481,11 +1596,6 @@ export default function CompanyDashboard() {
 
     try {
       const url = await uploadLogoBlobFile(logoFile, companyId);
-      if (!url) {
-        setLogoUploadError("Upload failed.");
-        toast.error("Logo upload failed");
-        return;
-      }
 
       setEditorDraft((d) => ({ ...(d || {}), logo_url: url }));
       updateCompanyInState(companyId, { logo_url: url });
@@ -529,15 +1639,14 @@ export default function CompanyDashboard() {
 
     setLogoDeleting(true);
     try {
-      const ok = await deleteLogoBlob(current);
-      if (!ok) {
-        toast.error("Failed to delete logo");
-        return;
-      }
+      await deleteLogoBlob(current);
 
       setEditorDraft((d) => ({ ...(d || {}), logo_url: "" }));
       updateCompanyInState(companyId, { logo_url: "" });
       toast.success("Logo deleted");
+    } catch (e) {
+      const msg = e?.message || "Failed to delete logo";
+      toast.error(msg);
     } finally {
       setLogoDeleting(false);
     }
@@ -663,13 +1772,25 @@ export default function CompanyDashboard() {
       },
       {
         name: "HQ",
-        selector: (row) => asString(row?.headquarters_location).trim(),
+        selector: (row) => {
+          const hqList = normalizeStructuredLocationList(
+            row?.headquarters_locations || row?.headquarters || row?.headquarters_location
+          );
+          return hqList.map((l) => formatStructuredLocation(l)).filter(Boolean).join("; ");
+        },
         sortable: true,
         wrap: true,
       },
       {
         name: "MFG",
-        selector: (row) => normalizeLocationList(row?.manufacturing_locations).join("; "),
+        selector: (row) => {
+          const manuBase =
+            Array.isArray(row?.manufacturing_geocodes) && row.manufacturing_geocodes.length > 0
+              ? row.manufacturing_geocodes
+              : row?.manufacturing_locations;
+          const list = normalizeStructuredLocationList(manuBase);
+          return list.map((l) => formatStructuredLocation(l)).filter(Boolean).join("; ");
+        },
         sortable: false,
         wrap: true,
       },
@@ -958,24 +2079,45 @@ export default function CompanyDashboard() {
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
                             <div className="text-xs font-medium text-slate-700">company_id</div>
-                            <div className="mt-1 flex items-center gap-2">
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
                               <code className="rounded bg-white border border-slate-200 px-2 py-1 text-xs text-slate-900">
-                                {editorOriginalId ? getCompanyId(editorDraft) || "(missing)" : editorCompanyId || "(auto)"}
+                                {editorOriginalId ? asString(editorDraft.company_id).trim() || "(missing)" : editorCompanyId || "(auto)"}
                               </code>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={async () => {
-                                  const value = editorOriginalId ? getCompanyId(editorDraft) : editorCompanyId;
-                                  const ok = await copyToClipboard(value);
-                                  if (ok) toast.success("Copied");
-                                  else toast.error("Copy failed");
-                                }}
-                                disabled={!(editorOriginalId ? getCompanyId(editorDraft) : editorCompanyId)}
-                                title="Copy company_id"
-                              >
-                                <Copy className="h-4 w-4" />
-                              </Button>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={async () => {
+                                    const value = editorOriginalId
+                                      ? asString(editorDraft.company_id).trim()
+                                      : asString(editorCompanyId).trim();
+                                    const ok = await copyToClipboard(value);
+                                    if (ok) toast.success("Copied");
+                                    else toast.error("Copy failed");
+                                  }}
+                                  disabled={
+                                    !(editorOriginalId
+                                      ? asString(editorDraft.company_id).trim()
+                                      : asString(editorCompanyId).trim())
+                                  }
+                                  title="Copy company_id"
+                                >
+                                  <Copy className="h-4 w-4" />
+                                </Button>
+
+                                {editorOriginalId ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={refreshCompany}
+                                    disabled={refreshLoading || editorSaving}
+                                    title="Refresh search"
+                                  >
+                                    <RefreshCcw className="h-4 w-4 mr-2" />
+                                    {refreshLoading ? "Refreshing…" : "Refresh search"}
+                                  </Button>
+                                ) : null}
+                              </div>
                             </div>
                           </div>
 
@@ -992,6 +2134,85 @@ export default function CompanyDashboard() {
                           ) : null}
                         </div>
                       </div>
+
+                      {editorOriginalId ? (
+                        <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-sm font-semibold text-slate-900">Proposed refresh</div>
+                            {refreshProposed && diffRows.length > 0 ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Button type="button" size="sm" variant="outline" onClick={selectAllDiffs}>
+                                  Select all
+                                </Button>
+                                <Button type="button" size="sm" variant="outline" onClick={clearAllDiffs}>
+                                  Clear
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={applySelectedDiffs}
+                                  disabled={selectedDiffCount === 0}
+                                >
+                                  Apply selected ({selectedDiffCount})
+                                </Button>
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {refreshError ? (
+                            <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">{refreshError}</div>
+                          ) : null}
+
+                          {refreshProposed ? (
+                            diffRows.length > 0 ? (
+                              <div className="space-y-3">
+                                {diffRows.map((row) => (
+                                  <div key={row.key} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                    <div className="flex items-start gap-3">
+                                      <Checkbox
+                                        checked={Boolean(refreshSelection[row.key])}
+                                        onCheckedChange={(checked) =>
+                                          setRefreshSelection((prev) => ({
+                                            ...(prev || {}),
+                                            [row.key]: Boolean(checked),
+                                          }))
+                                        }
+                                        aria-label={`Overwrite ${row.label}`}
+                                      />
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-medium text-slate-900">{row.label}</div>
+                                        <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                          <div className="rounded border border-slate-200 bg-white p-2">
+                                            <div className="text-xs font-semibold text-slate-700">Current</div>
+                                            <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-800">{row.currentText}</pre>
+                                          </div>
+                                          <div className="rounded border border-slate-200 bg-white p-2">
+                                            <div className="text-xs font-semibold text-slate-700">Proposed</div>
+                                            <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-800">{row.proposedText}</pre>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+
+                                <div className="text-xs text-slate-600">
+                                  Protected fields are never overwritten: logo, structured notes, and manual stars.
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                                No differences found.
+                              </div>
+                            )
+                          ) : (
+                            <div className="text-xs text-slate-600">
+                              Click “Refresh search” to fetch proposed updates. Protected fields (logo, notes, manual stars)
+                              are never overwritten.
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
 
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         <div className="space-y-1">
@@ -1102,39 +2323,166 @@ export default function CompanyDashboard() {
                         </div>
 
                         <div className="space-y-1">
-                          <label className="text-sm text-slate-700">HQ location</label>
+                          <label className="text-sm text-slate-700">Amazon URL</label>
                           <Input
-                            value={asString(editorDraft.headquarters_location)}
-                            onChange={(e) => setEditorDraft((d) => ({ ...d, headquarters_location: e.target.value }))}
-                            placeholder="City, State/Region, Country"
+                            value={asString(editorDraft.amazon_url)}
+                            onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_url: e.target.value }))}
                           />
                         </div>
 
                         <div className="space-y-1">
-                          <label className="text-sm text-slate-700">Manufacturing locations</label>
+                          <label className="text-sm text-slate-700">Amazon store URL</label>
                           <Input
-                            value={normalizeLocationList(editorDraft.manufacturing_locations).join(", ")}
+                            value={asString(editorDraft.amazon_store_url)}
+                            onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_store_url: e.target.value }))}
+                          />
+                        </div>
+
+                        <div className="lg:col-span-2">
+                          <StringListEditor
+                            label="Affiliate link URLs"
+                            value={editorDraft.affiliate_link_urls}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), affiliate_link_urls: next }))}
+                          />
+                        </div>
+
+                        <div className="lg:col-span-2 space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+                          <div className="text-sm font-semibold text-slate-900">Visibility</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <label className="flex items-start gap-2 text-sm text-slate-800">
+                              <Checkbox
+                                checked={Boolean(editorDraft.show_location_sources_to_users)}
+                                onCheckedChange={(v) =>
+                                  setEditorDraft((d) => ({
+                                    ...(d || {}),
+                                    show_location_sources_to_users: Boolean(v),
+                                  }))
+                                }
+                              />
+                              <span>Show location sources to users</span>
+                            </label>
+
+                            <label className="flex items-start gap-2 text-sm text-slate-800">
+                              <Checkbox
+                                checked={Boolean(editorDraft.visibility?.hq_public)}
+                                onCheckedChange={(v) =>
+                                  setEditorDraft((d) => ({
+                                    ...(d || {}),
+                                    visibility: { ...normalizeVisibility(d?.visibility), hq_public: Boolean(v) },
+                                  }))
+                                }
+                              />
+                              <span>Show HQ location</span>
+                            </label>
+
+                            <label className="flex items-start gap-2 text-sm text-slate-800">
+                              <Checkbox
+                                checked={Boolean(editorDraft.visibility?.manufacturing_public)}
+                                onCheckedChange={(v) =>
+                                  setEditorDraft((d) => ({
+                                    ...(d || {}),
+                                    visibility: {
+                                      ...normalizeVisibility(d?.visibility),
+                                      manufacturing_public: Boolean(v),
+                                    },
+                                  }))
+                                }
+                              />
+                              <span>Show manufacturing locations</span>
+                            </label>
+
+                            <label className="flex items-start gap-2 text-sm text-slate-800">
+                              <Checkbox
+                                checked={Boolean(editorDraft.visibility?.admin_rating_public)}
+                                onCheckedChange={(v) =>
+                                  setEditorDraft((d) => ({
+                                    ...(d || {}),
+                                    visibility: {
+                                      ...normalizeVisibility(d?.visibility),
+                                      admin_rating_public: Boolean(v),
+                                    },
+                                  }))
+                                }
+                              />
+                              <span>Show QQ rating</span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <div className="lg:col-span-2">
+                          <LocationSourcesEditor
+                            value={editorDraft.location_sources}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), location_sources: next }))}
+                          />
+                        </div>
+
+                        <div className="lg:col-span-2">
+                          <StructuredLocationListEditor
+                            label="HQ locations"
+                            value={editorDraft.headquarters_locations}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), headquarters_locations: next }))}
+                          />
+                        </div>
+
+                        <div className="lg:col-span-2">
+                          <StructuredLocationListEditor
+                            label="Manufacturing locations"
+                            value={editorDraft.manufacturing_locations}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), manufacturing_locations: next }))}
+                          />
+                        </div>
+
+                        <div className="lg:col-span-2">
+                          <StringListEditor
+                            label="Industries"
+                            value={editorDraft.industries}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), industries: next }))}
+                            placeholder="Add an industry…"
+                          />
+                        </div>
+
+                        <div className="lg:col-span-2">
+                          <StringListEditor
+                            label="Keywords"
+                            value={editorDraft.keywords}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), keywords: next }))}
+                            placeholder="Add a keyword…"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-sm text-slate-700">QQ icon</label>
+                          <select
+                            className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                            value={asString(editorDraft.rating_icon_type || "star")}
                             onChange={(e) =>
                               setEditorDraft((d) => ({
-                                ...d,
-                                manufacturing_locations: normalizeLocationList(e.target.value),
+                                ...(d || {}),
+                                rating_icon_type: normalizeRatingIconType(e.target.value),
                               }))
                             }
-                            placeholder="City, Region, Country; …"
+                          >
+                            <option value="star">Star</option>
+                            <option value="heart">Heart</option>
+                          </select>
+                        </div>
+
+                        <div className="lg:col-span-2">
+                          <RatingEditor
+                            draft={editorDraft}
+                            onChange={(next) => setEditorDraft(next)}
+                          />
+                        </div>
+
+                        <div className="lg:col-span-2">
+                          <CompanyNotesEditor
+                            value={editorDraft.notes_entries}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), notes_entries: next }))}
                           />
                         </div>
 
                         <div className="lg:col-span-2 space-y-1">
-                          <label className="text-sm text-slate-700">Product keywords</label>
-                          <Input
-                            value={asString(editorDraft.product_keywords)}
-                            onChange={(e) => setEditorDraft((d) => ({ ...d, product_keywords: e.target.value }))}
-                            placeholder="running shoes, socks, …"
-                          />
-                        </div>
-
-                        <div className="lg:col-span-2 space-y-1">
-                          <label className="text-sm text-slate-700">Notes</label>
+                          <label className="text-sm text-slate-700">Internal notes (legacy)</label>
                           <textarea
                             value={asString(editorDraft.notes)}
                             onChange={(e) => setEditorDraft((d) => ({ ...d, notes: e.target.value }))}

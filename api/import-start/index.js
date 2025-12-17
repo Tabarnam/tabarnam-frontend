@@ -210,6 +210,17 @@ function isProxyExplicitlyDisabled(value) {
   return false;
 }
 
+function isProxyExplicitlyEnabled(value) {
+  if (value === true) return true;
+  if (value === 1) return true;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (!v) return false;
+    return v === "true" || v === "1" || v === "yes" || v === "on";
+  }
+  return false;
+}
+
 function buildCounts({ enriched, debugOutput }) {
   const candidates_found = Array.isArray(enriched) ? enriched.length : 0;
 
@@ -1145,17 +1156,21 @@ const importStartHandler = async (req, context) => {
           ? bodyObj.proxy
           : readQueryParam(req, "proxy");
 
-      const proxyRequested = !isProxyExplicitlyDisabled(proxyRaw);
+      const proxyDisabled = isProxyExplicitlyDisabled(proxyRaw);
+      const proxyEnabled = isProxyExplicitlyEnabled(proxyRaw);
 
       let proxyBase = "";
       let proxySource = "";
 
-      // If proxy is explicitly disabled, run local mode and do not evaluate proxy config.
-      if (proxyRequested) {
-        const info = getImportStartProxyInfo();
-        proxyBase = info.base;
-        proxySource = info.source;
+      const proxyInfo = !proxyDisabled ? getImportStartProxyInfo() : { base: "", source: "" };
+      proxyBase = proxyInfo.base;
+      proxySource = proxyInfo.source;
 
+      const proxyConfigured = Boolean(proxyBase);
+      const proxyRequested = !proxyDisabled && (proxyEnabled || proxyConfigured);
+
+      // Proxy is an optimization (to avoid SWA timeouts) and should never block production.
+      if (proxyRequested) {
         if (proxyBase && isXaiPublicApiUrl(proxyBase)) {
           setStage("proxy_config", { upstream: proxyBase, proxy_source: proxySource });
           return respondError(new Error("Invalid proxy target: import-start cannot be proxied to XAI API"), {
@@ -1169,15 +1184,14 @@ const importStartHandler = async (req, context) => {
           });
         }
 
-        if (!proxyBase) {
-          setStage("proxy_config");
-          return respondError(new Error("Import upstream not configured"), {
-            status: 500,
-            details: {
-              message:
-                "Set IMPORT_START_PROXY_BASE (preferred) or XAI_IMPORT_PROXY_BASE to a Tabarnam import worker base URL so /api/import/start can run without Static Web Apps timing out",
-            },
-          });
+        if (proxyEnabled && !proxyBase) {
+          const warning = {
+            message:
+              "Proxy was explicitly requested, but IMPORT_START_PROXY_BASE (or XAI_IMPORT_PROXY_BASE) is not configured. Falling back to local import.",
+          };
+          setStage("proxy_config", warning);
+          if (debugOutput) debugOutput.proxy_warning = warning;
+          console.warn("[import-start]", warning.message);
         }
       }
 
@@ -1316,9 +1330,20 @@ const importStartHandler = async (req, context) => {
 
       try {
         const center = safeCenter(bodyObj.center);
+        const queryTypesRaw = Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [];
+        const queryTypes = queryTypesRaw
+          .map((t) => String(t || "").trim())
+          .filter(Boolean)
+          .slice(0, 10);
+
+        const queryType = String(bodyObj.queryType || queryTypes[0] || "product_keyword").trim() || "product_keyword";
+        const location = String(bodyObj.location || "").trim();
+
         const xaiPayload = {
-          queryType: bodyObj.queryType || "product_keyword",
+          queryType: queryTypes.length > 0 ? queryTypes.join(", ") : queryType,
+          queryTypes: queryTypes.length > 0 ? queryTypes : [queryType],
           query: bodyObj.query || "",
+          location,
           limit: Math.max(1, Math.min(Number(bodyObj.limit) || 10, 25)),
           expand_if_few: bodyObj.expand_if_few ?? true,
           session_id: sessionId,
@@ -1379,7 +1404,12 @@ const importStartHandler = async (req, context) => {
           content: `You are a business research assistant specializing in manufacturing location extraction. Find and return information about ${xaiPayload.limit} DIFFERENT companies or products based on this search.
 
 Search query: "${xaiPayload.query}"
-Search type: ${xaiPayload.queryType}
+Search type(s): ${xaiPayload.queryType}
+${xaiPayload.location ? `
+Location boost: "${xaiPayload.location}"
+- If you can, prefer and rank higher companies whose HQ or manufacturing locations match this location.
+- The location is OPTIONAL; do not block the import if it is empty.
+` : ""}
 
 CRITICAL PRIORITY #1: HEADQUARTERS & MANUFACTURING LOCATIONS (THIS IS THE TOP VALUE PROP)
 These location fields are FIRST-CLASS and non-negotiable. Be AGGRESSIVE and MULTI-SOURCE in extraction - do not accept "website is vague" as final answer.
@@ -2040,7 +2070,7 @@ Return ONLY the JSON array, no other text.`,
               const expansionMessage = {
                 role: "user",
                 content: `You previously found companies for "${xaiPayload.query}" (${xaiPayload.queryType}).
-Find ${xaiPayload.limit} MORE DIFFERENT companies that are related to "${xaiPayload.query}" but were not in the previous results.
+Find ${xaiPayload.limit} MORE DIFFERENT companies that are related to "${xaiPayload.query}" (search type(s): ${xaiPayload.queryType}${xaiPayload.location ? `, location boost: ${xaiPayload.location}` : ""}) but were not in the previous results.
 PRIORITIZE finding smaller, regional, and lesser-known companies that are alternatives to major brands.
 Focus on independent manufacturers, craft producers, specialty companies, and regional players that serve the same market.
 

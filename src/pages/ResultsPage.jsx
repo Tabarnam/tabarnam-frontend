@@ -42,7 +42,7 @@ export default function ResultsPage() {
     const enriched = await Promise.all(
       companies.map(async (c) => {
         try {
-          const companyId = c.id || c.company_id;
+          const companyId = c.company_id || c.id;
           const qs = companyId
             ? `company_id=${encodeURIComponent(companyId)}`
             : `company=${encodeURIComponent(c.company_name)}`;

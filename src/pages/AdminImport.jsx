@@ -57,8 +57,13 @@ async function readJsonOrText(res) {
 
 export default function AdminImport() {
   const [query, setQuery] = useState("");
-  const [queryType, setQueryType] = useState("product_keyword");
+  const [queryTypes, setQueryTypes] = useState(["product_keyword"]);
+  const [location, setLocation] = useState("");
   const [limit, setLimit] = useState(10);
+
+  const [importConfigLoading, setImportConfigLoading] = useState(true);
+  const [importReady, setImportReady] = useState(true);
+  const [importConfigMessage, setImportConfigMessage] = useState("");
 
   const [runs, setRuns] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
@@ -149,14 +154,22 @@ export default function AdminImport() {
       return;
     }
 
+    if (!importConfigLoading && !importReady) {
+      toast.error(importConfigMessage || "Import is not configured.");
+      return;
+    }
+
     const session_id = (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`);
 
     const normalizedLimit = Math.max(1, Math.min(25, Math.trunc(Number(limit) || 10)));
 
+    const selectedTypes = Array.isArray(queryTypes) && queryTypes.length > 0 ? queryTypes : ["product_keyword"];
+
     const newRun = {
       session_id,
       query: q,
-      queryType: asString(queryType).trim() || "product_keyword",
+      queryTypes: selectedTypes,
+      location: asString(location).trim() || "",
       limit: normalizedLimit,
       startedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -188,7 +201,9 @@ export default function AdminImport() {
         body: JSON.stringify({
           session_id,
           query: q,
-          queryType: asString(queryType).trim() || "product_keyword",
+          queryTypes: selectedTypes,
+          queryType: selectedTypes[0] || "product_keyword",
+          location: asString(location).trim() || undefined,
           limit: normalizedLimit,
           expand_if_few: true,
         }),
@@ -232,7 +247,7 @@ export default function AdminImport() {
     } finally {
       stopPolling();
     }
-  }, [limit, query, queryType, schedulePoll, stopPolling]);
+  }, [importConfigLoading, importConfigMessage, importReady, limit, location, query, queryTypes, schedulePoll, stopPolling]);
 
   const stopImport = useCallback(async () => {
     if (!activeSessionId) return;
@@ -330,7 +345,48 @@ export default function AdminImport() {
   }, [activeRun]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      setImportConfigLoading(true);
+      try {
+        const res = await apiFetch("/xadmin-api-bulk-import-config");
+        const body = await readJsonOrText(res);
+
+        if (cancelled) return;
+
+        if (!res.ok || body?.ok !== true) {
+          const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Config check failed (${res.status})`;
+          setImportReady(false);
+          setImportConfigMessage(msg);
+          return;
+        }
+
+        const ready = Boolean(body?.config?.status?.import_ready);
+        setImportReady(ready);
+
+        if (!ready) {
+          const recs = Array.isArray(body?.config?.recommendations) ? body.config.recommendations : [];
+          const critical = recs.find((r) => String(r?.severity || "").toLowerCase() === "critical");
+          setImportConfigMessage(
+            critical?.message
+              ? String(critical.message)
+              : "Import is not ready. Configure XAI and Cosmos DB environment variables."
+          );
+        } else {
+          setImportConfigMessage("");
+        }
+      } catch (e) {
+        if (cancelled) return;
+        setImportReady(false);
+        setImportConfigMessage(e?.message || "Config check failed");
+      } finally {
+        if (!cancelled) setImportConfigLoading(false);
+      }
+    })();
+
     return () => {
+      cancelled = true;
       stopPolling();
       startFetchAbortRef.current?.abort?.();
     };
@@ -357,7 +413,7 @@ export default function AdminImport() {
   return (
     <>
       <Helmet>
-        <title>Tabarnam Admin — Bulk Company Import</title>
+        <title>Tabarnam Admin — Company Import</title>
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
 
@@ -366,11 +422,19 @@ export default function AdminImport() {
 
         <main className="container mx-auto py-6 px-4 space-y-6">
           <header className="flex flex-col gap-2">
-            <h1 className="text-3xl font-bold text-slate-900">Bulk Company Import using openAI</h1>
-            <p className="text-sm text-slate-600">
-              Starts an import session and continuously polls progress until the run completes.
-            </p>
+            <h1 className="text-3xl font-bold text-slate-900">Company Import</h1>
+            <p className="text-sm text-slate-600">Start an import session and poll progress until it completes.</p>
           </header>
+
+          {!importConfigLoading && !importReady ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-semibold">Import is not configured</div>
+                <div className="text-amber-900/90">{importConfigMessage || "Configure XAI and Cosmos DB to enable imports."}</div>
+              </div>
+            </div>
+          ) : null}
 
           <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
@@ -380,8 +444,12 @@ export default function AdminImport() {
               </div>
 
               <div className="space-y-1">
-                <label className="text-sm text-slate-700">Query type</label>
-                <Input value={queryType} onChange={(e) => setQueryType(e.target.value)} placeholder="product_keyword" />
+                <label className="text-sm text-slate-700">Location (optional)</label>
+                <Input
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="e.g. United States or Austin, TX"
+                />
               </div>
 
               <div className="space-y-1">
@@ -394,8 +462,51 @@ export default function AdminImport() {
               </div>
             </div>
 
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-slate-700">Query types</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {[
+                  { key: "product_keyword", label: "Keyword" },
+                  { key: "company_name", label: "Company name" },
+                  { key: "company_url", label: "Company URL/domain" },
+                  { key: "industry", label: "Industry" },
+                  { key: "hq_country", label: "HQ country" },
+                  { key: "manufacturing_country", label: "Manufacturing country" },
+                ].map((opt) => (
+                  <label
+                    key={opt.key}
+                    className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={queryTypes.includes(opt.key)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setQueryTypes((prev) => {
+                          const list = Array.isArray(prev) ? prev : [];
+                          if (checked) return Array.from(new Set([...list, opt.key]));
+                          const next = list.filter((v) => v !== opt.key);
+                          return next.length > 0 ? next : ["product_keyword"];
+                        });
+                      }}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+              <div className="text-xs text-slate-600">If you provide a location, results that match it are ranked higher.</div>
+            </div>
+
             <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={beginImport} disabled={activeStatus === "running" || activeStatus === "stopping"}>
+              <Button
+                onClick={beginImport}
+                disabled={
+                  importConfigLoading ||
+                  !importReady ||
+                  activeStatus === "running" ||
+                  activeStatus === "stopping"
+                }
+              >
                 <Play className="h-4 w-4 mr-2" />
                 {activeStatus === "running" ? "Running…" : "Start import"}
               </Button>
@@ -497,7 +608,27 @@ export default function AdminImport() {
                 <div className="mt-4 text-sm text-slate-600">Start an import to see results.</div>
               ) : (
                 <div className="mt-4 space-y-2 max-h-[520px] overflow-auto">
-                  {(activeRun?.items || []).map((c) => {
+                  {(() => {
+                    const items = Array.isArray(activeRun?.items) ? activeRun.items.slice() : [];
+                    const loc = asString(activeRun?.location).trim().toLowerCase();
+                    if (!loc) return items;
+
+                    const scoreFor = (company) => {
+                      const hq = asString(company?.headquarters_location).toLowerCase();
+                      const manu = Array.isArray(company?.manufacturing_locations)
+                        ? company.manufacturing_locations
+                            .map((m) => (typeof m === "string" ? m : asString(m?.formatted || m?.address || m?.location)))
+                            .join(" ")
+                            .toLowerCase()
+                        : "";
+                      const ind = Array.isArray(company?.industries) ? company.industries.join(" ").toLowerCase() : "";
+                      const combined = `${hq} ${manu} ${ind}`;
+                      return combined.includes(loc) ? 1 : 0;
+                    };
+
+                    items.sort((a, b) => scoreFor(b) - scoreFor(a));
+                    return items;
+                  })().map((c) => {
                     const name = asString(c?.company_name || c?.name).trim() || "(unnamed)";
                     const url = asString(c?.website_url || c?.url).trim();
                     const keywords = asString(c?.product_keywords).trim();

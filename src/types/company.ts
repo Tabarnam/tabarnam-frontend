@@ -82,6 +82,16 @@ export interface CompanyVisibility {
   admin_rating_public?: boolean;
 }
 
+export interface CompanyNote {
+  id: string;
+  title: string;
+  body: string;
+  is_public: boolean;
+  created_at: string;
+  updated_at?: string;
+  created_by?: string;
+}
+
 export interface Company {
   id?: string;
   company_id?: string;
@@ -108,6 +118,7 @@ export interface Company {
   amazon_url?: string;
   tagline?: string;
   logo_url?: string;
+  notes_entries?: CompanyNote[];
   location_sources?: LocationSource[];
   show_location_sources_to_users?: boolean;
   visibility?: CompanyVisibility;

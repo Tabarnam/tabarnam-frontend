@@ -125,6 +125,22 @@ function sqlContainsNotesArray(fieldExpr) {
   )`;
 }
 
+function sqlContainsStructuredNotesArray(fieldExpr) {
+  return `(
+    IS_DEFINED(${fieldExpr}) AND IS_ARRAY(${fieldExpr}) AND ARRAY_LENGTH(
+      ARRAY(
+        SELECT VALUE n
+        FROM n IN ${fieldExpr}
+        WHERE
+          (IS_OBJECT(n) AND (
+            (IS_DEFINED(n.title) AND IS_STRING(n.title) AND CONTAINS(LOWER(n.title), @q)) OR
+            (IS_DEFINED(n.body) AND IS_STRING(n.body) AND CONTAINS(LOWER(n.body), @q))
+          ))
+      )
+    ) > 0
+  )`;
+}
+
 function sqlContainsRatingNotes() {
   const stars = ["star1", "star2", "star3", "star4", "star5"];
   const clauses = stars.map((s) => sqlContainsNotesArray(`c.rating.${s}.notes`));
@@ -155,6 +171,7 @@ function buildSearchWhereClause() {
     sqlContainsLocationArray("c.manufacturing_geocodes"),
     sqlContainsString("c.notes"),
     sqlContainsNotesArray("c.star_notes"),
+    sqlContainsStructuredNotesArray("c.notes_entries"),
     sqlContainsRatingNotes(),
   ];
 
@@ -218,7 +235,14 @@ app.http("adminCompanies", {
           .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
           .fetchAll();
 
-        const items = resources || [];
+        const raw = resources || [];
+        const items = raw
+          .filter((d) => d && typeof d === "object")
+          .map((d) => ({
+            ...d,
+            company_id: String(d.company_id || d.id || "").trim() || d.company_id,
+          }));
+
         context.log("[admin-companies-v2] GET count after soft-delete filter:", items.length);
         return json({ items, count: items.length }, 200);
       }
@@ -364,7 +388,7 @@ app.http("adminCompanies", {
 
         const id = body.company_id || body.id;
         if (!id) {
-          return json({ error: "id required" }, 400);
+          return json({ error: "company_id required" }, 400);
         }
 
         const requestedId = String(id).trim();

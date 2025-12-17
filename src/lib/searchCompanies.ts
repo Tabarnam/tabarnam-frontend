@@ -28,6 +28,7 @@ export interface SearchOptions {
 
 export interface Company {
   id: string;
+  company_id: string;
   company_name: string;
   website_url?: string;
   normalized_domain?: string;
@@ -77,7 +78,18 @@ export async function searchCompanies(opts: SearchOptions) {
       throw new Error(`search-companies failed (${r.status}): ${msg}`);
     }
     const data = await r.json();
-    const items: Company[] = Array.isArray(data?.items) ? data.items : [];
+    const rawItems: any[] = Array.isArray(data?.items) ? data.items : [];
+    const items: Company[] = rawItems
+      .filter((it) => it && typeof it === "object")
+      .map((it) => {
+        const cid = asStr(it.company_id || it.companyId || it.id).trim();
+        return {
+          ...it,
+          company_id: cid,
+          id: asStr(it.id || cid).trim(),
+        } as Company;
+      });
+
     return {
       items,
       count: Number(data?.count) || items.length,
@@ -98,7 +110,7 @@ export async function getSuggestions(qLike: unknown, _take?: number) {
     return out.items.map((i) => ({
       value: i.company_name,
       type: "Company",
-      id: i.id,
+      id: i.company_id || i.id,
     }));
   } catch (e) {
     console.warn("Failed to get suggestions:", e?.message);

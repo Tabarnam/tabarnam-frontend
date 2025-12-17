@@ -205,6 +205,7 @@ const SQL_TEXT_FILTER = `
 
 const SELECT_FIELDS = [
   "c.id",
+  "c.company_id",
   "c.company_name",
   "c.name",
   "c.industries",
@@ -309,8 +310,11 @@ function mapCompanyToPublic(doc) {
 
   const amazon_url = doc.amazon_url || "";
 
+  const company_id = doc.company_id || doc.id;
+
   return {
-    id: doc.id,
+    id: company_id,
+    company_id,
     company_name: doc.company_name || doc.name || "",
     website_url,
     normalized_domain: doc.normalized_domain || "",

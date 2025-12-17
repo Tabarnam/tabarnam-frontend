@@ -124,39 +124,24 @@ app.http("upload-logo-blob", {
       // Parse form data
       const formData = await req.formData();
       const file = formData.get("file");
-      const companyId = formData.get("companyId");
+      const companyId = formData.get("company_id") || formData.get("companyId");
 
       if (!file || !companyId) {
         return json(
-          { ok: false, error: "Missing file or companyId" },
+          { ok: false, error: "Missing file or company_id" },
           400,
           req
         );
       }
 
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        return json(
-          { ok: false, error: "File too large (max 5MB)" },
-          400,
-          req
-        );
+      const MAX_BYTES = 300 * 1024;
+      if (typeof file.size === "number" && file.size > MAX_BYTES) {
+        return json({ ok: false, error: "File too large (max 300KB)" }, 400, req);
       }
 
-      // Validate file type (PNG, JPG, SVG, GIF, WEBP)
-      const allowedTypes = [
-        "image/png",
-        "image/jpeg",
-        "image/svg+xml",
-        "image/gif",
-        "image/webp",
-      ];
+      const allowedTypes = ["image/png", "image/jpeg", "image/webp"];
       if (!allowedTypes.includes(file.type)) {
-        return json(
-          { ok: false, error: "Invalid file type (PNG, JPG, SVG, GIF, WEBP only)" },
-          400,
-          req
-        );
+        return json({ ok: false, error: "Invalid file type (PNG, JPG, WebP only)" }, 400, req);
       }
 
       const containerName = "company-logos";
@@ -188,28 +173,27 @@ app.http("upload-logo-blob", {
       const buffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(buffer);
 
-      // Normalize all uploads to PNG for consistent UI (SVG is rasterized)
-      let processedBuffer = uint8Array;
+      let processedBuffer;
       try {
-        const isSvg = file.type === "image/svg+xml";
-        const pipeline = sharp(uint8Array, isSvg ? { density: 300 } : undefined)
-          .resize({ width: 500, height: 500, fit: "inside", withoutEnlargement: true })
-          .png({ quality: 90 });
+        processedBuffer = await sharp(uint8Array)
+          .resize(256, 256, {
+            fit: "contain",
+            background: { r: 0, g: 0, b: 0, alpha: 0 },
+          })
+          .webp({ quality: 80 })
+          .toBuffer();
 
-        processedBuffer = await pipeline.toBuffer();
-        ctx.log(`[upload-logo-blob] Processed logo to PNG for company ${companyId}`);
+        ctx.log(`[upload-logo-blob] Processed logo to 256x256 WebP for company ${companyId}`);
       } catch (sharpError) {
-        ctx.warn(`[upload-logo-blob] Sharp processing failed, using original bytes: ${sharpError.message}`);
-        processedBuffer = uint8Array;
+        ctx.error(`[upload-logo-blob] Failed to process image: ${sharpError.message}`);
+        return json({ ok: false, error: "Failed to process image. Please try a different file." }, 400, req);
       }
 
-      // Generate unique blob name (always .png for normalized output)
-      const blobName = `${companyId}/${uuidv4()}.png`;
+      const blobName = `${companyId}/${uuidv4()}.webp`;
 
-      // Get blob client and upload
       const blockBlobClient = containerClient.getBlockBlobClient(blobName);
       await blockBlobClient.upload(processedBuffer, processedBuffer.length, {
-        blobHTTPHeaders: { blobContentType: "image/png" },
+        blobHTTPHeaders: { blobContentType: "image/webp" },
       });
 
       // Generate SAS URL with 1-year expiration for secure blob access
@@ -234,74 +218,73 @@ app.http("upload-logo-blob", {
 
       ctx.log(`[upload-logo-blob] Successfully uploaded logo for company ${companyId}`);
 
-      // Now update the company document in Cosmos with the new logo URL
-      try {
-        const cosmosContainer = getCosmosContainer(ctx);
-        if (cosmosContainer) {
-          ctx.log(`[upload-logo-blob] Attempting to save logo URL to company document in Cosmos...`);
-
-          // Query for the company by ID (using cross-partition query)
-          const querySpec = {
-            query: "SELECT * FROM c WHERE c.id = @id OR c.company_id = @id",
-            parameters: [{ name: "@id", value: companyId }],
-          };
-
-          const queryResult = await cosmosContainer.items
-            .query(querySpec, { enableCrossPartitionQuery: true })
-            .fetchAll();
-
-          const { resources } = queryResult;
-
-          if (resources && resources.length > 0) {
-            const doc = resources[0];
-            ctx.log(`[upload-logo-blob] Found company document:`, {
-              id: doc.id,
-              company_name: doc.company_name,
-              normalized_domain: doc.normalized_domain
-            });
-
-            // Get the partition key (normalized_domain)
-            let partitionKey = doc.normalized_domain;
-            if (!partitionKey || String(partitionKey).trim() === "") {
-              partitionKey = toNormalizedDomain(doc.website_url || doc.url || doc.domain || "");
-              ctx.log(`[upload-logo-blob] No normalized_domain found, computed from URL: ${partitionKey}`);
-            }
-
-            // Update the document with the new logo_url
-            const updatedDoc = {
-              ...doc,
-              logo_url: logoUrl,
-              updated_at: new Date().toISOString(),
-            };
-
-            ctx.log(`[upload-logo-blob] Upserting company document with logo_url...`, {
-              id: doc.id,
-              logo_url: logoUrl.substring(0, 100),
-              partitionKey: partitionKey
-            });
-
-            try {
-              await cosmosContainer.items.upsert(updatedDoc, { partitionKey });
-              ctx.log(`[upload-logo-blob] Successfully updated company document with logo URL`);
-            } catch (upsertError) {
-              ctx.log(`[upload-logo-blob] Upsert with partition key failed, attempting fallback...`, {
-                error: upsertError?.message
-              });
-              try {
-                await cosmosContainer.items.upsert(updatedDoc);
-                ctx.log(`[upload-logo-blob] Fallback upsert succeeded`);
-              } catch (fallbackError) {
-                ctx.error(`[upload-logo-blob] Failed to update company document:`, fallbackError?.message);
-              }
-            }
-          } else {
-            ctx.log(`[upload-logo-blob] No company document found for ID: ${companyId}`);
-          }
-        } else {
-          ctx.log(`[upload-logo-blob] Cosmos DB not available - logo URL saved to blob storage but not persisted to company document`);
+      // Persist the logo URL to Cosmos DB (required for admin logo persistence)
+      const cosmosContainer = getCosmosContainer(ctx);
+      if (!cosmosContainer) {
+        try {
+          await blockBlobClient.deleteIfExists();
+        } catch {
+          // ignore cleanup failure
         }
-      } catch (cosmosError) {
-        ctx.error(`[upload-logo-blob] Error updating company document:`, cosmosError?.message);
+        return json({ ok: false, error: "Cosmos DB not configured; cannot persist logo reference." }, 503, req);
+      }
+
+      // Query for the company by ID (using cross-partition query)
+      const querySpec = {
+        query: "SELECT * FROM c WHERE c.id = @id OR c.company_id = @id",
+        parameters: [{ name: "@id", value: companyId }],
+      };
+
+      const queryResult = await cosmosContainer.items
+        .query(querySpec, { enableCrossPartitionQuery: true })
+        .fetchAll();
+
+      const resources = queryResult?.resources;
+      const doc = Array.isArray(resources) && resources.length > 0 ? resources[0] : null;
+
+      if (!doc) {
+        try {
+          await blockBlobClient.deleteIfExists();
+        } catch {
+          // ignore cleanup failure
+        }
+        return json({ ok: false, error: `Company not found for company_id: ${companyId}` }, 404, req);
+      }
+
+      // Get the partition key (normalized_domain)
+      let partitionKey = doc.normalized_domain;
+      if (!partitionKey || String(partitionKey).trim() === "") {
+        partitionKey = toNormalizedDomain(doc.website_url || doc.url || doc.domain || "");
+      }
+
+      const updatedDoc = {
+        ...doc,
+        logo_url: logoUrl,
+        updated_at: new Date().toISOString(),
+      };
+
+      let persisted = false;
+      let persistError = null;
+
+      try {
+        await cosmosContainer.items.upsert(updatedDoc, { partitionKey });
+        persisted = true;
+      } catch (upsertError) {
+        try {
+          await cosmosContainer.items.upsert(updatedDoc);
+          persisted = true;
+        } catch (fallbackError) {
+          persistError = fallbackError?.message || upsertError?.message || "Upsert failed";
+        }
+      }
+
+      if (!persisted) {
+        try {
+          await blockBlobClient.deleteIfExists();
+        } catch {
+          // ignore cleanup failure
+        }
+        return json({ ok: false, error: "Failed to persist logo_url to database", detail: persistError }, 500, req);
       }
 
       return json(
