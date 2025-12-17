@@ -364,7 +364,7 @@ app.http("adminCompanies", {
 
         const id = body.company_id || body.id;
         if (!id) {
-          return json({ error: "id required" }, 400);
+          return json({ error: "company_id required" }, 400);
         }
 
         const requestedId = String(id).trim();
