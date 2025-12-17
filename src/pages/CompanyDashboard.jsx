@@ -207,11 +207,11 @@ function toIssueTags(company) {
   const logo = asString(company?.logo_url).trim();
   if (!logo) issues.push("missing logo");
 
-  const hq = asString(company?.headquarters_location).trim();
-  if (!hq) issues.push("missing HQ");
+  const hqList = getHeadquartersEntries(company);
+  if (hqList.length === 0) issues.push("missing HQ");
 
-  const mfg = normalizeLocationList(company?.manufacturing_locations);
-  if (mfg.length === 0) issues.push("missing MFG");
+  const mfgList = getManufacturingEntries(company);
+  if (mfgList.length === 0) issues.push("missing MFG");
 
   const keywords = keywordStringToList(company?.product_keywords || company?.keywords);
   if (keywords.length === 0) issues.push("missing keywords");
