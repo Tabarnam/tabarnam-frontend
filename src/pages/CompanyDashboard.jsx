@@ -528,6 +528,9 @@ export default function CompanyDashboard() {
       setEditorDraft((d) => ({ ...(d || {}), logo_url: "" }));
       updateCompanyInState(companyId, { logo_url: "" });
       toast.success("Logo deleted");
+    } catch (e) {
+      const msg = e?.message || "Failed to delete logo";
+      toast.error(msg);
     } finally {
       setLogoDeleting(false);
     }
