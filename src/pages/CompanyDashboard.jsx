@@ -541,7 +541,7 @@ export default function CompanyDashboard() {
       website_url: "",
       tagline: "",
       logo_url: "",
-      headquarters_location: "",
+      headquarters_locations: [],
       manufacturing_locations: [],
       product_keywords: "",
       notes: "",
