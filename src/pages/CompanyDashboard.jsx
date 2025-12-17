@@ -157,7 +157,6 @@ function LocationSourcesEditor({ value, onChange }) {
                     <Input
                       value={asString(entry.location)}
                       onChange={(e) => update(idx, { location: e.target.value })}
-                      placeholder="e.g. Austin, TX, USA"
                     />
                   </div>
                   <div className="space-y-1">
@@ -165,7 +164,6 @@ function LocationSourcesEditor({ value, onChange }) {
                     <Input
                       value={asString(entry.source_url)}
                       onChange={(e) => update(idx, { source_url: e.target.value })}
-                      placeholder="https://..."
                     />
                   </div>
                 </div>
@@ -2320,7 +2318,6 @@ export default function CompanyDashboard() {
                           <Input
                             value={asString(editorDraft.amazon_url)}
                             onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_url: e.target.value }))}
-                            placeholder="https://amazon.com/..."
                           />
                         </div>
 
@@ -2329,7 +2326,6 @@ export default function CompanyDashboard() {
                           <Input
                             value={asString(editorDraft.amazon_store_url)}
                             onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_store_url: e.target.value }))}
-                            placeholder="https://amazon.com/stores/..."
                           />
                         </div>
 
@@ -2338,7 +2334,6 @@ export default function CompanyDashboard() {
                             label="Affiliate link URLs"
                             value={editorDraft.affiliate_link_urls}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), affiliate_link_urls: next }))}
-                            placeholder="https://..."
                           />
                         </div>
 
