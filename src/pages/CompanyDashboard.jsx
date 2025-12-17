@@ -480,11 +480,6 @@ export default function CompanyDashboard() {
 
     try {
       const url = await uploadLogoBlobFile(logoFile, companyId);
-      if (!url) {
-        setLogoUploadError("Upload failed.");
-        toast.error("Logo upload failed");
-        return;
-      }
 
       setEditorDraft((d) => ({ ...(d || {}), logo_url: url }));
       updateCompanyInState(companyId, { logo_url: url });
@@ -528,11 +523,7 @@ export default function CompanyDashboard() {
 
     setLogoDeleting(true);
     try {
-      const ok = await deleteLogoBlob(current);
-      if (!ok) {
-        toast.error("Failed to delete logo");
-        return;
-      }
+      await deleteLogoBlob(current);
 
       setEditorDraft((d) => ({ ...(d || {}), logo_url: "" }));
       updateCompanyInState(companyId, { logo_url: "" });
