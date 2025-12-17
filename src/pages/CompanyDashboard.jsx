@@ -424,6 +424,124 @@ export default function CompanyDashboard() {
     }
   }, [editorDraft, editorOriginalId]);
 
+  const updateCompanyInState = useCallback((companyId, patch) => {
+    const id = asString(companyId).trim();
+    if (!id) return;
+    setItems((prev) =>
+      prev.map((c) => {
+        if (getCompanyId(c) !== id) return c;
+        return { ...c, ...(patch || {}) };
+      })
+    );
+  }, []);
+
+  const isAllowedLogoType = useCallback((type) => {
+    return type === "image/png" || type === "image/jpeg" || type === "image/webp";
+  }, []);
+
+  const handleLogoFileChange = useCallback(
+    (e) => {
+      const file = e?.target?.files?.[0] || null;
+      setLogoUploadError(null);
+      setLogoFile(null);
+
+      if (!file) return;
+
+      if (!isAllowedLogoType(file.type)) {
+        setLogoUploadError("Invalid file type. Use PNG, JPG, or WebP.");
+        return;
+      }
+
+      const maxBytes = 300 * 1024;
+      if (typeof file.size === "number" && file.size > maxBytes) {
+        setLogoUploadError("File too large. Max size is 300KB.");
+        return;
+      }
+
+      setLogoFile(file);
+    },
+    [isAllowedLogoType]
+  );
+
+  const uploadLogo = useCallback(async () => {
+    const companyId = asString(editorOriginalId).trim();
+    if (!companyId) {
+      toast.error("Save the company first to generate a company_id, then upload the logo.");
+      return;
+    }
+
+    if (!logoFile) {
+      toast.error("Choose a logo file first.");
+      return;
+    }
+
+    setLogoUploading(true);
+    setLogoUploadError(null);
+
+    try {
+      const url = await uploadLogoBlobFile(logoFile, companyId);
+      if (!url) {
+        setLogoUploadError("Upload failed.");
+        toast.error("Logo upload failed");
+        return;
+      }
+
+      setEditorDraft((d) => ({ ...(d || {}), logo_url: url }));
+      updateCompanyInState(companyId, { logo_url: url });
+      setLogoFile(null);
+      toast.success("Logo uploaded");
+    } catch (e) {
+      const msg = e?.message || "Logo upload failed";
+      setLogoUploadError(msg);
+      toast.error(msg);
+    } finally {
+      setLogoUploading(false);
+    }
+  }, [editorOriginalId, logoFile, updateCompanyInState]);
+
+  const clearLogoReference = useCallback(() => {
+    const companyId = asString(editorOriginalId).trim();
+    setEditorDraft((d) => ({ ...(d || {}), logo_url: "" }));
+    if (companyId) updateCompanyInState(companyId, { logo_url: "" });
+    toast.success("Logo cleared (save to persist)");
+  }, [editorOriginalId, updateCompanyInState]);
+
+  const deleteLogoFromStorage = useCallback(async () => {
+    const companyId = asString(editorOriginalId).trim();
+    const current = asString(editorDraft?.logo_url).trim();
+
+    if (!companyId) {
+      toast.error("Missing company_id");
+      return;
+    }
+
+    if (!current) {
+      toast.error("No logo to delete");
+      return;
+    }
+
+    const isAzure = current.includes(".blob.core.windows.net") && current.includes("/company-logos/");
+    if (!isAzure) {
+      toast.error("This logo is not stored in Azure Blob Storage. Use Clear instead.");
+      return;
+    }
+
+    setLogoDeleting(true);
+    try {
+      const ok = await deleteLogoBlob(current);
+      if (!ok) {
+        toast.error("Failed to delete logo");
+        return;
+      }
+
+      setEditorDraft((d) => ({ ...(d || {}), logo_url: "" }));
+      updateCompanyInState(companyId, { logo_url: "" });
+      toast.success("Logo deleted");
+    } finally {
+      setLogoDeleting(false);
+    }
+  }, [editorDraft, editorOriginalId, updateCompanyInState]);
+
   const deleteCompany = useCallback(async (companyId) => {
     const safeId = asString(companyId).trim();
     if (!safeId) {
