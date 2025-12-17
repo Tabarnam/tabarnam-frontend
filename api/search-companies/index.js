@@ -313,7 +313,7 @@ function mapCompanyToPublic(doc) {
   const company_id = doc.company_id || doc.id;
 
   return {
-    id: doc.id,
+    id: company_id,
     company_id,
     company_name: doc.company_name || doc.name || "",
     website_url,

@@ -235,7 +235,14 @@ app.http("adminCompanies", {
           .query({ query: sql, parameters }, { enableCrossPartitionQuery: true })
           .fetchAll();
 
-        const items = resources || [];
+        const raw = resources || [];
+        const items = raw
+          .filter((d) => d && typeof d === "object")
+          .map((d) => ({
+            ...d,
+            company_id: String(d.company_id || d.id || "").trim() || d.company_id,
+          }));
+
         context.log("[admin-companies-v2] GET count after soft-delete filter:", items.length);
         return json({ items, count: items.length }, 200);
       }
