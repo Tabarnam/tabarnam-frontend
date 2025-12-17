@@ -187,6 +187,7 @@ export default function CompanyDashboard() {
 
   const [logoFile, setLogoFile] = useState(null);
   const [logoUploading, setLogoUploading] = useState(false);
+  const [logoUpdating, setLogoUpdating] = useState(false);
   const [logoUploadError, setLogoUploadError] = useState(null);
   const [logoDeleting, setLogoDeleting] = useState(false);
 
