@@ -185,6 +185,11 @@ export default function CompanyDashboard() {
   const [editorDraft, setEditorDraft] = useState(null);
   const [editorOriginalId, setEditorOriginalId] = useState(null);
 
+  const [logoFile, setLogoFile] = useState(null);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoUploadError, setLogoUploadError] = useState(null);
+  const [logoDeleting, setLogoDeleting] = useState(false);
+
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleteConfirmLoading, setDeleteConfirmLoading] = useState(false);
