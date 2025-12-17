@@ -64,12 +64,33 @@ export function getOrCalculateRating(company: Company): CompanyRating {
   }
 
   // Calculate from company data
+  const hasManufacturingLocations =
+    (Array.isArray(company.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0) ||
+    (Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0);
+
+  const hqList =
+    (Array.isArray((company as any).headquarters_locations) && (company as any).headquarters_locations) ||
+    (Array.isArray((company as any).headquarters) && (company as any).headquarters) ||
+    [];
+
+  const hasHeadquarters =
+    (Array.isArray(hqList) && hqList.length > 0) ||
+    (!!company.headquarters_location && company.headquarters_location.trim().length > 0);
+
+  const reviewCount =
+    Number((company as any).review_count ?? (company as any).reviews_count ?? (company as any).review_count_approved ?? 0) ||
+    Number((company as any).editorial_review_count ?? 0) ||
+    Number((company as any).amazon_review_count ?? 0) ||
+    Number((company as any).public_review_count ?? 0) ||
+    Number((company as any).private_review_count ?? 0) ||
+    0;
+
   const input: StarCalculationInput = {
-    hasManufacturingLocations: Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0,
-    hasHeadquarters: !!company.headquarters_location && company.headquarters_location.trim().length > 0,
-    hasReviews: (company as any).editorial_review_count > 0 || 
-                (Array.isArray((company as any).reviews) && (company as any).reviews.length > 0) ||
-                (company as any).amazon_review_count > 0,
+    hasManufacturingLocations,
+    hasHeadquarters,
+    hasReviews:
+      reviewCount >= 1 ||
+      (Array.isArray((company as any).reviews) && (company as any).reviews.length > 0),
   };
 
   return calculateInitialRating(input);
