@@ -75,6 +75,218 @@ function keywordListToString(list) {
     .join(", ");
 }
 
+function normalizeStructuredLocationEntry(value) {
+  if (!value) return null;
+
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (!s) return null;
+    return { city: s, state: "", region: "", country: "" };
+  }
+
+  if (typeof value !== "object") return null;
+
+  const city = asString(value.city).trim();
+  const region = asString(value.region || value.state).trim();
+  const state = asString(value.state || value.region).trim();
+  const country = asString(value.country).trim();
+
+  const address = asString(value.address).trim();
+  const formatted = asString(value.formatted).trim();
+  const location = asString(value.location).trim();
+
+  const latRaw = value.lat;
+  const lngRaw = value.lng;
+  const lat = Number.isFinite(latRaw) ? latRaw : Number.isFinite(Number(latRaw)) ? Number(latRaw) : null;
+  const lng = Number.isFinite(lngRaw) ? lngRaw : Number.isFinite(Number(lngRaw)) ? Number(lngRaw) : null;
+
+  const hasAny = Boolean(city || region || state || country || address || formatted || location);
+  if (!hasAny) return null;
+
+  return {
+    ...value,
+    city,
+    region,
+    state,
+    country,
+    address: address || undefined,
+    formatted: formatted || undefined,
+    location: location || undefined,
+    lat: lat == null ? undefined : lat,
+    lng: lng == null ? undefined : lng,
+  };
+}
+
+function normalizeStructuredLocationList(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => normalizeStructuredLocationEntry(v))
+      .filter(Boolean);
+  }
+
+  const single = normalizeStructuredLocationEntry(value);
+  return single ? [single] : [];
+}
+
+function formatStructuredLocation(loc) {
+  if (!loc) return "";
+  if (typeof loc === "string") return loc.trim();
+  if (typeof loc !== "object") return "";
+
+  const formatted = asString(loc.formatted).trim();
+  if (formatted) return formatted;
+
+  const address = asString(loc.full_address || loc.address || loc.location).trim();
+  if (address) return address;
+
+  const parts = [];
+  const city = asString(loc.city).trim();
+  const region = asString(loc.region || loc.state).trim();
+  const country = asString(loc.country).trim();
+
+  if (city) parts.push(city);
+  if (region) parts.push(region);
+  if (country) parts.push(country);
+
+  return parts.join(", ");
+}
+
+function getLocationGeocodeStatus(loc) {
+  if (!loc) return "missing";
+  if (typeof loc === "string") return "missing";
+  if (typeof loc !== "object") return "missing";
+
+  const lat = Number.isFinite(loc.lat) ? loc.lat : Number.isFinite(Number(loc.lat)) ? Number(loc.lat) : null;
+  const lng = Number.isFinite(loc.lng) ? loc.lng : Number.isFinite(Number(loc.lng)) ? Number(loc.lng) : null;
+
+  if (lat != null && lng != null) return "found";
+  if (asString(loc.geocode_status).trim() === "failed") return "failed";
+  return "missing";
+}
+
+function LocationStatusBadge({ loc }) {
+  const status = getLocationGeocodeStatus(loc);
+  const cls =
+    status === "found"
+      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+      : status === "failed"
+        ? "bg-red-50 text-red-800 border-red-200"
+        : "bg-slate-50 text-slate-700 border-slate-200";
+
+  const label = status === "found" ? "Found" : status === "failed" ? "Failed" : "Missing";
+  const detail =
+    loc && typeof loc === "object"
+      ? asString(loc.geocode_error || loc.geocode_google_status || loc.geocode_source).trim()
+      : "";
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${cls}`}
+      title={detail || label}
+    >
+      {label}
+    </span>
+  );
+}
+
+function StructuredLocationListEditor({ label, value, onChange }) {
+  const list = normalizeStructuredLocationList(value);
+
+  const [city, setCity] = useState("");
+  const [region, setRegion] = useState("");
+  const [country, setCountry] = useState("");
+
+  const addEntry = useCallback(() => {
+    const next = normalizeStructuredLocationEntry({ city, region, state: region, country });
+    if (!next) return;
+
+    onChange([...list, next]);
+    setCity("");
+    setRegion("");
+    setCountry("");
+  }, [city, country, list, onChange, region]);
+
+  const onKeyDown = useCallback(
+    (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      addEntry();
+    },
+    [addEntry]
+  );
+
+  const removeEntry = useCallback(
+    (idx) => {
+      const next = list.filter((_, i) => i !== idx);
+      onChange(next);
+    },
+    [list, onChange]
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm text-slate-700 font-medium">{label}</div>
+
+      <div className="rounded-lg border border-slate-200 bg-white">
+        {list.length === 0 ? (
+          <div className="p-3 text-xs text-slate-500">No locations yet.</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {list.map((loc, idx) => {
+              const display = formatStructuredLocation(loc) || "—";
+              return (
+                <div key={idx} className="flex items-center gap-2 p-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm text-slate-900">{display}</div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <LocationStatusBadge loc={loc} />
+                      {asString(loc?.geocode_source).trim() ? (
+                        <span className="text-[11px] text-slate-500">{asString(loc.geocode_source).trim()}</span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                    onClick={() => removeEntry(idx)}
+                    title="Remove"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="border-t border-slate-200 p-3">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-4 md:items-end">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700">City</label>
+              <Input value={city} onChange={(e) => setCity(e.target.value)} onKeyDown={onKeyDown} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700">Region/State</label>
+              <Input value={region} onChange={(e) => setRegion(e.target.value)} onKeyDown={onKeyDown} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-700">Country</label>
+              <Input value={country} onChange={(e) => setCountry(e.target.value)} onKeyDown={onKeyDown} />
+            </div>
+            <Button type="button" onClick={addEntry} disabled={!normalizeStructuredLocationEntry({ city, region, state: region, country })}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function getCompanyName(company) {
   return asString(company?.company_name || company?.name).trim();
 }
@@ -110,11 +322,15 @@ function toIssueTags(company) {
   const logo = asString(company?.logo_url).trim();
   if (!logo) issues.push("missing logo");
 
-  const hq = asString(company?.headquarters_location).trim();
-  if (!hq) issues.push("missing HQ");
+  const hqList = normalizeStructuredLocationList(company?.headquarters_locations || company?.headquarters || company?.headquarters_location);
+  if (hqList.length === 0) issues.push("missing HQ");
 
-  const mfg = normalizeLocationList(company?.manufacturing_locations);
-  if (mfg.length === 0) issues.push("missing MFG");
+  const manuBase =
+    Array.isArray(company?.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0
+      ? company.manufacturing_geocodes
+      : company?.manufacturing_locations;
+  const mfgList = normalizeStructuredLocationList(manuBase);
+  if (mfgList.length === 0) issues.push("missing MFG");
 
   const keywords = keywordStringToList(company?.product_keywords || company?.keywords);
   if (keywords.length === 0) issues.push("missing keywords");
@@ -307,6 +523,11 @@ export default function CompanyDashboard() {
   const openEditorForCompany = useCallback((company) => {
     const id = getCompanyId(company);
 
+    const manuBase =
+      Array.isArray(company?.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0
+        ? company.manufacturing_geocodes
+        : company?.manufacturing_locations;
+
     const draft = {
       ...company,
       id: asString(company?.id).trim(),
@@ -314,7 +535,10 @@ export default function CompanyDashboard() {
       company_name: getCompanyName(company),
       website_url: getCompanyUrl(company),
       headquarters_location: asString(company?.headquarters_location).trim(),
-      manufacturing_locations: normalizeLocationList(company?.manufacturing_locations),
+      headquarters_locations: normalizeStructuredLocationList(
+        company?.headquarters_locations || company?.headquarters || company?.headquarters_location
+      ),
+      manufacturing_locations: normalizeStructuredLocationList(manuBase),
       product_keywords: keywordListToString(keywordStringToList(company?.product_keywords || company?.keywords)),
       notes: asString(company?.notes).trim(),
       tagline: asString(company?.tagline).trim(),
@@ -337,6 +561,7 @@ export default function CompanyDashboard() {
       tagline: "",
       logo_url: "",
       headquarters_location: "",
+      headquarters_locations: [],
       manufacturing_locations: [],
       product_keywords: "",
       notes: "",
@@ -368,6 +593,9 @@ export default function CompanyDashboard() {
 
       const resolvedCompanyId = draftCompanyId || (isNew ? suggestedId : "") || "";
 
+      const hqLocations = normalizeStructuredLocationList(editorDraft.headquarters_locations);
+      const manuLocations = normalizeStructuredLocationList(editorDraft.manufacturing_locations);
+
       const payload = {
         ...editorDraft,
         company_id: resolvedCompanyId,
@@ -376,8 +604,11 @@ export default function CompanyDashboard() {
         name: asString(editorDraft.name || draftName).trim(),
         website_url: getCompanyUrl(editorDraft),
         url: asString(editorDraft.url || getCompanyUrl(editorDraft)).trim(),
-        headquarters_location: asString(editorDraft.headquarters_location).trim(),
-        manufacturing_locations: normalizeLocationList(editorDraft.manufacturing_locations),
+        headquarters_location: hqLocations.length > 0 ? formatStructuredLocation(hqLocations[0]) : "",
+        headquarters_locations: hqLocations,
+        headquarters: hqLocations,
+        manufacturing_locations: manuLocations,
+        manufacturing_geocodes: manuLocations,
         product_keywords: keywordListToString(keywordStringToList(editorDraft.product_keywords)),
         notes: asString(editorDraft.notes).trim(),
         tagline: asString(editorDraft.tagline).trim(),
@@ -656,13 +887,25 @@ export default function CompanyDashboard() {
       },
       {
         name: "HQ",
-        selector: (row) => asString(row?.headquarters_location).trim(),
+        selector: (row) => {
+          const hqList = normalizeStructuredLocationList(
+            row?.headquarters_locations || row?.headquarters || row?.headquarters_location
+          );
+          return hqList.map((l) => formatStructuredLocation(l)).filter(Boolean).join("; ");
+        },
         sortable: true,
         wrap: true,
       },
       {
         name: "MFG",
-        selector: (row) => normalizeLocationList(row?.manufacturing_locations).join("; "),
+        selector: (row) => {
+          const manuBase =
+            Array.isArray(row?.manufacturing_geocodes) && row.manufacturing_geocodes.length > 0
+              ? row.manufacturing_geocodes
+              : row?.manufacturing_locations;
+          const list = normalizeStructuredLocationList(manuBase);
+          return list.map((l) => formatStructuredLocation(l)).filter(Boolean).join("; ");
+        },
         sortable: false,
         wrap: true,
       },
@@ -1100,26 +1343,19 @@ export default function CompanyDashboard() {
                           />
                         </div>
 
-                        <div className="space-y-1">
-                          <label className="text-sm text-slate-700">HQ location</label>
-                          <Input
-                            value={asString(editorDraft.headquarters_location)}
-                            onChange={(e) => setEditorDraft((d) => ({ ...d, headquarters_location: e.target.value }))}
-                            placeholder="City, State/Region, Country"
+                        <div className="lg:col-span-2">
+                          <StructuredLocationListEditor
+                            label="HQ locations"
+                            value={editorDraft.headquarters_locations}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), headquarters_locations: next }))}
                           />
                         </div>
 
-                        <div className="space-y-1">
-                          <label className="text-sm text-slate-700">Manufacturing locations</label>
-                          <Input
-                            value={normalizeLocationList(editorDraft.manufacturing_locations).join(", ")}
-                            onChange={(e) =>
-                              setEditorDraft((d) => ({
-                                ...d,
-                                manufacturing_locations: normalizeLocationList(e.target.value),
-                              }))
-                            }
-                            placeholder="City, Region, Country; …"
+                        <div className="lg:col-span-2">
+                          <StructuredLocationListEditor
+                            label="Manufacturing locations"
+                            value={editorDraft.manufacturing_locations}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), manufacturing_locations: next }))}
                           />
                         </div>
 
