@@ -480,7 +480,7 @@ export default function ExpandableCompanyRow({
             </div>
           )}
 
-          <ReviewsWidget companyId={company.id || company.company_id} companyName={company.company_name} />
+          <ReviewsWidget companyId={company.company_id || company.id} companyName={company.company_name} />
         </div>
 
         <div className="text-xs text-gray-500 mt-4 text-center">Click anywhere to collapse</div>

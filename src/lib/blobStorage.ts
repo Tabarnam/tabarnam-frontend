@@ -1,5 +1,3 @@
-import { API_BASE } from "@/lib/api";
-
 import { API_BASE, join } from "@/lib/api";
 
 export interface BlobUploadResponse {
@@ -15,6 +13,7 @@ export interface BlobUploadResponse {
 export async function uploadLogoBlobFile(file: File, companyId: string): Promise<string> {
   const formData = new FormData();
   formData.append("file", file);
+  formData.append("company_id", companyId);
   formData.append("companyId", companyId);
 
   const response = await fetch(join(API_BASE, "/upload-logo-blob"), {

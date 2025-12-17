@@ -124,11 +124,11 @@ app.http("upload-logo-blob", {
       // Parse form data
       const formData = await req.formData();
       const file = formData.get("file");
-      const companyId = formData.get("companyId");
+      const companyId = formData.get("company_id") || formData.get("companyId");
 
       if (!file || !companyId) {
         return json(
-          { ok: false, error: "Missing file or companyId" },
+          { ok: false, error: "Missing file or company_id" },
           400,
           req
         );
