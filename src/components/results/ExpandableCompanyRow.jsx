@@ -458,7 +458,28 @@ export default function ExpandableCompanyRow({
           ))}
         </div>
 
-        <div className="mt-6 col-span-5">
+        <div className="mt-6 col-span-5 space-y-4">
+          {Array.isArray(company?.notes_entries) && company.notes_entries.some((n) => n?.is_public) && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="text-sm font-semibold text-gray-800 mb-2">Notes</div>
+              <div className="space-y-3">
+                {company.notes_entries
+                  .filter((n) => n && typeof n === "object" && (n.is_public === true || String(n.is_public).toLowerCase() === "true"))
+                  .slice()
+                  .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
+                  .map((n, idx) => (
+                    <div key={n.id || idx} className="rounded border border-slate-200 bg-white p-3">
+                      {n.title ? <div className="font-semibold text-sm text-gray-900">{n.title}</div> : null}
+                      {n.created_at ? (
+                        <div className="text-xs text-gray-500 mt-0.5">{new Date(n.created_at).toLocaleString()}</div>
+                      ) : null}
+                      {n.body ? <div className="text-sm text-gray-700 mt-2 whitespace-pre-wrap break-words">{n.body}</div> : null}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
           <ReviewsWidget companyId={company.id || company.company_id} companyName={company.company_name} />
         </div>
 
