@@ -1333,26 +1333,23 @@ export default function CompanyDashboard() {
                           />
                         </div>
 
-                        <div className="space-y-1">
-                          <label className="text-sm text-slate-700">HQ location</label>
-                          <Input
-                            value={asString(editorDraft.headquarters_location)}
-                            onChange={(e) => setEditorDraft((d) => ({ ...d, headquarters_location: e.target.value }))}
-                            placeholder="City, State/Region, Country"
+                        <div className="lg:col-span-2">
+                          <StructuredLocationListEditor
+                            key={`hq-${editorOriginalId || "new"}`}
+                            title="HQ locations"
+                            value={editorDraft.headquarters_locations}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), headquarters_locations: next }))}
+                            disabled={editorSaving}
                           />
                         </div>
 
-                        <div className="space-y-1">
-                          <label className="text-sm text-slate-700">Manufacturing locations</label>
-                          <Input
-                            value={normalizeLocationList(editorDraft.manufacturing_locations).join(", ")}
-                            onChange={(e) =>
-                              setEditorDraft((d) => ({
-                                ...d,
-                                manufacturing_locations: normalizeLocationList(e.target.value),
-                              }))
-                            }
-                            placeholder="City, Region, Country; …"
+                        <div className="lg:col-span-2">
+                          <StructuredLocationListEditor
+                            key={`mfg-${editorOriginalId || "new"}`}
+                            title="Manufacturing locations"
+                            value={editorDraft.manufacturing_locations}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), manufacturing_locations: next }))}
+                            disabled={editorSaving}
                           />
                         </div>
 
