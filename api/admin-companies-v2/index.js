@@ -171,6 +171,7 @@ function buildSearchWhereClause() {
     sqlContainsLocationArray("c.manufacturing_geocodes"),
     sqlContainsString("c.notes"),
     sqlContainsNotesArray("c.star_notes"),
+    sqlContainsStructuredNotesArray("c.notes_entries"),
     sqlContainsRatingNotes(),
   ];
 
