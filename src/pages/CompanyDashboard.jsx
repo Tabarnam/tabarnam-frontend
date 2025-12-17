@@ -64,6 +64,102 @@ function normalizeLocationList(value) {
     .filter(Boolean);
 }
 
+function parseCommaLocationString(value) {
+  const raw = asString(value).trim();
+  if (!raw) return null;
+  const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+
+  const city = parts[0] || "";
+  const region = parts.length >= 3 ? parts[1] : "";
+  const country = parts.length >= 2 ? parts[parts.length - 1] : "";
+
+  const entry = {
+    city: city || undefined,
+    region: region || undefined,
+    country: country || undefined,
+    address: raw,
+  };
+
+  return entry;
+}
+
+function normalizeStructuredLocationEntry(entry) {
+  if (!entry) return null;
+
+  if (typeof entry === "string") {
+    return parseCommaLocationString(entry);
+  }
+
+  if (typeof entry !== "object") return null;
+
+  const city = asString(entry.city).trim();
+  const region = asString(entry.region || entry.state).trim();
+  const country = asString(entry.country).trim();
+  const address = asString(entry.address || entry.location || entry.formatted || entry.full_address).trim();
+
+  const next = {
+    ...entry,
+    ...(city ? { city } : {}),
+    ...(region ? { region } : {}),
+    ...(country ? { country } : {}),
+    ...(address ? { address } : {}),
+  };
+
+  const hasCore = Boolean(city || region || country || address);
+  return hasCore ? next : null;
+}
+
+function normalizeStructuredLocationList(value) {
+  if (Array.isArray(value)) {
+    return value.map(normalizeStructuredLocationEntry).filter(Boolean);
+  }
+  const single = normalizeStructuredLocationEntry(value);
+  return single ? [single] : [];
+}
+
+function locationEntryToText(entry) {
+  if (!entry) return "";
+  if (typeof entry === "string") return entry.trim();
+  const city = asString(entry.city).trim();
+  const region = asString(entry.region || entry.state).trim();
+  const country = asString(entry.country).trim();
+  const parts = [city, region, country].filter(Boolean);
+  if (parts.length > 0) return parts.join(", ");
+  const addr = asString(entry.address || entry.location || entry.formatted || entry.full_address).trim();
+  return addr;
+}
+
+function getHeadquartersEntries(company) {
+  const arr =
+    (Array.isArray(company?.headquarters_locations) && company.headquarters_locations.length > 0
+      ? company.headquarters_locations
+      : Array.isArray(company?.headquarters) && company.headquarters.length > 0
+        ? company.headquarters
+        : null) || null;
+
+  if (arr) return normalizeStructuredLocationList(arr);
+
+  const primary = asString(company?.headquarters_location).trim();
+  if (!primary) return [];
+  return normalizeStructuredLocationList(primary);
+}
+
+function getManufacturingEntries(company) {
+  const arr =
+    (Array.isArray(company?.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0
+      ? company.manufacturing_geocodes
+      : Array.isArray(company?.manufacturing_locations) && company.manufacturing_locations.length > 0
+        ? company.manufacturing_locations
+        : null) || null;
+
+  if (arr) return normalizeStructuredLocationList(arr);
+
+  const primary = asString(company?.manufacturing_locations).trim();
+  if (!primary) return [];
+  return normalizeStructuredLocationList(primary);
+}
+
 function keywordStringToList(value) {
   return normalizeLocationList(value);
 }
