@@ -16,6 +16,7 @@ import {
 import { calculateInitialRating, clampStarValue, normalizeRating } from "@/lib/stars/calculateRating";
 
 import AdminHeader from "@/components/AdminHeader";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import ScrollScrubber from "@/components/ScrollScrubber";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1090,8 +1091,9 @@ export default function CompanyDashboard() {
   const [editorScrollEl, setEditorScrollEl] = useState(null);
 
   const setEditorScrollNode = useCallback((node) => {
+    if (editorScrollRef.current === node) return;
     editorScrollRef.current = node;
-    setEditorScrollEl(node);
+    setEditorScrollEl((prev) => (prev === node ? prev : node));
   }, []);
 
   const incompleteCount = useMemo(() => {
@@ -2190,7 +2192,7 @@ export default function CompanyDashboard() {
           </section>
 
           <Dialog open={editorOpen} onOpenChange={(open) => !editorSaving && setEditorOpen(open)}>
-            <DialogContent className="max-w-none w-[90vw] h-[80vh] max-h-[80vh] p-0 relative">
+            <DialogContent className="max-w-none w-[90vw] h-[80vh] max-h-[80vh] p-0 relative bg-background">
               <div className="flex h-full flex-col">
                 <DialogHeader className="px-6 py-4 border-b sticky top-0 bg-background z-10">
                   <DialogTitle>{editorOriginalId ? "Edit company" : "New company"}</DialogTitle>
@@ -2207,6 +2209,12 @@ export default function CompanyDashboard() {
                   {editorLoading && !editorLoadError ? (
                     <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
                       Loading company…
+                    </div>
+                  ) : null}
+
+                  {!editorDraft && !editorLoading && !editorLoadError ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                      Could not load company. Close and re-open.
                     </div>
                   ) : null}
 
@@ -2646,7 +2654,9 @@ export default function CompanyDashboard() {
                     </div>
                   ) : null}
                   </div>
-                  <ScrollScrubber scrollEl={editorScrollEl} scrollRef={editorScrollRef} />
+                  <ErrorBoundary fallback={null} resetKeys={[editorOriginalId, editorOpen]}>
+                    <ScrollScrubber scrollEl={editorScrollEl} scrollRef={editorScrollRef} />
+                  </ErrorBoundary>
                 </div>
 
                 <DialogFooter className="px-6 py-4 border-t">

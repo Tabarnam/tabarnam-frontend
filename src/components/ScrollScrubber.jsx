@@ -41,17 +41,24 @@ export default function ScrollScrubber({
   const rafRef = useRef(0);
 
   useEffect(() => {
-    console.log("[ScrollScrubber] mounted", { hasRef: !!scrollRef?.current });
-  }, []);
-
-  useEffect(() => {
     if (scrollEl) {
-      setResolvedEl(scrollEl);
+      setResolvedEl((prev) => (prev === scrollEl ? prev : scrollEl));
       return;
     }
 
-    const next = scrollRef?.current || null;
-    if (next) setResolvedEl(next);
+    const raf = typeof window !== "undefined" ? window.requestAnimationFrame : null;
+    const caf = typeof window !== "undefined" ? window.cancelAnimationFrame : null;
+
+    const id = raf
+      ? raf(() => {
+          const next = scrollRef?.current || null;
+          if (next) setResolvedEl((prev) => (prev === next ? prev : next));
+        })
+      : null;
+
+    return () => {
+      if (id != null && caf) caf(id);
+    };
   }, [scrollEl, scrollRef]);
 
   const updateMetrics = useCallback(() => {
@@ -64,34 +71,61 @@ export default function ScrollScrubber({
 
   useEffect(() => {
     const el = resolvedEl;
-    if (!el) {
+    const raf = typeof window !== "undefined" ? window.requestAnimationFrame : null;
+    const caf = typeof window !== "undefined" ? window.cancelAnimationFrame : null;
+
+    if (!el || typeof el.addEventListener !== "function") {
       updateMetrics();
       return;
     }
 
     const onScroll = () => {
-      if (rafRef.current) return;
-      rafRef.current = window.requestAnimationFrame(() => {
+      if (rafRef.current || !raf) {
+        updateMetrics();
+        return;
+      }
+
+      rafRef.current = raf(() => {
         rafRef.current = 0;
         updateMetrics();
       });
     };
 
-    el.addEventListener("scroll", onScroll, { passive: true });
+    try {
+      el.addEventListener("scroll", onScroll, { passive: true });
+    } catch {
+      // ignore
+    }
 
     let ro;
     if (typeof ResizeObserver !== "undefined") {
-      ro = new ResizeObserver(() => updateMetrics());
-      ro.observe(el);
+      try {
+        ro = new ResizeObserver(() => updateMetrics());
+        ro.observe(el);
+      } catch {
+        ro = null;
+      }
     }
 
     updateMetrics();
 
     return () => {
-      el.removeEventListener("scroll", onScroll);
-      if (ro) ro.disconnect();
-      if (rafRef.current) {
-        window.cancelAnimationFrame(rafRef.current);
+      try {
+        el.removeEventListener("scroll", onScroll);
+      } catch {
+        // ignore
+      }
+
+      if (ro) {
+        try {
+          ro.disconnect();
+        } catch {
+          // ignore
+        }
+      }
+
+      if (rafRef.current && caf) {
+        caf(rafRef.current);
         rafRef.current = 0;
       }
     };
@@ -130,7 +164,21 @@ export default function ScrollScrubber({
     (top, behavior = "auto") => {
       const el = resolvedEl;
       if (!el) return;
-      el.scrollTo({ top: clamp(top, 0, scrollRange), behavior });
+
+      const nextTop = clamp(top, 0, scrollRange);
+      try {
+        if (typeof el.scrollTo === "function") {
+          el.scrollTo({ top: nextTop, behavior });
+        } else {
+          el.scrollTop = nextTop;
+        }
+      } catch {
+        try {
+          el.scrollTop = nextTop;
+        } catch {
+          // ignore
+        }
+      }
     },
     [resolvedEl, scrollRange]
   );
@@ -140,7 +188,19 @@ export default function ScrollScrubber({
       const el = resolvedEl;
       if (!el) return;
       const delta = el.clientHeight * pageScrollRatio * direction;
-      el.scrollBy({ top: delta, behavior: "smooth" });
+      try {
+        if (typeof el.scrollBy === "function") {
+          el.scrollBy({ top: delta, behavior: "smooth" });
+        } else {
+          el.scrollTop = (el.scrollTop || 0) + delta;
+        }
+      } catch {
+        try {
+          el.scrollTop = (el.scrollTop || 0) + delta;
+        } catch {
+          // ignore
+        }
+      }
     },
     [resolvedEl, pageScrollRatio]
   );
@@ -165,8 +225,10 @@ export default function ScrollScrubber({
         // ignore
       }
 
-      document.body.style.userSelect = "none";
-      document.body.style.webkitUserSelect = "none";
+      if (typeof document !== "undefined" && document.body) {
+        document.body.style.userSelect = "none";
+        document.body.style.webkitUserSelect = "none";
+      }
     },
     [resolvedEl, canScroll]
   );
@@ -195,8 +257,10 @@ export default function ScrollScrubber({
     if (e && state.pointerId != null && e.pointerId !== state.pointerId) return;
 
     dragRef.current = { active: false, pointerId: null, startY: 0, startScrollTop: 0 };
-    document.body.style.userSelect = "";
-    document.body.style.webkitUserSelect = "";
+    if (typeof document !== "undefined" && document.body) {
+      document.body.style.userSelect = "";
+      document.body.style.webkitUserSelect = "";
+    }
   }, []);
 
   const onTrackPointerDown = useCallback(
