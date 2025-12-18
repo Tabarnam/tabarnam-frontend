@@ -1228,7 +1228,7 @@ export default function CompanyDashboard() {
           const msg = "Company not found (it may have been deleted).";
           setEditorLoadError(msg);
           toast.error(msg);
-          setEditorOpen(false);
+          closeEditor();
           return;
         }
 
@@ -1266,6 +1266,37 @@ export default function CompanyDashboard() {
       }
     };
   }, [editorOpen, editorOriginalId]);
+
+  const closeEditor = useCallback(() => {
+    setEditorOpen(false);
+    setEditorDraft(null);
+    setEditorOriginalId(null);
+    setEditorLoadError(null);
+    setEditorLoading(false);
+    setEditorSaving(false);
+
+    setLogoFile(null);
+    setLogoUploadError(null);
+    setLogoUploading(false);
+    setLogoUpdating(false);
+    setLogoDeleting(false);
+
+    setRefreshLoading(false);
+    setRefreshError(null);
+    setRefreshProposed(null);
+    setRefreshSelection({});
+  }, []);
+
+  const handleEditorOpenChange = useCallback(
+    (open) => {
+      if (open) {
+        setEditorOpen(true);
+        return;
+      }
+      closeEditor();
+    },
+    [closeEditor]
+  );
 
   const openEditorForCompany = useCallback((company) => {
     const id = getCompanyId(company);
@@ -1634,15 +1665,13 @@ export default function CompanyDashboard() {
       });
 
       toast.success(isNew ? "Company created" : "Company saved");
-      setEditorOpen(false);
-      setEditorDraft(null);
-      setEditorOriginalId(null);
+      closeEditor();
     } catch (e) {
       toast.error(e?.message || "Save failed");
     } finally {
       setEditorSaving(false);
     }
-  }, [editorDraft, editorOriginalId]);
+  }, [closeEditor, editorDraft, editorOriginalId]);
 
   const updateCompanyInState = useCallback((companyId, patch) => {
     const id = asString(companyId).trim();
@@ -1844,13 +1873,11 @@ export default function CompanyDashboard() {
 
       toast.success("Company deleted");
       setDeleteConfirmOpen(false);
-      setEditorOpen(false);
-      setEditorDraft(null);
-      setEditorOriginalId(null);
+      closeEditor();
     } finally {
       setDeleteConfirmLoading(false);
     }
-  }, [deleteCompany, deleteConfirm]);
+  }, [closeEditor, deleteCompany, deleteConfirm]);
 
   const deleteSelected = useCallback(() => {
     const ids = selectedRows.map((r) => getCompanyId(r)).filter(Boolean);
@@ -2191,15 +2218,40 @@ export default function CompanyDashboard() {
             />
           </section>
 
-          <Dialog open={editorOpen} onOpenChange={(open) => !editorSaving && setEditorOpen(open)}>
-            <DialogContent className="max-w-none w-[90vw] h-[80vh] max-h-[80vh] p-0 relative bg-background">
-              <div className="flex h-full flex-col">
-                <DialogHeader className="px-6 py-4 border-b sticky top-0 bg-background z-10">
+          <Dialog open={editorOpen} onOpenChange={handleEditorOpenChange}>
+            <DialogContent className="max-w-none w-[90vw] h-[90vh] max-h-[90vh] p-0 relative bg-white opacity-100">
+              <ErrorBoundary
+                resetKeys={[editorOriginalId, editorOpen]}
+                fallback={({ error }) => (
+                  <div className="bg-white opacity-100 w-full h-full max-h-[90vh] overflow-auto">
+                    <div data-testid="edit-dialog-mounted" className="bg-white px-6 py-2 text-xs font-semibold text-slate-900">
+                      EDIT DIALOG MOUNTED
+                    </div>
+                    <div className="p-6 space-y-4">
+                      <div className="text-lg font-semibold text-slate-900">Edit dialog crashed</div>
+                      <div className="text-sm text-slate-700 font-mono whitespace-pre-wrap break-words">
+                        {asString(error?.message || error)}
+                      </div>
+                      <pre className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800 whitespace-pre-wrap break-words">
+                        {prettyJson(error)}
+                      </pre>
+                      <Button type="button" onClick={closeEditor}>
+                        Close
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              >
+                <div className="flex h-full flex-col">
+                  <div data-testid="edit-dialog-mounted" className="bg-white px-6 py-2 text-xs font-semibold text-slate-900">
+                    EDIT DIALOG MOUNTED
+                  </div>
+                  <DialogHeader className="px-6 py-4 border-b sticky top-0 bg-white z-10">
                   <DialogTitle>{editorOriginalId ? "Edit company" : "New company"}</DialogTitle>
                 </DialogHeader>
 
-                <div className="relative flex-1 overflow-hidden max-h-[80vh]">
-                  <div ref={setEditorScrollNode} className="h-full max-h-[80vh] overflow-y-auto pl-6 pr-[18px] py-4">
+                <div className="relative flex-1 overflow-hidden max-h-[90vh]">
+                  <div ref={setEditorScrollNode} className="h-full max-h-[90vh] overflow-y-auto pl-6 pr-[18px] py-4">
                   {editorLoadError ? (
                     <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">
                       {asString(editorLoadError)}
@@ -2654,9 +2706,7 @@ export default function CompanyDashboard() {
                     </div>
                   ) : null}
                   </div>
-                  <ErrorBoundary fallback={null} resetKeys={[editorOriginalId, editorOpen]}>
-                    <ScrollScrubber scrollEl={editorScrollEl} scrollRef={editorScrollRef} />
-                  </ErrorBoundary>
+                  <ScrollScrubber scrollEl={editorScrollEl} scrollRef={editorScrollRef} />
                 </div>
 
                 <DialogFooter className="px-6 py-4 border-t">
@@ -2679,7 +2729,7 @@ export default function CompanyDashboard() {
                   ) : (
                     <span className="mr-auto" />
                   )}
-                  <Button variant="outline" onClick={() => setEditorOpen(false)} disabled={editorSaving}>
+                  <Button variant="outline" onClick={closeEditor}>
                     Cancel
                   </Button>
                   <Button onClick={saveEditor} disabled={editorSaving || Boolean(editorValidationError)}>
@@ -2687,7 +2737,8 @@ export default function CompanyDashboard() {
                     {editorSaving ? "Saving…" : editorOriginalId ? "Save changes" : "Create"}
                   </Button>
                 </DialogFooter>
-              </div>
+                </div>
+              </ErrorBoundary>
             </DialogContent>
           </Dialog>
 
