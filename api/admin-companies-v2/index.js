@@ -62,6 +62,15 @@ function sqlContainsString(fieldExpr) {
   return `(IS_DEFINED(${fieldExpr}) AND IS_STRING(${fieldExpr}) AND CONTAINS(LOWER(${fieldExpr}), @q))`;
 }
 
+function isPlainObject(value) {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return false;
+  if (typeof value.getReader === "function") return false; // ReadableStream
+  if (typeof value.arrayBuffer === "function") return false;
+  if (ArrayBuffer.isView(value)) return false;
+  return Object.prototype.toString.call(value) === "[object Object]";
+}
+
 async function getJson(req) {
   if (!req) return {};
 
@@ -75,23 +84,68 @@ async function getJson(req) {
     }
   }
 
-  if (req.body && typeof req.body === "object") return req.body;
-
-  const raw =
-    (typeof req.body === "string" && req.body) ||
-    (typeof req.rawBody === "string" && req.rawBody) ||
-    "";
-
-  const text = String(raw).trim();
-  if (!text) return {};
-
-  try {
-    const parsed = JSON.parse(text);
-    if (parsed && typeof parsed === "object") return parsed;
-    return {};
-  } catch (e) {
-    throw e;
+  if (typeof req.text === "function") {
+    let text = "";
+    try {
+      text = String(await req.text()).trim();
+    } catch {
+      text = "";
+    }
+    if (text) {
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === "object") return parsed;
+        return {};
+      } catch (e) {
+        throw e;
+      }
+    }
   }
+
+  if (typeof req.rawBody === "string" && req.rawBody.trim()) {
+    try {
+      const parsed = JSON.parse(req.rawBody);
+      if (parsed && typeof parsed === "object") return parsed;
+      return {};
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  if (typeof req.body === "string" && req.body.trim()) {
+    try {
+      const parsed = JSON.parse(req.body);
+      if (parsed && typeof parsed === "object") return parsed;
+      return {};
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  if (req.body && typeof Buffer !== "undefined" && Buffer.isBuffer(req.body) && req.body.length) {
+    try {
+      const parsed = JSON.parse(req.body.toString("utf8"));
+      if (parsed && typeof parsed === "object") return parsed;
+      return {};
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  if (req.body && ArrayBuffer.isView(req.body) && req.body.byteLength) {
+    try {
+      const text = new TextDecoder().decode(req.body);
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === "object") return parsed;
+      return {};
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  if (isPlainObject(req.body)) return req.body;
+
+  return {};
 }
 
 function sqlContainsStringOrArray(fieldExpr) {
