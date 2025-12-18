@@ -62,6 +62,38 @@ function sqlContainsString(fieldExpr) {
   return `(IS_DEFINED(${fieldExpr}) AND IS_STRING(${fieldExpr}) AND CONTAINS(LOWER(${fieldExpr}), @q))`;
 }
 
+async function getJson(req) {
+  if (!req) return {};
+
+  if (typeof req.json === "function") {
+    try {
+      const val = await req.json();
+      if (val && typeof val === "object") return val;
+      return {};
+    } catch {
+      // fall through
+    }
+  }
+
+  if (req.body && typeof req.body === "object") return req.body;
+
+  const raw =
+    (typeof req.body === "string" && req.body) ||
+    (typeof req.rawBody === "string" && req.rawBody) ||
+    "";
+
+  const text = String(raw).trim();
+  if (!text) return {};
+
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object") return parsed;
+    return {};
+  } catch (e) {
+    throw e;
+  }
+}
+
 function sqlContainsStringOrArray(fieldExpr) {
   return `(
     IS_DEFINED(${fieldExpr}) AND (
@@ -151,6 +183,8 @@ function buildSearchWhereClause() {
   const clauses = [
     sqlContainsString("c.company_name"),
     sqlContainsString("c.name"),
+    sqlContainsString("c.company_id"),
+    sqlContainsString("c.id"),
     sqlContainsString("c.normalized_domain"),
     sqlContainsString("c.website_url"),
     sqlContainsString("c.url"),
@@ -264,7 +298,7 @@ app.http("adminCompanies", {
       if (method === "POST" || method === "PUT") {
         let body = {};
         try {
-          body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
+          body = await getJson(req);
         } catch (e) {
           return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
@@ -279,7 +313,15 @@ app.http("adminCompanies", {
           incoming.website_url || incoming.canonical_url || incoming.url || incoming.website || ""
         ).trim();
 
-        let id = String(incoming.company_id || incoming.id || "").trim();
+        const pathId =
+          (context && context.bindingData && context.bindingData.id) ||
+          (req && req.params && req.params.id) ||
+          "";
+
+        const providedCompanyId = String(incoming.company_id || "").trim();
+        const providedId = String(incoming.id || pathId || "").trim();
+
+        let id = String(providedId || providedCompanyId || "").trim();
         const generatedFromName = !id && Boolean(incomingName);
 
         if (!id) {
@@ -341,13 +383,19 @@ app.http("adminCompanies", {
           0;
 
         const now = new Date().toISOString();
+
+        const resolvedName =
+          String(base.company_name || "").trim() || String(base.name || "").trim() || incomingName;
+
+        const resolvedCompanyId = providedCompanyId || String(id).trim();
+
         const doc = {
           ...base,
           id: String(id).trim(),
-          company_id: String(id).trim(),
+          company_id: resolvedCompanyId,
           normalized_domain: normalizedDomain,
-          company_name: base.company_name || base.name || "",
-          name: base.name || base.company_name || "",
+          company_name: resolvedName,
+          name: String(base.name || "").trim() || String(base.company_name || "").trim() || resolvedName,
           review_count: Math.max(0, Math.trunc(Number(reviewCountRaw) || 0)),
           public_review_count: Math.max(0, Math.trunc(Number(base.public_review_count) || 0)),
           private_review_count: Math.max(0, Math.trunc(Number(base.private_review_count) || 0)),
@@ -393,9 +441,9 @@ app.http("adminCompanies", {
       if (method === "DELETE") {
         let body = {};
         try {
-          body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
-        } catch {
-          return json({ error: "Invalid JSON" }, 400);
+          body = await getJson(req);
+        } catch (e) {
+          return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
 
         const { getContainerPartitionKeyPath, buildPartitionKeyCandidates } = require("../_cosmosPartitionKey");
@@ -410,7 +458,9 @@ app.http("adminCompanies", {
           (req && req.query && (req.query.id || req.query.company_id)) || null;
 
         const rawBodyId =
-          (body && (body.company_id || body.id)) || null;
+          (body && (body.company_id || body.id || body.companyId)) ||
+          (body && body.company && (body.company.company_id || body.company.id)) ||
+          null;
 
         const resolvedId = rawPathId || rawQueryId || rawBodyId;
 
