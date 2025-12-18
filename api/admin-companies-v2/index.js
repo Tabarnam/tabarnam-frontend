@@ -1,5 +1,9 @@
 const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
+const { getBuildInfo } = require("../_buildInfo");
+
+const BUILD_INFO = getBuildInfo();
+const HANDLER_ID = "admin-companies-v2";
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -14,6 +18,9 @@ function json(obj, status = 200) {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, x-functions-key",
+      "X-Api-Handler": HANDLER_ID,
+      "X-Api-Build-Id": String(BUILD_INFO.build_id || ""),
+      "X-Api-Build-Source": String(BUILD_INFO.build_id_source || ""),
     },
     body: JSON.stringify(obj),
   };
@@ -60,6 +67,92 @@ function slugifyCompanyId(value) {
 
 function sqlContainsString(fieldExpr) {
   return `(IS_DEFINED(${fieldExpr}) AND IS_STRING(${fieldExpr}) AND CONTAINS(LOWER(${fieldExpr}), @q))`;
+}
+
+function isPlainObject(value) {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return false;
+  if (typeof value.getReader === "function") return false; // ReadableStream
+  if (typeof value.arrayBuffer === "function") return false;
+  if (ArrayBuffer.isView(value)) return false;
+  return Object.prototype.toString.call(value) === "[object Object]";
+}
+
+async function getJson(req) {
+  if (!req) return {};
+
+  if (typeof req.json === "function") {
+    try {
+      const val = await req.json();
+      if (val && typeof val === "object") return val;
+      return {};
+    } catch {
+      // fall through
+    }
+  }
+
+  if (typeof req.text === "function") {
+    let text = "";
+    try {
+      text = String(await req.text()).trim();
+    } catch {
+      text = "";
+    }
+    if (text) {
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === "object") return parsed;
+        return {};
+      } catch (e) {
+        throw e;
+      }
+    }
+  }
+
+  if (typeof req.rawBody === "string" && req.rawBody.trim()) {
+    try {
+      const parsed = JSON.parse(req.rawBody);
+      if (parsed && typeof parsed === "object") return parsed;
+      return {};
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  if (typeof req.body === "string" && req.body.trim()) {
+    try {
+      const parsed = JSON.parse(req.body);
+      if (parsed && typeof parsed === "object") return parsed;
+      return {};
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  if (req.body && typeof Buffer !== "undefined" && Buffer.isBuffer(req.body) && req.body.length) {
+    try {
+      const parsed = JSON.parse(req.body.toString("utf8"));
+      if (parsed && typeof parsed === "object") return parsed;
+      return {};
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  if (req.body && ArrayBuffer.isView(req.body) && req.body.byteLength) {
+    try {
+      const text = new TextDecoder().decode(req.body);
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === "object") return parsed;
+      return {};
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  if (isPlainObject(req.body)) return req.body;
+
+  return {};
 }
 
 function sqlContainsStringOrArray(fieldExpr) {
@@ -151,6 +244,8 @@ function buildSearchWhereClause() {
   const clauses = [
     sqlContainsString("c.company_name"),
     sqlContainsString("c.name"),
+    sqlContainsString("c.company_id"),
+    sqlContainsString("c.id"),
     sqlContainsString("c.normalized_domain"),
     sqlContainsString("c.website_url"),
     sqlContainsString("c.url"),
@@ -264,7 +359,7 @@ app.http("adminCompanies", {
       if (method === "POST" || method === "PUT") {
         let body = {};
         try {
-          body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
+          body = await getJson(req);
         } catch (e) {
           return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
@@ -279,7 +374,15 @@ app.http("adminCompanies", {
           incoming.website_url || incoming.canonical_url || incoming.url || incoming.website || ""
         ).trim();
 
-        let id = String(incoming.company_id || incoming.id || "").trim();
+        const pathId =
+          (context && context.bindingData && context.bindingData.id) ||
+          (req && req.params && req.params.id) ||
+          "";
+
+        const providedCompanyId = String(incoming.company_id || "").trim();
+        const providedId = String(incoming.id || pathId || "").trim();
+
+        let id = String(providedId || providedCompanyId || "").trim();
         const generatedFromName = !id && Boolean(incomingName);
 
         if (!id) {
@@ -341,13 +444,20 @@ app.http("adminCompanies", {
           0;
 
         const now = new Date().toISOString();
+
+        const resolvedName =
+          String(base.company_name || "").trim() || String(base.name || "").trim() || incomingName;
+
+        const baseCompanyId = String(base.company_id || "").trim();
+        const resolvedCompanyId = providedCompanyId || baseCompanyId || String(id).trim();
+
         const doc = {
           ...base,
           id: String(id).trim(),
-          company_id: String(id).trim(),
+          company_id: resolvedCompanyId,
           normalized_domain: normalizedDomain,
-          company_name: base.company_name || base.name || "",
-          name: base.name || base.company_name || "",
+          company_name: resolvedName,
+          name: String(base.name || "").trim() || String(base.company_name || "").trim() || resolvedName,
           review_count: Math.max(0, Math.trunc(Number(reviewCountRaw) || 0)),
           public_review_count: Math.max(0, Math.trunc(Number(base.public_review_count) || 0)),
           private_review_count: Math.max(0, Math.trunc(Number(base.private_review_count) || 0)),
@@ -393,9 +503,9 @@ app.http("adminCompanies", {
       if (method === "DELETE") {
         let body = {};
         try {
-          body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
-        } catch {
-          return json({ error: "Invalid JSON" }, 400);
+          body = await getJson(req);
+        } catch (e) {
+          return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
 
         const { getContainerPartitionKeyPath, buildPartitionKeyCandidates } = require("../_cosmosPartitionKey");
@@ -410,7 +520,9 @@ app.http("adminCompanies", {
           (req && req.query && (req.query.id || req.query.company_id)) || null;
 
         const rawBodyId =
-          (body && (body.company_id || body.id)) || null;
+          (body && (body.company_id || body.id || body.companyId)) ||
+          (body && body.company && (body.company.company_id || body.company.id)) ||
+          null;
 
         const resolvedId = rawPathId || rawQueryId || rawBodyId;
 
