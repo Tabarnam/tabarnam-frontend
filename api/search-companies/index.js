@@ -144,7 +144,7 @@ function getTotalReviews(company) {
 function getComparableValue(sortField, c) {
   switch (sortField) {
     case "name":
-      return asString(c.company_name || c.name).toLowerCase();
+      return asString(c.display_name || c.company_name || c.name).toLowerCase();
     case "industries":
       return joinedLower(c.industries);
     case "reviews":
@@ -177,8 +177,8 @@ function compareCompanies(sortField, dir, a, b) {
   }
 
   if (cmp === 0) {
-    const an = asString(a.company_name || a.name).toLowerCase();
-    const bn = asString(b.company_name || b.name).toLowerCase();
+    const an = asString(a.display_name || a.company_name || a.name).toLowerCase();
+    const bn = asString(b.display_name || b.company_name || b.name).toLowerCase();
     cmp = an.localeCompare(bn);
   }
 
@@ -187,6 +187,8 @@ function compareCompanies(sortField, dir, a, b) {
 
 const SQL_TEXT_FILTER = `
   (IS_DEFINED(c.company_name) AND CONTAINS(LOWER(c.company_name), @q)) OR
+  (IS_DEFINED(c.display_name) AND CONTAINS(LOWER(c.display_name), @q)) OR
+  (IS_DEFINED(c.name) AND CONTAINS(LOWER(c.name), @q)) OR
   (IS_DEFINED(c.product_keywords) AND CONTAINS(LOWER(c.product_keywords), @q)) OR
   (
     IS_DEFINED(c.keywords) AND (
@@ -207,6 +209,7 @@ const SELECT_FIELDS = [
   "c.id",
   "c.company_id",
   "c.company_name",
+  "c.display_name",
   "c.name",
   "c.industries",
   "c.url",
@@ -312,10 +315,22 @@ function mapCompanyToPublic(doc) {
 
   const company_id = doc.company_id || doc.id;
 
+  const display_name =
+    asString(doc.display_name).trim() ||
+    (() => {
+      const n = asString(doc.name).trim();
+      const cn = asString(doc.company_name).trim();
+      if (!n) return "";
+      if (!cn) return n;
+      return n !== cn ? n : "";
+    })();
+
   return {
     id: company_id,
     company_id,
     company_name: doc.company_name || doc.name || "",
+    display_name: display_name || undefined,
+    name: doc.name,
     website_url,
     normalized_domain: doc.normalized_domain || "",
     amazon_url,
