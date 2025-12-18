@@ -1206,12 +1206,21 @@ export default function CompanyDashboard() {
 
     (async () => {
       try {
+        // Contract: after a successful DELETE, GET /api/xadmin-api-companies/{id} returns 404 (deleted records are filtered out).
         const res = await apiFetch(`/xadmin-api-companies/${encodeURIComponent(companyId)}`, {
           signal: controller.signal,
         });
         const body = await res.json().catch(() => ({}));
 
         if (seq !== editorFetchSeqRef.current || controller.signal.aborted) return;
+
+        if (res.status === 404) {
+          const msg = "Company not found (it may have been deleted).";
+          setEditorLoadError(msg);
+          toast.error(msg);
+          setEditorOpen(false);
+          return;
+        }
 
         const ok = (res.ok && body?.ok === true) || (!res.ok && body?.ok === true);
         const company = body?.company && typeof body.company === "object" ? body.company : null;

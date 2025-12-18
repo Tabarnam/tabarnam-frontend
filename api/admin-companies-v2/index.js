@@ -1,4 +1,9 @@
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("@azure/functions"));
+} catch {
+  app = { http() {} };
+}
 const { CosmosClient } = require("@azure/cosmos");
 const { getBuildInfo } = require("../_buildInfo");
 
@@ -291,11 +296,17 @@ async function doesCompanyIdExist(container, id) {
   }
 }
 
-app.http("adminCompanies", {
-  route: "xadmin-api-companies/{id?}",
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: async (req, context) => {
+/**
+ * Admin Companies API (xadmin-api-companies)
+ *
+ * Deletion contract (Option A):
+ * - DELETE /api/xadmin-api-companies/{id} performs a soft-delete (sets company.is_deleted = true).
+ * - After a successful DELETE, GET /api/xadmin-api-companies/{id} MUST return 404 NotFound (deleted records are filtered out).
+ * - Search GET /api/xadmin-api-companies?q=... excludes deleted records by default.
+ *
+ * The Admin UI relies on this behavior to avoid guessing after deletion.
+ */
+async function adminCompaniesHandler(req, context, deps = {}) {
     console.log("[admin-companies-v2-handler] Request received:", { method: req.method, url: req.url });
     context.log("admin-companies-v2 function invoked");
 
@@ -319,7 +330,7 @@ app.http("adminCompanies", {
       return json({}, 200);
     }
 
-    const container = getCompaniesContainer();
+    const container = deps.container || getCompaniesContainer();
     if (!container) {
       return json({ error: "Cosmos DB not configured" }, 503);
     }
@@ -684,5 +695,15 @@ app.http("adminCompanies", {
       context.log("[admin-companies-v2] Error", e?.message || e);
       return json({ error: e?.message || "Internal error" }, 500);
     }
-  },
+}
+
+app.http("adminCompanies", {
+  route: "xadmin-api-companies/{id?}",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: (req, context) => adminCompaniesHandler(req, context),
 });
+
+module.exports._test = {
+  adminCompaniesHandler,
+};
