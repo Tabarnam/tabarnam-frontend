@@ -206,6 +206,20 @@ app.http("adminCompanies", {
 
     const method = (req.method || "").toUpperCase();
 
+    // Normalize query params across Azure Functions versions
+    try {
+      if (req && req.query && typeof req.query.get === "function") {
+        const queryObj = Object.fromEntries(req.query.entries());
+        try {
+          req.query = queryObj;
+        } catch {
+          req = { ...req, query: queryObj };
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     if (method === "OPTIONS") {
       return json({}, 200);
     }
