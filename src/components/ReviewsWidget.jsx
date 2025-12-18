@@ -4,7 +4,7 @@ import { API_BASE } from "@/lib/api";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { RatingDots } from "@/components/Stars";
 
-export default function ReviewsWidget({ companyId, companyName }) {
+export default function ReviewsWidget({ companyId, companyName, displayName }) {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [rating, setRating] = useState(5);
@@ -70,9 +70,11 @@ export default function ReviewsWidget({ companyId, companyName }) {
     finally { setSubmitting(false); }
   }
 
+  const titleName = String(displayName || companyName || "").trim();
+
   return (
     <div className="mt-3 border rounded p-3 bg-gray-50">
-      <div className="font-semibold mb-2">Reviews</div>
+      <div className="font-semibold mb-2">{titleName ? `Reviews for ${titleName}` : "Reviews"}</div>
 
       <div className="mt-4">
         {loading ? (

@@ -11,6 +11,7 @@ import {
   Plus,
   AlertCircle,
   Copy,
+  ChevronDown,
 } from "lucide-react";
 
 import { calculateInitialRating, clampStarValue, normalizeRating } from "@/lib/stars/calculateRating";
@@ -529,7 +530,15 @@ function StructuredLocationListEditor({ label, value, onChange }) {
 }
 
 function getCompanyName(company) {
-  return asString(company?.company_name || company?.name).trim();
+  return asString(company?.company_name).trim() || asString(company?.name).trim();
+}
+
+function inferDisplayNameOverride(draft) {
+  const companyName = asString(draft?.company_name).trim();
+  const name = asString(draft?.name).trim();
+  if (!name) return "";
+  if (!companyName) return name;
+  return name !== companyName ? name : "";
 }
 
 function getCompanyUrl(company) {
@@ -580,6 +589,8 @@ function buildCompanyDraft(company) {
     logo_url: asString(company?.logo_url).trim(),
   };
 
+  if (!draft.name) draft.name = draft.company_name;
+
   if (!draft.rating) {
     draft.rating = calculateInitialRating(computeAutoRatingInput(draft));
   }
@@ -601,8 +612,8 @@ function slugifyCompanyId(name) {
 function toIssueTags(company) {
   const issues = [];
 
-  const name = getCompanyName(company);
-  if (!name) issues.push("missing name");
+  const name = asString(company?.company_name).trim();
+  if (!name) issues.push("missing company name");
 
   const url = getCompanyUrl(company);
   if (!url) issues.push("missing url");
@@ -635,7 +646,7 @@ function toDisplayDate(value) {
 }
 
 function validateCompanyDraft(draft) {
-  const name = getCompanyName(draft);
+  const name = asString(draft?.company_name).trim();
   const url = getCompanyUrl(draft);
   if (!name) return "Company name is required.";
   if (!url) return "Website URL is required.";
@@ -1067,6 +1078,8 @@ export default function CompanyDashboard() {
   const [editorLoadError, setEditorLoadError] = useState(null);
   const [editorDraft, setEditorDraft] = useState(null);
   const [editorOriginalId, setEditorOriginalId] = useState(null);
+  const [editorShowAdvanced, setEditorShowAdvanced] = useState(false);
+  const [editorDisplayNameOverride, setEditorDisplayNameOverride] = useState("");
 
   const [refreshLoading, setRefreshLoading] = useState(false);
   const [refreshError, setRefreshError] = useState(null);
@@ -1247,7 +1260,10 @@ export default function CompanyDashboard() {
           return;
         }
 
-        setEditorDraft(buildCompanyDraft(company));
+        const draft = buildCompanyDraft(company);
+        setEditorDraft(draft);
+        setEditorShowAdvanced(false);
+        setEditorDisplayNameOverride(inferDisplayNameOverride(draft));
       } catch (e) {
         if (controller.signal.aborted) return;
         const msg = e?.message || "Failed to load company";
@@ -1274,6 +1290,8 @@ export default function CompanyDashboard() {
     setEditorLoadError(null);
     setEditorLoading(false);
     setEditorSaving(false);
+    setEditorShowAdvanced(false);
+    setEditorDisplayNameOverride("");
 
     setLogoFile(null);
     setLogoUploadError(null);
@@ -1304,6 +1322,8 @@ export default function CompanyDashboard() {
 
     setEditorOriginalId(id || null);
     setEditorDraft(draft);
+    setEditorShowAdvanced(false);
+    setEditorDisplayNameOverride(inferDisplayNameOverride(draft));
     setEditorLoadError(null);
     setLogoFile(null);
     setLogoUploadError(null);
@@ -1318,6 +1338,7 @@ export default function CompanyDashboard() {
     const draft = {
       company_id: "",
       company_name: "",
+      name: "",
       website_url: "",
       tagline: "",
       logo_url: "",
@@ -1340,6 +1361,8 @@ export default function CompanyDashboard() {
 
     setEditorOriginalId(null);
     setEditorDraft(draft);
+    setEditorShowAdvanced(false);
+    setEditorDisplayNameOverride("");
     setLogoFile(null);
     setLogoUploadError(null);
     setRefreshLoading(false);
@@ -1577,12 +1600,12 @@ export default function CompanyDashboard() {
     try {
       const draftCompanyId = asString(editorDraft.company_id).trim();
       const draftCompanyName = asString(editorDraft.company_name).trim();
-      const draftName = asString(editorDraft.name).trim();
+      const draftDisplayOverride = asString(editorDisplayNameOverride).trim();
 
-      const resolvedCompanyName = draftCompanyName || draftName;
-      const resolvedName = draftName || draftCompanyName;
+      const resolvedCompanyName = draftCompanyName;
+      const resolvedName = draftDisplayOverride ? draftDisplayOverride : draftCompanyName;
 
-      const suggestedId = slugifyCompanyId(resolvedCompanyName || resolvedName);
+      const suggestedId = slugifyCompanyId(resolvedCompanyName);
 
       const resolvedCompanyId = isNew
         ? draftCompanyId || suggestedId
@@ -1671,7 +1694,7 @@ export default function CompanyDashboard() {
     } finally {
       setEditorSaving(false);
     }
-  }, [closeEditor, editorDraft, editorOriginalId]);
+  }, [closeEditor, editorDisplayNameOverride, editorDraft, editorOriginalId]);
 
   const updateCompanyInState = useCallback((companyId, patch) => {
     const id = asString(companyId).trim();
@@ -2418,22 +2441,68 @@ export default function CompanyDashboard() {
                       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,460px)]">
                         <div className="space-y-5">
                           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                            <div className="space-y-1">
-                              <label className="text-sm text-slate-700">company_name</label>
+                            <div className="space-y-1 md:col-span-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <label className="text-sm text-slate-700">
+                                  Company name <span className="text-red-600">*</span>
+                                </label>
+                                {asString(editorDisplayNameOverride).trim() ? (
+                                  <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[11px] text-emerald-900">
+                                    Using display name
+                                  </span>
+                                ) : null}
+                              </div>
                               <Input
+                                required
                                 value={asString(editorDraft.company_name)}
-                                onChange={(e) => setEditorDraft((d) => ({ ...d, company_name: e.target.value }))}
+                                onChange={(e) => {
+                                  const next = e.target.value;
+                                  setEditorDraft((d) => {
+                                    const base = d && typeof d === "object" ? d : {};
+                                    const override = asString(editorDisplayNameOverride).trim();
+                                    const out = { ...base, company_name: next };
+                                    if (!override) out.name = next;
+                                    return out;
+                                  });
+                                }}
                                 placeholder="Acme Corp"
                               />
                             </div>
 
-                            <div className="space-y-1">
-                              <label className="text-sm text-slate-700">name</label>
-                              <Input
-                                value={asString(editorDraft.name)}
-                                onChange={(e) => setEditorDraft((d) => ({ ...d, name: e.target.value }))}
-                                placeholder={asString(editorDraft.company_name) || "Acme Corp"}
-                              />
+                            <div className="space-y-2 md:col-span-2">
+                              <button
+                                type="button"
+                                className="flex w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 hover:bg-slate-50"
+                                onClick={() => setEditorShowAdvanced((v) => !v)}
+                                aria-expanded={editorShowAdvanced}
+                              >
+                                <span className="font-medium">Display options</span>
+                                <ChevronDown className={editorShowAdvanced ? "h-4 w-4 rotate-180 transition-transform" : "h-4 w-4 transition-transform"} />
+                              </button>
+
+                              {editorShowAdvanced ? (
+                                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+                                  <div className="space-y-1">
+                                    <label className="text-sm text-slate-700">Display name (optional)</label>
+                                    <Input
+                                      value={editorDisplayNameOverride}
+                                      onChange={(e) => {
+                                        const next = e.target.value;
+                                        setEditorDisplayNameOverride(next);
+                                        setEditorDraft((d) => {
+                                          const base = d && typeof d === "object" ? d : {};
+                                          const companyName = asString(base.company_name).trim();
+                                          return { ...base, name: asString(next).trim() ? next : companyName };
+                                        });
+                                      }}
+                                      placeholder={asString(editorDraft.company_name) || ""}
+                                    />
+                                  </div>
+                                  <div className="text-xs text-slate-600">
+                                    If set, this is what users see. If empty, we show Company name.
+                                  </div>
+                                </div>
+                              ) : null}
                             </div>
 
                             <div className="space-y-1 md:col-span-2">

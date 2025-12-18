@@ -9,6 +9,7 @@ import useTranslation from "@/hooks/useTranslation";
 import { CompanyStarsBlock } from "@/components/results/CompanyStarsBlock";
 import { calcStars } from "@/lib/stars/calcStars";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
+import { getCompanyDisplayName } from "@/lib/companyDisplayName";
 
 const TranslatedText = ({ originalText, translation, loading }) => {
   if (loading)
@@ -67,8 +68,10 @@ const CompanyRow = ({
 }) => {
   const { toast } = useToast();
 
+  const displayName = getCompanyDisplayName(company);
+
   const { translatedText: translatedName, loading: nameLoading } = useTranslation(
-    company.name,
+    displayName,
     language,
     viewTranslated,
     company.id,
@@ -139,7 +142,7 @@ const CompanyRow = ({
         <td className="p-4 align-top">
           <p className="font-bold text-lg text-gray-800 truncate">
             <TranslatedText
-              originalText={company.name}
+              originalText={displayName}
               translation={translatedName}
               loading={nameLoading && viewTranslated}
             />
@@ -151,7 +154,7 @@ const CompanyRow = ({
           {logoUrl ? (
             <img
               src={logoUrl}
-              alt={`${company.name || "Company"} logo`}
+              alt={`${displayName || "Company"} logo`}
               className="w-16 h-16 md:w-20 md:h-20 rounded-md object-contain bg-gray-100"
               loading="lazy"
               decoding="async"
@@ -237,16 +240,16 @@ const CompanyRow = ({
                 {/* Row 1 */}
                 <div className="col-[1] row-[1] font-semibold text-gray-900 text-base">
                   <TranslatedText
-                    originalText={company.name}
-                    translation={translatedName}
-                    loading={nameLoading && viewTranslated}
-                  />
+              originalText={displayName}
+              translation={translatedName}
+              loading={nameLoading && viewTranslated}
+            />
                 </div>
                 <div className="col-[2] row-[1]/row-[span_3] flex items-start">
                   {logoUrl ? (
                     <img
                       src={logoUrl}
-                      alt={`${company.name || "Company"} logo`}
+                      alt={`${displayName || "Company"} logo`}
                       className="w-20 h-20 rounded-md object-contain bg-gray-100"
                       loading="lazy"
                     />

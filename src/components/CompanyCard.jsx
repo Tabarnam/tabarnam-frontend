@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Building2, Globe, Tag } from 'lucide-react';
 import { RatingDots, RatingHearts } from "@/components/Stars";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
+import { getCompanyDisplayName } from "@/lib/companyDisplayName";
 import { getQQDefaultIconType, getQQFilledCount, getQQScore, hasQQRating } from "@/lib/stars/qqRating";
 
 const CompanyCard = ({ company, index }) => {
@@ -10,6 +11,8 @@ const CompanyCard = ({ company, index }) => {
     hidden: { opacity: 0, y: 50 },
     visible: { opacity: 1, y: 0, transition: { delay: index * 0.1 } },
   };
+
+  const displayName = getCompanyDisplayName(company);
 
   const primaryUrl = company.website_url || company.amazon_url || company.amazon_store_url || "";
   const primaryLabel = company.website_url ? "Visit Website" : primaryUrl ? "View on Amazon" : "Visit Website";
@@ -29,7 +32,7 @@ const CompanyCard = ({ company, index }) => {
           <div className="p-3 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl">
             <Building2 className="w-6 h-6 text-white" />
           </div>
-          <h2 className="text-xl font-bold text-white truncate">{company.name}</h2>
+          <h2 className="text-xl font-bold text-white truncate">{displayName}</h2>
         </div>
 
         <p className="text-gray-300 text-sm mb-4 line-clamp-3 min-h-[60px]">{company.about || 'No description available.'}</p>

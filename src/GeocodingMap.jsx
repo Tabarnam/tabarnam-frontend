@@ -4,6 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import PinIcon from "@/assets/tabarnam-pin.jpg";
+import { getCompanyDisplayName } from "@/lib/companyDisplayName";
 
 // Fix default marker icon path (Leaflet quirk)
 delete L.Icon.Default.prototype._getIconUrl;
@@ -58,10 +59,10 @@ export default function GeocodingMap({ companies = [], userCenter }) {
         )}
 
         {points.map((c, i) => (
-          <Marker key={(c.company_name || "c") + "-" + i} position={c.pos}>
+          <Marker key={(c.company_name || c.name || "c") + "-" + i} position={c.pos}>
             <Popup>
               <div className="space-y-1 text-sm">
-                <div className="font-medium">{c.company_name}</div>
+                <div className="font-medium">{getCompanyDisplayName(c)}</div>
                 {c.url && <a href={c.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">{c.url}</a>}
                 <div>{c.headquarters_location || ""}</div>
               </div>
