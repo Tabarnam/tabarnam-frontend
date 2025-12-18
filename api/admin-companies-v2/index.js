@@ -326,6 +326,34 @@ app.http("adminCompanies", {
 
     try {
       if (method === "GET") {
+        const routeIdRaw =
+          (context && context.bindingData && context.bindingData.id) || (req && req.params && req.params.id) || "";
+        const routeId = String(routeIdRaw || "").trim();
+
+        if (routeId) {
+          const querySpec = {
+            query:
+              "SELECT TOP 1 * FROM c WHERE c.id = @id AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) ORDER BY c._ts DESC",
+            parameters: [{ name: "@id", value: routeId }],
+          };
+
+          const { resources } = await container.items
+            .query(querySpec, { enableCrossPartitionQuery: true })
+            .fetchAll();
+
+          const found = (resources && resources[0]) || null;
+          if (!found) {
+            return json({ ok: false, error: "not_found" }, 404);
+          }
+
+          const company = {
+            ...found,
+            company_id: String(found.company_id || found.id || "").trim() || found.company_id,
+          };
+
+          return json({ ok: true, company }, 200);
+        }
+
         const search = (req.query?.search || req.query?.q || "").toString().toLowerCase().trim();
         const take = Math.min(500, Math.max(1, parseInt((req.query?.take || "200").toString())));
 
