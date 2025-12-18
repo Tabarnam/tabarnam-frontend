@@ -2247,9 +2247,11 @@ export default function CompanyDashboard() {
                 resetKeys={[editorOriginalId, editorOpen]}
                 fallback={({ error }) => (
                   <div className="bg-white opacity-100 w-full h-full max-h-[90vh] overflow-auto">
-                    <div data-testid="edit-dialog-mounted" className="bg-white px-6 py-2 text-xs font-semibold text-slate-900">
-                      EDIT DIALOG MOUNTED
-                    </div>
+                    {import.meta.env.DEV ? (
+                      <div data-testid="edit-dialog-mounted" className="bg-white px-6 py-2 text-xs font-semibold text-slate-900">
+                        EDIT DIALOG MOUNTED
+                      </div>
+                    ) : null}
                     <div className="p-6 space-y-4">
                       <div className="text-lg font-semibold text-slate-900">Edit dialog crashed</div>
                       <div className="text-sm text-slate-700 font-mono whitespace-pre-wrap break-words">
@@ -2266,9 +2268,11 @@ export default function CompanyDashboard() {
                 )}
               >
                 <div className="flex h-full min-h-0 flex-col">
-                  <div data-testid="edit-dialog-mounted" className="flex-none bg-white px-6 py-2 text-xs font-semibold text-slate-900">
-                    EDIT DIALOG MOUNTED
-                  </div>
+                  {import.meta.env.DEV ? (
+                    <div data-testid="edit-dialog-mounted" className="flex-none bg-white px-6 py-2 text-xs font-semibold text-slate-900">
+                      EDIT DIALOG MOUNTED
+                    </div>
+                  ) : null}
                   <DialogHeader className="flex-none px-6 py-4 border-b bg-white">
                     <DialogTitle>{editorOriginalId ? "Edit company" : "New company"}</DialogTitle>
                   </DialogHeader>
@@ -2277,7 +2281,7 @@ export default function CompanyDashboard() {
                     <div
                       data-testid="edit-scroll-area"
                       ref={setEditorScrollNode}
-                      className="flex-1 min-h-0 overflow-auto px-6 py-4 pr-16"
+                      className="flex-1 min-h-0 overflow-auto no-scrollbar px-6 py-4 pr-16"
                     >
                   {editorLoadError ? (
                     <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">
@@ -2300,14 +2304,14 @@ export default function CompanyDashboard() {
                   {editorDraft ? (
                     <div className="space-y-5">
                       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div>
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="min-w-0">
                             <div className="text-xs font-medium text-slate-700">company_id</div>
-                            <div className="mt-1 flex flex-wrap items-center gap-2">
-                              <code className="rounded bg-white border border-slate-200 px-2 py-1 text-xs text-slate-900">
-                                {editorOriginalId ? asString(editorDraft.company_id).trim() || "(missing)" : editorCompanyId || "(auto)"}
-                              </code>
+                            <div className="mt-1 flex flex-col items-start gap-3 sm:flex-row sm:items-start sm:gap-4">
                               <div className="flex flex-wrap items-center gap-2">
+                                <code className="rounded bg-white border border-slate-200 px-2 py-1 text-xs text-slate-900">
+                                  {editorOriginalId ? asString(editorDraft.company_id).trim() || "(missing)" : editorCompanyId || "(auto)"}
+                                </code>
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -2328,20 +2332,27 @@ export default function CompanyDashboard() {
                                 >
                                   <Copy className="h-4 w-4" />
                                 </Button>
-
-                                {editorOriginalId ? (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={refreshCompany}
-                                    disabled={refreshLoading || editorSaving}
-                                    title="Refresh search"
-                                  >
-                                    <RefreshCcw className="h-4 w-4 mr-2" />
-                                    {refreshLoading ? "Refreshing…" : "Refresh search"}
-                                  </Button>
-                                ) : null}
                               </div>
+
+                              {editorOriginalId ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="flex-none"
+                                  onClick={refreshCompany}
+                                  disabled={refreshLoading || editorSaving}
+                                  title="Refresh search"
+                                >
+                                  <RefreshCcw className="h-4 w-4 mr-2" />
+                                  {refreshLoading ? "Refreshing…" : "Refresh search"}
+                                </Button>
+                              ) : null}
+
+                              {editorOriginalId ? (
+                                <div className="min-w-0 text-xs text-muted-foreground max-w-[520px] leading-snug">
+                                  Click “Refresh search” to fetch proposed updates. Protected fields (logo, notes, manual stars) are never overwritten.
+                                </div>
+                              ) : null}
                             </div>
                           </div>
 
@@ -2359,7 +2370,7 @@ export default function CompanyDashboard() {
                         </div>
                       </div>
 
-                      {editorOriginalId ? (
+                      {editorOriginalId && (refreshLoading || refreshError || refreshProposed) ? (
                         <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="text-sm font-semibold text-slate-900">Proposed refresh</div>
@@ -2387,7 +2398,11 @@ export default function CompanyDashboard() {
                             <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">{refreshError}</div>
                           ) : null}
 
-                          {refreshProposed ? (
+                          {refreshLoading && !refreshProposed && !refreshError ? (
+                            <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                              Fetching proposed updates…
+                            </div>
+                          ) : refreshProposed ? (
                             diffRows.length > 0 ? (
                               <div className="space-y-3">
                                 {diffRows.map((row) => (
@@ -2429,12 +2444,7 @@ export default function CompanyDashboard() {
                                 No differences found.
                               </div>
                             )
-                          ) : (
-                            <div className="text-xs text-slate-600">
-                              Click “Refresh search” to fetch proposed updates. Protected fields (logo, notes, manual stars)
-                              are never overwritten.
-                            </div>
-                          )}
+                          ) : null}
                         </div>
                       ) : null}
 
