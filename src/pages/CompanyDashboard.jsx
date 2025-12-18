@@ -1228,7 +1228,7 @@ export default function CompanyDashboard() {
           const msg = "Company not found (it may have been deleted).";
           setEditorLoadError(msg);
           toast.error(msg);
-          setEditorOpen(false);
+          closeEditor();
           return;
         }
 
@@ -1265,7 +1265,7 @@ export default function CompanyDashboard() {
         // ignore
       }
     };
-  }, [editorOpen, editorOriginalId]);
+  }, [closeEditor, editorOpen, editorOriginalId]);
 
   const closeEditor = useCallback(() => {
     setEditorOpen(false);
@@ -1665,15 +1665,13 @@ export default function CompanyDashboard() {
       });
 
       toast.success(isNew ? "Company created" : "Company saved");
-      setEditorOpen(false);
-      setEditorDraft(null);
-      setEditorOriginalId(null);
+      closeEditor();
     } catch (e) {
       toast.error(e?.message || "Save failed");
     } finally {
       setEditorSaving(false);
     }
-  }, [editorDraft, editorOriginalId]);
+  }, [closeEditor, editorDraft, editorOriginalId]);
 
   const updateCompanyInState = useCallback((companyId, patch) => {
     const id = asString(companyId).trim();
@@ -1875,13 +1873,11 @@ export default function CompanyDashboard() {
 
       toast.success("Company deleted");
       setDeleteConfirmOpen(false);
-      setEditorOpen(false);
-      setEditorDraft(null);
-      setEditorOriginalId(null);
+      closeEditor();
     } finally {
       setDeleteConfirmLoading(false);
     }
-  }, [deleteCompany, deleteConfirm]);
+  }, [closeEditor, deleteCompany, deleteConfirm]);
 
   const deleteSelected = useCallback(() => {
     const ids = selectedRows.map((r) => getCompanyId(r)).filter(Boolean);
