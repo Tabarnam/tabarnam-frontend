@@ -30,6 +30,8 @@ export interface Company {
   id: string;
   company_id: string;
   company_name: string;
+  display_name?: string;
+  name?: string;
   website_url?: string;
   normalized_domain?: string;
   amazon_url?: string;
