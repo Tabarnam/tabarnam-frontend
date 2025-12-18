@@ -83,6 +83,28 @@ function isPlainObject(value) {
   return Object.prototype.toString.call(value) === "[object Object]";
 }
 
+function normalizeDisplayNameFromDoc(doc) {
+  if (!doc || typeof doc !== "object") return "";
+  const companyName = typeof doc.company_name === "string" ? doc.company_name.trim() : "";
+  const explicit = typeof doc.display_name === "string" ? doc.display_name.trim() : "";
+  if (explicit) return explicit;
+  const name = typeof doc.name === "string" ? doc.name.trim() : "";
+  if (!name) return "";
+  if (!companyName) return name;
+  return name !== companyName ? name : "";
+}
+
+function normalizeCompanyForResponse(doc) {
+  if (!doc || typeof doc !== "object") return doc;
+  const company_id = String(doc.company_id || doc.id || "").trim() || doc.company_id;
+  const display_name = normalizeDisplayNameFromDoc(doc);
+  return {
+    ...doc,
+    company_id,
+    ...(display_name ? { display_name } : {}),
+  };
+}
+
 async function getJson(req) {
   if (!req) return {};
 
@@ -357,10 +379,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             return json({ ok: false, error: "not_found" }, 404);
           }
 
-          const company = {
-            ...found,
-            company_id: String(found.company_id || found.id || "").trim() || found.company_id,
-          };
+          const company = normalizeCompanyForResponse(found);
 
           return json({ ok: true, company }, 200);
         }
@@ -386,10 +405,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         const raw = resources || [];
         const items = raw
           .filter((d) => d && typeof d === "object")
-          .map((d) => ({
-            ...d,
-            company_id: String(d.company_id || d.id || "").trim() || d.company_id,
-          }));
+          .map((d) => normalizeCompanyForResponse(d));
 
         context.log("[admin-companies-v2] GET count after soft-delete filter:", items.length);
         return json({ items, count: items.length }, 200);
@@ -461,6 +477,13 @@ async function adminCompaniesHandler(req, context, deps = {}) {
 
         const base = existingDoc ? { ...existingDoc, ...incoming } : { ...incoming };
 
+        const incomingHasDisplayName =
+          isPlainObject(incoming) && (Object.prototype.hasOwnProperty.call(incoming, "display_name") || Object.prototype.hasOwnProperty.call(incoming, "displayName"));
+
+        const explicitIncomingDisplayName = incomingHasDisplayName
+          ? String((incoming.display_name ?? incoming.displayName ?? "") || "").trim()
+          : null;
+
         const urlForDomain =
           base.website_url || base.canonical_url || base.url || base.website || incomingUrl || "unknown";
 
@@ -487,6 +510,15 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         const resolvedName =
           String(base.company_name || "").trim() || String(base.name || "").trim() || incomingName;
 
+        const inferredDisplayName = (() => {
+          const name = String(base.name || "").trim();
+          if (!name) return "";
+          if (!resolvedName) return name;
+          return name !== resolvedName ? name : "";
+        })();
+
+        const resolvedDisplayName = explicitIncomingDisplayName !== null ? explicitIncomingDisplayName : inferredDisplayName;
+
         const baseCompanyId = String(base.company_id || "").trim();
         const resolvedCompanyId = providedCompanyId || baseCompanyId || String(id).trim();
 
@@ -496,13 +528,20 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           company_id: resolvedCompanyId,
           normalized_domain: normalizedDomain,
           company_name: resolvedName,
-          name: String(base.name || "").trim() || String(base.company_name || "").trim() || resolvedName,
+          name: resolvedDisplayName || resolvedName,
           review_count: Math.max(0, Math.trunc(Number(reviewCountRaw) || 0)),
           public_review_count: Math.max(0, Math.trunc(Number(base.public_review_count) || 0)),
           private_review_count: Math.max(0, Math.trunc(Number(base.private_review_count) || 0)),
           updated_at: now,
           created_at: (existingDoc && existingDoc.created_at) || base.created_at || now,
         };
+
+        if (resolvedDisplayName) {
+          doc.display_name = resolvedDisplayName;
+        } else {
+          if (Object.prototype.hasOwnProperty.call(doc, "display_name")) delete doc.display_name;
+          if (Object.prototype.hasOwnProperty.call(doc, "displayName")) delete doc.displayName;
+        }
 
         context.log("[admin-companies-v2] Upserting company", {
           id: partitionKeyValue,
@@ -527,7 +566,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             statusCode: result.statusCode,
             resourceId: result.resource?.id,
           });
-          return json({ ok: true, company: doc }, 200);
+          return json({ ok: true, company: normalizeCompanyForResponse(doc) }, 200);
         } catch (e) {
           context.log("[admin-companies-v2] Upsert failed completely", {
             id: partitionKeyValue,

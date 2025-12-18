@@ -189,3 +189,73 @@ test("xadmin-api-companies: GET is 404 and search excludes after DELETE", async 
   // Search must not return an active company after delete.
   assert.ok(items.length === 0 || items.every((it) => it && it.is_deleted === true));
 });
+
+test("xadmin-api-companies: PUT infers and persists display_name from name override", async () => {
+  const container = makeMemoryContainer();
+
+  const companyId = "company_display_name_contract";
+
+  const createRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "POST",
+      url: "https://example.test/api/xadmin-api-companies",
+      json: async () => ({
+        id: companyId,
+        company_id: companyId,
+        company_name: "RovR Products",
+        name: "RovR Products",
+        website_url: "https://example.com",
+      }),
+    }),
+    { log() {} },
+    { container }
+  );
+
+  assert.equal(createRes.status, 200);
+
+  const updateRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "PUT",
+      url: `https://example.test/api/xadmin-api-companies/${encodeURIComponent(companyId)}`,
+      json: async () => ({
+        id: companyId,
+        company_id: companyId,
+        company_name: "RovR Products",
+        name: "RovR",
+        website_url: "https://example.com",
+      }),
+    }),
+    { log() {}, bindingData: { id: companyId } },
+    { container }
+  );
+
+  assert.equal(updateRes.status, 200);
+  const updateBody = parseJson(updateRes);
+  assert.equal(updateBody.ok, true);
+  assert.equal(updateBody.company?.display_name, "RovR");
+
+  const stored = container._dump().find((d) => d && d.id === companyId);
+  assert.ok(stored);
+  assert.equal(stored.display_name, "RovR");
+
+  const clearRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "PUT",
+      url: `https://example.test/api/xadmin-api-companies/${encodeURIComponent(companyId)}`,
+      json: async () => ({
+        id: companyId,
+        company_id: companyId,
+        company_name: "RovR Products",
+        name: "RovR Products",
+        website_url: "https://example.com",
+      }),
+    }),
+    { log() {}, bindingData: { id: companyId } },
+    { container }
+  );
+
+  assert.equal(clearRes.status, 200);
+  const storedCleared = container._dump().find((d) => d && d.id === companyId);
+  assert.ok(storedCleared);
+  assert.ok(!("display_name" in storedCleared));
+});

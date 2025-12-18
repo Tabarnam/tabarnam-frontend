@@ -82,7 +82,13 @@ export default function ExpandableCompanyRow({
   const affiliateLinks = normalizeAffiliateLinks(company);
   const amazonLink = company.amazon_url || company.amazon_store_url || "";
 
-  const displayName = getCompanyDisplayName(company);
+  const title =
+    (typeof company?.display_name === "string" && company.display_name.trim()) ||
+    (typeof company?.company_name === "string" && company.company_name.trim()) ||
+    (typeof company?.name === "string" && company.name.trim()) ||
+    "";
+
+  const displayName = title || getCompanyDisplayName(company);
   const canonicalName = getCompanyCanonicalName(company);
 
   const websiteUrl =
