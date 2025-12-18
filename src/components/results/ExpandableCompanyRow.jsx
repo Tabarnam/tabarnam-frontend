@@ -575,7 +575,7 @@ export default function ExpandableCompanyRow({
         {company.logo_url ? (
           <img
             src={company.logo_url}
-            alt={company.company_name}
+            alt={displayName}
             className="w-full h-20 object-contain mb-2"
             onError={(e) => {
               e.target.style.display = "none";
@@ -583,7 +583,7 @@ export default function ExpandableCompanyRow({
           />
         ) : (
           <div className="w-full h-20 mb-2 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-lg">
-            {company.company_name
+            {displayName
               .split(" ")
               .map((w) => w[0])
               .join("")
