@@ -292,7 +292,7 @@ export default function ScrollScrubber({
     position: position === "relative" ? "relative" : "absolute",
     ...(position === "relative" ? {} : { top: 0, right: 0 }),
     height: "100%",
-    width: "14px",
+    width: "40px",
     zIndex: 50,
     pointerEvents: "auto",
     opacity: 1,
