@@ -239,7 +239,6 @@ export default function ScrollScrubber({
           aria-valuemin={0}
           aria-valuemax={Math.max(0, Math.round(scrollRange))}
           aria-valuenow={Math.round(metrics.scrollTop)}
-          aria-controls=""
           tabIndex={-1}
           className="absolute left-0 right-0 rounded-full bg-slate-500"
           style={{
