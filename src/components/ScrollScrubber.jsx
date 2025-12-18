@@ -26,7 +26,6 @@ export default function ScrollScrubber({
   className = "",
   minThumbPx = 28,
   pageScrollRatio = 0.9,
-  buttonScrollRatio = 0.9,
 }) {
   const [metrics, setMetrics] = useState(() => getScrollMetrics(scrollRef?.current));
   const trackRef = useRef(null);
@@ -124,15 +123,6 @@ export default function ScrollScrubber({
     [scrollRef, pageScrollRatio]
   );
 
-  const buttonScrollBy = useCallback(
-    (direction) => {
-      const el = scrollRef?.current;
-      if (!el) return;
-      const delta = el.clientHeight * buttonScrollRatio * direction;
-      el.scrollBy({ top: delta, behavior: "smooth" });
-    },
-    [scrollRef, buttonScrollRatio]
-  );
 
   const onThumbPointerDown = useCallback(
     (e) => {
@@ -221,10 +211,9 @@ export default function ScrollScrubber({
       <button
         type="button"
         className="h-7 w-7 rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 active:bg-slate-100"
-        onClick={() => buttonScrollBy(-1)}
-        onDoubleClick={() => scrollTo(0, "smooth")}
-        aria-label="Scroll up"
-        title="Scroll up (double click: top)"
+        onClick={() => scrollTo(0, "smooth")}
+        aria-label="Scroll to top"
+        title="Scroll to top"
       >
         <ChevronUp className="mx-auto h-4 w-4" />
       </button>
@@ -259,10 +248,9 @@ export default function ScrollScrubber({
       <button
         type="button"
         className="h-7 w-7 rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 active:bg-slate-100"
-        onClick={() => buttonScrollBy(1)}
-        onDoubleClick={() => scrollTo(scrollRange, "smooth")}
-        aria-label="Scroll down"
-        title="Scroll down (double click: bottom)"
+        onClick={() => scrollTo(scrollRange, "smooth")}
+        aria-label="Scroll to bottom"
+        title="Scroll to bottom"
       >
         <ChevronDown className="mx-auto h-4 w-4" />
       </button>
