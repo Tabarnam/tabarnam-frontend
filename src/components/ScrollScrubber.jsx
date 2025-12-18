@@ -168,7 +168,9 @@ export default function ScrollScrubber({
 
       const trackEl = trackRef.current;
       const trackHeight = trackEl?.clientHeight || 0;
-      const maxThumbTravel = Math.max(1, trackHeight - geometry.thumbHeight);
+      const maxThumbTravel = trackHeight - geometry.thumbHeight;
+      if (maxThumbTravel <= 0) return;
+
       const pixelsPerScroll = scrollRange / maxThumbTravel;
 
       const deltaY = e.clientY - state.startY;
