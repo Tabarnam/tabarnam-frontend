@@ -538,6 +538,53 @@ function getCompanyId(company) {
   return asString(company?.company_id || company?.id).trim();
 }
 
+function isDeletedCompany(company) {
+  const v = company?.is_deleted;
+  if (v === true) return true;
+  if (v == null) return false;
+  return String(v).toLowerCase() === "true" || String(v) === "1";
+}
+
+function buildCompanyDraft(company) {
+  const manuBase =
+    Array.isArray(company?.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0
+      ? company.manufacturing_geocodes
+      : company?.manufacturing_locations;
+
+  const draft = {
+    ...company,
+    company_id: asString(company?.company_id || company?.id).trim(),
+    company_name: asString(company?.company_name).trim() || asString(company?.name).trim(),
+    name: asString(company?.name).trim(),
+    website_url: getCompanyUrl(company),
+    headquarters_location: asString(company?.headquarters_location).trim(),
+    headquarters_locations: normalizeStructuredLocationList(
+      company?.headquarters_locations || company?.headquarters || company?.headquarters_location
+    ),
+    manufacturing_locations: normalizeStructuredLocationList(manuBase),
+    industries: normalizeStringList(company?.industries),
+    keywords: normalizeStringList(company?.keywords || company?.product_keywords),
+    amazon_url: asString(company?.amazon_url).trim(),
+    amazon_store_url: asString(company?.amazon_store_url).trim(),
+    affiliate_link_urls: normalizeStringList(company?.affiliate_link_urls),
+    show_location_sources_to_users: Boolean(company?.show_location_sources_to_users),
+    visibility: normalizeVisibility(company?.visibility),
+    location_sources: normalizeLocationSources(company?.location_sources),
+    rating_icon_type: normalizeRatingIconType(company?.rating_icon_type),
+    rating: company?.rating ? normalizeRating(company.rating) : null,
+    notes_entries: normalizeCompanyNotes(company?.notes_entries || company?.notesEntries),
+    notes: asString(company?.notes).trim(),
+    tagline: asString(company?.tagline).trim(),
+    logo_url: asString(company?.logo_url).trim(),
+  };
+
+  if (!draft.rating) {
+    draft.rating = calculateInitialRating(computeAutoRatingInput(draft));
+  }
+
+  return draft;
+}
+
 function slugifyCompanyId(name) {
   const base = asString(name)
     .trim()
@@ -1014,6 +1061,8 @@ export default function CompanyDashboard() {
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorSaving, setEditorSaving] = useState(false);
+  const [editorLoading, setEditorLoading] = useState(false);
+  const [editorLoadError, setEditorLoadError] = useState(null);
   const [editorDraft, setEditorDraft] = useState(null);
   const [editorOriginalId, setEditorOriginalId] = useState(null);
 
@@ -1035,6 +1084,7 @@ export default function CompanyDashboard() {
 
   const requestSeqRef = useRef(0);
   const abortRef = useRef(null);
+  const editorFetchSeqRef = useRef(0);
 
   const incompleteCount = useMemo(() => {
     return items.reduce((sum, c) => sum + (toIssueTags(c).length > 0 ? 1 : 0), 0);
@@ -1142,46 +1192,69 @@ export default function CompanyDashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!editorOpen || !editorOriginalId) return;
+
+    const companyId = asString(editorOriginalId).trim();
+    if (!companyId) return;
+
+    const seq = (editorFetchSeqRef.current += 1);
+    const controller = new AbortController();
+
+    setEditorLoading(true);
+    setEditorLoadError(null);
+
+    (async () => {
+      try {
+        const res = await apiFetch(`/xadmin-api-companies/${encodeURIComponent(companyId)}`, {
+          signal: controller.signal,
+        });
+        const body = await res.json().catch(() => ({}));
+
+        if (seq !== editorFetchSeqRef.current || controller.signal.aborted) return;
+
+        const ok = (res.ok && body?.ok === true) || (!res.ok && body?.ok === true);
+        const company = body?.company && typeof body.company === "object" ? body.company : null;
+
+        if (!ok || !company) {
+          const configMsg = await getUserFacingConfigMessage(res);
+          const msg =
+            configMsg ||
+            body?.error ||
+            body?.detail ||
+            (!company ? "Company not found." : `Failed to load company (${res.status})`);
+          setEditorLoadError(msg);
+          toast.error(msg);
+          return;
+        }
+
+        setEditorDraft(buildCompanyDraft(company));
+      } catch (e) {
+        if (controller.signal.aborted) return;
+        const msg = e?.message || "Failed to load company";
+        setEditorLoadError(msg);
+        toast.error(msg);
+      } finally {
+        if (seq === editorFetchSeqRef.current) setEditorLoading(false);
+      }
+    })();
+
+    return () => {
+      try {
+        controller.abort();
+      } catch {
+        // ignore
+      }
+    };
+  }, [editorOpen, editorOriginalId]);
+
   const openEditorForCompany = useCallback((company) => {
     const id = getCompanyId(company);
-
-    const manuBase =
-      Array.isArray(company?.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0
-        ? company.manufacturing_geocodes
-        : company?.manufacturing_locations;
-
-    const draft = {
-      ...company,
-      company_id: asString(company?.company_id || company?.id).trim(),
-      company_name: getCompanyName(company),
-      website_url: getCompanyUrl(company),
-      headquarters_location: asString(company?.headquarters_location).trim(),
-      headquarters_locations: normalizeStructuredLocationList(
-        company?.headquarters_locations || company?.headquarters || company?.headquarters_location
-      ),
-      manufacturing_locations: normalizeStructuredLocationList(manuBase),
-      industries: normalizeStringList(company?.industries),
-      keywords: normalizeStringList(company?.keywords || company?.product_keywords),
-      amazon_url: asString(company?.amazon_url).trim(),
-      amazon_store_url: asString(company?.amazon_store_url).trim(),
-      affiliate_link_urls: normalizeStringList(company?.affiliate_link_urls),
-      show_location_sources_to_users: Boolean(company?.show_location_sources_to_users),
-      visibility: normalizeVisibility(company?.visibility),
-      location_sources: normalizeLocationSources(company?.location_sources),
-      rating_icon_type: normalizeRatingIconType(company?.rating_icon_type),
-      rating: company?.rating ? normalizeRating(company.rating) : null,
-      notes_entries: normalizeCompanyNotes(company?.notes_entries || company?.notesEntries),
-      notes: asString(company?.notes).trim(),
-      tagline: asString(company?.tagline).trim(),
-      logo_url: asString(company?.logo_url).trim(),
-    };
-
-    if (!draft.rating) {
-      draft.rating = calculateInitialRating(computeAutoRatingInput(draft));
-    }
+    const draft = buildCompanyDraft(company);
 
     setEditorOriginalId(id || null);
     setEditorDraft(draft);
+    setEditorLoadError(null);
     setLogoFile(null);
     setLogoUploadError(null);
     setRefreshLoading(false);
@@ -1453,10 +1526,17 @@ export default function CompanyDashboard() {
     setEditorSaving(true);
     try {
       const draftCompanyId = asString(editorDraft.company_id).trim();
-      const draftName = getCompanyName(editorDraft);
-      const suggestedId = slugifyCompanyId(draftName);
+      const draftCompanyName = asString(editorDraft.company_name).trim();
+      const draftName = asString(editorDraft.name).trim();
 
-      const resolvedCompanyId = draftCompanyId || (isNew ? suggestedId : "") || "";
+      const resolvedCompanyName = draftCompanyName || draftName;
+      const resolvedName = draftName || draftCompanyName;
+
+      const suggestedId = slugifyCompanyId(resolvedCompanyName || resolvedName);
+
+      const resolvedCompanyId = isNew
+        ? draftCompanyId || suggestedId
+        : draftCompanyId || asString(editorOriginalId).trim();
 
       const hqLocations = normalizeStructuredLocationList(editorDraft.headquarters_locations);
       const manuLocations = normalizeStructuredLocationList(editorDraft.manufacturing_locations);
@@ -1473,9 +1553,9 @@ export default function CompanyDashboard() {
       const payload = {
         ...editorDraft,
         company_id: resolvedCompanyId,
-        id: resolvedCompanyId,
-        company_name: draftName,
-        name: asString(editorDraft.name || draftName).trim(),
+        id: asString(editorDraft.id).trim() || resolvedCompanyId,
+        company_name: resolvedCompanyName,
+        name: resolvedName,
         website_url: getCompanyUrl(editorDraft),
         url: asString(editorDraft.url || getCompanyUrl(editorDraft)).trim(),
         headquarters_location: hqLocations.length > 0 ? formatStructuredLocation(hqLocations[0]) : "",
@@ -1501,8 +1581,13 @@ export default function CompanyDashboard() {
       };
 
       if (!payload.company_id) {
-        payload.company_id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-        payload.id = payload.company_id;
+        if (isNew) {
+          payload.company_id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+          payload.id = payload.company_id;
+        } else {
+          payload.company_id = asString(editorOriginalId).trim();
+          payload.id = asString(editorDraft.id).trim() || payload.company_id;
+        }
       }
 
       const method = isNew ? "POST" : "PUT";
@@ -1666,14 +1751,14 @@ export default function CompanyDashboard() {
     });
 
     try {
-      const res = await apiFetch("/xadmin-api-companies", {
+      const res = await apiFetch(`/xadmin-api-companies/${encodeURIComponent(safeId)}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company_id: safeId, actor: "admin_ui" }),
       });
 
       const body = await res.json().catch(() => ({}));
-      if (!res.ok || body?.ok !== true) {
+      const ok = (res.ok && body?.ok === true) || (!res.ok && body?.ok === true);
+
+      if (!ok) {
         const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Delete failed (${res.status})`;
         const detail = body?.detail || body?.error || res.statusText || "Unknown error";
 
@@ -1763,6 +1848,19 @@ export default function CompanyDashboard() {
         sortable: true,
         wrap: true,
         grow: 2,
+        cell: (row) => {
+          const name = getCompanyName(row);
+          return (
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              <span className={isDeletedCompany(row) ? "text-slate-500 line-through" : "text-slate-900"}>{name || "(missing)"}</span>
+              {isDeletedCompany(row) ? (
+                <span className="rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[11px] text-slate-700">
+                  deleted
+                </span>
+              ) : null}
+            </div>
+          );
+        },
       },
       {
         name: "Domain",
@@ -2047,6 +2145,15 @@ export default function CompanyDashboard() {
             <DataTable
               columns={columns}
               data={filteredItems}
+              conditionalRowStyles={[
+                {
+                  when: (row) => isDeletedCompany(row),
+                  style: {
+                    backgroundColor: "#f8fafc",
+                    color: "#64748b",
+                  },
+                },
+              ]}
               progressPending={loading && items.length === 0}
               progressComponent={progressComponent}
               pagination
@@ -2073,6 +2180,18 @@ export default function CompanyDashboard() {
                 </DialogHeader>
 
                 <div className="flex-1 overflow-auto px-6 py-4">
+                  {editorLoadError ? (
+                    <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+                      {asString(editorLoadError)}
+                    </div>
+                  ) : null}
+
+                  {editorLoading && !editorLoadError ? (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                      Loading company…
+                    </div>
+                  ) : null}
+
                   {editorDraft ? (
                     <div className="space-y-5">
                       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
@@ -2214,13 +2333,22 @@ export default function CompanyDashboard() {
                         </div>
                       ) : null}
 
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                         <div className="space-y-1">
-                          <label className="text-sm text-slate-700">Company name</label>
+                          <label className="text-sm text-slate-700">company_name</label>
                           <Input
                             value={asString(editorDraft.company_name)}
                             onChange={(e) => setEditorDraft((d) => ({ ...d, company_name: e.target.value }))}
                             placeholder="Acme Corp"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-sm text-slate-700">name</label>
+                          <Input
+                            value={asString(editorDraft.name)}
+                            onChange={(e) => setEditorDraft((d) => ({ ...d, name: e.target.value }))}
+                            placeholder={asString(editorDraft.company_name) || "Acme Corp"}
                           />
                         </div>
 
