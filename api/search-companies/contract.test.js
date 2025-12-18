@@ -76,3 +76,34 @@ test("/api/search-companies uses keywords in Cosmos filter when q is present", a
   assert.ok(lastSpec);
   assert.ok(String(lastSpec.query || "").includes("c.keywords"));
 });
+
+test("/api/search-companies returns display_name and filters by it", async () => {
+  const doc = {
+    id: "company_2",
+    company_name: "Acme Products",
+    name: "RovR",
+    normalized_domain: "acme.example",
+    manufacturing_locations: ["CA, US"],
+    _ts: 1700000001,
+  };
+
+  const companiesContainer = makeContainer(async (spec) => {
+    const sql = String(spec?.query || "");
+    const hasDisplayFilter = sql.includes("LOWER(c.display_name)") || sql.includes("LOWER(c.name)");
+    if (!hasDisplayFilter) return [];
+    return [doc];
+  });
+
+  const res = await _test.searchCompaniesHandler(
+    makeReq("https://example.test/api/search-companies?q=rovr&sort=recent&take=10"),
+    { log() {} },
+    { companiesContainer }
+  );
+
+  assert.equal(res.status, 200);
+  const body = JSON.parse(res.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.items.length, 1);
+  assert.equal(body.items[0].company_name, "Acme Products");
+  assert.equal(body.items[0].display_name, "RovR");
+});
