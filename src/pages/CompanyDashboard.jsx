@@ -2250,7 +2250,7 @@ export default function CompanyDashboard() {
                   <DialogTitle>{editorOriginalId ? "Edit company" : "New company"}</DialogTitle>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-hidden">
+                <div className="relative flex-1 overflow-hidden">
                   <div ref={setEditorScrollNode} className="relative h-full overflow-y-auto px-6 py-4 pr-16">
                   {editorLoadError ? (
                     <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">
@@ -2683,10 +2683,6 @@ export default function CompanyDashboard() {
                         </div>
                       </div>
 
-                      <div className="absolute right-2 top-2 bottom-2">
-                        <ScrollScrubber position="relative" scrollEl={editorScrollEl} scrollRef={editorScrollRef} />
-                      </div>
-
                       {editorValidationError ? (
                         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                           {editorValidationError}
@@ -2694,6 +2690,10 @@ export default function CompanyDashboard() {
                       ) : null}
                     </div>
                   ) : null}
+                  </div>
+
+                  <div className="absolute right-2 top-2 bottom-2">
+                    <ScrollScrubber position="relative" scrollEl={editorScrollEl} scrollRef={editorScrollRef} />
                   </div>
                 </div>
 
