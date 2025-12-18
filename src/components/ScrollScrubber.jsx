@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 function clamp(n, min, max) {
@@ -188,17 +188,17 @@ export default function ScrollScrubber({
 
       const rect = trackEl.getBoundingClientRect();
       const y = e.clientY - rect.top;
+      const trackHeight = trackEl.clientHeight || rect.height || 0;
 
-      const above = y < geometry.thumbTop;
-      const below = y > geometry.thumbTop + geometry.thumbHeight;
+      const maxThumbTravel = Math.max(0, trackHeight - geometry.thumbHeight);
+      if (maxThumbTravel <= 0) return;
 
-      if (above) {
-        pageScrollBy(-1);
-      } else if (below) {
-        pageScrollBy(1);
-      }
+      const desiredThumbTop = clamp(y - geometry.thumbHeight / 2, 0, maxThumbTravel);
+      const progress = clamp(desiredThumbTop / maxThumbTravel, 0, 1);
+
+      scrollTo(progress * scrollRange, "smooth");
     },
-    [scrollRef, canScroll, geometry.thumbHeight, geometry.thumbTop, pageScrollBy]
+    [scrollRef, canScroll, geometry.thumbHeight, scrollRange, scrollTo]
   );
 
   if (!canScroll) return null;

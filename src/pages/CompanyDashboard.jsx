@@ -2640,7 +2640,7 @@ export default function CompanyDashboard() {
                     </div>
                   ) : null}
                   </div>
-                  <ScrollScrubber scrollRef={editorScrollRef} className="absolute right-2 top-4 bottom-4" />
+                  <ScrollScrubber scrollRef={editorScrollRef} className="absolute right-2 top-4 bottom-4 z-20" />
                 </div>
 
                 <DialogFooter className="px-6 py-4 border-t">
