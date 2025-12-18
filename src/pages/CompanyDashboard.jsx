@@ -2219,7 +2219,7 @@ export default function CompanyDashboard() {
           </section>
 
           <Dialog open={editorOpen} onOpenChange={handleEditorOpenChange}>
-            <DialogContent className="max-w-none w-[90vw] h-[90vh] max-h-[90vh] p-0 relative bg-white opacity-100">
+            <DialogContent className="w-[95vw] max-w-[1500px] h-[90vh] max-h-[90vh] p-0 bg-white overflow-hidden">
               <ErrorBoundary
                 resetKeys={[editorOriginalId, editorOpen]}
                 fallback={({ error }) => (
@@ -2250,8 +2250,8 @@ export default function CompanyDashboard() {
                   <DialogTitle>{editorOriginalId ? "Edit company" : "New company"}</DialogTitle>
                 </DialogHeader>
 
-                <div className="relative flex-1 overflow-hidden max-h-[90vh]">
-                  <div ref={setEditorScrollNode} className="h-full max-h-[90vh] overflow-y-auto pl-6 pr-[18px] py-4">
+                <div className="relative flex-1 overflow-hidden">
+                  <div ref={setEditorScrollNode} className="relative h-full overflow-y-auto px-6 py-4 pr-16">
                   {editorLoadError ? (
                     <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">
                       {asString(editorLoadError)}
@@ -2411,243 +2411,170 @@ export default function CompanyDashboard() {
                         </div>
                       ) : null}
 
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                        <div className="space-y-1">
-                          <label className="text-sm text-slate-700">company_name</label>
-                          <Input
-                            value={asString(editorDraft.company_name)}
-                            onChange={(e) => setEditorDraft((d) => ({ ...d, company_name: e.target.value }))}
-                            placeholder="Acme Corp"
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <label className="text-sm text-slate-700">name</label>
-                          <Input
-                            value={asString(editorDraft.name)}
-                            onChange={(e) => setEditorDraft((d) => ({ ...d, name: e.target.value }))}
-                            placeholder={asString(editorDraft.company_name) || "Acme Corp"}
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <label className="text-sm text-slate-700">Website URL</label>
-                          <Input
-                            value={asString(editorDraft.website_url)}
-                            onChange={(e) => setEditorDraft((d) => ({ ...d, website_url: e.target.value }))}
-                            placeholder="https://example.com"
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <label className="text-sm text-slate-700">Logo</label>
-
-                          {asString(editorDraft.logo_url).trim() ? (
-                            <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-2">
-                              <img
-                                src={asString(editorDraft.logo_url).trim()}
-                                alt="Company logo"
-                                className="h-12 w-12 rounded border border-slate-200 object-contain bg-white"
-                                loading="lazy"
-                                onError={(e) => {
-                                  e.currentTarget.style.display = "none";
-                                }}
+                      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,460px)]">
+                        <div className="space-y-5">
+                          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                            <div className="space-y-1">
+                              <label className="text-sm text-slate-700">company_name</label>
+                              <Input
+                                value={asString(editorDraft.company_name)}
+                                onChange={(e) => setEditorDraft((d) => ({ ...d, company_name: e.target.value }))}
+                                placeholder="Acme Corp"
                               />
-                              <div className="flex-1 min-w-0">
-                                <div className="text-xs text-slate-500">Current logo_url</div>
-                                <div className="text-xs text-slate-800 break-all">
-                                  {asString(editorDraft.logo_url).trim()}
-                                </div>
-                              </div>
                             </div>
-                          ) : (
-                            <div className="text-xs text-slate-500">No logo uploaded.</div>
-                          )}
 
-                          <div className="flex flex-wrap items-center gap-2">
-                            <input
-                              type="file"
-                              accept="image/png,image/jpeg,image/webp"
-                              onChange={handleLogoFileChange}
-                              className="block w-full max-w-[360px] text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-900/90"
-                              disabled={logoUploading || logoDeleting}
-                            />
+                            <div className="space-y-1">
+                              <label className="text-sm text-slate-700">name</label>
+                              <Input
+                                value={asString(editorDraft.name)}
+                                onChange={(e) => setEditorDraft((d) => ({ ...d, name: e.target.value }))}
+                                placeholder={asString(editorDraft.company_name) || "Acme Corp"}
+                              />
+                            </div>
 
-                            <Button
-                              variant="outline"
-                              onClick={uploadLogo}
-                              disabled={!editorOriginalId || !logoFile || logoUploading || Boolean(logoUploadError) || logoDeleting}
-                            >
-                              {logoUploading ? "Uploading…" : "Upload"}
-                            </Button>
+                            <div className="space-y-1 md:col-span-2">
+                              <label className="text-sm text-slate-700">Website URL</label>
+                              <Input
+                                value={asString(editorDraft.website_url)}
+                                onChange={(e) => setEditorDraft((d) => ({ ...d, website_url: e.target.value }))}
+                                placeholder="https://example.com"
+                              />
+                            </div>
 
-                            <Button
-                              variant="outline"
-                              onClick={clearLogoReference}
-                              disabled={logoUploading || logoDeleting || !asString(editorDraft.logo_url).trim()}
-                            >
-                              Clear
-                            </Button>
+                            <div className="space-y-1 md:col-span-2">
+                              <label className="text-sm text-slate-700">Tagline</label>
+                              <Input
+                                value={asString(editorDraft.tagline)}
+                                onChange={(e) => setEditorDraft((d) => ({ ...d, tagline: e.target.value }))}
+                                placeholder="Mission statement…"
+                              />
+                            </div>
 
-                            <Button
-                              variant="outline"
-                              className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
-                              onClick={deleteLogoFromStorage}
-                              disabled={
-                                logoUploading ||
-                                logoDeleting ||
-                                !editorOriginalId ||
-                                !asString(editorDraft.logo_url).trim() ||
-                                !(asString(editorDraft.logo_url).includes(".blob.core.windows.net") &&
-                                  asString(editorDraft.logo_url).includes("/company-logos/"))
-                              }
-                            >
-                              {logoDeleting ? "Deleting…" : "Delete from storage"}
-                            </Button>
+                            <div className="space-y-1">
+                              <label className="text-sm text-slate-700">Amazon URL</label>
+                              <Input
+                                value={asString(editorDraft.amazon_url)}
+                                onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_url: e.target.value }))}
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-sm text-slate-700">Amazon store URL</label>
+                              <Input
+                                value={asString(editorDraft.amazon_store_url)}
+                                onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_store_url: e.target.value }))}
+                              />
+                            </div>
                           </div>
 
-                          {logoFile ? (
-                            <div className="text-xs text-slate-600">
-                              Selected: {logoFile.name} ({Math.round((logoFile.size / 1024) * 10) / 10}KB)
+                          <div className="space-y-2">
+                            <label className="text-sm text-slate-700">Logo</label>
+
+                            {asString(editorDraft.logo_url).trim() ? (
+                              <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-2">
+                                <img
+                                  src={asString(editorDraft.logo_url).trim()}
+                                  alt="Company logo"
+                                  className="h-12 w-12 rounded border border-slate-200 object-contain bg-white"
+                                  loading="lazy"
+                                  onError={(e) => {
+                                    e.currentTarget.style.display = "none";
+                                  }}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-xs text-slate-500">Current logo_url</div>
+                                  <div className="text-xs text-slate-800 break-all">{asString(editorDraft.logo_url).trim()}</div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-xs text-slate-500">No logo uploaded.</div>
+                            )}
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <input
+                                type="file"
+                                accept="image/png,image/jpeg,image/webp"
+                                onChange={handleLogoFileChange}
+                                className="block w-full max-w-[360px] text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-900/90"
+                                disabled={logoUploading || logoDeleting}
+                              />
+
+                              <Button
+                                variant="outline"
+                                onClick={uploadLogo}
+                                disabled={!editorOriginalId || !logoFile || logoUploading || Boolean(logoUploadError) || logoDeleting}
+                              >
+                                {logoUploading ? "Uploading…" : "Upload"}
+                              </Button>
+
+                              <Button
+                                variant="outline"
+                                onClick={clearLogoReference}
+                                disabled={logoUploading || logoDeleting || !asString(editorDraft.logo_url).trim()}
+                              >
+                                Clear
+                              </Button>
+
+                              <Button
+                                variant="outline"
+                                className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                                onClick={deleteLogoFromStorage}
+                                disabled={
+                                  logoUploading ||
+                                  logoDeleting ||
+                                  !editorOriginalId ||
+                                  !asString(editorDraft.logo_url).trim() ||
+                                  !(asString(editorDraft.logo_url).includes(".blob.core.windows.net") &&
+                                    asString(editorDraft.logo_url).includes("/company-logos/"))
+                                }
+                              >
+                                {logoDeleting ? "Deleting…" : "Delete from storage"}
+                              </Button>
                             </div>
-                          ) : null}
 
-                          {logoUploadError ? <div className="text-xs text-red-700">{logoUploadError}</div> : null}
+                            {logoFile ? (
+                              <div className="text-xs text-slate-600">
+                                Selected: {logoFile.name} ({Math.round((logoFile.size / 1024) * 10) / 10}KB)
+                              </div>
+                            ) : null}
 
-                          {!editorOriginalId ? (
-                            <div className="text-xs text-slate-600">Save the company first to enable uploads.</div>
-                          ) : null}
-                        </div>
+                            {logoUploadError ? <div className="text-xs text-red-700">{logoUploadError}</div> : null}
 
-                        <div className="space-y-1">
-                          <label className="text-sm text-slate-700">Tagline</label>
-                          <Input
-                            value={asString(editorDraft.tagline)}
-                            onChange={(e) => setEditorDraft((d) => ({ ...d, tagline: e.target.value }))}
-                            placeholder="Mission statement…"
-                          />
-                        </div>
+                            {!editorOriginalId ? (
+                              <div className="text-xs text-slate-600">Save the company first to enable uploads.</div>
+                            ) : null}
+                          </div>
 
-                        <div className="space-y-1">
-                          <label className="text-sm text-slate-700">Amazon URL</label>
-                          <Input
-                            value={asString(editorDraft.amazon_url)}
-                            onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_url: e.target.value }))}
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <label className="text-sm text-slate-700">Amazon store URL</label>
-                          <Input
-                            value={asString(editorDraft.amazon_store_url)}
-                            onChange={(e) => setEditorDraft((d) => ({ ...d, amazon_store_url: e.target.value }))}
-                          />
-                        </div>
-
-                        <div className="lg:col-span-2">
                           <StringListEditor
                             label="Affiliate link URLs"
                             value={editorDraft.affiliate_link_urls}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), affiliate_link_urls: next }))}
                           />
-                        </div>
 
-                        <div className="lg:col-span-2 space-y-3 rounded-lg border border-slate-200 bg-white p-4">
-                          <div className="text-sm font-semibold text-slate-900">Visibility</div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <label className="flex items-start gap-2 text-sm text-slate-800">
-                              <Checkbox
-                                checked={Boolean(editorDraft.show_location_sources_to_users)}
-                                onCheckedChange={(v) =>
-                                  setEditorDraft((d) => ({
-                                    ...(d || {}),
-                                    show_location_sources_to_users: Boolean(v),
-                                  }))
-                                }
-                              />
-                              <span>Show location sources to users</span>
-                            </label>
-
-                            <label className="flex items-start gap-2 text-sm text-slate-800">
-                              <Checkbox
-                                checked={Boolean(editorDraft.visibility?.hq_public)}
-                                onCheckedChange={(v) =>
-                                  setEditorDraft((d) => ({
-                                    ...(d || {}),
-                                    visibility: { ...normalizeVisibility(d?.visibility), hq_public: Boolean(v) },
-                                  }))
-                                }
-                              />
-                              <span>Show HQ location</span>
-                            </label>
-
-                            <label className="flex items-start gap-2 text-sm text-slate-800">
-                              <Checkbox
-                                checked={Boolean(editorDraft.visibility?.manufacturing_public)}
-                                onCheckedChange={(v) =>
-                                  setEditorDraft((d) => ({
-                                    ...(d || {}),
-                                    visibility: {
-                                      ...normalizeVisibility(d?.visibility),
-                                      manufacturing_public: Boolean(v),
-                                    },
-                                  }))
-                                }
-                              />
-                              <span>Show manufacturing locations</span>
-                            </label>
-
-                            <label className="flex items-start gap-2 text-sm text-slate-800">
-                              <Checkbox
-                                checked={Boolean(editorDraft.visibility?.admin_rating_public)}
-                                onCheckedChange={(v) =>
-                                  setEditorDraft((d) => ({
-                                    ...(d || {}),
-                                    visibility: {
-                                      ...normalizeVisibility(d?.visibility),
-                                      admin_rating_public: Boolean(v),
-                                    },
-                                  }))
-                                }
-                              />
-                              <span>Show QQ rating</span>
-                            </label>
-                          </div>
-                        </div>
-
-                        <div className="lg:col-span-2">
                           <LocationSourcesEditor
                             value={editorDraft.location_sources}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), location_sources: next }))}
                           />
-                        </div>
 
-                        <div className="lg:col-span-2">
                           <StructuredLocationListEditor
                             label="HQ locations"
                             value={editorDraft.headquarters_locations}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), headquarters_locations: next }))}
                           />
-                        </div>
 
-                        <div className="lg:col-span-2">
                           <StructuredLocationListEditor
                             label="Manufacturing locations"
                             value={editorDraft.manufacturing_locations}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), manufacturing_locations: next }))}
                           />
-                        </div>
 
-                        <div className="lg:col-span-2">
                           <StringListEditor
                             label="Industries"
                             value={editorDraft.industries}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), industries: next }))}
                             placeholder="Add an industry…"
                           />
-                        </div>
 
-                        <div className="lg:col-span-2">
                           <StringListEditor
                             label="Keywords"
                             value={editorDraft.keywords}
@@ -2656,45 +2583,103 @@ export default function CompanyDashboard() {
                           />
                         </div>
 
-                        <div className="space-y-1">
-                          <label className="text-sm text-slate-700">QQ icon</label>
-                          <select
-                            className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                            value={asString(editorDraft.rating_icon_type || "star")}
-                            onChange={(e) =>
-                              setEditorDraft((d) => ({
-                                ...(d || {}),
-                                rating_icon_type: normalizeRatingIconType(e.target.value),
-                              }))
-                            }
-                          >
-                            <option value="star">Star</option>
-                            <option value="heart">Heart</option>
-                          </select>
-                        </div>
+                        <div className="space-y-5">
+                          <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+                            <div className="text-sm font-semibold text-slate-900">Visibility</div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <label className="flex items-start gap-2 text-sm text-slate-800">
+                                <Checkbox
+                                  checked={Boolean(editorDraft.show_location_sources_to_users)}
+                                  onCheckedChange={(v) =>
+                                    setEditorDraft((d) => ({
+                                      ...(d || {}),
+                                      show_location_sources_to_users: Boolean(v),
+                                    }))
+                                  }
+                                />
+                                <span>Show location sources to users</span>
+                              </label>
 
-                        <div className="lg:col-span-2">
-                          <RatingEditor
-                            draft={editorDraft}
-                            onChange={(next) => setEditorDraft(next)}
-                          />
-                        </div>
+                              <label className="flex items-start gap-2 text-sm text-slate-800">
+                                <Checkbox
+                                  checked={Boolean(editorDraft.visibility?.hq_public)}
+                                  onCheckedChange={(v) =>
+                                    setEditorDraft((d) => ({
+                                      ...(d || {}),
+                                      visibility: { ...normalizeVisibility(d?.visibility), hq_public: Boolean(v) },
+                                    }))
+                                  }
+                                />
+                                <span>Show HQ location</span>
+                              </label>
 
-                        <div className="lg:col-span-2">
+                              <label className="flex items-start gap-2 text-sm text-slate-800">
+                                <Checkbox
+                                  checked={Boolean(editorDraft.visibility?.manufacturing_public)}
+                                  onCheckedChange={(v) =>
+                                    setEditorDraft((d) => ({
+                                      ...(d || {}),
+                                      visibility: {
+                                        ...normalizeVisibility(d?.visibility),
+                                        manufacturing_public: Boolean(v),
+                                      },
+                                    }))
+                                  }
+                                />
+                                <span>Show manufacturing locations</span>
+                              </label>
+
+                              <label className="flex items-start gap-2 text-sm text-slate-800">
+                                <Checkbox
+                                  checked={Boolean(editorDraft.visibility?.admin_rating_public)}
+                                  onCheckedChange={(v) =>
+                                    setEditorDraft((d) => ({
+                                      ...(d || {}),
+                                      visibility: {
+                                        ...normalizeVisibility(d?.visibility),
+                                        admin_rating_public: Boolean(v),
+                                      },
+                                    }))
+                                  }
+                                />
+                                <span>Show QQ rating</span>
+                              </label>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-sm text-slate-700">QQ icon</label>
+                            <select
+                              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                              value={asString(editorDraft.rating_icon_type || "star")}
+                              onChange={(e) =>
+                                setEditorDraft((d) => ({
+                                  ...(d || {}),
+                                  rating_icon_type: normalizeRatingIconType(e.target.value),
+                                }))
+                              }
+                            >
+                              <option value="star">Star</option>
+                              <option value="heart">Heart</option>
+                            </select>
+                          </div>
+
+                          <RatingEditor draft={editorDraft} onChange={(next) => setEditorDraft(next)} />
+
                           <CompanyNotesEditor
                             value={editorDraft.notes_entries}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), notes_entries: next }))}
                           />
-                        </div>
 
-                        <div className="lg:col-span-2 space-y-1">
-                          <label className="text-sm text-slate-700">Internal notes (legacy)</label>
-                          <textarea
-                            value={asString(editorDraft.notes)}
-                            onChange={(e) => setEditorDraft((d) => ({ ...d, notes: e.target.value }))}
-                            className="min-h-[200px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
-                            placeholder="Internal notes…"
-                          />
+                          <div className="space-y-1">
+                            <label className="text-sm text-slate-700">Internal notes (legacy)</label>
+                            <textarea
+                              value={asString(editorDraft.notes)}
+                              onChange={(e) => setEditorDraft((d) => ({ ...d, notes: e.target.value }))}
+                              className="min-h-[200px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                              placeholder="Internal notes…"
+                            />
+                          </div>
                         </div>
                       </div>
 
@@ -2706,7 +2691,10 @@ export default function CompanyDashboard() {
                     </div>
                   ) : null}
                   </div>
-                  <ScrollScrubber scrollEl={editorScrollEl} scrollRef={editorScrollRef} />
+
+                  <div className="absolute right-2 top-2 bottom-2">
+                    <ScrollScrubber position="relative" scrollEl={editorScrollEl} scrollRef={editorScrollRef} />
+                  </div>
                 </div>
 
                 <DialogFooter className="px-6 py-4 border-t">

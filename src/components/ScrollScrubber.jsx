@@ -27,6 +27,7 @@ export default function ScrollScrubber({
   className = "",
   minThumbPx = 28,
   pageScrollRatio = 0.9,
+  position = "absolute",
 }) {
   const [resolvedEl, setResolvedEl] = useState(() => scrollEl || scrollRef?.current || null);
   const [metrics, setMetrics] = useState(() => getScrollMetrics(scrollEl || scrollRef?.current));
@@ -287,22 +288,23 @@ export default function ScrollScrubber({
 
   const disabled = !resolvedEl || !canScroll;
 
+  const rootStyle = {
+    position: position === "relative" ? "relative" : "absolute",
+    ...(position === "relative" ? {} : { top: 0, right: 0 }),
+    height: "100%",
+    width: "40px",
+    zIndex: 50,
+    pointerEvents: "auto",
+    opacity: 1,
+    display: "block",
+  };
+
   return (
     <div
       className={`pointer-events-auto select-none ${className}`}
       aria-label="Scroll controls"
       data-disabled={disabled ? "true" : "false"}
-      style={{
-        position: "absolute",
-        top: 0,
-        right: 0,
-        height: "100%",
-        width: "14px",
-        zIndex: 50,
-        pointerEvents: "auto",
-        opacity: 1,
-        display: "block",
-      }}
+      style={rootStyle}
     >
       <div
         data-testid="scroll-scrubber-rail"
