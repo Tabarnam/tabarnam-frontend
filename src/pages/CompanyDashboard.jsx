@@ -2219,7 +2219,7 @@ export default function CompanyDashboard() {
           </section>
 
           <Dialog open={editorOpen} onOpenChange={handleEditorOpenChange}>
-            <DialogContent className="w-[95vw] max-w-[1500px] h-[90vh] max-h-[90vh] p-0 bg-white overflow-hidden">
+            <DialogContent className="w-[95vw] max-w-[1500px] h-[90vh] max-h-[90vh] p-0 bg-white overflow-hidden flex flex-col gap-0">
               <ErrorBoundary
                 resetKeys={[editorOriginalId, editorOpen]}
                 fallback={({ error }) => (
@@ -2242,16 +2242,20 @@ export default function CompanyDashboard() {
                   </div>
                 )}
               >
-                <div className="flex h-full flex-col">
-                  <div data-testid="edit-dialog-mounted" className="bg-white px-6 py-2 text-xs font-semibold text-slate-900">
+                <div className="flex h-full min-h-0 flex-col">
+                  <div data-testid="edit-dialog-mounted" className="flex-none bg-white px-6 py-2 text-xs font-semibold text-slate-900">
                     EDIT DIALOG MOUNTED
                   </div>
-                  <DialogHeader className="px-6 py-4 border-b sticky top-0 bg-white z-10">
-                  <DialogTitle>{editorOriginalId ? "Edit company" : "New company"}</DialogTitle>
-                </DialogHeader>
+                  <DialogHeader className="flex-none px-6 py-4 border-b bg-white">
+                    <DialogTitle>{editorOriginalId ? "Edit company" : "New company"}</DialogTitle>
+                  </DialogHeader>
 
-                <div className="relative flex-1 overflow-hidden">
-                  <div ref={setEditorScrollNode} className="relative h-full overflow-y-auto px-6 py-4 pr-16">
+                  <div className="relative flex flex-1 min-h-0">
+                    <div
+                      data-testid="edit-scroll-area"
+                      ref={setEditorScrollNode}
+                      className="flex-1 min-h-0 overflow-auto px-6 py-4 pr-16"
+                    >
                   {editorLoadError ? (
                     <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">
                       {asString(editorLoadError)}
@@ -2697,7 +2701,7 @@ export default function CompanyDashboard() {
                   </div>
                 </div>
 
-                <DialogFooter className="px-6 py-4 border-t">
+                <DialogFooter className="flex-none px-6 py-4 border-t">
                   {editorOriginalId ? (
                     <Button
                       variant="outline"
