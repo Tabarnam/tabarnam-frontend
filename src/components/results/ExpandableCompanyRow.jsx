@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import ReviewsWidget from "@/components/ReviewsWidget";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
+import { getCompanyCanonicalName, getCompanyDisplayName } from "@/lib/companyDisplayName";
 import { RatingDots, RatingHearts } from "@/components/Stars";
 import { getQQDefaultIconType, getQQFilledCount } from "@/lib/stars/qqRating";
 
@@ -81,13 +82,16 @@ export default function ExpandableCompanyRow({
   const affiliateLinks = normalizeAffiliateLinks(company);
   const amazonLink = company.amazon_url || company.amazon_store_url || "";
 
+  const displayName = getCompanyDisplayName(company);
+  const canonicalName = getCompanyCanonicalName(company);
+
   const websiteUrl =
     company.website_url ||
     (company.normalized_domain ? `https://${company.normalized_domain}` : "");
 
   const websiteLabel =
-    company.company_name && websiteUrl
-      ? company.company_name
+    displayName && websiteUrl
+      ? displayName
       : websiteUrl.replace(/^https?:\/\//, "");
 
 
@@ -337,7 +341,7 @@ export default function ExpandableCompanyRow({
                   {websiteLabel}
                 </a>
               ) : (
-                <span className="text-gray-900">{company.company_name}</span>
+                <span className="text-gray-900">{displayName}</span>
               )}
             </h2>
             {company.tagline && (
@@ -398,7 +402,7 @@ export default function ExpandableCompanyRow({
             {company.logo_url ? (
               <img
                 src={company.logo_url}
-                alt={company.company_name}
+                alt={displayName}
                 className="w-full h-24 object-contain mb-3"
                 onError={(e) => {
                   e.target.style.display = "none";
@@ -406,7 +410,7 @@ export default function ExpandableCompanyRow({
               />
             ) : (
               <div className="w-full h-24 mb-3 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-2xl">
-                {company.company_name
+                {displayName
                   .split(" ")
                   .map((w) => w[0])
                   .join("")
@@ -480,7 +484,7 @@ export default function ExpandableCompanyRow({
             </div>
           )}
 
-          <ReviewsWidget companyId={company.company_id || company.id} companyName={company.company_name} />
+          <ReviewsWidget companyId={company.company_id || company.id} companyName={canonicalName} displayName={displayName} />
         </div>
 
         <div className="text-xs text-gray-500 mt-4 text-center">Click anywhere to collapse</div>
@@ -506,7 +510,7 @@ export default function ExpandableCompanyRow({
               {websiteLabel}
             </a>
           ) : (
-            <span className="font-semibold text-sm">{company.company_name}</span>
+            <span className="font-semibold text-sm">{displayName}</span>
           )}
         </h2>
         {company.tagline && (
