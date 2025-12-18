@@ -1087,6 +1087,12 @@ export default function CompanyDashboard() {
   const abortRef = useRef(null);
   const editorFetchSeqRef = useRef(0);
   const editorScrollRef = useRef(null);
+  const [editorScrollEl, setEditorScrollEl] = useState(null);
+
+  const setEditorScrollNode = useCallback((node) => {
+    editorScrollRef.current = node;
+    setEditorScrollEl(node);
+  }, []);
 
   const incompleteCount = useMemo(() => {
     return items.reduce((sum, c) => sum + (toIssueTags(c).length > 0 ? 1 : 0), 0);
@@ -2184,14 +2190,14 @@ export default function CompanyDashboard() {
           </section>
 
           <Dialog open={editorOpen} onOpenChange={(open) => !editorSaving && setEditorOpen(open)}>
-            <DialogContent className="max-w-none w-[90vw] h-[90vh] p-0">
+            <DialogContent className="max-w-none w-[90vw] h-[80vh] max-h-[80vh] p-0 relative">
               <div className="flex h-full flex-col">
                 <DialogHeader className="px-6 py-4 border-b sticky top-0 bg-background z-10">
                   <DialogTitle>{editorOriginalId ? "Edit company" : "New company"}</DialogTitle>
                 </DialogHeader>
 
-                <div className="relative flex-1 overflow-hidden">
-                  <div ref={editorScrollRef} className="h-full overflow-auto pl-6 pr-16 py-4">
+                <div className="relative flex-1 overflow-hidden max-h-[80vh]">
+                  <div ref={setEditorScrollNode} className="h-full max-h-[80vh] overflow-y-auto pl-6 pr-[18px] py-4">
                   {editorLoadError ? (
                     <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">
                       {asString(editorLoadError)}
@@ -2640,7 +2646,7 @@ export default function CompanyDashboard() {
                     </div>
                   ) : null}
                   </div>
-                  <ScrollScrubber scrollRef={editorScrollRef} className="absolute right-2 top-4 bottom-4 z-20" />
+                  <ScrollScrubber scrollEl={editorScrollEl} scrollRef={editorScrollRef} />
                 </div>
 
                 <DialogFooter className="px-6 py-4 border-t">
