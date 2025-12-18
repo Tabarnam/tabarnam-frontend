@@ -2224,13 +2224,13 @@ export default function CompanyDashboard() {
 
           <Dialog open={editorOpen} onOpenChange={handleEditorOpenChange}>
             <DialogContent className="max-w-none w-[90vw] h-[90vh] max-h-[90vh] p-0 relative bg-white opacity-100">
-              <div data-testid="edit-dialog-mounted" className="bg-white px-6 py-2 text-xs font-semibold text-slate-900">
-                EDIT DIALOG MOUNTED
-              </div>
               <ErrorBoundary
                 resetKeys={[editorOriginalId, editorOpen]}
                 fallback={({ error }) => (
                   <div className="bg-white opacity-100 w-full h-full max-h-[90vh] overflow-auto">
+                    <div data-testid="edit-dialog-mounted" className="bg-white px-6 py-2 text-xs font-semibold text-slate-900">
+                      EDIT DIALOG MOUNTED
+                    </div>
                     <div className="p-6 space-y-4">
                       <div className="text-lg font-semibold text-slate-900">Edit dialog crashed</div>
                       <div className="text-sm text-slate-700 font-mono whitespace-pre-wrap break-words">
@@ -2247,7 +2247,10 @@ export default function CompanyDashboard() {
                 )}
               >
                 <div className="flex h-full flex-col">
-                <DialogHeader className="px-6 py-4 border-b sticky top-0 bg-white z-10">
+                  <div data-testid="edit-dialog-mounted" className="bg-white px-6 py-2 text-xs font-semibold text-slate-900">
+                    EDIT DIALOG MOUNTED
+                  </div>
+                  <DialogHeader className="px-6 py-4 border-b sticky top-0 bg-white z-10">
                   <DialogTitle>{editorOriginalId ? "Edit company" : "New company"}</DialogTitle>
                 </DialogHeader>
 
