@@ -1265,7 +1265,7 @@ export default function CompanyDashboard() {
         // ignore
       }
     };
-  }, [closeEditor, editorOpen, editorOriginalId]);
+  }, [editorOpen, editorOriginalId]);
 
   const closeEditor = useCallback(() => {
     setEditorOpen(false);
