@@ -16,6 +16,7 @@ import {
 import { calculateInitialRating, clampStarValue, normalizeRating } from "@/lib/stars/calculateRating";
 
 import AdminHeader from "@/components/AdminHeader";
+import ScrollScrubber from "@/components/ScrollScrubber";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -1085,6 +1086,7 @@ export default function CompanyDashboard() {
   const requestSeqRef = useRef(0);
   const abortRef = useRef(null);
   const editorFetchSeqRef = useRef(0);
+  const editorScrollRef = useRef(null);
 
   const incompleteCount = useMemo(() => {
     return items.reduce((sum, c) => sum + (toIssueTags(c).length > 0 ? 1 : 0), 0);
@@ -2188,7 +2190,8 @@ export default function CompanyDashboard() {
                   <DialogTitle>{editorOriginalId ? "Edit company" : "New company"}</DialogTitle>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-auto px-6 py-4">
+                <div className="relative flex-1 overflow-hidden">
+                  <div ref={editorScrollRef} className="h-full overflow-auto pl-6 pr-16 py-4">
                   {editorLoadError ? (
                     <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">
                       {asString(editorLoadError)}
@@ -2636,6 +2639,8 @@ export default function CompanyDashboard() {
                       ) : null}
                     </div>
                   ) : null}
+                  </div>
+                  <ScrollScrubber scrollRef={editorScrollRef} className="absolute right-2 top-4 bottom-4" />
                 </div>
 
                 <DialogFooter className="px-6 py-4 border-t">
