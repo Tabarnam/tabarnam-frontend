@@ -15,12 +15,16 @@ export default function ReviewsWidget({ companyId, companyName }) {
   const [error, setError] = useState("");
 
   async function load() {
-    if (!companyId && !companyName) return;
-    setLoading(true); setError("");
+    const id = String(companyId || "").trim();
+    if (!id) {
+      setList([]);
+      return;
+    }
+
+    setLoading(true);
+    setError("");
     try {
-      const qs = companyId
-        ? `company_id=${encodeURIComponent(companyId)}`
-        : `company=${encodeURIComponent(companyName)}`;
+      const qs = `company_id=${encodeURIComponent(id)}`;
       const r = await fetch(`${API_BASE}/get-reviews?${qs}`);
       const data = await r.json().catch(() => ({ items: [], reviews: [] }));
       if (!r.ok) throw new Error(data?.error || r.statusText || "Failed to load");
@@ -34,7 +38,10 @@ export default function ReviewsWidget({ companyId, companyName }) {
       setError(e?.message || "Failed to load reviews");
     } finally { setLoading(false); }
   }
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [companyId, companyName]);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId]);
 
   async function submit() {
     setError("");
