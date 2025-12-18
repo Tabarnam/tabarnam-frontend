@@ -2247,11 +2247,6 @@ export default function CompanyDashboard() {
                 resetKeys={[editorOriginalId, editorOpen]}
                 fallback={({ error }) => (
                   <div className="bg-white opacity-100 w-full h-full max-h-[90vh] overflow-auto">
-                    {import.meta.env.DEV ? (
-                      <div data-testid="edit-dialog-mounted" className="bg-white px-6 py-2 text-xs font-semibold text-slate-900">
-                        EDIT DIALOG MOUNTED
-                      </div>
-                    ) : null}
                     <div className="p-6 space-y-4">
                       <div className="text-lg font-semibold text-slate-900">Edit dialog crashed</div>
                       <div className="text-sm text-slate-700 font-mono whitespace-pre-wrap break-words">
@@ -2268,11 +2263,6 @@ export default function CompanyDashboard() {
                 )}
               >
                 <div className="flex h-full min-h-0 flex-col">
-                  {import.meta.env.DEV ? (
-                    <div data-testid="edit-dialog-mounted" className="flex-none bg-white px-6 py-2 text-xs font-semibold text-slate-900">
-                      EDIT DIALOG MOUNTED
-                    </div>
-                  ) : null}
                   <DialogHeader className="flex-none px-6 py-4 border-b bg-white">
                     <DialogTitle>{editorOriginalId ? "Edit company" : "New company"}</DialogTitle>
                   </DialogHeader>
@@ -2307,7 +2297,7 @@ export default function CompanyDashboard() {
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                           <div className="min-w-0">
                             <div className="text-xs font-medium text-slate-700">company_id</div>
-                            <div className="mt-1 flex flex-col items-start gap-3 sm:flex-row sm:items-start sm:gap-4">
+                            <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                               <div className="flex flex-wrap items-center gap-2">
                                 <code className="rounded bg-white border border-slate-200 px-2 py-1 text-xs text-slate-900">
                                   {editorOriginalId ? asString(editorDraft.company_id).trim() || "(missing)" : editorCompanyId || "(auto)"}
@@ -2349,7 +2339,7 @@ export default function CompanyDashboard() {
                               ) : null}
 
                               {editorOriginalId ? (
-                                <div className="min-w-0 text-xs text-muted-foreground max-w-[520px] leading-snug">
+                                <div className="min-w-0 flex-1 text-xs text-muted-foreground max-w-[520px] leading-snug">
                                   Click “Refresh search” to fetch proposed updates. Protected fields (logo, notes, manual stars) are never overwritten.
                                 </div>
                               ) : null}
