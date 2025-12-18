@@ -387,7 +387,8 @@ app.http("adminCompanies", {
         const resolvedName =
           String(base.company_name || "").trim() || String(base.name || "").trim() || incomingName;
 
-        const resolvedCompanyId = providedCompanyId || String(id).trim();
+        const baseCompanyId = String(base.company_id || "").trim();
+        const resolvedCompanyId = providedCompanyId || baseCompanyId || String(id).trim();
 
         const doc = {
           ...base,
