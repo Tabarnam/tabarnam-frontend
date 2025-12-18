@@ -1,5 +1,9 @@
 const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
+const { getBuildInfo } = require("../_buildInfo");
+
+const BUILD_INFO = getBuildInfo();
+const HANDLER_ID = "admin-companies-v2";
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -14,6 +18,9 @@ function json(obj, status = 200) {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, x-functions-key",
+      "X-Api-Handler": HANDLER_ID,
+      "X-Api-Build-Id": String(BUILD_INFO.build_id || ""),
+      "X-Api-Build-Source": String(BUILD_INFO.build_id_source || ""),
     },
     body: JSON.stringify(obj),
   };
