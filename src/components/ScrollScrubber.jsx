@@ -201,29 +201,33 @@ export default function ScrollScrubber({
     [scrollRef, canScroll, geometry.thumbHeight, scrollRange, scrollTo]
   );
 
-  if (!canScroll) return null;
+  const disabled = !canScroll;
 
   return (
     <div
       className={`pointer-events-auto flex w-8 select-none flex-col items-center gap-2 ${className}`}
       aria-label="Scroll controls"
+      data-disabled={disabled ? "true" : "false"}
     >
       <button
         type="button"
-        className="h-7 w-7 rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 active:bg-slate-100"
+        className={`h-7 w-7 rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 active:bg-slate-100 ${
+          disabled ? "opacity-40 pointer-events-none" : ""
+        }`}
         onClick={() => scrollTo(0, "smooth")}
         aria-label="Scroll to top"
         title="Scroll to top"
+        disabled={disabled}
       >
         <ChevronUp className="mx-auto h-4 w-4" />
       </button>
 
       <div
         ref={trackRef}
-        className="relative w-2 flex-1 rounded-full bg-slate-200"
+        className={`relative w-2 flex-1 rounded-full ${disabled ? "bg-slate-100" : "bg-slate-200"}`}
         style={{ touchAction: "none" }}
         onPointerDown={onTrackPointerDown}
-        aria-hidden="true"
+        aria-hidden={disabled}
       >
         <div
           role="scrollbar"
@@ -231,7 +235,7 @@ export default function ScrollScrubber({
           aria-valuemax={Math.max(0, Math.round(scrollRange))}
           aria-valuenow={Math.round(metrics.scrollTop)}
           tabIndex={-1}
-          className="absolute left-0 right-0 rounded-full bg-slate-500"
+          className={`absolute left-0 right-0 rounded-full ${disabled ? "bg-slate-300" : "bg-slate-500"}`}
           style={{
             top: geometry.thumbTop,
             height: geometry.thumbHeight,
@@ -247,10 +251,13 @@ export default function ScrollScrubber({
 
       <button
         type="button"
-        className="h-7 w-7 rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 active:bg-slate-100"
+        className={`h-7 w-7 rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 active:bg-slate-100 ${
+          disabled ? "opacity-40 pointer-events-none" : ""
+        }`}
         onClick={() => scrollTo(scrollRange, "smooth")}
         aria-label="Scroll to bottom"
         title="Scroll to bottom"
+        disabled={disabled}
       >
         <ChevronDown className="mx-auto h-4 w-4" />
       </button>
