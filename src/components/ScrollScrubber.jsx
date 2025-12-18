@@ -22,12 +22,15 @@ function getScrollMetrics(el) {
 }
 
 export default function ScrollScrubber({
+  scrollEl,
   scrollRef,
   className = "",
   minThumbPx = 28,
   pageScrollRatio = 0.9,
 }) {
-  const [metrics, setMetrics] = useState(() => getScrollMetrics(scrollRef?.current));
+  const [resolvedEl, setResolvedEl] = useState(() => scrollEl || scrollRef?.current || null);
+  const [metrics, setMetrics] = useState(() => getScrollMetrics(scrollEl || scrollRef?.current));
+
   const trackRef = useRef(null);
   const dragRef = useRef({
     active: false,
@@ -37,15 +40,34 @@ export default function ScrollScrubber({
   });
   const rafRef = useRef(0);
 
-  const updateMetrics = useCallback(() => {
-    const el = scrollRef?.current;
-    if (!el) return;
-    setMetrics(getScrollMetrics(el));
-  }, [scrollRef]);
+  useEffect(() => {
+    console.log("[ScrollScrubber] mounted", { hasRef: !!scrollRef?.current });
+  }, []);
 
   useEffect(() => {
-    const el = scrollRef?.current;
-    if (!el) return;
+    if (scrollEl) {
+      setResolvedEl(scrollEl);
+      return;
+    }
+
+    const next = scrollRef?.current || null;
+    if (next) setResolvedEl(next);
+  }, [scrollEl, scrollRef]);
+
+  const updateMetrics = useCallback(() => {
+    setMetrics(getScrollMetrics(resolvedEl));
+  }, [resolvedEl]);
+
+  useEffect(() => {
+    updateMetrics();
+  }, [resolvedEl, updateMetrics]);
+
+  useEffect(() => {
+    const el = resolvedEl;
+    if (!el) {
+      updateMetrics();
+      return;
+    }
 
     const onScroll = () => {
       if (rafRef.current) return;
@@ -73,7 +95,7 @@ export default function ScrollScrubber({
         rafRef.current = 0;
       }
     };
-  }, [scrollRef, updateMetrics]);
+  }, [resolvedEl, updateMetrics]);
 
   const scrollRange = Math.max(0, metrics.scrollHeight - metrics.clientHeight);
   const canScroll = scrollRange > 1;
@@ -106,27 +128,26 @@ export default function ScrollScrubber({
 
   const scrollTo = useCallback(
     (top, behavior = "auto") => {
-      const el = scrollRef?.current;
+      const el = resolvedEl;
       if (!el) return;
       el.scrollTo({ top: clamp(top, 0, scrollRange), behavior });
     },
-    [scrollRef, scrollRange]
+    [resolvedEl, scrollRange]
   );
 
   const pageScrollBy = useCallback(
     (direction) => {
-      const el = scrollRef?.current;
+      const el = resolvedEl;
       if (!el) return;
       const delta = el.clientHeight * pageScrollRatio * direction;
       el.scrollBy({ top: delta, behavior: "smooth" });
     },
-    [scrollRef, pageScrollRatio]
+    [resolvedEl, pageScrollRatio]
   );
-
 
   const onThumbPointerDown = useCallback(
     (e) => {
-      const el = scrollRef?.current;
+      const el = resolvedEl;
       if (!el || !canScroll) return;
       e.preventDefault();
       e.stopPropagation();
@@ -147,12 +168,12 @@ export default function ScrollScrubber({
       document.body.style.userSelect = "none";
       document.body.style.webkitUserSelect = "none";
     },
-    [scrollRef, canScroll]
+    [resolvedEl, canScroll]
   );
 
   const onThumbPointerMove = useCallback(
     (e) => {
-      const el = scrollRef?.current;
+      const el = resolvedEl;
       const state = dragRef.current;
       if (!el || !state.active || state.pointerId !== e.pointerId || !canScroll) return;
 
@@ -162,11 +183,10 @@ export default function ScrollScrubber({
       if (maxThumbTravel <= 0) return;
 
       const pixelsPerScroll = scrollRange / maxThumbTravel;
-
       const deltaY = e.clientY - state.startY;
       scrollTo(state.startScrollTop + deltaY * pixelsPerScroll);
     },
-    [scrollRef, canScroll, geometry.thumbHeight, scrollRange, scrollTo]
+    [resolvedEl, canScroll, geometry.thumbHeight, scrollRange, scrollTo]
   );
 
   const endDrag = useCallback((e) => {
@@ -181,7 +201,7 @@ export default function ScrollScrubber({
 
   const onTrackPointerDown = useCallback(
     (e) => {
-      const el = scrollRef?.current;
+      const el = resolvedEl;
       const trackEl = trackRef.current;
       if (!el || !trackEl || !canScroll) return;
       if (e.target !== trackEl) return;
@@ -198,62 +218,100 @@ export default function ScrollScrubber({
 
       scrollTo(progress * scrollRange, "smooth");
     },
-    [scrollRef, canScroll, geometry.thumbHeight, scrollRange, scrollTo]
+    [resolvedEl, canScroll, geometry.thumbHeight, scrollRange, scrollTo]
   );
 
-  if (!canScroll) return null;
+  const disabled = !resolvedEl || !canScroll;
 
   return (
     <div
-      className={`pointer-events-auto flex w-8 select-none flex-col items-center gap-2 ${className}`}
+      className={`pointer-events-auto select-none ${className}`}
       aria-label="Scroll controls"
+      data-disabled={disabled ? "true" : "false"}
+      style={{
+        position: "absolute",
+        top: 0,
+        right: 0,
+        height: "100%",
+        width: "14px",
+        zIndex: 50,
+        pointerEvents: "auto",
+        opacity: 1,
+        display: "block",
+      }}
     >
-      <button
-        type="button"
-        className="h-7 w-7 rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 active:bg-slate-100"
-        onClick={() => scrollTo(0, "smooth")}
-        aria-label="Scroll to top"
-        title="Scroll to top"
-      >
-        <ChevronUp className="mx-auto h-4 w-4" />
-      </button>
-
       <div
-        ref={trackRef}
-        className="relative w-2 flex-1 rounded-full bg-slate-200"
-        style={{ touchAction: "none" }}
-        onPointerDown={onTrackPointerDown}
+        data-testid="scroll-scrubber-rail"
+        style={{
+          position: "absolute",
+          top: 0,
+          bottom: 0,
+          left: "1px",
+          right: "1px",
+          background: "rgba(255, 0, 255, 0.22)",
+          borderLeft: "1px solid rgba(255, 0, 255, 0.7)",
+          boxSizing: "border-box",
+          pointerEvents: "none",
+        }}
         aria-hidden="true"
-      >
-        <div
-          role="scrollbar"
-          aria-valuemin={0}
-          aria-valuemax={Math.max(0, Math.round(scrollRange))}
-          aria-valuenow={Math.round(metrics.scrollTop)}
-          tabIndex={-1}
-          className="absolute left-0 right-0 rounded-full bg-slate-500"
-          style={{
-            top: geometry.thumbTop,
-            height: geometry.thumbHeight,
-            touchAction: "none",
-          }}
-          onPointerDown={onThumbPointerDown}
-          onPointerMove={onThumbPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-          onLostPointerCapture={endDrag}
-        />
-      </div>
+      />
 
-      <button
-        type="button"
-        className="h-7 w-7 rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 active:bg-slate-100"
-        onClick={() => scrollTo(scrollRange, "smooth")}
-        aria-label="Scroll to bottom"
-        title="Scroll to bottom"
-      >
-        <ChevronDown className="mx-auto h-4 w-4" />
-      </button>
+      <div className="absolute inset-0 flex flex-col items-center justify-between py-2">
+        <button
+          type="button"
+          className={`h-6 w-6 rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 active:bg-slate-100 ${
+            disabled ? "opacity-40 pointer-events-none" : ""
+          }`}
+          onClick={() => scrollTo(0, "smooth")}
+          onDoubleClick={() => pageScrollBy(-1)}
+          aria-label="Scroll to top"
+          title="Scroll to top"
+          disabled={disabled}
+        >
+          <ChevronUp className="mx-auto h-4 w-4" />
+        </button>
+
+        <div
+          ref={trackRef}
+          className={`relative w-[10px] flex-1 rounded-full ${disabled ? "bg-slate-100" : "bg-slate-200"}`}
+          style={{ touchAction: "none" }}
+          onPointerDown={onTrackPointerDown}
+          aria-hidden={disabled}
+        >
+          <div
+            role="scrollbar"
+            aria-valuemin={0}
+            aria-valuemax={Math.max(0, Math.round(scrollRange))}
+            aria-valuenow={Math.round(metrics.scrollTop)}
+            tabIndex={-1}
+            className={`absolute left-0 right-0 rounded-full ${disabled ? "bg-slate-300" : "bg-slate-500"}`}
+            style={{
+              top: geometry.thumbTop,
+              height: geometry.thumbHeight,
+              touchAction: "none",
+            }}
+            onPointerDown={onThumbPointerDown}
+            onPointerMove={onThumbPointerMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+            onLostPointerCapture={endDrag}
+          />
+        </div>
+
+        <button
+          type="button"
+          className={`h-6 w-6 rounded-md border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 active:bg-slate-100 ${
+            disabled ? "opacity-40 pointer-events-none" : ""
+          }`}
+          onClick={() => scrollTo(scrollRange, "smooth")}
+          onDoubleClick={() => pageScrollBy(1)}
+          aria-label="Scroll to bottom"
+          title="Scroll to bottom"
+          disabled={disabled}
+        >
+          <ChevronDown className="mx-auto h-4 w-4" />
+        </button>
+      </div>
     </div>
   );
 }
