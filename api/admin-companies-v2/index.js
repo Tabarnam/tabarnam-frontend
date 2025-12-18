@@ -197,7 +197,7 @@ async function doesCompanyIdExist(container, id) {
 }
 
 app.http("adminCompanies", {
-  route: "xadmin-api-companies",
+  route: "xadmin-api-companies/{id?}",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
@@ -217,7 +217,7 @@ app.http("adminCompanies", {
 
     try {
       if (method === "GET") {
-        const search = (req.query?.search || "").toString().toLowerCase().trim();
+        const search = (req.query?.search || req.query?.q || "").toString().toLowerCase().trim();
         const take = Math.min(500, Math.max(1, parseInt((req.query?.take || "200").toString())));
 
         const parameters = [{ name: "@take", value: take }];
@@ -386,15 +386,29 @@ app.http("adminCompanies", {
 
         const { getContainerPartitionKeyPath, buildPartitionKeyCandidates } = require("../_cosmosPartitionKey");
 
-        const id = body.company_id || body.id;
-        if (!id) {
+        // ---- ID resolution (path param > query > body) ----
+        const rawPathId =
+          (context && context.bindingData && context.bindingData.id) ||
+          (req && req.params && req.params.id) ||
+          null;
+
+        const rawQueryId =
+          (req && req.query && (req.query.id || req.query.company_id)) || null;
+
+        const rawBodyId =
+          (body && (body.company_id || body.id)) || null;
+
+        const resolvedId = rawPathId || rawQueryId || rawBodyId;
+
+        if (!resolvedId) {
           return json({ error: "company_id required" }, 400);
         }
 
-        const requestedId = String(id).trim();
+        const requestedId = String(resolvedId).trim();
         if (!requestedId) {
           return json({ error: "Invalid company ID" }, 400);
         }
+        // -----------------------------------------------
 
         context.log("[admin-companies-v2] DELETE: Deleting company", { id: requestedId });
 
