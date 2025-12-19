@@ -1374,6 +1374,36 @@ const importStartHandler = async (req, context) => {
         });
       }
 
+      setStage("create_session");
+      try {
+        const container = getCompaniesCosmosContainer();
+        if (container) {
+          const sessionDoc = {
+            id: `_import_session_${sessionId}`,
+            ...buildImportControlDocBase(sessionId),
+            created_at: new Date().toISOString(),
+            request_id: requestId,
+            request: {
+              query: String(bodyObj.query || ""),
+              queryType: String(bodyObj.queryType || ""),
+              queryTypes: Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [],
+              location: String(bodyObj.location || ""),
+              limit: Number(bodyObj.limit) || 0,
+            },
+          };
+          const result = await upsertItemWithPkCandidates(container, sessionDoc);
+          if (!result.ok) {
+            console.warn(
+              `[import-start] request_id=${requestId} session=${sessionId} failed to write session marker: ${result.error}`
+            );
+          }
+        }
+      } catch (e) {
+        console.warn(
+          `[import-start] request_id=${requestId} session=${sessionId} error writing session marker: ${e?.message || String(e)}`
+        );
+      }
+
       const hardTimeoutMs = Math.max(
         1000,
         Math.min(Number(bodyObj.hard_timeout_ms) || DEFAULT_HARD_TIMEOUT_MS, DEFAULT_HARD_TIMEOUT_MS)
