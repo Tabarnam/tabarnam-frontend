@@ -356,6 +356,22 @@ try {
 }
 
 try {
+  console.log("[api] Registering: admin-refresh-company");
+  require("./admin-refresh-company/index.js");
+  console.log("[api] ✓ admin-refresh-company registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-refresh-company:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: xadmin-api-refresh-company");
+  require("./xadmin-api-refresh-company/index.js");
+  console.log("[api] ✓ xadmin-api-refresh-company registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-refresh-company:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: admin-geocode-location");
   require("./admin-geocode-location/index.js");
   console.log("[api] ✓ admin-geocode-location registered");
