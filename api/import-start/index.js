@@ -1357,6 +1357,23 @@ const importStartHandler = async (req, context) => {
         return jsonWithRequestId(errorPayload, status);
       };
 
+      setStage("validate_request", {
+        query: String(bodyObj.query || ""),
+        queryType: String(bodyObj.queryType || ""),
+        limit: Number(bodyObj.limit),
+        location: String(bodyObj.location || ""),
+      });
+
+      if (!String(bodyObj.query || "").trim()) {
+        return respondError(new Error("query is required"), {
+          status: 400,
+          details: {
+            code: "IMPORT_START_VALIDATION_FAILED",
+            message: "Query is required",
+          },
+        });
+      }
+
       const hardTimeoutMs = Math.max(
         1000,
         Math.min(Number(bodyObj.hard_timeout_ms) || DEFAULT_HARD_TIMEOUT_MS, DEFAULT_HARD_TIMEOUT_MS)
