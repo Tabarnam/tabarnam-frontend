@@ -2260,7 +2260,7 @@ export default function CompanyDashboard() {
               >
                 <div className="flex h-full min-h-0 flex-col">
                   <DialogHeader className="flex-none px-6 py-4 border-b bg-white">
-                    <DialogTitle>{editorOriginalId ? "Edit company" : "New company"}</DialogTitle>
+                    <DialogTitle>{editorOriginalId ? "Edit company v2" : "New company"}</DialogTitle>
                   </DialogHeader>
 
                   <div className="relative flex flex-1 min-h-0">
