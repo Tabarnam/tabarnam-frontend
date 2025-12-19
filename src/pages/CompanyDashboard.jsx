@@ -888,6 +888,20 @@ function getReviewUrl(review) {
   return asString(review.source_url).trim() || asString(review.url).trim() || asString(review.link).trim();
 }
 
+function normalizeExternalUrl(value) {
+  const raw = asString(value).trim();
+  if (!raw) return "";
+
+  const withScheme = raw.includes("://") ? raw : `https://${raw}`;
+  try {
+    const u = new URL(withScheme);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+    return u.toString();
+  } catch {
+    return "";
+  }
+}
+
 function getReviewDate(review) {
   if (!review || typeof review !== "object") return "";
   return (
@@ -1070,7 +1084,8 @@ function ImportedReviewsPanel({ companyId }) {
           {items.map((review, idx) => {
             const sourceName = getReviewSourceName(review) || "Unknown source";
             const text = getReviewText(review);
-            const url = getReviewUrl(review);
+            const urlRaw = getReviewUrl(review);
+            const url = normalizeExternalUrl(urlRaw);
             const date = getReviewDate(review);
             const rating = getReviewRating(review);
             const metadata = extractReviewMetadata(review);
@@ -1112,9 +1127,9 @@ function ImportedReviewsPanel({ companyId }) {
                       target="_blank"
                       rel="noreferrer"
                       className="text-blue-700 hover:underline break-all"
-                      title={url}
+                      title={urlRaw}
                     >
-                      {truncateMiddle(url, 90)}
+                      {truncateMiddle(urlRaw, 90)}
                     </a>
                   </div>
                 ) : null}
