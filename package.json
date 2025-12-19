@@ -12,7 +12,7 @@
     "dev:ipv4": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "build": "node scripts/write-build-id.mjs && vite build",
     "preview": "vite preview --host ::1 --port 5173",
-    "test": "node --test api/get-reviews/contract.test.js api/search-companies/contract.test.js api/import-start/contract.test.js api/admin-companies-v2/contract.test.js api/admin-refresh-company/contract.test.js api/xadmin-api-refresh-company/contract.test.js api/index.routes.contract.test.js"
+    "test": "node --test api/get-reviews/contract.test.js api/search-companies/contract.test.js api/import-start/contract.test.js api/admin-companies-v2/contract.test.js api/admin-refresh-company/contract.test.js api/xadmin-api-refresh-company/contract.test.js api/xadmin-api-refresh-reviews/contract.test.js api/index.routes.contract.test.js"
   },
   "dependencies": {
     "@azure/cosmos": "^4.7.0",

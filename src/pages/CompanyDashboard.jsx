@@ -1010,6 +1010,508 @@ function extractReviewMetadata(review) {
   return entries.slice(0, 8);
 }
 
+function normalizeReviewDedupText(value) {
+  return asString(value)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function normalizeReviewDedupUrl(value) {
+  const raw = asString(value).trim();
+  if (!raw) return "";
+
+  const withScheme = raw.includes("://") ? raw : `https://${raw}`;
+  try {
+    const u = new URL(withScheme);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+    u.hash = "";
+
+    const host = u.hostname.toLowerCase().replace(/^www\./, "");
+    const pathname = u.pathname.replace(/\/+$/, "");
+    const search = u.searchParams.toString();
+
+    return `${u.protocol}//${host}${pathname}${search ? `?${search}` : ""}`;
+  } catch {
+    return raw.toLowerCase();
+  }
+}
+
+function computeReviewDedupKey(review) {
+  const title = normalizeReviewDedupText(review?.title);
+  const excerpt = normalizeReviewDedupText(review?.excerpt ?? review?.abstract ?? review?.text);
+  const author = normalizeReviewDedupText(review?.author ?? review?.source ?? review?.source_name);
+  const date = normalizeReviewDedupText(review?.date);
+
+  const blob = [title, excerpt, author, date].filter(Boolean).join("|");
+  return blob;
+}
+
+function mergeCuratedReviews(existingCurated, proposedReviews) {
+  const existingList = Array.isArray(existingCurated) ? existingCurated : [];
+  const proposedList = Array.isArray(proposedReviews) ? proposedReviews : [];
+
+  const urlSet = new Set(existingList.map((r) => normalizeReviewDedupUrl(r?.source_url || r?.url)).filter(Boolean));
+  const hashSet = new Set(existingList.map(computeReviewDedupKey).filter(Boolean));
+
+  const nowIso = new Date().toISOString();
+  const appended = [];
+  let skippedDuplicates = 0;
+
+  for (const p of proposedList) {
+    const urlKey = normalizeReviewDedupUrl(p?.source_url || p?.url);
+    const hashKey = computeReviewDedupKey(p);
+
+    if ((urlKey && urlSet.has(urlKey)) || (hashKey && hashSet.has(hashKey))) {
+      skippedDuplicates += 1;
+      continue;
+    }
+
+    if (urlKey) urlSet.add(urlKey);
+    if (hashKey) hashSet.add(hashKey);
+
+    const excerpt = asString(p?.excerpt ?? p?.abstract ?? p?.text).trim();
+
+    appended.push({
+      id: `admin_reviews_import_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      source: asString(p?.source).trim() || "professional_review",
+      source_url: asString(p?.source_url || p?.url).trim(),
+      url: asString(p?.source_url || p?.url).trim(),
+      title: asString(p?.title).trim(),
+      excerpt,
+      abstract: excerpt,
+      rating: getReviewRating(p),
+      author: asString(p?.author).trim(),
+      date: asString(p?.date).trim() || null,
+      created_at: nowIso,
+      last_updated_at: nowIso,
+      imported_via: "admin_reviews_import",
+      show_to_users: true,
+      is_public: true,
+    });
+  }
+
+  return {
+    merged: existingList.concat(appended),
+    addedCount: appended.length,
+    skippedDuplicates,
+  };
+}
+
+function formatProposedReviewForClipboard(review) {
+  const title = asString(review?.title).trim();
+  const excerpt = asString(review?.excerpt ?? review?.abstract ?? review?.text).trim();
+  const url = asString(review?.source_url || review?.url).trim();
+  const author = asString(review?.author).trim();
+  const date = asString(review?.date).trim();
+
+  const header = title || author || url ? [title, author].filter(Boolean).join(" — ") : "Review";
+  const meta = [date, url].filter(Boolean).join(" • ");
+
+  return [header, meta, excerpt].filter(Boolean).join("\n");
+}
+
+function ReviewsImportPanel({ companyId, existingCuratedReviews, disabled, onApply }) {
+  const stableId = asString(companyId).trim();
+  const [take, setTake] = useState(25);
+  const [includeExisting, setIncludeExisting] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [items, setItems] = useState([]);
+
+  const existingCount = Array.isArray(existingCuratedReviews) ? existingCuratedReviews.length : 0;
+  const selectedCount = items.reduce((sum, r) => sum + (r?.include ? 1 : 0), 0);
+
+  const fetchReviews = useCallback(async () => {
+    const id = asString(stableId).trim();
+    if (!id) {
+      toast.error("Save the company first.");
+      return;
+    }
+
+    const requestedTake = Math.max(1, Math.min(200, Math.trunc(Number(take) || 1)));
+
+    setLoading(true);
+    setError(null);
+    setItems([]);
+
+    try {
+      const refreshPaths = ["/xadmin-api-refresh-reviews", "/admin-refresh-reviews"];
+      const attempts = [];
+
+      let res;
+      let usedPath = refreshPaths[0];
+
+      for (const path of refreshPaths) {
+        usedPath = path;
+        res = await apiFetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            company_id: id,
+            take: requestedTake,
+            include_existing_in_context: Boolean(includeExisting),
+          }),
+        });
+
+        attempts.push({ path, status: res.status });
+        if (res.status !== 404) break;
+      }
+
+      if (!res) throw new Error("Request failed: no response");
+
+      const apiBuildId = normalizeBuildIdString(res.headers.get("x-api-build-id"));
+
+      if (attempts.length && attempts.every((a) => a.status === 404)) {
+        const staticBuildId = await fetchStaticBuildId();
+        const buildId = apiBuildId || staticBuildId;
+        const msg = `Reviews API missing in prod build${buildId ? ` (build ${buildId})` : ""}`;
+
+        setError({
+          status: 404,
+          message: msg,
+          url: `/api${usedPath}`,
+          attempts,
+          build_id: buildId,
+          response: { error: "both refresh endpoints returned 404" },
+        });
+
+        toast.error(msg);
+        return;
+      }
+
+      const jsonBody = await res
+        .clone()
+        .json()
+        .catch(() => null);
+      const textBody =
+        jsonBody == null
+          ? await res
+              .clone()
+              .text()
+              .catch(() => "")
+          : null;
+
+      const body = jsonBody && typeof jsonBody === "object" ? jsonBody : {};
+
+      if (!res.ok || body?.ok !== true) {
+        const msg =
+          (await getUserFacingConfigMessage(res)) ||
+          body?.error ||
+          (typeof textBody === "string" && textBody.trim() ? textBody.trim().slice(0, 500) : "") ||
+          res.statusText ||
+          `Reviews fetch failed (${res.status})`;
+
+        setError({
+          status: res.status,
+          message: asString(msg).trim() || `Reviews fetch failed (${res.status})`,
+          url: `/api${usedPath}`,
+          attempts,
+          build_id: apiBuildId,
+          response: body && Object.keys(body).length ? body : textBody,
+        });
+
+        toast.error(`${asString(msg).trim() || "Reviews fetch failed"} (${usedPath} → HTTP ${res.status})`);
+        return;
+      }
+
+      const proposed = Array.isArray(body?.proposed_reviews) ? body.proposed_reviews : [];
+      const normalized = proposed
+        .map((r, idx) => {
+          const source_url = asString(r?.source_url || r?.url).trim();
+          const title = asString(r?.title).trim();
+          const excerpt = asString(r?.excerpt ?? r?.abstract ?? r?.text).trim();
+          const author = asString(r?.author).trim();
+          const date = asString(r?.date).trim();
+          const rating = getReviewRating(r);
+          const duplicate = Boolean(r?.duplicate);
+
+          if (!source_url && !title && !excerpt) return null;
+
+          return {
+            id: asString(r?.id).trim() || `${Date.now()}_${idx}_${Math.random().toString(36).slice(2)}`,
+            source: asString(r?.source).trim() || "professional_review",
+            source_url,
+            title,
+            excerpt,
+            author,
+            date: date || null,
+            rating,
+            duplicate,
+            include: !duplicate,
+          };
+        })
+        .filter(Boolean);
+
+      setItems(normalized);
+      toast.success(`Fetched ${normalized.length} proposed review${normalized.length === 1 ? "" : "s"}`);
+    } catch (e) {
+      const msg = asString(e?.message).trim() || "Reviews fetch failed";
+      setError({ status: 0, message: msg, url: "(request failed)", response: { error: msg } });
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  }, [includeExisting, stableId, take]);
+
+  const copyAll = useCallback(async () => {
+    if (items.length === 0) return;
+    const text = items.map(formatProposedReviewForClipboard).join("\n\n---\n\n");
+    const ok = await copyToClipboard(text);
+    if (ok) toast.success("Copied all");
+    else toast.error("Copy failed");
+  }, [items]);
+
+  const applySelected = useCallback(() => {
+    const selected = items.filter((r) => r?.include);
+    if (selected.length === 0) {
+      toast.error("No reviews selected.");
+      return;
+    }
+
+    const res = typeof onApply === "function" ? onApply(selected) : null;
+    const added = Number(res?.addedCount ?? 0) || 0;
+    const skipped = Number(res?.skippedDuplicates ?? 0) || 0;
+
+    toast.success(
+      `Applied ${added} review${added === 1 ? "" : "s"}${skipped ? ` (skipped ${skipped} duplicate${skipped === 1 ? "" : "s"})` : ""}`
+    );
+
+    setItems((prev) => prev.map((r) => ({ ...(r || {}), include: false, duplicate: true })));
+  }, [items, onApply]);
+
+  return (
+    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-slate-900">Reviews import</div>
+          <div className="text-xs text-slate-500">Fetch editorial/pro reviews without running company enrichment.</div>
+          <div className="mt-1 text-xs text-slate-600">
+            Existing imported reviews: <span className="font-medium">{existingCount}</span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-slate-700">Count</label>
+            <Input
+              type="number"
+              min={1}
+              max={200}
+              value={String(take)}
+              onChange={(e) => {
+                const next = Math.max(1, Math.min(200, Math.trunc(Number(e.target.value) || 1)));
+                setTake(next);
+              }}
+              className="w-[90px]"
+              disabled={!stableId || loading || disabled}
+            />
+          </div>
+
+          <Button type="button" onClick={fetchReviews} disabled={!stableId || loading || disabled}>
+            <RefreshCcw className="h-4 w-4 mr-2" />
+            {loading ? "Fetching…" : "Fetch more reviews"}
+          </Button>
+        </div>
+      </div>
+
+      <label className="flex items-start gap-2 text-sm text-slate-800">
+        <Checkbox
+          checked={includeExisting}
+          onCheckedChange={(v) => setIncludeExisting(Boolean(v))}
+          disabled={!stableId || loading || disabled}
+        />
+        <span>
+          Include existing imported reviews in context <span className="text-xs text-slate-500">(recommended)</span>
+        </span>
+      </label>
+
+      {!stableId ? (
+        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+          Save the company first to generate a <code className="text-[11px]">company_id</code>.
+        </div>
+      ) : error ? (
+        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="font-medium">Reviews import failed</div>
+              <div className="mt-1 text-xs break-words">{asString(error.message)}</div>
+              {Array.isArray(error?.attempts) && error.attempts.length ? (
+                <div className="mt-2 text-[11px] text-red-900/80 break-words">
+                  Tried: {error.attempts.map((a) => `${a.path} → ${a.status}`).join(", ")}
+                </div>
+              ) : null}
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="bg-white"
+              onClick={async () => {
+                const ok = await copyToClipboard(prettyJson(error));
+                if (ok) toast.success("Copied error");
+                else toast.error("Copy failed");
+              }}
+            >
+              <Copy className="h-4 w-4 mr-2" />
+              Copy
+            </Button>
+          </div>
+        </div>
+      ) : loading ? (
+        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">Fetching proposed reviews…</div>
+      ) : items.length === 0 ? (
+        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+          No proposed reviews yet. Click <span className="font-medium">Fetch more reviews</span>.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs text-slate-600">
+              Proposed reviews: <span className="font-medium">{items.length}</span> • Selected: <span className="font-medium">{selectedCount}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={copyAll} disabled={items.length === 0}>
+                <Copy className="h-4 w-4 mr-2" />
+                Copy all
+              </Button>
+              <Button type="button" size="sm" onClick={applySelected} disabled={selectedCount === 0 || disabled}>
+                Apply selected reviews to company
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {items.map((review) => (
+              <div key={review.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      checked={Boolean(review.include)}
+                      onCheckedChange={(v) =>
+                        setItems((prev) => prev.map((r) => (r.id === review.id ? { ...(r || {}), include: Boolean(v) } : r)))
+                      }
+                      disabled={disabled}
+                      aria-label="Include on save"
+                    />
+                    <div className="min-w-0">
+                      <div className="text-xs text-slate-600">
+                        Include on save
+                        {review.duplicate ? (
+                          <span className="ml-2 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-900">
+                            duplicate
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-medium text-slate-700">Title</label>
+                          <Input
+                            value={asString(review.title)}
+                            onChange={(e) =>
+                              setItems((prev) => prev.map((r) => (r.id === review.id ? { ...(r || {}), title: e.target.value } : r)))
+                            }
+                            disabled={disabled}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-medium text-slate-700">Source URL</label>
+                          <Input
+                            value={asString(review.source_url)}
+                            onChange={(e) =>
+                              setItems((prev) =>
+                                prev.map((r) => (r.id === review.id ? { ...(r || {}), source_url: e.target.value } : r))
+                              )
+                            }
+                            disabled={disabled}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      const ok = await copyToClipboard(formatProposedReviewForClipboard(review));
+                      if (ok) toast.success("Copied");
+                      else toast.error("Copy failed");
+                    }}
+                    disabled={disabled}
+                    title="Copy"
+                  >
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copy
+                  </Button>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-slate-700">Excerpt</label>
+                  <Textarea
+                    value={asString(review.excerpt)}
+                    onChange={(e) =>
+                      setItems((prev) => prev.map((r) => (r.id === review.id ? { ...(r || {}), excerpt: e.target.value } : r)))
+                    }
+                    disabled={disabled}
+                    className="min-h-[100px]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-slate-700">Author</label>
+                    <Input
+                      value={asString(review.author)}
+                      onChange={(e) =>
+                        setItems((prev) => prev.map((r) => (r.id === review.id ? { ...(r || {}), author: e.target.value } : r)))
+                      }
+                      disabled={disabled}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-slate-700">Date</label>
+                    <Input
+                      value={asString(review.date)}
+                      onChange={(e) =>
+                        setItems((prev) => prev.map((r) => (r.id === review.id ? { ...(r || {}), date: e.target.value } : r)))
+                      }
+                      disabled={disabled}
+                      placeholder="YYYY-MM-DD"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-slate-700">Rating</label>
+                    <Input
+                      value={review.rating == null ? "" : String(review.rating)}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const parsed = raw.trim() ? Number(raw) : null;
+                        setItems((prev) =>
+                          prev.map((r) =>
+                            r.id === review.id
+                              ? { ...(r || {}), rating: parsed != null && Number.isFinite(parsed) ? parsed : null }
+                              : r
+                          )
+                        );
+                      }}
+                      disabled={disabled}
+                      placeholder="(optional)"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ImportedReviewsPanel({ companyId }) {
   const stableId = asString(companyId).trim();
   const [loading, setLoading] = useState(false);
@@ -2213,6 +2715,18 @@ export default function CompanyDashboard() {
       setRefreshLoading(false);
     }
   }, [editorDraft, editorOriginalId, normalizeForDiff, proposedValueToInputText, refreshDiffFields]);
+
+  const applySelectedProposedReviews = useCallback(
+    (selectedReviews) => {
+      const base = editorDraft && typeof editorDraft === "object" ? editorDraft : {};
+      const existing = Array.isArray(base.curated_reviews) ? base.curated_reviews : [];
+      const { merged, addedCount, skippedDuplicates } = mergeCuratedReviews(existing, selectedReviews);
+
+      setEditorDraft((prev) => ({ ...(prev || {}), curated_reviews: merged }));
+      return { addedCount, skippedDuplicates };
+    },
+    [editorDraft]
+  );
 
   const saveEditor = useCallback(async () => {
     if (!editorDraft) return;
@@ -3485,6 +3999,17 @@ export default function CompanyDashboard() {
                           </div>
 
                           <RatingEditor draft={editorDraft} onChange={(next) => setEditorDraft(next)} />
+
+                          <ReviewsImportPanel
+                            companyId={
+                              asString(editorDraft.company_id).trim() ||
+                              asString(editorOriginalId).trim() ||
+                              asString(editorCompanyId).trim()
+                            }
+                            existingCuratedReviews={Array.isArray(editorDraft.curated_reviews) ? editorDraft.curated_reviews : []}
+                            disabled={editorSaving}
+                            onApply={applySelectedProposedReviews}
+                          />
 
                           <ImportedReviewsPanel
                             companyId={
