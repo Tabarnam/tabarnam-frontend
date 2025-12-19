@@ -1,6 +1,10 @@
 // api/import-progress/index.js
 const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
+const {
+  getContainerPartitionKeyPath,
+  buildPartitionKeyCandidates,
+} = require("../_cosmosPartitionKey");
 
 const cors = (req) => {
   const origin = req.headers.get("origin") || "*";
@@ -17,6 +21,55 @@ const json = (obj, status = 200, req) => ({
   headers: { ...cors(req), "Content-Type": "application/json" },
   body: JSON.stringify(obj),
 });
+
+let companiesPkPathPromise;
+async function getCompaniesPkPath(container) {
+  if (!container) return "/normalized_domain";
+  companiesPkPathPromise ||= getContainerPartitionKeyPath(container, "/normalized_domain");
+  try {
+    return await companiesPkPathPromise;
+  } catch {
+    return "/normalized_domain";
+  }
+}
+
+async function readControlDoc(container, id, sessionId) {
+  if (!container) return null;
+  const containerPkPath = await getCompaniesPkPath(container);
+  const docForCandidates = {
+    id,
+    session_id: sessionId,
+    normalized_domain: "import",
+    partition_key: "import",
+    type: "import_control",
+  };
+
+  const candidates = buildPartitionKeyCandidates({
+    doc: docForCandidates,
+    containerPkPath,
+    requestedId: id,
+  });
+
+  let lastErr = null;
+  for (const partitionKeyValue of candidates) {
+    try {
+      const item =
+        partitionKeyValue !== undefined
+          ? container.item(id, partitionKeyValue)
+          : container.item(id);
+      const { resource } = await item.read();
+      return resource || null;
+    } catch (e) {
+      lastErr = e;
+      if (e?.code === 404) return null;
+    }
+  }
+
+  if (lastErr && lastErr.code !== 404) {
+    console.warn(`[import-progress] session=${sessionId} control doc read failed: ${lastErr.message}`);
+  }
+  return null;
+}
 
 app.http("import-progress", {
   route: "import/progress",
@@ -48,43 +101,28 @@ app.http("import-progress", {
     const container = client.database(databaseId).container(containerId);
 
     try {
-      // Check if import was stopped, timed out, or completed
+      // Check if import was stopped, timed out, completed, or failed
       let stopped = false;
       let timedOut = false;
       let completed = false;
+      let failed = false;
+      let error = null;
 
-      try {
-        const stopDocId = `_import_stop_${sessionId}`;
-        const { resource } = await container.item(stopDocId).read();
-        stopped = !!resource;
-      } catch (e) {
-        // Stop document doesn't exist, import is not stopped
-        if (e.code !== 404) {
-          console.warn(`[import-progress] session=${sessionId} error checking stop signal: ${e.message}`);
-        }
-      }
+      const stopDocId = `_import_stop_${sessionId}`;
+      const timeoutDocId = `_import_timeout_${sessionId}`;
+      const completionDocId = `_import_complete_${sessionId}`;
+      const errorDocId = `_import_error_${sessionId}`;
 
-      try {
-        const timeoutDocId = `_import_timeout_${sessionId}`;
-        const { resource } = await container.item(timeoutDocId).read();
-        timedOut = !!resource;
-      } catch (e) {
-        // Timeout document doesn't exist
-        if (e.code !== 404) {
-          console.warn(`[import-progress] session=${sessionId} error checking timeout signal: ${e.message}`);
-        }
-      }
+      const stopDoc = await readControlDoc(container, stopDocId, sessionId);
+      const timeoutDoc = await readControlDoc(container, timeoutDocId, sessionId);
+      const completionDoc = await readControlDoc(container, completionDocId, sessionId);
+      const errorDoc = await readControlDoc(container, errorDocId, sessionId);
 
-      try {
-        const completionDocId = `_import_complete_${sessionId}`;
-        const { resource } = await container.item(completionDocId).read();
-        completed = !!resource;
-      } catch (e) {
-        // Completion document doesn't exist
-        if (e.code !== 404) {
-          console.warn(`[import-progress] session=${sessionId} error checking completion signal: ${e.message}`);
-        }
-      }
+      stopped = !!stopDoc;
+      timedOut = !!timeoutDoc;
+      completed = !!completionDoc;
+      error = errorDoc && typeof errorDoc === "object" ? errorDoc.error || null : null;
+      failed = !!error;
 
       // Query companies from Cosmos DB for this session (exclude reserved control documents)
       const q = {
@@ -108,17 +146,23 @@ app.http("import-progress", {
 
       // Return what we found in Cosmos DB
       // Note: completed flag signals that import-start finished (0 results or successful save)
-      return json({
-        ok: true,
-        session_id: sessionId,
-        items: resources.slice(0, take),
-        steps: [],
-        stopped: stopped || timedOut || completed,  // Include completed as a "stopped" state for UI
-        timedOut: timedOut,
-        completed: completed,  // Explicitly signal 0-results completion
-        saved,
-        lastCreatedAt
-      }, 200, req);
+      return json(
+        {
+          ok: true,
+          session_id: sessionId,
+          items: resources.slice(0, take),
+          steps: [],
+          stopped: stopped || timedOut || completed || failed,
+          timedOut,
+          completed,
+          failed,
+          ...(error ? { error } : {}),
+          saved,
+          lastCreatedAt,
+        },
+        200,
+        req
+      );
     } catch (e) {
       console.error("[import-progress] Query error:", e.message);
       console.error("[import-progress] Full error:", e);

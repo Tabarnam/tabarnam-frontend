@@ -179,6 +179,7 @@ export default function AdminImport() {
       timedOut: false,
       stopped: false,
       start_error: null,
+      start_error_details: null,
       progress_error: null,
       save_result: null,
       save_error: null,
@@ -195,28 +196,72 @@ export default function AdminImport() {
     schedulePoll({ session_id });
 
     try {
+      const requestPayload = {
+        session_id,
+        query: q,
+        queryTypes: selectedTypes,
+        queryType: selectedTypes[0] || "product_keyword",
+        location: asString(location).trim() || undefined,
+        limit: normalizedLimit,
+        expand_if_few: true,
+      };
+
+      if (import.meta.env.DEV) {
+        // Dev-only: makes malformed payloads obvious while debugging
+        console.log("[AdminImport] /import/start payload", requestPayload);
+      }
+
       const res = await apiFetch("/import/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id,
-          query: q,
-          queryTypes: selectedTypes,
-          queryType: selectedTypes[0] || "product_keyword",
-          location: asString(location).trim() || undefined,
-          limit: normalizedLimit,
-          expand_if_few: true,
-        }),
+        body: JSON.stringify(requestPayload),
         signal: abort.signal,
       });
 
       const body = await readJsonOrText(res);
 
       if (!res.ok || body?.ok === false) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Import failed (${res.status})`;
-        setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
+        const configMsg = await getUserFacingConfigMessage(res);
+        const errorObj = body?.error && typeof body.error === "object" ? body.error : null;
+        const requestId =
+          (errorObj?.request_id && String(errorObj.request_id)) ||
+          (body?.request_id && String(body.request_id)) ||
+          res.headers?.get?.("x-request-id") ||
+          "";
+
+        const msg =
+          configMsg ||
+          errorObj?.message ||
+          body?.legacy_error ||
+          body?.message ||
+          (typeof body?.error === "string" ? body.error : "") ||
+          `Import failed (${res.status})`;
+
+        const detailsForCopy = {
+          status: res.status,
+          session_id,
+          request_id: requestId,
+          request_payload: requestPayload,
+          response_body: body,
+        };
+
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === session_id
+              ? {
+                  ...r,
+                  start_error: msg,
+                  start_error_details: detailsForCopy,
+                }
+              : r
+          )
+        );
         setActiveStatus("error");
-        toast.error(msg);
+        toast.error(
+          errorObj?.code
+            ? `${msg} (code: ${errorObj.code}${errorObj.step ? `, step: ${errorObj.step}` : ""}${requestId ? `, request_id: ${requestId}` : ""})`
+            : msg
+        );
         return;
       }
 
@@ -568,6 +613,24 @@ export default function AdminImport() {
                 </Button>
               ) : null}
 
+              {activeRun?.start_error_details ? (
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      const text = JSON.stringify(activeRun.start_error_details, null, 2);
+                      await navigator.clipboard.writeText(text);
+                      toast.success("Error details copied");
+                    } catch {
+                      toast.error("Could not copy");
+                    }
+                  }}
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy error details
+                </Button>
+              ) : null}
+
               {activeSessionId ? (
                 <div className="text-sm text-slate-700">
                   Session: <code className="rounded bg-slate-100 px-1 py-0.5">{activeSessionId}</code>
@@ -578,7 +641,42 @@ export default function AdminImport() {
             </div>
 
             {activeRun?.start_error ? (
-              <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">{activeRun.start_error}</div>
+              <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900 space-y-2">
+                <div className="font-semibold">Import failed</div>
+                <div>{activeRun.start_error}</div>
+                {(() => {
+                  const responseBody = activeRun?.start_error_details?.response_body;
+                  const err = responseBody?.error && typeof responseBody.error === "object" ? responseBody.error : null;
+                  const requestId =
+                    (err?.request_id && String(err.request_id)) ||
+                    (activeRun?.start_error_details?.request_id && String(activeRun.start_error_details.request_id)) ||
+                    "";
+                  const step = (err?.step && String(err.step)) || (responseBody?.stage && String(responseBody.stage)) || "";
+                  const code = (err?.code && String(err.code)) || "";
+
+                  if (!code && !step && !requestId) return null;
+
+                  return (
+                    <div className="rounded border border-red-200 bg-white/60 p-2 text-xs text-red-900 space-y-1">
+                      {code ? (
+                        <div>
+                          <span className="font-medium">code:</span> <code className="bg-red-100 px-1 py-0.5 rounded">{code}</code>
+                        </div>
+                      ) : null}
+                      {step ? (
+                        <div>
+                          <span className="font-medium">step:</span> <code className="bg-red-100 px-1 py-0.5 rounded">{step}</code>
+                        </div>
+                      ) : null}
+                      {requestId ? (
+                        <div>
+                          <span className="font-medium">request_id:</span> <code className="bg-red-100 px-1 py-0.5 rounded">{requestId}</code>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()}
+              </div>
             ) : null}
 
             {activeRun?.progress_error ? (

@@ -6,6 +6,17 @@ try {
 }
 const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
+let randomUUID;
+try {
+  ({ randomUUID } = require("crypto"));
+} catch {
+  randomUUID = null;
+}
+const {
+  getContainerPartitionKeyPath,
+  buildPartitionKeyCandidates,
+  getValueAtPath,
+} = require("../_cosmosPartitionKey");
 const { getXAIEndpoint, getXAIKey } = require("../_shared");
 function requireImportCompanyLogo() {
   const mod = require("../_logoImport");
@@ -46,7 +57,7 @@ if (!globalThis.__importStartProcessHandlersInstalled) {
   });
 }
 
-function json(obj, status = 200) {
+function json(obj, status = 200, extraHeaders) {
   return {
     status,
     headers: {
@@ -54,6 +65,7 @@ function json(obj, status = 200) {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
       "Access-Control-Allow-Headers": "content-type,x-functions-key",
+      ...(extraHeaders && typeof extraHeaders === "object" ? extraHeaders : {}),
     },
     body: JSON.stringify(obj),
   };
@@ -137,6 +149,32 @@ function toErrorString(err) {
   } catch {
     return String(err);
   }
+}
+
+function getHeader(req, name) {
+  if (!req || !name) return null;
+  const headers = req.headers;
+  if (headers && typeof headers.get === "function") {
+    try {
+      const v = headers.get(name);
+      return typeof v === "string" && v.trim() ? v.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+  const h = headers && typeof headers === "object" ? headers : {};
+  const v = h[name] ?? h[name.toLowerCase()] ?? h[name.toUpperCase()];
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+function generateRequestId(req) {
+  const existing =
+    getHeader(req, "x-request-id") ||
+    getHeader(req, "x-correlation-id") ||
+    getHeader(req, "x-client-request-id");
+  if (existing) return existing;
+  if (typeof randomUUID === "function") return randomUUID();
+  return `rid_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
 function extractXaiRequestId(headers) {
@@ -853,36 +891,119 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
   }
 }
 
-// Check if a session has been stopped
-async function checkIfSessionStopped(sessionId) {
+let cosmosCompaniesClient = null;
+let companiesPkPathPromise;
+
+function getCompaniesCosmosContainer() {
   try {
     const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
     const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
     const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
     const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
-    if (!endpoint || !key) return false;
+    if (!endpoint || !key) return null;
 
-    const client = new CosmosClient({ endpoint, key });
-    const database = client.database(databaseId);
-    const container = database.container(containerId);
+    cosmosCompaniesClient ||= new CosmosClient({ endpoint, key });
+    return cosmosCompaniesClient.database(databaseId).container(containerId);
+  } catch {
+    return null;
+  }
+}
 
-    // Check for stop signal document in the companies container
+async function getCompaniesPartitionKeyPath(companiesContainer) {
+  if (!companiesContainer) return "/normalized_domain";
+  companiesPkPathPromise ||= getContainerPartitionKeyPath(companiesContainer, "/normalized_domain");
+  try {
+    return await companiesPkPathPromise;
+  } catch {
+    return "/normalized_domain";
+  }
+}
+
+async function readItemWithPkCandidates(container, id, docForCandidates) {
+  if (!container || !id) return null;
+  const containerPkPath = await getCompaniesPartitionKeyPath(container);
+
+  const candidates = buildPartitionKeyCandidates({
+    doc: docForCandidates,
+    containerPkPath,
+    requestedId: id,
+  });
+
+  let lastErr = null;
+  for (const partitionKeyValue of candidates) {
     try {
-      const stopDocId = `_import_stop_${sessionId}`;
-      const { resource } = await container.item(stopDocId).read();
-      return !!resource;
+      const item =
+        partitionKeyValue !== undefined
+          ? container.item(id, partitionKeyValue)
+          : container.item(id);
+      const { resource } = await item.read();
+      return resource || null;
     } catch (e) {
-      // Document doesn't exist, session is not stopped
-      if (e.code === 404) {
-        return false;
-      }
-      // For other errors, log and assume not stopped
-      console.warn(`[import-start] Error checking stop status: ${e.message}`);
-      return false;
+      lastErr = e;
+      if (e?.code === 404) return null;
     }
+  }
+
+  if (lastErr && lastErr.code !== 404) {
+    console.warn(`[import-start] readItem failed id=${id} pkPath=${containerPkPath}: ${lastErr.message}`);
+  }
+  return null;
+}
+
+async function upsertItemWithPkCandidates(container, doc) {
+  if (!container || !doc) return { ok: false, error: "no_container" };
+  const id = String(doc.id || "").trim();
+  if (!id) return { ok: false, error: "missing_id" };
+
+  const containerPkPath = await getCompaniesPartitionKeyPath(container);
+  const pkValue = getValueAtPath(doc, containerPkPath);
+  const candidates = buildPartitionKeyCandidates({ doc, containerPkPath, requestedId: id });
+
+  let lastErr = null;
+  for (const partitionKeyValue of candidates) {
+    try {
+      if (partitionKeyValue !== undefined) {
+        await container.items.upsert(doc, { partitionKey: partitionKeyValue });
+      } else if (pkValue !== undefined) {
+        await container.items.upsert(doc, { partitionKey: pkValue });
+      } else {
+        await container.items.upsert(doc);
+      }
+      return { ok: true };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  return { ok: false, error: lastErr?.message || "upsert_failed" };
+}
+
+function buildImportControlDocBase(sessionId) {
+  return {
+    session_id: sessionId,
+    normalized_domain: "import",
+    partition_key: "import",
+    type: "import_control",
+    updated_at: new Date().toISOString(),
+  };
+}
+
+// Check if a session has been stopped
+async function checkIfSessionStopped(sessionId) {
+  try {
+    const container = getCompaniesCosmosContainer();
+    if (!container) return false;
+
+    const stopDocId = `_import_stop_${sessionId}`;
+    const resource = await readItemWithPkCandidates(container, stopDocId, {
+      id: stopDocId,
+      ...buildImportControlDocBase(sessionId),
+      stopped_at: "",
+    });
+    return !!resource;
   } catch (e) {
-    console.warn(`[import-start] Error checking stop status: ${e.message}`);
+    console.warn(`[import-start] Error checking stop status: ${e?.message || String(e)}`);
     return false;
   }
 }
@@ -1046,7 +1167,11 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
 const MAX_PROCESSING_TIME_MS = 4 * 60 * 1000;
 
 const importStartHandler = async (req, context) => {
-    console.log("[import-start] Function handler invoked");
+    const requestId = generateRequestId(req);
+    const responseHeaders = { "x-request-id": requestId };
+    const jsonWithRequestId = (obj, status = 200) => json(obj, status, responseHeaders);
+
+    console.log(`[import-start] request_id=${requestId} Function handler invoked`);
 
     try {
       const method = String(req.method || "").toUpperCase();
@@ -1057,6 +1182,7 @@ const importStartHandler = async (req, context) => {
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
             "Access-Control-Allow-Headers": "content-type,x-functions-key",
+            ...responseHeaders,
           },
         };
       }
@@ -1068,13 +1194,48 @@ const importStartHandler = async (req, context) => {
         payload.proxy = proxyQuery;
       }
 
-      const bodyObj = payload;
+      const bodyObj = payload && typeof payload === "object" ? payload : {};
       const sessionId = bodyObj.session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-      console.log(`[import-start] Received request with session_id: ${sessionId}`);
-      console.log(`[import-start] Request body:`, JSON.stringify(payload));
-
       const startTime = Date.now();
+
+      const normalizedQuery = String(bodyObj.query || "").trim();
+      const normalizedLocation = String(bodyObj.location || "").trim();
+      const normalizedLimit = Math.max(1, Math.min(25, Math.trunc(Number(bodyObj.limit) || 10)));
+
+      const queryTypesRaw =
+        Array.isArray(bodyObj.queryTypes)
+          ? bodyObj.queryTypes
+          : typeof bodyObj.queryTypes === "string"
+            ? [bodyObj.queryTypes]
+            : [];
+
+      const queryTypes = queryTypesRaw
+        .map((t) => String(t || "").trim())
+        .filter(Boolean)
+        .slice(0, 10);
+
+      const normalizedQueryType =
+        String(bodyObj.queryType || queryTypes[0] || "product_keyword").trim() || "product_keyword";
+
+      bodyObj.query = normalizedQuery;
+      bodyObj.location = normalizedLocation || "";
+      bodyObj.limit = normalizedLimit;
+      bodyObj.queryType = normalizedQueryType;
+      bodyObj.queryTypes = queryTypes.length > 0 ? queryTypes : [normalizedQueryType];
+
+      console.log(
+        `[import-start] request_id=${requestId} session=${sessionId} normalized_request=` +
+          JSON.stringify({
+            session_id: sessionId,
+            query: normalizedQuery,
+            queryType: normalizedQueryType,
+            queryTypes: bodyObj.queryTypes,
+            location: normalizedLocation,
+            limit: normalizedLimit,
+            proxy: Object.prototype.hasOwnProperty.call(bodyObj, "proxy") ? bodyObj.proxy : undefined,
+          })
+      );
 
       const debugEnabled = bodyObj.debug === true || bodyObj.debug === "true";
       const debugOutput = debugEnabled
@@ -1115,19 +1276,69 @@ const importStartHandler = async (req, context) => {
         if (debugOutput) {
           debugOutput.stages.push({ stage, ts: new Date().toISOString(), ...extra });
         }
+
+        try {
+          const extraKeys = extra && typeof extra === "object" ? Object.keys(extra) : [];
+          if (extraKeys.length > 0) {
+            console.log(
+              `[import-start] request_id=${requestId} session=${sessionId} stage=${stage} extra=` +
+                JSON.stringify(extra)
+            );
+          } else {
+            console.log(`[import-start] request_id=${requestId} session=${sessionId} stage=${stage}`);
+          }
+        } catch {
+          console.log(`[import-start] request_id=${requestId} session=${sessionId} stage=${stage}`);
+        }
       };
 
-      const respondError = (err, { status = 500, details = {} } = {}) => {
-        const error = toErrorString(err);
+      const respondError = async (err, { status = 500, details = {} } = {}) => {
+        const errorMessage = toErrorString(err);
+        const code =
+          (details && typeof details.code === "string" && details.code.trim() ? details.code.trim() : null) ||
+          (status === 400 ? "INVALID_REQUEST" : stage === "config" ? "IMPORT_START_NOT_CONFIGURED" : "IMPORT_START_FAILED");
 
-        console.error(`[import-start] stage=${stage} error=${error}`);
+        const message =
+          (details && typeof details.message === "string" && details.message.trim()
+            ? details.message.trim()
+            : errorMessage) || "Import start failed";
+
+        console.error(`[import-start] request_id=${requestId} session=${sessionId} stage=${stage} code=${code} message=${message}`);
         if (err?.stack) console.error(err.stack);
+
+        const errorObj = {
+          code,
+          message,
+          request_id: requestId,
+          step: stage,
+        };
+
+        try {
+          const container = getCompaniesCosmosContainer();
+          if (container) {
+            const errorDoc = {
+              id: `_import_error_${sessionId}`,
+              ...buildImportControlDocBase(sessionId),
+              request_id: requestId,
+              stage,
+              error: errorObj,
+              details: details && typeof details === "object" ? details : {},
+            };
+            await upsertItemWithPkCandidates(container, errorDoc);
+          }
+        } catch (e) {
+          console.warn(
+            `[import-start] request_id=${requestId} session=${sessionId} failed to write error doc: ${e?.message || String(e)}`
+          );
+        }
 
         const errorPayload = {
           ok: false,
           stage,
-          error,
           session_id: sessionId,
+          request_id: requestId,
+          error: errorObj,
+          legacy_error: message,
           ...buildInfo,
           company_name: contextInfo.company_name,
           website_url: contextInfo.website_url,
@@ -1140,11 +1351,83 @@ const importStartHandler = async (req, context) => {
                 debug: debugOutput,
               }
             : {}),
-          ...(details && Object.keys(details).length ? { details } : {}),
+          ...(details && typeof details === "object" && Object.keys(details).length ? { details } : {}),
         };
 
-        return json(errorPayload, status);
+        return jsonWithRequestId(errorPayload, status);
       };
+
+      setStage("validate_request", {
+        query: String(bodyObj.query || ""),
+        queryType: String(bodyObj.queryType || ""),
+        limit: Number(bodyObj.limit),
+        location: String(bodyObj.location || ""),
+      });
+
+      const dryRun = bodyObj.dry_run === true || bodyObj.dry_run === "true";
+      if (dryRun) {
+        setStage("dry_run");
+        return jsonWithRequestId(
+          {
+            ok: true,
+            stage,
+            session_id: sessionId,
+            request_id: requestId,
+            company_name: contextInfo.company_name,
+            website_url: contextInfo.website_url,
+            normalized_domain: contextInfo.normalized_domain,
+            received: {
+              query: String(bodyObj.query || ""),
+              queryType: String(bodyObj.queryType || ""),
+              queryTypes: Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [],
+              location: String(bodyObj.location || ""),
+              limit: Number(bodyObj.limit) || 0,
+            },
+            ...buildInfo,
+          },
+          200
+        );
+      }
+
+      if (!String(bodyObj.query || "").trim()) {
+        return respondError(new Error("query is required"), {
+          status: 400,
+          details: {
+            code: "IMPORT_START_VALIDATION_FAILED",
+            message: "Query is required",
+          },
+        });
+      }
+
+      setStage("create_session");
+      try {
+        const container = getCompaniesCosmosContainer();
+        if (container) {
+          const sessionDoc = {
+            id: `_import_session_${sessionId}`,
+            ...buildImportControlDocBase(sessionId),
+            created_at: new Date().toISOString(),
+            request_id: requestId,
+            request: {
+              query: String(bodyObj.query || ""),
+              queryType: String(bodyObj.queryType || ""),
+              queryTypes: Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [],
+              location: String(bodyObj.location || ""),
+              limit: Number(bodyObj.limit) || 0,
+            },
+          };
+          const result = await upsertItemWithPkCandidates(container, sessionDoc);
+          if (!result.ok) {
+            console.warn(
+              `[import-start] request_id=${requestId} session=${sessionId} failed to write session marker: ${result.error}`
+            );
+          }
+        }
+      } catch (e) {
+        console.warn(
+          `[import-start] request_id=${requestId} session=${sessionId} error writing session marker: ${e?.message || String(e)}`
+        );
+      }
 
       const hardTimeoutMs = Math.max(
         1000,
@@ -1268,6 +1551,7 @@ const importStartHandler = async (req, context) => {
           }
 
           if (!body.session_id) body.session_id = sessionId;
+          if (!body.request_id) body.request_id = requestId;
           if (xaiRequestId && !body.xai_request_id) body.xai_request_id = xaiRequestId;
 
           const elapsedMs = Date.now() - startTime;
@@ -1280,7 +1564,7 @@ const importStartHandler = async (req, context) => {
             upstream_url: usedUrl,
           };
 
-          return json(body, resp?.status || 502);
+          return json(body, resp?.status || 502, responseHeaders);
         } catch (e) {
           const elapsedMs = Date.now() - startTime;
           const isTimeout =
@@ -1384,12 +1668,19 @@ const importStartHandler = async (req, context) => {
         if (wasAlreadyStopped) {
           setStage("stopped");
           console.log(`[import-start] session=${sessionId} stop signal detected before XAI call`);
-          return json(
+          return jsonWithRequestId(
             {
               ok: false,
               stage,
-              error: "Import was stopped",
               session_id: sessionId,
+              request_id: requestId,
+              error: {
+                code: "IMPORT_STOPPED",
+                message: "Import was stopped",
+                request_id: requestId,
+                step: stage,
+              },
+              legacy_error: "Import was stopped",
               ...buildInfo,
               companies: [],
               saved: 0,
@@ -1648,45 +1939,52 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
             // Write a completion marker so import-progress knows this session is done with 0 results
             try {
-              const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
-              const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
-              if (endpoint && key) {
-                const client = new CosmosClient({ endpoint, key });
-                const database = client.database((process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim());
-                const container = database.container((process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim());
+              const container = getCompaniesCosmosContainer();
+              if (container) {
                 const completionDoc = {
                   id: `_import_complete_${sessionId}`,
-                  session_id: sessionId,
+                  ...buildImportControlDocBase(sessionId),
                   completed_at: new Date().toISOString(),
                   reason: "no_results_from_xai",
                   saved: 0,
                 };
-                await container.items.create(completionDoc).catch(e => {
-                  console.warn(`[import-start] session=${sessionId} failed to write completion marker: ${e.message}`);
-                }); // Ignore errors
-                console.log(`[import-start] session=${sessionId} completion marker written`);
+
+                const result = await upsertItemWithPkCandidates(container, completionDoc);
+                if (!result.ok) {
+                  console.warn(
+                    `[import-start] request_id=${requestId} session=${sessionId} failed to upsert completion marker: ${result.error}`
+                  );
+                } else {
+                  console.log(`[import-start] request_id=${requestId} session=${sessionId} completion marker written`);
+                }
               }
             } catch (e) {
-              console.warn(`[import-start] session=${sessionId} error writing completion marker: ${e.message}`);
+              console.warn(
+                `[import-start] request_id=${requestId} session=${sessionId} error writing completion marker: ${e?.message || String(e)}`
+              );
             }
 
-            return json({
-              ok: true,
-              session_id: sessionId,
-              company_name: contextInfo.company_name,
-              website_url: contextInfo.website_url,
-              companies: [],
-              meta: {
-                mode: "direct",
-                expanded: false,
-                timedOut: false,
-                elapsedMs: Date.now() - startTime,
-                no_results_reason: "XAI returned empty response"
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                company_name: contextInfo.company_name,
+                website_url: contextInfo.website_url,
+                companies: [],
+                meta: {
+                  mode: "direct",
+                  expanded: false,
+                  timedOut: false,
+                  elapsedMs: Date.now() - startTime,
+                  no_results_reason: "XAI returned empty response",
+                },
+                saved: 0,
+                skipped: 0,
+                failed: 0,
               },
-              saved: 0,
-              skipped: 0,
-              failed: 0,
-            }, 200);
+              200
+            );
           }
 
           // Ensure product keywords exist and persistable
@@ -2204,72 +2502,77 @@ Return ONLY the JSON array, no other text.`,
 
           // Write a completion marker so import-progress knows this session is done
           try {
-            const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
-            const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
-            if (endpoint && key) {
-              const client = new CosmosClient({ endpoint, key });
-              const database = client.database((process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim());
-              const container = database.container((process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim());
+            const container = getCompaniesCosmosContainer();
+            if (container) {
+              const completionDoc = timedOut
+                ? {
+                    id: `_import_timeout_${sessionId}`,
+                    ...buildImportControlDocBase(sessionId),
+                    completed_at: new Date().toISOString(),
+                    elapsed_ms: elapsed,
+                    reason: "max_processing_time_exceeded",
+                  }
+                : {
+                    id: `_import_complete_${sessionId}`,
+                    ...buildImportControlDocBase(sessionId),
+                    completed_at: new Date().toISOString(),
+                    elapsed_ms: elapsed,
+                    reason: "completed_normally",
+                    saved: saveResult.saved,
+                  };
 
-              let completionDoc;
-              if (timedOut) {
-                console.log(`[import-start] session=${sessionId} timeout detected, writing timeout signal`);
-                completionDoc = {
-                  id: `_import_timeout_${sessionId}`,
-                  session_id: sessionId,
-                  completed_at: new Date().toISOString(),
-                  elapsed_ms: elapsed,
-                  reason: "max processing time exceeded",
-                };
+              const result = await upsertItemWithPkCandidates(container, completionDoc);
+              if (!result.ok) {
+                console.warn(
+                  `[import-start] request_id=${requestId} session=${sessionId} failed to upsert completion marker: ${result.error}`
+                );
+              } else if (timedOut) {
+                console.log(`[import-start] request_id=${requestId} session=${sessionId} timeout signal written`);
               } else {
-                // Write completion marker for successful finish
-                completionDoc = {
-                  id: `_import_complete_${sessionId}`,
-                  session_id: sessionId,
-                  completed_at: new Date().toISOString(),
-                  elapsed_ms: elapsed,
-                  reason: "completed_normally",
-                  saved: saveResult.saved,
-                };
-              }
-
-              await container.items.create(completionDoc).catch(e => {
-                console.warn(`[import-start] session=${sessionId} failed to write completion marker: ${e.message}`);
-              }); // Ignore errors
-
-              if (timedOut) {
-                console.log(`[import-start] session=${sessionId} timeout signal written`);
-              } else {
-                console.log(`[import-start] session=${sessionId} completion marker written (saved=${saveResult.saved})`);
+                console.log(
+                  `[import-start] request_id=${requestId} session=${sessionId} completion marker written (saved=${saveResult.saved})`
+                );
               }
             }
           } catch (e) {
-            console.warn(`[import-start] session=${sessionId} error writing completion marker: ${e.message}`);
+            console.warn(
+              `[import-start] request_id=${requestId} session=${sessionId} error writing completion marker: ${e?.message || String(e)}`
+            );
           }
 
-          return json({
-            ok: true,
-            session_id: sessionId,
-            company_name: contextInfo.company_name,
-            website_url: contextInfo.website_url,
-            companies: enriched,
-            meta: {
-              mode: "direct",
-              expanded: xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold,
-              timedOut: timedOut,
-              elapsedMs: elapsed,
+          return jsonWithRequestId(
+            {
+              ok: true,
+              session_id: sessionId,
+              request_id: requestId,
+              company_name: contextInfo.company_name,
+              website_url: contextInfo.website_url,
+              companies: enriched,
+              meta: {
+                mode: "direct",
+                expanded: xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold,
+                timedOut: timedOut,
+                elapsedMs: elapsed,
+              },
+              saved: saveResult.saved,
+              skipped: saveResult.skipped,
+              failed: saveResult.failed,
+              ...(debugOutput ? { debug: debugOutput } : {}),
             },
-            saved: saveResult.saved,
-            skipped: saveResult.skipped,
-            failed: saveResult.failed,
-            ...(debugOutput ? { debug: debugOutput } : {}),
-          }, 200);
+            200
+          );
         } else {
           console.error(`[import-start] XAI error status: ${xaiResponse.status}`);
           return respondError(new Error(`XAI returned ${xaiResponse.status}`), {
             status: 502,
             details: {
+              code: xaiResponse.status === 404 ? "IMPORT_START_UPSTREAM_NOT_FOUND" : "IMPORT_START_UPSTREAM_FAILED",
+              message:
+                xaiResponse.status === 404
+                  ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
+                  : `XAI returned ${xaiResponse.status}`,
               xai_status: xaiResponse.status,
+              xai_url: xaiUrl,
             },
           });
         }
@@ -2285,33 +2588,57 @@ Return ONLY the JSON array, no other text.`,
         // Write timeout signal if this took too long
         if (isOutOfTime() || (xaiError.code === 'ECONNABORTED' || xaiError.message.includes('timeout'))) {
           try {
-            console.log(`[import-start] session=${sessionId} timeout detected during XAI call, writing timeout signal`);
-            const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
-            const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
-            if (endpoint && key) {
-              const client = new CosmosClient({ endpoint, key });
-              const database = client.database((process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim());
-              const container = database.container((process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim());
+            console.log(
+              `[import-start] request_id=${requestId} session=${sessionId} timeout detected during XAI call, writing timeout signal`
+            );
+            const container = getCompaniesCosmosContainer();
+            if (container) {
               const timeoutDoc = {
                 id: `_import_timeout_${sessionId}`,
-                session_id: sessionId,
+                ...buildImportControlDocBase(sessionId),
                 failed_at: new Date().toISOString(),
                 elapsed_ms: elapsed,
-                error: xaiError.message,
+                error: toErrorString(xaiError),
               };
-              await container.items.create(timeoutDoc).catch(() => {}); // Ignore errors
-              console.log(`[import-start] session=${sessionId} timeout signal written`);
+              const result = await upsertItemWithPkCandidates(container, timeoutDoc);
+              if (!result.ok) {
+                console.warn(
+                  `[import-start] request_id=${requestId} session=${sessionId} failed to upsert timeout signal: ${result.error}`
+                );
+              } else {
+                console.log(`[import-start] request_id=${requestId} session=${sessionId} timeout signal written`);
+              }
             }
           } catch (e) {
-            console.warn(`[import-start] session=${sessionId} failed to write timeout signal: ${e.message}`);
+            console.warn(
+              `[import-start] request_id=${requestId} session=${sessionId} failed to write timeout signal: ${e?.message || String(e)}`
+            );
           }
         }
+
+        const upstreamStatus = xaiError?.response?.status || null;
+        const upstreamErrorCode =
+          upstreamStatus === 404
+            ? "IMPORT_START_UPSTREAM_NOT_FOUND"
+            : upstreamStatus === 401 || upstreamStatus === 403
+              ? "IMPORT_START_UPSTREAM_UNAUTHORIZED"
+              : "IMPORT_START_UPSTREAM_FAILED";
+
+        const upstreamMessage =
+          upstreamStatus === 404
+            ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
+            : upstreamStatus === 401 || upstreamStatus === 403
+              ? "XAI endpoint rejected the request (unauthorized). Check XAI_EXTERNAL_KEY / authorization settings."
+              : `XAI call failed: ${toErrorString(xaiError)}`;
 
         return respondError(new Error(`XAI call failed: ${toErrorString(xaiError)}`), {
           status: 502,
           details: {
+            code: upstreamErrorCode,
+            message: upstreamMessage,
             xai_code: xaiError?.code || null,
-            xai_status: xaiError?.response?.status || null,
+            xai_status: upstreamStatus,
+            xai_url: xaiUrl,
           },
         });
       }
@@ -2324,10 +2651,19 @@ Return ONLY the JSON array, no other text.`,
         {
           ok: false,
           stage: "fatal",
-          error: `Fatal error: ${e?.message || "Unknown error"}`,
+          session_id: "",
+          request_id: requestId,
+          error: {
+            code: "IMPORT_START_FATAL",
+            message: `Fatal error: ${e?.message || "Unknown error"}`,
+            request_id: requestId,
+            step: "fatal",
+          },
+          legacy_error: `Fatal error: ${e?.message || "Unknown error"}`,
           ...getBuildInfo(),
         },
-        500
+        500,
+        responseHeaders
       );
     }
   };
