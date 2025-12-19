@@ -1849,11 +1849,25 @@ export default function CompanyDashboard() {
     setRefreshSelection({});
 
     try {
-      const res = await apiFetch("/xadmin-api-refresh-company", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company_id: companyId }),
-      });
+      const refreshPaths = ["/admin-refresh-company", "/xadmin-api-refresh-company"];
+
+      let res;
+      let usedPath = refreshPaths[0];
+
+      for (const path of refreshPaths) {
+        usedPath = path;
+        res = await apiFetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ company_id: companyId }),
+        });
+
+        if (res.status !== 404) break;
+      }
+
+      if (!res) {
+        throw new Error("Refresh failed: no response");
+      }
 
       const jsonBody = await res
         .clone()
@@ -1879,7 +1893,7 @@ export default function CompanyDashboard() {
         const errObj = {
           status: res.status,
           message: asString(msg).trim() || `Refresh failed (${res.status})`,
-          url: "/api/xadmin-api-refresh-company",
+          url: `/api${usedPath}`,
           response: body && Object.keys(body).length ? body : textBody,
         };
 
@@ -1893,7 +1907,7 @@ export default function CompanyDashboard() {
         const errObj = {
           status: res.status,
           message: "No proposed updates returned.",
-          url: "/api/xadmin-api-refresh-company",
+          url: `/api${usedPath}`,
           response: body,
         };
         setRefreshError(errObj);
@@ -1917,7 +1931,7 @@ export default function CompanyDashboard() {
       const errObj = {
         status: 0,
         message: e?.message || "Refresh failed",
-        url: "/api/xadmin-api-refresh-company",
+        url: "(request failed)",
         response: { error: e?.message || String(e) },
       };
       setRefreshError(errObj);
