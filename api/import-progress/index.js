@@ -146,17 +146,23 @@ app.http("import-progress", {
 
       // Return what we found in Cosmos DB
       // Note: completed flag signals that import-start finished (0 results or successful save)
-      return json({
-        ok: true,
-        session_id: sessionId,
-        items: resources.slice(0, take),
-        steps: [],
-        stopped: stopped || timedOut || completed,  // Include completed as a "stopped" state for UI
-        timedOut: timedOut,
-        completed: completed,  // Explicitly signal 0-results completion
-        saved,
-        lastCreatedAt
-      }, 200, req);
+      return json(
+        {
+          ok: true,
+          session_id: sessionId,
+          items: resources.slice(0, take),
+          steps: [],
+          stopped: stopped || timedOut || completed || failed,
+          timedOut,
+          completed,
+          failed,
+          ...(error ? { error } : {}),
+          saved,
+          lastCreatedAt,
+        },
+        200,
+        req
+      );
     } catch (e) {
       console.error("[import-progress] Query error:", e.message);
       console.error("[import-progress] Full error:", e);
