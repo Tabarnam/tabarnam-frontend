@@ -2510,7 +2510,13 @@ Return ONLY the JSON array, no other text.`,
           return respondError(new Error(`XAI returned ${xaiResponse.status}`), {
             status: 502,
             details: {
+              code: xaiResponse.status === 404 ? "IMPORT_START_UPSTREAM_NOT_FOUND" : "IMPORT_START_UPSTREAM_FAILED",
+              message:
+                xaiResponse.status === 404
+                  ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
+                  : `XAI returned ${xaiResponse.status}`,
               xai_status: xaiResponse.status,
+              xai_url: xaiUrl,
             },
           });
         }
@@ -2554,11 +2560,29 @@ Return ONLY the JSON array, no other text.`,
           }
         }
 
+        const upstreamStatus = xaiError?.response?.status || null;
+        const upstreamErrorCode =
+          upstreamStatus === 404
+            ? "IMPORT_START_UPSTREAM_NOT_FOUND"
+            : upstreamStatus === 401 || upstreamStatus === 403
+              ? "IMPORT_START_UPSTREAM_UNAUTHORIZED"
+              : "IMPORT_START_UPSTREAM_FAILED";
+
+        const upstreamMessage =
+          upstreamStatus === 404
+            ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
+            : upstreamStatus === 401 || upstreamStatus === 403
+              ? "XAI endpoint rejected the request (unauthorized). Check XAI_EXTERNAL_KEY / authorization settings."
+              : `XAI call failed: ${toErrorString(xaiError)}`;
+
         return respondError(new Error(`XAI call failed: ${toErrorString(xaiError)}`), {
           status: 502,
           details: {
+            code: upstreamErrorCode,
+            message: upstreamMessage,
             xai_code: xaiError?.code || null,
-            xai_status: xaiError?.response?.status || null,
+            xai_status: upstreamStatus,
+            xai_url: xaiUrl,
           },
         });
       }
