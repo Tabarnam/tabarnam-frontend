@@ -80,6 +80,14 @@ function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
+function readTimeoutMs(value, fallback) {
+  const raw = asString(value).trim();
+  const num = Number(raw);
+  if (!Number.isFinite(num) || num <= 0) return fallback;
+  const clamped = Math.max(5000, Math.min(300000, Math.floor(num)));
+  return clamped;
+}
+
 function toNormalizedDomain(s = "") {
   try {
     const u = s.startsWith("http") ? new URL(s) : new URL(`https://${s}`);
@@ -302,6 +310,11 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
   const startedAt = Date.now();
   let stage = "start";
 
+  const xaiTimeoutMs = readTimeoutMs(
+    deps.xaiTimeoutMs ?? process.env.XAI_TIMEOUT_MS ?? process.env.XAI_REQUEST_TIMEOUT_MS,
+    120000
+  );
+
   const config = {
     COSMOS_DB_ENDPOINT_SET: Boolean(asString(process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_ENDPOINT).trim()),
     COSMOS_DB_KEY_SET: Boolean(asString(process.env.COSMOS_DB_KEY || process.env.COSMOS_KEY).trim()),
@@ -311,6 +324,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     ),
     XAI_EXTERNAL_BASE_SET: Boolean(asString(process.env.XAI_EXTERNAL_BASE || process.env.FUNCTION_URL).trim()),
     XAI_EXTERNAL_KEY_SET: Boolean(asString(process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || process.env.XAI_API_KEY).trim()),
+    XAI_TIMEOUT_MS: xaiTimeoutMs,
   };
 
   try {
@@ -412,7 +426,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${xaiKey}`,
       },
-      timeout: 25000,
+      timeout: xaiTimeoutMs,
       validateStatus: () => true,
     });
 

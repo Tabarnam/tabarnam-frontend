@@ -2085,7 +2085,7 @@ export default function CompanyDashboard() {
     setRefreshSelection({});
 
     try {
-      const refreshPaths = ["/admin-refresh-company", "/xadmin-api-refresh-company"];
+      const refreshPaths = ["/xadmin-api-refresh-company"];
       const attempts = [];
 
       let res;
