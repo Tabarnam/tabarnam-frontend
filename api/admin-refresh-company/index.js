@@ -1,9 +1,4 @@
-let app;
-try {
-  ({ app } = require("@azure/functions"));
-} catch {
-  app = { http() {} };
-}
+const { app } = require("../_app");
 
 const {
   adminRefreshCompanyHandler,
