@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 test("api/index.js registers refresh-company routes", () => {
+  process.env.TABARNAM_API_INDEX_MODE = "routes-test";
   const app = require("./index.js");
   const routes = app?._test?.listRoutes?.() || [];
 

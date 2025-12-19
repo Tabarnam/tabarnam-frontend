@@ -3,9 +3,26 @@ const { app } = require("./_app");
 
 console.log("[api/index.js] Starting handler registration...");
 
-// -------------------------
-// Public endpoints
-// -------------------------
+const ROUTES_TEST_MODE = process.env.TABARNAM_API_INDEX_MODE === "routes-test";
+
+if (ROUTES_TEST_MODE) {
+  try {
+    console.log("[api] Registering (routes-test): admin-refresh-company");
+    require("./admin-refresh-company/index.js");
+  } catch (e) {
+    console.error("[api] ❌ Failed to load admin-refresh-company:", e?.message || e);
+  }
+
+  try {
+    console.log("[api] Registering (routes-test): xadmin-api-refresh-company");
+    require("./xadmin-api-refresh-company/index.js");
+  } catch (e) {
+    console.error("[api] ❌ Failed to load xadmin-api-refresh-company:", e?.message || e);
+  }
+} else {
+  // -------------------------
+  // Public endpoints
+  // -------------------------
 try {
   console.log("[api] Registering: health");
   require("./health/index.js");
@@ -377,6 +394,7 @@ try {
   console.log("[api] ✓ admin-geocode-location registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-geocode-location:", e?.message || e);
+}
 }
 
 console.log("[api/index.js] ✅ All handler registration complete! Exporting app.");
