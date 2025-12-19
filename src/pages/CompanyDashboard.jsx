@@ -2212,7 +2212,7 @@ export default function CompanyDashboard() {
     } finally {
       setRefreshLoading(false);
     }
-  }, [editorDraft, editorOriginalId, normalizeForDiff, refreshDiffFields]);
+  }, [editorDraft, editorOriginalId, normalizeForDiff, proposedValueToInputText, refreshDiffFields]);
 
   const saveEditor = useCallback(async () => {
     if (!editorDraft) return;
