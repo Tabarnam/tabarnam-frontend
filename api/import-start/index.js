@@ -1201,7 +1201,7 @@ const importStartHandler = async (req, context) => {
 
       const normalizedQuery = String(bodyObj.query || "").trim();
       const normalizedLocation = String(bodyObj.location || "").trim();
-      const normalizedLimit = Math.max(1, Math.min(25, Math.trunc(Number(bodyObj.limit) || 10)));
+      const normalizedLimit = Math.max(1, Math.min(25, Math.trunc(Number(bodyObj.limit) || 1)));
 
       const queryTypesRaw =
         Array.isArray(bodyObj.queryTypes)
