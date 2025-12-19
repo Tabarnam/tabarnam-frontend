@@ -6,6 +6,7 @@ try {
 }
 const { CosmosClient } = require("@azure/cosmos");
 const { getBuildInfo } = require("../_buildInfo");
+const { computeTopLevelDiff, writeCompanyEditHistoryEntry } = require("../_companyEditHistory");
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "admin-companies-v2";
@@ -419,9 +420,48 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           return json({ error: "Invalid JSON", detail: e?.message }, 400);
         }
 
-        const incoming = body.company || body;
-        if (!incoming) {
+        const meta = isPlainObject(body)
+          ? {
+              actor_user_id: String(body.actor_user_id ?? body.actorUserId ?? body.actor ?? "").trim(),
+              actor_email: String(body.actor_email ?? body.actorEmail ?? "").trim(),
+              source: String(body.source ?? body.audit_source ?? body.auditSource ?? "").trim(),
+              action: String(body.action ?? body.audit_action ?? body.auditAction ?? "").trim(),
+              request_id: String(body.request_id ?? body.requestId ?? "").trim(),
+            }
+          : {
+              actor_user_id: "",
+              actor_email: "",
+              source: "",
+              action: "",
+              request_id: "",
+            };
+
+        const incomingRaw = (body && body.company) || body;
+        if (!incomingRaw || typeof incomingRaw !== "object") {
           return json({ error: "company payload required" }, 400);
+        }
+
+        const incoming = isPlainObject(incomingRaw) ? { ...incomingRaw } : incomingRaw;
+
+        if (isPlainObject(incoming)) {
+          const META_KEYS = [
+            "actor",
+            "actor_email",
+            "actorEmail",
+            "actor_user_id",
+            "actorUserId",
+            "source",
+            "audit_source",
+            "auditSource",
+            "action",
+            "audit_action",
+            "auditAction",
+            "request_id",
+            "requestId",
+          ];
+          for (const k of META_KEYS) {
+            if (Object.prototype.hasOwnProperty.call(incoming, k)) delete incoming[k];
+          }
         }
 
         const incomingName = String(incoming.company_name || incoming.name || "").trim();
@@ -566,6 +606,34 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             statusCode: result.statusCode,
             resourceId: result.resource?.id,
           });
+
+          try {
+            const auditAction = String(meta.action || (existingDoc ? "update" : "create")).trim() || (existingDoc ? "update" : "create");
+            const auditSource = String(meta.source || "admin-ui").trim() || "admin-ui";
+            const actor_email = meta.actor_email || (meta.actor_user_id.includes("@") ? meta.actor_user_id : "");
+            const actor_user_id = meta.actor_user_id || actor_email;
+            const request_id = meta.request_id;
+
+            const { changed_fields } = computeTopLevelDiff(existingDoc, doc, {
+              ignoreKeys: ["id", "company_id", "deleted_at", "deleted_by"],
+            });
+
+            if (auditAction !== "update" || changed_fields.length > 0) {
+              await writeCompanyEditHistoryEntry({
+                company_id: String(doc.company_id || doc.id || "").trim(),
+                actor_user_id: actor_user_id || undefined,
+                actor_email: actor_email || undefined,
+                action: auditAction,
+                source: auditSource,
+                request_id: request_id || undefined,
+                before: existingDoc,
+                after: doc,
+              });
+            }
+          } catch (e) {
+            context.log("[admin-companies-v2] Audit log write failed", { error: e?.message });
+          }
+
           return json({ ok: true, company: normalizeCompanyForResponse(doc) }, 200);
         } catch (e) {
           context.log("[admin-companies-v2] Upsert failed completely", {
@@ -637,7 +705,11 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           }
 
           const now = new Date().toISOString();
-          const actor = (body && body.actor) || "admin_ui";
+          const actor = (body && (body.actor || body.actor_email || body.actorEmail || body.actor_user_id || body.actorUserId)) || "admin_ui";
+          const actor_email = String(body?.actor_email || body?.actorEmail || "").trim() || (typeof actor === "string" && actor.includes("@") ? actor : "");
+          const actor_user_id = String(body?.actor_user_id || body?.actorUserId || "").trim() || String(actor || "").trim();
+          const audit_source = String(body?.source || body?.audit_source || body?.auditSource || "admin-ui").trim() || "admin-ui";
+          const request_id = String(body?.request_id || body?.requestId || "").trim();
 
           let softDeleted = 0;
           let hardDeleted = 0;
