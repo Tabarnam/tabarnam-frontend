@@ -104,11 +104,6 @@ function normalizeLocationSources(value) {
     .filter(Boolean);
 }
 
-function normalizeRatingIconType(value) {
-  const v = asString(value).trim().toLowerCase();
-  return v === "heart" ? "heart" : "star";
-}
-
 function normalizeVisibility(value) {
   const v = value && typeof value === "object" ? value : {};
   const out = {
@@ -557,36 +552,38 @@ function isDeletedCompany(company) {
 }
 
 function buildCompanyDraft(company) {
+  const base = company && typeof company === "object" ? company : {};
+  const { rating_icon_type: _ignoredRatingIconType, ...baseCompany } = base;
+
   const manuBase =
-    Array.isArray(company?.manufacturing_geocodes) && company.manufacturing_geocodes.length > 0
-      ? company.manufacturing_geocodes
-      : company?.manufacturing_locations;
+    Array.isArray(baseCompany?.manufacturing_geocodes) && baseCompany.manufacturing_geocodes.length > 0
+      ? baseCompany.manufacturing_geocodes
+      : baseCompany?.manufacturing_locations;
 
   const draft = {
-    ...company,
-    company_id: asString(company?.company_id || company?.id).trim(),
-    company_name: asString(company?.company_name).trim() || asString(company?.name).trim(),
-    name: asString(company?.name).trim(),
-    website_url: getCompanyUrl(company),
-    headquarters_location: asString(company?.headquarters_location).trim(),
+    ...baseCompany,
+    company_id: asString(baseCompany?.company_id || baseCompany?.id).trim(),
+    company_name: asString(baseCompany?.company_name).trim() || asString(baseCompany?.name).trim(),
+    name: asString(baseCompany?.name).trim(),
+    website_url: getCompanyUrl(baseCompany),
+    headquarters_location: asString(baseCompany?.headquarters_location).trim(),
     headquarters_locations: normalizeStructuredLocationList(
-      company?.headquarters_locations || company?.headquarters || company?.headquarters_location
+      baseCompany?.headquarters_locations || baseCompany?.headquarters || baseCompany?.headquarters_location
     ),
     manufacturing_locations: normalizeStructuredLocationList(manuBase),
-    industries: normalizeStringList(company?.industries),
-    keywords: normalizeStringList(company?.keywords || company?.product_keywords),
-    amazon_url: asString(company?.amazon_url).trim(),
-    amazon_store_url: asString(company?.amazon_store_url).trim(),
-    affiliate_link_urls: normalizeStringList(company?.affiliate_link_urls),
-    show_location_sources_to_users: Boolean(company?.show_location_sources_to_users),
-    visibility: normalizeVisibility(company?.visibility),
-    location_sources: normalizeLocationSources(company?.location_sources),
-    rating_icon_type: normalizeRatingIconType(company?.rating_icon_type),
-    rating: company?.rating ? normalizeRating(company.rating) : null,
-    notes_entries: normalizeCompanyNotes(company?.notes_entries || company?.notesEntries),
-    notes: asString(company?.notes).trim(),
-    tagline: asString(company?.tagline).trim(),
-    logo_url: asString(company?.logo_url).trim(),
+    industries: normalizeStringList(baseCompany?.industries),
+    keywords: normalizeStringList(baseCompany?.keywords || baseCompany?.product_keywords),
+    amazon_url: asString(baseCompany?.amazon_url).trim(),
+    amazon_store_url: asString(baseCompany?.amazon_store_url).trim(),
+    affiliate_link_urls: normalizeStringList(baseCompany?.affiliate_link_urls),
+    show_location_sources_to_users: Boolean(baseCompany?.show_location_sources_to_users),
+    visibility: normalizeVisibility(baseCompany?.visibility),
+    location_sources: normalizeLocationSources(baseCompany?.location_sources),
+    rating: baseCompany?.rating ? normalizeRating(baseCompany.rating) : null,
+    notes_entries: normalizeCompanyNotes(baseCompany?.notes_entries || baseCompany?.notesEntries),
+    notes: asString(baseCompany?.notes).trim(),
+    tagline: asString(baseCompany?.tagline).trim(),
+    logo_url: asString(baseCompany?.logo_url).trim(),
   };
 
   if (!draft.name) draft.name = draft.company_name;
@@ -1353,7 +1350,6 @@ export default function CompanyDashboard() {
       manufacturing_locations: [],
       industries: [],
       keywords: [],
-      rating_icon_type: "star",
       rating: calculateInitialRating({ hasManufacturingLocations: false, hasHeadquarters: false, hasReviews: false }),
       notes_entries: [],
       notes: "",
@@ -1617,14 +1613,15 @@ export default function CompanyDashboard() {
       const industries = normalizeStringList(editorDraft.industries);
       const keywords = normalizeStringList(editorDraft.keywords);
       const rating = normalizeRating(editorDraft.rating);
-      const rating_icon_type = normalizeRatingIconType(editorDraft.rating_icon_type);
       const notes_entries = normalizeCompanyNotes(editorDraft.notes_entries);
       const location_sources = normalizeLocationSources(editorDraft.location_sources);
       const visibility = normalizeVisibility(editorDraft.visibility);
       const affiliate_link_urls = normalizeStringList(editorDraft.affiliate_link_urls);
 
+      const { rating_icon_type: _ignoredRatingIconType, ...draftBase } = editorDraft;
+
       const payload = {
-        ...editorDraft,
+        ...draftBase,
         company_id: resolvedCompanyId,
         id: asString(editorDraft.id).trim() || resolvedCompanyId,
         company_name: resolvedCompanyName,
@@ -1640,7 +1637,6 @@ export default function CompanyDashboard() {
         keywords,
         product_keywords: keywords,
         rating,
-        rating_icon_type,
         notes_entries,
         notes: asString(editorDraft.notes).trim(),
         tagline: asString(editorDraft.tagline).trim(),
@@ -2718,23 +2714,6 @@ export default function CompanyDashboard() {
                                 <span>Show QQ rating</span>
                               </label>
                             </div>
-                          </div>
-
-                          <div className="space-y-1">
-                            <label className="text-sm text-slate-700">QQ icon</label>
-                            <select
-                              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                              value={asString(editorDraft.rating_icon_type || "star")}
-                              onChange={(e) =>
-                                setEditorDraft((d) => ({
-                                  ...(d || {}),
-                                  rating_icon_type: normalizeRatingIconType(e.target.value),
-                                }))
-                              }
-                            >
-                              <option value="star">Star</option>
-                              <option value="heart">Heart</option>
-                            </select>
                           </div>
 
                           <RatingEditor draft={editorDraft} onChange={(next) => setEditorDraft(next)} />
