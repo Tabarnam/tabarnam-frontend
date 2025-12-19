@@ -16,7 +16,7 @@ const {
 
 app.http("xadminApiRefreshCompany", {
   route: "xadmin-api-refresh-company",
-  methods: ["POST", "OPTIONS"],
+  methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
     return adminRefreshCompanyHandler(req, context);

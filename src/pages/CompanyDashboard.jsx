@@ -58,6 +58,24 @@ function prettyJson(value) {
   }
 }
 
+function normalizeBuildIdString(value) {
+  const s = asString(value).trim();
+  if (!s) return "";
+  const m = s.match(/[0-9a-f]{7,40}/i);
+  return m ? m[0] : s;
+}
+
+async function fetchStaticBuildId() {
+  try {
+    const res = await fetch("/__build_id.txt", { cache: "no-store" });
+    if (!res.ok) return "";
+    const txt = await res.text();
+    return normalizeBuildIdString(txt);
+  } catch {
+    return "";
+  }
+}
+
 function normalizeLocationList(value) {
   if (Array.isArray(value)) {
     return value.map((v) => asString(v).trim()).filter(Boolean);
@@ -1850,6 +1868,7 @@ export default function CompanyDashboard() {
 
     try {
       const refreshPaths = ["/admin-refresh-company", "/xadmin-api-refresh-company"];
+      const attempts = [];
 
       let res;
       let usedPath = refreshPaths[0];
@@ -1862,11 +1881,34 @@ export default function CompanyDashboard() {
           body: JSON.stringify({ company_id: companyId }),
         });
 
+        attempts.push({ path, status: res.status });
+
         if (res.status !== 404) break;
       }
 
       if (!res) {
         throw new Error("Refresh failed: no response");
+      }
+
+      const apiBuildId = normalizeBuildIdString(res.headers.get("x-api-build-id"));
+
+      if (attempts.length && attempts.every((a) => a.status === 404)) {
+        const staticBuildId = await fetchStaticBuildId();
+        const buildId = apiBuildId || staticBuildId;
+
+        const msg = `Refresh API missing in prod build${buildId ? ` (build ${buildId})` : ""}`;
+        const errObj = {
+          status: 404,
+          message: msg,
+          url: `/api${usedPath}`,
+          attempts,
+          build_id: buildId,
+          response: { error: "both refresh endpoints returned 404" },
+        };
+
+        setRefreshError(errObj);
+        toast.error(errObj.message);
+        return;
       }
 
       const jsonBody = await res
@@ -1894,11 +1936,13 @@ export default function CompanyDashboard() {
           status: res.status,
           message: asString(msg).trim() || `Refresh failed (${res.status})`,
           url: `/api${usedPath}`,
+          attempts,
+          build_id: apiBuildId,
           response: body && Object.keys(body).length ? body : textBody,
         };
 
         setRefreshError(errObj);
-        toast.error(errObj.message);
+        toast.error(`${errObj.message} (${usedPath} → HTTP ${res.status})`);
         return;
       }
 
@@ -1908,10 +1952,12 @@ export default function CompanyDashboard() {
           status: res.status,
           message: "No proposed updates returned.",
           url: `/api${usedPath}`,
+          attempts,
+          build_id: apiBuildId,
           response: body,
         };
         setRefreshError(errObj);
-        toast.error(errObj.message);
+        toast.error(`${errObj.message} (${usedPath} → HTTP ${res.status})`);
         return;
       }
 
@@ -2751,6 +2797,14 @@ export default function CompanyDashboard() {
                                     Refresh failed{refreshError?.status ? ` (HTTP ${refreshError.status})` : ""}
                                   </div>
                                   <div className="mt-1 whitespace-pre-wrap break-words">{asString(refreshError?.message)}</div>
+                                  {Array.isArray(refreshError?.attempts) && refreshError.attempts.length ? (
+                                    <div className="mt-2 text-xs text-red-900/80 whitespace-pre-wrap break-words">
+                                      Tried: {refreshError.attempts.map((a) => `${a.path} → ${a.status}`).join(", ")}
+                                      {refreshError?.build_id ? ` • build ${asString(refreshError.build_id)}` : ""}
+                                    </div>
+                                  ) : refreshError?.build_id ? (
+                                    <div className="mt-2 text-xs text-red-900/80">Build: {asString(refreshError.build_id)}</div>
+                                  ) : null}
                                 </div>
                                 <Button
                                   type="button"
