@@ -179,6 +179,7 @@ export default function AdminImport() {
       timedOut: false,
       stopped: false,
       start_error: null,
+      start_error_details: null,
       progress_error: null,
       save_result: null,
       save_error: null,
@@ -195,28 +196,72 @@ export default function AdminImport() {
     schedulePoll({ session_id });
 
     try {
+      const requestPayload = {
+        session_id,
+        query: q,
+        queryTypes: selectedTypes,
+        queryType: selectedTypes[0] || "product_keyword",
+        location: asString(location).trim() || undefined,
+        limit: normalizedLimit,
+        expand_if_few: true,
+      };
+
+      if (import.meta.env.DEV) {
+        // Dev-only: makes malformed payloads obvious while debugging
+        console.log("[AdminImport] /import/start payload", requestPayload);
+      }
+
       const res = await apiFetch("/import/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id,
-          query: q,
-          queryTypes: selectedTypes,
-          queryType: selectedTypes[0] || "product_keyword",
-          location: asString(location).trim() || undefined,
-          limit: normalizedLimit,
-          expand_if_few: true,
-        }),
+        body: JSON.stringify(requestPayload),
         signal: abort.signal,
       });
 
       const body = await readJsonOrText(res);
 
       if (!res.ok || body?.ok === false) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Import failed (${res.status})`;
-        setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
+        const configMsg = await getUserFacingConfigMessage(res);
+        const errorObj = body?.error && typeof body.error === "object" ? body.error : null;
+        const requestId =
+          (errorObj?.request_id && String(errorObj.request_id)) ||
+          (body?.request_id && String(body.request_id)) ||
+          res.headers?.get?.("x-request-id") ||
+          "";
+
+        const msg =
+          configMsg ||
+          errorObj?.message ||
+          body?.legacy_error ||
+          body?.message ||
+          (typeof body?.error === "string" ? body.error : "") ||
+          `Import failed (${res.status})`;
+
+        const detailsForCopy = {
+          status: res.status,
+          session_id,
+          request_id: requestId,
+          request_payload: requestPayload,
+          response_body: body,
+        };
+
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === session_id
+              ? {
+                  ...r,
+                  start_error: msg,
+                  start_error_details: detailsForCopy,
+                }
+              : r
+          )
+        );
         setActiveStatus("error");
-        toast.error(msg);
+        toast.error(
+          errorObj?.code
+            ? `${msg} (code: ${errorObj.code}${errorObj.step ? `, step: ${errorObj.step}` : ""}${requestId ? `, request_id: ${requestId}` : ""})`
+            : msg
+        );
         return;
       }
 
