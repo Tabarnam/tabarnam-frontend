@@ -2526,25 +2526,31 @@ Return ONLY the JSON array, no other text.`,
         // Write timeout signal if this took too long
         if (isOutOfTime() || (xaiError.code === 'ECONNABORTED' || xaiError.message.includes('timeout'))) {
           try {
-            console.log(`[import-start] session=${sessionId} timeout detected during XAI call, writing timeout signal`);
-            const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
-            const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
-            if (endpoint && key) {
-              const client = new CosmosClient({ endpoint, key });
-              const database = client.database((process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim());
-              const container = database.container((process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim());
+            console.log(
+              `[import-start] request_id=${requestId} session=${sessionId} timeout detected during XAI call, writing timeout signal`
+            );
+            const container = getCompaniesCosmosContainer();
+            if (container) {
               const timeoutDoc = {
                 id: `_import_timeout_${sessionId}`,
-                session_id: sessionId,
+                ...buildImportControlDocBase(sessionId),
                 failed_at: new Date().toISOString(),
                 elapsed_ms: elapsed,
-                error: xaiError.message,
+                error: toErrorString(xaiError),
               };
-              await container.items.create(timeoutDoc).catch(() => {}); // Ignore errors
-              console.log(`[import-start] session=${sessionId} timeout signal written`);
+              const result = await upsertItemWithPkCandidates(container, timeoutDoc);
+              if (!result.ok) {
+                console.warn(
+                  `[import-start] request_id=${requestId} session=${sessionId} failed to upsert timeout signal: ${result.error}`
+                );
+              } else {
+                console.log(`[import-start] request_id=${requestId} session=${sessionId} timeout signal written`);
+              }
             }
           } catch (e) {
-            console.warn(`[import-start] session=${sessionId} failed to write timeout signal: ${e.message}`);
+            console.warn(
+              `[import-start] request_id=${requestId} session=${sessionId} failed to write timeout signal: ${e?.message || String(e)}`
+            );
           }
         }
 
