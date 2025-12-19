@@ -1819,6 +1819,164 @@ export default function CompanyDashboard() {
     }
   }, []);
 
+  const proposedValueToInputText = useCallback(
+    (key, value) => {
+      switch (key) {
+        case "industries":
+        case "keywords": {
+          const list = normalizeStringList(value);
+          return list.length ? list.join("\n") : "";
+        }
+        case "headquarters_locations":
+        case "manufacturing_locations": {
+          const list = normalizeStructuredLocationList(value).map((v) => formatStructuredLocation(v)).filter(Boolean);
+          return list.length ? list.join("\n") : "";
+        }
+        case "location_sources": {
+          const list = Array.isArray(value) ? value : [];
+          const lines = list
+            .filter((v) => v && typeof v === "object")
+            .map((v) => {
+              const location = asString(v.location).trim();
+              const source_url = asString(v.source_url).trim();
+              const source_type = asString(v.source_type).trim();
+              const location_type = asString(v.location_type).trim();
+              return [location, source_type, location_type, source_url].filter(Boolean).join(" — ");
+            })
+            .filter(Boolean);
+          return lines.length ? lines.join("\n") : "";
+        }
+        case "red_flag": {
+          return Boolean(value) ? "true" : "false";
+        }
+        default:
+          return asString(value).trim();
+      }
+    },
+    []
+  );
+
+  const parseProposedInputText = useCallback(
+    (key, text, prevValue) => {
+      const raw = asString(text);
+      switch (key) {
+        case "industries":
+        case "keywords": {
+          const parts = raw
+            .split(/\r?\n/)
+            .flatMap((line) => line.split(/,/))
+            .map((v) => v.trim())
+            .filter(Boolean);
+          return parts;
+        }
+        case "headquarters_locations":
+        case "manufacturing_locations": {
+          const existing = normalizeStructuredLocationList(prevValue);
+          const used = new Set();
+          const lines = raw
+            .split(/\r?\n/)
+            .map((v) => v.trim())
+            .filter(Boolean);
+
+          const next = [];
+          for (const line of lines) {
+            let found = null;
+            for (let i = 0; i < existing.length; i += 1) {
+              if (used.has(i)) continue;
+              const display = formatStructuredLocation(existing[i]).trim();
+              if (display && display === line) {
+                found = existing[i];
+                used.add(i);
+                break;
+              }
+            }
+            next.push(found || normalizeStructuredLocationEntry(line));
+          }
+
+          return next.filter(Boolean);
+        }
+        case "location_sources": {
+          const existing = Array.isArray(prevValue) ? prevValue.filter((v) => v && typeof v === "object") : [];
+          const existingLines = existing.map((v) => {
+            const location = asString(v.location).trim();
+            const source_url = asString(v.source_url).trim();
+            const source_type = asString(v.source_type).trim();
+            const location_type = asString(v.location_type).trim();
+            return [location, source_type, location_type, source_url].filter(Boolean).join(" — ");
+          });
+
+          const used = new Set();
+          const lines = raw
+            .split(/\r?\n/)
+            .map((v) => v.trim())
+            .filter(Boolean);
+
+          const next = [];
+          for (const line of lines) {
+            const idx = existingLines.findIndex((l, i) => !used.has(i) && l === line);
+            if (idx !== -1) {
+              used.add(idx);
+              next.push(existing[idx]);
+              continue;
+            }
+
+            const parts = line
+              .split(/\s*(?:—|\|)\s*/)
+              .map((p) => p.trim())
+              .filter(Boolean);
+
+            const [p1, p2, p3, p4] = parts;
+            const looksLikeUrl = (v) => /^https?:\/\//i.test(asString(v).trim());
+
+            const obj = {
+              location: asString(p1).trim(),
+              source_type: "",
+              location_type: "",
+              source_url: "",
+            };
+
+            if (parts.length === 2) {
+              if (looksLikeUrl(p2)) obj.source_url = asString(p2).trim();
+              else obj.source_type = asString(p2).trim();
+            } else if (parts.length === 3) {
+              if (looksLikeUrl(p3)) {
+                obj.source_type = asString(p2).trim();
+                obj.source_url = asString(p3).trim();
+              } else {
+                obj.source_type = asString(p2).trim();
+                obj.location_type = asString(p3).trim();
+              }
+            } else if (parts.length >= 4) {
+              obj.source_type = asString(p2).trim();
+              obj.location_type = asString(p3).trim();
+              obj.source_url = asString(p4).trim();
+            }
+
+            if (obj.location || obj.source_type || obj.location_type || obj.source_url) next.push(obj);
+          }
+
+          return next;
+        }
+        case "red_flag": {
+          const v = raw.trim().toLowerCase();
+          if (!v) return false;
+          if (["true", "1", "yes", "y"].includes(v)) return true;
+          if (["false", "0", "no", "n"].includes(v)) return false;
+          return Boolean(prevValue);
+        }
+        case "location_confidence": {
+          const trimmed = raw.trim();
+          if (!trimmed) return "";
+          const num = Number(trimmed);
+          return Number.isFinite(num) ? num : trimmed;
+        }
+        default:
+          return raw;
+      }
+    },
+    []
+  );
+
   const diffRows = useMemo(() => {
     if (!editorDraft || !refreshProposed || typeof refreshProposed !== "object") return [];
 
