@@ -1526,6 +1526,7 @@ const importStartHandler = async (req, context) => {
           }
 
           if (!body.session_id) body.session_id = sessionId;
+          if (!body.request_id) body.request_id = requestId;
           if (xaiRequestId && !body.xai_request_id) body.xai_request_id = xaiRequestId;
 
           const elapsedMs = Date.now() - startTime;
