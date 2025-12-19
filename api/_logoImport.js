@@ -1,8 +1,6 @@
 const {
   BlobServiceClient,
   StorageSharedKeyCredential,
-  BlobSASPermissions,
-  generateBlobSASQueryParameters,
 } = require("@azure/storage-blob");
 const sharp = require("sharp");
 const { v4: uuidv4 } = require("uuid");
@@ -683,24 +681,7 @@ async function uploadPngToBlob({ companyId, pngBuffer }, logger = console) {
     blobHTTPHeaders: { blobContentType: "image/png" },
   });
 
-  let logoUrl = blockBlobClient.url;
-  try {
-    const expiresOn = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
-    const sasParams = generateBlobSASQueryParameters(
-      {
-        containerName,
-        blobName,
-        permissions: BlobSASPermissions.parse("r"),
-        expiresOn,
-      },
-      credentials
-    );
-    logoUrl = `${blockBlobClient.url}?${sasParams.toString()}`;
-  } catch (e) {
-    logger?.warn?.(`[logoImport] SAS generation failed: ${e?.message || e}`);
-  }
-
-  return logoUrl;
+  return blockBlobClient.url;
 }
 
 async function importCompanyLogo({ companyId, domain, websiteUrl, logoSourceUrl }, logger = console) {

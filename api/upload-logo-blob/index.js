@@ -1,5 +1,5 @@
 const { app } = require("@azure/functions");
-const { BlobServiceClient, StorageSharedKeyCredential, BlobSASPermissions, generateBlobSASQueryParameters } = require("@azure/storage-blob");
+const { BlobServiceClient, StorageSharedKeyCredential } = require("@azure/storage-blob");
 const { CosmosClient } = require("@azure/cosmos");
 const sharp = require("sharp");
 const { v4: uuidv4 } = require("uuid");
@@ -196,27 +196,10 @@ app.http("upload-logo-blob", {
         blobHTTPHeaders: { blobContentType: "image/webp" },
       });
 
-      // Generate SAS URL with 1-year expiration for secure blob access
-      let logoUrl = blockBlobClient.url;
-      try {
-        const expiresOn = new Date(new Date().getTime() + 365 * 24 * 60 * 60 * 1000);
-        const sasParams = generateBlobSASQueryParameters(
-          {
-            containerName,
-            blobName,
-            permissions: BlobSASPermissions.parse("r"),
-            expiresOn,
-          },
-          credentials
-        );
-        logoUrl = `${blockBlobClient.url}?${sasParams.toString()}`;
-        ctx.log(`[upload-logo-blob] Generated SAS URL for blob access`);
-      } catch (sasError) {
-        ctx.warn(`[upload-logo-blob] Failed to generate SAS URL, using plain blob URL instead: ${sasError.message}`);
-        // Fall back to plain URL if SAS generation fails
-      }
+      // Public container (Blob) + stable URL (no SAS). This URL should not expire.
+      const logoUrl = blockBlobClient.url;
 
-      ctx.log(`[upload-logo-blob] Successfully uploaded logo for company ${companyId}`);
+      ctx.log(`[upload-logo-blob] Uploaded logo (public URL) for company ${companyId}`);
 
       // Persist the logo URL to Cosmos DB (required for admin logo persistence)
       const cosmosContainer = getCosmosContainer(ctx);
