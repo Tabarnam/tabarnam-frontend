@@ -2080,6 +2080,8 @@ export default function CompanyDashboard() {
     setRefreshLoading(true);
     setRefreshError(null);
     setRefreshProposed(null);
+    setProposedDraft(null);
+    setProposedDraftText({});
     setRefreshSelection({});
 
     try {
