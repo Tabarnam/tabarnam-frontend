@@ -14,8 +14,8 @@ const {
   toNormalizedDomain,
 } = require("../_adminRefreshCompany");
 
-app.http("adminRefreshCompany", {
-  route: "admin-refresh-company",
+app.http("xadminApiRefreshCompany", {
+  route: "xadmin-api-refresh-company",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
