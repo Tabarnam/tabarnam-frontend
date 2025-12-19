@@ -1364,6 +1364,31 @@ const importStartHandler = async (req, context) => {
         location: String(bodyObj.location || ""),
       });
 
+      const dryRun = bodyObj.dry_run === true || bodyObj.dry_run === "true";
+      if (dryRun) {
+        setStage("dry_run");
+        return jsonWithRequestId(
+          {
+            ok: true,
+            stage,
+            session_id: sessionId,
+            request_id: requestId,
+            company_name: contextInfo.company_name,
+            website_url: contextInfo.website_url,
+            normalized_domain: contextInfo.normalized_domain,
+            received: {
+              query: String(bodyObj.query || ""),
+              queryType: String(bodyObj.queryType || ""),
+              queryTypes: Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [],
+              location: String(bodyObj.location || ""),
+              limit: Number(bodyObj.limit) || 0,
+            },
+            ...buildInfo,
+          },
+          200
+        );
+      }
+
       if (!String(bodyObj.query || "").trim()) {
         return respondError(new Error("query is required"), {
           status: 400,
