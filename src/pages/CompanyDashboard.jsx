@@ -1717,6 +1717,7 @@ export default function CompanyDashboard() {
     setRefreshError(null);
     setRefreshProposed(null);
     setProposedDraft(null);
+    setProposedDraftText({});
     setRefreshSelection({});
     setEditorOpen(true);
   }, []);
