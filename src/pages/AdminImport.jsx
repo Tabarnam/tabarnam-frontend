@@ -641,7 +641,42 @@ export default function AdminImport() {
             </div>
 
             {activeRun?.start_error ? (
-              <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">{activeRun.start_error}</div>
+              <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900 space-y-2">
+                <div className="font-semibold">Import failed</div>
+                <div>{activeRun.start_error}</div>
+                {(() => {
+                  const responseBody = activeRun?.start_error_details?.response_body;
+                  const err = responseBody?.error && typeof responseBody.error === "object" ? responseBody.error : null;
+                  const requestId =
+                    (err?.request_id && String(err.request_id)) ||
+                    (activeRun?.start_error_details?.request_id && String(activeRun.start_error_details.request_id)) ||
+                    "";
+                  const step = (err?.step && String(err.step)) || (responseBody?.stage && String(responseBody.stage)) || "";
+                  const code = (err?.code && String(err.code)) || "";
+
+                  if (!code && !step && !requestId) return null;
+
+                  return (
+                    <div className="rounded border border-red-200 bg-white/60 p-2 text-xs text-red-900 space-y-1">
+                      {code ? (
+                        <div>
+                          <span className="font-medium">code:</span> <code className="bg-red-100 px-1 py-0.5 rounded">{code}</code>
+                        </div>
+                      ) : null}
+                      {step ? (
+                        <div>
+                          <span className="font-medium">step:</span> <code className="bg-red-100 px-1 py-0.5 rounded">{step}</code>
+                        </div>
+                      ) : null}
+                      {requestId ? (
+                        <div>
+                          <span className="font-medium">request_id:</span> <code className="bg-red-100 px-1 py-0.5 rounded">{requestId}</code>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()}
+              </div>
             ) : null}
 
             {activeRun?.progress_error ? (
