@@ -1491,7 +1491,7 @@ const importStartHandler = async (req, context) => {
             upstream_url: usedUrl,
           };
 
-          return json(body, resp?.status || 502);
+          return json(body, resp?.status || 502, responseHeaders);
         } catch (e) {
           const elapsedMs = Date.now() - startTime;
           const isTimeout =
@@ -1595,12 +1595,19 @@ const importStartHandler = async (req, context) => {
         if (wasAlreadyStopped) {
           setStage("stopped");
           console.log(`[import-start] session=${sessionId} stop signal detected before XAI call`);
-          return json(
+          return jsonWithRequestId(
             {
               ok: false,
               stage,
-              error: "Import was stopped",
               session_id: sessionId,
+              request_id: requestId,
+              error: {
+                code: "IMPORT_STOPPED",
+                message: "Import was stopped",
+                request_id: requestId,
+                step: stage,
+              },
+              legacy_error: "Import was stopped",
               ...buildInfo,
               companies: [],
               saved: 0,
@@ -1881,23 +1888,27 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               console.warn(`[import-start] session=${sessionId} error writing completion marker: ${e.message}`);
             }
 
-            return json({
-              ok: true,
-              session_id: sessionId,
-              company_name: contextInfo.company_name,
-              website_url: contextInfo.website_url,
-              companies: [],
-              meta: {
-                mode: "direct",
-                expanded: false,
-                timedOut: false,
-                elapsedMs: Date.now() - startTime,
-                no_results_reason: "XAI returned empty response"
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                company_name: contextInfo.company_name,
+                website_url: contextInfo.website_url,
+                companies: [],
+                meta: {
+                  mode: "direct",
+                  expanded: false,
+                  timedOut: false,
+                  elapsedMs: Date.now() - startTime,
+                  no_results_reason: "XAI returned empty response",
+                },
+                saved: 0,
+                skipped: 0,
+                failed: 0,
               },
-              saved: 0,
-              skipped: 0,
-              failed: 0,
-            }, 200);
+              200
+            );
           }
 
           // Ensure product keywords exist and persistable
@@ -2458,23 +2469,27 @@ Return ONLY the JSON array, no other text.`,
             console.warn(`[import-start] session=${sessionId} error writing completion marker: ${e.message}`);
           }
 
-          return json({
-            ok: true,
-            session_id: sessionId,
-            company_name: contextInfo.company_name,
-            website_url: contextInfo.website_url,
-            companies: enriched,
-            meta: {
-              mode: "direct",
-              expanded: xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold,
-              timedOut: timedOut,
-              elapsedMs: elapsed,
+          return jsonWithRequestId(
+            {
+              ok: true,
+              session_id: sessionId,
+              request_id: requestId,
+              company_name: contextInfo.company_name,
+              website_url: contextInfo.website_url,
+              companies: enriched,
+              meta: {
+                mode: "direct",
+                expanded: xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold,
+                timedOut: timedOut,
+                elapsedMs: elapsed,
+              },
+              saved: saveResult.saved,
+              skipped: saveResult.skipped,
+              failed: saveResult.failed,
+              ...(debugOutput ? { debug: debugOutput } : {}),
             },
-            saved: saveResult.saved,
-            skipped: saveResult.skipped,
-            failed: saveResult.failed,
-            ...(debugOutput ? { debug: debugOutput } : {}),
-          }, 200);
+            200
+          );
         } else {
           console.error(`[import-start] XAI error status: ${xaiResponse.status}`);
           return respondError(new Error(`XAI returned ${xaiResponse.status}`), {
@@ -2535,10 +2550,19 @@ Return ONLY the JSON array, no other text.`,
         {
           ok: false,
           stage: "fatal",
-          error: `Fatal error: ${e?.message || "Unknown error"}`,
+          session_id: "",
+          request_id: requestId,
+          error: {
+            code: "IMPORT_START_FATAL",
+            message: `Fatal error: ${e?.message || "Unknown error"}`,
+            request_id: requestId,
+            step: "fatal",
+          },
+          legacy_error: `Fatal error: ${e?.message || "Unknown error"}`,
           ...getBuildInfo(),
         },
-        500
+        500,
+        responseHeaders
       );
     }
   };
