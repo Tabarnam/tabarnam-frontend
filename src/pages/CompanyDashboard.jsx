@@ -2217,7 +2217,27 @@ export default function CompanyDashboard() {
   const saveEditor = useCallback(async () => {
     if (!editorDraft) return;
 
-    const validationError = validateCompanyDraft(editorDraft);
+    const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
+    const protectedKeys = new Set(["logo_url", "notes", "notes_entries", "rating"]);
+
+    const draftForSave = (() => {
+      if (!baseProposed) return editorDraft;
+
+      const base = editorDraft;
+      let next = base;
+
+      for (const f of refreshDiffFields) {
+        if (protectedKeys.has(f.key)) continue;
+        if (!refreshSelection?.[f.key]) continue;
+        if (!Object.prototype.hasOwnProperty.call(baseProposed, f.key)) continue;
+        if (next === base) next = { ...base };
+        next[f.key] = baseProposed[f.key];
+      }
+
+      return next;
+    })();
+
+    const validationError = validateCompanyDraft(draftForSave);
     if (validationError) {
       toast.error(validationError);
       return;
@@ -2227,8 +2247,8 @@ export default function CompanyDashboard() {
 
     setEditorSaving(true);
     try {
-      const draftCompanyId = asString(editorDraft.company_id).trim();
-      const draftCompanyName = asString(editorDraft.company_name).trim();
+      const draftCompanyId = asString(draftForSave.company_id).trim();
+      const draftCompanyName = asString(draftForSave.company_name).trim();
       const draftDisplayOverride = asString(editorDisplayNameOverride).trim();
 
       const resolvedCompanyName = draftCompanyName;
@@ -2240,27 +2260,27 @@ export default function CompanyDashboard() {
         ? draftCompanyId || suggestedId
         : draftCompanyId || asString(editorOriginalId).trim();
 
-      const hqLocations = normalizeStructuredLocationList(editorDraft.headquarters_locations);
-      const manuLocations = normalizeStructuredLocationList(editorDraft.manufacturing_locations);
+      const hqLocations = normalizeStructuredLocationList(draftForSave.headquarters_locations);
+      const manuLocations = normalizeStructuredLocationList(draftForSave.manufacturing_locations);
 
-      const industries = normalizeStringList(editorDraft.industries);
-      const keywords = normalizeStringList(editorDraft.keywords);
-      const rating = normalizeRating(editorDraft.rating);
-      const notes_entries = normalizeCompanyNotes(editorDraft.notes_entries);
-      const location_sources = normalizeLocationSources(editorDraft.location_sources);
-      const visibility = normalizeVisibility(editorDraft.visibility);
-      const affiliate_link_urls = normalizeStringList(editorDraft.affiliate_link_urls);
+      const industries = normalizeStringList(draftForSave.industries);
+      const keywords = normalizeStringList(draftForSave.keywords);
+      const rating = normalizeRating(draftForSave.rating);
+      const notes_entries = normalizeCompanyNotes(draftForSave.notes_entries);
+      const location_sources = normalizeLocationSources(draftForSave.location_sources);
+      const visibility = normalizeVisibility(draftForSave.visibility);
+      const affiliate_link_urls = normalizeStringList(draftForSave.affiliate_link_urls);
 
-      const { rating_icon_type: _ignoredRatingIconType, ...draftBase } = editorDraft;
+      const { rating_icon_type: _ignoredRatingIconType, ...draftBase } = draftForSave;
 
       const payload = {
         ...draftBase,
         company_id: resolvedCompanyId,
-        id: asString(editorDraft.id).trim() || resolvedCompanyId,
+        id: asString(draftForSave.id).trim() || resolvedCompanyId,
         company_name: resolvedCompanyName,
         name: resolvedName,
-        website_url: getCompanyUrl(editorDraft),
-        url: asString(editorDraft.url || getCompanyUrl(editorDraft)).trim(),
+        website_url: getCompanyUrl(draftForSave),
+        url: asString(draftForSave.url || getCompanyUrl(draftForSave)).trim(),
         headquarters_location: hqLocations.length > 0 ? formatStructuredLocation(hqLocations[0]) : "",
         headquarters_locations: hqLocations,
         headquarters: hqLocations,
@@ -2271,13 +2291,13 @@ export default function CompanyDashboard() {
         product_keywords: keywords,
         rating,
         notes_entries,
-        notes: asString(editorDraft.notes).trim(),
-        tagline: asString(editorDraft.tagline).trim(),
-        logo_url: asString(editorDraft.logo_url).trim(),
-        amazon_url: asString(editorDraft.amazon_url).trim(),
-        amazon_store_url: asString(editorDraft.amazon_store_url).trim(),
+        notes: asString(draftForSave.notes).trim(),
+        tagline: asString(draftForSave.tagline).trim(),
+        logo_url: asString(draftForSave.logo_url).trim(),
+        amazon_url: asString(draftForSave.amazon_url).trim(),
+        amazon_store_url: asString(draftForSave.amazon_store_url).trim(),
         affiliate_link_urls,
-        show_location_sources_to_users: Boolean(editorDraft.show_location_sources_to_users),
+        show_location_sources_to_users: Boolean(draftForSave.show_location_sources_to_users),
         visibility,
         location_sources,
       };
@@ -2288,7 +2308,7 @@ export default function CompanyDashboard() {
           payload.id = payload.company_id;
         } else {
           payload.company_id = asString(editorOriginalId).trim();
-          payload.id = asString(editorDraft.id).trim() || payload.company_id;
+          payload.id = asString(draftForSave.id).trim() || payload.company_id;
         }
       }
 
@@ -2323,7 +2343,7 @@ export default function CompanyDashboard() {
     } finally {
       setEditorSaving(false);
     }
-  }, [closeEditor, editorDisplayNameOverride, editorDraft, editorOriginalId]);
+  }, [closeEditor, editorDisplayNameOverride, editorDraft, editorOriginalId, proposedDraft, refreshDiffFields, refreshSelection]);
 
   const updateCompanyInState = useCallback((companyId, patch) => {
     const id = asString(companyId).trim();
