@@ -2002,7 +2002,7 @@ export default function CompanyDashboard() {
     }
 
     return rows;
-  }, [diffToDisplay, editorDraft, normalizeForDiff, proposedDraft, refreshDiffFields]);
+  }, [diffToDisplay, editorDraft, normalizeForDiff, refreshDiffFields, refreshProposed]);
 
   const selectedDiffCount = useMemo(() => {
     return diffRows.reduce((sum, row) => sum + (refreshSelection[row.key] ? 1 : 0), 0);
