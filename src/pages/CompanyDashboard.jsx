@@ -22,6 +22,7 @@ import ScrollScrubber from "@/components/ScrollScrubber";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 import { apiFetch, getUserFacingConfigMessage } from "@/lib/api";
 import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
@@ -1410,6 +1411,7 @@ export default function CompanyDashboard() {
   const [refreshLoading, setRefreshLoading] = useState(false);
   const [refreshError, setRefreshError] = useState(null);
   const [refreshProposed, setRefreshProposed] = useState(null);
+  const [proposedDraft, setProposedDraft] = useState(null);
   const [refreshSelection, setRefreshSelection] = useState({});
 
   const [logoFile, setLogoFile] = useState(null);
@@ -1628,6 +1630,7 @@ export default function CompanyDashboard() {
     setRefreshLoading(false);
     setRefreshError(null);
     setRefreshProposed(null);
+    setProposedDraft(null);
     setRefreshSelection({});
   }, []);
 
@@ -1656,6 +1659,7 @@ export default function CompanyDashboard() {
     setRefreshLoading(false);
     setRefreshError(null);
     setRefreshProposed(null);
+    setProposedDraft(null);
     setRefreshSelection({});
     setEditorOpen(true);
   }, []);
@@ -1693,6 +1697,7 @@ export default function CompanyDashboard() {
     setRefreshLoading(false);
     setRefreshError(null);
     setRefreshProposed(null);
+    setProposedDraft(null);
     setRefreshSelection({});
     setEditorOpen(true);
   }, []);
