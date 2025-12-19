@@ -127,7 +127,7 @@ export default defineConfig(({ mode }) => {
     "http://127.0.0.1:7071"; // Azure Functions Core Tools default
 
   return {
-    plugins: [react(), copyStaticWebAppConfig],
+    plugins: [react(), copyStaticWebAppConfig, emitBuildIdFile],
     resolve: {
       alias: {
         "@": resolve(__dirname, "src"),
