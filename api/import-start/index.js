@@ -2446,47 +2446,42 @@ Return ONLY the JSON array, no other text.`,
 
           // Write a completion marker so import-progress knows this session is done
           try {
-            const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
-            const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
-            if (endpoint && key) {
-              const client = new CosmosClient({ endpoint, key });
-              const database = client.database((process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim());
-              const container = database.container((process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim());
+            const container = getCompaniesCosmosContainer();
+            if (container) {
+              const completionDoc = timedOut
+                ? {
+                    id: `_import_timeout_${sessionId}`,
+                    ...buildImportControlDocBase(sessionId),
+                    completed_at: new Date().toISOString(),
+                    elapsed_ms: elapsed,
+                    reason: "max_processing_time_exceeded",
+                  }
+                : {
+                    id: `_import_complete_${sessionId}`,
+                    ...buildImportControlDocBase(sessionId),
+                    completed_at: new Date().toISOString(),
+                    elapsed_ms: elapsed,
+                    reason: "completed_normally",
+                    saved: saveResult.saved,
+                  };
 
-              let completionDoc;
-              if (timedOut) {
-                console.log(`[import-start] session=${sessionId} timeout detected, writing timeout signal`);
-                completionDoc = {
-                  id: `_import_timeout_${sessionId}`,
-                  session_id: sessionId,
-                  completed_at: new Date().toISOString(),
-                  elapsed_ms: elapsed,
-                  reason: "max processing time exceeded",
-                };
+              const result = await upsertItemWithPkCandidates(container, completionDoc);
+              if (!result.ok) {
+                console.warn(
+                  `[import-start] request_id=${requestId} session=${sessionId} failed to upsert completion marker: ${result.error}`
+                );
+              } else if (timedOut) {
+                console.log(`[import-start] request_id=${requestId} session=${sessionId} timeout signal written`);
               } else {
-                // Write completion marker for successful finish
-                completionDoc = {
-                  id: `_import_complete_${sessionId}`,
-                  session_id: sessionId,
-                  completed_at: new Date().toISOString(),
-                  elapsed_ms: elapsed,
-                  reason: "completed_normally",
-                  saved: saveResult.saved,
-                };
-              }
-
-              await container.items.create(completionDoc).catch(e => {
-                console.warn(`[import-start] session=${sessionId} failed to write completion marker: ${e.message}`);
-              }); // Ignore errors
-
-              if (timedOut) {
-                console.log(`[import-start] session=${sessionId} timeout signal written`);
-              } else {
-                console.log(`[import-start] session=${sessionId} completion marker written (saved=${saveResult.saved})`);
+                console.log(
+                  `[import-start] request_id=${requestId} session=${sessionId} completion marker written (saved=${saveResult.saved})`
+                );
               }
             }
           } catch (e) {
-            console.warn(`[import-start] session=${sessionId} error writing completion marker: ${e.message}`);
+            console.warn(
+              `[import-start] request_id=${requestId} session=${sessionId} error writing completion marker: ${e?.message || String(e)}`
+            );
           }
 
           return jsonWithRequestId(
