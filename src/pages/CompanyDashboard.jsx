@@ -22,6 +22,7 @@ import ScrollScrubber from "@/components/ScrollScrubber";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 import { apiFetch, getUserFacingConfigMessage } from "@/lib/api";
 import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
@@ -55,6 +56,22 @@ function prettyJson(value) {
     return JSON.stringify(value, null, 2);
   } catch {
     return asString(value);
+  }
+}
+
+function deepClone(value) {
+  if (typeof structuredClone === "function") {
+    try {
+      return structuredClone(value);
+    } catch {
+      // ignore
+    }
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
   }
 }
 
@@ -1410,6 +1427,8 @@ export default function CompanyDashboard() {
   const [refreshLoading, setRefreshLoading] = useState(false);
   const [refreshError, setRefreshError] = useState(null);
   const [refreshProposed, setRefreshProposed] = useState(null);
+  const [proposedDraft, setProposedDraft] = useState(null);
+  const [proposedDraftText, setProposedDraftText] = useState({});
   const [refreshSelection, setRefreshSelection] = useState({});
 
   const [logoFile, setLogoFile] = useState(null);
@@ -1628,6 +1647,8 @@ export default function CompanyDashboard() {
     setRefreshLoading(false);
     setRefreshError(null);
     setRefreshProposed(null);
+    setProposedDraft(null);
+    setProposedDraftText({});
     setRefreshSelection({});
   }, []);
 
@@ -1656,6 +1677,8 @@ export default function CompanyDashboard() {
     setRefreshLoading(false);
     setRefreshError(null);
     setRefreshProposed(null);
+    setProposedDraft(null);
+    setProposedDraftText({});
     setRefreshSelection({});
     setEditorOpen(true);
   }, []);
@@ -1693,6 +1716,8 @@ export default function CompanyDashboard() {
     setRefreshLoading(false);
     setRefreshError(null);
     setRefreshProposed(null);
+    setProposedDraft(null);
+    setProposedDraftText({});
     setRefreshSelection({});
     setEditorOpen(true);
   }, []);
@@ -1794,15 +1819,174 @@ export default function CompanyDashboard() {
     }
   }, []);
 
+  const proposedValueToInputText = useCallback(
+    (key, value) => {
+      switch (key) {
+        case "industries":
+        case "keywords": {
+          const list = normalizeStringList(value);
+          return list.length ? list.join("\n") : "";
+        }
+        case "headquarters_locations":
+        case "manufacturing_locations": {
+          const list = normalizeStructuredLocationList(value).map((v) => formatStructuredLocation(v)).filter(Boolean);
+          return list.length ? list.join("\n") : "";
+        }
+        case "location_sources": {
+          const list = Array.isArray(value) ? value : [];
+          const lines = list
+            .filter((v) => v && typeof v === "object")
+            .map((v) => {
+              const location = asString(v.location).trim();
+              const source_url = asString(v.source_url).trim();
+              const source_type = asString(v.source_type).trim();
+              const location_type = asString(v.location_type).trim();
+              return [location, source_type, location_type, source_url].filter(Boolean).join(" — ");
+            })
+            .filter(Boolean);
+          return lines.length ? lines.join("\n") : "";
+        }
+        case "red_flag": {
+          return Boolean(value) ? "true" : "false";
+        }
+        default:
+          return asString(value).trim();
+      }
+    },
+    []
+  );
+
+  const parseProposedInputText = useCallback(
+    (key, text, prevValue) => {
+      const raw = asString(text);
+      switch (key) {
+        case "industries":
+        case "keywords": {
+          const parts = raw
+            .split(/\r?\n/)
+            .flatMap((line) => line.split(/,/))
+            .map((v) => v.trim())
+            .filter(Boolean);
+          return parts;
+        }
+        case "headquarters_locations":
+        case "manufacturing_locations": {
+          const existing = normalizeStructuredLocationList(prevValue);
+          const used = new Set();
+          const lines = raw
+            .split(/\r?\n/)
+            .map((v) => v.trim())
+            .filter(Boolean);
+
+          const next = [];
+          for (const line of lines) {
+            let found = null;
+            for (let i = 0; i < existing.length; i += 1) {
+              if (used.has(i)) continue;
+              const display = formatStructuredLocation(existing[i]).trim();
+              if (display && display === line) {
+                found = existing[i];
+                used.add(i);
+                break;
+              }
+            }
+            next.push(found || normalizeStructuredLocationEntry(line));
+          }
+
+          return next.filter(Boolean);
+        }
+        case "location_sources": {
+          const existing = Array.isArray(prevValue) ? prevValue.filter((v) => v && typeof v === "object") : [];
+          const existingLines = existing.map((v) => {
+            const location = asString(v.location).trim();
+            const source_url = asString(v.source_url).trim();
+            const source_type = asString(v.source_type).trim();
+            const location_type = asString(v.location_type).trim();
+            return [location, source_type, location_type, source_url].filter(Boolean).join(" — ");
+          });
+
+          const used = new Set();
+          const lines = raw
+            .split(/\r?\n/)
+            .map((v) => v.trim())
+            .filter(Boolean);
+
+          const next = [];
+          for (const line of lines) {
+            const idx = existingLines.findIndex((l, i) => !used.has(i) && l === line);
+            if (idx !== -1) {
+              used.add(idx);
+              next.push(existing[idx]);
+              continue;
+            }
+
+            const parts = line
+              .split(/\s*(?:—|\|)\s*/)
+              .map((p) => p.trim())
+              .filter(Boolean);
+
+            const [p1, p2, p3, p4] = parts;
+            const looksLikeUrl = (v) => /^https?:\/\//i.test(asString(v).trim());
+
+            const obj = {
+              location: asString(p1).trim(),
+              source_type: "",
+              location_type: "",
+              source_url: "",
+            };
+
+            if (parts.length === 2) {
+              if (looksLikeUrl(p2)) obj.source_url = asString(p2).trim();
+              else obj.source_type = asString(p2).trim();
+            } else if (parts.length === 3) {
+              if (looksLikeUrl(p3)) {
+                obj.source_type = asString(p2).trim();
+                obj.source_url = asString(p3).trim();
+              } else {
+                obj.source_type = asString(p2).trim();
+                obj.location_type = asString(p3).trim();
+              }
+            } else if (parts.length >= 4) {
+              obj.source_type = asString(p2).trim();
+              obj.location_type = asString(p3).trim();
+              obj.source_url = asString(p4).trim();
+            }
+
+            if (obj.location || obj.source_type || obj.location_type || obj.source_url) next.push(obj);
+          }
+
+          return next;
+        }
+        case "red_flag": {
+          const v = raw.trim().toLowerCase();
+          if (!v) return false;
+          if (["true", "1", "yes", "y"].includes(v)) return true;
+          if (["false", "0", "no", "n"].includes(v)) return false;
+          return Boolean(prevValue);
+        }
+        case "location_confidence": {
+          const trimmed = raw.trim();
+          if (!trimmed) return "";
+          const num = Number(trimmed);
+          return Number.isFinite(num) ? num : trimmed;
+        }
+        default:
+          return raw;
+      }
+    },
+    []
+  );
+
   const diffRows = useMemo(() => {
-    if (!editorDraft || !refreshProposed || typeof refreshProposed !== "object") return [];
+    const baseProposed = refreshProposed && typeof refreshProposed === "object" ? refreshProposed : null;
+    if (!editorDraft || !baseProposed) return [];
 
     const rows = [];
     for (const f of refreshDiffFields) {
-      if (!Object.prototype.hasOwnProperty.call(refreshProposed, f.key)) continue;
+      if (!Object.prototype.hasOwnProperty.call(baseProposed, f.key)) continue;
 
       const currentVal = editorDraft?.[f.key];
-      const proposedVal = refreshProposed?.[f.key];
+      const proposedVal = baseProposed?.[f.key];
 
       const a = normalizeForDiff(f.key, currentVal);
       const b = normalizeForDiff(f.key, proposedVal);
@@ -1835,7 +2019,8 @@ export default function CompanyDashboard() {
   }, []);
 
   const applySelectedDiffs = useCallback(() => {
-    if (!refreshProposed || typeof refreshProposed !== "object") return;
+    const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
+    if (!baseProposed) return;
 
     setEditorDraft((prev) => {
       const base = prev && typeof prev === "object" ? prev : {};
@@ -1843,16 +2028,47 @@ export default function CompanyDashboard() {
 
       for (const row of diffRows) {
         if (!refreshSelection[row.key]) continue;
-        if (!Object.prototype.hasOwnProperty.call(refreshProposed, row.key)) continue;
+        if (!Object.prototype.hasOwnProperty.call(baseProposed, row.key)) continue;
         if (next === base) next = { ...base };
-        next[row.key] = refreshProposed[row.key];
+        next[row.key] = baseProposed[row.key];
       }
 
       return next;
     });
 
     toast.success(`Applied ${selectedDiffCount} change${selectedDiffCount === 1 ? "" : "s"}`);
-  }, [diffRows, refreshProposed, refreshSelection, selectedDiffCount]);
+  }, [diffRows, proposedDraft, refreshSelection, selectedDiffCount]);
+
+  const applyAllProposedToDraft = useCallback(() => {
+    const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
+    if (!baseProposed) return;
+
+    const protectedKeys = new Set(["logo_url", "notes", "notes_entries", "rating"]);
+
+    setEditorDraft((prev) => {
+      const base = prev && typeof prev === "object" ? prev : {};
+      let next = base;
+
+      for (const f of refreshDiffFields) {
+        if (protectedKeys.has(f.key)) continue;
+        if (!Object.prototype.hasOwnProperty.call(baseProposed, f.key)) continue;
+        if (next === base) next = { ...base };
+        next[f.key] = baseProposed[f.key];
+      }
+
+      return next;
+    });
+
+    toast.success("Applied proposed values to draft");
+  }, [proposedDraft, refreshDiffFields]);
+
+  const copyAllProposedAsJson = useCallback(async () => {
+    const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
+    if (!baseProposed) return;
+    const ok = await copyToClipboard(prettyJson(baseProposed));
+    if (ok) toast.success("Copied proposed JSON");
+    else toast.error("Copy failed");
+  }, [proposedDraft]);
 
   const refreshCompany = useCallback(async () => {
     const companyId = asString(editorOriginalId || editorDraft?.company_id).trim();
@@ -1864,6 +2080,8 @@ export default function CompanyDashboard() {
     setRefreshLoading(true);
     setRefreshError(null);
     setRefreshProposed(null);
+    setProposedDraft(null);
+    setProposedDraftText({});
     setRefreshSelection({});
 
     try {
@@ -1961,7 +2179,16 @@ export default function CompanyDashboard() {
         return;
       }
 
+      const draft = deepClone(proposed);
       setRefreshProposed(proposed);
+      setProposedDraft(draft);
+
+      const nextText = {};
+      for (const f of refreshDiffFields) {
+        if (!Object.prototype.hasOwnProperty.call(draft, f.key)) continue;
+        nextText[f.key] = proposedValueToInputText(f.key, draft[f.key]);
+      }
+      setProposedDraftText(nextText);
 
       const defaults = {};
       for (const f of refreshDiffFields) {
@@ -1985,12 +2212,32 @@ export default function CompanyDashboard() {
     } finally {
       setRefreshLoading(false);
     }
-  }, [editorDraft, editorOriginalId, normalizeForDiff, refreshDiffFields]);
+  }, [editorDraft, editorOriginalId, normalizeForDiff, proposedValueToInputText, refreshDiffFields]);
 
   const saveEditor = useCallback(async () => {
     if (!editorDraft) return;
 
-    const validationError = validateCompanyDraft(editorDraft);
+    const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
+    const protectedKeys = new Set(["logo_url", "notes", "notes_entries", "rating"]);
+
+    const draftForSave = (() => {
+      if (!baseProposed) return editorDraft;
+
+      const base = editorDraft;
+      let next = base;
+
+      for (const f of refreshDiffFields) {
+        if (protectedKeys.has(f.key)) continue;
+        if (!refreshSelection?.[f.key]) continue;
+        if (!Object.prototype.hasOwnProperty.call(baseProposed, f.key)) continue;
+        if (next === base) next = { ...base };
+        next[f.key] = baseProposed[f.key];
+      }
+
+      return next;
+    })();
+
+    const validationError = validateCompanyDraft(draftForSave);
     if (validationError) {
       toast.error(validationError);
       return;
@@ -2000,8 +2247,8 @@ export default function CompanyDashboard() {
 
     setEditorSaving(true);
     try {
-      const draftCompanyId = asString(editorDraft.company_id).trim();
-      const draftCompanyName = asString(editorDraft.company_name).trim();
+      const draftCompanyId = asString(draftForSave.company_id).trim();
+      const draftCompanyName = asString(draftForSave.company_name).trim();
       const draftDisplayOverride = asString(editorDisplayNameOverride).trim();
 
       const resolvedCompanyName = draftCompanyName;
@@ -2013,27 +2260,27 @@ export default function CompanyDashboard() {
         ? draftCompanyId || suggestedId
         : draftCompanyId || asString(editorOriginalId).trim();
 
-      const hqLocations = normalizeStructuredLocationList(editorDraft.headquarters_locations);
-      const manuLocations = normalizeStructuredLocationList(editorDraft.manufacturing_locations);
+      const hqLocations = normalizeStructuredLocationList(draftForSave.headquarters_locations);
+      const manuLocations = normalizeStructuredLocationList(draftForSave.manufacturing_locations);
 
-      const industries = normalizeStringList(editorDraft.industries);
-      const keywords = normalizeStringList(editorDraft.keywords);
-      const rating = normalizeRating(editorDraft.rating);
-      const notes_entries = normalizeCompanyNotes(editorDraft.notes_entries);
-      const location_sources = normalizeLocationSources(editorDraft.location_sources);
-      const visibility = normalizeVisibility(editorDraft.visibility);
-      const affiliate_link_urls = normalizeStringList(editorDraft.affiliate_link_urls);
+      const industries = normalizeStringList(draftForSave.industries);
+      const keywords = normalizeStringList(draftForSave.keywords);
+      const rating = normalizeRating(draftForSave.rating);
+      const notes_entries = normalizeCompanyNotes(draftForSave.notes_entries);
+      const location_sources = normalizeLocationSources(draftForSave.location_sources);
+      const visibility = normalizeVisibility(draftForSave.visibility);
+      const affiliate_link_urls = normalizeStringList(draftForSave.affiliate_link_urls);
 
-      const { rating_icon_type: _ignoredRatingIconType, ...draftBase } = editorDraft;
+      const { rating_icon_type: _ignoredRatingIconType, ...draftBase } = draftForSave;
 
       const payload = {
         ...draftBase,
         company_id: resolvedCompanyId,
-        id: asString(editorDraft.id).trim() || resolvedCompanyId,
+        id: asString(draftForSave.id).trim() || resolvedCompanyId,
         company_name: resolvedCompanyName,
         name: resolvedName,
-        website_url: getCompanyUrl(editorDraft),
-        url: asString(editorDraft.url || getCompanyUrl(editorDraft)).trim(),
+        website_url: getCompanyUrl(draftForSave),
+        url: asString(draftForSave.url || getCompanyUrl(draftForSave)).trim(),
         headquarters_location: hqLocations.length > 0 ? formatStructuredLocation(hqLocations[0]) : "",
         headquarters_locations: hqLocations,
         headquarters: hqLocations,
@@ -2044,13 +2291,13 @@ export default function CompanyDashboard() {
         product_keywords: keywords,
         rating,
         notes_entries,
-        notes: asString(editorDraft.notes).trim(),
-        tagline: asString(editorDraft.tagline).trim(),
-        logo_url: asString(editorDraft.logo_url).trim(),
-        amazon_url: asString(editorDraft.amazon_url).trim(),
-        amazon_store_url: asString(editorDraft.amazon_store_url).trim(),
+        notes: asString(draftForSave.notes).trim(),
+        tagline: asString(draftForSave.tagline).trim(),
+        logo_url: asString(draftForSave.logo_url).trim(),
+        amazon_url: asString(draftForSave.amazon_url).trim(),
+        amazon_store_url: asString(draftForSave.amazon_store_url).trim(),
         affiliate_link_urls,
-        show_location_sources_to_users: Boolean(editorDraft.show_location_sources_to_users),
+        show_location_sources_to_users: Boolean(draftForSave.show_location_sources_to_users),
         visibility,
         location_sources,
       };
@@ -2061,7 +2308,7 @@ export default function CompanyDashboard() {
           payload.id = payload.company_id;
         } else {
           payload.company_id = asString(editorOriginalId).trim();
-          payload.id = asString(editorDraft.id).trim() || payload.company_id;
+          payload.id = asString(draftForSave.id).trim() || payload.company_id;
         }
       }
 
@@ -2096,7 +2343,7 @@ export default function CompanyDashboard() {
     } finally {
       setEditorSaving(false);
     }
-  }, [closeEditor, editorDisplayNameOverride, editorDraft, editorOriginalId]);
+  }, [closeEditor, editorDisplayNameOverride, editorDraft, editorOriginalId, proposedDraft, refreshDiffFields, refreshSelection]);
 
   const updateCompanyInState = useCallback((companyId, patch) => {
     const id = asString(companyId).trim();
@@ -2765,25 +3012,38 @@ export default function CompanyDashboard() {
                         </div>
                       </div>
 
-                      {editorOriginalId && (refreshLoading || refreshError || refreshProposed) ? (
+                      {editorOriginalId && (refreshLoading || refreshError || proposedDraft) ? (
                         <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="text-sm font-semibold text-slate-900">Proposed refresh</div>
-                            {refreshProposed && diffRows.length > 0 ? (
+                            {proposedDraft ? (
                               <div className="flex flex-wrap items-center gap-2">
-                                <Button type="button" size="sm" variant="outline" onClick={selectAllDiffs}>
-                                  Select all
+                                {diffRows.length > 0 ? (
+                                  <>
+                                    <Button type="button" size="sm" variant="outline" onClick={selectAllDiffs}>
+                                      Select all
+                                    </Button>
+                                    <Button type="button" size="sm" variant="outline" onClick={clearAllDiffs}>
+                                      Clear
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={applySelectedDiffs}
+                                      disabled={selectedDiffCount === 0}
+                                    >
+                                      Apply selected ({selectedDiffCount})
+                                    </Button>
+                                  </>
+                                ) : null}
+
+                                <Button type="button" size="sm" variant="outline" onClick={applyAllProposedToDraft}>
+                                  Apply proposed → editable draft
                                 </Button>
-                                <Button type="button" size="sm" variant="outline" onClick={clearAllDiffs}>
-                                  Clear
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  onClick={applySelectedDiffs}
-                                  disabled={selectedDiffCount === 0}
-                                >
-                                  Apply selected ({selectedDiffCount})
+
+                                <Button type="button" size="sm" variant="outline" onClick={copyAllProposedAsJson} title="Copy all proposed as JSON">
+                                  <Copy className="h-4 w-4 mr-2" />
+                                  Copy all JSON
                                 </Button>
                               </div>
                             ) : null}
@@ -2825,45 +3085,112 @@ export default function CompanyDashboard() {
                             </div>
                           ) : null}
 
-                          {refreshLoading && !refreshProposed && !refreshError ? (
+                          {refreshLoading && !proposedDraft && !refreshError ? (
                             <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                               Fetching proposed updates…
                             </div>
-                          ) : refreshProposed ? (
+                          ) : proposedDraft ? (
                             diffRows.length > 0 ? (
                               <div className="space-y-3">
-                                {diffRows.map((row) => (
-                                  <div key={row.key} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                                    <div className="flex items-start gap-3">
-                                      <Checkbox
-                                        checked={Boolean(refreshSelection[row.key])}
-                                        onCheckedChange={(checked) =>
-                                          setRefreshSelection((prev) => ({
-                                            ...(prev || {}),
-                                            [row.key]: Boolean(checked),
-                                          }))
-                                        }
-                                        aria-label={`Overwrite ${row.label}`}
-                                      />
-                                      <div className="flex-1 min-w-0">
-                                        <div className="text-sm font-medium text-slate-900">{row.label}</div>
-                                        <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-3">
-                                          <div className="rounded border border-slate-200 bg-white p-2">
-                                            <div className="text-xs font-semibold text-slate-700">Current</div>
-                                            <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-800">{row.currentText}</pre>
-                                          </div>
-                                          <div className="rounded border border-slate-200 bg-white p-2">
-                                            <div className="text-xs font-semibold text-slate-700">Proposed</div>
-                                            <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-800">{row.proposedText}</pre>
+                                {diffRows.map((row) => {
+                                  const textValue = Object.prototype.hasOwnProperty.call(proposedDraftText || {}, row.key)
+                                    ? proposedDraftText[row.key]
+                                    : proposedValueToInputText(row.key, proposedDraft?.[row.key]);
+
+                                  const isMultiLine = [
+                                    "industries",
+                                    "keywords",
+                                    "headquarters_locations",
+                                    "manufacturing_locations",
+                                    "location_sources",
+                                    "red_flag_reason",
+                                  ].includes(row.key);
+
+                                  return (
+                                    <div key={row.key} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                      <div className="flex items-start gap-3">
+                                        <Checkbox
+                                          checked={Boolean(refreshSelection[row.key])}
+                                          onCheckedChange={(checked) =>
+                                            setRefreshSelection((prev) => ({
+                                              ...(prev || {}),
+                                              [row.key]: Boolean(checked),
+                                            }))
+                                          }
+                                          aria-label={`Overwrite ${row.label}`}
+                                        />
+                                        <div className="flex-1 min-w-0">
+                                          <div className="text-sm font-medium text-slate-900">{row.label}</div>
+                                          <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                            <div className="rounded border border-slate-200 bg-white p-2">
+                                              <div className="text-xs font-semibold text-slate-700">Current</div>
+                                              <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-800">{row.currentText}</pre>
+                                            </div>
+                                            <div className="rounded border border-slate-200 bg-white p-2">
+                                              <div className="text-xs font-semibold text-slate-700">Proposed (editable)</div>
+                                              <div className="mt-1 flex items-start gap-2">
+                                                {isMultiLine ? (
+                                                  <Textarea
+                                                    value={textValue}
+                                                    onChange={(e) => {
+                                                      const nextText = e.target.value;
+                                                      setProposedDraftText((prev) => ({ ...(prev || {}), [row.key]: nextText }));
+                                                      setProposedDraft((prev) => {
+                                                        const base = prev && typeof prev === "object" ? prev : {};
+                                                        return {
+                                                          ...base,
+                                                          [row.key]: parseProposedInputText(row.key, nextText, base[row.key]),
+                                                        };
+                                                      });
+                                                    }}
+                                                    className="text-xs min-h-[84px] leading-snug"
+                                                    rows={4}
+                                                  />
+                                                ) : (
+                                                  <Input
+                                                    type="text"
+                                                    value={textValue}
+                                                    onChange={(e) => {
+                                                      const nextText = e.target.value;
+                                                      setProposedDraftText((prev) => ({ ...(prev || {}), [row.key]: nextText }));
+                                                      setProposedDraft((prev) => {
+                                                        const base = prev && typeof prev === "object" ? prev : {};
+                                                        return {
+                                                          ...base,
+                                                          [row.key]: parseProposedInputText(row.key, nextText, base[row.key]),
+                                                        };
+                                                      });
+                                                    }}
+                                                    className="h-9 text-xs"
+                                                  />
+                                                )}
+
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="outline"
+                                                  className="h-9 w-9 p-0 flex-none"
+                                                  onClick={async () => {
+                                                    const ok = await copyToClipboard(textValue);
+                                                    if (ok) toast.success("Copied");
+                                                    else toast.error("Copy failed");
+                                                  }}
+                                                  disabled={!asString(textValue).trim()}
+                                                  title="Copy proposed"
+                                                >
+                                                  <Copy className="h-4 w-4" />
+                                                </Button>
+                                              </div>
+                                            </div>
                                           </div>
                                         </div>
                                       </div>
                                     </div>
-                                  </div>
-                                ))}
+                                  );
+                                })}
 
                                 <div className="text-xs text-slate-600">
-                                  Protected fields are never overwritten: logo, structured notes, and manual stars.
+                                  Selected rows will be written on Save. Protected fields are never overwritten: logo, structured notes, and manual stars.
                                 </div>
                               </div>
                             ) : (
