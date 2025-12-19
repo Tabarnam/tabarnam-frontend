@@ -275,6 +275,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: admin-company-history");
+  require("./admin-company-history/index.js");
+  console.log("[api] ✓ admin-company-history registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-company-history:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: xadmin-api-debug");
   require("./admin-debug/index.js");
   console.log("[api] ✓ xadmin-api-debug registered");
