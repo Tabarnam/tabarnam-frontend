@@ -751,7 +751,7 @@ function CompanyNotesEditor({ value, onChange }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-sm text-slate-700 font-medium">Notes</div>
+        <div className="text-sm text-slate-700 font-medium">Manual note (admin)</div>
         <Button type="button" onClick={() => setOpen((v) => !v)}>
           <Plus className="h-4 w-4 mr-2" />
           Note
@@ -840,6 +840,301 @@ function CompanyNotesEditor({ value, onChange }) {
               </label>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function truncateMiddle(value, maxLen = 80) {
+  const s = asString(value).trim();
+  if (!s) return "";
+  if (s.length <= maxLen) return s;
+  const keep = Math.max(10, Math.floor((maxLen - 1) / 2));
+  return `${s.slice(0, keep)}…${s.slice(-keep)}`;
+}
+
+function normalizeImportedReviewsPayload(data) {
+  if (!data || typeof data !== "object") return { ok: false, items: [] };
+  const ok = data.ok === true;
+  const items = Array.isArray(data.items) ? data.items : Array.isArray(data.reviews) ? data.reviews : [];
+  return { ok, items };
+}
+
+function getReviewSourceName(review) {
+  if (!review || typeof review !== "object") return "";
+  return (
+    asString(review.source_name).trim() ||
+    asString(review.source).trim() ||
+    asString(review.reviewer).trim() ||
+    asString(review.user_name).trim() ||
+    asString(review.author).trim()
+  );
+}
+
+function getReviewText(review) {
+  if (!review || typeof review !== "object") return "";
+  return (
+    asString(review.text).trim() ||
+    asString(review.abstract).trim() ||
+    asString(review.excerpt).trim() ||
+    asString(review.snippet).trim() ||
+    asString(review.body).trim()
+  );
+}
+
+function getReviewUrl(review) {
+  if (!review || typeof review !== "object") return "";
+  return asString(review.source_url).trim() || asString(review.url).trim() || asString(review.link).trim();
+}
+
+function getReviewDate(review) {
+  if (!review || typeof review !== "object") return "";
+  return (
+    asString(review.date).trim() ||
+    asString(review.created_at).trim() ||
+    asString(review.imported_at).trim() ||
+    asString(review.published_at).trim() ||
+    asString(review.updated_at).trim() ||
+    asString(review.last_updated_at).trim()
+  );
+}
+
+function getReviewRating(review) {
+  const raw = review && typeof review === "object" ? review.rating : null;
+  if (raw == null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function extractReviewMetadata(review) {
+  if (!review || typeof review !== "object") return [];
+
+  const excluded = new Set([
+    "id",
+    "company_id",
+    "companyId",
+    "company_name",
+    "company",
+    "source_name",
+    "source",
+    "reviewer",
+    "author",
+    "user_name",
+    "text",
+    "abstract",
+    "excerpt",
+    "snippet",
+    "body",
+    "html",
+    "content",
+    "source_url",
+    "url",
+    "link",
+    "date",
+    "created_at",
+    "imported_at",
+    "published_at",
+    "updated_at",
+    "last_updated_at",
+    "rating",
+  ]);
+
+  const entries = [];
+  for (const [key, value] of Object.entries(review)) {
+    if (excluded.has(key)) continue;
+    if (value == null) continue;
+
+    const type = typeof value;
+    if (type === "string") {
+      const s = value.trim();
+      if (!s) continue;
+      if (s.length > 140) continue;
+      entries.push([key, s]);
+    } else if (type === "number" || type === "boolean") {
+      entries.push([key, String(value)]);
+    }
+  }
+
+  entries.sort((a, b) => a[0].localeCompare(b[0]));
+  return entries.slice(0, 8);
+}
+
+function ImportedReviewsPanel({ companyId }) {
+  const stableId = asString(companyId).trim();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [items, setItems] = useState([]);
+
+  const load = useCallback(async () => {
+    const id = asString(stableId).trim();
+    if (!id) {
+      setItems([]);
+      setError(null);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await apiFetch(`/get-reviews?company_id=${encodeURIComponent(id)}`);
+      const data = await res.json().catch(() => ({ items: [], reviews: [] }));
+      if (!res.ok) {
+        throw new Error(asString(data?.error).trim() || res.statusText || "Failed to load imported reviews");
+      }
+
+      const normalized = normalizeImportedReviewsPayload(data);
+      const list = Array.isArray(normalized.items) ? normalized.items : [];
+      setItems(list);
+    } catch (e) {
+      setError({ message: asString(e?.message).trim() || "Failed to load imported reviews" });
+    } finally {
+      setLoading(false);
+    }
+  }, [stableId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!stableId) {
+        setItems([]);
+        setError(null);
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const res = await apiFetch(`/get-reviews?company_id=${encodeURIComponent(stableId)}`);
+        const data = await res.json().catch(() => ({ items: [], reviews: [] }));
+        if (!res.ok) {
+          throw new Error(asString(data?.error).trim() || res.statusText || "Failed to load imported reviews");
+        }
+
+        const normalized = normalizeImportedReviewsPayload(data);
+        const list = Array.isArray(normalized.items) ? normalized.items : [];
+        if (!cancelled) setItems(list);
+      } catch (e) {
+        if (!cancelled) {
+          setError({ message: asString(e?.message).trim() || "Failed to load imported reviews" });
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stableId]);
+
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-slate-900">Imported reviews (read only)</div>
+          <div className="text-xs text-slate-500">
+            Fetched from <code className="text-[11px]">/api/get-reviews?company_id=…</code>
+          </div>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={load} disabled={!stableId || loading}>
+          <RefreshCcw className="h-4 w-4 mr-2" />
+          {loading ? "Loading…" : "Retry"}
+        </Button>
+      </div>
+
+      {!stableId ? (
+        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+          Save the company first to generate a <code className="text-[11px]">company_id</code>.
+        </div>
+      ) : error ? (
+        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 mt-0.5" />
+            <div className="min-w-0">
+              <div className="font-medium">Imported reviews failed to load</div>
+              <div className="text-xs mt-1 break-words">{asString(error.message)}</div>
+            </div>
+          </div>
+        </div>
+      ) : loading ? (
+        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">Loading imported reviews…</div>
+      ) : items.length === 0 ? (
+        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+          No imported reviews found for this company_id.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {items.map((review, idx) => {
+            const sourceName = getReviewSourceName(review) || "Unknown source";
+            const text = getReviewText(review);
+            const url = getReviewUrl(review);
+            const date = getReviewDate(review);
+            const rating = getReviewRating(review);
+            const metadata = extractReviewMetadata(review);
+
+            return (
+              <div
+                key={asString(review?.id).trim() || `${stableId}-${idx}`}
+                className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-slate-900 truncate">{sourceName}</div>
+                    {date ? <div className="text-xs text-slate-500">{toDisplayDate(date)}</div> : null}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {rating != null ? (
+                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                        Rating: {rating}
+                      </span>
+                    ) : null}
+                    {asString(review?.type).trim() ? (
+                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                        {asString(review.type).trim()}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                {text ? (
+                  <div className="text-sm text-slate-800 whitespace-pre-wrap break-words">{text}</div>
+                ) : (
+                  <div className="text-xs text-slate-500">(No text snippet returned)</div>
+                )}
+
+                {url ? (
+                  <div className="text-xs">
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-700 hover:underline break-all"
+                      title={url}
+                    >
+                      {truncateMiddle(url, 90)}
+                    </a>
+                  </div>
+                ) : null}
+
+                {metadata.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {metadata.map(([k, v]) => (
+                      <span
+                        key={k}
+                        className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700"
+                        title={`${k}: ${v}`}
+                      >
+                        {k}: {truncateMiddle(v, 40)}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -2717,6 +3012,14 @@ export default function CompanyDashboard() {
                           </div>
 
                           <RatingEditor draft={editorDraft} onChange={(next) => setEditorDraft(next)} />
+
+                          <ImportedReviewsPanel
+                            companyId={
+                              asString(editorDraft.company_id).trim() ||
+                              asString(editorOriginalId).trim() ||
+                              asString(editorCompanyId).trim()
+                            }
+                          />
 
                           <CompanyNotesEditor
                             value={editorDraft.notes_entries}
