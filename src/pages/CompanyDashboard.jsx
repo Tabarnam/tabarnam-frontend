@@ -19,6 +19,7 @@ import { calculateInitialRating, clampStarValue, normalizeRating } from "@/lib/s
 import AdminHeader from "@/components/AdminHeader";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ScrollScrubber from "@/components/ScrollScrubber";
+import AdminEditHistory from "@/components/AdminEditHistory";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -4033,6 +4034,8 @@ export default function CompanyDashboard() {
                               placeholder="Internal notes…"
                             />
                           </div>
+
+                          {editorOriginalId ? <AdminEditHistory companyId={editorOriginalId} /> : null}
                         </div>
                       </div>
 
