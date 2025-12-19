@@ -6,6 +6,17 @@ try {
 }
 const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
+let randomUUID;
+try {
+  ({ randomUUID } = require("crypto"));
+} catch {
+  randomUUID = null;
+}
+const {
+  getContainerPartitionKeyPath,
+  buildPartitionKeyCandidates,
+  getValueAtPath,
+} = require("../_cosmosPartitionKey");
 const { getXAIEndpoint, getXAIKey } = require("../_shared");
 function requireImportCompanyLogo() {
   const mod = require("../_logoImport");
@@ -46,7 +57,7 @@ if (!globalThis.__importStartProcessHandlersInstalled) {
   });
 }
 
-function json(obj, status = 200) {
+function json(obj, status = 200, extraHeaders) {
   return {
     status,
     headers: {
@@ -54,6 +65,7 @@ function json(obj, status = 200) {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
       "Access-Control-Allow-Headers": "content-type,x-functions-key",
+      ...(extraHeaders && typeof extraHeaders === "object" ? extraHeaders : {}),
     },
     body: JSON.stringify(obj),
   };
@@ -137,6 +149,32 @@ function toErrorString(err) {
   } catch {
     return String(err);
   }
+}
+
+function getHeader(req, name) {
+  if (!req || !name) return null;
+  const headers = req.headers;
+  if (headers && typeof headers.get === "function") {
+    try {
+      const v = headers.get(name);
+      return typeof v === "string" && v.trim() ? v.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+  const h = headers && typeof headers === "object" ? headers : {};
+  const v = h[name] ?? h[name.toLowerCase()] ?? h[name.toUpperCase()];
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+function generateRequestId(req) {
+  const existing =
+    getHeader(req, "x-request-id") ||
+    getHeader(req, "x-correlation-id") ||
+    getHeader(req, "x-client-request-id");
+  if (existing) return existing;
+  if (typeof randomUUID === "function") return randomUUID();
+  return `rid_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
 function extractXaiRequestId(headers) {
