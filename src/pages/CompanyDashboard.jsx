@@ -28,6 +28,7 @@ import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -1854,19 +1855,49 @@ export default function CompanyDashboard() {
         body: JSON.stringify({ company_id: companyId }),
       });
 
-      const body = await res.json().catch(() => ({}));
+      const jsonBody = await res
+        .clone()
+        .json()
+        .catch(() => null);
+      const textBody =
+        jsonBody == null
+          ? await res
+              .clone()
+              .text()
+              .catch(() => "")
+          : null;
+
+      const body = jsonBody && typeof jsonBody === "object" ? jsonBody : {};
       if (!res.ok || body?.ok !== true) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Refresh failed (${res.status})`;
-        setRefreshError(msg);
-        toast.error(msg);
+        const msg =
+          (await getUserFacingConfigMessage(res)) ||
+          body?.error ||
+          (typeof textBody === "string" && textBody.trim() ? textBody.trim().slice(0, 500) : "") ||
+          res.statusText ||
+          `Refresh failed (${res.status})`;
+
+        const errObj = {
+          status: res.status,
+          message: asString(msg).trim() || `Refresh failed (${res.status})`,
+          url: "/api/xadmin-api-refresh-company",
+          response: body && Object.keys(body).length ? body : textBody,
+        };
+
+        setRefreshError(errObj);
+        toast.error(errObj.message);
         return;
       }
 
       const proposed = body?.proposed && typeof body.proposed === "object" ? body.proposed : null;
       if (!proposed) {
-        const msg = "No proposed updates returned.";
-        setRefreshError(msg);
-        toast.error(msg);
+        const errObj = {
+          status: res.status,
+          message: "No proposed updates returned.",
+          url: "/api/xadmin-api-refresh-company",
+          response: body,
+        };
+        setRefreshError(errObj);
+        toast.error(errObj.message);
         return;
       }
 
@@ -1883,9 +1914,14 @@ export default function CompanyDashboard() {
 
       toast.success("Proposed updates loaded");
     } catch (e) {
-      const msg = e?.message || "Refresh failed";
-      setRefreshError(msg);
-      toast.error(msg);
+      const errObj = {
+        status: 0,
+        message: e?.message || "Refresh failed",
+        url: "/api/xadmin-api-refresh-company",
+        response: { error: e?.message || String(e) },
+      };
+      setRefreshError(errObj);
+      toast.error(errObj.message);
     } finally {
       setRefreshLoading(false);
     }
@@ -2571,6 +2607,9 @@ export default function CompanyDashboard() {
                 <div className="flex h-full min-h-0 flex-col">
                   <DialogHeader className="flex-none px-6 py-4 border-b bg-white">
                     <DialogTitle>{editorOriginalId ? "Edit company v2" : "New company"}</DialogTitle>
+                    <DialogDescription className="sr-only">
+                      Edit company details. Use Refresh search to fetch proposed updates.
+                    </DialogDescription>
                   </DialogHeader>
 
                   <div className="relative flex flex-1 min-h-0">
@@ -2691,7 +2730,31 @@ export default function CompanyDashboard() {
                           </div>
 
                           {refreshError ? (
-                            <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">{refreshError}</div>
+                            <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                              <div className="flex flex-wrap items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="font-semibold">
+                                    Refresh failed{refreshError?.status ? ` (HTTP ${refreshError.status})` : ""}
+                                  </div>
+                                  <div className="mt-1 whitespace-pre-wrap break-words">{asString(refreshError?.message)}</div>
+                                </div>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="bg-white"
+                                  onClick={async () => {
+                                    const ok = await copyToClipboard(prettyJson(refreshError));
+                                    if (ok) toast.success("Copied error");
+                                    else toast.error("Copy failed");
+                                  }}
+                                  title="Copy error"
+                                >
+                                  <Copy className="h-4 w-4 mr-2" />
+                                  Copy error
+                                </Button>
+                              </div>
+                            </div>
                           ) : null}
 
                           {refreshLoading && !refreshProposed && !refreshError ? (
