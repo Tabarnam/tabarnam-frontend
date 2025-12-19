@@ -59,6 +59,22 @@ function prettyJson(value) {
   }
 }
 
+function deepClone(value) {
+  if (typeof structuredClone === "function") {
+    try {
+      return structuredClone(value);
+    } catch {
+      // ignore
+    }
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
+}
+
 function normalizeBuildIdString(value) {
   const s = asString(value).trim();
   if (!s) return "";
