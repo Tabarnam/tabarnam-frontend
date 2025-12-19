@@ -3012,25 +3012,38 @@ export default function CompanyDashboard() {
                         </div>
                       </div>
 
-                      {editorOriginalId && (refreshLoading || refreshError || refreshProposed) ? (
+                      {editorOriginalId && (refreshLoading || refreshError || proposedDraft) ? (
                         <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="text-sm font-semibold text-slate-900">Proposed refresh</div>
-                            {refreshProposed && diffRows.length > 0 ? (
+                            {proposedDraft ? (
                               <div className="flex flex-wrap items-center gap-2">
-                                <Button type="button" size="sm" variant="outline" onClick={selectAllDiffs}>
-                                  Select all
+                                {diffRows.length > 0 ? (
+                                  <>
+                                    <Button type="button" size="sm" variant="outline" onClick={selectAllDiffs}>
+                                      Select all
+                                    </Button>
+                                    <Button type="button" size="sm" variant="outline" onClick={clearAllDiffs}>
+                                      Clear
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={applySelectedDiffs}
+                                      disabled={selectedDiffCount === 0}
+                                    >
+                                      Apply selected ({selectedDiffCount})
+                                    </Button>
+                                  </>
+                                ) : null}
+
+                                <Button type="button" size="sm" variant="outline" onClick={applyAllProposedToDraft}>
+                                  Apply proposed → editable draft
                                 </Button>
-                                <Button type="button" size="sm" variant="outline" onClick={clearAllDiffs}>
-                                  Clear
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  onClick={applySelectedDiffs}
-                                  disabled={selectedDiffCount === 0}
-                                >
-                                  Apply selected ({selectedDiffCount})
+
+                                <Button type="button" size="sm" variant="outline" onClick={copyAllProposedAsJson} title="Copy all proposed as JSON">
+                                  <Copy className="h-4 w-4 mr-2" />
+                                  Copy all JSON
                                 </Button>
                               </div>
                             ) : null}
@@ -3072,45 +3085,112 @@ export default function CompanyDashboard() {
                             </div>
                           ) : null}
 
-                          {refreshLoading && !refreshProposed && !refreshError ? (
+                          {refreshLoading && !proposedDraft && !refreshError ? (
                             <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                               Fetching proposed updates…
                             </div>
-                          ) : refreshProposed ? (
+                          ) : proposedDraft ? (
                             diffRows.length > 0 ? (
                               <div className="space-y-3">
-                                {diffRows.map((row) => (
-                                  <div key={row.key} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                                    <div className="flex items-start gap-3">
-                                      <Checkbox
-                                        checked={Boolean(refreshSelection[row.key])}
-                                        onCheckedChange={(checked) =>
-                                          setRefreshSelection((prev) => ({
-                                            ...(prev || {}),
-                                            [row.key]: Boolean(checked),
-                                          }))
-                                        }
-                                        aria-label={`Overwrite ${row.label}`}
-                                      />
-                                      <div className="flex-1 min-w-0">
-                                        <div className="text-sm font-medium text-slate-900">{row.label}</div>
-                                        <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-3">
-                                          <div className="rounded border border-slate-200 bg-white p-2">
-                                            <div className="text-xs font-semibold text-slate-700">Current</div>
-                                            <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-800">{row.currentText}</pre>
-                                          </div>
-                                          <div className="rounded border border-slate-200 bg-white p-2">
-                                            <div className="text-xs font-semibold text-slate-700">Proposed</div>
-                                            <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-800">{row.proposedText}</pre>
+                                {diffRows.map((row) => {
+                                  const textValue = Object.prototype.hasOwnProperty.call(proposedDraftText || {}, row.key)
+                                    ? proposedDraftText[row.key]
+                                    : proposedValueToInputText(row.key, proposedDraft?.[row.key]);
+
+                                  const isMultiLine = [
+                                    "industries",
+                                    "keywords",
+                                    "headquarters_locations",
+                                    "manufacturing_locations",
+                                    "location_sources",
+                                    "red_flag_reason",
+                                  ].includes(row.key);
+
+                                  return (
+                                    <div key={row.key} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                      <div className="flex items-start gap-3">
+                                        <Checkbox
+                                          checked={Boolean(refreshSelection[row.key])}
+                                          onCheckedChange={(checked) =>
+                                            setRefreshSelection((prev) => ({
+                                              ...(prev || {}),
+                                              [row.key]: Boolean(checked),
+                                            }))
+                                          }
+                                          aria-label={`Overwrite ${row.label}`}
+                                        />
+                                        <div className="flex-1 min-w-0">
+                                          <div className="text-sm font-medium text-slate-900">{row.label}</div>
+                                          <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                            <div className="rounded border border-slate-200 bg-white p-2">
+                                              <div className="text-xs font-semibold text-slate-700">Current</div>
+                                              <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-slate-800">{row.currentText}</pre>
+                                            </div>
+                                            <div className="rounded border border-slate-200 bg-white p-2">
+                                              <div className="text-xs font-semibold text-slate-700">Proposed (editable)</div>
+                                              <div className="mt-1 flex items-start gap-2">
+                                                {isMultiLine ? (
+                                                  <Textarea
+                                                    value={textValue}
+                                                    onChange={(e) => {
+                                                      const nextText = e.target.value;
+                                                      setProposedDraftText((prev) => ({ ...(prev || {}), [row.key]: nextText }));
+                                                      setProposedDraft((prev) => {
+                                                        const base = prev && typeof prev === "object" ? prev : {};
+                                                        return {
+                                                          ...base,
+                                                          [row.key]: parseProposedInputText(row.key, nextText, base[row.key]),
+                                                        };
+                                                      });
+                                                    }}
+                                                    className="text-xs min-h-[84px] leading-snug"
+                                                    rows={4}
+                                                  />
+                                                ) : (
+                                                  <Input
+                                                    type="text"
+                                                    value={textValue}
+                                                    onChange={(e) => {
+                                                      const nextText = e.target.value;
+                                                      setProposedDraftText((prev) => ({ ...(prev || {}), [row.key]: nextText }));
+                                                      setProposedDraft((prev) => {
+                                                        const base = prev && typeof prev === "object" ? prev : {};
+                                                        return {
+                                                          ...base,
+                                                          [row.key]: parseProposedInputText(row.key, nextText, base[row.key]),
+                                                        };
+                                                      });
+                                                    }}
+                                                    className="h-9 text-xs"
+                                                  />
+                                                )}
+
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="outline"
+                                                  className="h-9 w-9 p-0 flex-none"
+                                                  onClick={async () => {
+                                                    const ok = await copyToClipboard(textValue);
+                                                    if (ok) toast.success("Copied");
+                                                    else toast.error("Copy failed");
+                                                  }}
+                                                  disabled={!asString(textValue).trim()}
+                                                  title="Copy proposed"
+                                                >
+                                                  <Copy className="h-4 w-4" />
+                                                </Button>
+                                              </div>
+                                            </div>
                                           </div>
                                         </div>
                                       </div>
                                     </div>
-                                  </div>
-                                ))}
+                                  );
+                                })}
 
                                 <div className="text-xs text-slate-600">
-                                  Protected fields are never overwritten: logo, structured notes, and manual stars.
+                                  Selected rows will be written on Save. Protected fields are never overwritten: logo, structured notes, and manual stars.
                                 </div>
                               </div>
                             ) : (
