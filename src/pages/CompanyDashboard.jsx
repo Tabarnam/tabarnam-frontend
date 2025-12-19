@@ -2179,7 +2179,16 @@ export default function CompanyDashboard() {
         return;
       }
 
+      const draft = deepClone(proposed);
       setRefreshProposed(proposed);
+      setProposedDraft(draft);
+
+      const nextText = {};
+      for (const f of refreshDiffFields) {
+        if (!Object.prototype.hasOwnProperty.call(draft, f.key)) continue;
+        nextText[f.key] = proposedValueToInputText(f.key, draft[f.key]);
+      }
+      setProposedDraftText(nextText);
 
       const defaults = {};
       for (const f of refreshDiffFields) {
