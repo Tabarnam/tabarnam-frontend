@@ -279,37 +279,74 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
   }
 
   const startedAt = Date.now();
+  let stage = "start";
+
+  const config = {
+    COSMOS_DB_ENDPOINT_SET: Boolean(asString(process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_ENDPOINT).trim()),
+    COSMOS_DB_KEY_SET: Boolean(asString(process.env.COSMOS_DB_KEY || process.env.COSMOS_KEY).trim()),
+    COSMOS_DB_DATABASE_SET: Boolean(asString(process.env.COSMOS_DB_DATABASE || process.env.COSMOS_DB).trim()),
+    COSMOS_DB_COMPANIES_CONTAINER_SET: Boolean(
+      asString(process.env.COSMOS_DB_COMPANIES_CONTAINER || process.env.COSMOS_CONTAINER).trim()
+    ),
+    XAI_EXTERNAL_BASE_SET: Boolean(asString(process.env.XAI_EXTERNAL_BASE || process.env.FUNCTION_URL).trim()),
+    XAI_EXTERNAL_KEY_SET: Boolean(asString(process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || process.env.XAI_API_KEY).trim()),
+  };
 
   try {
+    stage = "parse_body";
     const body = await readJsonBody(req);
     const companyId = asString(body.company_id || body.id).trim();
 
     if (!companyId) {
-      return json({ ok: false, error: "company_id required" }, 400);
+      return json(
+        {
+          ok: false,
+          stage,
+          error: "company_id required",
+          config,
+        },
+        400
+      );
     }
 
+    stage = "init_cosmos";
     const container = deps.companiesContainer || getCompaniesContainer();
     if (!container) {
       return json(
         {
           ok: false,
+          stage,
           error: "Cosmos not configured",
           details: { message: "Set COSMOS_DB_ENDPOINT and COSMOS_DB_KEY" },
+          config,
+          elapsed_ms: Date.now() - startedAt,
         },
         500
       );
     }
 
+    stage = "load_company";
     const loadFn = deps.loadCompanyById || loadCompanyById;
     const existing = await loadFn(container, companyId);
     if (!existing) {
-      return json({ ok: false, error: "Company not found", company_id: companyId }, 404);
+      return json(
+        {
+          ok: false,
+          stage,
+          error: "Company not found",
+          company_id: companyId,
+          elapsed_ms: Date.now() - startedAt,
+        },
+        404
+      );
     }
 
+    stage = "prepare_prompt";
     const companyName = asString(existing.company_name || existing.name).trim();
     const websiteUrl = asString(existing.website_url || existing.canonical_url || existing.url).trim();
     const normalizedDomain = asString(existing.normalized_domain).trim() || toNormalizedDomain(websiteUrl);
 
+    stage = "init_xai";
     const xaiUrl = asString(deps.xaiUrl || getXAIEndpoint()).trim();
     const xaiKey = asString(deps.xaiKey || getXAIKey()).trim();
 
@@ -317,8 +354,11 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       return json(
         {
           ok: false,
+          stage,
           error: "XAI not configured",
           details: { message: "Set XAI_EXTERNAL_BASE and XAI_EXTERNAL_KEY" },
+          config,
+          elapsed_ms: Date.now() - startedAt,
         },
         500
       );
@@ -332,6 +372,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       stream: false,
     };
 
+    stage = "call_xai";
     const axiosPost = deps.axiosPost || axios.post.bind(axios);
     const resp = await axiosPost(xaiUrl, payload, {
       headers: {
@@ -342,6 +383,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       validateStatus: () => true,
     });
 
+    stage = "parse_xai";
     const responseText =
       resp?.data?.choices?.[0]?.message?.content ||
       (typeof resp?.data === "string" ? resp.data : JSON.stringify(resp.data || {}));
@@ -352,6 +394,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       return json(
         {
           ok: false,
+          stage,
           error: "Upstream enrichment failed",
           status: resp.status,
           details: { parse_error, upstream_preview: asString(responseText).slice(0, 8000) },
@@ -365,6 +408,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       return json(
         {
           ok: false,
+          stage,
           error: "No proposed company returned",
           details: { parse_error, upstream_preview: asString(responseText).slice(0, 8000) },
           elapsed_ms: Date.now() - startedAt,
@@ -373,8 +417,10 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       );
     }
 
+    stage = "build_proposed";
     const proposed = buildProposedCompanyFromXaiResult(companies[0]);
 
+    stage = "done";
     return json({
       ok: true,
       company_id: companyId,
@@ -388,6 +434,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     });
   } catch (e) {
     context?.log?.("[admin-refresh-company] error", {
+      stage,
       message: e?.message || String(e),
       stack: e?.stack,
     });
@@ -395,7 +442,10 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     return json(
       {
         ok: false,
+        stage,
         error: e?.message || "Internal error",
+        config,
+        elapsed_ms: Date.now() - startedAt,
       },
       500
     );

@@ -356,19 +356,31 @@ try {
 }
 
 try {
-  console.log("[api] Registering: admin-refresh-company");
-  require("./admin-refresh-company/index.js");
+  console.log("[api] Registering: admin-refresh-company (inline)");
+  const { adminRefreshCompanyHandler } = require("./_adminRefreshCompany");
+  app.http("adminRefreshCompany", {
+    route: "admin-refresh-company",
+    methods: ["POST", "OPTIONS"],
+    authLevel: "anonymous",
+    handler: async (req, context) => adminRefreshCompanyHandler(req, context),
+  });
   console.log("[api] ✓ admin-refresh-company registered");
 } catch (e) {
-  console.error("[api] ❌ Failed to load admin-refresh-company:", e?.message || e);
+  console.error("[api] ❌ Failed to register admin-refresh-company:", e?.message || e);
 }
 
 try {
-  console.log("[api] Registering: xadmin-api-refresh-company");
-  require("./xadmin-api-refresh-company/index.js");
+  console.log("[api] Registering: xadmin-api-refresh-company (inline)");
+  const { adminRefreshCompanyHandler } = require("./_adminRefreshCompany");
+  app.http("xadminApiRefreshCompany", {
+    route: "xadmin-api-refresh-company",
+    methods: ["POST", "OPTIONS"],
+    authLevel: "anonymous",
+    handler: async (req, context) => adminRefreshCompanyHandler(req, context),
+  });
   console.log("[api] ✓ xadmin-api-refresh-company registered");
 } catch (e) {
-  console.error("[api] ❌ Failed to load xadmin-api-refresh-company:", e?.message || e);
+  console.error("[api] ❌ Failed to register xadmin-api-refresh-company:", e?.message || e);
 }
 
 try {
