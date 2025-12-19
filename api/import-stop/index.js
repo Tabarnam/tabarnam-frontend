@@ -1,6 +1,11 @@
 // api/import-stop/index.js - Stop a running import session
 const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
+const {
+  getContainerPartitionKeyPath,
+  buildPartitionKeyCandidates,
+  getValueAtPath,
+} = require("../_cosmosPartitionKey");
 
 function cors(req) {
   const origin = req.headers.get("origin") || "*";
@@ -18,6 +23,80 @@ function json(obj, status = 200, req) {
     headers: { ...cors(req), "Content-Type": "application/json" },
     body: JSON.stringify(obj),
   };
+}
+
+let companiesPkPathPromise;
+async function getCompaniesPkPath(container) {
+  if (!container) return "/normalized_domain";
+  companiesPkPathPromise ||= getContainerPartitionKeyPath(container, "/normalized_domain");
+  try {
+    return await companiesPkPathPromise;
+  } catch {
+    return "/normalized_domain";
+  }
+}
+
+async function upsertWithPkCandidates(container, doc) {
+  const id = String(doc?.id || "").trim();
+  if (!id) return { ok: false, error: "missing_id" };
+
+  const containerPkPath = await getCompaniesPkPath(container);
+  const pkValue = getValueAtPath(doc, containerPkPath);
+  const candidates = buildPartitionKeyCandidates({ doc, containerPkPath, requestedId: id });
+
+  let lastErr = null;
+  for (const partitionKeyValue of candidates) {
+    try {
+      if (partitionKeyValue !== undefined) {
+        await container.items.upsert(doc, { partitionKey: partitionKeyValue });
+      } else if (pkValue !== undefined) {
+        await container.items.upsert(doc, { partitionKey: pkValue });
+      } else {
+        await container.items.upsert(doc);
+      }
+      return { ok: true };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  return { ok: false, error: lastErr?.message || "upsert_failed" };
+}
+
+async function readWithPkCandidates(container, id, sessionId) {
+  const containerPkPath = await getCompaniesPkPath(container);
+  const docForCandidates = {
+    id,
+    session_id: sessionId,
+    normalized_domain: "import",
+    partition_key: "import",
+    type: "import_control",
+  };
+  const candidates = buildPartitionKeyCandidates({
+    doc: docForCandidates,
+    containerPkPath,
+    requestedId: id,
+  });
+
+  let lastErr = null;
+  for (const partitionKeyValue of candidates) {
+    try {
+      const item =
+        partitionKeyValue !== undefined
+          ? container.item(id, partitionKeyValue)
+          : container.item(id);
+      const { resource } = await item.read();
+      return resource || null;
+    } catch (e) {
+      lastErr = e;
+      if (e?.code === 404) return null;
+    }
+  }
+
+  if (lastErr && lastErr.code !== 404) {
+    ctx?.log?.(`[import-stop] session=${sessionId} read failed: ${lastErr.message}`);
+  }
+  return null;
 }
 
 app.http("import-stop", {
