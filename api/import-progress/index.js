@@ -1,6 +1,10 @@
 // api/import-progress/index.js
 const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
+const {
+  getContainerPartitionKeyPath,
+  buildPartitionKeyCandidates,
+} = require("../_cosmosPartitionKey");
 
 const cors = (req) => {
   const origin = req.headers.get("origin") || "*";
@@ -17,6 +21,55 @@ const json = (obj, status = 200, req) => ({
   headers: { ...cors(req), "Content-Type": "application/json" },
   body: JSON.stringify(obj),
 });
+
+let companiesPkPathPromise;
+async function getCompaniesPkPath(container) {
+  if (!container) return "/normalized_domain";
+  companiesPkPathPromise ||= getContainerPartitionKeyPath(container, "/normalized_domain");
+  try {
+    return await companiesPkPathPromise;
+  } catch {
+    return "/normalized_domain";
+  }
+}
+
+async function readControlDoc(container, id, sessionId) {
+  if (!container) return null;
+  const containerPkPath = await getCompaniesPkPath(container);
+  const docForCandidates = {
+    id,
+    session_id: sessionId,
+    normalized_domain: "import",
+    partition_key: "import",
+    type: "import_control",
+  };
+
+  const candidates = buildPartitionKeyCandidates({
+    doc: docForCandidates,
+    containerPkPath,
+    requestedId: id,
+  });
+
+  let lastErr = null;
+  for (const partitionKeyValue of candidates) {
+    try {
+      const item =
+        partitionKeyValue !== undefined
+          ? container.item(id, partitionKeyValue)
+          : container.item(id);
+      const { resource } = await item.read();
+      return resource || null;
+    } catch (e) {
+      lastErr = e;
+      if (e?.code === 404) return null;
+    }
+  }
+
+  if (lastErr && lastErr.code !== 404) {
+    console.warn(`[import-progress] session=${sessionId} control doc read failed: ${lastErr.message}`);
+  }
+  return null;
+}
 
 app.http("import-progress", {
   route: "import/progress",
