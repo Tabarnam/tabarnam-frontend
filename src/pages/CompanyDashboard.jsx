@@ -27,6 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 import { apiFetch, getUserFacingConfigMessage } from "@/lib/api";
 import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
+import { toStableLogoUrl } from "@/lib/logoUrl";
 import { getAdminUser } from "@/lib/azureAuth";
 import {
   Dialog,
@@ -3864,7 +3865,7 @@ export default function CompanyDashboard() {
                             {asString(editorDraft.logo_url).trim() ? (
                               <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-2">
                                 <img
-                                  src={asString(editorDraft.logo_url).trim()}
+                                  src={toStableLogoUrl(asString(editorDraft.logo_url))}
                                   alt="Company logo"
                                   className="h-12 w-12 rounded border border-slate-200 object-contain bg-white"
                                   loading="lazy"
