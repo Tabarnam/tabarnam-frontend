@@ -1,5 +1,5 @@
 // api/index.js - register all functions (CommonJS / v4 app model)
-const { app } = require("@azure/functions");
+const { app } = require("./_app");
 
 console.log("[api/index.js] Starting handler registration...");
 
@@ -383,3 +383,6 @@ console.log("[api/index.js] ✅ All handler registration complete! Exporting app
 
 // Critical for v4 model: export the shared app so the Functions runtime can discover handlers
 module.exports = app;
+
+// Test helpers (works in local dev even when @azure/functions is not installed)
+module.exports._test = app._test;

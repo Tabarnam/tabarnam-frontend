@@ -1,9 +1,4 @@
-let app;
-try {
-  ({ app } = require("@azure/functions"));
-} catch {
-  app = { http() {} };
-}
+const { app, hasRoute } = require("../_app");
 
 const {
   adminRefreshCompanyHandler,
@@ -22,6 +17,19 @@ app.http("xadminApiRefreshCompany", {
     return adminRefreshCompanyHandler(req, context);
   },
 });
+
+// Production safety: if a deployment accidentally omits the admin-refresh-company module,
+// this alias keeps /api/admin-refresh-company available.
+if (!hasRoute("admin-refresh-company")) {
+  app.http("adminRefreshCompanyAlias", {
+    route: "admin-refresh-company",
+    methods: ["GET", "POST", "OPTIONS"],
+    authLevel: "anonymous",
+    handler: async (req, context) => {
+      return adminRefreshCompanyHandler(req, context);
+    },
+  });
+}
 
 module.exports._test = {
   adminRefreshCompanyHandler,
