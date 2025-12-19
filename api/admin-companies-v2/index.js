@@ -715,6 +715,27 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           let hardDeleted = 0;
           const failures = [];
 
+          let deleteAuditWritten = false;
+          const maybeWriteDeleteAudit = async (beforeDoc, afterDoc) => {
+            if (deleteAuditWritten) return;
+            deleteAuditWritten = true;
+
+            try {
+              await writeCompanyEditHistoryEntry({
+                company_id: String(afterDoc?.company_id || afterDoc?.id || requestedId || "").trim(),
+                actor_user_id: actor_user_id || undefined,
+                actor_email: actor_email || undefined,
+                action: "delete",
+                source: audit_source,
+                request_id: request_id || undefined,
+                before: beforeDoc,
+                after: afterDoc,
+              });
+            } catch (e) {
+              context.log("[admin-companies-v2] Delete audit log write failed", { error: e?.message });
+            }
+          };
+
           for (const doc of docs) {
             const updatedDoc = {
               ...doc,
@@ -730,6 +751,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
               await container.items.upsert(updatedDoc);
               softDeleted++;
               deletedThisDoc = true;
+              await maybeWriteDeleteAudit(doc, updatedDoc);
               continue;
             } catch {
               // continue
@@ -741,6 +763,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
                 await container.items.upsert(updatedDoc, { partitionKey: partitionKeyValue });
                 softDeleted++;
                 deletedThisDoc = true;
+                await maybeWriteDeleteAudit(doc, updatedDoc);
                 break;
               } catch {
                 // continue
@@ -750,6 +773,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
                 await container.item(doc.id, partitionKeyValue).replace(updatedDoc);
                 softDeleted++;
                 deletedThisDoc = true;
+                await maybeWriteDeleteAudit(doc, updatedDoc);
                 break;
               } catch {
                 // continue
@@ -764,6 +788,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
                 await container.item(doc.id, partitionKeyValue).delete();
                 hardDeleted++;
                 deletedThisDoc = true;
+                await maybeWriteDeleteAudit(doc, updatedDoc);
                 break;
               } catch {
                 // continue
