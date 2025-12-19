@@ -1978,7 +1978,7 @@ export default function CompanyDashboard() {
   );
 
   const diffRows = useMemo(() => {
-    const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
+    const baseProposed = refreshProposed && typeof refreshProposed === "object" ? refreshProposed : null;
     if (!editorDraft || !baseProposed) return [];
 
     const rows = [];
