@@ -27,6 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 import { apiFetch, getUserFacingConfigMessage } from "@/lib/api";
 import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
+import { getAdminUser } from "@/lib/azureAuth";
 import {
   Dialog,
   DialogContent,
@@ -1933,6 +1934,7 @@ export default function CompanyDashboard() {
   const [proposedDraft, setProposedDraft] = useState(null);
   const [proposedDraftText, setProposedDraftText] = useState({});
   const [refreshSelection, setRefreshSelection] = useState({});
+  const [refreshApplied, setRefreshApplied] = useState(false);
 
   const [logoFile, setLogoFile] = useState(null);
   const [logoUploading, setLogoUploading] = useState(false);
@@ -2153,6 +2155,7 @@ export default function CompanyDashboard() {
     setProposedDraft(null);
     setProposedDraftText({});
     setRefreshSelection({});
+    setRefreshApplied(false);
   }, []);
 
   const handleEditorOpenChange = useCallback(
@@ -2183,6 +2186,7 @@ export default function CompanyDashboard() {
     setProposedDraft(null);
     setProposedDraftText({});
     setRefreshSelection({});
+    setRefreshApplied(false);
     setEditorOpen(true);
   }, []);
 
@@ -2222,6 +2226,7 @@ export default function CompanyDashboard() {
     setProposedDraft(null);
     setProposedDraftText({});
     setRefreshSelection({});
+    setRefreshApplied(false);
     setEditorOpen(true);
   }, []);
 
@@ -2539,6 +2544,7 @@ export default function CompanyDashboard() {
       return next;
     });
 
+    setRefreshApplied(true);
     toast.success(`Applied ${selectedDiffCount} change${selectedDiffCount === 1 ? "" : "s"}`);
   }, [diffRows, proposedDraft, refreshSelection, selectedDiffCount]);
 
@@ -2562,6 +2568,7 @@ export default function CompanyDashboard() {
       return next;
     });
 
+    setRefreshApplied(true);
     toast.success("Applied proposed values to draft");
   }, [proposedDraft, refreshDiffFields]);
 
@@ -2586,6 +2593,7 @@ export default function CompanyDashboard() {
     setProposedDraft(null);
     setProposedDraftText({});
     setRefreshSelection({});
+    setRefreshApplied(false);
 
     try {
       const refreshPaths = ["/xadmin-api-refresh-company"];
@@ -2829,10 +2837,27 @@ export default function CompanyDashboard() {
 
       const method = isNew ? "POST" : "PUT";
 
+      const user = getAdminUser();
+      const actorEmail = asString(user?.email).trim();
+      const requestId =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+      const audit_action = refreshApplied && editorOriginalId ? "refresh_apply" : "";
+      const source = refreshApplied && editorOriginalId ? "refresh" : "admin-ui";
+
       const res = await apiFetch("/xadmin-api-companies", {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company: payload }),
+        body: JSON.stringify({
+          company: payload,
+          actor_email: actorEmail || undefined,
+          actor_user_id: actorEmail || undefined,
+          audit_action: audit_action || undefined,
+          source,
+          request_id: requestId,
+        }),
       });
 
       const body = await res.json().catch(() => ({}));
@@ -2986,8 +3011,22 @@ export default function CompanyDashboard() {
     });
 
     try {
+      const user = getAdminUser();
+      const actorEmail = asString(user?.email).trim();
+      const requestId =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
       const res = await apiFetch(`/xadmin-api-companies/${encodeURIComponent(safeId)}`, {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          actor_email: actorEmail || undefined,
+          actor_user_id: actorEmail || undefined,
+          source: "admin-ui",
+          request_id: requestId,
+        }),
       });
 
       const body = await res.json().catch(() => ({}));
