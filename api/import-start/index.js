@@ -1276,19 +1276,69 @@ const importStartHandler = async (req, context) => {
         if (debugOutput) {
           debugOutput.stages.push({ stage, ts: new Date().toISOString(), ...extra });
         }
+
+        try {
+          const extraKeys = extra && typeof extra === "object" ? Object.keys(extra) : [];
+          if (extraKeys.length > 0) {
+            console.log(
+              `[import-start] request_id=${requestId} session=${sessionId} stage=${stage} extra=` +
+                JSON.stringify(extra)
+            );
+          } else {
+            console.log(`[import-start] request_id=${requestId} session=${sessionId} stage=${stage}`);
+          }
+        } catch {
+          console.log(`[import-start] request_id=${requestId} session=${sessionId} stage=${stage}`);
+        }
       };
 
-      const respondError = (err, { status = 500, details = {} } = {}) => {
-        const error = toErrorString(err);
+      const respondError = async (err, { status = 500, details = {} } = {}) => {
+        const errorMessage = toErrorString(err);
+        const code =
+          (details && typeof details.code === "string" && details.code.trim() ? details.code.trim() : null) ||
+          (status === 400 ? "INVALID_REQUEST" : stage === "config" ? "IMPORT_START_NOT_CONFIGURED" : "IMPORT_START_FAILED");
 
-        console.error(`[import-start] stage=${stage} error=${error}`);
+        const message =
+          (details && typeof details.message === "string" && details.message.trim()
+            ? details.message.trim()
+            : errorMessage) || "Import start failed";
+
+        console.error(`[import-start] request_id=${requestId} session=${sessionId} stage=${stage} code=${code} message=${message}`);
         if (err?.stack) console.error(err.stack);
+
+        const errorObj = {
+          code,
+          message,
+          request_id: requestId,
+          step: stage,
+        };
+
+        try {
+          const container = getCompaniesCosmosContainer();
+          if (container) {
+            const errorDoc = {
+              id: `_import_error_${sessionId}`,
+              ...buildImportControlDocBase(sessionId),
+              request_id: requestId,
+              stage,
+              error: errorObj,
+              details: details && typeof details === "object" ? details : {},
+            };
+            await upsertItemWithPkCandidates(container, errorDoc);
+          }
+        } catch (e) {
+          console.warn(
+            `[import-start] request_id=${requestId} session=${sessionId} failed to write error doc: ${e?.message || String(e)}`
+          );
+        }
 
         const errorPayload = {
           ok: false,
           stage,
-          error,
           session_id: sessionId,
+          request_id: requestId,
+          error: errorObj,
+          legacy_error: message,
           ...buildInfo,
           company_name: contextInfo.company_name,
           website_url: contextInfo.website_url,
@@ -1301,10 +1351,10 @@ const importStartHandler = async (req, context) => {
                 debug: debugOutput,
               }
             : {}),
-          ...(details && Object.keys(details).length ? { details } : {}),
+          ...(details && typeof details === "object" && Object.keys(details).length ? { details } : {}),
         };
 
-        return json(errorPayload, status);
+        return jsonWithRequestId(errorPayload, status);
       };
 
       const hardTimeoutMs = Math.max(
