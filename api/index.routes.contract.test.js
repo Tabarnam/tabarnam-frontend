@@ -9,4 +9,6 @@ test("api/index.js registers refresh-company routes", () => {
   assert.ok(Array.isArray(routes), "expected listRoutes() to return an array");
   assert.ok(routes.includes("admin-refresh-company"), "missing route: admin-refresh-company");
   assert.ok(routes.includes("xadmin-api-refresh-company"), "missing route: xadmin-api-refresh-company");
+  assert.ok(routes.includes("admin-refresh-reviews"), "missing route: admin-refresh-reviews");
+  assert.ok(routes.includes("xadmin-api-refresh-reviews"), "missing route: xadmin-api-refresh-reviews");
 });

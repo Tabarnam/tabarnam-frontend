@@ -19,6 +19,20 @@ if (ROUTES_TEST_MODE) {
   } catch (e) {
     console.error("[api] ❌ Failed to load xadmin-api-refresh-company:", e?.message || e);
   }
+
+  try {
+    console.log("[api] Registering (routes-test): admin-refresh-reviews");
+    require("./admin-refresh-reviews/index.js");
+  } catch (e) {
+    console.error("[api] ❌ Failed to load admin-refresh-reviews:", e?.message || e);
+  }
+
+  try {
+    console.log("[api] Registering (routes-test): xadmin-api-refresh-reviews");
+    require("./xadmin-api-refresh-reviews/index.js");
+  } catch (e) {
+    console.error("[api] ❌ Failed to load xadmin-api-refresh-reviews:", e?.message || e);
+  }
 } else {
   // -------------------------
   // Public endpoints
@@ -386,6 +400,22 @@ try {
   console.log("[api] ✓ xadmin-api-refresh-company registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load xadmin-api-refresh-company:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-refresh-reviews");
+  require("./admin-refresh-reviews/index.js");
+  console.log("[api] ✓ admin-refresh-reviews registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-refresh-reviews:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: xadmin-api-refresh-reviews");
+  require("./xadmin-api-refresh-reviews/index.js");
+  console.log("[api] ✓ xadmin-api-refresh-reviews registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load xadmin-api-refresh-reviews:", e?.message || e);
 }
 
 try {
