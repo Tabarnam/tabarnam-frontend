@@ -891,36 +891,119 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
   }
 }
 
-// Check if a session has been stopped
-async function checkIfSessionStopped(sessionId) {
+let cosmosCompaniesClient = null;
+let companiesPkPathPromise;
+
+function getCompaniesCosmosContainer() {
   try {
     const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
     const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
     const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
     const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
-    if (!endpoint || !key) return false;
+    if (!endpoint || !key) return null;
 
-    const client = new CosmosClient({ endpoint, key });
-    const database = client.database(databaseId);
-    const container = database.container(containerId);
+    cosmosCompaniesClient ||= new CosmosClient({ endpoint, key });
+    return cosmosCompaniesClient.database(databaseId).container(containerId);
+  } catch {
+    return null;
+  }
+}
 
-    // Check for stop signal document in the companies container
+async function getCompaniesPartitionKeyPath(companiesContainer) {
+  if (!companiesContainer) return "/normalized_domain";
+  companiesPkPathPromise ||= getContainerPartitionKeyPath(companiesContainer, "/normalized_domain");
+  try {
+    return await companiesPkPathPromise;
+  } catch {
+    return "/normalized_domain";
+  }
+}
+
+async function readItemWithPkCandidates(container, id, docForCandidates) {
+  if (!container || !id) return null;
+  const containerPkPath = await getCompaniesPartitionKeyPath(container);
+
+  const candidates = buildPartitionKeyCandidates({
+    doc: docForCandidates,
+    containerPkPath,
+    requestedId: id,
+  });
+
+  let lastErr = null;
+  for (const partitionKeyValue of candidates) {
     try {
-      const stopDocId = `_import_stop_${sessionId}`;
-      const { resource } = await container.item(stopDocId).read();
-      return !!resource;
+      const item =
+        partitionKeyValue !== undefined
+          ? container.item(id, partitionKeyValue)
+          : container.item(id);
+      const { resource } = await item.read();
+      return resource || null;
     } catch (e) {
-      // Document doesn't exist, session is not stopped
-      if (e.code === 404) {
-        return false;
-      }
-      // For other errors, log and assume not stopped
-      console.warn(`[import-start] Error checking stop status: ${e.message}`);
-      return false;
+      lastErr = e;
+      if (e?.code === 404) return null;
     }
+  }
+
+  if (lastErr && lastErr.code !== 404) {
+    console.warn(`[import-start] readItem failed id=${id} pkPath=${containerPkPath}: ${lastErr.message}`);
+  }
+  return null;
+}
+
+async function upsertItemWithPkCandidates(container, doc) {
+  if (!container || !doc) return { ok: false, error: "no_container" };
+  const id = String(doc.id || "").trim();
+  if (!id) return { ok: false, error: "missing_id" };
+
+  const containerPkPath = await getCompaniesPartitionKeyPath(container);
+  const pkValue = getValueAtPath(doc, containerPkPath);
+  const candidates = buildPartitionKeyCandidates({ doc, containerPkPath, requestedId: id });
+
+  let lastErr = null;
+  for (const partitionKeyValue of candidates) {
+    try {
+      if (partitionKeyValue !== undefined) {
+        await container.items.upsert(doc, { partitionKey: partitionKeyValue });
+      } else if (pkValue !== undefined) {
+        await container.items.upsert(doc, { partitionKey: pkValue });
+      } else {
+        await container.items.upsert(doc);
+      }
+      return { ok: true };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  return { ok: false, error: lastErr?.message || "upsert_failed" };
+}
+
+function buildImportControlDocBase(sessionId) {
+  return {
+    session_id: sessionId,
+    normalized_domain: "import",
+    partition_key: "import",
+    type: "import_control",
+    updated_at: new Date().toISOString(),
+  };
+}
+
+// Check if a session has been stopped
+async function checkIfSessionStopped(sessionId) {
+  try {
+    const container = getCompaniesCosmosContainer();
+    if (!container) return false;
+
+    const stopDocId = `_import_stop_${sessionId}`;
+    const resource = await readItemWithPkCandidates(container, stopDocId, {
+      id: stopDocId,
+      ...buildImportControlDocBase(sessionId),
+      stopped_at: "",
+    });
+    return !!resource;
   } catch (e) {
-    console.warn(`[import-start] Error checking stop status: ${e.message}`);
+    console.warn(`[import-start] Error checking stop status: ${e?.message || String(e)}`);
     return false;
   }
 }
