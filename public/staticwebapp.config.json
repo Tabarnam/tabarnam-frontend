@@ -21,7 +21,8 @@
       "/*.ico",
       "/*.webp",
       "/*.woff",
-      "/*.woff2"
+      "/*.woff2",
+      "/__build_id.txt"
     ]
   },
   "routes": [
