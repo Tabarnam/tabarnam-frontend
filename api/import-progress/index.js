@@ -101,43 +101,28 @@ app.http("import-progress", {
     const container = client.database(databaseId).container(containerId);
 
     try {
-      // Check if import was stopped, timed out, or completed
+      // Check if import was stopped, timed out, completed, or failed
       let stopped = false;
       let timedOut = false;
       let completed = false;
+      let failed = false;
+      let error = null;
 
-      try {
-        const stopDocId = `_import_stop_${sessionId}`;
-        const { resource } = await container.item(stopDocId).read();
-        stopped = !!resource;
-      } catch (e) {
-        // Stop document doesn't exist, import is not stopped
-        if (e.code !== 404) {
-          console.warn(`[import-progress] session=${sessionId} error checking stop signal: ${e.message}`);
-        }
-      }
+      const stopDocId = `_import_stop_${sessionId}`;
+      const timeoutDocId = `_import_timeout_${sessionId}`;
+      const completionDocId = `_import_complete_${sessionId}`;
+      const errorDocId = `_import_error_${sessionId}`;
 
-      try {
-        const timeoutDocId = `_import_timeout_${sessionId}`;
-        const { resource } = await container.item(timeoutDocId).read();
-        timedOut = !!resource;
-      } catch (e) {
-        // Timeout document doesn't exist
-        if (e.code !== 404) {
-          console.warn(`[import-progress] session=${sessionId} error checking timeout signal: ${e.message}`);
-        }
-      }
+      const stopDoc = await readControlDoc(container, stopDocId, sessionId);
+      const timeoutDoc = await readControlDoc(container, timeoutDocId, sessionId);
+      const completionDoc = await readControlDoc(container, completionDocId, sessionId);
+      const errorDoc = await readControlDoc(container, errorDocId, sessionId);
 
-      try {
-        const completionDocId = `_import_complete_${sessionId}`;
-        const { resource } = await container.item(completionDocId).read();
-        completed = !!resource;
-      } catch (e) {
-        // Completion document doesn't exist
-        if (e.code !== 404) {
-          console.warn(`[import-progress] session=${sessionId} error checking completion signal: ${e.message}`);
-        }
-      }
+      stopped = !!stopDoc;
+      timedOut = !!timeoutDoc;
+      completed = !!completionDoc;
+      error = errorDoc && typeof errorDoc === "object" ? errorDoc.error || null : null;
+      failed = !!error;
 
       // Query companies from Cosmos DB for this session (exclude reserved control documents)
       const q = {
