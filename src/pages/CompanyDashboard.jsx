@@ -1978,14 +1978,15 @@ export default function CompanyDashboard() {
   );
 
   const diffRows = useMemo(() => {
-    if (!editorDraft || !refreshProposed || typeof refreshProposed !== "object") return [];
+    const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
+    if (!editorDraft || !baseProposed) return [];
 
     const rows = [];
     for (const f of refreshDiffFields) {
-      if (!Object.prototype.hasOwnProperty.call(refreshProposed, f.key)) continue;
+      if (!Object.prototype.hasOwnProperty.call(baseProposed, f.key)) continue;
 
       const currentVal = editorDraft?.[f.key];
-      const proposedVal = refreshProposed?.[f.key];
+      const proposedVal = baseProposed?.[f.key];
 
       const a = normalizeForDiff(f.key, currentVal);
       const b = normalizeForDiff(f.key, proposedVal);
@@ -2001,7 +2002,7 @@ export default function CompanyDashboard() {
     }
 
     return rows;
-  }, [diffToDisplay, editorDraft, normalizeForDiff, refreshDiffFields, refreshProposed]);
+  }, [diffToDisplay, editorDraft, normalizeForDiff, proposedDraft, refreshDiffFields]);
 
   const selectedDiffCount = useMemo(() => {
     return diffRows.reduce((sum, row) => sum + (refreshSelection[row.key] ? 1 : 0), 0);
@@ -2018,7 +2019,8 @@ export default function CompanyDashboard() {
   }, []);
 
   const applySelectedDiffs = useCallback(() => {
-    if (!refreshProposed || typeof refreshProposed !== "object") return;
+    const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
+    if (!baseProposed) return;
 
     setEditorDraft((prev) => {
       const base = prev && typeof prev === "object" ? prev : {};
@@ -2026,16 +2028,47 @@ export default function CompanyDashboard() {
 
       for (const row of diffRows) {
         if (!refreshSelection[row.key]) continue;
-        if (!Object.prototype.hasOwnProperty.call(refreshProposed, row.key)) continue;
+        if (!Object.prototype.hasOwnProperty.call(baseProposed, row.key)) continue;
         if (next === base) next = { ...base };
-        next[row.key] = refreshProposed[row.key];
+        next[row.key] = baseProposed[row.key];
       }
 
       return next;
     });
 
     toast.success(`Applied ${selectedDiffCount} change${selectedDiffCount === 1 ? "" : "s"}`);
-  }, [diffRows, refreshProposed, refreshSelection, selectedDiffCount]);
+  }, [diffRows, proposedDraft, refreshSelection, selectedDiffCount]);
+
+  const applyAllProposedToDraft = useCallback(() => {
+    const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
+    if (!baseProposed) return;
+
+    const protectedKeys = new Set(["logo_url", "notes", "notes_entries", "rating"]);
+
+    setEditorDraft((prev) => {
+      const base = prev && typeof prev === "object" ? prev : {};
+      let next = base;
+
+      for (const f of refreshDiffFields) {
+        if (protectedKeys.has(f.key)) continue;
+        if (!Object.prototype.hasOwnProperty.call(baseProposed, f.key)) continue;
+        if (next === base) next = { ...base };
+        next[f.key] = baseProposed[f.key];
+      }
+
+      return next;
+    });
+
+    toast.success("Applied proposed values to draft");
+  }, [proposedDraft, refreshDiffFields]);
+
+  const copyAllProposedAsJson = useCallback(async () => {
+    const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
+    if (!baseProposed) return;
+    const ok = await copyToClipboard(prettyJson(baseProposed));
+    if (ok) toast.success("Copied proposed JSON");
+    else toast.error("Copy failed");
+  }, [proposedDraft]);
 
   const refreshCompany = useCallback(async () => {
     const companyId = asString(editorOriginalId || editorDraft?.company_id).trim();
