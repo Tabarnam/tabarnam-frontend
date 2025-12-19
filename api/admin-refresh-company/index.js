@@ -1,4 +1,10 @@
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("@azure/functions"));
+} catch {
+  app = { http() {} };
+}
+
 const axios = require("axios");
 const { CosmosClient } = require("@azure/cosmos");
 const { getXAIEndpoint, getXAIKey } = require("../_shared");
@@ -274,134 +280,159 @@ function buildProposedCompanyFromXaiResult(xaiCompany) {
   return proposed;
 }
 
+async function adminRefreshCompanyHandler(req, context, deps = {}) {
+  if (req?.method === "OPTIONS") {
+    return json({ ok: true }, 200);
+  }
+
+  const startedAt = Date.now();
+
+  try {
+    const body = await readJsonBody(req);
+    const companyId = asString(body.company_id || body.id).trim();
+
+    if (!companyId) {
+      return json({ ok: false, error: "company_id required" }, 400);
+    }
+
+    const container = deps.companiesContainer || getCompaniesContainer();
+    if (!container) {
+      return json(
+        {
+          ok: false,
+          error: "Cosmos not configured",
+          details: { message: "Set COSMOS_DB_ENDPOINT and COSMOS_DB_KEY" },
+        },
+        500
+      );
+    }
+
+    const loadFn = deps.loadCompanyById || loadCompanyById;
+    const existing = await loadFn(container, companyId);
+    if (!existing) {
+      return json({ ok: false, error: "Company not found", company_id: companyId }, 404);
+    }
+
+    const companyName = asString(existing.company_name || existing.name).trim();
+    const websiteUrl = asString(existing.website_url || existing.canonical_url || existing.url).trim();
+    const normalizedDomain = asString(existing.normalized_domain).trim() || toNormalizedDomain(websiteUrl);
+
+    const xaiUrl = asString(deps.xaiUrl || getXAIEndpoint()).trim();
+    const xaiKey = asString(deps.xaiKey || getXAIKey()).trim();
+
+    if (!xaiUrl || !xaiKey) {
+      return json(
+        {
+          ok: false,
+          error: "XAI not configured",
+          details: { message: "Set XAI_EXTERNAL_BASE and XAI_EXTERNAL_KEY" },
+        },
+        500
+      );
+    }
+
+    const prompt = buildPrompt({ companyName, websiteUrl, normalizedDomain });
+    const payload = {
+      messages: [{ role: "user", content: prompt }],
+      model: "grok-4-latest",
+      temperature: 0.1,
+      stream: false,
+    };
+
+    const axiosPost = deps.axiosPost || axios.post.bind(axios);
+    const resp = await axiosPost(xaiUrl, payload, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${xaiKey}`,
+      },
+      timeout: 25000,
+      validateStatus: () => true,
+    });
+
+    const responseText =
+      resp?.data?.choices?.[0]?.message?.content ||
+      (typeof resp?.data === "string" ? resp.data : JSON.stringify(resp.data || {}));
+
+    const { companies, parse_error } = parseXaiCompaniesResponse(responseText);
+
+    if (resp.status < 200 || resp.status >= 300) {
+      return json(
+        {
+          ok: false,
+          error: "Upstream enrichment failed",
+          status: resp.status,
+          details: { parse_error, upstream_preview: asString(responseText).slice(0, 8000) },
+          elapsed_ms: Date.now() - startedAt,
+        },
+        502
+      );
+    }
+
+    if (!Array.isArray(companies) || companies.length === 0) {
+      return json(
+        {
+          ok: false,
+          error: "No proposed company returned",
+          details: { parse_error, upstream_preview: asString(responseText).slice(0, 8000) },
+          elapsed_ms: Date.now() - startedAt,
+        },
+        502
+      );
+    }
+
+    const proposed = buildProposedCompanyFromXaiResult(companies[0]);
+
+    return json({
+      ok: true,
+      company_id: companyId,
+      elapsed_ms: Date.now() - startedAt,
+      proposed,
+      hints: {
+        company_name: companyName,
+        website_url: websiteUrl,
+        normalized_domain: normalizedDomain,
+      },
+    });
+  } catch (e) {
+    context?.log?.("[admin-refresh-company] error", {
+      message: e?.message || String(e),
+      stack: e?.stack,
+    });
+
+    return json(
+      {
+        ok: false,
+        error: e?.message || "Internal error",
+      },
+      500
+    );
+  }
+}
+
 app.http("adminRefreshCompany", {
   route: "xadmin-api-refresh-company",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
-    if (req.method === "OPTIONS") {
-      return json({ ok: true }, 200);
-    }
-
-    const startedAt = Date.now();
-
-    try {
-      const body = await readJsonBody(req);
-      const companyId = asString(body.company_id || body.id).trim();
-
-      if (!companyId) {
-        return json({ ok: false, error: "company_id required" }, 400);
-      }
-
-      const container = getCompaniesContainer();
-      if (!container) {
-        return json(
-          {
-            ok: false,
-            error: "Cosmos not configured",
-            details: { message: "Set COSMOS_DB_ENDPOINT and COSMOS_DB_KEY" },
-          },
-          500
-        );
-      }
-
-      const existing = await loadCompanyById(container, companyId);
-      if (!existing) {
-        return json({ ok: false, error: "Company not found", company_id: companyId }, 404);
-      }
-
-      const companyName = asString(existing.company_name || existing.name).trim();
-      const websiteUrl = asString(existing.website_url || existing.canonical_url || existing.url).trim();
-      const normalizedDomain = asString(existing.normalized_domain).trim() || toNormalizedDomain(websiteUrl);
-
-      const xaiUrl = getXAIEndpoint();
-      const xaiKey = getXAIKey();
-
-      if (!xaiUrl || !xaiKey) {
-        return json(
-          {
-            ok: false,
-            error: "XAI not configured",
-            details: { message: "Set XAI_EXTERNAL_BASE and XAI_EXTERNAL_KEY" },
-          },
-          500
-        );
-      }
-
-      const prompt = buildPrompt({ companyName, websiteUrl, normalizedDomain });
-      const payload = {
-        messages: [{ role: "user", content: prompt }],
-        model: "grok-4-latest",
-        temperature: 0.1,
-        stream: false,
-      };
-
-      const resp = await axios.post(xaiUrl, payload, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${xaiKey}`,
-        },
-        timeout: 25000,
-        validateStatus: () => true,
-      });
-
-      const responseText =
-        resp?.data?.choices?.[0]?.message?.content ||
-        (typeof resp?.data === "string" ? resp.data : JSON.stringify(resp.data || {}));
-
-      const { companies, parse_error } = parseXaiCompaniesResponse(responseText);
-
-      if (resp.status < 200 || resp.status >= 300) {
-        return json(
-          {
-            ok: false,
-            error: "Upstream enrichment failed",
-            status: resp.status,
-            details: { parse_error, upstream_preview: asString(responseText).slice(0, 8000) },
-            elapsed_ms: Date.now() - startedAt,
-          },
-          502
-        );
-      }
-
-      if (!Array.isArray(companies) || companies.length === 0) {
-        return json(
-          {
-            ok: false,
-            error: "No proposed company returned",
-            details: { parse_error, upstream_preview: asString(responseText).slice(0, 8000) },
-            elapsed_ms: Date.now() - startedAt,
-          },
-          502
-        );
-      }
-
-      const proposed = buildProposedCompanyFromXaiResult(companies[0]);
-
-      return json({
-        ok: true,
-        company_id: companyId,
-        elapsed_ms: Date.now() - startedAt,
-        proposed,
-        hints: {
-          company_name: companyName,
-          website_url: websiteUrl,
-          normalized_domain: normalizedDomain,
-        },
-      });
-    } catch (e) {
-      context.log("[admin-refresh-company] error", {
-        message: e?.message || String(e),
-        stack: e?.stack,
-      });
-
-      return json(
-        {
-          ok: false,
-          error: e?.message || "Internal error",
-        },
-        500
-      );
-    }
+    return adminRefreshCompanyHandler(req, context);
   },
 });
+
+// Backward/alternate route (helps if production is still calling the default function route)
+app.http("adminRefreshCompanyAlt", {
+  route: "admin-refresh-company",
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req, context) => {
+    return adminRefreshCompanyHandler(req, context);
+  },
+});
+
+module.exports._test = {
+  adminRefreshCompanyHandler,
+  buildProposedCompanyFromXaiResult,
+  buildPrompt,
+  parseXaiCompaniesResponse,
+  loadCompanyById,
+  toNormalizedDomain,
+};
