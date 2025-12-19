@@ -613,6 +613,24 @@ export default function AdminImport() {
                 </Button>
               ) : null}
 
+              {activeRun?.start_error_details ? (
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      const text = JSON.stringify(activeRun.start_error_details, null, 2);
+                      await navigator.clipboard.writeText(text);
+                      toast.success("Error details copied");
+                    } catch {
+                      toast.error("Could not copy");
+                    }
+                  }}
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy error details
+                </Button>
+              ) : null}
+
               {activeSessionId ? (
                 <div className="text-sm text-slate-700">
                   Session: <code className="rounded bg-slate-100 px-1 py-0.5">{activeSessionId}</code>
