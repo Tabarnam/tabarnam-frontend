@@ -144,29 +144,41 @@ app.http("import-stop", {
 
       // Store stop signal as a reserved document in the companies container
       // This avoids needing a separate container and ensures reliability
+      const stopDocId = `_import_stop_${sessionId}`;
       const stopControlDoc = {
-        id: `_import_stop_${sessionId}`,
+        id: stopDocId,
         session_id: sessionId,
+        normalized_domain: "import",
+        partition_key: "import",
         stopped_at: new Date().toISOString(),
         type: "import_stop",
       };
 
-      const createResult = await container.items.create(stopControlDoc);
-      context.log(`[import-stop] session=${sessionId} stop signal written, resource=${JSON.stringify(createResult?.resource?.id)}`);
+      const upsertResult = await upsertWithPkCandidates(container, stopControlDoc);
+      context.log(
+        `[import-stop] session=${sessionId} stop signal upsert ${upsertResult.ok ? "ok" : "failed"}${
+          upsertResult.ok ? "" : `: ${upsertResult.error}`
+        }`
+      );
 
-      // Verify the stop signal was actually written
-      const verifyRead = await container.item(`_import_stop_${sessionId}`).read().catch(e => {
-        context.log(`[import-stop] session=${sessionId} failed to verify stop signal: ${e.message}`);
-        return { resource: null };
-      });
-
-      if (verifyRead?.resource) {
+      const verified = upsertResult.ok ? await readWithPkCandidates(container, stopDocId, sessionId) : null;
+      if (verified) {
         context.log(`[import-stop] session=${sessionId} stop signal verified in Cosmos`);
       } else {
         context.log(`[import-stop] session=${sessionId} WARNING: stop signal not verified after write`);
       }
 
-      return json({ ok: true, session_id: sessionId, message: "Import stop signal sent", written: !!verifyRead?.resource }, 200, req);
+      return json(
+        {
+          ok: true,
+          session_id: sessionId,
+          message: "Import stop signal sent",
+          written: !!verified,
+          ...(upsertResult.ok ? {} : { write_error: upsertResult.error }),
+        },
+        200,
+        req
+      );
     } catch (e) {
       context.log(`[import-stop] session=${sessionId} error writing stop signal: ${e.message}`);
       // Even if there's an error, return success so the frontend doesn't retry
