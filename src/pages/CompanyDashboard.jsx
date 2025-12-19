@@ -1428,6 +1428,7 @@ export default function CompanyDashboard() {
   const [refreshError, setRefreshError] = useState(null);
   const [refreshProposed, setRefreshProposed] = useState(null);
   const [proposedDraft, setProposedDraft] = useState(null);
+  const [proposedDraftText, setProposedDraftText] = useState({});
   const [refreshSelection, setRefreshSelection] = useState({});
 
   const [logoFile, setLogoFile] = useState(null);
