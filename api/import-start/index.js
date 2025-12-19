@@ -1167,7 +1167,11 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
 const MAX_PROCESSING_TIME_MS = 4 * 60 * 1000;
 
 const importStartHandler = async (req, context) => {
-    console.log("[import-start] Function handler invoked");
+    const requestId = generateRequestId(req);
+    const responseHeaders = { "x-request-id": requestId };
+    const jsonWithRequestId = (obj, status = 200) => json(obj, status, responseHeaders);
+
+    console.log(`[import-start] request_id=${requestId} Function handler invoked`);
 
     try {
       const method = String(req.method || "").toUpperCase();
@@ -1178,6 +1182,7 @@ const importStartHandler = async (req, context) => {
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
             "Access-Control-Allow-Headers": "content-type,x-functions-key",
+            ...responseHeaders,
           },
         };
       }
@@ -1189,13 +1194,48 @@ const importStartHandler = async (req, context) => {
         payload.proxy = proxyQuery;
       }
 
-      const bodyObj = payload;
+      const bodyObj = payload && typeof payload === "object" ? payload : {};
       const sessionId = bodyObj.session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-      console.log(`[import-start] Received request with session_id: ${sessionId}`);
-      console.log(`[import-start] Request body:`, JSON.stringify(payload));
-
       const startTime = Date.now();
+
+      const normalizedQuery = String(bodyObj.query || "").trim();
+      const normalizedLocation = String(bodyObj.location || "").trim();
+      const normalizedLimit = Math.max(1, Math.min(25, Math.trunc(Number(bodyObj.limit) || 10)));
+
+      const queryTypesRaw =
+        Array.isArray(bodyObj.queryTypes)
+          ? bodyObj.queryTypes
+          : typeof bodyObj.queryTypes === "string"
+            ? [bodyObj.queryTypes]
+            : [];
+
+      const queryTypes = queryTypesRaw
+        .map((t) => String(t || "").trim())
+        .filter(Boolean)
+        .slice(0, 10);
+
+      const normalizedQueryType =
+        String(bodyObj.queryType || queryTypes[0] || "product_keyword").trim() || "product_keyword";
+
+      bodyObj.query = normalizedQuery;
+      bodyObj.location = normalizedLocation || "";
+      bodyObj.limit = normalizedLimit;
+      bodyObj.queryType = normalizedQueryType;
+      bodyObj.queryTypes = queryTypes.length > 0 ? queryTypes : [normalizedQueryType];
+
+      console.log(
+        `[import-start] request_id=${requestId} session=${sessionId} normalized_request=` +
+          JSON.stringify({
+            session_id: sessionId,
+            query: normalizedQuery,
+            queryType: normalizedQueryType,
+            queryTypes: bodyObj.queryTypes,
+            location: normalizedLocation,
+            limit: normalizedLimit,
+            proxy: Object.prototype.hasOwnProperty.call(bodyObj, "proxy") ? bodyObj.proxy : undefined,
+          })
+      );
 
       const debugEnabled = bodyObj.debug === true || bodyObj.debug === "true";
       const debugOutput = debugEnabled
