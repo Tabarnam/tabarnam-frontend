@@ -55,11 +55,26 @@ async function readJsonOrText(res) {
   return safeJsonParse(text) || (text ? { text } : {});
 }
 
+const IMPORT_LIMIT_MIN = 1;
+const IMPORT_LIMIT_MAX = 25;
+const IMPORT_LIMIT_DEFAULT = 1;
+
+function normalizeImportLimit(raw, fallback = IMPORT_LIMIT_DEFAULT) {
+  const s = String(raw ?? "").trim();
+  if (!s) return fallback;
+
+  const n = Number(s);
+  if (!Number.isFinite(n)) return fallback;
+
+  const truncated = Math.trunc(n);
+  return Math.max(IMPORT_LIMIT_MIN, Math.min(IMPORT_LIMIT_MAX, truncated));
+}
+
 export default function AdminImport() {
   const [query, setQuery] = useState("");
   const [queryTypes, setQueryTypes] = useState(["product_keyword"]);
   const [location, setLocation] = useState("");
-  const [limit, setLimit] = useState(10);
+  const [limitInput, setLimitInput] = useState(String(IMPORT_LIMIT_DEFAULT));
 
   const [importConfigLoading, setImportConfigLoading] = useState(true);
   const [importReady, setImportReady] = useState(true);
@@ -161,7 +176,7 @@ export default function AdminImport() {
 
     const session_id = (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`);
 
-    const normalizedLimit = Math.max(1, Math.min(25, Math.trunc(Number(limit) || 10)));
+    const normalizedLimit = normalizeImportLimit(limitInput);
 
     const selectedTypes = Array.isArray(queryTypes) && queryTypes.length > 0 ? queryTypes : ["product_keyword"];
 
@@ -292,7 +307,7 @@ export default function AdminImport() {
     } finally {
       stopPolling();
     }
-  }, [importConfigLoading, importConfigMessage, importReady, limit, location, query, queryTypes, schedulePoll, stopPolling]);
+  }, [importConfigLoading, importConfigMessage, importReady, limitInput, location, query, queryTypes, schedulePoll, stopPolling]);
 
   const stopImport = useCallback(async () => {
     if (!activeSessionId) return;
@@ -500,8 +515,14 @@ export default function AdminImport() {
               <div className="space-y-1">
                 <label className="text-sm text-slate-700">Limit (1–25)</label>
                 <Input
-                  value={String(limit)}
-                  onChange={(e) => setLimit(Number(e.target.value || 10))}
+                  value={limitInput}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    if (next === "" || /^\d+$/.test(next)) {
+                      setLimitInput(next);
+                    }
+                  }}
+                  onBlur={() => setLimitInput((prev) => String(normalizeImportLimit(prev)))}
                   inputMode="numeric"
                 />
               </div>
