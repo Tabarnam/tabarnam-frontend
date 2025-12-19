@@ -1,15 +1,35 @@
-const axios = require("axios");
-const { CosmosClient } = require("@azure/cosmos");
+let axios;
+try {
+  axios = require("axios");
+} catch {
+  axios = null;
+}
+
+let CosmosClient;
+try {
+  ({ CosmosClient } = require("@azure/cosmos"));
+} catch {
+  CosmosClient = null;
+}
+
 const { getXAIEndpoint, getXAIKey } = require("./_shared");
+const { getBuildInfo } = require("./_buildInfo");
+
+const BUILD_INFO = getBuildInfo();
+const HANDLER_ID = "refresh-company";
 
 function json(obj, status = 200) {
   return {
     status,
     headers: {
       "Content-Type": "application/json",
+      "Cache-Control": "no-store",
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST,OPTIONS",
+      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, x-functions-key",
+      "X-Api-Handler": HANDLER_ID,
+      "X-Api-Build-Id": String(BUILD_INFO.build_id || ""),
+      "X-Api-Build-Source": String(BUILD_INFO.build_id_source || ""),
     },
     body: JSON.stringify(obj),
   };
@@ -204,6 +224,7 @@ function getCompaniesContainer() {
   const database = asString(process.env.COSMOS_DB_DATABASE || process.env.COSMOS_DB || "tabarnam-db").trim();
   const containerName = asString(process.env.COSMOS_DB_COMPANIES_CONTAINER || process.env.COSMOS_CONTAINER || "companies").trim();
   if (!endpoint || !key) return null;
+  if (!CosmosClient) return null;
   const client = new CosmosClient({ endpoint, key });
   return client.database(database).container(containerName);
 }
@@ -373,7 +394,19 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     };
 
     stage = "call_xai";
-    const axiosPost = deps.axiosPost || axios.post.bind(axios);
+    const axiosPost = deps.axiosPost || (axios ? axios.post.bind(axios) : null);
+    if (!axiosPost) {
+      return json(
+        {
+          ok: false,
+          stage,
+          error: "Axios not available",
+          config,
+          elapsed_ms: Date.now() - startedAt,
+        },
+        500
+      );
+    }
     const resp = await axiosPost(xaiUrl, payload, {
       headers: {
         "Content-Type": "application/json",
