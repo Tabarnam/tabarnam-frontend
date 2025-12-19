@@ -5,6 +5,90 @@ import { resolve } from "path";
 import fs from "fs";
 import path from "path";
 
+function isNonEmptyString(v) {
+  return typeof v === "string" && v.trim().length > 0;
+}
+
+function normalizeSha(v) {
+  const s = String(v || "").trim();
+  if (!s) return "";
+  const m = s.match(/[0-9a-f]{7,40}/i);
+  return m ? m[0] : s;
+}
+
+function looksLikeSha(v) {
+  const s = String(v || "").trim();
+  return /^[0-9a-f]{7,40}$/i.test(s);
+}
+
+function tryReadFile(filePath) {
+  try {
+    return fs.readFileSync(filePath, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+function tryReadGitShaFromRepoRoot(repoRoot) {
+  const gitDir = path.join(repoRoot, ".git");
+  const head = tryReadFile(path.join(gitDir, "HEAD")).trim();
+  if (!head) return "";
+
+  if (looksLikeSha(head)) return head;
+
+  const refMatch = head.match(/^ref:\s+(.+)$/);
+  if (!refMatch) return "";
+
+  const refPath = path.join(gitDir, refMatch[1].trim());
+  const refSha = tryReadFile(refPath).trim();
+  if (looksLikeSha(refSha)) return refSha;
+
+  const packed = tryReadFile(path.join(gitDir, "packed-refs"));
+  if (!packed) return "";
+
+  const refName = refMatch[1].trim();
+  const lines = packed
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#") && !l.startsWith("^"));
+
+  for (const line of lines) {
+    const parts = line.split(/\s+/);
+    if (parts.length < 2) continue;
+    const [sha, ref] = parts;
+    if (ref === refName && looksLikeSha(sha)) return sha;
+  }
+
+  return "";
+}
+
+function resolveBuildIdFromEnvOrGit() {
+  const env = process.env || {};
+  const candidates = [
+    env.WEBSITE_COMMIT_HASH,
+    env.SCM_COMMIT_ID,
+    env.BUILD_SOURCEVERSION,
+    env.GITHUB_SHA,
+    env.BUILD_ID,
+    env.COMMIT_SHA,
+    env.SOURCE_VERSION,
+    env.NETLIFY_COMMIT_SHA,
+    env.VERCEL_GIT_COMMIT_SHA,
+  ];
+
+  for (const c of candidates) {
+    if (!isNonEmptyString(c)) continue;
+    const normalized = normalizeSha(c);
+    if (isNonEmptyString(normalized)) return normalized;
+  }
+
+  const repoRoot = resolve(__dirname);
+  const gitSha = tryReadGitShaFromRepoRoot(repoRoot);
+  if (isNonEmptyString(gitSha)) return gitSha;
+
+  return "unknown";
+}
+
 // Custom plugin to copy staticwebapp.config.json to dist/
 const copyStaticWebAppConfig = {
   name: "copy-staticwebapp-config",
@@ -21,6 +105,19 @@ const copyStaticWebAppConfig = {
   },
 };
 
+// Emit dist/__build_id.txt for production verification (SWA often doesn't expose commit env vars at runtime)
+const emitBuildIdFile = {
+  name: "emit-build-id-file",
+  apply: "build",
+  writeBundle() {
+    const buildId = resolveBuildIdFromEnvOrGit();
+    const dest = resolve(__dirname, "dist/__build_id.txt");
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, `${buildId}\n`, "utf8");
+    console.log(`✓ Wrote __build_id.txt (${String(buildId).slice(0, 8)}…)`);
+  },
+};
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const API_TARGET =
@@ -30,7 +127,7 @@ export default defineConfig(({ mode }) => {
     "http://127.0.0.1:7071"; // Azure Functions Core Tools default
 
   return {
-    plugins: [react(), copyStaticWebAppConfig],
+    plugins: [react(), copyStaticWebAppConfig, emitBuildIdFile],
     resolve: {
       alias: {
         "@": resolve(__dirname, "src"),
