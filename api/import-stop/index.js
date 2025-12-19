@@ -94,7 +94,10 @@ async function readWithPkCandidates(container, id, sessionId) {
   }
 
   if (lastErr && lastErr.code !== 404) {
-    ctx?.log?.(`[import-stop] session=${sessionId} read failed: ${lastErr.message}`);
+    // Best-effort logging only
+    try {
+      console.warn(`[import-stop] session=${sessionId} read failed: ${lastErr.message}`);
+    } catch {}
   }
   return null;
 }
