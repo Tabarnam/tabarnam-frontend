@@ -193,27 +193,32 @@ export default function AdminImport() {
         ]);
         const body = await readJsonOrText(res);
 
-        if (!res.ok) {
+        const state = typeof body?.state === "string" ? body.state : "";
+        const isUnknownSession =
+          res.status === 404 && body && typeof body === "object" && body.ok === false && body.error === "Unknown session_id";
+
+        if (!res.ok || (body && typeof body === "object" && body.ok === false)) {
           const bodyPreview = toPrettyJsonText(body);
           const configMsg = await getUserFacingConfigMessage(res);
-          const baseMsg = toErrorString(configMsg || body?.error || body?.message || body?.text || `Status failed (${res.status})`);
+          const baseMsg = toErrorString(
+            configMsg ||
+              (body && typeof body === "object" ? body.error || body.message || body.text : null) ||
+              `Status failed (${res.status})`
+          );
           const msg = bodyPreview ? `${baseMsg}\n${bodyPreview}` : baseMsg;
 
           setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
 
-          if (res.status !== 404) {
-            toast.error(baseMsg);
-            return { shouldStop: true };
-          }
-
-          return { shouldStop: false };
+          if (!isUnknownSession) toast.error(baseMsg);
+          return { shouldStop: true };
         }
 
         const items = normalizeItems(body?.items || body?.companies);
-        const completed = Boolean(body?.completed);
-        const timedOut = Boolean(body?.timedOut);
-        const stopped = Boolean(body?.stopped);
         const saved = Number(body?.saved ?? body?.count ?? items.length ?? 0);
+
+        const completed = state === "complete" ? true : Boolean(body?.completed);
+        const timedOut = Boolean(body?.timedOut);
+        const stopped = state === "failed" || state === "complete" ? true : Boolean(body?.stopped);
 
         setRuns((prev) =>
           prev.map((r) => {
@@ -231,6 +236,7 @@ export default function AdminImport() {
           })
         );
 
+        if (state === "complete" || state === "failed") return { shouldStop: true };
         return { shouldStop: completed || timedOut || stopped };
       } catch (e) {
         const msg = toErrorString(e) || "Progress failed";
