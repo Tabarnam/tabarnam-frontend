@@ -1625,6 +1625,9 @@ const importStartHandler = async (req, context) => {
             const r = await axios.post(url, bodyObj, {
               headers: {
                 "Content-Type": "application/json",
+                "x-request-id": requestId,
+                "x-correlation-id": requestId,
+                "x-session-id": sessionId,
                 ...(key
                   ? {
                       Authorization: `Bearer ${key}`,
