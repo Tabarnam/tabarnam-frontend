@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Loader2, Search } from "lucide-react";
 
-import { apiFetch, getUserFacingConfigMessage } from "@/lib/api";
+import { apiFetch, getUserFacingConfigMessage, toErrorString } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,7 +146,7 @@ export default function AdminEditHistory({ companyId }) {
       const body = await res.json().catch(() => ({}));
 
       if (!res.ok || body?.ok !== true) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Failed to load history (${res.status})`;
+        const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Failed to load history (${res.status})`);
         setError(msg);
         return;
       }
@@ -154,7 +154,7 @@ export default function AdminEditHistory({ companyId }) {
       setItems(Array.isArray(body?.items) ? body.items : []);
       setNextCursor(body?.next_cursor || null);
     } catch (e) {
-      setError(e?.message || "Failed to load history");
+      setError(toErrorString(e) || "Failed to load history");
     } finally {
       setLoading(false);
     }
@@ -170,7 +170,7 @@ export default function AdminEditHistory({ companyId }) {
       const body = await res.json().catch(() => ({}));
 
       if (!res.ok || body?.ok !== true) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Failed to load history (${res.status})`;
+        const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Failed to load history (${res.status})`);
         setError(msg);
         return;
       }
@@ -179,7 +179,7 @@ export default function AdminEditHistory({ companyId }) {
       setItems((prev) => [...prev, ...more]);
       setNextCursor(body?.next_cursor || null);
     } catch (e) {
-      setError(e?.message || "Failed to load history");
+      setError(toErrorString(e) || "Failed to load history");
     } finally {
       setLoadingMore(false);
     }
