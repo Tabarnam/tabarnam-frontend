@@ -6,7 +6,16 @@ import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/lib/toast";
-import { apiFetch, getResponseRequestId, getUserFacingConfigMessage, readJsonOrText } from "@/lib/api";
+import {
+  API_BASE,
+  FUNCTIONS_BASE,
+  apiFetch,
+  getResponseRequestId,
+  getUserFacingConfigMessage,
+  join,
+  readJsonOrText,
+  toErrorString,
+} from "@/lib/api";
 
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
