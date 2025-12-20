@@ -371,13 +371,13 @@ export default function AdminImport() {
 
       const body = await readJsonOrText(res);
       if (!res.ok) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Stop failed (${res.status})`;
+        const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Stop failed (${res.status})`);
         toast.error(msg);
       } else {
         toast.success("Stop signal sent");
       }
     } catch (e) {
-      toast.error(e?.message || "Stop failed");
+      toast.error(toErrorString(e) || "Stop failed");
     } finally {
       stopPolling();
       setActiveStatus("idle");
@@ -427,7 +427,7 @@ export default function AdminImport() {
       const body = await readJsonOrText(res);
 
       if (!res.ok || body?.ok !== true) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Save failed (${res.status})`;
+        const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Save failed (${res.status})`);
         setRuns((prev) =>
           prev.map((r) =>
             r.session_id === session_id
@@ -442,7 +442,7 @@ export default function AdminImport() {
       setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, save_result: body, save_error: null } : r)));
       toast.success(`Saved ${Number(body?.saved ?? 0) || 0} compan${Number(body?.saved ?? 0) === 1 ? "y" : "ies"}`);
     } catch (e) {
-      const msg = e?.message || "Save failed";
+      const msg = toErrorString(e) || "Save failed";
       setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, save_error: msg } : r)));
       toast.error(msg);
     } finally {
@@ -467,7 +467,7 @@ export default function AdminImport() {
         }
       } catch (e) {
         if (cancelled) return;
-        setApiVersion({ ok: false, error: e?.message || "Failed to load version" });
+        setApiVersion({ ok: false, error: toErrorString(e) || "Failed to load version" });
       } finally {
         if (!cancelled) setApiVersionLoading(false);
       }
@@ -490,7 +490,7 @@ export default function AdminImport() {
         if (cancelled) return;
 
         if (!res.ok || body?.ok !== true) {
-          const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Config check failed (${res.status})`;
+          const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Config check failed (${res.status})`);
           setImportReady(false);
           setImportConfigMessage(msg);
           return;
@@ -513,7 +513,7 @@ export default function AdminImport() {
       } catch (e) {
         if (cancelled) return;
         setImportReady(false);
-        setImportConfigMessage(e?.message || "Config check failed");
+        setImportConfigMessage(toErrorString(e) || "Config check failed");
       } finally {
         if (!cancelled) setImportConfigLoading(false);
       }
