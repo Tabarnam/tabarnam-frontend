@@ -64,7 +64,8 @@ function json(obj, status = 200, extraHeaders) {
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-      "Access-Control-Allow-Headers": "content-type,x-functions-key",
+      "Access-Control-Allow-Headers": "content-type,x-functions-key,x-request-id",
+      "Access-Control-Expose-Headers": "x-request-id",
       ...(extraHeaders && typeof extraHeaders === "object" ? extraHeaders : {}),
     },
     body: JSON.stringify(obj),
@@ -79,6 +80,36 @@ function safeJsonParse(text) {
   } catch {
     return null;
   }
+}
+
+function sanitizeTextPreview(text) {
+  let s = typeof text === "string" ? text : String(text ?? "");
+  if (!s) return "";
+
+  s = s.replace(/Bearer\s+[^\s"']+/gi, "Bearer [REDACTED]");
+  s = s.replace(/x-functions-key\s*[:=]\s*[^\s"']+/gi, "x-functions-key: [REDACTED]");
+  s = s.replace(/api[_-]?key\s*[:=]\s*[^\s"']+/gi, "api_key: [REDACTED]");
+
+  return s;
+}
+
+function toTextPreview(value, maxChars = 500) {
+  if (value == null) return "";
+
+  let raw = "";
+  if (typeof value === "string") {
+    raw = value;
+  } else {
+    try {
+      raw = JSON.stringify(value);
+    } catch {
+      raw = String(value);
+    }
+  }
+
+  raw = sanitizeTextPreview(raw).trim();
+  if (!raw) return "";
+  return raw.length > maxChars ? raw.slice(0, maxChars) : raw;
 }
 
 function readQueryParam(req, name) {
