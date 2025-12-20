@@ -417,6 +417,40 @@ function getHeader(req, name) {
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
+function isDebugDiagnosticsEnabled(req) {
+  const raw = getHeader(req, "x-debug");
+  if (!raw) return false;
+  const v = raw.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
+function buildBodyDiagnostics(req) {
+  const rawBody = req?.rawBody;
+  const body = req?.body;
+  const bufferBody = req?.bufferBody;
+
+  return {
+    body_sources: {
+      rawBodyType: getBodyType(rawBody),
+      rawBodyLen: getBodyLen(rawBody),
+      bodyType: getBodyType(body),
+      bodyLen: getBodyLen(body),
+      bufferBodyType: getBodyType(bufferBody),
+      bufferBodyLen: getBodyLen(bufferBody),
+      isStreamBody:
+        isProbablyStreamBody(rawBody) || isProbablyStreamBody(body) || isProbablyStreamBody(bufferBody),
+    },
+    headers_subset: {
+      "content-type": getHeader(req, "content-type"),
+      "content-length": getHeader(req, "content-length"),
+      "transfer-encoding": getHeader(req, "transfer-encoding"),
+      expect: getHeader(req, "expect"),
+      "user-agent": getHeader(req, "user-agent"),
+      "x-ms-middleware-request-id": getHeader(req, "x-ms-middleware-request-id"),
+    },
+  };
+}
+
 function generateRequestId(req) {
   const existing =
     getHeader(req, "x-request-id") ||
