@@ -68,7 +68,8 @@ function toPrettyJsonText(value) {
   }
 
   try {
-    return JSON.stringify(value, null, 2);
+    const text = JSON.stringify(value, null, 2);
+    return typeof text === "string" ? text : JSON.stringify({ value: asString(value) }, null, 2);
   } catch {
     return JSON.stringify({ value: asString(value) }, null, 2);
   }
