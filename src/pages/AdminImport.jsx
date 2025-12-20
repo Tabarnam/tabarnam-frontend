@@ -521,7 +521,7 @@ export default function AdminImport() {
     } finally {
       stopPolling();
     }
-  }, [importConfigLoading, importConfigMessage, importReady, limitInput, location, query, queryTypes, schedulePoll, stopPolling, urlTypeValidationError]);
+  }, [importConfigLoading, importConfigMessage, importReady, limitInput, location, query, queryTypes, resetPollAttempts, schedulePoll, stopPolling, urlTypeValidationError]);
 
   const stopImport = useCallback(async () => {
     if (!activeSessionId) return;
