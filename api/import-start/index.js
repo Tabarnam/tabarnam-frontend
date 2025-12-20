@@ -1158,7 +1158,9 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
       stream: false,
     };
 
-    console.log(`[import-start] Fetching editorial reviews for ${companyName}`);
+    console.log(
+      `[import-start] Fetching editorial reviews for ${companyName} (upstream=${toHostPathOnlyForLog(xaiUrl)})`
+    );
     const response = await axios.post(xaiUrl, reviewPayload, {
       headers: {
         "Content-Type": "application/json",
@@ -1842,6 +1844,38 @@ const importStartHandler = async (req, context) => {
       };
 
       const respondError = async (err, { status = 500, details = {} } = {}) => {
+        const env_present = {
+          has_xai_key: Boolean(getXAIKey()),
+          has_xai_base_url: Boolean(getXAIEndpoint()),
+          has_import_start_proxy_base: Boolean(getImportStartProxyInfo().base),
+        };
+
+        const upstream = (() => {
+          const d = details && typeof details === "object" ? details : {};
+          const rawUrl = d.upstream_url || d.xai_url || d.upstream || "";
+          const host_path = rawUrl ? toHostPathOnlyForLog(rawUrl) : "";
+          const statusVal = d.upstream_status ?? d.xai_status ?? null;
+          const body_preview = d.upstream_text_preview ? toTextPreview(d.upstream_text_preview) : "";
+          const timeout_ms =
+            d.upstream_timeout_ms ?? d.timeout_ms ?? (status === 504 ? d.hard_timeout_ms || null : null);
+
+          const out = {};
+          if (host_path) out.host_path = host_path;
+          if (Number.isFinite(Number(statusVal))) out.status = Number(statusVal);
+          if (body_preview) out.body_preview = body_preview;
+          if (Number.isFinite(Number(timeout_ms))) out.timeout_ms = Number(timeout_ms);
+          return Object.keys(out).length ? out : null;
+        })();
+
+        if (status >= 500) {
+          try {
+            console.error(
+              "[import-start] sanitized_diagnostics:",
+              JSON.stringify({ request_id: requestId, session_id: sessionId, stage, status, upstream, env_present })
+            );
+          } catch {}
+        }
+
         const errorMessage = toErrorString(err);
         const code =
           (details && typeof details.code === "string" && details.code.trim() ? details.code.trim() : null) ||
@@ -1905,6 +1939,8 @@ const importStartHandler = async (req, context) => {
           stage,
           session_id: sessionId,
           request_id: requestId,
+          env_present,
+          ...(upstream ? { upstream } : {}),
           error: errorObj,
           legacy_error: message,
           ...buildInfo,
@@ -2114,6 +2150,7 @@ const importStartHandler = async (req, context) => {
             usedPath = p;
             usedUrl = url;
 
+            console.log(`[import-start] Worker call upstream: ${toHostPathOnlyForLog(url)}`);
             const r = await axios.post(url, bodyObj, {
               headers: {
                 "Content-Type": "application/json",
@@ -2136,7 +2173,8 @@ const importStartHandler = async (req, context) => {
             if (r.status !== 404) break;
           }
 
-          setStage("worker_call", { upstream_url: usedUrl, upstream_path: usedPath });
+          const usedHostPath = toHostPathOnlyForLog(usedUrl);
+          setStage("worker_call", { upstream_host_path: usedHostPath, upstream_path: usedPath });
 
           const xaiRequestId = extractXaiRequestId(resp.headers);
           if (xaiRequestId) {
@@ -2188,7 +2226,7 @@ const importStartHandler = async (req, context) => {
               request_id: body.request_id,
               step: "worker_call",
               upstream_status: resp.status,
-              upstream_url: usedUrl,
+              upstream_url: usedHostPath,
               upstream_path: usedPath,
               upstream_text_preview: upstreamTextPreview,
               ...(xaiRequestId ? { upstream_request_id: xaiRequestId } : {}),
@@ -2199,7 +2237,7 @@ const importStartHandler = async (req, context) => {
               request_id: String(bodyError.request_id || body.request_id || requestId),
               step: String(bodyError.step || bodyError.stage || "worker_call"),
               ...(bodyError.upstream_status ? {} : { upstream_status: resp.status }),
-              ...(bodyError.upstream_url ? {} : { upstream_url: usedUrl }),
+              ...(bodyError.upstream_url ? {} : { upstream_url: usedHostPath }),
               ...(bodyError.upstream_path ? {} : { upstream_path: usedPath }),
               ...(bodyError.upstream_text_preview ? {} : { upstream_text_preview: upstreamTextPreview }),
               ...(xaiRequestId && !bodyError.upstream_request_id ? { upstream_request_id: xaiRequestId } : {}),
@@ -2212,13 +2250,49 @@ const importStartHandler = async (req, context) => {
             ...meta,
             mode: meta.mode || "proxy",
             elapsedMs,
-            upstream: proxyBase,
-            upstream_url: usedUrl,
+            upstream: toHostPathOnlyForLog(proxyBase),
+            upstream_url: usedHostPath,
             upstream_path: usedPath,
             upstream_status: resp.status,
             proxy_source: proxySource,
             ...(upstreamTextPreview ? { upstream_text_preview: upstreamTextPreview } : {}),
           };
+
+          const env_present = {
+            has_xai_key: Boolean(getXAIKey()),
+            has_xai_base_url: Boolean(getXAIEndpoint()),
+            has_import_start_proxy_base: Boolean(getImportStartProxyInfo().base),
+          };
+
+          const upstream =
+            body.ok === false
+              ? {
+                  host_path: usedHostPath,
+                  status: resp.status,
+                  ...(upstreamTextPreview ? { body_preview: upstreamTextPreview } : {}),
+                }
+              : null;
+
+          if (body.ok === false) {
+            if (!body.env_present) body.env_present = env_present;
+            if (upstream && !body.upstream) body.upstream = upstream;
+
+            if (resp.status >= 500) {
+              try {
+                console.error(
+                  "[import-start] sanitized_diagnostics:",
+                  JSON.stringify({
+                    request_id: body.request_id || requestId,
+                    session_id: body.session_id || sessionId,
+                    stage: body.stage || "worker_call",
+                    status: resp.status,
+                    upstream,
+                    env_present,
+                  })
+                );
+              } catch {}
+            }
+          }
 
           return json({ ...body, ...buildInfo }, resp?.status || 502, responseHeaders);
         } catch (e) {
@@ -2233,9 +2307,9 @@ const importStartHandler = async (req, context) => {
           const upstreamTextPreview = toTextPreview(e?.response?.data || e?.response?.body || "");
           const upstreamRequestId = extractXaiRequestId(e?.response?.headers || {});
           const details = {
-            upstream: proxyBase,
+            upstream: toHostPathOnlyForLog(proxyBase),
             upstream_status: upstreamStatus,
-            upstream_url: proxyBase,
+            upstream_url: toHostPathOnlyForLog(proxyBase),
             upstream_text_preview: upstreamTextPreview,
             ...(upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {}),
             elapsed_ms: elapsedMs,
@@ -2264,7 +2338,7 @@ const importStartHandler = async (req, context) => {
           } else {
             setStage("worker_call");
             return respondError(e, {
-              status: 502,
+              status: 500,
               details: {
                 ...details,
                 code: "UPSTREAM_WORKER_FAILED",
@@ -2728,6 +2802,7 @@ Output JSON only:
               stream: false,
             };
 
+            console.log(`[import-start] Calling XAI API (keywords) at: ${toHostPathOnlyForLog(xaiUrl)}`);
             const res = await axios.post(xaiUrl, payload, {
               headers: {
                 "Content-Type": "application/json",
@@ -2953,7 +3028,11 @@ Return ONLY the JSON array, no other text.`,
                 stream: false,
               };
 
-              console.log(`[import-start] Running location refinement pass for ${companiesNeedingLocationRefinement.length} companies`);
+              console.log(
+                `[import-start] Running location refinement pass for ${companiesNeedingLocationRefinement.length} companies (upstream=${toHostPathOnlyForLog(
+                  xaiUrl
+                )})`
+              );
               const refinementResponse = await axios.post(xaiUrl, refinementPayload, {
                 headers: {
                   "Content-Type": "application/json",
@@ -3092,7 +3171,9 @@ Return ONLY the JSON array, no other text.`,
                 stream: false,
               };
 
-              console.log(`[import-start] Making expansion search for "${xaiPayload.query}"`);
+              console.log(
+                `[import-start] Making expansion search for "${xaiPayload.query}" (upstream=${toHostPathOnlyForLog(xaiUrl)})`
+              );
               const expansionResponse = await axios.post(xaiUrl, expansionPayload, {
                 headers: {
                   "Content-Type": "application/json",
@@ -3256,7 +3337,7 @@ Return ONLY the JSON array, no other text.`,
           );
 
           return respondError(new Error(`XAI returned ${xaiResponse.status}`), {
-            status: 502,
+            status: 500,
             details: {
               code: xaiResponse.status === 404 ? "IMPORT_START_UPSTREAM_NOT_FOUND" : "IMPORT_START_UPSTREAM_FAILED",
               message:
@@ -3334,7 +3415,7 @@ Return ONLY the JSON array, no other text.`,
         const upstreamTextPreview = toTextPreview(xaiError?.response?.data || xaiError?.response?.body || "");
 
         return respondError(new Error(`XAI call failed: ${toErrorString(xaiError)}`), {
-          status: 502,
+          status: 500,
           details: {
             code: upstreamErrorCode,
             message: upstreamMessage,
