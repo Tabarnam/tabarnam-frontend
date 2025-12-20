@@ -1717,6 +1717,7 @@ const importStartHandler = async (req, context) => {
           website_url: contextInfo.website_url,
           normalized_domain: contextInfo.normalized_domain,
           xai_request_id: contextInfo.xai_request_id,
+          ...(status === 400 && isDebugDiagnosticsEnabled(req) ? { diagnostics: buildBodyDiagnostics(req) } : {}),
           ...(debugEnabled
             ? {
                 stack: String(err?.stack || ""),
