@@ -1158,7 +1158,9 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
       stream: false,
     };
 
-    console.log(`[import-start] Fetching editorial reviews for ${companyName}`);
+    console.log(
+      `[import-start] Fetching editorial reviews for ${companyName} (upstream=${toHostPathOnlyForLog(xaiUrl)})`
+    );
     const response = await axios.post(xaiUrl, reviewPayload, {
       headers: {
         "Content-Type": "application/json",
@@ -2763,6 +2765,7 @@ Output JSON only:
               stream: false,
             };
 
+            console.log(`[import-start] Calling XAI API (keywords) at: ${toHostPathOnlyForLog(xaiUrl)}`);
             const res = await axios.post(xaiUrl, payload, {
               headers: {
                 "Content-Type": "application/json",
@@ -2988,7 +2991,11 @@ Return ONLY the JSON array, no other text.`,
                 stream: false,
               };
 
-              console.log(`[import-start] Running location refinement pass for ${companiesNeedingLocationRefinement.length} companies`);
+              console.log(
+                `[import-start] Running location refinement pass for ${companiesNeedingLocationRefinement.length} companies (upstream=${toHostPathOnlyForLog(
+                  xaiUrl
+                )})`
+              );
               const refinementResponse = await axios.post(xaiUrl, refinementPayload, {
                 headers: {
                   "Content-Type": "application/json",
@@ -3127,7 +3134,9 @@ Return ONLY the JSON array, no other text.`,
                 stream: false,
               };
 
-              console.log(`[import-start] Making expansion search for "${xaiPayload.query}"`);
+              console.log(
+                `[import-start] Making expansion search for "${xaiPayload.query}" (upstream=${toHostPathOnlyForLog(xaiUrl)})`
+              );
               const expansionResponse = await axios.post(xaiUrl, expansionPayload, {
                 headers: {
                   "Content-Type": "application/json",
