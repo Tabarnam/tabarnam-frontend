@@ -87,6 +87,14 @@ export default function AdminImport() {
   const [saveLoading, setSaveLoading] = useState(false);
   const [savingSessionId, setSavingSessionId] = useState(null);
 
+  const [debugQuery, setDebugQuery] = useState("");
+  const [debugLimitInput, setDebugLimitInput] = useState("1");
+  const [debugSessionId, setDebugSessionId] = useState("");
+  const [debugStartResponse, setDebugStartResponse] = useState(null);
+  const [debugStatusResponse, setDebugStatusResponse] = useState(null);
+  const [debugStartLoading, setDebugStartLoading] = useState(false);
+  const [debugStatusLoading, setDebugStatusLoading] = useState(false);
+
   const pollTimerRef = useRef(null);
   const startFetchAbortRef = useRef(null);
 
@@ -180,6 +188,77 @@ export default function AdminImport() {
       ? ""
       : "Query looks like a URL. Switch query type to Company URL/domain.";
   }, [isUrlLikeQuery, queryTypes]);
+
+  const startDebugImport = useCallback(async () => {
+    const q = debugQuery.trim();
+    if (!q) {
+      toast.error("Enter a query.");
+      return;
+    }
+
+    const limit = normalizeImportLimit(debugLimitInput);
+
+    setDebugStartLoading(true);
+    setDebugStartResponse(null);
+    setDebugStatusResponse(null);
+    setDebugSessionId("");
+
+    try {
+      const res = await apiFetch("/import/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q, limit }),
+      });
+
+      const body = await readJsonOrText(res);
+      setDebugStartResponse(body);
+
+      const sid = typeof body?.session_id === "string" ? body.session_id.trim() : "";
+      if (sid) setDebugSessionId(sid);
+
+      if (!res.ok || body?.ok === false) {
+        const msg = (await getUserFacingConfigMessage(res)) || body?.error || body?.message || `Import start failed (${res.status})`;
+        toast.error(typeof msg === "string" ? msg : "Import start failed");
+        return;
+      }
+
+      if (!sid) {
+        toast.error("Import start response missing session_id");
+        return;
+      }
+
+      toast.success("Import started");
+    } catch (e) {
+      toast.error(e?.message || "Import start failed");
+    } finally {
+      setDebugStartLoading(false);
+    }
+  }, [debugLimitInput, debugQuery]);
+
+  const checkDebugStatus = useCallback(async () => {
+    const sid = debugSessionId.trim();
+    if (!sid) {
+      toast.error("Missing session_id");
+      return;
+    }
+
+    setDebugStatusLoading(true);
+
+    try {
+      const res = await apiFetch(`/import/status?session_id=${encodeURIComponent(sid)}`);
+      const body = await readJsonOrText(res);
+      setDebugStatusResponse(body);
+
+      if (!res.ok) {
+        const msg = (await getUserFacingConfigMessage(res)) || body?.error || body?.message || `Status failed (${res.status})`;
+        toast.error(typeof msg === "string" ? msg : "Status failed");
+      }
+    } catch (e) {
+      toast.error(e?.message || "Status failed");
+    } finally {
+      setDebugStatusLoading(false);
+    }
+  }, [debugSessionId]);
 
   const beginImport = useCallback(async () => {
     const q = query.trim();
@@ -535,6 +614,90 @@ export default function AdminImport() {
             <h1 className="text-3xl font-bold text-slate-900">Company Import</h1>
             <p className="text-sm text-slate-600">Start an import session and poll progress until it completes.</p>
           </header>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-slate-900">Import Debug Panel (temporary)</h2>
+              <div className="text-xs text-slate-500">Calls /api/import/start and /api/import/status directly.</div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="md:col-span-2 space-y-1">
+                <label className="text-sm text-slate-700">Query string</label>
+                <Input
+                  value={debugQuery}
+                  onChange={(e) => setDebugQuery(e.target.value)}
+                  placeholder="query string"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm text-slate-700">Limit (number)</label>
+                <Input
+                  value={debugLimitInput}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    if (next === "" || /^\d+$/.test(next)) {
+                      setDebugLimitInput(next);
+                    }
+                  }}
+                  onBlur={() => setDebugLimitInput((prev) => String(normalizeImportLimit(prev)))}
+                  inputMode="numeric"
+                  placeholder="1"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={startDebugImport} disabled={debugStartLoading}>
+                {debugStartLoading ? "Starting…" : "Start Import"}
+              </Button>
+
+              <Button variant="outline" onClick={checkDebugStatus} disabled={debugStatusLoading || !debugSessionId.trim()}>
+                {debugStatusLoading ? "Checking…" : "Check Status"}
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <div className="rounded border border-slate-200 bg-slate-50 p-3">
+                <div className="text-xs font-medium text-slate-700">session_id</div>
+                <div className="mt-1 flex items-start justify-between gap-2">
+                  <code className="text-xs text-slate-900 break-all">{debugSessionId || "—"}</code>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled={!debugSessionId}
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(debugSessionId);
+                        toast.success("Copied session_id");
+                      } catch (e) {
+                        toast.error(e?.message || "Copy failed");
+                      }
+                    }}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="rounded border border-slate-200 bg-slate-50 p-3">
+                <div className="text-xs font-medium text-slate-700">Start response</div>
+                <pre className="mt-2 max-h-48 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">
+                  {debugStartResponse ? JSON.stringify(debugStartResponse, null, 2) : "—"}
+                </pre>
+              </div>
+            </div>
+
+            <div className="rounded border border-slate-200 bg-slate-50 p-3">
+              <div className="text-xs font-medium text-slate-700">Status response</div>
+              <pre className="mt-2 max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">
+                {debugStatusResponse ? JSON.stringify(debugStatusResponse, null, 2) : "—"}
+              </pre>
+            </div>
+          </section>
 
           {!importConfigLoading && !importReady ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 flex items-start gap-3">
