@@ -84,6 +84,34 @@ function toPrettyJsonText(value) {
   }
 }
 
+function toDisplayText(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  try {
+    const text = JSON.stringify(value, null, 2);
+    return typeof text === "string" ? text : String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+async function apiFetchWithFallback(paths, init) {
+  const list = Array.isArray(paths) ? paths.filter(Boolean) : [];
+  if (list.length === 0) throw new Error("apiFetchWithFallback: missing paths");
+
+  let lastRes = null;
+  let lastPath = list[list.length - 1];
+
+  for (const path of list) {
+    lastPath = path;
+    const res = await apiFetch(path, init);
+    lastRes = res;
+    if (res.status !== 404) return { res, usedPath: path };
+  }
+
+  return { res: lastRes, usedPath: lastPath };
+}
+
 function extractSessionId(value) {
   if (!value) return "";
   if (typeof value === "object") {
@@ -157,8 +185,8 @@ export default function AdminImport() {
   const pollProgress = useCallback(
     async ({ session_id }) => {
       try {
-        const tryStatus = async (path) => {
-          const res = await apiFetch(path);
+        const fetchStatus = async (basePath, suffix = "") => {
+          const res = await apiFetch(`${basePath}${suffix}`);
           const body = await readJsonOrText(res);
           return { res, body };
         };
@@ -166,13 +194,20 @@ export default function AdminImport() {
         // Safe fallback:
         // 1) Try without params (Dedicated supports this).
         // 2) If backend returns 400 complaining about missing session id, retry with session_id.
-        let { res, body } = await tryStatus("/import/status");
+        // 3) Support both routing styles while we confirm canonical:
+        //    - /api/import/status
+        //    - /api/import-status
+        const first = await apiFetchWithFallback(["/import/status", "/import-status"]);
+        let res = first.res;
+        let body = await readJsonOrText(res);
+        const basePath = first.usedPath;
 
         if (!res.ok && res.status === 400) {
           const hint = String(body?.error ?? body?.message ?? body?.text ?? "").toLowerCase();
-          const looksLikeMissingSession = hint.includes("session") && hint.includes("id") && (hint.includes("missing") || hint.includes("required"));
+          const looksLikeMissingSession =
+            hint.includes("session") && hint.includes("id") && (hint.includes("missing") || hint.includes("required"));
           if (looksLikeMissingSession) {
-            ({ res, body } = await tryStatus(`/import/status?session_id=${encodeURIComponent(session_id)}`));
+            ({ res, body } = await fetchStatus(basePath, `?session_id=${encodeURIComponent(session_id)}`));
           }
         }
 
@@ -263,7 +298,7 @@ export default function AdminImport() {
     setDebugSessionId("");
 
     try {
-      const res = await apiFetch("/import/start", {
+      const { res } = await apiFetchWithFallback(["/import/start", "/import-start"], {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: q, limit }),
@@ -276,8 +311,10 @@ export default function AdminImport() {
       if (sid) setDebugSessionId(sid);
 
       if (!res.ok || body?.ok === false) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || body?.message || `Import start failed (${res.status})`;
-        toast.error(typeof msg === "string" ? msg : "Import start failed");
+        const msg = toErrorString(
+          (await getUserFacingConfigMessage(res)) || body?.error || body?.message || `Import start failed (${res.status})`
+        );
+        toast.error(msg || "Import start failed");
         return;
       }
 
@@ -305,13 +342,17 @@ export default function AdminImport() {
     setDebugStatusLoading(true);
 
     try {
-      const res = await apiFetch(`/import/status?session_id=${encodeURIComponent(sid)}`);
+      const { res } = await apiFetchWithFallback(
+        [`/import/status?session_id=${encodeURIComponent(sid)}`, `/import-status?session_id=${encodeURIComponent(sid)}`]
+      );
       const body = await readJsonOrText(res);
       setDebugStatusResponseText(toPrettyJsonText(body));
 
       if (!res.ok) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || body?.message || `Status failed (${res.status})`;
-        toast.error(typeof msg === "string" ? msg : "Status failed");
+        const msg = toErrorString(
+          (await getUserFacingConfigMessage(res)) || body?.error || body?.message || `Status failed (${res.status})`
+        );
+        toast.error(msg || "Status failed");
       }
     } catch (e) {
       setDebugStatusResponseText(JSON.stringify({ error: String(e?.message ?? e) }, null, 2));
@@ -389,7 +430,7 @@ export default function AdminImport() {
         console.log("[AdminImport] /import/start payload", requestPayload);
       }
 
-      const res = await apiFetch("/import/start", {
+      const { res } = await apiFetchWithFallback(["/import/start", "/import-start"], {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestPayload),
@@ -407,13 +448,14 @@ export default function AdminImport() {
           getResponseRequestId(res) ||
           "";
 
-        const msg =
+        const msg = toErrorString(
           configMsg ||
-          errorObj?.message ||
-          body?.legacy_error ||
-          body?.message ||
-          (typeof body?.error === "string" ? body.error : "") ||
-          `Import failed (${res.status})`;
+            errorObj?.message ||
+            body?.legacy_error ||
+            body?.message ||
+            (typeof body?.error === "string" ? body.error : "") ||
+            `Import failed (${res.status})`
+        );
 
         const detailsForCopy = {
           status: res.status,
@@ -679,7 +721,7 @@ export default function AdminImport() {
           <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-lg font-semibold text-slate-900">Import Debug Panel (temporary)</h2>
-              <div className="text-xs text-slate-500">Calls /api/import/start and /api/import/status directly.</div>
+              <div className="text-xs text-slate-500">Tries /api/import/start (fallback /api/import-start) and /api/import/status (fallback /api/import-status).</div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -751,13 +793,13 @@ export default function AdminImport() {
 
               <div className="rounded border border-slate-200 bg-slate-50 p-3">
                 <div className="text-xs font-medium text-slate-700">Start response</div>
-                <pre className="mt-2 max-h-48 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{debugStartResponseText || ""}</pre>
+                <pre className="mt-2 max-h-48 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{toDisplayText(debugStartResponseText)}</pre>
               </div>
             </div>
 
             <div className="rounded border border-slate-200 bg-slate-50 p-3">
               <div className="text-xs font-medium text-slate-700">Status response</div>
-              <pre className="mt-2 max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{debugStatusResponseText || ""}</pre>
+              <pre className="mt-2 max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{toDisplayText(debugStatusResponseText)}</pre>
             </div>
           </section>
 
@@ -943,7 +985,7 @@ export default function AdminImport() {
             {activeRun?.start_error ? (
               <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900 space-y-2">
                 <div className="font-semibold">Import failed</div>
-                <div>{activeRun.start_error}</div>
+                <div>{toDisplayText(activeRun.start_error)}</div>
                 {(() => {
                   const responseBody = activeRun?.start_error_details?.response_body;
                   const bodyObj = responseBody && typeof responseBody === "object" ? responseBody : null;
@@ -1002,11 +1044,11 @@ export default function AdminImport() {
             ) : null}
 
             {activeRun?.progress_error ? (
-              <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{activeRun.progress_error}</div>
+              <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{toDisplayText(activeRun.progress_error)}</div>
             ) : null}
 
             {activeRun?.save_error ? (
-              <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">{activeRun.save_error}</div>
+              <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">{toDisplayText(activeRun.save_error)}</div>
             ) : null}
 
             {activeRun?.save_result?.ok === true ? (
@@ -1157,8 +1199,12 @@ export default function AdminImport() {
               <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{API_BASE}</code>
             </div>
             <div>
-              <span className="font-medium">Start URL:</span>{" "}
+              <span className="font-medium">Start URL (try 1):</span>{" "}
               <code className="rounded bg-slate-100 px-1 py-0.5 break-all">POST {join(API_BASE, "/import/start")}</code>
+            </div>
+            <div>
+              <span className="font-medium">Start URL (try 2):</span>{" "}
+              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">POST {join(API_BASE, "/import-start")}</code>
             </div>
             <div>
               <span className="font-medium">Status URL (try 1):</span>{" "}
@@ -1166,10 +1212,7 @@ export default function AdminImport() {
             </div>
             <div>
               <span className="font-medium">Status URL (try 2):</span>{" "}
-              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">
-                GET {join(API_BASE, "/import/status")}
-                {activeSessionId ? `?session_id=${encodeURIComponent(activeSessionId)}` : ""}
-              </code>
+              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">GET {join(API_BASE, "/import-status")}</code>
             </div>
           </div>
         </main>
