@@ -64,8 +64,9 @@ function json(obj, status = 200, extraHeaders) {
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-      "Access-Control-Allow-Headers": "content-type,x-functions-key,x-request-id",
-      "Access-Control-Expose-Headers": "x-request-id",
+      "Access-Control-Allow-Headers":
+        "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id",
+      "Access-Control-Expose-Headers": "x-request-id,x-correlation-id,x-session-id",
       ...(extraHeaders && typeof extraHeaders === "object" ? extraHeaders : {}),
     },
     body: JSON.stringify(obj),
@@ -1225,7 +1226,9 @@ const importStartHandler = async (req, context) => {
           headers: {
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-            "Access-Control-Allow-Headers": "content-type,x-functions-key",
+            "Access-Control-Allow-Headers":
+              "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id",
+            "Access-Control-Expose-Headers": "x-request-id,x-correlation-id,x-session-id",
             ...responseHeaders,
           },
         };
@@ -1387,6 +1390,7 @@ const importStartHandler = async (req, context) => {
           "upstream_text_preview",
           "upstream_error_code",
           "upstream_error_message",
+          "upstream_request_id",
         ];
 
         if (details && typeof details === "object") {
@@ -1739,11 +1743,13 @@ const importStartHandler = async (req, context) => {
 
           const upstreamStatus = e?.response?.status || null;
           const upstreamTextPreview = toTextPreview(e?.response?.data || e?.response?.body || "");
+          const upstreamRequestId = extractXaiRequestId(e?.response?.headers || {});
           const details = {
             upstream: proxyBase,
             upstream_status: upstreamStatus,
             upstream_url: proxyBase,
             upstream_text_preview: upstreamTextPreview,
+            ...(upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {}),
             elapsed_ms: elapsedMs,
             upstream_timeout_ms: upstreamTimeoutMs,
             hard_timeout_ms: hardTimeoutMs,
