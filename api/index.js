@@ -53,6 +53,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: version");
+  require("./version/index.js");
+  console.log("[api] ✓ version registered");
+} catch (e) {
+  console.error("[api] Failed to load version:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: hello");
   require("./hello/index.js");
 } catch (e) {
