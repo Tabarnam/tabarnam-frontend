@@ -1283,6 +1283,10 @@ const importStartHandler = async (req, context) => {
       bodyObj.queryType = normalizedQueryType;
       bodyObj.queryTypes = queryTypes.length > 0 ? queryTypes : [normalizedQueryType];
 
+      const existingRequestId = String(bodyObj.request_id || bodyObj.requestId || "").trim();
+      bodyObj.request_id = existingRequestId || requestId;
+      bodyObj.requestId = bodyObj.request_id;
+
       if (queryLooksLikeUrl && bodyObj.queryTypes.includes("company_url")) {
         bodyObj.queryType = "company_url";
       }
