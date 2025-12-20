@@ -1576,6 +1576,8 @@ const importStartHandler = async (req, context) => {
     const jsonWithRequestId = (obj, status = 200) => json(obj, status, responseHeaders);
 
     const buildInfo = getBuildInfo();
+    const diagnosticsEnabled = isDebugDiagnosticsEnabled(req);
+    const stageTrace = [{ stage: "init", ts: new Date().toISOString() }];
     const contextInfo = {
       company_name: "",
       website_url: "",
@@ -1633,12 +1635,16 @@ const importStartHandler = async (req, context) => {
               normalized_domain: "",
               xai_request_id: null,
               details: { code: "INVALID_JSON_BODY", message: "Invalid JSON body" },
-              ...(isDebugDiagnosticsEnabled(req)
+              ...(diagnosticsEnabled
                 ? {
-                    diagnostics: buildBodyDiagnostics(req, {
-                      parse_error: err?.parse_error || null,
-                      first_bytes_preview: err?.first_bytes_preview || null,
-                    }),
+                    diagnostics: {
+                      handler_reached: true,
+                      stage_trace: stageTrace,
+                      ...buildBodyDiagnostics(req, {
+                        parse_error: err?.parse_error || null,
+                        first_bytes_preview: err?.first_bytes_preview || null,
+                      }),
+                    },
                   }
                 : {}),
             },
@@ -1751,6 +1757,10 @@ const importStartHandler = async (req, context) => {
           if (typeof extra.xai_request_id === "string") contextInfo.xai_request_id = extra.xai_request_id;
         }
 
+        if (diagnosticsEnabled) {
+          stageTrace.push({ stage, ts: new Date().toISOString(), ...extra });
+        }
+
         if (debugOutput) {
           debugOutput.stages.push({ stage, ts: new Date().toISOString(), ...extra });
         }
@@ -1841,7 +1851,15 @@ const importStartHandler = async (req, context) => {
           website_url: contextInfo.website_url,
           normalized_domain: contextInfo.normalized_domain,
           xai_request_id: contextInfo.xai_request_id,
-          ...(status === 400 && isDebugDiagnosticsEnabled(req) ? { diagnostics: buildBodyDiagnostics(req) } : {}),
+          ...(diagnosticsEnabled
+            ? {
+                diagnostics: {
+                  handler_reached: true,
+                  stage_trace: stageTrace,
+                  ...buildBodyDiagnostics(req),
+                },
+              }
+            : {}),
           ...(debugEnabled
             ? {
                 stack: String(err?.stack || ""),
@@ -3284,9 +3302,11 @@ Return ONLY the JSON array, no other text.`,
           website_url: contextInfo.website_url,
           normalized_domain: contextInfo.normalized_domain,
           xai_request_id: contextInfo.xai_request_id,
-          ...(isDebugDiagnosticsEnabled(req)
+          ...(diagnosticsEnabled
             ? {
                 diagnostics: {
+                  handler_reached: true,
+                  stage_trace: stageTrace,
                   ...buildBodyDiagnostics(req),
                   unhandled_error: toErrorString(e),
                 },
