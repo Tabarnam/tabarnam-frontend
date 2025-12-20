@@ -51,6 +51,41 @@ function mergeById(prev, next) {
   return Array.from(map.values());
 }
 
+function safeJsonParse(text) {
+  if (typeof text !== "string") return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function toPrettyJsonText(value) {
+  if (typeof value === "string") {
+    const parsed = safeJsonParse(value);
+    if (parsed && typeof parsed === "object") return JSON.stringify(parsed, null, 2);
+    return value;
+  }
+
+  try {
+    const text = JSON.stringify(value, null, 2);
+    return typeof text === "string" ? text : JSON.stringify({ value: asString(value) }, null, 2);
+  } catch {
+    return JSON.stringify({ value: asString(value) }, null, 2);
+  }
+}
+
+function extractSessionId(value) {
+  if (!value) return "";
+  if (typeof value === "object") {
+    return typeof value?.session_id === "string" ? value.session_id.trim() : "";
+  }
+  if (typeof value === "string") {
+    const parsed = safeJsonParse(value);
+    return typeof parsed?.session_id === "string" ? parsed.session_id.trim() : "";
+  }
+  return "";
+}
 
 const IMPORT_LIMIT_MIN = 1;
 const IMPORT_LIMIT_MAX = 25;
@@ -90,8 +125,8 @@ export default function AdminImport() {
   const [debugQuery, setDebugQuery] = useState("");
   const [debugLimitInput, setDebugLimitInput] = useState("1");
   const [debugSessionId, setDebugSessionId] = useState("");
-  const [debugStartResponse, setDebugStartResponse] = useState(null);
-  const [debugStatusResponse, setDebugStatusResponse] = useState(null);
+  const [debugStartResponseText, setDebugStartResponseText] = useState("");
+  const [debugStatusResponseText, setDebugStatusResponseText] = useState("");
   const [debugStartLoading, setDebugStartLoading] = useState(false);
   const [debugStatusLoading, setDebugStatusLoading] = useState(false);
 
@@ -199,8 +234,8 @@ export default function AdminImport() {
     const limit = normalizeImportLimit(debugLimitInput);
 
     setDebugStartLoading(true);
-    setDebugStartResponse(null);
-    setDebugStatusResponse(null);
+    setDebugStartResponseText("");
+    setDebugStatusResponseText("");
     setDebugSessionId("");
 
     try {
@@ -211,9 +246,9 @@ export default function AdminImport() {
       });
 
       const body = await readJsonOrText(res);
-      setDebugStartResponse(body);
+      setDebugStartResponseText(toPrettyJsonText(body));
 
-      const sid = typeof body?.session_id === "string" ? body.session_id.trim() : "";
+      const sid = extractSessionId(body);
       if (sid) setDebugSessionId(sid);
 
       if (!res.ok || body?.ok === false) {
@@ -229,6 +264,7 @@ export default function AdminImport() {
 
       toast.success("Import started");
     } catch (e) {
+      setDebugStartResponseText(JSON.stringify({ error: String(e?.message ?? e) }, null, 2));
       toast.error(e?.message || "Import start failed");
     } finally {
       setDebugStartLoading(false);
@@ -247,13 +283,14 @@ export default function AdminImport() {
     try {
       const res = await apiFetch(`/import/status?session_id=${encodeURIComponent(sid)}`);
       const body = await readJsonOrText(res);
-      setDebugStatusResponse(body);
+      setDebugStatusResponseText(toPrettyJsonText(body));
 
       if (!res.ok) {
         const msg = (await getUserFacingConfigMessage(res)) || body?.error || body?.message || `Status failed (${res.status})`;
         toast.error(typeof msg === "string" ? msg : "Status failed");
       }
     } catch (e) {
+      setDebugStatusResponseText(JSON.stringify({ error: String(e?.message ?? e) }, null, 2));
       toast.error(e?.message || "Status failed");
     } finally {
       setDebugStatusLoading(false);
@@ -648,6 +685,11 @@ export default function AdminImport() {
               </div>
             </div>
 
+            <div className="space-y-1">
+              <label className="text-sm text-slate-700">Session id (for status)</label>
+              <Input value={debugSessionId} onChange={(e) => setDebugSessionId(e.target.value)} placeholder="session id" />
+            </div>
+
             <div className="flex flex-wrap items-center gap-2">
               <Button onClick={startDebugImport} disabled={debugStartLoading}>
                 {debugStartLoading ? "Starting…" : "Start Import"}
@@ -685,17 +727,13 @@ export default function AdminImport() {
 
               <div className="rounded border border-slate-200 bg-slate-50 p-3">
                 <div className="text-xs font-medium text-slate-700">Start response</div>
-                <pre className="mt-2 max-h-48 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">
-                  {debugStartResponse ? JSON.stringify(debugStartResponse, null, 2) : "—"}
-                </pre>
+                <pre className="mt-2 max-h-48 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{debugStartResponseText || ""}</pre>
               </div>
             </div>
 
             <div className="rounded border border-slate-200 bg-slate-50 p-3">
               <div className="text-xs font-medium text-slate-700">Status response</div>
-              <pre className="mt-2 max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">
-                {debugStatusResponse ? JSON.stringify(debugStatusResponse, null, 2) : "—"}
-              </pre>
+              <pre className="mt-2 max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{debugStatusResponseText || ""}</pre>
             </div>
           </section>
 
