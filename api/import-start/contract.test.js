@@ -105,6 +105,21 @@ test("/api/import/start parses body with proxy='false' string", async () => {
   });
 });
 
+test("/api/import/start returns INVALID_JSON_BODY for malformed JSON", async () => {
+  await withTempEnv(NO_NETWORK_ENV, async () => {
+    const req = makeReq({
+      body: "{not valid json",
+    });
+
+    const res = await _test.importStartHandler(req, { log() {} });
+    const body = parseJsonResponse(res);
+
+    assert.equal(res.status, 400);
+    assert.equal(body?.error?.code, "INVALID_JSON_BODY");
+    assert.equal(body.stage, "validate_request");
+  });
+});
+
 test("/api/import/start respects query proxy=false when body has no proxy", async () => {
   await withTempEnv(NO_NETWORK_ENV, async () => {
     const rawBody = Buffer.from(

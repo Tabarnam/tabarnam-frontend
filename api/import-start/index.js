@@ -83,6 +83,42 @@ function safeJsonParse(text) {
   }
 }
 
+class InvalidJsonBodyError extends Error {
+  constructor(message = "Invalid JSON body") {
+    super(message);
+    this.name = "InvalidJsonBodyError";
+    this.code = "INVALID_JSON_BODY";
+  }
+}
+
+function isBinaryBody(value) {
+  return (
+    Buffer.isBuffer(value) ||
+    value instanceof Uint8Array ||
+    value instanceof ArrayBuffer
+  );
+}
+
+function binaryBodyToString(value) {
+  if (typeof value === "string") return value;
+  if (Buffer.isBuffer(value)) return value.toString("utf8");
+  if (value instanceof Uint8Array) return Buffer.from(value).toString("utf8");
+  if (value instanceof ArrayBuffer) return Buffer.from(new Uint8Array(value)).toString("utf8");
+  return "";
+}
+
+function parseJsonBodyStrict(raw) {
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (!text) return { ok: true, value: {} };
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && typeof parsed === "object") return { ok: true, value: parsed };
+    return { ok: true, value: {} };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
 function sanitizeTextPreview(text) {
   let s = typeof text === "string" ? text : String(text ?? "");
   if (!s) return "";
@@ -148,25 +184,36 @@ async function readJsonBody(req) {
     try {
       const val = await req.json();
       if (val && typeof val === "object") return val;
-    } catch {}
+    } catch {
+      // Fall through to body/rawBody parsing.
+    }
+  }
+
+  if (typeof req.body === "string") {
+    const { ok, value } = parseJsonBodyStrict(req.body);
+    if (!ok) throw new InvalidJsonBodyError();
+    return value;
+  }
+
+  if (isBinaryBody(req.body)) {
+    const { ok, value } = parseJsonBodyStrict(binaryBodyToString(req.body));
+    if (!ok) throw new InvalidJsonBodyError();
+    return value;
   }
 
   if (req.body && typeof req.body === "object") return req.body;
 
-  if (typeof req.body === "string" && req.body.trim()) {
-    const parsed = safeJsonParse(req.body);
-    if (parsed && typeof parsed === "object") return parsed;
-  }
-
   const rawBody = req.rawBody;
-  if (typeof rawBody === "string" && rawBody.trim()) {
-    const parsed = safeJsonParse(rawBody);
-    if (parsed && typeof parsed === "object") return parsed;
+  if (typeof rawBody === "string") {
+    const { ok, value } = parseJsonBodyStrict(rawBody);
+    if (!ok) throw new InvalidJsonBodyError();
+    return value;
   }
 
-  if (rawBody && (Buffer.isBuffer(rawBody) || rawBody instanceof Uint8Array)) {
-    const parsed = safeJsonParse(Buffer.from(rawBody).toString("utf8"));
-    if (parsed && typeof parsed === "object") return parsed;
+  if (isBinaryBody(rawBody)) {
+    const { ok, value } = parseJsonBodyStrict(binaryBodyToString(rawBody));
+    if (!ok) throw new InvalidJsonBodyError();
+    return value;
   }
 
   return {};
@@ -1234,7 +1281,38 @@ const importStartHandler = async (req, context) => {
         };
       }
 
-      const payload = await readJsonBody(req);
+      let payload;
+      try {
+        payload = await readJsonBody(req);
+      } catch (err) {
+        if (err?.code === "INVALID_JSON_BODY") {
+          const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+          const buildInfo = getBuildInfo();
+          return jsonWithRequestId(
+            {
+              ok: false,
+              stage: "validate_request",
+              session_id: sessionId,
+              request_id: requestId,
+              error: {
+                code: "INVALID_JSON_BODY",
+                message: "Invalid JSON body",
+                request_id: requestId,
+                step: "validate_request",
+              },
+              legacy_error: "Invalid JSON body",
+              ...buildInfo,
+              company_name: "",
+              website_url: "",
+              normalized_domain: "",
+              xai_request_id: null,
+              details: { code: "INVALID_JSON_BODY", message: "Invalid JSON body" },
+            },
+            400
+          );
+        }
+        throw err;
+      }
 
       const proxyQuery = readQueryParam(req, "proxy");
       if (!Object.prototype.hasOwnProperty.call(payload || {}, "proxy") && proxyQuery !== undefined) {
