@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { LogOut } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { API_BASE, FUNCTIONS_BASE, apiFetch, readJsonOrText } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import Logo from "@/assets/tabarnam.png";
 
@@ -11,6 +12,83 @@ const navLinkClass = ({ isActive }) =>
     "inline-flex items-center rounded-md px-3 py-2 text-sm font-medium transition",
     isActive ? "bg-slate-800 text-white" : "text-slate-200 hover:bg-slate-800 hover:text-white"
   );
+
+function ApiStatusIndicator() {
+  const [status, setStatus] = useState("checking");
+  const [httpStatus, setHttpStatus] = useState(null);
+  const [detail, setDetail] = useState("");
+  const [lastCheckedAt, setLastCheckedAt] = useState(null);
+
+  const title = useMemo(() => {
+    const baseLabel = FUNCTIONS_BASE ? FUNCTIONS_BASE : "(same-origin)";
+    const parts = [`Base: ${baseLabel}`, `Health: GET ${API_BASE}/health`];
+    if (httpStatus != null) parts.push(`HTTP: ${httpStatus}`);
+    if (detail) parts.push(detail);
+    return parts.join("\n");
+  }, [detail, httpStatus]);
+
+  const check = useCallback(async () => {
+    setStatus("checking");
+    setDetail("");
+
+    try {
+      const res = await apiFetch("/health", { method: "GET", headers: { accept: "application/json" } });
+      setHttpStatus(res.status);
+      const body = await readJsonOrText(res);
+
+      if (res.ok && body && typeof body === "object" && body.ok === true) {
+        setStatus("ok");
+        setDetail(String(body.name || "health"));
+      } else {
+        setStatus("error");
+        setDetail(typeof body === "string" ? body : body?.error ? String(body.error) : "Unhealthy response");
+      }
+    } catch (e) {
+      setHttpStatus(null);
+      setStatus("error");
+      setDetail(e?.message ? String(e.message) : "Request failed");
+    } finally {
+      setLastCheckedAt(Date.now());
+    }
+  }, []);
+
+  useEffect(() => {
+    check();
+    const intervalId = setInterval(check, 30_000);
+    return () => clearInterval(intervalId);
+  }, [check]);
+
+  const pillClass =
+    status === "ok"
+      ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-100"
+      : status === "error"
+        ? "border-red-500/40 bg-red-500/15 text-red-100"
+        : "border-slate-500/40 bg-slate-500/15 text-slate-100";
+
+  const dotClass =
+    status === "ok" ? "bg-emerald-400" : status === "error" ? "bg-red-400" : "bg-slate-300";
+
+  const label =
+    status === "ok" ? "API: OK" : status === "error" ? "API: down" : "API: checking…";
+
+  const subLabel = lastCheckedAt ? new Date(lastCheckedAt).toLocaleTimeString() : "";
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      onClick={check}
+      className={cn("border text-xs", pillClass)}
+      title={title}
+      aria-label="API health status"
+    >
+      <span className={cn("mr-2 inline-block h-2 w-2 rounded-full", dotClass)} />
+      <span className="whitespace-nowrap">{label}</span>
+      {subLabel ? <span className="ml-2 hidden text-[11px] text-white/70 sm:inline">{subLabel}</span> : null}
+    </Button>
+  );
+}
 
 export default function AdminHeader() {
   const navigate = useNavigate();
@@ -44,14 +122,17 @@ export default function AdminHeader() {
           </div>
         </div>
 
-        <Button
-          onClick={handleLogout}
-          variant="outline"
-          className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
-        >
-          <LogOut className="w-4 h-4 mr-2" />
-          Logout
-        </Button>
+        <div className="flex items-center gap-2">
+          <ApiStatusIndicator />
+          <Button
+            onClick={handleLogout}
+            variant="outline"
+            className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+          >
+            <LogOut className="w-4 h-4 mr-2" />
+            Logout
+          </Button>
+        </div>
       </div>
     </div>
   );

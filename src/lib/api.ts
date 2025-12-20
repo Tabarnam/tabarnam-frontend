@@ -1,41 +1,63 @@
 // src/lib/api.ts
-// Single source of truth for the front-end API base.
-// Architecture:
-// - Production: Always use relative /api paths (routed through Azure Static Web Apps to backend)
-// - Local dev: Uses relative /api paths (proxied via vite.config.js)
-// - Never use absolute URLs to avoid cross-origin issues
+// Single source of truth for client-side API routing.
+//
+// Preferred configuration:
+// - VITE_XAI_FUNCTIONS_BASE: Base origin for the Functions host (e.g. "" for same-origin, or "https://tabarnam.com").
+//
+// Notes:
+// - We still allow legacy VITE_API_BASE for backwards compatibility.
+// - API_BASE is always computed as "{FUNCTIONS_BASE}/api" (or "/api" when same-origin).
+// - If you set an absolute FUNCTIONS_BASE to a different origin, CORS may be required.
 
 type JsonRecord = Record<string, unknown>;
 
-const getAPIBase = () => {
-  const base = import.meta.env.VITE_API_BASE?.trim();
+function trimSlashes(value: string) {
+  return value.replace(/\/+$/, "");
+}
+
+function looksLikeAbsoluteUrl(value: string) {
+  return /^https?:\/\//i.test(value);
+}
+
+function normalizeFunctionsBase(value: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  // Allow users to accidentally include /api; normalize it out.
+  const withoutTrailing = trimSlashes(raw);
+  if (withoutTrailing === "/api") return "";
+  if (withoutTrailing.endsWith("/api")) return withoutTrailing.slice(0, -4);
+
+  return withoutTrailing;
+}
+
+function computeApiBase(functionsBase: string) {
+  const base = functionsBase ? trimSlashes(functionsBase) : "";
+  return base ? `${base}/api` : "/api";
+}
+
+function getFunctionsBaseFromEnv() {
+  const raw =
+    import.meta.env.VITE_XAI_FUNCTIONS_BASE?.trim() ||
+    import.meta.env.VITE_API_BASE?.trim() ||
+    "";
+
+  const normalized = normalizeFunctionsBase(raw);
+
+  // Keep the console signal from the previous implementation (dev-only).
   const isDev = import.meta.env.MODE === "development";
-
-  // In production, never use absolute URLs - always route through same origin
-  // Azure Static Web Apps routes /api/* to the linked backend function app
-  if (!base) {
-    return "/api";
+  if (isDev && raw && looksLikeAbsoluteUrl(raw) && typeof console !== "undefined" && console.warn) {
+    console.warn(
+      `[API Config] Using absolute VITE_XAI_FUNCTIONS_BASE/VITE_API_BASE: ${raw}. ` +
+        `If this is a different origin than the frontend, you may need CORS on the backend.`
+    );
   }
 
-  // If VITE_API_BASE is set but is an absolute URL (contains :// or starts with http),
-  // reject it and use relative path instead. This prevents cross-origin issues.
-  if (base.includes("://") || base.startsWith("http")) {
-    // Only warn in development - in production this is expected behavior
-    if (isDev && typeof console !== "undefined" && console.warn) {
-      console.warn(
-        `[API Config] VITE_API_BASE is set to an absolute URL: ${base}. ` +
-          `Using relative /api path instead. ` +
-          `Absolute URLs cause CORS issues and should not be used in production.`
-      );
-    }
-    return "/api";
-  }
+  return normalized;
+}
 
-  // If it's a relative path, use it (for local dev scenarios)
-  return base;
-};
-
-export const API_BASE = getAPIBase();
+export const FUNCTIONS_BASE = getFunctionsBaseFromEnv();
+export const API_BASE = computeApiBase(FUNCTIONS_BASE);
 
 // Small helpers
 export function join(base: string, path: string) {
