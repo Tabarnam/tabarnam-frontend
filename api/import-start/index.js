@@ -1376,6 +1376,24 @@ const importStartHandler = async (req, context) => {
           step: stage,
         };
 
+        const passthroughKeys = [
+          "upstream_status",
+          "upstream_url",
+          "upstream_path",
+          "upstream_text_preview",
+          "upstream_error_code",
+          "upstream_error_message",
+        ];
+
+        if (details && typeof details === "object") {
+          for (const k of passthroughKeys) {
+            if (details[k] === undefined || details[k] === null) continue;
+            const v = details[k];
+            if (typeof v === "string" && !v.trim()) continue;
+            errorObj[k] = v;
+          }
+        }
+
         try {
           const container = getCompaniesCosmosContainer();
           if (container) {
