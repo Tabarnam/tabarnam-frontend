@@ -6,16 +6,7 @@ import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/lib/toast";
-import { apiFetch, getUserFacingConfigMessage } from "@/lib/api";
-
-function safeJsonParse(text) {
-  try {
-    const v = JSON.parse(text);
-    return v && typeof v === "object" ? v : null;
-  } catch {
-    return null;
-  }
-}
+import { apiFetch, getResponseRequestId, getUserFacingConfigMessage, readJsonOrText } from "@/lib/api";
 
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
@@ -60,19 +51,6 @@ function mergeById(prev, next) {
   return Array.from(map.values());
 }
 
-async function readJsonOrText(res) {
-  const contentType = res.headers?.get?.("content-type") || "";
-  if (contentType.includes("application/json")) {
-    try {
-      return await res.json();
-    } catch {
-      return { error: "Invalid JSON" };
-    }
-  }
-
-  const text = await res.text().catch(() => "");
-  return safeJsonParse(text) || (text ? { text } : {});
-}
 
 const IMPORT_LIMIT_MIN = 1;
 const IMPORT_LIMIT_MAX = 25;
@@ -102,6 +80,9 @@ export default function AdminImport() {
   const [runs, setRuns] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [activeStatus, setActiveStatus] = useState("idle"); // idle | running | stopping | done | error
+
+  const [apiVersion, setApiVersion] = useState(null);
+  const [apiVersionLoading, setApiVersionLoading] = useState(true);
 
   const [saveLoading, setSaveLoading] = useState(false);
   const [savingSessionId, setSavingSessionId] = useState(null);
@@ -284,7 +265,7 @@ export default function AdminImport() {
         const requestId =
           (errorObj?.request_id && String(errorObj.request_id)) ||
           (body?.request_id && String(body.request_id)) ||
-          res.headers?.get?.("x-request-id") ||
+          getResponseRequestId(res) ||
           "";
 
         const msg =
@@ -446,6 +427,33 @@ export default function AdminImport() {
       setSavingSessionId(null);
     }
   }, [activeRun]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      setApiVersionLoading(true);
+      try {
+        const res = await apiFetch("/version");
+        const body = await readJsonOrText(res);
+        if (cancelled) return;
+        if (res.ok) {
+          setApiVersion(body);
+        } else {
+          setApiVersion({ ok: false, status: res.status, body });
+        }
+      } catch (e) {
+        if (cancelled) return;
+        setApiVersion({ ok: false, error: e?.message || "Failed to load version" });
+      } finally {
+        if (!cancelled) setApiVersionLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -714,31 +722,53 @@ export default function AdminImport() {
                 <div>{activeRun.start_error}</div>
                 {(() => {
                   const responseBody = activeRun?.start_error_details?.response_body;
-                  const err = responseBody?.error && typeof responseBody.error === "object" ? responseBody.error : null;
+                  const bodyObj = responseBody && typeof responseBody === "object" ? responseBody : null;
+                  const err = bodyObj?.error && typeof bodyObj.error === "object" ? bodyObj.error : null;
+
                   const requestId =
                     (err?.request_id && String(err.request_id)) ||
+                    (bodyObj?.request_id && String(bodyObj.request_id)) ||
                     (activeRun?.start_error_details?.request_id && String(activeRun.start_error_details.request_id)) ||
                     "";
-                  const step = (err?.step && String(err.step)) || (responseBody?.stage && String(responseBody.stage)) || "";
-                  const code = (err?.code && String(err.code)) || "";
 
-                  if (!code && !step && !requestId) return null;
+                  const code = (err?.code && String(err.code)) || "";
+                  const message = (err?.message && String(err.message)) || "";
+                  const step = (err?.step && String(err.step)) || "";
+                  const stage = (bodyObj?.stage && String(bodyObj.stage)) || "";
+
+                  const upstreamStatus = err?.upstream_status ?? bodyObj?.upstream_status;
+                  const upstreamRequestId = err?.upstream_request_id ?? bodyObj?.upstream_request_id;
+                  const upstreamTextPreview = err?.upstream_text_preview ?? bodyObj?.upstream_text_preview;
+                  const upstreamUrl = err?.upstream_url ?? bodyObj?.upstream_url;
+
+                  if (!code && !message && !step && !stage && !requestId && !upstreamStatus && !upstreamRequestId && !upstreamTextPreview) {
+                    return null;
+                  }
+
+                  const Row = ({ label, value }) => {
+                    if (value == null || value === "") return null;
+                    return (
+                      <div>
+                        <span className="font-medium">{label}:</span>{" "}
+                        <code className="bg-red-100 px-1 py-0.5 rounded break-all">{String(value)}</code>
+                      </div>
+                    );
+                  };
 
                   return (
                     <div className="rounded border border-red-200 bg-white/60 p-2 text-xs text-red-900 space-y-1">
-                      {code ? (
+                      <Row label="error.code" value={code} />
+                      <Row label="error.message" value={message} />
+                      <Row label="error.step" value={step} />
+                      <Row label="stage" value={stage} />
+                      <Row label="request_id" value={requestId} />
+                      <Row label="upstream_status" value={upstreamStatus} />
+                      <Row label="upstream_request_id" value={upstreamRequestId} />
+                      <Row label="upstream_url" value={upstreamUrl} />
+                      {upstreamTextPreview ? (
                         <div>
-                          <span className="font-medium">code:</span> <code className="bg-red-100 px-1 py-0.5 rounded">{code}</code>
-                        </div>
-                      ) : null}
-                      {step ? (
-                        <div>
-                          <span className="font-medium">step:</span> <code className="bg-red-100 px-1 py-0.5 rounded">{step}</code>
-                        </div>
-                      ) : null}
-                      {requestId ? (
-                        <div>
-                          <span className="font-medium">request_id:</span> <code className="bg-red-100 px-1 py-0.5 rounded">{requestId}</code>
+                          <div className="font-medium">upstream_text_preview:</div>
+                          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-red-100 p-2 text-[11px] leading-snug text-red-950">{String(upstreamTextPreview)}</pre>
                         </div>
                       ) : null}
                     </div>
@@ -878,6 +908,20 @@ export default function AdminImport() {
               </div>
             </div>
           </section>
+
+          <div className="pt-2 text-xs text-slate-500">
+            API Version:{" "}
+            {apiVersionLoading ? (
+              <span>loading…</span>
+            ) : apiVersion && typeof apiVersion === "object" ? (
+              <span>
+                <code className="rounded bg-slate-100 px-1 py-0.5">{String(apiVersion?.source || "unknown")}</code>{" "}
+                <code className="rounded bg-slate-100 px-1 py-0.5">{String(apiVersion?.build_id || "unknown")}</code>
+              </span>
+            ) : (
+              <span>unknown</span>
+            )}
+          </div>
         </main>
       </div>
     </>
