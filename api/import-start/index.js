@@ -1651,6 +1651,8 @@ const importStartHandler = async (req, context) => {
             setStage("worker_call", { xai_request_id: xaiRequestId });
           }
 
+          const upstreamTextPreview = toTextPreview(resp.data);
+
           const parsed =
             typeof resp.data === "string"
               ? safeJsonParse(resp.data) ?? { message: resp.data }
@@ -1666,20 +1668,49 @@ const importStartHandler = async (req, context) => {
           if (!body.request_id) body.request_id = requestId;
           if (xaiRequestId && !body.xai_request_id) body.xai_request_id = xaiRequestId;
 
-          if (body.ok === false && (!body.error || typeof body.error !== "object")) {
-            const upstreamMsg =
-              typeof body.message === "string" && body.message.trim()
-                ? body.message.trim()
-                : typeof body.text === "string" && body.text.trim()
-                  ? body.text.trim()
-                  : `Upstream import worker failed (${resp.status})`;
+          const normalizedStage = String(body.stage || "").trim() || "worker_call";
+          body.stage = normalizedStage;
 
-            body.stage = body.stage || "proxyImportStart";
+          const bodyError = body.error && typeof body.error === "object" ? body.error : null;
+
+          if (body.ok === false) {
+            const upstreamMsg =
+              (typeof bodyError?.message === "string" && bodyError.message.trim()
+                ? bodyError.message.trim()
+                : typeof body.message === "string" && body.message.trim()
+                  ? body.message.trim()
+                  : typeof body.text === "string" && body.text.trim()
+                    ? body.text.trim()
+                    : `Upstream import worker failed (${resp.status})`);
+
+            const upstreamCode =
+              (typeof bodyError?.code === "string" && bodyError.code.trim()
+                ? bodyError.code.trim()
+                : typeof body.code === "string" && body.code.trim()
+                  ? body.code.trim()
+                  : "UPSTREAM_IMPORT_WORKER_FAILED");
+
             body.error = {
-              code: body.code || "UPSTREAM_IMPORT_WORKER_FAILED",
+              code: upstreamCode,
               message: upstreamMsg,
               request_id: body.request_id,
-              step: body.stage,
+              step: "worker_call",
+              upstream_status: resp.status,
+              upstream_url: usedUrl,
+              upstream_path: usedPath,
+              upstream_text_preview: upstreamTextPreview,
+              ...(xaiRequestId ? { upstream_request_id: xaiRequestId } : {}),
+            };
+          } else if (bodyError) {
+            body.error = {
+              ...bodyError,
+              request_id: String(bodyError.request_id || body.request_id || requestId),
+              step: String(bodyError.step || bodyError.stage || "worker_call"),
+              ...(bodyError.upstream_status ? {} : { upstream_status: resp.status }),
+              ...(bodyError.upstream_url ? {} : { upstream_url: usedUrl }),
+              ...(bodyError.upstream_path ? {} : { upstream_path: usedPath }),
+              ...(bodyError.upstream_text_preview ? {} : { upstream_text_preview: upstreamTextPreview }),
+              ...(xaiRequestId && !bodyError.upstream_request_id ? { upstream_request_id: xaiRequestId } : {}),
             };
           }
 
@@ -1691,9 +1722,13 @@ const importStartHandler = async (req, context) => {
             elapsedMs,
             upstream: proxyBase,
             upstream_url: usedUrl,
+            upstream_path: usedPath,
+            upstream_status: resp.status,
+            proxy_source: proxySource,
+            ...(upstreamTextPreview ? { upstream_text_preview: upstreamTextPreview } : {}),
           };
 
-          return json(body, resp?.status || 502, responseHeaders);
+          return json({ ...body, ...buildInfo }, resp?.status || 502, responseHeaders);
         } catch (e) {
           const elapsedMs = Date.now() - startTime;
           const isTimeout =
@@ -1702,24 +1737,49 @@ const importStartHandler = async (req, context) => {
             String(e?.message || "").toLowerCase().includes("timeout") ||
             String(e?.message || "").toLowerCase().includes("aborted");
 
+          const upstreamStatus = e?.response?.status || null;
+          const upstreamTextPreview = toTextPreview(e?.response?.data || e?.response?.body || "");
+          const details = {
+            upstream: proxyBase,
+            upstream_status: upstreamStatus,
+            upstream_url: proxyBase,
+            upstream_text_preview: upstreamTextPreview,
+            elapsed_ms: elapsedMs,
+            upstream_timeout_ms: upstreamTimeoutMs,
+            hard_timeout_ms: hardTimeoutMs,
+            original_error: toErrorString(e),
+          };
+
+          // Proxy is an optimization: if it fails and wasn't explicitly forced, fall back to direct import.
+          if (!proxyEnabled) {
+            setStage("worker_call", { proxy_failed: true, ...(upstreamStatus ? { upstream_status: upstreamStatus } : {}) });
+            console.warn(
+              `[import-start] request_id=${requestId} session=${sessionId} proxy_failed falling back to direct import: ${toErrorString(e)}`
+            );
+            if (debugOutput) debugOutput.proxy_failure = details;
+            return;
+          }
+
           if (hardTimedOut || isTimeout) {
-            setStage("proxyImportStart", { timeout: true, elapsed_ms: elapsedMs });
+            setStage("worker_call", { timeout: true, elapsed_ms: elapsedMs });
             return respondError(new Error("timeout"), {
               status: 504,
               details: {
-                upstream: proxyBase,
-                elapsed_ms: elapsedMs,
-                upstream_timeout_ms: upstreamTimeoutMs,
-                hard_timeout_ms: hardTimeoutMs,
-                original_error: toErrorString(e),
+                ...details,
+                code: "UPSTREAM_WORKER_TIMEOUT",
+                message: upstreamStatus ? `Worker timed out (${upstreamStatus})` : "Worker call timed out",
               },
             });
           }
 
-          setStage("proxyImportStart");
+          setStage("worker_call");
           return respondError(e, {
             status: 502,
-            details: { upstream: proxyBase, elapsed_ms: elapsedMs, upstream_timeout_ms: upstreamTimeoutMs },
+            details: {
+              ...details,
+              code: "UPSTREAM_WORKER_FAILED",
+              message: upstreamStatus ? `Worker returned ${upstreamStatus}` : "Worker call failed",
+            },
           });
         } finally {
           clearTimeout(timeoutId);
