@@ -21,6 +21,25 @@ function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
+function looksLikeUrlOrDomain(raw) {
+  const s = asString(raw).trim();
+  if (!s) return false;
+  if (/\s/.test(s)) return false;
+
+  try {
+    const u = s.includes("://") ? new URL(s) : new URL(`https://${s}`);
+    const host = (u.hostname || "").toLowerCase();
+    if (!host || !host.includes(".")) return false;
+    const parts = host.split(".").filter(Boolean);
+    if (parts.length < 2) return false;
+    const tld = parts[parts.length - 1];
+    if (!tld || tld.length < 2) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function normalizeItems(items) {
   if (!Array.isArray(items)) return [];
   return items.filter((it) => it && typeof it === "object");
@@ -162,10 +181,35 @@ export default function AdminImport() {
     [pollProgress, stopPolling]
   );
 
+  const isUrlLikeQuery = useMemo(() => looksLikeUrlOrDomain(query), [query]);
+
+  useEffect(() => {
+    if (!isUrlLikeQuery) return;
+
+    setQueryTypes((prev) => {
+      const list = Array.isArray(prev) ? prev : [];
+      const withoutKeyword = list.filter((t) => t !== "product_keyword");
+      const next = withoutKeyword.includes("company_url") ? withoutKeyword : [...withoutKeyword, "company_url"];
+      return next.length > 0 ? next : ["company_url"];
+    });
+  }, [isUrlLikeQuery]);
+
+  const urlTypeValidationError = useMemo(() => {
+    if (!isUrlLikeQuery) return "";
+    return queryTypes.includes("company_url")
+      ? ""
+      : "Query looks like a URL. Switch query type to Company URL/domain.";
+  }, [isUrlLikeQuery, queryTypes]);
+
   const beginImport = useCallback(async () => {
     const q = query.trim();
     if (!q) {
       toast.error("Enter a query to import.");
+      return;
+    }
+
+    if (urlTypeValidationError) {
+      toast.error(urlTypeValidationError);
       return;
     }
 
@@ -215,7 +259,6 @@ export default function AdminImport() {
         session_id,
         query: q,
         queryTypes: selectedTypes,
-        queryType: selectedTypes[0] || "product_keyword",
         location: asString(location).trim() || undefined,
         limit: normalizedLimit,
         expand_if_few: true,
@@ -307,7 +350,7 @@ export default function AdminImport() {
     } finally {
       stopPolling();
     }
-  }, [importConfigLoading, importConfigMessage, importReady, limitInput, location, query, queryTypes, schedulePoll, stopPolling]);
+  }, [importConfigLoading, importConfigMessage, importReady, limitInput, location, query, queryTypes, schedulePoll, stopPolling, urlTypeValidationError]);
 
   const stopImport = useCallback(async () => {
     if (!activeSessionId) return;
@@ -560,7 +603,11 @@ export default function AdminImport() {
                   </label>
                 ))}
               </div>
-              <div className="text-xs text-slate-600">If you provide a location, results that match it are ranked higher.</div>
+              {urlTypeValidationError ? (
+                <div className="text-xs text-red-700">{urlTypeValidationError}</div>
+              ) : (
+                <div className="text-xs text-slate-600">If you provide a location, results that match it are ranked higher.</div>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
