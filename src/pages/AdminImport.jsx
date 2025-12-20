@@ -595,7 +595,7 @@ export default function AdminImport() {
                           const list = Array.isArray(prev) ? prev : [];
                           if (checked) return Array.from(new Set([...list, opt.key]));
                           const next = list.filter((v) => v !== opt.key);
-                          return next.length > 0 ? next : ["product_keyword"];
+                          return next.length > 0 ? next : [isUrlLikeQuery ? "company_url" : "product_keyword"];
                         });
                       }}
                     />
