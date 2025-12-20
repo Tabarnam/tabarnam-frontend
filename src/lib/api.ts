@@ -47,6 +47,52 @@ function safeLower(s: unknown) {
   return typeof s === "string" ? s.toLowerCase() : "";
 }
 
+function safeJsonParse(text: string): unknown | null {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHeaderValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
+}
+
+export function getResponseRequestId(res: Response): string {
+  const headers = res?.headers;
+  const rid =
+    normalizeHeaderValue(headers?.get?.("x-request-id")) ||
+    normalizeHeaderValue(headers?.get?.("X-Request-ID")) ||
+    normalizeHeaderValue(headers?.get?.("x-ms-middleware-request-id")) ||
+    normalizeHeaderValue(headers?.get?.("x-ms-request-id"));
+  return rid;
+}
+
+export async function readJsonOrText(res: Response): Promise<unknown> {
+  let cloned: Response;
+  try {
+    cloned = res.clone();
+  } catch {
+    cloned = res;
+  }
+
+  const contentType = normalizeHeaderValue(cloned.headers?.get?.("content-type")).toLowerCase();
+  const isJson = contentType.includes("application/json") || contentType.includes("+json");
+
+  const text = await cloned.text().catch(() => "");
+  if (text) {
+    const parsed = safeJsonParse(text);
+    if (parsed !== null) return parsed;
+  }
+
+  if (isJson) {
+    return text ? { error: "Invalid JSON", text } : { error: "Invalid JSON" };
+  }
+
+  return text ? { text } : {};
+}
+
 async function safeReadText(res: Response): Promise<string> {
   try {
     return await res.clone().text();

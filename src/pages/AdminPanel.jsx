@@ -4,7 +4,7 @@ import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/lib/toast";
-import { apiFetch, getUserFacingConfigMessage } from "@/lib/api";
+import { apiFetch, getUserFacingConfigMessage, readJsonOrText } from "@/lib/api";
 import { getAdminUser } from "@/lib/azureAuth";
 
 function prettyJson(value) {
@@ -22,26 +22,6 @@ function normalizeBuildIdString(value) {
   return m ? m[0] : s;
 }
 
-async function readJsonOrText(res) {
-  let cloned;
-  try {
-    cloned = res.clone();
-  } catch {
-    cloned = res;
-  }
-
-  const contentType = cloned.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    try {
-      return await cloned.json();
-    } catch {
-      return { error: "Invalid JSON" };
-    }
-  }
-
-  const text = await cloned.text().catch(() => "");
-  return text ? { text } : {};
-}
 
 function StatusPill({ ok, label }) {
   const cls = ok
