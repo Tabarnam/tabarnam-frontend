@@ -4,7 +4,7 @@ import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/lib/toast";
-import { API_BASE, apiFetch, getUserFacingConfigMessage, readJsonOrText, toErrorString } from "@/lib/api";
+import { API_BASE, FUNCTIONS_BASE, apiFetch, getUserFacingConfigMessage, readJsonOrText, toErrorString } from "@/lib/api";
 import { getAdminUser } from "@/lib/azureAuth";
 
 function prettyJson(value) {
@@ -212,6 +212,7 @@ export default function AdminPanel() {
             <h1 className="text-3xl font-bold text-slate-900">Admin Dashboard</h1>
             <div className="flex flex-wrap items-center gap-2">
               <StatusPill ok={cosmosConfigured} label={cosmosConfigured ? "Cosmos configured" : "Cosmos not configured"} />
+              <StatusPill ok={true} label={`Functions base: ${FUNCTIONS_BASE || "(same-origin)"}`} />
               <StatusPill ok={true} label={`API base: ${API_BASE}`} />
               <StatusPill
                 ok={Boolean(buildId && buildId !== "unknown")}
