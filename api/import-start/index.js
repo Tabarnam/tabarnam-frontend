@@ -1757,9 +1757,7 @@ const importStartHandler = async (req, context) => {
               `[import-start] request_id=${requestId} session=${sessionId} proxy_failed falling back to direct import: ${toErrorString(e)}`
             );
             if (debugOutput) debugOutput.proxy_failure = details;
-          }
-
-          if (hardTimedOut || isTimeout) {
+          } else if (hardTimedOut || isTimeout) {
             setStage("worker_call", { timeout: true, elapsed_ms: elapsedMs });
             return respondError(new Error("timeout"), {
               status: 504,
@@ -1769,17 +1767,17 @@ const importStartHandler = async (req, context) => {
                 message: upstreamStatus ? `Worker timed out (${upstreamStatus})` : "Worker call timed out",
               },
             });
+          } else {
+            setStage("worker_call");
+            return respondError(e, {
+              status: 502,
+              details: {
+                ...details,
+                code: "UPSTREAM_WORKER_FAILED",
+                message: upstreamStatus ? `Worker returned ${upstreamStatus}` : "Worker call failed",
+              },
+            });
           }
-
-          setStage("worker_call");
-          return respondError(e, {
-            status: 502,
-            details: {
-              ...details,
-              code: "UPSTREAM_WORKER_FAILED",
-              message: upstreamStatus ? `Worker returned ${upstreamStatus}` : "Worker call failed",
-            },
-          });
         } finally {
           clearTimeout(timeoutId);
         }
