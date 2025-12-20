@@ -1598,7 +1598,7 @@ const importStartHandler = async (req, context) => {
           )
         );
 
-        setStage("proxyImportStart", { upstream: proxyBase, upstream_timeout_ms: upstreamTimeoutMs });
+        setStage("worker_call", { upstream: proxyBase, upstream_timeout_ms: upstreamTimeoutMs });
 
         const controller = new AbortController();
         let hardTimedOut = false;
@@ -1641,11 +1641,11 @@ const importStartHandler = async (req, context) => {
             if (r.status !== 404) break;
           }
 
-          setStage("proxyImportStart", { upstream_url: usedUrl, upstream_path: usedPath });
+          setStage("worker_call", { upstream_url: usedUrl, upstream_path: usedPath });
 
           const xaiRequestId = extractXaiRequestId(resp.headers);
           if (xaiRequestId) {
-            setStage("proxyImportStart", { xai_request_id: xaiRequestId });
+            setStage("worker_call", { xai_request_id: xaiRequestId });
           }
 
           const parsed =
