@@ -39,7 +39,7 @@ app.http("version", {
       },
       body: JSON.stringify({
         ok: true,
-        source: detectSource(),
+        source: "swa",
         ts: new Date().toISOString(),
         ...getBuildInfo(),
         runtime: {
