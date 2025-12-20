@@ -113,13 +113,29 @@ export default function AdminImport() {
 
   const pollProgress = useCallback(
     async ({ session_id }) => {
-      const take = 500;
       try {
-        const res = await apiFetch(`/import/status?session_id=${encodeURIComponent(session_id)}&take=${take}`);
-        const body = await readJsonOrText(res);
+        const tryStatus = async (path) => {
+          const res = await apiFetch(path);
+          const body = await readJsonOrText(res);
+          return { res, body };
+        };
+
+        // Safe fallback:
+        // 1) Try without params (Dedicated supports this).
+        // 2) If backend returns 400 complaining about missing session id, retry with session_id.
+        let { res, body } = await tryStatus("/import/status");
+
+        if (!res.ok && res.status === 400) {
+          const hint = String(body?.error ?? body?.message ?? body?.text ?? "").toLowerCase();
+          const looksLikeMissingSession = hint.includes("session") && hint.includes("id") && (hint.includes("missing") || hint.includes("required"));
+          if (looksLikeMissingSession) {
+            ({ res, body } = await tryStatus(`/import/status?session_id=${encodeURIComponent(session_id)}`));
+          }
+        }
 
         if (!res.ok) {
-          const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Status failed (${res.status})`;
+          const configMsg = await getUserFacingConfigMessage(res);
+          const msg = toErrorString(configMsg || body?.error || body?.message || body?.text || `Status failed (${res.status})`);
           toast.error(msg);
           setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
           return { shouldStop: false };
@@ -149,9 +165,8 @@ export default function AdminImport() {
 
         return { shouldStop: completed || timedOut || stopped };
       } catch (e) {
-        setRuns((prev) =>
-          prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: e?.message || "Progress failed" } : r))
-        );
+        const msg = toErrorString(e) || "Progress failed";
+        setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
         return { shouldStop: false };
       }
     },
