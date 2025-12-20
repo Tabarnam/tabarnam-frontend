@@ -201,6 +201,7 @@ export default function AdminImport() {
     setDebugStartLoading(true);
     setDebugStartResponse(null);
     setDebugStatusResponse(null);
+    setDebugSessionId("");
 
     try {
       const res = await apiFetch("/import/start", {
@@ -212,19 +213,20 @@ export default function AdminImport() {
       const body = await readJsonOrText(res);
       setDebugStartResponse(body);
 
+      const sid = typeof body?.session_id === "string" ? body.session_id.trim() : "";
+      if (sid) setDebugSessionId(sid);
+
       if (!res.ok || body?.ok === false) {
         const msg = (await getUserFacingConfigMessage(res)) || body?.error || body?.message || `Import start failed (${res.status})`;
         toast.error(typeof msg === "string" ? msg : "Import start failed");
         return;
       }
 
-      const sid = typeof body?.session_id === "string" ? body.session_id.trim() : "";
       if (!sid) {
         toast.error("Import start response missing session_id");
         return;
       }
 
-      setDebugSessionId(sid);
       toast.success("Import started");
     } catch (e) {
       toast.error(e?.message || "Import start failed");
