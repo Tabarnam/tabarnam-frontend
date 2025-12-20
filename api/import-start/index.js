@@ -640,7 +640,7 @@ function joinUrlPath(basePath, suffixPath) {
   const left = a.endsWith("/") ? a.slice(0, -1) : a;
   const right = b.startsWith("/") ? b : `/${b}`;
 
-  return `${left}${right}`.replace(/\/\/+/, "/");
+  return `${left}${right}`.replace(/\/{2,}/g, "/");
 }
 
 function toHostPathOnlyForLog(rawUrl) {
