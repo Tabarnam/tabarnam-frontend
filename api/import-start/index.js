@@ -439,7 +439,9 @@ async function readJsonBody(req) {
   }
 
   if (body && typeof body === "object" && !isBinaryBody(body) && !isProbablyStreamBody(body)) {
-    return body;
+    const bodyLen = getBodyLen(body);
+    const otherLen = getBodyLen(rawBody) + getBodyLen(bufferBody);
+    if (bodyLen > 0 || otherLen === 0) return body;
   }
 
   if (getBodyLen(rawBody) > 0) {
