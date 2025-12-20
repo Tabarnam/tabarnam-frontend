@@ -106,22 +106,21 @@ export default function AdminImport() {
     async ({ session_id }) => {
       const take = 500;
       try {
-        const res = await apiFetch(`/import/progress?session_id=${encodeURIComponent(session_id)}&take=${take}`);
+        const res = await apiFetch(`/import/status?session_id=${encodeURIComponent(session_id)}&take=${take}`);
         const body = await readJsonOrText(res);
 
         if (!res.ok) {
-          const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Progress failed (${res.status})`;
+          const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Status failed (${res.status})`;
           toast.error(msg);
-          setRuns((prev) =>
-            prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r))
-          );
+          setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
           return { shouldStop: false };
         }
 
-        const items = normalizeItems(body?.items);
+        const items = normalizeItems(body?.items || body?.companies);
         const completed = Boolean(body?.completed);
         const timedOut = Boolean(body?.timedOut);
         const stopped = Boolean(body?.stopped);
+        const saved = Number(body?.saved ?? body?.count ?? items.length ?? 0);
 
         setRuns((prev) =>
           prev.map((r) => {
@@ -130,7 +129,7 @@ export default function AdminImport() {
               ...r,
               items: mergeById(r.items, items),
               lastCreatedAt: asString(body?.lastCreatedAt || r.lastCreatedAt),
-              saved: Number(body?.saved ?? r.saved ?? 0),
+              saved: Number.isFinite(saved) ? saved : Number(r.saved ?? 0) || 0,
               completed,
               timedOut,
               stopped,
