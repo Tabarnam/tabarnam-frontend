@@ -13,11 +13,20 @@ function makeReq({
   body,
   rawBody,
   query,
+  headers,
 } = {}) {
+  const hdrs = new Headers();
+  if (headers && typeof headers === "object") {
+    for (const [k, v] of Object.entries(headers)) {
+      if (v === undefined || v === null) continue;
+      hdrs.set(k, String(v));
+    }
+  }
+
   const req = {
     method,
     url,
-    headers: new Headers(),
+    headers: hdrs,
   };
 
   if (typeof json === "function") req.json = json;
@@ -170,6 +179,55 @@ test("/api/import/start prefers rawBody when body is empty object", async () => 
     assert.equal(body.ok, true);
     assert.equal(body.received?.query, "https://parachutehome.com/");
     assert.equal(body.received?.queryType, "company_url");
+  });
+});
+
+test("/api/import/start parses stream body when req.body is stream-like", async () => {
+  const { Readable } = require("node:stream");
+
+  await withTempEnv(NO_NETWORK_ENV, async () => {
+    const stream = Readable.from([
+      Buffer.from(
+        JSON.stringify({
+          dry_run: true,
+          query: "https://alppouch.com/",
+          queryTypes: ["company_url"],
+        }),
+        "utf8"
+      ),
+    ]);
+
+    const req = makeReq({ body: stream });
+    const res = await _test.importStartHandler(req, { log() {} });
+    const body = parseJsonResponse(res);
+
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.received?.query, "https://alppouch.com/");
+    assert.equal(body.received?.queryType, "company_url");
+  });
+});
+
+test("/api/import/start includes diagnostics on 400 when x-debug header is present", async () => {
+  await withTempEnv(NO_NETWORK_ENV, async () => {
+    const req = makeReq({
+      body: {},
+      headers: {
+        "x-debug": "1",
+        "content-type": "application/json",
+        "content-length": "2",
+        "user-agent": "contract-test",
+      },
+    });
+
+    const res = await _test.importStartHandler(req, { log() {} });
+    const body = parseJsonResponse(res);
+
+    assert.equal(res.status, 400);
+    assert.equal(body?.error?.code, "IMPORT_START_VALIDATION_FAILED");
+    assert.ok(body?.diagnostics?.body_sources);
+    assert.ok(body?.diagnostics?.headers_subset);
+    assert.equal(body.diagnostics.headers_subset["content-type"], "application/json");
   });
 });
 

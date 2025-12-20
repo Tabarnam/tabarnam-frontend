@@ -203,10 +203,13 @@ function getBodyLen(value) {
 }
 
 function isProbablyStreamBody(value) {
-  return (
+  return !!(
     value &&
     typeof value === "object" &&
-    (typeof value.getReader === "function" || typeof value.pipeTo === "function" || typeof value.on === "function")
+    (typeof value.getReader === "function" ||
+      typeof value.pipeTo === "function" ||
+      typeof value.on === "function" ||
+      typeof value[Symbol.asyncIterator] === "function")
   );
 }
 
@@ -217,12 +220,98 @@ function parseJsonFromStringOrBinary(value) {
   return parsed;
 }
 
+function toBufferChunk(chunk) {
+  if (chunk == null) return null;
+  if (Buffer.isBuffer(chunk)) return chunk;
+  if (chunk instanceof Uint8Array) return Buffer.from(chunk);
+  if (chunk instanceof ArrayBuffer) return Buffer.from(new Uint8Array(chunk));
+  if (typeof chunk === "string") return Buffer.from(chunk, "utf8");
+  return Buffer.from(String(chunk), "utf8");
+}
+
+async function readStreamLikeToBuffer(streamLike) {
+  if (!streamLike) return Buffer.alloc(0);
+
+  if (typeof streamLike.getReader === "function") {
+    const reader = streamLike.getReader();
+    const chunks = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const buf = toBufferChunk(value);
+      if (buf && buf.length) chunks.push(buf);
+    }
+    return chunks.length ? Buffer.concat(chunks) : Buffer.alloc(0);
+  }
+
+  if (typeof streamLike[Symbol.asyncIterator] === "function") {
+    const chunks = [];
+    for await (const chunk of streamLike) {
+      const buf = toBufferChunk(chunk);
+      if (buf && buf.length) chunks.push(buf);
+    }
+    return chunks.length ? Buffer.concat(chunks) : Buffer.alloc(0);
+  }
+
+  if (typeof streamLike.on === "function") {
+    return await new Promise((resolve, reject) => {
+      const chunks = [];
+      let settled = false;
+
+      const cleanup = () => {
+        try {
+          streamLike.off?.("data", onData);
+          streamLike.off?.("end", onEnd);
+          streamLike.off?.("error", onError);
+        } catch {}
+      };
+
+      const onData = (chunk) => {
+        const buf = toBufferChunk(chunk);
+        if (buf && buf.length) chunks.push(buf);
+      };
+
+      const onEnd = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(chunks.length ? Buffer.concat(chunks) : Buffer.alloc(0));
+      };
+
+      const onError = (err) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(err);
+      };
+
+      try {
+        streamLike.on("data", onData);
+        streamLike.on("end", onEnd);
+        streamLike.on("error", onError);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  return Buffer.alloc(0);
+}
+
+async function parseJsonFromStreamLike(value) {
+  const buf = await readStreamLikeToBuffer(value);
+  if (!buf || !buf.length) return {};
+  return parseJsonFromStringOrBinary(buf);
+}
+
 async function readJsonBody(req) {
   if (!req) return {};
 
   const rawBody = req.rawBody;
   const body = req.body;
   const bufferBody = req.bufferBody;
+
+  const isStreamBody = isProbablyStreamBody(rawBody) || isProbablyStreamBody(body) || isProbablyStreamBody(bufferBody);
 
   try {
     console.log("[import-start] body_sources", {
@@ -233,6 +322,7 @@ async function readJsonBody(req) {
       bodyLen: getBodyLen(body),
       hasBufferBody: bufferBody !== undefined && bufferBody !== null,
       bufferBodyLen: getBodyLen(bufferBody),
+      isStreamBody,
     });
   } catch {
     console.log("[import-start] body_sources");
@@ -244,8 +334,16 @@ async function readJsonBody(req) {
     }
   }
 
+  if (isProbablyStreamBody(rawBody)) {
+    return await parseJsonFromStreamLike(rawBody);
+  }
+
   if (typeof body === "string" || isBinaryBody(body)) {
     return parseJsonFromStringOrBinary(body);
+  }
+
+  if (isProbablyStreamBody(body)) {
+    return await parseJsonFromStreamLike(body);
   }
 
   if (body && typeof body === "object" && !isProbablyStreamBody(body)) {
@@ -255,6 +353,28 @@ async function readJsonBody(req) {
   if (getBodyLen(bufferBody) > 0) {
     if (typeof bufferBody === "string" || isBinaryBody(bufferBody)) {
       return parseJsonFromStringOrBinary(bufferBody);
+    }
+  }
+
+  if (isProbablyStreamBody(bufferBody)) {
+    return await parseJsonFromStreamLike(bufferBody);
+  }
+
+  if (typeof req.text === "function") {
+    try {
+      const text = String(await req.text()).trim();
+      if (text) return parseJsonFromStringOrBinary(text);
+    } catch {
+      // Fall through.
+    }
+  }
+
+  if (typeof req.arrayBuffer === "function") {
+    try {
+      const ab = await req.arrayBuffer();
+      if (ab) return parseJsonFromStringOrBinary(ab);
+    } catch {
+      // Fall through.
     }
   }
 
@@ -295,6 +415,40 @@ function getHeader(req, name) {
   const h = headers && typeof headers === "object" ? headers : {};
   const v = h[name] ?? h[name.toLowerCase()] ?? h[name.toUpperCase()];
   return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+function isDebugDiagnosticsEnabled(req) {
+  const raw = getHeader(req, "x-debug");
+  if (!raw) return false;
+  const v = raw.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}
+
+function buildBodyDiagnostics(req) {
+  const rawBody = req?.rawBody;
+  const body = req?.body;
+  const bufferBody = req?.bufferBody;
+
+  return {
+    body_sources: {
+      rawBodyType: getBodyType(rawBody),
+      rawBodyLen: getBodyLen(rawBody),
+      bodyType: getBodyType(body),
+      bodyLen: getBodyLen(body),
+      bufferBodyType: getBodyType(bufferBody),
+      bufferBodyLen: getBodyLen(bufferBody),
+      isStreamBody:
+        isProbablyStreamBody(rawBody) || isProbablyStreamBody(body) || isProbablyStreamBody(bufferBody),
+    },
+    headers_subset: {
+      "content-type": getHeader(req, "content-type"),
+      "content-length": getHeader(req, "content-length"),
+      "transfer-encoding": getHeader(req, "transfer-encoding"),
+      expect: getHeader(req, "expect"),
+      "user-agent": getHeader(req, "user-agent"),
+      "x-ms-middleware-request-id": getHeader(req, "x-ms-middleware-request-id"),
+    },
+  };
 }
 
 function generateRequestId(req) {
@@ -1358,6 +1512,7 @@ const importStartHandler = async (req, context) => {
               normalized_domain: "",
               xai_request_id: null,
               details: { code: "INVALID_JSON_BODY", message: "Invalid JSON body" },
+              ...(isDebugDiagnosticsEnabled(req) ? { diagnostics: buildBodyDiagnostics(req) } : {}),
             },
             400
           );
@@ -1562,6 +1717,7 @@ const importStartHandler = async (req, context) => {
           website_url: contextInfo.website_url,
           normalized_domain: contextInfo.normalized_domain,
           xai_request_id: contextInfo.xai_request_id,
+          ...(status === 400 && isDebugDiagnosticsEnabled(req) ? { diagnostics: buildBodyDiagnostics(req) } : {}),
           ...(debugEnabled
             ? {
                 stack: String(err?.stack || ""),
