@@ -25,7 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
-import { apiFetch, getUserFacingConfigMessage } from "@/lib/api";
+import { apiFetch, getUserFacingConfigMessage, toErrorString } from "@/lib/api";
 import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
 import { toStableLogoUrl } from "@/lib/logoUrl";
 import { getAdminUser } from "@/lib/azureAuth";
@@ -1999,8 +1999,8 @@ export default function CompanyDashboard() {
 
         if (!res.ok) {
           const configMsg = await getUserFacingConfigMessage(res);
-          const msg = configMsg || body?.error || `Failed to load companies (${res.status})`;
-          const errorDetail = body?.detail || body?.error || res.statusText || "Unknown error";
+          const msg = toErrorString(configMsg || body?.error || body?.message || body?.text || `Failed to load companies (${res.status})`);
+          const errorDetail = toErrorString(body?.detail || body?.error || body?.message || body?.text || res.statusText || "Unknown error");
 
           setLastError({
             status: res.status,
@@ -2026,7 +2026,7 @@ export default function CompanyDashboard() {
         setLastError(null);
       } catch (e) {
         if (controller.signal.aborted) return;
-        const errMsg = e?.message || "Failed to load companies";
+        const errMsg = toErrorString(e) || "Failed to load companies";
         setLastError({
           status: 503,
           message: errMsg,
@@ -2101,11 +2101,14 @@ export default function CompanyDashboard() {
 
         if (!ok || !company) {
           const configMsg = await getUserFacingConfigMessage(res);
-          const msg =
+          const msg = toErrorString(
             configMsg ||
-            body?.error ||
-            body?.detail ||
-            (!company ? "Company not found." : `Failed to load company (${res.status})`);
+              body?.error ||
+              body?.detail ||
+              body?.message ||
+              body?.text ||
+              (!company ? "Company not found." : `Failed to load company (${res.status})`)
+          );
           setEditorLoadError(msg);
           toast.error(msg);
           return;
@@ -2117,7 +2120,7 @@ export default function CompanyDashboard() {
         setEditorDisplayNameOverride(inferDisplayNameOverride(draft));
       } catch (e) {
         if (controller.signal.aborted) return;
-        const msg = e?.message || "Failed to load company";
+        const msg = toErrorString(e) || "Failed to load company";
         setEditorLoadError(msg);
         toast.error(msg);
       } finally {
@@ -2715,9 +2718,9 @@ export default function CompanyDashboard() {
     } catch (e) {
       const errObj = {
         status: 0,
-        message: e?.message || "Refresh failed",
+        message: toErrorString(e) || "Refresh failed",
         url: "(request failed)",
-        response: { error: e?.message || String(e) },
+        response: { error: toErrorString(e) || String(e) },
       };
       setRefreshError(errObj);
       toast.error(errObj.message);

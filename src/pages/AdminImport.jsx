@@ -6,7 +6,16 @@ import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/lib/toast";
-import { apiFetch, getResponseRequestId, getUserFacingConfigMessage, readJsonOrText } from "@/lib/api";
+import {
+  API_BASE,
+  FUNCTIONS_BASE,
+  apiFetch,
+  getResponseRequestId,
+  getUserFacingConfigMessage,
+  join,
+  readJsonOrText,
+  toErrorString,
+} from "@/lib/api";
 
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
@@ -147,13 +156,29 @@ export default function AdminImport() {
 
   const pollProgress = useCallback(
     async ({ session_id }) => {
-      const take = 500;
       try {
-        const res = await apiFetch(`/import/status?session_id=${encodeURIComponent(session_id)}&take=${take}`);
-        const body = await readJsonOrText(res);
+        const tryStatus = async (path) => {
+          const res = await apiFetch(path);
+          const body = await readJsonOrText(res);
+          return { res, body };
+        };
+
+        // Safe fallback:
+        // 1) Try without params (Dedicated supports this).
+        // 2) If backend returns 400 complaining about missing session id, retry with session_id.
+        let { res, body } = await tryStatus("/import/status");
+
+        if (!res.ok && res.status === 400) {
+          const hint = String(body?.error ?? body?.message ?? body?.text ?? "").toLowerCase();
+          const looksLikeMissingSession = hint.includes("session") && hint.includes("id") && (hint.includes("missing") || hint.includes("required"));
+          if (looksLikeMissingSession) {
+            ({ res, body } = await tryStatus(`/import/status?session_id=${encodeURIComponent(session_id)}`));
+          }
+        }
 
         if (!res.ok) {
-          const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Status failed (${res.status})`;
+          const configMsg = await getUserFacingConfigMessage(res);
+          const msg = toErrorString(configMsg || body?.error || body?.message || body?.text || `Status failed (${res.status})`);
           toast.error(msg);
           setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
           return { shouldStop: false };
@@ -183,9 +208,8 @@ export default function AdminImport() {
 
         return { shouldStop: completed || timedOut || stopped };
       } catch (e) {
-        setRuns((prev) =>
-          prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: e?.message || "Progress failed" } : r))
-        );
+        const msg = toErrorString(e) || "Progress failed";
+        setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
         return { shouldStop: false };
       }
     },
@@ -435,7 +459,7 @@ export default function AdminImport() {
       setActiveStatus("done");
       toast.success(`Import finished (${finalCompanies.length} companies)`);
     } catch (e) {
-      const msg = e?.name === "AbortError" ? "Import aborted" : e?.message || "Import failed";
+      const msg = e?.name === "AbortError" ? "Import aborted" : toErrorString(e) || "Import failed";
       setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
       if (e?.name === "AbortError") {
         setActiveStatus("idle");
@@ -463,13 +487,13 @@ export default function AdminImport() {
 
       const body = await readJsonOrText(res);
       if (!res.ok) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Stop failed (${res.status})`;
+        const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Stop failed (${res.status})`);
         toast.error(msg);
       } else {
         toast.success("Stop signal sent");
       }
     } catch (e) {
-      toast.error(e?.message || "Stop failed");
+      toast.error(toErrorString(e) || "Stop failed");
     } finally {
       stopPolling();
       setActiveStatus("idle");
@@ -519,7 +543,7 @@ export default function AdminImport() {
       const body = await readJsonOrText(res);
 
       if (!res.ok || body?.ok !== true) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Save failed (${res.status})`;
+        const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Save failed (${res.status})`);
         setRuns((prev) =>
           prev.map((r) =>
             r.session_id === session_id
@@ -534,7 +558,7 @@ export default function AdminImport() {
       setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, save_result: body, save_error: null } : r)));
       toast.success(`Saved ${Number(body?.saved ?? 0) || 0} compan${Number(body?.saved ?? 0) === 1 ? "y" : "ies"}`);
     } catch (e) {
-      const msg = e?.message || "Save failed";
+      const msg = toErrorString(e) || "Save failed";
       setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, save_error: msg } : r)));
       toast.error(msg);
     } finally {
@@ -559,7 +583,7 @@ export default function AdminImport() {
         }
       } catch (e) {
         if (cancelled) return;
-        setApiVersion({ ok: false, error: e?.message || "Failed to load version" });
+        setApiVersion({ ok: false, error: toErrorString(e) || "Failed to load version" });
       } finally {
         if (!cancelled) setApiVersionLoading(false);
       }
@@ -582,7 +606,7 @@ export default function AdminImport() {
         if (cancelled) return;
 
         if (!res.ok || body?.ok !== true) {
-          const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Config check failed (${res.status})`;
+          const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Config check failed (${res.status})`);
           setImportReady(false);
           setImportConfigMessage(msg);
           return;
@@ -605,7 +629,7 @@ export default function AdminImport() {
       } catch (e) {
         if (cancelled) return;
         setImportReady(false);
-        setImportConfigMessage(e?.message || "Config check failed");
+        setImportConfigMessage(toErrorString(e) || "Config check failed");
       } finally {
         if (!cancelled) setImportConfigLoading(false);
       }
@@ -1121,6 +1145,32 @@ export default function AdminImport() {
             ) : (
               <span>unknown</span>
             )}
+          </div>
+
+          <div className="rounded border border-slate-200 bg-white p-3 text-xs text-slate-700 space-y-1">
+            <div>
+              <span className="font-medium">FUNCTIONS_BASE:</span>{" "}
+              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{FUNCTIONS_BASE || "(same-origin)"}</code>
+            </div>
+            <div>
+              <span className="font-medium">API_BASE:</span>{" "}
+              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{API_BASE}</code>
+            </div>
+            <div>
+              <span className="font-medium">Start URL:</span>{" "}
+              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">POST {join(API_BASE, "/import/start")}</code>
+            </div>
+            <div>
+              <span className="font-medium">Status URL (try 1):</span>{" "}
+              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">GET {join(API_BASE, "/import/status")}</code>
+            </div>
+            <div>
+              <span className="font-medium">Status URL (try 2):</span>{" "}
+              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">
+                GET {join(API_BASE, "/import/status")}
+                {activeSessionId ? `?session_id=${encodeURIComponent(activeSessionId)}` : ""}
+              </code>
+            </div>
           </div>
         </main>
       </div>
