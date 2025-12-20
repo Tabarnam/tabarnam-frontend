@@ -169,6 +169,7 @@ export default function AdminImport() {
 
   const pollTimerRef = useRef(null);
   const startFetchAbortRef = useRef(null);
+  const pollAttemptsRef = useRef(new Map());
 
   const activeRun = useMemo(() => {
     if (!activeSessionId) return null;
@@ -185,37 +186,26 @@ export default function AdminImport() {
   const pollProgress = useCallback(
     async ({ session_id }) => {
       try {
-        const fetchStatus = async (basePath, suffix = "") => {
-          const res = await apiFetch(`${basePath}${suffix}`);
-          const body = await readJsonOrText(res);
-          return { res, body };
-        };
-
-        // Safe fallback:
-        // 1) Try without params (Dedicated supports this).
-        // 2) If backend returns 400 complaining about missing session id, retry with session_id.
-        // 3) Support both routing styles while we confirm canonical:
-        //    - /api/import/status
-        //    - /api/import-status
-        const first = await apiFetchWithFallback(["/import/status", "/import-status"]);
-        let res = first.res;
-        let body = await readJsonOrText(res);
-        const basePath = first.usedPath;
-
-        if (!res.ok && res.status === 400) {
-          const hint = String(body?.error ?? body?.message ?? body?.text ?? "").toLowerCase();
-          const looksLikeMissingSession =
-            hint.includes("session") && hint.includes("id") && (hint.includes("missing") || hint.includes("required"));
-          if (looksLikeMissingSession) {
-            ({ res, body } = await fetchStatus(basePath, `?session_id=${encodeURIComponent(session_id)}`));
-          }
-        }
+        const encoded = encodeURIComponent(session_id);
+        const { res } = await apiFetchWithFallback([
+          `/import/status?session_id=${encoded}`,
+          `/import-status?session_id=${encoded}`,
+        ]);
+        const body = await readJsonOrText(res);
 
         if (!res.ok) {
+          const bodyPreview = toPrettyJsonText(body);
           const configMsg = await getUserFacingConfigMessage(res);
-          const msg = toErrorString(configMsg || body?.error || body?.message || body?.text || `Status failed (${res.status})`);
-          toast.error(msg);
+          const baseMsg = toErrorString(configMsg || body?.error || body?.message || body?.text || `Status failed (${res.status})`);
+          const msg = bodyPreview ? `${baseMsg}\n${bodyPreview}` : baseMsg;
+
           setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
+
+          if (res.status !== 404) {
+            toast.error(baseMsg);
+            return { shouldStop: true };
+          }
+
           return { shouldStop: false };
         }
 
@@ -251,10 +241,28 @@ export default function AdminImport() {
     []
   );
 
+  const POLL_MAX_ATTEMPTS = 180;
+
+  const resetPollAttempts = useCallback((session_id) => {
+    if (!session_id) return;
+    pollAttemptsRef.current.set(session_id, 0);
+  }, []);
+
   const schedulePoll = useCallback(
     ({ session_id }) => {
       stopPolling();
       pollTimerRef.current = setTimeout(async () => {
+        const prevAttempts = pollAttemptsRef.current.get(session_id) || 0;
+        const nextAttempts = prevAttempts + 1;
+        pollAttemptsRef.current.set(session_id, nextAttempts);
+
+        if (nextAttempts > POLL_MAX_ATTEMPTS) {
+          const msg = `Polling stopped after ${POLL_MAX_ATTEMPTS} attempts.`;
+          toast.error(msg);
+          setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
+          return;
+        }
+
         const { shouldStop } = await pollProgress({ session_id });
         if (shouldStop) return;
         schedulePoll({ session_id });
@@ -413,6 +421,7 @@ export default function AdminImport() {
     const abort = new AbortController();
     startFetchAbortRef.current = abort;
 
+    resetPollAttempts(session_id);
     schedulePoll({ session_id });
 
     try {
@@ -905,6 +914,7 @@ export default function AdminImport() {
                     toast.error("No active session");
                     return;
                   }
+                  resetPollAttempts(activeSessionId);
                   schedulePoll({ session_id: activeSessionId });
                   toast.success("Polling refresh started");
                 }}
