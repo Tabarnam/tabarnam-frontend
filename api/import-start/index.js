@@ -2150,6 +2150,7 @@ const importStartHandler = async (req, context) => {
             usedPath = p;
             usedUrl = url;
 
+            console.log(`[import-start] Worker call upstream: ${toHostPathOnlyForLog(url)}`);
             const r = await axios.post(url, bodyObj, {
               headers: {
                 "Content-Type": "application/json",
@@ -2256,6 +2257,42 @@ const importStartHandler = async (req, context) => {
             proxy_source: proxySource,
             ...(upstreamTextPreview ? { upstream_text_preview: upstreamTextPreview } : {}),
           };
+
+          const env_present = {
+            has_xai_key: Boolean(getXAIKey()),
+            has_xai_base_url: Boolean(getXAIEndpoint()),
+            has_import_start_proxy_base: Boolean(getImportStartProxyInfo().base),
+          };
+
+          const upstream =
+            body.ok === false
+              ? {
+                  host_path: usedHostPath,
+                  status: resp.status,
+                  ...(upstreamTextPreview ? { body_preview: upstreamTextPreview } : {}),
+                }
+              : null;
+
+          if (body.ok === false) {
+            if (!body.env_present) body.env_present = env_present;
+            if (upstream && !body.upstream) body.upstream = upstream;
+
+            if (resp.status >= 500) {
+              try {
+                console.error(
+                  "[import-start] sanitized_diagnostics:",
+                  JSON.stringify({
+                    request_id: body.request_id || requestId,
+                    session_id: body.session_id || sessionId,
+                    stage: body.stage || "worker_call",
+                    status: resp.status,
+                    upstream,
+                    env_present,
+                  })
+                );
+              } catch {}
+            }
+          }
 
           return json({ ...body, ...buildInfo }, resp?.status || 502, responseHeaders);
         } catch (e) {
