@@ -177,43 +177,94 @@ function readQueryParam(req, name) {
   return undefined;
 }
 
+function getBodyType(value) {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (Buffer.isBuffer(value)) return "Buffer";
+  if (value instanceof Uint8Array) return "Uint8Array";
+  if (value instanceof ArrayBuffer) return "ArrayBuffer";
+  if (typeof value === "object" && value?.constructor?.name) return value.constructor.name;
+  return typeof value;
+}
+
+function getBodyLen(value) {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === "string") return value.length;
+  if (Buffer.isBuffer(value) || value instanceof Uint8Array) return value.length;
+  if (value instanceof ArrayBuffer) return value.byteLength;
+  if (typeof value === "object") {
+    try {
+      return Object.keys(value).length;
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
+}
+
+function isProbablyStreamBody(value) {
+  return (
+    value &&
+    typeof value === "object" &&
+    (typeof value.getReader === "function" || typeof value.pipeTo === "function" || typeof value.on === "function")
+  );
+}
+
+function parseJsonFromStringOrBinary(value) {
+  const text = typeof value === "string" ? value : binaryBodyToString(value);
+  const { ok, value: parsed } = parseJsonBodyStrict(text);
+  if (!ok) throw new InvalidJsonBodyError();
+  return parsed;
+}
+
 async function readJsonBody(req) {
   if (!req) return {};
+
+  const rawBody = req.rawBody;
+  const body = req.body;
+  const bufferBody = req.bufferBody;
+
+  try {
+    console.log("[import-start] body_sources", {
+      hasRawBody: rawBody !== undefined && rawBody !== null,
+      rawBodyType: getBodyType(rawBody),
+      rawBodyLen: getBodyLen(rawBody),
+      bodyType: getBodyType(body),
+      bodyLen: getBodyLen(body),
+      hasBufferBody: bufferBody !== undefined && bufferBody !== null,
+      bufferBodyLen: getBodyLen(bufferBody),
+    });
+  } catch {
+    console.log("[import-start] body_sources");
+  }
+
+  if (getBodyLen(rawBody) > 0) {
+    if (typeof rawBody === "string" || isBinaryBody(rawBody)) {
+      return parseJsonFromStringOrBinary(rawBody);
+    }
+  }
+
+  if (typeof body === "string" || isBinaryBody(body)) {
+    return parseJsonFromStringOrBinary(body);
+  }
+
+  if (body && typeof body === "object" && !isProbablyStreamBody(body)) {
+    return body;
+  }
+
+  if (getBodyLen(bufferBody) > 0) {
+    if (typeof bufferBody === "string" || isBinaryBody(bufferBody)) {
+      return parseJsonFromStringOrBinary(bufferBody);
+    }
+  }
 
   if (typeof req.json === "function") {
     try {
       const val = await req.json();
       if (val && typeof val === "object") return val;
     } catch {
-      // Fall through to body/rawBody parsing.
+      // Fall through.
     }
-  }
-
-  if (typeof req.body === "string") {
-    const { ok, value } = parseJsonBodyStrict(req.body);
-    if (!ok) throw new InvalidJsonBodyError();
-    return value;
-  }
-
-  if (isBinaryBody(req.body)) {
-    const { ok, value } = parseJsonBodyStrict(binaryBodyToString(req.body));
-    if (!ok) throw new InvalidJsonBodyError();
-    return value;
-  }
-
-  if (req.body && typeof req.body === "object") return req.body;
-
-  const rawBody = req.rawBody;
-  if (typeof rawBody === "string") {
-    const { ok, value } = parseJsonBodyStrict(rawBody);
-    if (!ok) throw new InvalidJsonBodyError();
-    return value;
-  }
-
-  if (isBinaryBody(rawBody)) {
-    const { ok, value } = parseJsonBodyStrict(binaryBodyToString(rawBody));
-    if (!ok) throw new InvalidJsonBodyError();
-    return value;
   }
 
   return {};
