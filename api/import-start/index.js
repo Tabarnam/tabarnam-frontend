@@ -631,6 +631,54 @@ function isXaiPublicApiUrl(raw) {
   return false;
 }
 
+function joinUrlPath(basePath, suffixPath) {
+  const a = String(basePath || "").trim();
+  const b = String(suffixPath || "").trim();
+  if (!a) return b.startsWith("/") ? b : `/${b}`;
+  if (!b) return a;
+
+  const left = a.endsWith("/") ? a.slice(0, -1) : a;
+  const right = b.startsWith("/") ? b : `/${b}`;
+
+  return `${left}${right}`.replace(/\/{2,}/g, "/");
+}
+
+function toHostPathOnlyForLog(rawUrl) {
+  const u = tryParseUrl(rawUrl);
+  if (u) return `${u.host}${u.pathname}`;
+
+  const raw = String(rawUrl || "").trim();
+  if (!raw) return "";
+
+  // Best effort: strip scheme + query.
+  const noQuery = raw.split("?")[0];
+  const noScheme = noQuery.replace(/^https?:\/\//i, "");
+  return noScheme;
+}
+
+function resolveXaiEndpointForModel(rawEndpoint, model) {
+  const u = tryParseUrl(rawEndpoint);
+  if (!u) return String(rawEndpoint || "").trim();
+
+  const pathLower = String(u.pathname || "").toLowerCase();
+  if (pathLower.includes("/proxy-xai")) return u.toString();
+
+  const alreadyChat = /\/v1\/chat\/completions\/?$/i.test(u.pathname || "");
+  const alreadyResponses = /\/v1\/responses\/?$/i.test(u.pathname || "");
+  if (alreadyChat || alreadyResponses) return u.toString();
+
+  const m = String(model || "").toLowerCase();
+  const wantsResponses = m.includes("vision") || m.includes("image") || m.includes("audio");
+  const desiredSuffix = wantsResponses ? "/v1/responses" : "/v1/chat/completions";
+
+  // If the URL was set to a base like https://api.x.ai or https://api.x.ai/v1, normalize it.
+  let basePath = String(u.pathname || "").replace(/\/+$/, "");
+  if (basePath.toLowerCase().endsWith("/v1")) basePath = basePath.slice(0, -3);
+  u.pathname = joinUrlPath(basePath || "", desiredSuffix);
+
+  return u.toString();
+}
+
 function getImportStartProxyInfo() {
   // Import-start proxying is ONLY for a Tabarnam-controlled import worker.
   // Do not fall back to XAI_EXTERNAL_BASE (that is for XAI chat/search), and never to XAI public API.
@@ -2278,12 +2326,16 @@ const importStartHandler = async (req, context) => {
         console.log(`[import-start] Request timeout: ${timeout}ms (requested: ${requestedTimeout}ms)`);
 
         // Get XAI configuration (consolidated to use XAI_EXTERNAL_BASE primarily)
-        const xaiUrl = getXAIEndpoint();
+        const xaiEndpointRaw = getXAIEndpoint();
         const xaiKey = getXAIKey();
+        const xaiModel = "grok-4-latest";
+        const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, xaiModel);
+        const xaiUrlForLog = toHostPathOnlyForLog(xaiUrl);
 
-        console.log(`[import-start] XAI Endpoint: ${xaiUrl ? "configured" : "NOT SET"}`);
+        console.log(`[import-start] XAI Endpoint: ${xaiEndpointRaw ? "configured" : "NOT SET"}`);
         console.log(`[import-start] XAI Key: ${xaiKey ? "configured" : "NOT SET"}`);
         console.log(`[import-start] Config source: ${process.env.XAI_EXTERNAL_BASE ? "XAI_EXTERNAL_BASE" : process.env.FUNCTION_URL ? "FUNCTION_URL (legacy)" : "none"}`);
+        console.log(`[import-start] XAI Request URL: ${xaiUrlForLog || "(unparseable)"}`);
 
         if (!xaiUrl || !xaiKey) {
           setStage("config");
@@ -2501,7 +2553,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
         const xaiRequestPayload = {
           messages: [xaiMessage],
-          model: "grok-4-latest",
+          model: xaiModel,
           temperature: 0.1,
           stream: false,
         };
@@ -2514,7 +2566,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           });
 
           console.log(`[import-start] session=${sessionId} xai request payload = ${JSON.stringify(xaiPayload)}`);
-          console.log(`[import-start] Calling XAI API at: ${xaiUrl}`);
+          console.log(`[import-start] Calling XAI API at: ${toHostPathOnlyForLog(xaiUrl)}`);
           const xaiResponse = await axios.post(xaiUrl, xaiRequestPayload, {
           headers: {
             "Content-Type": "application/json",
@@ -3198,6 +3250,11 @@ Return ONLY the JSON array, no other text.`,
           const upstreamRequestId = extractXaiRequestId(xaiResponse.headers || {});
           const upstreamTextPreview = toTextPreview(xaiResponse.data);
 
+          const xaiUrlForLog = toHostPathOnlyForLog(xaiUrl);
+          console.error(
+            `[import-start] session=${sessionId} upstream XAI non-2xx (${xaiResponse.status}) url=${xaiUrlForLog}`
+          );
+
           return respondError(new Error(`XAI returned ${xaiResponse.status}`), {
             status: 502,
             details: {
@@ -3207,17 +3264,20 @@ Return ONLY the JSON array, no other text.`,
                   ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
                   : `XAI returned ${xaiResponse.status}`,
               upstream_status: xaiResponse.status,
-              upstream_url: xaiUrl,
+              upstream_url: xaiUrlForLog,
               upstream_text_preview: upstreamTextPreview,
               ...(upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {}),
               xai_status: xaiResponse.status,
-              xai_url: xaiUrl,
+              xai_url: xaiUrlForLog,
             },
           });
         }
       } catch (xaiError) {
         const elapsed = Date.now() - startTime;
-        console.error(`[import-start] session=${sessionId} xai call failed: ${xaiError.message}`);
+        const xaiUrlForLog = toHostPathOnlyForLog(xaiUrl);
+        console.error(
+          `[import-start] session=${sessionId} xai call failed url=${xaiUrlForLog}: ${xaiError.message}`
+        );
         console.error(`[import-start] session=${sessionId} error code: ${xaiError.code}`);
         if (xaiError.response) {
           console.error(`[import-start] session=${sessionId} xai error status: ${xaiError.response.status}`);
@@ -3279,12 +3339,12 @@ Return ONLY the JSON array, no other text.`,
             code: upstreamErrorCode,
             message: upstreamMessage,
             upstream_status: upstreamStatus,
-            upstream_url: xaiUrl,
+            upstream_url: xaiUrlForLog,
             upstream_text_preview: upstreamTextPreview,
             ...(upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {}),
             xai_code: xaiError?.code || null,
             xai_status: upstreamStatus,
-            xai_url: xaiUrl,
+            xai_url: xaiUrlForLog,
           },
         });
       }
