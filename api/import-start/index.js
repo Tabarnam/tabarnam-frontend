@@ -101,6 +101,11 @@ class InvalidJsonBodyError extends Error {
       typeof options?.firstBytesPreview === "string" && options.firstBytesPreview.trim()
         ? options.firstBytesPreview.trim()
         : null;
+
+    this.raw_body_preview =
+      typeof options?.rawBodyPreview === "string" && options.rawBodyPreview.trim()
+        ? options.rawBodyPreview.trim()
+        : null;
   }
 }
 
@@ -259,6 +264,7 @@ function parseJsonFromStringOrBinary(value) {
     throw new InvalidJsonBodyError("Invalid JSON body", {
       parseError: result.error,
       firstBytesPreview: buildFirstBytesPreview(value),
+      rawBodyPreview: toTextPreview(text, 500),
     });
   }
   return result.value;
@@ -432,6 +438,12 @@ async function readJsonBody(req) {
     console.log("[import-start] body_sources");
   }
 
+  if (body && typeof body === "object" && !isBinaryBody(body) && !isProbablyStreamBody(body)) {
+    const bodyLen = getBodyLen(body);
+    const otherLen = getBodyLen(rawBody) + getBodyLen(bufferBody);
+    if (bodyLen > 0 || otherLen === 0) return body;
+  }
+
   if (getBodyLen(rawBody) > 0) {
     if (typeof rawBody === "string" || isBinaryBody(rawBody)) {
       return parseJsonFromStringOrBinary(rawBody);
@@ -448,10 +460,6 @@ async function readJsonBody(req) {
 
   if (isProbablyStreamBody(body)) {
     return await parseJsonFromStreamLike(body);
-  }
-
-  if (body && typeof body === "object" && !isProbablyStreamBody(body)) {
-    return body;
   }
 
   if (getBodyLen(bufferBody) > 0) {
@@ -1634,7 +1642,11 @@ const importStartHandler = async (req, context) => {
               website_url: "",
               normalized_domain: "",
               xai_request_id: null,
-              details: { code: "INVALID_JSON_BODY", message: "Invalid JSON body" },
+              details: {
+                code: "INVALID_JSON_BODY",
+                message: "Invalid JSON body",
+                raw_body_preview: err?.raw_body_preview || null,
+              },
               ...(diagnosticsEnabled
                 ? {
                     diagnostics: {
@@ -1643,6 +1655,7 @@ const importStartHandler = async (req, context) => {
                       ...buildBodyDiagnostics(req, {
                         parse_error: err?.parse_error || null,
                         first_bytes_preview: err?.first_bytes_preview || null,
+                        raw_body_preview: err?.raw_body_preview || null,
                       }),
                     },
                   }
