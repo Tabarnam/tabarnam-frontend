@@ -1512,6 +1512,7 @@ const importStartHandler = async (req, context) => {
               normalized_domain: "",
               xai_request_id: null,
               details: { code: "INVALID_JSON_BODY", message: "Invalid JSON body" },
+              ...(isDebugDiagnosticsEnabled(req) ? { diagnostics: buildBodyDiagnostics(req) } : {}),
             },
             400
           );
