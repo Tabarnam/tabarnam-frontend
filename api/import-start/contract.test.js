@@ -132,6 +132,63 @@ test("/api/import/start respects query proxy=false when body has no proxy", asyn
   });
 });
 
+test("/api/import/start rejects ambiguous queryType + queryTypes", async () => {
+  await withTempEnv(NO_NETWORK_ENV, async () => {
+    const req = makeReq({
+      json: async () => ({
+        dry_run: true,
+        query: "running shoes",
+        queryType: "product_keyword",
+        queryTypes: ["product_keyword"],
+      }),
+    });
+
+    const res = await _test.importStartHandler(req, { log() {} });
+    const body = parseJsonResponse(res);
+
+    assert.equal(res.status, 400);
+    assert.equal(body?.error?.code, "AMBIGUOUS_QUERY_TYPE_FIELDS");
+  });
+});
+
+test("/api/import/start rejects URL query without company_url", async () => {
+  await withTempEnv(NO_NETWORK_ENV, async () => {
+    const req = makeReq({
+      json: async () => ({
+        dry_run: true,
+        query: "https://parachutehome.com/",
+        queryTypes: ["product_keyword"],
+      }),
+    });
+
+    const res = await _test.importStartHandler(req, { log() {} });
+    const body = parseJsonResponse(res);
+
+    assert.equal(res.status, 400);
+    assert.equal(body?.error?.code, "INVALID_QUERY_TYPE");
+  });
+});
+
+test("/api/import/start treats URL query as company_url when selected", async () => {
+  await withTempEnv(NO_NETWORK_ENV, async () => {
+    const req = makeReq({
+      json: async () => ({
+        dry_run: true,
+        query: "https://parachutehome.com/",
+        queryTypes: ["company_url"],
+      }),
+    });
+
+    const res = await _test.importStartHandler(req, { log() {} });
+    const body = parseJsonResponse(res);
+
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body?.received?.queryType, "company_url");
+    assert.deepEqual(body?.received?.queryTypes, ["company_url"]);
+  });
+});
+
 test("getBuildInfo uses WEBSITE_COMMIT_HASH when set", async () => {
   await withTempEnv(
     {
