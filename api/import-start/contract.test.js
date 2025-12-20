@@ -147,6 +147,32 @@ test("/api/import/start respects query proxy=false when body has no proxy", asyn
   });
 });
 
+test("/api/import/start prefers rawBody when body is empty object", async () => {
+  await withTempEnv(NO_NETWORK_ENV, async () => {
+    const rawBody = Buffer.from(
+      JSON.stringify({
+        dry_run: true,
+        query: "https://parachutehome.com/",
+        queryTypes: ["company_url"],
+      }),
+      "utf8"
+    );
+
+    const req = makeReq({
+      body: {},
+      rawBody,
+    });
+
+    const res = await _test.importStartHandler(req, { log() {} });
+    const body = parseJsonResponse(res);
+
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.received?.query, "https://parachutehome.com/");
+    assert.equal(body.received?.queryType, "company_url");
+  });
+});
+
 test("/api/import/start rejects ambiguous queryType + queryTypes", async () => {
   await withTempEnv(NO_NETWORK_ENV, async () => {
     const req = makeReq({
