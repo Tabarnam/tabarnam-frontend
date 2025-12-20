@@ -945,6 +945,32 @@ export default function AdminImport() {
               <span>unknown</span>
             )}
           </div>
+
+          <div className="rounded border border-slate-200 bg-white p-3 text-xs text-slate-700 space-y-1">
+            <div>
+              <span className="font-medium">FUNCTIONS_BASE:</span>{" "}
+              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{FUNCTIONS_BASE || "(same-origin)"}</code>
+            </div>
+            <div>
+              <span className="font-medium">API_BASE:</span>{" "}
+              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{API_BASE}</code>
+            </div>
+            <div>
+              <span className="font-medium">Start URL:</span>{" "}
+              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">POST {join(API_BASE, "/import/start")}</code>
+            </div>
+            <div>
+              <span className="font-medium">Status URL (try 1):</span>{" "}
+              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">GET {join(API_BASE, "/import/status")}</code>
+            </div>
+            <div>
+              <span className="font-medium">Status URL (try 2):</span>{" "}
+              <code className="rounded bg-slate-100 px-1 py-0.5 break-all">
+                GET {join(API_BASE, "/import/status")}
+                {activeSessionId ? `?session_id=${encodeURIComponent(activeSessionId)}` : ""}
+              </code>
+            </div>
+          </div>
         </main>
       </div>
     </>
