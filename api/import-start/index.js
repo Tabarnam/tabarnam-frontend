@@ -207,6 +207,19 @@ function tryParseUrl(raw) {
   }
 }
 
+function looksLikeCompanyUrlQuery(raw) {
+  const u = tryParseUrl(raw);
+  if (!u) return false;
+  const host = String(u.hostname || "").toLowerCase();
+  if (!host || !host.includes(".")) return false;
+  if (host === "localhost" || host.endsWith(".localhost")) return false;
+  const parts = host.split(".").filter(Boolean);
+  if (parts.length < 2) return false;
+  const tld = parts[parts.length - 1];
+  if (!tld || tld.length < 2) return false;
+  return true;
+}
+
 function isXaiPublicApiUrl(raw) {
   const u = tryParseUrl(raw);
   if (!u) return false;
@@ -1197,6 +1210,17 @@ const importStartHandler = async (req, context) => {
       const bodyObj = payload && typeof payload === "object" ? payload : {};
       const sessionId = bodyObj.session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
+      const hasQueryTypeField =
+        Object.prototype.hasOwnProperty.call(bodyObj, "queryType") || Object.prototype.hasOwnProperty.call(bodyObj, "query_type");
+      const hasQueryTypesField =
+        Object.prototype.hasOwnProperty.call(bodyObj, "queryTypes") || Object.prototype.hasOwnProperty.call(bodyObj, "query_types");
+      const ambiguousQueryTypeFields = hasQueryTypeField && hasQueryTypesField;
+
+      const rawQueryTypes =
+        bodyObj.queryTypes !== undefined ? bodyObj.queryTypes : bodyObj.query_types !== undefined ? bodyObj.query_types : undefined;
+      const rawQueryType =
+        bodyObj.queryType !== undefined ? bodyObj.queryType : bodyObj.query_type !== undefined ? bodyObj.query_type : undefined;
+
       const startTime = Date.now();
 
       const normalizedQuery = String(bodyObj.query || "").trim();
@@ -1204,10 +1228,10 @@ const importStartHandler = async (req, context) => {
       const normalizedLimit = Math.max(1, Math.min(25, Math.trunc(Number(bodyObj.limit) || 1)));
 
       const queryTypesRaw =
-        Array.isArray(bodyObj.queryTypes)
-          ? bodyObj.queryTypes
-          : typeof bodyObj.queryTypes === "string"
-            ? [bodyObj.queryTypes]
+        Array.isArray(rawQueryTypes)
+          ? rawQueryTypes
+          : typeof rawQueryTypes === "string"
+            ? [rawQueryTypes]
             : [];
 
       const queryTypes = queryTypesRaw
@@ -1215,14 +1239,22 @@ const importStartHandler = async (req, context) => {
         .filter(Boolean)
         .slice(0, 10);
 
-      const normalizedQueryType =
-        String(bodyObj.queryType || queryTypes[0] || "product_keyword").trim() || "product_keyword";
+      const queryLooksLikeUrl = looksLikeCompanyUrlQuery(normalizedQuery);
+
+      let normalizedQueryType = String(rawQueryType || queryTypes[0] || "product_keyword").trim() || "product_keyword";
+      if (queryLooksLikeUrl && queryTypes.includes("company_url")) {
+        normalizedQueryType = "company_url";
+      }
 
       bodyObj.query = normalizedQuery;
       bodyObj.location = normalizedLocation || "";
       bodyObj.limit = normalizedLimit;
       bodyObj.queryType = normalizedQueryType;
       bodyObj.queryTypes = queryTypes.length > 0 ? queryTypes : [normalizedQueryType];
+
+      if (queryLooksLikeUrl && bodyObj.queryTypes.includes("company_url")) {
+        bodyObj.queryType = "company_url";
+      }
 
       console.log(
         `[import-start] request_id=${requestId} session=${sessionId} normalized_request=` +
@@ -1356,6 +1388,30 @@ const importStartHandler = async (req, context) => {
 
         return jsonWithRequestId(errorPayload, status);
       };
+
+      if (ambiguousQueryTypeFields) {
+        setStage("validate_request", { error: "AMBIGUOUS_QUERY_TYPE_FIELDS" });
+        return respondError(new Error("Ambiguous query type fields"), {
+          status: 400,
+          details: {
+            code: "AMBIGUOUS_QUERY_TYPE_FIELDS",
+            message: "Provide only one of queryTypes (array) or queryType (string), not both.",
+          },
+        });
+      }
+
+      if (queryLooksLikeUrl && !bodyObj.queryTypes.includes("company_url")) {
+        setStage("validate_request", { error: "INVALID_QUERY_TYPE" });
+        return respondError(new Error("Query looks like a URL"), {
+          status: 400,
+          details: {
+            code: "INVALID_QUERY_TYPE",
+            message: "Query looks like a URL. Include company_url in queryTypes.",
+            query: normalizedQuery,
+            queryTypes: bodyObj.queryTypes,
+          },
+        });
+      }
 
       setStage("validate_request", {
         query: String(bodyObj.query || ""),
@@ -1553,6 +1609,23 @@ const importStartHandler = async (req, context) => {
           if (!body.session_id) body.session_id = sessionId;
           if (!body.request_id) body.request_id = requestId;
           if (xaiRequestId && !body.xai_request_id) body.xai_request_id = xaiRequestId;
+
+          if (body.ok === false && (!body.error || typeof body.error !== "object")) {
+            const upstreamMsg =
+              typeof body.message === "string" && body.message.trim()
+                ? body.message.trim()
+                : typeof body.text === "string" && body.text.trim()
+                  ? body.text.trim()
+                  : `Upstream import worker failed (${resp.status})`;
+
+            body.stage = body.stage || "proxyImportStart";
+            body.error = {
+              code: body.code || "UPSTREAM_IMPORT_WORKER_FAILED",
+              message: upstreamMsg,
+              request_id: body.request_id,
+              step: body.stage,
+            };
+          }
 
           const elapsedMs = Date.now() - startTime;
           const meta = body.meta && typeof body.meta === "object" ? body.meta : {};
