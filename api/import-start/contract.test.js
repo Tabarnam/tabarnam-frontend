@@ -129,6 +129,27 @@ test("/api/import/start returns INVALID_JSON_BODY for malformed JSON", async () 
   });
 });
 
+test("/api/import/start includes parse diagnostics for INVALID_JSON_BODY when x-debug header is present", async () => {
+  await withTempEnv(NO_NETWORK_ENV, async () => {
+    const req = makeReq({
+      body: "{not valid json",
+      headers: {
+        "x-debug": "1",
+        "content-type": "application/json",
+        "content-length": "13",
+      },
+    });
+
+    const res = await _test.importStartHandler(req, { log() {} });
+    const body = parseJsonResponse(res);
+
+    assert.equal(res.status, 400);
+    assert.equal(body?.error?.code, "INVALID_JSON_BODY");
+    assert.ok(body?.diagnostics?.parse_error);
+    assert.ok(body?.diagnostics?.first_bytes_preview);
+  });
+});
+
 test("/api/import/start respects query proxy=false when body has no proxy", async () => {
   await withTempEnv(NO_NETWORK_ENV, async () => {
     const rawBody = Buffer.from(
@@ -204,6 +225,32 @@ test("/api/import/start parses stream body when req.body is stream-like", async 
     assert.equal(res.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.received?.query, "https://alppouch.com/");
+    assert.equal(body.received?.queryType, "company_url");
+  });
+});
+
+test("/api/import/start parses WHATWG ReadableStream body", async () => {
+  await withTempEnv(NO_NETWORK_ENV, async () => {
+    const payload = JSON.stringify({
+      dry_run: true,
+      query: "https://parachutehome.com/",
+      queryTypes: ["company_url"],
+    });
+
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(Buffer.from(payload, "utf8"));
+        controller.close();
+      },
+    });
+
+    const req = makeReq({ body: stream });
+    const res = await _test.importStartHandler(req, { log() {} });
+    const body = parseJsonResponse(res);
+
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.received?.query, "https://parachutehome.com/");
     assert.equal(body.received?.queryType, "company_url");
   });
 });
