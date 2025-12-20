@@ -1575,6 +1575,20 @@ const importStartHandler = async (req, context) => {
     const responseHeaders = { "x-request-id": requestId };
     const jsonWithRequestId = (obj, status = 200) => json(obj, status, responseHeaders);
 
+    const buildInfo = getBuildInfo();
+    const contextInfo = {
+      company_name: "",
+      website_url: "",
+      normalized_domain: "",
+      xai_request_id: null,
+    };
+
+    let sessionId = "";
+    let stage = "init";
+    let debugEnabled = false;
+    let debugOutput = null;
+    let enrichedForCounts = [];
+
     console.log(`[import-start] request_id=${requestId} Function handler invoked`);
 
     try {
@@ -1640,7 +1654,7 @@ const importStartHandler = async (req, context) => {
       }
 
       const bodyObj = payload && typeof payload === "object" ? payload : {};
-      const sessionId = bodyObj.session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      sessionId = bodyObj.session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
       const hasQueryTypeField =
         Object.prototype.hasOwnProperty.call(bodyObj, "queryType") || Object.prototype.hasOwnProperty.call(bodyObj, "query_type");
@@ -1705,8 +1719,8 @@ const importStartHandler = async (req, context) => {
           })
       );
 
-      const debugEnabled = bodyObj.debug === true || bodyObj.debug === "true";
-      const debugOutput = debugEnabled
+      debugEnabled = bodyObj.debug === true || bodyObj.debug === "true";
+      debugOutput = debugEnabled
         ? {
             xai: {
               payload: null,
@@ -1721,15 +1735,11 @@ const importStartHandler = async (req, context) => {
           }
         : null;
 
-      let stage = "init";
-      const buildInfo = getBuildInfo();
-      const contextInfo = {
-        company_name: String(payload?.company_name ?? "").trim(),
-        website_url: String(payload?.website_url ?? "").trim(),
-        normalized_domain: String(payload?.normalized_domain ?? "").trim(),
-        xai_request_id: null,
-      };
-      let enrichedForCounts = [];
+      contextInfo.company_name = String(payload?.company_name ?? "").trim();
+      contextInfo.website_url = String(payload?.website_url ?? "").trim();
+      contextInfo.normalized_domain = String(payload?.normalized_domain ?? "").trim();
+      contextInfo.xai_request_id = null;
+      enrichedForCounts = [];
 
       const setStage = (nextStage, extra = {}) => {
         stage = String(nextStage || "unknown");
@@ -3154,6 +3164,9 @@ Return ONLY the JSON array, no other text.`,
           );
         } else {
           console.error(`[import-start] XAI error status: ${xaiResponse.status}`);
+          const upstreamRequestId = extractXaiRequestId(xaiResponse.headers || {});
+          const upstreamTextPreview = toTextPreview(xaiResponse.data);
+
           return respondError(new Error(`XAI returned ${xaiResponse.status}`), {
             status: 502,
             details: {
@@ -3162,6 +3175,10 @@ Return ONLY the JSON array, no other text.`,
                 xaiResponse.status === 404
                   ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
                   : `XAI returned ${xaiResponse.status}`,
+              upstream_status: xaiResponse.status,
+              upstream_url: xaiUrl,
+              upstream_text_preview: upstreamTextPreview,
+              ...(upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {}),
               xai_status: xaiResponse.status,
               xai_url: xaiUrl,
             },
@@ -3222,11 +3239,18 @@ Return ONLY the JSON array, no other text.`,
               ? "XAI endpoint rejected the request (unauthorized). Check XAI_EXTERNAL_KEY / authorization settings."
               : `XAI call failed: ${toErrorString(xaiError)}`;
 
+        const upstreamRequestId = extractXaiRequestId(xaiError?.response?.headers || {});
+        const upstreamTextPreview = toTextPreview(xaiError?.response?.data || xaiError?.response?.body || "");
+
         return respondError(new Error(`XAI call failed: ${toErrorString(xaiError)}`), {
           status: 502,
           details: {
             code: upstreamErrorCode,
             message: upstreamMessage,
+            upstream_status: upstreamStatus,
+            upstream_url: xaiUrl,
+            upstream_text_preview: upstreamTextPreview,
+            ...(upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {}),
             xai_code: xaiError?.code || null,
             xai_status: upstreamStatus,
             xai_url: xaiUrl,
@@ -3237,24 +3261,39 @@ Return ONLY the JSON array, no other text.`,
         return respondError(e, { status: 500 });
       }
     } catch (e) {
-      console.error("[import-start] Top-level error:", e?.message || e);
-      return json(
+      const safeMessage = "Unhandled error";
+      const lastStage = String(stage || "fatal") || "fatal";
+
+      console.error("[import-start] Unhandled error:", toErrorString(e));
+
+      return jsonWithRequestId(
         {
           ok: false,
-          stage: "fatal",
-          session_id: "",
+          stage: lastStage,
+          session_id: sessionId,
           request_id: requestId,
           error: {
-            code: "IMPORT_START_FATAL",
-            message: `Fatal error: ${e?.message || "Unknown error"}`,
+            code: "IMPORT_START_UNHANDLED",
+            message: safeMessage,
             request_id: requestId,
-            step: "fatal",
+            step: lastStage,
           },
-          legacy_error: `Fatal error: ${e?.message || "Unknown error"}`,
-          ...getBuildInfo(),
+          legacy_error: safeMessage,
+          ...buildInfo,
+          company_name: contextInfo.company_name,
+          website_url: contextInfo.website_url,
+          normalized_domain: contextInfo.normalized_domain,
+          xai_request_id: contextInfo.xai_request_id,
+          ...(isDebugDiagnosticsEnabled(req)
+            ? {
+                diagnostics: {
+                  ...buildBodyDiagnostics(req),
+                  unhandled_error: toErrorString(e),
+                },
+              }
+            : {}),
         },
-        500,
-        responseHeaders
+        500
       );
     }
   };
