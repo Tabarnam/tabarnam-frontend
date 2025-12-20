@@ -59,6 +59,28 @@ function getFunctionsBaseFromEnv() {
 export const FUNCTIONS_BASE = getFunctionsBaseFromEnv();
 export const API_BASE = computeApiBase(FUNCTIONS_BASE);
 
+export function toErrorString(err: unknown): string {
+  try {
+    const anyErr: any = err as any;
+    const message = anyErr?.message ?? anyErr?.error;
+    if (message != null) return String(message);
+
+    if (anyErr instanceof Error && anyErr.message) return String(anyErr.message);
+
+    if (err != null && typeof err === "object") {
+      try {
+        return String(JSON.stringify(err));
+      } catch {
+        return String(err);
+      }
+    }
+
+    return String(err ?? "");
+  } catch {
+    return "";
+  }
+}
+
 // Small helpers
 export function join(base: string, path: string) {
   if (!base.endsWith("/")) base += "/";

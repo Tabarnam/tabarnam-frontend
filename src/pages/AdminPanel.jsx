@@ -4,7 +4,7 @@ import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/lib/toast";
-import { API_BASE, apiFetch, getUserFacingConfigMessage, readJsonOrText } from "@/lib/api";
+import { API_BASE, apiFetch, getUserFacingConfigMessage, readJsonOrText, toErrorString } from "@/lib/api";
 import { getAdminUser } from "@/lib/azureAuth";
 
 function prettyJson(value) {
@@ -57,11 +57,11 @@ export default function AdminPanel() {
       setDiagnostic(body);
 
       if (!res.ok) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Diagnostic failed (${res.status})`;
+        const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Diagnostic failed (${res.status})`);
         toast.error(msg);
       }
     } catch (e) {
-      toast.error(e?.message || "Failed to load diagnostics");
+      toast.error(toErrorString(e) || "Failed to load diagnostics");
     } finally {
       setDiagnosticLoading(false);
     }
@@ -126,13 +126,13 @@ export default function AdminPanel() {
       const body = await readJsonOrText(res);
       setDebugBody(body);
       if (!res.ok) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Debug failed (${res.status})`;
+        const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Debug failed (${res.status})`);
         toast.error(msg);
       } else {
         toast.success("Debug endpoint OK");
       }
     } catch (e) {
-      toast.error(e?.message || "Debug failed");
+      toast.error(toErrorString(e) || "Debug failed");
     } finally {
       setDebugLoading(false);
     }
@@ -148,13 +148,13 @@ export default function AdminPanel() {
       setCompaniesTest({ status: res.status, ok: res.ok, body });
 
       if (!res.ok) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Companies API failed (${res.status})`;
+        const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Companies API failed (${res.status})`);
         toast.error(msg);
       } else {
         toast.success("Companies API OK");
       }
     } catch (e) {
-      const msg = e?.message || "Companies API failed";
+      const msg = toErrorString(e) || "Companies API failed";
       setCompaniesTest({ status: 0, ok: false, body: { error: msg } });
       toast.error(msg);
     } finally {
@@ -185,13 +185,13 @@ export default function AdminPanel() {
       setRecalcResult(body);
 
       if (!res.ok || body?.ok !== true) {
-        const msg = (await getUserFacingConfigMessage(res)) || body?.error || `Recalc failed (${res.status})`;
+        const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Recalc failed (${res.status})`);
         toast.error(msg);
       } else {
         toast.success("Review counts recalculated");
       }
     } catch (e) {
-      toast.error(e?.message || "Recalc failed");
+      toast.error(toErrorString(e) || "Recalc failed");
     } finally {
       setRecalcLoading(false);
     }
