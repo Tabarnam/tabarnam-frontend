@@ -1757,7 +1757,6 @@ const importStartHandler = async (req, context) => {
               `[import-start] request_id=${requestId} session=${sessionId} proxy_failed falling back to direct import: ${toErrorString(e)}`
             );
             if (debugOutput) debugOutput.proxy_failure = details;
-            return;
           }
 
           if (hardTimedOut || isTimeout) {
