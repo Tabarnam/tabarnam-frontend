@@ -343,7 +343,7 @@ export default function AdminImport() {
       setActiveStatus("done");
       toast.success(`Import finished (${finalCompanies.length} companies)`);
     } catch (e) {
-      const msg = e?.name === "AbortError" ? "Import aborted" : e?.message || "Import failed";
+      const msg = e?.name === "AbortError" ? "Import aborted" : toErrorString(e) || "Import failed";
       setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
       if (e?.name === "AbortError") {
         setActiveStatus("idle");
