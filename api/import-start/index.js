@@ -203,7 +203,7 @@ function getBodyLen(value) {
 }
 
 function isProbablyStreamBody(value) {
-  return (
+  return !!(
     value &&
     typeof value === "object" &&
     (typeof value.getReader === "function" ||
