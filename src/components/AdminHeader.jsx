@@ -3,7 +3,7 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { LogOut } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { API_BASE, FUNCTIONS_BASE, apiFetch, readJsonOrText } from "@/lib/api";
+import { API_BASE, FUNCTIONS_BASE, apiFetch, join, readJsonOrText } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import Logo from "@/assets/tabarnam.png";
 
@@ -18,31 +18,65 @@ function ApiStatusIndicator() {
   const [httpStatus, setHttpStatus] = useState(null);
   const [detail, setDetail] = useState("");
   const [lastCheckedAt, setLastCheckedAt] = useState(null);
+  const [probePath, setProbePath] = useState(null);
 
   const title = useMemo(() => {
     const baseLabel = FUNCTIONS_BASE ? FUNCTIONS_BASE : "(same-origin)";
-    const parts = [`Base: ${baseLabel}`, `Health: GET ${API_BASE}/health`];
+    const resolved = probePath ? join(API_BASE, probePath) : "";
+    const displayUrl = resolved
+      ? resolved.startsWith("/")
+        ? `${window.location.origin}${resolved}`
+        : resolved
+      : "";
+
+    const parts = [`Base: ${baseLabel}`, `API_BASE: ${API_BASE}`];
+    if (displayUrl) parts.push(`Probe: GET ${displayUrl}`);
     if (httpStatus != null) parts.push(`HTTP: ${httpStatus}`);
     if (detail) parts.push(detail);
     return parts.join("\n");
-  }, [detail, httpStatus]);
+  }, [detail, httpStatus, probePath]);
 
   const check = useCallback(async () => {
     setStatus("checking");
     setDetail("");
 
-    try {
-      const res = await apiFetch("/health", { method: "GET", headers: { accept: "application/json" } });
-      setHttpStatus(res.status);
-      const body = await readJsonOrText(res);
+    const candidates = ["/ping", "/health"];
 
-      if (res.ok && body && typeof body === "object" && body.ok === true) {
-        setStatus("ok");
-        setDetail(String(body.name || "health"));
-      } else {
+    try {
+      let lastBody = null;
+      let lastStatus = null;
+
+      for (const candidate of candidates) {
+        setProbePath(candidate);
+        const res = await apiFetch(candidate, { method: "GET", headers: { accept: "application/json" } });
+        lastStatus = res.status;
+        setHttpStatus(res.status);
+
+        const body = await readJsonOrText(res);
+        lastBody = body;
+
+        if (res.ok && body && typeof body === "object" && body.ok === true) {
+          setStatus("ok");
+          setDetail(String(body.name || candidate.replace("/", "")));
+          return;
+        }
+
+        // If the endpoint doesn't exist on this backend, try the fallback.
+        if (res.status === 404) continue;
+
         setStatus("error");
         setDetail(typeof body === "string" ? body : body?.error ? String(body.error) : "Unhealthy response");
+        return;
       }
+
+      setStatus("error");
+      setDetail(
+        typeof lastBody === "string"
+          ? lastBody
+          : lastBody?.error
+            ? String(lastBody.error)
+            : `Health probe not found (last HTTP: ${lastStatus ?? ""})`
+      );
     } catch (e) {
       setHttpStatus(null);
       setStatus("error");
