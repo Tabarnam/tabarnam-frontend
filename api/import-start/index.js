@@ -1261,7 +1261,7 @@ const importStartHandler = async (req, context) => {
           JSON.stringify({
             session_id: sessionId,
             query: normalizedQuery,
-            queryType: normalizedQueryType,
+            queryType: bodyObj.queryType,
             queryTypes: bodyObj.queryTypes,
             location: normalizedLocation,
             limit: normalizedLimit,
