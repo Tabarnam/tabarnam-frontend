@@ -84,10 +84,23 @@ function safeJsonParse(text) {
 }
 
 class InvalidJsonBodyError extends Error {
-  constructor(message = "Invalid JSON body") {
+  constructor(message = "Invalid JSON body", options) {
     super(message);
     this.name = "InvalidJsonBodyError";
     this.code = "INVALID_JSON_BODY";
+
+    const parseError = options?.parseError;
+    this.parse_error =
+      parseError && typeof parseError === "object"
+        ? String(parseError.message || parseError.name || "")
+        : parseError
+          ? String(parseError)
+          : null;
+
+    this.first_bytes_preview =
+      typeof options?.firstBytesPreview === "string" && options.firstBytesPreview.trim()
+        ? options.firstBytesPreview.trim()
+        : null;
   }
 }
 
@@ -147,6 +160,32 @@ function toTextPreview(value, maxChars = 500) {
   raw = sanitizeTextPreview(raw).trim();
   if (!raw) return "";
   return raw.length > maxChars ? raw.slice(0, maxChars) : raw;
+}
+
+function buildFirstBytesPreview(value, maxBytes = 50) {
+  try {
+    const buf = Buffer.isBuffer(value)
+      ? value
+      : value instanceof Uint8Array
+        ? Buffer.from(value)
+        : value instanceof ArrayBuffer
+          ? Buffer.from(new Uint8Array(value))
+          : typeof value === "string"
+            ? Buffer.from(value, "utf8")
+            : Buffer.from(String(value ?? ""), "utf8");
+
+    if (!buf.length) return "";
+
+    const slice = buf.subarray(0, Math.max(0, Math.min(maxBytes, buf.length)));
+    const hex = slice.toString("hex");
+    let ascii = slice.toString("utf8");
+    ascii = ascii.replace(/[^\x20-\x7E]/g, ".");
+    ascii = sanitizeTextPreview(ascii);
+
+    return `hex:${hex} ascii:${ascii}`;
+  } catch {
+    return "";
+  }
 }
 
 function readQueryParam(req, name) {
@@ -215,22 +254,87 @@ function isProbablyStreamBody(value) {
 
 function parseJsonFromStringOrBinary(value) {
   const text = typeof value === "string" ? value : binaryBodyToString(value);
-  const { ok, value: parsed } = parseJsonBodyStrict(text);
-  if (!ok) throw new InvalidJsonBodyError();
-  return parsed;
+  const result = parseJsonBodyStrict(text);
+  if (!result.ok) {
+    throw new InvalidJsonBodyError("Invalid JSON body", {
+      parseError: result.error,
+      firstBytesPreview: buildFirstBytesPreview(value),
+    });
+  }
+  return result.value;
 }
 
 function toBufferChunk(chunk) {
   if (chunk == null) return null;
   if (Buffer.isBuffer(chunk)) return chunk;
+
   if (chunk instanceof Uint8Array) return Buffer.from(chunk);
   if (chunk instanceof ArrayBuffer) return Buffer.from(new Uint8Array(chunk));
+  if (typeof ArrayBuffer !== "undefined" && typeof ArrayBuffer.isView === "function" && ArrayBuffer.isView(chunk)) {
+    try {
+      return Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+    } catch {
+      return Buffer.from(String(chunk), "utf8");
+    }
+  }
+
   if (typeof chunk === "string") return Buffer.from(chunk, "utf8");
+
+  if (Array.isArray(chunk)) {
+    try {
+      return Buffer.from(chunk);
+    } catch {
+      return Buffer.from(String(chunk), "utf8");
+    }
+  }
+
+  if (typeof chunk === "object") {
+    const maybe = chunk;
+    if (maybe && maybe.type === "Buffer" && Array.isArray(maybe.data)) {
+      try {
+        return Buffer.from(maybe.data);
+      } catch {}
+    }
+    if (maybe && Array.isArray(maybe.data)) {
+      try {
+        return Buffer.from(maybe.data);
+      } catch {}
+    }
+    if (maybe && maybe.buffer instanceof ArrayBuffer) {
+      try {
+        const view = new Uint8Array(maybe.buffer, maybe.byteOffset || 0, maybe.byteLength || undefined);
+        return Buffer.from(view);
+      } catch {}
+    }
+  }
+
   return Buffer.from(String(chunk), "utf8");
 }
 
 async function readStreamLikeToBuffer(streamLike) {
   if (!streamLike) return Buffer.alloc(0);
+
+  const hasWebStreamSignals =
+    typeof streamLike.getReader === "function" || typeof streamLike.pipeTo === "function" || typeof streamLike.tee === "function";
+
+  if (hasWebStreamSignals && typeof Response === "function") {
+    try {
+      if (typeof streamLike.tee === "function") {
+        const [a, b] = streamLike.tee();
+        try {
+          const ab = await new Response(a).arrayBuffer();
+          return Buffer.from(new Uint8Array(ab));
+        } catch (err) {
+          streamLike = b;
+        }
+      }
+
+      const ab = await new Response(streamLike).arrayBuffer();
+      return Buffer.from(new Uint8Array(ab));
+    } catch {
+      // Fall through.
+    }
+  }
 
   if (typeof streamLike.getReader === "function") {
     const reader = streamLike.getReader();
@@ -424,12 +528,12 @@ function isDebugDiagnosticsEnabled(req) {
   return v === "1" || v === "true" || v === "yes" || v === "on";
 }
 
-function buildBodyDiagnostics(req) {
+function buildBodyDiagnostics(req, extra) {
   const rawBody = req?.rawBody;
   const body = req?.body;
   const bufferBody = req?.bufferBody;
 
-  return {
+  const base = {
     body_sources: {
       rawBodyType: getBodyType(rawBody),
       rawBodyLen: getBodyLen(rawBody),
@@ -449,6 +553,9 @@ function buildBodyDiagnostics(req) {
       "x-ms-middleware-request-id": getHeader(req, "x-ms-middleware-request-id"),
     },
   };
+
+  if (extra && typeof extra === "object") return { ...base, ...extra };
+  return base;
 }
 
 function generateRequestId(req) {
@@ -1512,7 +1619,14 @@ const importStartHandler = async (req, context) => {
               normalized_domain: "",
               xai_request_id: null,
               details: { code: "INVALID_JSON_BODY", message: "Invalid JSON body" },
-              ...(isDebugDiagnosticsEnabled(req) ? { diagnostics: buildBodyDiagnostics(req) } : {}),
+              ...(isDebugDiagnosticsEnabled(req)
+                ? {
+                    diagnostics: buildBodyDiagnostics(req, {
+                      parse_error: err?.parse_error || null,
+                      first_bytes_preview: err?.first_bytes_preview || null,
+                    }),
+                  }
+                : {}),
             },
             400
           );
