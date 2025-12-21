@@ -766,6 +766,41 @@ function buildBodyDiagnostics(req, extra) {
   return base;
 }
 
+function buildRequestDetails(
+  req,
+  { body_source = "unknown", body_source_detail = "", raw_text_preview = null, raw_text_starts_with_brace = false } = {}
+) {
+  const contentType = getHeader(req, "content-type") || "";
+  const contentLengthHeader = getHeader(req, "content-length") || "";
+
+  const body = req?.body;
+  const isBodyNonNullObject = body !== null && typeof body === "object" && !Array.isArray(body);
+  const isBodyPlainObject = isBodyNonNullObject && !isBinaryBody(body) && !isProbablyStreamBody(body);
+  const bodyKeysLen = isBodyPlainObject ? getBodyLen(body) : 0;
+
+  const details = {
+    body_source: String(body_source || "unknown"),
+    ...(body_source_detail ? { body_source_detail: String(body_source_detail) } : {}),
+    content_type: contentType,
+    content_length_header: contentLengthHeader,
+    body_keys_preview: getBodyKeysPreview(body),
+    body_is_empty_object: Boolean(isBodyPlainObject && bodyKeysLen === 0),
+    raw_available: {
+      has_rawBody: req?.rawBody !== undefined && req?.rawBody !== null,
+      has_text_reader: typeof req?.text === "function",
+      has_arrayBuffer_reader: typeof req?.arrayBuffer === "function",
+    },
+    raw_text_starts_with_brace: Boolean(raw_text_starts_with_brace),
+  };
+
+  const rawPreview = typeof raw_text_preview === "string" ? raw_text_preview.trim() : "";
+  if (rawPreview) {
+    details.raw_text_preview = rawPreview.length > 200 ? rawPreview.slice(0, 200) : rawPreview;
+  }
+
+  return details;
+}
+
 function generateRequestId(req) {
   const existing =
     getHeader(req, "x-request-id") ||
