@@ -148,6 +148,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: import-backend-ping");
+  require("./import-backend-ping/index.js");
+} catch (e) {
+  console.error("[api] Failed to load import-backend-ping:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: import-status");
   require("./import-status/index.js");
 } catch (e) {
