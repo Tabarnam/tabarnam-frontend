@@ -2325,7 +2325,62 @@ const importStartHandlerInner = async (req, context) => {
           );
         }
 
-        const meta = detailsObj && typeof detailsObj.meta === "object" && detailsObj.meta ? detailsObj.meta : null;
+        const normalizeArray = (v) => (Array.isArray(v) ? v : []);
+        const metaFromDetails =
+          detailsObj && typeof detailsObj.meta === "object" && detailsObj.meta ? detailsObj.meta : null;
+
+        const currentQueryTypes = normalizeArray(bodyObj?.queryTypes)
+          .map((t) => String(t || "").trim())
+          .filter(Boolean);
+
+        const metaStage = (() => {
+          const explicit = String(metaFromDetails?.stage || "").trim();
+          if (explicit) return explicit;
+          if (stage === "validate_request") return "validate_request";
+          if (stage === "build_prompt" || stage === "build_messages") return "build_prompt";
+          if (stage === "searchCompanies" || stage === "worker_call") return "xai_call";
+          return "unknown";
+        })();
+
+        const meta = {
+          ...(metaFromDetails && typeof metaFromDetails === "object" ? metaFromDetails : {}),
+          handler_version: metaFromDetails?.handler_version || handlerVersion,
+          stage: metaStage,
+          query_len: Number.isFinite(Number(metaFromDetails?.query_len)) ? Number(metaFromDetails.query_len) : normalizedQuery.length,
+          queryTypes: normalizeArray(metaFromDetails?.queryTypes).length ? normalizeArray(metaFromDetails.queryTypes) : currentQueryTypes,
+          prompt_len: Number.isFinite(Number(metaFromDetails?.prompt_len)) ? Number(metaFromDetails.prompt_len) : 0,
+          messages_len: Number.isFinite(Number(metaFromDetails?.messages_len)) ? Number(metaFromDetails.messages_len) : 0,
+          has_system_message:
+            typeof metaFromDetails?.has_system_message === "boolean"
+              ? metaFromDetails.has_system_message
+              : typeof metaFromDetails?.has_system_content === "boolean"
+                ? metaFromDetails.has_system_content
+                : false,
+          has_user_message:
+            typeof metaFromDetails?.has_user_message === "boolean"
+              ? metaFromDetails.has_user_message
+              : typeof metaFromDetails?.has_user_content === "boolean"
+                ? metaFromDetails.has_user_content
+                : false,
+          user_message_len: Number.isFinite(Number(metaFromDetails?.user_message_len))
+            ? Number(metaFromDetails.user_message_len)
+            : Number.isFinite(Number(metaFromDetails?.prompt_len))
+              ? Number(metaFromDetails.prompt_len)
+              : 0,
+          elapsedMs: Date.now() - startTime,
+          upstream_status:
+            metaFromDetails?.upstream_status ??
+            metaFromDetails?.xai_status ??
+            detailsObj?.upstream_status ??
+            detailsObj?.xai_status ??
+            null,
+          upstream_error_class:
+            metaFromDetails?.upstream_error_class ??
+            metaFromDetails?.error_class ??
+            detailsObj?.upstream_error_class ??
+            detailsObj?.error_class ??
+            null,
+        };
 
         const errorPayload = {
           ok: false,
@@ -2334,7 +2389,7 @@ const importStartHandlerInner = async (req, context) => {
           request_id: requestId,
           env_present,
           upstream: upstream || {},
-          ...(meta ? { meta } : {}),
+          meta,
           error: errorObj,
           legacy_error: message,
           ...buildInfo,
@@ -2958,10 +3013,16 @@ const importStartHandlerInner = async (req, context) => {
         setStage("build_prompt", { queryTypes });
 
         xaiCallMeta = {
+          handler_version: handlerVersion,
+          stage: "build_prompt",
           queryTypes,
           query_len: query.length,
           prompt_len: 0,
           messages_len: 0,
+          has_system_message: false,
+          has_user_message: false,
+          user_message_len: 0,
+          // Back-compat
           has_system_content: false,
           has_user_content: false,
         };
@@ -3223,6 +3284,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
         xaiCallMeta.messages_len = messages.length;
         xaiCallMeta.has_system_content = Boolean(String(messages?.[0]?.content || "").trim());
         xaiCallMeta.has_user_content = Boolean(String(messages?.[1]?.content || "").trim());
+        xaiCallMeta.has_system_message = xaiCallMeta.has_system_content;
+        xaiCallMeta.has_user_message = xaiCallMeta.has_user_content;
+        xaiCallMeta.user_message_len = String(messages?.[1]?.content || "").length;
 
         if (!xaiCallMeta.has_system_content || !xaiCallMeta.has_user_content) {
           setStage("build_messages", { error: "Messages cannot be empty" });
@@ -3258,9 +3322,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
           console.log(`[import-start] session=${sessionId} xai request payload = ${JSON.stringify(xaiPayload)}`);
           console.log(`[import-start] Calling XAI API at: ${toHostPathOnlyForLog(xaiUrl)}`);
+          xaiCallMeta.stage = "xai_call";
+          const elapsedMs = Date.now() - startTime;
           console.log(
             "[import-start] xai_call_meta=",
-            JSON.stringify({ request_id: requestId, session_id: sessionId, ...xaiCallMeta })
+            JSON.stringify({ request_id: requestId, session_id: sessionId, elapsedMs, ...xaiCallMeta })
           );
           const xaiResponse = await axios.post(xaiUrl, xaiRequestPayload, {
           headers: {
@@ -3979,6 +4045,11 @@ Return ONLY the JSON array, no other text.`,
               ? upstreamStatus
               : 502;
 
+          if (xaiCallMeta && typeof xaiCallMeta === "object") {
+            xaiCallMeta.stage = "xai_error";
+            xaiCallMeta.upstream_status = upstreamStatus;
+          }
+
           return respondError(new Error(`XAI returned ${upstreamStatus}`), {
             status: mappedStatus,
             details: {
@@ -4056,6 +4127,11 @@ Return ONLY the JSON array, no other text.`,
         }
 
         const upstreamStatus = xaiError?.response?.status || null;
+        if (xaiCallMeta && typeof xaiCallMeta === "object") {
+          xaiCallMeta.stage = "xai_error";
+          xaiCallMeta.upstream_status = upstreamStatus;
+          xaiCallMeta.elapsedMs = elapsed;
+        }
         const isTimeout =
           isOutOfTime() ||
           xaiError?.code === "ECONNABORTED" ||
