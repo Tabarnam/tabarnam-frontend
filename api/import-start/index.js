@@ -1904,12 +1904,21 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
 // Max time to spend processing (4 minutes, safe from Azure's 5 minute timeout)
 const MAX_PROCESSING_TIME_MS = 4 * 60 * 1000;
 
-const importStartHandler = async (req, context) => {
+const importStartHandlerInner = async (req, context) => {
     const requestId = generateRequestId(req);
     const responseHeaders = { "x-request-id": requestId };
-    const jsonWithRequestId = (obj, status = 200) => json(obj, status, responseHeaders);
 
     const buildInfo = getBuildInfo();
+    const handlerVersion = `import-start ${String(buildInfo?.build_id || "unknown")}`;
+
+    const jsonWithRequestId = (obj, status = 200) => {
+      const payload =
+        obj && typeof obj === "object" && !Array.isArray(obj)
+          ? { handler_version: handlerVersion, ...obj }
+          : { handler_version: handlerVersion, value: obj };
+      return json(payload, status, responseHeaders);
+    };
+
     const diagnosticsEnabled = isDebugDiagnosticsEnabled(req);
     const stageTrace = [{ stage: "init", ts: new Date().toISOString() }];
     const contextInfo = {
@@ -2516,7 +2525,7 @@ const importStartHandler = async (req, context) => {
         const key = getXAIKey();
 
         const base = proxyBase.replace(/\/$/, "");
-        const candidatePaths = ["/import/start", "/import-start"]; // support both route styles
+        const candidatePaths = ["/import/start", "/import-start", "/api/import/start", "/api/import-start"]; // support both /api root and host-only proxy bases
 
         let resp = null;
         let usedPath = candidatePaths[0];
@@ -3935,6 +3944,71 @@ Return ONLY the JSON array, no other text.`,
       );
     }
   };
+
+const importStartHandler = async (req, context) => {
+  try {
+    return await importStartHandlerInner(req, context);
+  } catch (e) {
+    let requestId = "";
+    try {
+      requestId = generateRequestId(req);
+    } catch {
+      requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    }
+
+    const responseHeaders = { "x-request-id": requestId };
+
+    const buildInfoSafe = (() => {
+      try {
+        return getBuildInfo();
+      } catch {
+        return { build_id: "unknown", build_id_source: "error", runtime: {} };
+      }
+    })();
+
+    const handlerVersion = `import-start ${String(buildInfoSafe?.build_id || "unknown")}`;
+
+    const env_present = (() => {
+      try {
+        return {
+          has_xai_key: Boolean(getXAIKey()),
+          has_xai_base_url: Boolean(getXAIEndpoint()),
+          has_import_start_proxy_base: Boolean(getImportStartProxyInfo().base),
+        };
+      } catch {
+        return {
+          has_xai_key: Boolean(getXAIKey()),
+          has_xai_base_url: Boolean(getXAIEndpoint()),
+          has_import_start_proxy_base: false,
+        };
+      }
+    })();
+
+    console.error("[import-start] Top-level handler error:", toErrorString(e));
+
+    return json(
+      {
+        ok: false,
+        stage: "fatal",
+        session_id: `sess_fatal_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        request_id: requestId,
+        handler_version: handlerVersion,
+        env_present,
+        error: {
+          code: "IMPORT_START_TOP_LEVEL",
+          message: "Import start failed before handler could respond",
+          request_id: requestId,
+          step: "fatal",
+        },
+        legacy_error: "Import start failed",
+        details: { top_level_error: toErrorString(e) },
+        ...buildInfoSafe,
+      },
+      500,
+      responseHeaders
+    );
+  }
+};
 
 app.http("import-start", {
   route: "import/start",
