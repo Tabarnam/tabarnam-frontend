@@ -39,11 +39,14 @@ app.http("diag", {
     }
 
     const buildInfo = getBuildInfo();
+    const handler_versions = getHandlerVersions(buildInfo);
+
     return json({
       ok: true,
       name: "diag",
       ts: new Date().toISOString(),
-      handler_versions: getHandlerVersions(buildInfo),
+      handler_version: handler_versions.import_start,
+      handler_versions,
       ...buildInfo,
     });
   },
