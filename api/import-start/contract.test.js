@@ -126,6 +126,7 @@ test("/api/import/start returns INVALID_JSON_BODY for malformed JSON", async () 
     assert.equal(res.status, 400);
     assert.equal(body?.error?.code, "INVALID_JSON_BODY");
     assert.equal(body.stage, "validate_request");
+    assert.equal(body?.details?.body_source, "req.text");
   });
 });
 
@@ -145,6 +146,7 @@ test("/api/import/start includes parse diagnostics for INVALID_JSON_BODY when x-
 
     assert.equal(res.status, 400);
     assert.equal(body?.error?.code, "INVALID_JSON_BODY");
+    assert.equal(body?.details?.body_source, "req.text");
     assert.ok(body?.diagnostics?.parse_error);
     assert.ok(body?.diagnostics?.first_bytes_preview);
   });
@@ -269,6 +271,7 @@ test("/api/import/start includes diagnostics on 400 when x-debug header is prese
 
     assert.equal(res.status, 400);
     assert.equal(body?.error?.code, "IMPORT_START_VALIDATION_FAILED");
+    assert.equal(body?.details?.body_source, "req.body");
     assert.ok(body?.diagnostics?.body_sources);
     assert.ok(body?.diagnostics?.headers_subset);
     assert.equal(body.diagnostics.headers_subset["content-type"], "application/json");
