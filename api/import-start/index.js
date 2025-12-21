@@ -3787,6 +3787,14 @@ Return ONLY the JSON array, no other text.`,
           stage: lastStage,
           session_id: sessionId,
           request_id: requestId,
+          details:
+            requestDetails ||
+            buildRequestDetails(req, {
+              body_source,
+              body_source_detail,
+              raw_text_preview,
+              raw_text_starts_with_brace,
+            }),
           error: {
             code: "IMPORT_START_UNHANDLED",
             message: safeMessage,
