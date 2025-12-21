@@ -138,6 +138,21 @@ function getImportStartProxyInfo() {
   return { base: "", source: "" };
 }
 
+function getImportStartProxyKeyInfo() {
+  const candidates = [
+    { key: "IMPORT_START_PROXY_KEY", value: process.env.IMPORT_START_PROXY_KEY },
+    { key: "XAI_IMPORT_PROXY_KEY", value: process.env.XAI_IMPORT_PROXY_KEY },
+  ];
+
+  for (const c of candidates) {
+    const v = String(c.value || "").trim();
+    if (!v) continue;
+    return { key: v, source: c.key };
+  }
+
+  return { key: "", source: "" };
+}
+
 function classifyAxiosUpstreamError(err) {
   const status = err?.response?.status;
   if (Number.isFinite(Number(status))) return "http_error";
@@ -157,6 +172,7 @@ function buildEnvPresent() {
     has_xai_key: Boolean(getXAIKey()),
     has_xai_base_url: Boolean(getXAIEndpoint()),
     has_import_start_proxy_base: Boolean(getImportStartProxyInfo().base),
+    has_import_start_proxy_key: Boolean(getImportStartProxyKeyInfo().key),
   };
 }
 
@@ -200,6 +216,8 @@ app.http("import-backend-ping", {
     const proxyInfo = getImportStartProxyInfo();
     const proxyBase = proxyInfo.base;
     const proxySource = proxyInfo.source;
+    const proxyKeyInfo = getImportStartProxyKeyInfo();
+    const proxyKey = proxyKeyInfo.key;
     const proxy_resolution = buildProxyResolutionDetails(req, proxyBase, proxySource);
 
     const details = {
@@ -207,6 +225,7 @@ app.http("import-backend-ping", {
       content_type: getHeader(req, "content-type") || null,
       content_length_header: getHeader(req, "content-length") || null,
       proxy_resolution,
+      proxy_key_source: proxyKeyInfo.source || null,
     };
 
     if (!proxyBase) {
@@ -253,6 +272,7 @@ app.http("import-backend-ping", {
             "x-request-id": request_id,
             "x-correlation-id": request_id,
             "x-session-id": session_id,
+            ...(proxyKey ? { "x-functions-key": proxyKey } : {}),
           },
           timeout: upstream_timeout_ms,
           validateStatus: () => true,
@@ -271,6 +291,8 @@ app.http("import-backend-ping", {
               upstream_status,
               upstream_body_preview,
               resolved_host_path,
+              proxy_resolution,
+              proxy_key_source: proxyKeyInfo.source || null,
               ...getBuildInfo(),
             },
             200,

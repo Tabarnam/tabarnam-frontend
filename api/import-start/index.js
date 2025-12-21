@@ -972,6 +972,21 @@ function getImportStartProxyInfo() {
   return { base: "", source: "" };
 }
 
+function getImportStartProxyKeyInfo() {
+  const candidates = [
+    { key: "IMPORT_START_PROXY_KEY", value: process.env.IMPORT_START_PROXY_KEY },
+    { key: "XAI_IMPORT_PROXY_KEY", value: process.env.XAI_IMPORT_PROXY_KEY },
+  ];
+
+  for (const c of candidates) {
+    const v = String(c.value || "").trim();
+    if (!v) continue;
+    return { key: v, source: c.key };
+  }
+
+  return { key: "", source: "" };
+}
+
 function isProxyExplicitlyDisabled(value) {
   if (value === false) return true;
   if (value === 0) return true;
@@ -2522,7 +2537,12 @@ const importStartHandlerInner = async (req, context) => {
           controller.abort();
         }, hardTimeoutMs);
 
-        const key = getXAIKey();
+        const proxyKeyInfo = getImportStartProxyKeyInfo();
+        const proxyKey = proxyKeyInfo.key;
+
+        if (proxyKeyInfo.source) {
+          setStage("worker_call", { proxy_key_source: proxyKeyInfo.source });
+        }
 
         const base = proxyBase.replace(/\/$/, "");
         const candidatePaths = ["/import/start", "/import-start", "/api/import/start", "/api/import-start"]; // support both /api root and host-only proxy bases
@@ -2546,12 +2566,7 @@ const importStartHandlerInner = async (req, context) => {
                 "x-request-id": requestId,
                 "x-correlation-id": requestId,
                 "x-session-id": sessionId,
-                ...(key
-                  ? {
-                      Authorization: `Bearer ${key}`,
-                      "x-functions-key": key,
-                    }
-                  : {}),
+                ...(proxyKey ? { "x-functions-key": proxyKey } : {}),
               },
               timeout: upstreamTimeoutMs,
               signal: controller.signal,
