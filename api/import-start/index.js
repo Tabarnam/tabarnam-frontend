@@ -2952,8 +2952,19 @@ const importStartHandlerInner = async (req, context) => {
           );
         }
 
+        let xaiCallMeta = null;
+
         // Build XAI request messages (never allow empty messages)
         setStage("build_prompt", { queryTypes });
+
+        xaiCallMeta = {
+          queryTypes,
+          query_len: query.length,
+          prompt_len: 0,
+          messages_len: 0,
+          has_system_content: false,
+          has_user_content: false,
+        };
 
         if (!query) {
           return jsonWithRequestId(
