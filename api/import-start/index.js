@@ -310,7 +310,7 @@ function parseJsonFromStringOrBinary(value, meta) {
   const text = typeof value === "string" ? value : binaryBodyToString(value);
   const result = parseJsonBodyStrict(text);
   if (!result.ok) {
-    const rawTextPreview = toTextPreview(text, 500);
+    const rawTextPreview = toTextPreview(text, 200);
     const rawTextHexPreview = buildHexPreview(value || text, 80);
 
     throw new InvalidJsonBodyError("Invalid JSON body", {
@@ -522,7 +522,12 @@ async function readJsonBody(req) {
     console.log("[import-start] body_sources");
   }
 
-  if (prefersBodyObject && body !== null && typeof body === "object" && !Array.isArray(body)) {
+  const bodyIsNonNullObject = body !== null && typeof body === "object" && !Array.isArray(body);
+  const bodyIsPlainObject = bodyIsNonNullObject && !isBinaryBody(body) && !isProbablyStreamBody(body);
+  const bodyKeysLen = bodyIsPlainObject ? getBodyLen(body) : 0;
+  const bodyIsEmptyObject = bodyIsPlainObject && bodyKeysLen === 0;
+
+  if (prefersBodyObject && bodyIsPlainObject && bodyKeysLen > 0) {
     const keysPreview = getBodyKeysPreview(body);
     try {
       console.log(
@@ -536,7 +541,7 @@ async function readJsonBody(req) {
     return { body, body_source: "req.body", body_source_detail: "req.body" };
   }
 
-  if (body && typeof body === "object" && !Array.isArray(body) && !isBinaryBody(body) && !isProbablyStreamBody(body)) {
+  if (bodyIsPlainObject && bodyKeysLen > 0) {
     const keysPreview = getBodyKeysPreview(body);
     try {
       console.log(
@@ -550,18 +555,70 @@ async function readJsonBody(req) {
     return { body, body_source: "req.body", body_source_detail: "req.body" };
   }
 
+  // Prefer explicit raw body fields (common in Azure Functions).
+  if (getBodyLen(rawBody) > 0) {
+    try {
+      if (typeof rawBody === "string" || isBinaryBody(rawBody)) {
+        const meta = {
+          body_source: "req.rawBody",
+          body_source_detail: typeof rawBody === "string" ? "req.rawBody:text" : "req.rawBody:binary",
+        };
+
+        const rawText = binaryBodyToString(rawBody);
+        return {
+          body: parseJsonFromStringOrBinary(rawBody, meta),
+          raw_text_preview: toTextPreview(rawText, 200) || null,
+          raw_text_starts_with_brace: /^\s*\{/.test(rawText),
+          ...meta,
+        };
+      }
+
+      if (isProbablyStreamBody(rawBody)) {
+        const meta = { body_source: "req.rawBody", body_source_detail: "req.rawBody:stream" };
+        const buf = await readStreamLikeToBuffer(rawBody);
+        const rawText = buf && buf.length ? buf.toString("utf8") : "";
+        return {
+          body: buf && buf.length ? parseJsonFromStringOrBinary(buf, meta) : {},
+          raw_text_preview: toTextPreview(rawText, 200) || null,
+          raw_text_starts_with_brace: /^\s*\{/.test(rawText),
+          ...meta,
+        };
+      }
+    } catch (err) {
+      throw decorateInvalidJsonError(err, { body_source: "req.rawBody", body_source_detail: "req.rawBody" });
+    }
+  }
+
   // Prefer the platform's raw text reader when available (closest to bytes-on-the-wire).
   if (typeof req.text === "function") {
     const meta = { body_source: "req.text", body_source_detail: "req.text" };
     try {
       const rawVal = await req.text();
       if (rawVal && typeof rawVal === "object" && !Array.isArray(rawVal)) {
-        return { body: rawVal, body_source: "req.text", body_source_detail: "req.text:object" };
+        const rawText = (() => {
+          try {
+            return JSON.stringify(rawVal);
+          } catch {
+            return "";
+          }
+        })();
+        return {
+          body: rawVal,
+          raw_text_preview: toTextPreview(rawText, 200) || null,
+          raw_text_starts_with_brace: /^\s*\{/.test(rawText),
+          body_source: "req.text",
+          body_source_detail: "req.text:object",
+        };
       }
 
       const rawText = typeof rawVal === "string" ? rawVal : "";
       if (rawText && rawText.trim()) {
-        return { body: parseJsonFromStringOrBinary(rawText, meta), ...meta };
+        return {
+          body: parseJsonFromStringOrBinary(rawText, meta),
+          raw_text_preview: toTextPreview(rawText, 200) || null,
+          raw_text_starts_with_brace: /^\s*\{/.test(rawText),
+          ...meta,
+        };
       }
     } catch (err) {
       if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err, meta);
@@ -573,29 +630,18 @@ async function readJsonBody(req) {
     const meta = { body_source: "req.arrayBuffer", body_source_detail: "req.arrayBuffer" };
     try {
       const ab = await req.arrayBuffer();
-      if (ab) return { body: parseJsonFromStringOrBinary(ab, meta), ...meta };
+      if (ab) {
+        const rawText = binaryBodyToString(ab);
+        return {
+          body: parseJsonFromStringOrBinary(ab, meta),
+          raw_text_preview: toTextPreview(rawText, 200) || null,
+          raw_text_starts_with_brace: /^\s*\{/.test(rawText),
+          ...meta,
+        };
+      }
     } catch (err) {
       if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err, meta);
       // Otherwise, fall through.
-    }
-  }
-
-  // Next prefer explicit raw body fields.
-  if (getBodyLen(rawBody) > 0) {
-    try {
-      if (typeof rawBody === "string" || isBinaryBody(rawBody)) {
-        const meta = {
-          body_source: typeof rawBody === "string" ? "req.text" : "req.arrayBuffer",
-          body_source_detail: "req.rawBody",
-        };
-        return { body: parseJsonFromStringOrBinary(rawBody, meta), ...meta };
-      }
-      if (isProbablyStreamBody(rawBody)) {
-        const meta = { body_source: "unknown", body_source_detail: "req.rawBody:stream" };
-        return { body: await parseJsonFromStreamLike(rawBody, meta), ...meta };
-      }
-    } catch (err) {
-      throw decorateInvalidJsonError(err, { body_source: "unknown", body_source_detail: "req.rawBody" });
     }
   }
 
