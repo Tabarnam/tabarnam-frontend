@@ -1,69 +1,30 @@
-name: Deploy tabarnam-xai-dedicated (Function App)
+name: Deploy tabarnam-xai-dedicated
 
 on:
-  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [ main ]
     paths:
       - "api/**"
-
-permissions:
-  id-token: write
-  contents: read
-
-env:
-  RG: tabarnam-mvp-rg
-  APP: tabarnam-xai-dedicated
-  DEDICATED_PACKAGE_DIR: api
+      - ".github/workflows/deploy-tabarnam-xai-dedicated.yml"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Azure login (OIDC)
-        uses: azure/login@v2
+      - name: Deploy Function App (Publish Profile)
+        uses: Azure/functions-action@v1
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          app-name: tabarnam-xai-dedicated
+          package: api
+          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
 
-      - name: Validate package root
-        shell: bash
+      - name: Verify deployment via /api/diag
         run: |
-          set -euo pipefail
-          test -f "${DEDICATED_PACKAGE_DIR}/host.json"
-          echo "Found host.json in ${DEDICATED_PACKAGE_DIR}"
-          ls -la "${DEDICATED_PACKAGE_DIR}"
-
-      - name: Create deploy zip
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "${DEDICATED_PACKAGE_DIR}"
-          zip -r "../dedicated.zip" .
-
-      - name: Deploy zip to Function App (wwwroot)
-        shell: bash
-        run: |
-          set -euo pipefail
-          az functionapp deployment source config-zip \
-            -g "${RG}" \
-            -n "${APP}" \
-            --src dedicated.zip
-
-      - name: Restart Function App
-        shell: bash
-        run: |
-          set -euo pipefail
-          az functionapp restart -g "${RG}" -n "${APP}"
-
-      - name: Verify handler_version present
-        if: ${{ secrets.DEDICATED_BASE_URL != '' && secrets.DEDICATED_FUNCTION_KEY != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -sS "${{ secrets.DEDICATED_BASE_URL }}/api/diag?code=${{ secrets.DEDICATED_FUNCTION_KEY }}" | tee diag.json
-          cat diag.json | grep -q "handler_version"
+          curl -sS "https://tabarnam-xai-dedicated-awe3h9bvcxckeja9.westus2-01.azurewebsites.net/api/diag?code=${{ secrets.DEDICATED_FUNCTION_KEY }}" | tee diag.json
+          cat diag.json
+          grep -q "handler_version" diag.json
+          grep -q "handler_versions" diag.json
