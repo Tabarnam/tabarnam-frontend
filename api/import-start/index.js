@@ -31,6 +31,7 @@ const {
   checkUrlHealthAndFetchText,
 } = require("../_reviewQuality");
 const { getBuildInfo } = require("../_buildInfo");
+const { getImportStartHandlerVersion } = require("../_handlerVersions");
 
 const DEFAULT_HARD_TIMEOUT_MS = 25_000;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000;
@@ -1924,7 +1925,7 @@ const importStartHandlerInner = async (req, context) => {
     const responseHeaders = { "x-request-id": requestId };
 
     const buildInfo = getBuildInfo();
-    const handlerVersion = `import-start ${String(buildInfo?.build_id || "unknown")}`;
+    const handlerVersion = getImportStartHandlerVersion(buildInfo);
 
     const jsonWithRequestId = (obj, status = 200) => {
       const payload =
@@ -4084,7 +4085,7 @@ const importStartHandler = async (req, context) => {
       }
     })();
 
-    const handlerVersion = `import-start ${String(buildInfoSafe?.build_id || "unknown")}`;
+    const handlerVersion = getImportStartHandlerVersion(buildInfoSafe);
 
     const env_present = (() => {
       try {
