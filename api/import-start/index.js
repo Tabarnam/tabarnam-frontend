@@ -3974,7 +3974,10 @@ Return ONLY the JSON array, no other text.`,
           );
 
           const upstreamStatus = xaiResponse.status;
-          const mappedStatus = upstreamStatus === 400 ? 400 : 502;
+          const mappedStatus =
+            upstreamStatus === 400 || upstreamStatus === 401 || upstreamStatus === 403 || upstreamStatus === 429
+              ? upstreamStatus
+              : 502;
 
           return respondError(new Error(`XAI returned ${upstreamStatus}`), {
             status: mappedStatus,
