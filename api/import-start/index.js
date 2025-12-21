@@ -3258,6 +3258,10 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
           console.log(`[import-start] session=${sessionId} xai request payload = ${JSON.stringify(xaiPayload)}`);
           console.log(`[import-start] Calling XAI API at: ${toHostPathOnlyForLog(xaiUrl)}`);
+          console.log(
+            "[import-start] xai_call_meta=",
+            JSON.stringify({ request_id: requestId, session_id: sessionId, ...xaiCallMeta })
+          );
           const xaiResponse = await axios.post(xaiUrl, xaiRequestPayload, {
           headers: {
             "Content-Type": "application/json",
