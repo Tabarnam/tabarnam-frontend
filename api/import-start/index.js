@@ -4008,6 +4008,7 @@ Return ONLY the JSON array, no other text.`,
               ...(upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {}),
               xai_status: upstreamStatus,
               xai_url: xaiUrlForLog,
+              meta: xaiCallMeta,
             },
           });
         }
