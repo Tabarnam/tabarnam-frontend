@@ -3220,17 +3220,23 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           { role: "user", content: promptString },
         ];
 
-        if (!String(messages?.[0]?.content || "").trim() || !String(messages?.[1]?.content || "").trim()) {
-          setStage("build_messages", { error: "Messages cannot be empty" });
-          return jsonWithRequestId(
-            { ok: false, stage, session_id: sessionId, request_id: requestId, error: "Messages cannot be empty" },
-            400
-          );
-        }
+        xaiCallMeta.messages_len = messages.length;
+        xaiCallMeta.has_system_content = Boolean(String(messages?.[0]?.content || "").trim());
+        xaiCallMeta.has_user_content = Boolean(String(messages?.[1]?.content || "").trim());
 
-        console.log("[import-start] queryTypes=", queryTypes);
-        console.log("[import-start] prompt_len=", promptString.length);
-        console.log("[import-start] messages_len=", messages.length);
+        if (!xaiCallMeta.has_system_content || !xaiCallMeta.has_user_content) {
+          setStage("build_messages", { error: "Messages cannot be empty" });
+          return respondError(new Error("Messages cannot be empty"), {
+            status: 400,
+            details: {
+              code: "IMPORT_START_BUILD_MESSAGES_FAILED",
+              message: "Messages cannot be empty",
+              queryTypes,
+              prompt_len: xaiCallMeta.prompt_len,
+              meta: xaiCallMeta,
+            },
+          });
+        }
 
         if (debugOutput) {
           debugOutput.xai.prompt = promptString;
