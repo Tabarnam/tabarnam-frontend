@@ -2104,12 +2104,8 @@ const importStartHandlerInner = async (req, context) => {
       const normalizedLocation = String(bodyObj.location || "").trim();
       const normalizedLimit = Math.max(1, Math.min(25, Math.trunc(Number(bodyObj.limit) || 1)));
 
-      const queryTypesRaw =
-        Array.isArray(rawQueryTypes)
-          ? rawQueryTypes
-          : typeof rawQueryTypes === "string"
-            ? [rawQueryTypes]
-            : [];
+      const queryTypesProvided = rawQueryTypes !== undefined && rawQueryTypes !== null;
+      const queryTypesRaw = Array.isArray(rawQueryTypes) ? rawQueryTypes : [];
 
       const queryTypes = queryTypesRaw
         .map((t) => String(t || "").trim())
