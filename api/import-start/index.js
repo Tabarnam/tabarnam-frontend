@@ -1905,11 +1905,23 @@ const importStartHandler = async (req, context) => {
       let payload;
       let body_source = "unknown";
       let body_source_detail = "";
+      let raw_text_preview = null;
+      let raw_text_starts_with_brace = false;
+      let requestDetails = null;
+
       try {
         const parsed = await readJsonBody(req);
         payload = parsed.body;
         body_source = parsed.body_source || "unknown";
         body_source_detail = parsed.body_source_detail || "";
+        raw_text_preview = typeof parsed?.raw_text_preview === "string" ? parsed.raw_text_preview : null;
+        raw_text_starts_with_brace = Boolean(parsed?.raw_text_starts_with_brace);
+        requestDetails = buildRequestDetails(req, {
+          body_source,
+          body_source_detail,
+          raw_text_preview,
+          raw_text_starts_with_brace,
+        });
       } catch (err) {
         if (err?.code === "INVALID_JSON_BODY") {
           const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
