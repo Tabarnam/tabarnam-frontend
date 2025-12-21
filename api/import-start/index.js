@@ -2325,6 +2325,8 @@ const importStartHandlerInner = async (req, context) => {
           );
         }
 
+        const meta = detailsObj && typeof detailsObj.meta === "object" && detailsObj.meta ? detailsObj.meta : null;
+
         const errorPayload = {
           ok: false,
           stage,
@@ -2332,6 +2334,7 @@ const importStartHandlerInner = async (req, context) => {
           request_id: requestId,
           env_present,
           upstream: upstream || {},
+          ...(meta ? { meta } : {}),
           error: errorObj,
           legacy_error: message,
           ...buildInfo,
