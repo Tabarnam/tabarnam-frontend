@@ -2361,6 +2361,31 @@ const importStartHandlerInner = async (req, context) => {
         return jsonWithRequestId(errorPayload, status);
       };
 
+      if (queryTypesProvided && !Array.isArray(rawQueryTypes)) {
+        setStage("build_prompt", { error: "QUERYTYPES_NOT_ARRAY" });
+
+        const normalizedQueryTypes = Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [];
+        const meta = {
+          queryTypes: normalizedQueryTypes,
+          query_len: normalizedQuery.length,
+          prompt_len: 0,
+          messages_len: 0,
+          has_system_content: false,
+          has_user_content: false,
+        };
+
+        return respondError(new Error("queryTypes must be an array"), {
+          status: 400,
+          details: {
+            code: "QUERYTYPES_NOT_ARRAY",
+            message: "queryTypes must be an array of strings",
+            queryTypes: normalizedQueryTypes,
+            prompt_len: meta.prompt_len,
+            meta,
+          },
+        });
+      }
+
       if (ambiguousQueryTypeFields) {
         setStage("validate_request", { error: "AMBIGUOUS_QUERY_TYPE_FIELDS" });
         return respondError(new Error("Ambiguous query type fields"), {
