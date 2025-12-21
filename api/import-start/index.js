@@ -2139,7 +2139,17 @@ const importStartHandler = async (req, context) => {
       };
 
       const respondError = async (err, { status = 500, details = {} } = {}) => {
+        const baseDetails =
+          requestDetails ||
+          buildRequestDetails(req, {
+            body_source,
+            body_source_detail,
+            raw_text_preview,
+            raw_text_starts_with_brace,
+          });
+
         const detailsObj = {
+          ...(baseDetails && typeof baseDetails === "object" ? baseDetails : {}),
           ...(details && typeof details === "object" ? details : {}),
           body_source,
           ...(body_source_detail ? { body_source_detail } : {}),
