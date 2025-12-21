@@ -2751,6 +2751,14 @@ const importStartHandler = async (req, context) => {
               stage,
               session_id: sessionId,
               request_id: requestId,
+              details:
+                requestDetails ||
+                buildRequestDetails(req, {
+                  body_source,
+                  body_source_detail,
+                  raw_text_preview,
+                  raw_text_starts_with_brace,
+                }),
               error: {
                 code: "IMPORT_STOPPED",
                 message: "Import was stopped",
