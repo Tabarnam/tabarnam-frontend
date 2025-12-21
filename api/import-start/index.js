@@ -3985,9 +3985,13 @@ Return ONLY the JSON array, no other text.`,
               code:
                 upstreamStatus === 400
                   ? "IMPORT_START_UPSTREAM_BAD_REQUEST"
-                  : upstreamStatus === 404
-                    ? "IMPORT_START_UPSTREAM_NOT_FOUND"
-                    : "IMPORT_START_UPSTREAM_FAILED",
+                  : upstreamStatus === 401 || upstreamStatus === 403
+                    ? "IMPORT_START_UPSTREAM_UNAUTHORIZED"
+                    : upstreamStatus === 429
+                      ? "IMPORT_START_UPSTREAM_RATE_LIMITED"
+                      : upstreamStatus === 404
+                        ? "IMPORT_START_UPSTREAM_NOT_FOUND"
+                        : "IMPORT_START_UPSTREAM_FAILED",
               message:
                 upstreamStatus === 400
                   ? "Upstream rejected the request (400)"
