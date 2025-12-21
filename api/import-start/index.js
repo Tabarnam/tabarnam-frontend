@@ -507,6 +507,16 @@ async function readJsonBody(req) {
     }
   }
 
+  if (typeof req.arrayBuffer === "function") {
+    try {
+      const ab = await req.arrayBuffer();
+      if (ab) return parseJsonFromStringOrBinary(ab);
+    } catch (err) {
+      if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err);
+      // Otherwise, fall through.
+    }
+  }
+
   // Next prefer explicit raw body fields.
   if (getBodyLen(rawBody) > 0) {
     try {
@@ -558,16 +568,6 @@ async function readJsonBody(req) {
   if (body && typeof body === "object" && !Array.isArray(body) && !isBinaryBody(body) && !isProbablyStreamBody(body)) {
     const otherLen = getBodyLen(rawBody) + getBodyLen(bufferBody);
     if (otherLen === 0) return body;
-  }
-
-  if (typeof req.arrayBuffer === "function") {
-    try {
-      const ab = await req.arrayBuffer();
-      if (ab) return parseJsonFromStringOrBinary(ab);
-    } catch (err) {
-      if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err);
-      // Otherwise, fall through.
-    }
   }
 
   return {};
