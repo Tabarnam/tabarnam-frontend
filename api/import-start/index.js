@@ -502,7 +502,8 @@ async function readJsonBody(req) {
       const rawText = String(await req.text());
       if (rawText && rawText.trim()) return parseJsonFromStringOrBinary(rawText);
     } catch (err) {
-      throw decorateInvalidJsonError(err);
+      if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err);
+      // Otherwise, fall through (body may already be consumed or unreadable via this API).
     }
   }
 
@@ -564,7 +565,8 @@ async function readJsonBody(req) {
       const ab = await req.arrayBuffer();
       if (ab) return parseJsonFromStringOrBinary(ab);
     } catch (err) {
-      throw decorateInvalidJsonError(err);
+      if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err);
+      // Otherwise, fall through.
     }
   }
 
@@ -1743,6 +1745,26 @@ const importStartHandler = async (req, context) => {
         if (err?.code === "INVALID_JSON_BODY") {
           const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
           const buildInfo = getBuildInfo();
+
+          try {
+            console.error(
+              "[import-start] INVALID_JSON_BODY",
+              JSON.stringify({
+                request_id: requestId,
+                content_type: err?.content_type || getHeader(req, "content-type") || null,
+                body_type: err?.body_type || typeof req?.body,
+                is_body_object:
+                  typeof err?.is_body_object === "boolean"
+                    ? err.is_body_object
+                    : Boolean(req?.body && typeof req.body === "object" && !Array.isArray(req.body)),
+                raw_text_preview: err?.raw_text_preview || err?.raw_body_preview || null,
+                raw_text_hex_preview: err?.raw_text_hex_preview || null,
+              })
+            );
+          } catch {
+            console.error("[import-start] INVALID_JSON_BODY");
+          }
+
           return jsonWithRequestId(
             {
               ok: false,
