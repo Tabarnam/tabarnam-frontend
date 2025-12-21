@@ -3995,9 +3995,13 @@ Return ONLY the JSON array, no other text.`,
               message:
                 upstreamStatus === 400
                   ? "Upstream rejected the request (400)"
-                  : upstreamStatus === 404
-                    ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
-                    : `XAI returned ${upstreamStatus}`,
+                  : upstreamStatus === 401 || upstreamStatus === 403
+                    ? "XAI endpoint rejected the request (unauthorized). Check XAI_EXTERNAL_KEY / authorization settings."
+                    : upstreamStatus === 429
+                      ? "XAI endpoint rate-limited the request (429)."
+                      : upstreamStatus === 404
+                        ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
+                        : `XAI returned ${upstreamStatus}`,
               upstream_status: upstreamStatus,
               upstream_url: xaiUrlForLog,
               upstream_text_preview: upstreamTextPreview,
