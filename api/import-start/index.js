@@ -3054,6 +3054,14 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 ok: true,
                 session_id: sessionId,
                 request_id: requestId,
+                details:
+                  requestDetails ||
+                  buildRequestDetails(req, {
+                    body_source,
+                    body_source_detail,
+                    raw_text_preview,
+                    raw_text_starts_with_brace,
+                  }),
                 company_name: contextInfo.company_name,
                 website_url: contextInfo.website_url,
                 companies: [],
