@@ -4085,7 +4085,11 @@ Return ONLY the JSON array, no other text.`,
                   ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
                   : `XAI call failed: ${toErrorString(xaiError)}`;
 
-        const mappedStatus = upstreamStatus === 400 ? 400 : isTimeout ? 504 : 502;
+        const mappedStatus = isTimeout
+          ? 504
+          : upstreamStatus === 400 || upstreamStatus === 401 || upstreamStatus === 403 || upstreamStatus === 429
+            ? upstreamStatus
+            : 502;
 
         const upstreamRequestId = extractXaiRequestId(xaiError?.response?.headers || {});
         const upstreamTextPreview = toTextPreview(xaiError?.response?.data || xaiError?.response?.body || "");
