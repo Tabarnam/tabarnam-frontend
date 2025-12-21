@@ -235,11 +235,13 @@ app.http("import-backend-ping", {
     }
 
     const base = proxyBase.replace(/\/$/, "");
-    const candidatePaths = ["/ping", "/health"]; // assumes proxy base is an /api root
+    const candidatePaths = ["/ping", "/health", "/api/ping", "/api/health"]; // support both /api root and host-only bases
 
     const upstream_timeout_ms = 8000;
 
     let lastErr = null;
+    let lastHttp = null;
+
     for (const path of candidatePaths) {
       const url = `${base}${path}`;
       const resolved_host_path = toHostPathOnlyForLog(url);
@@ -276,93 +278,30 @@ app.http("import-backend-ping", {
           );
         }
 
-        const error_class = "http_error";
-        console.error(
-          `[import-backend-ping] request_id=${request_id} upstream_failure class=${error_class} target=${resolved_host_path} status=${upstream_status}`
-        );
+        lastHttp = { upstream_status, resolved_host_path, upstream_body_preview };
 
-        return json(
-          {
-            ok: false,
-            stage: "backend_ping",
-            request_id,
-            session_id,
-            env_present,
-            upstream: {
-              host_path: resolved_host_path,
-              status: upstream_status,
-              timeout_ms: upstream_timeout_ms,
-              body_preview: upstream_body_preview,
-              error_class,
-            },
-            details: {
-              ...details,
-              upstream_timeout_ms,
-              upstream_status,
-              upstream_url: resolved_host_path,
-              upstream_error_class: error_class,
-              upstream_text_preview: upstream_body_preview,
-            },
-            error: {
-              code: "IMPORT_BACKEND_PING_FAILED",
-              message: `Backend ping returned ${upstream_status}`,
-              request_id,
-              step: "backend_ping",
-              upstream_status,
-              upstream_url: resolved_host_path,
-            },
-            legacy_error: "Backend ping failed",
-            ...getBuildInfo(),
-          },
-          500,
-          responseHeaders
-        );
+        if (upstream_status === 404) {
+          continue;
+        }
+
+        // Keep searching for a viable ping endpoint, but record the last non-404 failure.
+        continue;
       } catch (err) {
         lastErr = err;
+
         const error_class = classifyAxiosUpstreamError(err);
         console.error(
           `[import-backend-ping] request_id=${request_id} upstream_failure class=${error_class} target=${resolved_host_path} status=${err?.response?.status ?? ""} error=${String(err?.message || err)}`
         );
 
-        return json(
-          {
-            ok: false,
-            stage: "backend_ping",
-            request_id,
-            session_id,
-            env_present,
-            upstream: {
-              host_path: resolved_host_path,
-              ...(err?.response?.status ? { status: err.response.status } : {}),
-              timeout_ms: upstream_timeout_ms,
-              body_preview: toTextPreview(err?.response?.data || err?.response?.body || ""),
-              error_class,
-            },
-            details: {
-              ...details,
-              upstream_timeout_ms,
-              upstream_status: err?.response?.status || null,
-              upstream_url: resolved_host_path,
-              upstream_error_class: error_class,
-              upstream_text_preview: toTextPreview(err?.response?.data || err?.response?.body || ""),
-              upstream_content_type: String(err?.response?.headers?.["content-type"] || "").trim() || null,
-            },
-            error: {
-              code: "IMPORT_BACKEND_PING_FAILED",
-              message: "Backend ping call failed",
-              request_id,
-              step: "backend_ping",
-              upstream_status: err?.response?.status || null,
-              upstream_url: resolved_host_path,
-            },
-            legacy_error: "Backend ping failed",
-            ...getBuildInfo(),
-          },
-          500,
-          responseHeaders
-        );
+        continue;
       }
     }
+
+    const failureHostPath = lastHttp?.resolved_host_path || "";
+    const upstream_status = lastHttp?.upstream_status ?? lastErr?.response?.status ?? null;
+    const error_class = lastHttp ? "http_error" : classifyAxiosUpstreamError(lastErr);
+    const upstream_text_preview = lastHttp?.upstream_body_preview || toTextPreview(lastErr?.response?.data || lastErr?.response?.body || "");
 
     console.error(`[import-backend-ping] request_id=${request_id} ping exhausted routes`);
 
@@ -373,13 +312,29 @@ app.http("import-backend-ping", {
         request_id,
         session_id,
         env_present,
-        upstream: {},
-        details,
+        upstream: {
+          ...(failureHostPath ? { host_path: failureHostPath } : {}),
+          ...(Number.isFinite(Number(upstream_status)) ? { status: Number(upstream_status) } : {}),
+          timeout_ms: upstream_timeout_ms,
+          ...(upstream_text_preview ? { body_preview: upstream_text_preview } : {}),
+          ...(error_class ? { error_class } : {}),
+        },
+        details: {
+          ...details,
+          upstream_timeout_ms,
+          upstream_status,
+          upstream_url: failureHostPath || null,
+          upstream_error_class: error_class,
+          upstream_text_preview,
+          upstream_content_type: String(lastErr?.response?.headers?.["content-type"] || "").trim() || null,
+        },
         error: {
           code: "IMPORT_BACKEND_PING_FAILED",
-          message: "Backend ping did not reach upstream",
+          message: upstream_status ? `Backend ping returned ${upstream_status}` : "Backend ping call failed",
           request_id,
           step: "backend_ping",
+          upstream_status,
+          ...(failureHostPath ? { upstream_url: failureHostPath } : {}),
         },
         legacy_error: "Backend ping failed",
         ...(lastErr ? { last_error: String(lastErr?.message || lastErr) } : {}),
