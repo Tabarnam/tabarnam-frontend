@@ -177,19 +177,16 @@ test("/api/import/start respects query proxy=false when body has no proxy", asyn
   });
 });
 
-test("/api/import/start prefers rawBody when body is empty object", async () => {
+test("/api/import/start uses req.body object even when rawBody is present", async () => {
   await withTempEnv(NO_NETWORK_ENV, async () => {
-    const rawBody = Buffer.from(
-      JSON.stringify({
+    const rawBody = Buffer.from("{not valid json", "utf8");
+
+    const req = makeReq({
+      body: {
         dry_run: true,
         query: "https://parachutehome.com/",
         queryTypes: ["company_url"],
-      }),
-      "utf8"
-    );
-
-    const req = makeReq({
-      body: {},
+      },
       rawBody,
     });
 

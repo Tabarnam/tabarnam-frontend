@@ -280,6 +280,15 @@ function getBodyLen(value) {
   return 0;
 }
 
+function getBodyKeysPreview(value, maxKeys = 20) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  try {
+    return Object.keys(value).slice(0, Math.max(0, Math.trunc(maxKeys)));
+  } catch {
+    return null;
+  }
+}
+
 function isProbablyStreamBody(value) {
   return !!(
     value &&
@@ -468,10 +477,12 @@ async function readJsonBody(req) {
     const contentType = getHeader(req, "content-type") || "";
     const bodyType = typeof req?.body;
     const isBodyObject = Boolean(req?.body && typeof req.body === "object" && !Array.isArray(req.body));
+    const bodyKeysPreview = getBodyKeysPreview(req?.body);
 
     err.content_type ||= contentType || null;
     err.body_type ||= bodyType || null;
     err.is_body_object = typeof err.is_body_object === "boolean" ? err.is_body_object : isBodyObject;
+    err.body_keys_preview ||= bodyKeysPreview;
 
     return err;
   };
@@ -492,14 +503,26 @@ async function readJsonBody(req) {
   }
 
   if (body && typeof body === "object" && !Array.isArray(body) && !isBinaryBody(body) && !isProbablyStreamBody(body)) {
-    const bodyLen = getBodyLen(body);
-    if (bodyLen > 0) return body;
+    const keysPreview = getBodyKeysPreview(body);
+    try {
+      console.log(
+        "[import-start] readJsonBody: using req.body object branch",
+        JSON.stringify({ keys: keysPreview })
+      );
+    } catch {
+      console.log("[import-start] readJsonBody: using req.body object branch");
+    }
+
+    return body;
   }
 
   // Prefer the platform's raw text reader when available (closest to bytes-on-the-wire).
   if (typeof req.text === "function") {
     try {
-      const rawText = String(await req.text());
+      const rawVal = await req.text();
+      if (rawVal && typeof rawVal === "object" && !Array.isArray(rawVal)) return rawVal;
+
+      const rawText = typeof rawVal === "string" ? rawVal : String(rawVal ?? "");
       if (rawText && rawText.trim()) return parseJsonFromStringOrBinary(rawText);
     } catch (err) {
       if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err);
@@ -623,6 +646,7 @@ function buildBodyDiagnostics(req, extra) {
       isStreamBody:
         isProbablyStreamBody(rawBody) || isProbablyStreamBody(body) || isProbablyStreamBody(bufferBody),
     },
+    body_keys_preview: getBodyKeysPreview(body),
     headers_subset: {
       "content-type": getHeader(req, "content-type"),
       "content-length": getHeader(req, "content-length"),
@@ -1757,6 +1781,7 @@ const importStartHandler = async (req, context) => {
                   typeof err?.is_body_object === "boolean"
                     ? err.is_body_object
                     : Boolean(req?.body && typeof req.body === "object" && !Array.isArray(req.body)),
+                body_keys_preview: err?.body_keys_preview || getBodyKeysPreview(req?.body),
                 raw_text_preview: err?.raw_text_preview || err?.raw_body_preview || null,
                 raw_text_hex_preview: err?.raw_text_hex_preview || null,
               })
@@ -1792,6 +1817,7 @@ const importStartHandler = async (req, context) => {
                   typeof err?.is_body_object === "boolean"
                     ? err.is_body_object
                     : Boolean(req?.body && typeof req.body === "object" && !Array.isArray(req.body)),
+                body_keys_preview: err?.body_keys_preview || getBodyKeysPreview(req?.body),
                 raw_text_preview: err?.raw_text_preview || err?.raw_body_preview || null,
                 raw_text_hex_preview: err?.raw_text_hex_preview || null,
 
