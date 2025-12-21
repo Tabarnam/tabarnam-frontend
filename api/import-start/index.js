@@ -4106,6 +4106,7 @@ Return ONLY the JSON array, no other text.`,
             xai_code: xaiError?.code || null,
             xai_status: upstreamStatus,
             xai_url: xaiUrlForLog,
+            meta: xaiCallMeta,
             ...(isTimeout ? { upstream_error_class: "read_timeout" } : {}),
           },
         });
