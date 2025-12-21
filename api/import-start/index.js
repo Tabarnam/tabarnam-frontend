@@ -310,7 +310,7 @@ function parseJsonFromStringOrBinary(value, meta) {
   const text = typeof value === "string" ? value : binaryBodyToString(value);
   const result = parseJsonBodyStrict(text);
   if (!result.ok) {
-    const rawTextPreview = toTextPreview(text, 500);
+    const rawTextPreview = toTextPreview(text, 200);
     const rawTextHexPreview = buildHexPreview(value || text, 80);
 
     throw new InvalidJsonBodyError("Invalid JSON body", {
@@ -522,7 +522,12 @@ async function readJsonBody(req) {
     console.log("[import-start] body_sources");
   }
 
-  if (prefersBodyObject && body !== null && typeof body === "object" && !Array.isArray(body)) {
+  const bodyIsNonNullObject = body !== null && typeof body === "object" && !Array.isArray(body);
+  const bodyIsPlainObject = bodyIsNonNullObject && !isBinaryBody(body) && !isProbablyStreamBody(body);
+  const bodyKeysLen = bodyIsPlainObject ? getBodyLen(body) : 0;
+  const bodyIsEmptyObject = bodyIsPlainObject && bodyKeysLen === 0;
+
+  if (prefersBodyObject && bodyIsPlainObject && bodyKeysLen > 0) {
     const keysPreview = getBodyKeysPreview(body);
     try {
       console.log(
@@ -536,7 +541,7 @@ async function readJsonBody(req) {
     return { body, body_source: "req.body", body_source_detail: "req.body" };
   }
 
-  if (body && typeof body === "object" && !Array.isArray(body) && !isBinaryBody(body) && !isProbablyStreamBody(body)) {
+  if (bodyIsPlainObject && bodyKeysLen > 0) {
     const keysPreview = getBodyKeysPreview(body);
     try {
       console.log(
@@ -550,18 +555,70 @@ async function readJsonBody(req) {
     return { body, body_source: "req.body", body_source_detail: "req.body" };
   }
 
+  // Prefer explicit raw body fields (common in Azure Functions).
+  if (getBodyLen(rawBody) > 0) {
+    try {
+      if (typeof rawBody === "string" || isBinaryBody(rawBody)) {
+        const meta = {
+          body_source: "req.rawBody",
+          body_source_detail: typeof rawBody === "string" ? "req.rawBody:text" : "req.rawBody:binary",
+        };
+
+        const rawText = binaryBodyToString(rawBody);
+        return {
+          body: parseJsonFromStringOrBinary(rawBody, meta),
+          raw_text_preview: toTextPreview(rawText, 200) || null,
+          raw_text_starts_with_brace: /^\s*\{/.test(rawText),
+          ...meta,
+        };
+      }
+
+      if (isProbablyStreamBody(rawBody)) {
+        const meta = { body_source: "req.rawBody", body_source_detail: "req.rawBody:stream" };
+        const buf = await readStreamLikeToBuffer(rawBody);
+        const rawText = buf && buf.length ? buf.toString("utf8") : "";
+        return {
+          body: buf && buf.length ? parseJsonFromStringOrBinary(buf, meta) : {},
+          raw_text_preview: toTextPreview(rawText, 200) || null,
+          raw_text_starts_with_brace: /^\s*\{/.test(rawText),
+          ...meta,
+        };
+      }
+    } catch (err) {
+      throw decorateInvalidJsonError(err, { body_source: "req.rawBody", body_source_detail: "req.rawBody" });
+    }
+  }
+
   // Prefer the platform's raw text reader when available (closest to bytes-on-the-wire).
   if (typeof req.text === "function") {
     const meta = { body_source: "req.text", body_source_detail: "req.text" };
     try {
       const rawVal = await req.text();
       if (rawVal && typeof rawVal === "object" && !Array.isArray(rawVal)) {
-        return { body: rawVal, body_source: "req.text", body_source_detail: "req.text:object" };
+        const rawText = (() => {
+          try {
+            return JSON.stringify(rawVal);
+          } catch {
+            return "";
+          }
+        })();
+        return {
+          body: rawVal,
+          raw_text_preview: toTextPreview(rawText, 200) || null,
+          raw_text_starts_with_brace: /^\s*\{/.test(rawText),
+          body_source: "req.text",
+          body_source_detail: "req.text:object",
+        };
       }
 
       const rawText = typeof rawVal === "string" ? rawVal : "";
       if (rawText && rawText.trim()) {
-        return { body: parseJsonFromStringOrBinary(rawText, meta), ...meta };
+        return {
+          body: parseJsonFromStringOrBinary(rawText, meta),
+          raw_text_preview: toTextPreview(rawText, 200) || null,
+          raw_text_starts_with_brace: /^\s*\{/.test(rawText),
+          ...meta,
+        };
       }
     } catch (err) {
       if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err, meta);
@@ -573,29 +630,18 @@ async function readJsonBody(req) {
     const meta = { body_source: "req.arrayBuffer", body_source_detail: "req.arrayBuffer" };
     try {
       const ab = await req.arrayBuffer();
-      if (ab) return { body: parseJsonFromStringOrBinary(ab, meta), ...meta };
+      if (ab) {
+        const rawText = binaryBodyToString(ab);
+        return {
+          body: parseJsonFromStringOrBinary(ab, meta),
+          raw_text_preview: toTextPreview(rawText, 200) || null,
+          raw_text_starts_with_brace: /^\s*\{/.test(rawText),
+          ...meta,
+        };
+      }
     } catch (err) {
       if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err, meta);
       // Otherwise, fall through.
-    }
-  }
-
-  // Next prefer explicit raw body fields.
-  if (getBodyLen(rawBody) > 0) {
-    try {
-      if (typeof rawBody === "string" || isBinaryBody(rawBody)) {
-        const meta = {
-          body_source: typeof rawBody === "string" ? "req.text" : "req.arrayBuffer",
-          body_source_detail: "req.rawBody",
-        };
-        return { body: parseJsonFromStringOrBinary(rawBody, meta), ...meta };
-      }
-      if (isProbablyStreamBody(rawBody)) {
-        const meta = { body_source: "unknown", body_source_detail: "req.rawBody:stream" };
-        return { body: await parseJsonFromStreamLike(rawBody, meta), ...meta };
-      }
-    } catch (err) {
-      throw decorateInvalidJsonError(err, { body_source: "unknown", body_source_detail: "req.rawBody" });
     }
   }
 
@@ -718,6 +764,41 @@ function buildBodyDiagnostics(req, extra) {
 
   if (extra && typeof extra === "object") return { ...base, ...extra };
   return base;
+}
+
+function buildRequestDetails(
+  req,
+  { body_source = "unknown", body_source_detail = "", raw_text_preview = null, raw_text_starts_with_brace = false } = {}
+) {
+  const contentType = getHeader(req, "content-type") || "";
+  const contentLengthHeader = getHeader(req, "content-length") || "";
+
+  const body = req?.body;
+  const isBodyNonNullObject = body !== null && typeof body === "object" && !Array.isArray(body);
+  const isBodyPlainObject = isBodyNonNullObject && !isBinaryBody(body) && !isProbablyStreamBody(body);
+  const bodyKeysLen = isBodyPlainObject ? getBodyLen(body) : 0;
+
+  const details = {
+    body_source: String(body_source || "unknown"),
+    ...(body_source_detail ? { body_source_detail: String(body_source_detail) } : {}),
+    content_type: contentType,
+    content_length_header: contentLengthHeader,
+    body_keys_preview: getBodyKeysPreview(body),
+    body_is_empty_object: Boolean(isBodyPlainObject && bodyKeysLen === 0),
+    raw_available: {
+      has_rawBody: req?.rawBody !== undefined && req?.rawBody !== null,
+      has_text_reader: typeof req?.text === "function",
+      has_arrayBuffer_reader: typeof req?.arrayBuffer === "function",
+    },
+    raw_text_starts_with_brace: Boolean(raw_text_starts_with_brace),
+  };
+
+  const rawPreview = typeof raw_text_preview === "string" ? raw_text_preview.trim() : "";
+  if (rawPreview) {
+    details.raw_text_preview = rawPreview.length > 200 ? rawPreview.slice(0, 200) : rawPreview;
+  }
+
+  return details;
 }
 
 function generateRequestId(req) {
@@ -1824,11 +1905,23 @@ const importStartHandler = async (req, context) => {
       let payload;
       let body_source = "unknown";
       let body_source_detail = "";
+      let raw_text_preview = null;
+      let raw_text_starts_with_brace = false;
+      let requestDetails = null;
+
       try {
         const parsed = await readJsonBody(req);
         payload = parsed.body;
         body_source = parsed.body_source || "unknown";
         body_source_detail = parsed.body_source_detail || "";
+        raw_text_preview = typeof parsed?.raw_text_preview === "string" ? parsed.raw_text_preview : null;
+        raw_text_starts_with_brace = Boolean(parsed?.raw_text_starts_with_brace);
+        requestDetails = buildRequestDetails(req, {
+          body_source,
+          body_source_detail,
+          raw_text_preview,
+          raw_text_starts_with_brace,
+        });
       } catch (err) {
         if (err?.code === "INVALID_JSON_BODY") {
           const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -1878,18 +1971,19 @@ const importStartHandler = async (req, context) => {
               normalized_domain: "",
               xai_request_id: null,
               details: {
+                ...buildRequestDetails(req, {
+                  body_source,
+                  body_source_detail,
+                  raw_text_preview: err?.raw_text_preview || err?.raw_body_preview || null,
+                  raw_text_starts_with_brace: /^\s*\{/.test(String(err?.raw_text_preview || err?.raw_body_preview || "")),
+                }),
                 code: "INVALID_JSON_BODY",
                 message: "Invalid JSON body",
-                content_type: err?.content_type || getHeader(req, "content-type") || null,
                 body_type: err?.body_type || typeof req?.body,
                 is_body_object:
                   typeof err?.is_body_object === "boolean"
                     ? err.is_body_object
                     : Boolean(req?.body && typeof req.body === "object" && !Array.isArray(req.body)),
-                body_keys_preview: err?.body_keys_preview || getBodyKeysPreview(req?.body),
-                body_source,
-                ...(body_source_detail ? { body_source_detail } : {}),
-                raw_text_preview: err?.raw_text_preview || err?.raw_body_preview || null,
                 raw_text_hex_preview: err?.raw_text_hex_preview || null,
 
                 // Back-compat.
@@ -2046,7 +2140,17 @@ const importStartHandler = async (req, context) => {
       };
 
       const respondError = async (err, { status = 500, details = {} } = {}) => {
+        const baseDetails =
+          requestDetails ||
+          buildRequestDetails(req, {
+            body_source,
+            body_source_detail,
+            raw_text_preview,
+            raw_text_starts_with_brace,
+          });
+
         const detailsObj = {
+          ...(baseDetails && typeof baseDetails === "object" ? baseDetails : {}),
           ...(details && typeof details === "object" ? details : {}),
           body_source,
           ...(body_source_detail ? { body_source_detail } : {}),
@@ -2218,10 +2322,14 @@ const importStartHandler = async (req, context) => {
             stage,
             session_id: sessionId,
             request_id: requestId,
-            details: {
-              body_source,
-              ...(body_source_detail ? { body_source_detail } : {}),
-            },
+            details:
+              requestDetails ||
+              buildRequestDetails(req, {
+                body_source,
+                body_source_detail,
+                raw_text_preview,
+                raw_text_starts_with_brace,
+              }),
             company_name: contextInfo.company_name,
             website_url: contextInfo.website_url,
             normalized_domain: contextInfo.normalized_domain,
@@ -2644,6 +2752,14 @@ const importStartHandler = async (req, context) => {
               stage,
               session_id: sessionId,
               request_id: requestId,
+              details:
+                requestDetails ||
+                buildRequestDetails(req, {
+                  body_source,
+                  body_source_detail,
+                  raw_text_preview,
+                  raw_text_starts_with_brace,
+                }),
               error: {
                 code: "IMPORT_STOPPED",
                 message: "Import was stopped",
@@ -2939,6 +3055,14 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 ok: true,
                 session_id: sessionId,
                 request_id: requestId,
+                details:
+                  requestDetails ||
+                  buildRequestDetails(req, {
+                    body_source,
+                    body_source_detail,
+                    raw_text_preview,
+                    raw_text_starts_with_brace,
+                  }),
                 company_name: contextInfo.company_name,
                 website_url: contextInfo.website_url,
                 companies: [],
@@ -3522,6 +3646,14 @@ Return ONLY the JSON array, no other text.`,
               ok: true,
               session_id: sessionId,
               request_id: requestId,
+              details:
+                requestDetails ||
+                buildRequestDetails(req, {
+                  body_source,
+                  body_source_detail,
+                  raw_text_preview,
+                  raw_text_starts_with_brace,
+                }),
               company_name: contextInfo.company_name,
               website_url: contextInfo.website_url,
               companies: enriched,
@@ -3656,6 +3788,14 @@ Return ONLY the JSON array, no other text.`,
           stage: lastStage,
           session_id: sessionId,
           request_id: requestId,
+          details:
+            requestDetails ||
+            buildRequestDetails(req, {
+              body_source,
+              body_source_detail,
+              raw_text_preview,
+              raw_text_starts_with_brace,
+            }),
           error: {
             code: "IMPORT_START_UNHANDLED",
             message: safeMessage,
