@@ -3194,9 +3194,20 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
         }
 
         promptString = String(promptString || "").trim();
+        xaiCallMeta.prompt_len = promptString.length;
+
         if (!promptString) {
           setStage("build_prompt", { error: "Empty prompt" });
-          return jsonWithRequestId({ ok: false, stage, session_id: sessionId, request_id: requestId, error: "Empty prompt" }, 400);
+          return respondError(new Error("Empty prompt"), {
+            status: 400,
+            details: {
+              code: "IMPORT_START_BUILD_PROMPT_FAILED",
+              message: "Empty prompt",
+              queryTypes,
+              prompt_len: xaiCallMeta.prompt_len,
+              meta: xaiCallMeta,
+            },
+          });
         }
 
         setStage("build_messages");
