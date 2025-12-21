@@ -97,15 +97,29 @@ class InvalidJsonBodyError extends Error {
           ? String(parseError)
           : null;
 
+    this.content_type =
+      typeof options?.contentType === "string" && options.contentType.trim() ? options.contentType.trim() : null;
+
+    this.body_type = typeof options?.bodyType === "string" && options.bodyType.trim() ? options.bodyType.trim() : null;
+
+    this.is_body_object = typeof options?.isBodyObject === "boolean" ? options.isBodyObject : null;
+
+    this.raw_text_preview =
+      typeof options?.rawTextPreview === "string" && options.rawTextPreview.trim() ? options.rawTextPreview.trim() : null;
+
+    this.raw_text_hex_preview =
+      typeof options?.rawTextHexPreview === "string" && options.rawTextHexPreview.trim() ? options.rawTextHexPreview.trim() : null;
+
+    // Back-compat fields.
     this.first_bytes_preview =
       typeof options?.firstBytesPreview === "string" && options.firstBytesPreview.trim()
         ? options.firstBytesPreview.trim()
-        : null;
+        : this.raw_text_hex_preview;
 
     this.raw_body_preview =
       typeof options?.rawBodyPreview === "string" && options.rawBodyPreview.trim()
         ? options.rawBodyPreview.trim()
-        : null;
+        : this.raw_text_preview;
   }
 }
 
@@ -193,6 +207,26 @@ function buildFirstBytesPreview(value, maxBytes = 50) {
   }
 }
 
+function buildHexPreview(value, maxBytes = 50) {
+  try {
+    const buf = Buffer.isBuffer(value)
+      ? value
+      : value instanceof Uint8Array
+        ? Buffer.from(value)
+        : value instanceof ArrayBuffer
+          ? Buffer.from(new Uint8Array(value))
+          : typeof value === "string"
+            ? Buffer.from(value, "utf8")
+            : Buffer.from(String(value ?? ""), "utf8");
+
+    if (!buf.length) return "";
+    const slice = buf.subarray(0, Math.max(0, Math.min(maxBytes, buf.length)));
+    return slice.toString("hex");
+  } catch {
+    return "";
+  }
+}
+
 function readQueryParam(req, name) {
   if (!req || !name) return undefined;
 
@@ -261,10 +295,15 @@ function parseJsonFromStringOrBinary(value) {
   const text = typeof value === "string" ? value : binaryBodyToString(value);
   const result = parseJsonBodyStrict(text);
   if (!result.ok) {
+    const rawTextPreview = toTextPreview(text, 500);
+    const rawTextHexPreview = buildHexPreview(value || text, 80);
+
     throw new InvalidJsonBodyError("Invalid JSON body", {
       parseError: result.error,
-      firstBytesPreview: buildFirstBytesPreview(value),
-      rawBodyPreview: toTextPreview(text, 500),
+      rawTextPreview,
+      rawTextHexPreview,
+      firstBytesPreview: buildFirstBytesPreview(value || text),
+      rawBodyPreview: rawTextPreview,
     });
   }
   return result.value;
@@ -423,6 +462,20 @@ async function readJsonBody(req) {
 
   const isStreamBody = isProbablyStreamBody(rawBody) || isProbablyStreamBody(body) || isProbablyStreamBody(bufferBody);
 
+  const decorateInvalidJsonError = (err) => {
+    if (!err || err.code !== "INVALID_JSON_BODY") return err;
+
+    const contentType = getHeader(req, "content-type") || "";
+    const bodyType = typeof req?.body;
+    const isBodyObject = Boolean(req?.body && typeof req.body === "object" && !Array.isArray(req.body));
+
+    err.content_type ||= contentType || null;
+    err.body_type ||= bodyType || null;
+    err.is_body_object = typeof err.is_body_object === "boolean" ? err.is_body_object : isBodyObject;
+
+    return err;
+  };
+
   try {
     console.log("[import-start] body_sources", {
       hasRawBody: rawBody !== undefined && rawBody !== null,
@@ -438,46 +491,19 @@ async function readJsonBody(req) {
     console.log("[import-start] body_sources");
   }
 
-  if (body && typeof body === "object" && !isBinaryBody(body) && !isProbablyStreamBody(body)) {
+  if (body && typeof body === "object" && !Array.isArray(body) && !isBinaryBody(body) && !isProbablyStreamBody(body)) {
     const bodyLen = getBodyLen(body);
-    const otherLen = getBodyLen(rawBody) + getBodyLen(bufferBody);
-    if (bodyLen > 0 || otherLen === 0) return body;
+    if (bodyLen > 0) return body;
   }
 
-  if (getBodyLen(rawBody) > 0) {
-    if (typeof rawBody === "string" || isBinaryBody(rawBody)) {
-      return parseJsonFromStringOrBinary(rawBody);
-    }
-  }
-
-  if (isProbablyStreamBody(rawBody)) {
-    return await parseJsonFromStreamLike(rawBody);
-  }
-
-  if (typeof body === "string" || isBinaryBody(body)) {
-    return parseJsonFromStringOrBinary(body);
-  }
-
-  if (isProbablyStreamBody(body)) {
-    return await parseJsonFromStreamLike(body);
-  }
-
-  if (getBodyLen(bufferBody) > 0) {
-    if (typeof bufferBody === "string" || isBinaryBody(bufferBody)) {
-      return parseJsonFromStringOrBinary(bufferBody);
-    }
-  }
-
-  if (isProbablyStreamBody(bufferBody)) {
-    return await parseJsonFromStreamLike(bufferBody);
-  }
-
+  // Prefer the platform's raw text reader when available (closest to bytes-on-the-wire).
   if (typeof req.text === "function") {
     try {
-      const text = String(await req.text()).trim();
-      if (text) return parseJsonFromStringOrBinary(text);
-    } catch {
-      // Fall through.
+      const rawText = String(await req.text());
+      if (rawText && rawText.trim()) return parseJsonFromStringOrBinary(rawText);
+    } catch (err) {
+      if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err);
+      // Otherwise, fall through (body may already be consumed or unreadable via this API).
     }
   }
 
@@ -485,11 +511,50 @@ async function readJsonBody(req) {
     try {
       const ab = await req.arrayBuffer();
       if (ab) return parseJsonFromStringOrBinary(ab);
-    } catch {
-      // Fall through.
+    } catch (err) {
+      if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err);
+      // Otherwise, fall through.
     }
   }
 
+  // Next prefer explicit raw body fields.
+  if (getBodyLen(rawBody) > 0) {
+    try {
+      if (typeof rawBody === "string" || isBinaryBody(rawBody)) {
+        return parseJsonFromStringOrBinary(rawBody);
+      }
+      if (isProbablyStreamBody(rawBody)) {
+        return await parseJsonFromStreamLike(rawBody);
+      }
+    } catch (err) {
+      throw decorateInvalidJsonError(err);
+    }
+  }
+
+  // Then fall back to body/bufferBody if they look like raw strings/buffers.
+  try {
+    if (typeof body === "string" || isBinaryBody(body)) {
+      return parseJsonFromStringOrBinary(body);
+    }
+
+    if (isProbablyStreamBody(body)) {
+      return await parseJsonFromStreamLike(body);
+    }
+
+    if (getBodyLen(bufferBody) > 0) {
+      if (typeof bufferBody === "string" || isBinaryBody(bufferBody)) {
+        return parseJsonFromStringOrBinary(bufferBody);
+      }
+    }
+
+    if (isProbablyStreamBody(bufferBody)) {
+      return await parseJsonFromStreamLike(bufferBody);
+    }
+  } catch (err) {
+    throw decorateInvalidJsonError(err);
+  }
+
+  // As a last resort, try the runtime JSON parser.
   if (typeof req.json === "function") {
     try {
       const val = await req.json();
@@ -497,6 +562,12 @@ async function readJsonBody(req) {
     } catch {
       // Fall through.
     }
+  }
+
+  // If body is a plain object but empty, return it only when we have no other body sources.
+  if (body && typeof body === "object" && !Array.isArray(body) && !isBinaryBody(body) && !isProbablyStreamBody(body)) {
+    const otherLen = getBodyLen(rawBody) + getBodyLen(bufferBody);
+    if (otherLen === 0) return body;
   }
 
   return {};
@@ -1674,6 +1745,26 @@ const importStartHandler = async (req, context) => {
         if (err?.code === "INVALID_JSON_BODY") {
           const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
           const buildInfo = getBuildInfo();
+
+          try {
+            console.error(
+              "[import-start] INVALID_JSON_BODY",
+              JSON.stringify({
+                request_id: requestId,
+                content_type: err?.content_type || getHeader(req, "content-type") || null,
+                body_type: err?.body_type || typeof req?.body,
+                is_body_object:
+                  typeof err?.is_body_object === "boolean"
+                    ? err.is_body_object
+                    : Boolean(req?.body && typeof req.body === "object" && !Array.isArray(req.body)),
+                raw_text_preview: err?.raw_text_preview || err?.raw_body_preview || null,
+                raw_text_hex_preview: err?.raw_text_hex_preview || null,
+              })
+            );
+          } catch {
+            console.error("[import-start] INVALID_JSON_BODY");
+          }
+
           return jsonWithRequestId(
             {
               ok: false,
@@ -1695,7 +1786,17 @@ const importStartHandler = async (req, context) => {
               details: {
                 code: "INVALID_JSON_BODY",
                 message: "Invalid JSON body",
-                raw_body_preview: err?.raw_body_preview || null,
+                content_type: err?.content_type || getHeader(req, "content-type") || null,
+                body_type: err?.body_type || typeof req?.body,
+                is_body_object:
+                  typeof err?.is_body_object === "boolean"
+                    ? err.is_body_object
+                    : Boolean(req?.body && typeof req.body === "object" && !Array.isArray(req.body)),
+                raw_text_preview: err?.raw_text_preview || err?.raw_body_preview || null,
+                raw_text_hex_preview: err?.raw_text_hex_preview || null,
+
+                // Back-compat.
+                raw_body_preview: err?.raw_text_preview || err?.raw_body_preview || null,
               },
               ...(diagnosticsEnabled
                 ? {
@@ -1705,7 +1806,9 @@ const importStartHandler = async (req, context) => {
                       ...buildBodyDiagnostics(req, {
                         parse_error: err?.parse_error || null,
                         first_bytes_preview: err?.first_bytes_preview || null,
-                        raw_body_preview: err?.raw_body_preview || null,
+                        raw_text_preview: err?.raw_text_preview || err?.raw_body_preview || null,
+                        raw_text_hex_preview: err?.raw_text_hex_preview || null,
+                        raw_body_preview: err?.raw_text_preview || err?.raw_body_preview || null,
                       }),
                     },
                   }
@@ -3474,6 +3577,14 @@ Return ONLY the JSON array, no other text.`,
 
 app.http("import-start", {
   route: "import/start",
+  methods: ["POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: importStartHandler,
+});
+
+// Legacy alias: some clients still call /api/import-start.
+app.http("import-start-legacy", {
+  route: "import-start",
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: importStartHandler,

@@ -1023,7 +1023,28 @@ export default function AdminImport() {
                   const upstreamTextPreview = err?.upstream_text_preview ?? bodyObj?.upstream_text_preview;
                   const upstreamUrl = err?.upstream_url ?? bodyObj?.upstream_url;
 
-                  if (!code && !message && !step && !stage && !requestId && !upstreamStatus && !upstreamRequestId && !upstreamTextPreview) {
+                  const details = bodyObj?.details && typeof bodyObj.details === "object" ? bodyObj.details : null;
+                  const contentType = details?.content_type ?? null;
+                  const bodyType = details?.body_type ?? null;
+                  const isBodyObject = details?.is_body_object ?? null;
+                  const rawTextPreview = details?.raw_text_preview ?? null;
+                  const rawTextHexPreview = details?.raw_text_hex_preview ?? null;
+
+                  if (
+                    !code &&
+                    !message &&
+                    !step &&
+                    !stage &&
+                    !requestId &&
+                    !upstreamStatus &&
+                    !upstreamRequestId &&
+                    !upstreamTextPreview &&
+                    !contentType &&
+                    !bodyType &&
+                    isBodyObject == null &&
+                    !rawTextPreview &&
+                    !rawTextHexPreview
+                  ) {
                     return null;
                   }
 
@@ -1047,6 +1068,23 @@ export default function AdminImport() {
                       <Row label="upstream_status" value={upstreamStatus} />
                       <Row label="upstream_request_id" value={upstreamRequestId} />
                       <Row label="upstream_url" value={upstreamUrl} />
+
+                      {code === "INVALID_JSON_BODY" ? (
+                        <>
+                          <Row label="content_type" value={contentType} />
+                          <Row label="body_type" value={bodyType} />
+                          <Row label="is_body_object" value={isBodyObject == null ? "" : String(isBodyObject)} />
+                          <Row label="raw_text_hex_preview" value={rawTextHexPreview} />
+
+                          {rawTextPreview ? (
+                            <div>
+                              <div className="font-medium">raw_text_preview:</div>
+                              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-red-100 p-2 text-[11px] leading-snug text-red-950">{String(rawTextPreview)}</pre>
+                            </div>
+                          ) : null}
+                        </>
+                      ) : null}
+
                       {upstreamTextPreview ? (
                         <div>
                           <div className="font-medium">upstream_text_preview:</div>
