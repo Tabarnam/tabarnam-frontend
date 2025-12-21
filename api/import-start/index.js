@@ -2824,6 +2824,7 @@ const importStartHandlerInner = async (req, context) => {
 
       try {
         const center = safeCenter(bodyObj.center);
+        const query = String(bodyObj.query || "").trim();
         const queryTypesRaw = Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [];
         const queryTypes = queryTypesRaw
           .map((t) => String(t || "").trim())
@@ -2836,7 +2837,7 @@ const importStartHandlerInner = async (req, context) => {
         const xaiPayload = {
           queryType: queryTypes.length > 0 ? queryTypes.join(", ") : queryType,
           queryTypes: queryTypes.length > 0 ? queryTypes : [queryType],
-          query: bodyObj.query || "",
+          query,
           location,
           limit: Math.max(1, Math.min(Number(bodyObj.limit) || 10, 25)),
           expand_if_few: bodyObj.expand_if_few ?? true,
@@ -2911,10 +2912,60 @@ const importStartHandlerInner = async (req, context) => {
           );
         }
 
-        // Build XAI request message with PRIORITY on HQ and manufacturing locations
-        const xaiMessage = {
-          role: "user",
-          content: `You are a business research assistant specializing in manufacturing location extraction. Find and return information about ${xaiPayload.limit} DIFFERENT companies or products based on this search.
+        // Build XAI request messages (never allow empty messages)
+        setStage("build_prompt", { queryTypes });
+
+        if (!query) {
+          return jsonWithRequestId(
+            { ok: false, stage, session_id: sessionId, request_id: requestId, error: "Missing query" },
+            400
+          );
+        }
+
+        let promptString = "";
+
+        if (queryTypes.includes("company_url")) {
+          promptString = `You are a business research assistant specializing in manufacturing location extraction.
+
+Company website URL: ${query}
+
+Extract the company details represented by this URL.
+
+Return ONLY a valid JSON array (no markdown, no prose). The array should contain 1 item.
+Each item must follow this schema:
+{
+  "company_name": "",
+  "website_url": "",
+  "industries": [""],
+  "product_keywords": "",
+  "headquarters_location": "",
+  "manufacturing_locations": [""],
+  "location_sources": [
+    {
+      "location": "",
+      "source_url": "",
+      "source_type": "official_website|government_guide|b2b_directory|trade_data|packaging|media|other",
+      "location_type": "headquarters|manufacturing"
+    }
+  ],
+  "red_flag": false,
+  "red_flag_reason": "",
+  "tagline": "",
+  "social": {
+    "linkedin": "",
+    "instagram": "",
+    "x": "",
+    "twitter": "",
+    "facebook": "",
+    "tiktok": "",
+    "youtube": ""
+  },
+  "location_confidence": "high|medium|low"
+}
+
+Return strictly valid JSON only.`;
+        } else {
+          promptString = `You are a business research assistant specializing in manufacturing location extraction. Find and return information about ${xaiPayload.limit} DIFFERENT companies or products based on this search.
 
 Search query: "${xaiPayload.query}"
 Search type(s): ${xaiPayload.queryType}
@@ -3082,15 +3133,43 @@ IMPORTANT FINAL RULES:
 3. If government sources (like Yumpu buyer guides) list "all made in the USA", return manufacturing_locations: ["United States"] with high confidence.
 4. Only flag as red_flag: true when you have actually exhaustively checked all sources listed above and still have no credible signal.
 
-Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayload.limit)} diverse results if possible.`,
-        };
+Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayload.limit)} diverse results if possible.`;
+        }
+
+        promptString = String(promptString || "").trim();
+        if (!promptString) {
+          setStage("build_prompt", { error: "Empty prompt" });
+          return jsonWithRequestId({ ok: false, stage, session_id: sessionId, request_id: requestId, error: "Empty prompt" }, 400);
+        }
+
+        setStage("build_messages");
+        const messages = [
+          {
+            role: "system",
+            content:
+              "You are a precise assistant. Follow the user's instructions exactly and output only valid JSON when requested.",
+          },
+          { role: "user", content: promptString },
+        ];
+
+        if (!String(messages?.[0]?.content || "").trim() || !String(messages?.[1]?.content || "").trim()) {
+          setStage("build_messages", { error: "Messages cannot be empty" });
+          return jsonWithRequestId(
+            { ok: false, stage, session_id: sessionId, request_id: requestId, error: "Messages cannot be empty" },
+            400
+          );
+        }
+
+        console.log("[import-start] queryTypes=", queryTypes);
+        console.log("[import-start] prompt_len=", promptString.length);
+        console.log("[import-start] messages_len=", messages.length);
 
         if (debugOutput) {
-          debugOutput.xai.prompt = xaiMessage.content;
+          debugOutput.xai.prompt = promptString;
         }
 
         const xaiRequestPayload = {
-          messages: [xaiMessage],
+          messages,
           model: xaiModel,
           temperature: 0.1,
           stream: false,
@@ -3816,19 +3895,29 @@ Return ONLY the JSON array, no other text.`,
             `[import-start] session=${sessionId} upstream XAI non-2xx (${xaiResponse.status}) url=${xaiUrlForLog}`
           );
 
-          return respondError(new Error(`XAI returned ${xaiResponse.status}`), {
-            status: 500,
+          const upstreamStatus = xaiResponse.status;
+          const mappedStatus = upstreamStatus === 400 ? 400 : 502;
+
+          return respondError(new Error(`XAI returned ${upstreamStatus}`), {
+            status: mappedStatus,
             details: {
-              code: xaiResponse.status === 404 ? "IMPORT_START_UPSTREAM_NOT_FOUND" : "IMPORT_START_UPSTREAM_FAILED",
+              code:
+                upstreamStatus === 400
+                  ? "IMPORT_START_UPSTREAM_BAD_REQUEST"
+                  : upstreamStatus === 404
+                    ? "IMPORT_START_UPSTREAM_NOT_FOUND"
+                    : "IMPORT_START_UPSTREAM_FAILED",
               message:
-                xaiResponse.status === 404
-                  ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
-                  : `XAI returned ${xaiResponse.status}`,
-              upstream_status: xaiResponse.status,
+                upstreamStatus === 400
+                  ? "Upstream rejected the request (400)"
+                  : upstreamStatus === 404
+                    ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
+                    : `XAI returned ${upstreamStatus}`,
+              upstream_status: upstreamStatus,
               upstream_url: xaiUrlForLog,
               upstream_text_preview: upstreamTextPreview,
               ...(upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {}),
-              xai_status: xaiResponse.status,
+              xai_status: upstreamStatus,
               xai_url: xaiUrlForLog,
             },
           });
@@ -3877,25 +3966,38 @@ Return ONLY the JSON array, no other text.`,
         }
 
         const upstreamStatus = xaiError?.response?.status || null;
+        const isTimeout =
+          isOutOfTime() ||
+          xaiError?.code === "ECONNABORTED" ||
+          xaiError?.name === "CanceledError" ||
+          String(xaiError?.message || "").toLowerCase().includes("timeout") ||
+          String(xaiError?.message || "").toLowerCase().includes("aborted");
+
         const upstreamErrorCode =
-          upstreamStatus === 404
-            ? "IMPORT_START_UPSTREAM_NOT_FOUND"
-            : upstreamStatus === 401 || upstreamStatus === 403
-              ? "IMPORT_START_UPSTREAM_UNAUTHORIZED"
-              : "IMPORT_START_UPSTREAM_FAILED";
+          upstreamStatus === 400
+            ? "IMPORT_START_UPSTREAM_BAD_REQUEST"
+            : upstreamStatus === 404
+              ? "IMPORT_START_UPSTREAM_NOT_FOUND"
+              : upstreamStatus === 401 || upstreamStatus === 403
+                ? "IMPORT_START_UPSTREAM_UNAUTHORIZED"
+                : "IMPORT_START_UPSTREAM_FAILED";
 
         const upstreamMessage =
-          upstreamStatus === 404
-            ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
-            : upstreamStatus === 401 || upstreamStatus === 403
-              ? "XAI endpoint rejected the request (unauthorized). Check XAI_EXTERNAL_KEY / authorization settings."
-              : `XAI call failed: ${toErrorString(xaiError)}`;
+          upstreamStatus === 400
+            ? "Upstream rejected the request (400)"
+            : upstreamStatus === 404
+              ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
+              : upstreamStatus === 401 || upstreamStatus === 403
+                ? "XAI endpoint rejected the request (unauthorized). Check XAI_EXTERNAL_KEY / authorization settings."
+                : `XAI call failed: ${toErrorString(xaiError)}`;
+
+        const mappedStatus = upstreamStatus === 400 ? 400 : isTimeout ? 504 : 502;
 
         const upstreamRequestId = extractXaiRequestId(xaiError?.response?.headers || {});
         const upstreamTextPreview = toTextPreview(xaiError?.response?.data || xaiError?.response?.body || "");
 
         return respondError(new Error(`XAI call failed: ${toErrorString(xaiError)}`), {
-          status: 500,
+          status: mappedStatus,
           details: {
             code: upstreamErrorCode,
             message: upstreamMessage,
@@ -3906,6 +4008,7 @@ Return ONLY the JSON array, no other text.`,
             xai_code: xaiError?.code || null,
             xai_status: upstreamStatus,
             xai_url: xaiUrlForLog,
+            ...(isTimeout ? { upstream_error_class: "read_timeout" } : {}),
           },
         });
       }
