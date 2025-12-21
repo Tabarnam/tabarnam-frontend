@@ -31,6 +31,7 @@ const {
   checkUrlHealthAndFetchText,
 } = require("../_reviewQuality");
 const { getBuildInfo } = require("../_buildInfo");
+const { getImportStartHandlerVersion } = require("../_handlerVersions");
 
 const DEFAULT_HARD_TIMEOUT_MS = 25_000;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000;
@@ -1924,7 +1925,7 @@ const importStartHandlerInner = async (req, context) => {
     const responseHeaders = { "x-request-id": requestId };
 
     const buildInfo = getBuildInfo();
-    const handlerVersion = `import-start ${String(buildInfo?.build_id || "unknown")}`;
+    const handlerVersion = getImportStartHandlerVersion(buildInfo);
 
     const jsonWithRequestId = (obj, status = 200) => {
       const payload =
@@ -2103,12 +2104,8 @@ const importStartHandlerInner = async (req, context) => {
       const normalizedLocation = String(bodyObj.location || "").trim();
       const normalizedLimit = Math.max(1, Math.min(25, Math.trunc(Number(bodyObj.limit) || 1)));
 
-      const queryTypesRaw =
-        Array.isArray(rawQueryTypes)
-          ? rawQueryTypes
-          : typeof rawQueryTypes === "string"
-            ? [rawQueryTypes]
-            : [];
+      const queryTypesProvided = rawQueryTypes !== undefined && rawQueryTypes !== null;
+      const queryTypesRaw = Array.isArray(rawQueryTypes) ? rawQueryTypes : [];
 
       const queryTypes = queryTypesRaw
         .map((t) => String(t || "").trim())
@@ -2328,6 +2325,8 @@ const importStartHandlerInner = async (req, context) => {
           );
         }
 
+        const meta = detailsObj && typeof detailsObj.meta === "object" && detailsObj.meta ? detailsObj.meta : null;
+
         const errorPayload = {
           ok: false,
           stage,
@@ -2335,6 +2334,7 @@ const importStartHandlerInner = async (req, context) => {
           request_id: requestId,
           env_present,
           upstream: upstream || {},
+          ...(meta ? { meta } : {}),
           error: errorObj,
           legacy_error: message,
           ...buildInfo,
@@ -2363,6 +2363,31 @@ const importStartHandlerInner = async (req, context) => {
 
         return jsonWithRequestId(errorPayload, status);
       };
+
+      if (queryTypesProvided && !Array.isArray(rawQueryTypes)) {
+        setStage("build_prompt", { error: "QUERYTYPES_NOT_ARRAY" });
+
+        const normalizedQueryTypes = Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [];
+        const meta = {
+          queryTypes: normalizedQueryTypes,
+          query_len: normalizedQuery.length,
+          prompt_len: 0,
+          messages_len: 0,
+          has_system_content: false,
+          has_user_content: false,
+        };
+
+        return respondError(new Error("queryTypes must be an array"), {
+          status: 400,
+          details: {
+            code: "QUERYTYPES_NOT_ARRAY",
+            message: "queryTypes must be an array of strings",
+            queryTypes: normalizedQueryTypes,
+            prompt_len: meta.prompt_len,
+            meta,
+          },
+        });
+      }
 
       if (ambiguousQueryTypeFields) {
         setStage("validate_request", { error: "AMBIGUOUS_QUERY_TYPE_FIELDS" });
@@ -2429,11 +2454,26 @@ const importStartHandlerInner = async (req, context) => {
       }
 
       if (!String(bodyObj.query || "").trim()) {
+        setStage("build_prompt", { error: "MISSING_QUERY" });
+
+        const normalizedQueryTypes = Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [];
+        const meta = {
+          queryTypes: normalizedQueryTypes,
+          query_len: 0,
+          prompt_len: 0,
+          messages_len: 0,
+          has_system_content: false,
+          has_user_content: false,
+        };
+
         return respondError(new Error("query is required"), {
           status: 400,
           details: {
             code: "IMPORT_START_VALIDATION_FAILED",
             message: "Query is required",
+            queryTypes: normalizedQueryTypes,
+            prompt_len: meta.prompt_len,
+            meta,
           },
         });
       }
@@ -2912,14 +2952,31 @@ const importStartHandlerInner = async (req, context) => {
           );
         }
 
+        let xaiCallMeta = null;
+
         // Build XAI request messages (never allow empty messages)
         setStage("build_prompt", { queryTypes });
 
+        xaiCallMeta = {
+          queryTypes,
+          query_len: query.length,
+          prompt_len: 0,
+          messages_len: 0,
+          has_system_content: false,
+          has_user_content: false,
+        };
+
         if (!query) {
-          return jsonWithRequestId(
-            { ok: false, stage, session_id: sessionId, request_id: requestId, error: "Missing query" },
-            400
-          );
+          return respondError(new Error("Missing query"), {
+            status: 400,
+            details: {
+              code: "IMPORT_START_BUILD_PROMPT_FAILED",
+              message: "Missing query",
+              queryTypes,
+              prompt_len: xaiCallMeta.prompt_len,
+              meta: xaiCallMeta,
+            },
+          });
         }
 
         let promptString = "";
@@ -3137,9 +3194,20 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
         }
 
         promptString = String(promptString || "").trim();
+        xaiCallMeta.prompt_len = promptString.length;
+
         if (!promptString) {
           setStage("build_prompt", { error: "Empty prompt" });
-          return jsonWithRequestId({ ok: false, stage, session_id: sessionId, request_id: requestId, error: "Empty prompt" }, 400);
+          return respondError(new Error("Empty prompt"), {
+            status: 400,
+            details: {
+              code: "IMPORT_START_BUILD_PROMPT_FAILED",
+              message: "Empty prompt",
+              queryTypes,
+              prompt_len: xaiCallMeta.prompt_len,
+              meta: xaiCallMeta,
+            },
+          });
         }
 
         setStage("build_messages");
@@ -3152,17 +3220,23 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           { role: "user", content: promptString },
         ];
 
-        if (!String(messages?.[0]?.content || "").trim() || !String(messages?.[1]?.content || "").trim()) {
-          setStage("build_messages", { error: "Messages cannot be empty" });
-          return jsonWithRequestId(
-            { ok: false, stage, session_id: sessionId, request_id: requestId, error: "Messages cannot be empty" },
-            400
-          );
-        }
+        xaiCallMeta.messages_len = messages.length;
+        xaiCallMeta.has_system_content = Boolean(String(messages?.[0]?.content || "").trim());
+        xaiCallMeta.has_user_content = Boolean(String(messages?.[1]?.content || "").trim());
 
-        console.log("[import-start] queryTypes=", queryTypes);
-        console.log("[import-start] prompt_len=", promptString.length);
-        console.log("[import-start] messages_len=", messages.length);
+        if (!xaiCallMeta.has_system_content || !xaiCallMeta.has_user_content) {
+          setStage("build_messages", { error: "Messages cannot be empty" });
+          return respondError(new Error("Messages cannot be empty"), {
+            status: 400,
+            details: {
+              code: "IMPORT_START_BUILD_MESSAGES_FAILED",
+              message: "Messages cannot be empty",
+              queryTypes,
+              prompt_len: xaiCallMeta.prompt_len,
+              meta: xaiCallMeta,
+            },
+          });
+        }
 
         if (debugOutput) {
           debugOutput.xai.prompt = promptString;
@@ -3184,6 +3258,10 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
           console.log(`[import-start] session=${sessionId} xai request payload = ${JSON.stringify(xaiPayload)}`);
           console.log(`[import-start] Calling XAI API at: ${toHostPathOnlyForLog(xaiUrl)}`);
+          console.log(
+            "[import-start] xai_call_meta=",
+            JSON.stringify({ request_id: requestId, session_id: sessionId, ...xaiCallMeta })
+          );
           const xaiResponse = await axios.post(xaiUrl, xaiRequestPayload, {
           headers: {
             "Content-Type": "application/json",
@@ -3896,7 +3974,10 @@ Return ONLY the JSON array, no other text.`,
           );
 
           const upstreamStatus = xaiResponse.status;
-          const mappedStatus = upstreamStatus === 400 ? 400 : 502;
+          const mappedStatus =
+            upstreamStatus === 400 || upstreamStatus === 401 || upstreamStatus === 403 || upstreamStatus === 429
+              ? upstreamStatus
+              : 502;
 
           return respondError(new Error(`XAI returned ${upstreamStatus}`), {
             status: mappedStatus,
@@ -3904,21 +3985,30 @@ Return ONLY the JSON array, no other text.`,
               code:
                 upstreamStatus === 400
                   ? "IMPORT_START_UPSTREAM_BAD_REQUEST"
-                  : upstreamStatus === 404
-                    ? "IMPORT_START_UPSTREAM_NOT_FOUND"
-                    : "IMPORT_START_UPSTREAM_FAILED",
+                  : upstreamStatus === 401 || upstreamStatus === 403
+                    ? "IMPORT_START_UPSTREAM_UNAUTHORIZED"
+                    : upstreamStatus === 429
+                      ? "IMPORT_START_UPSTREAM_RATE_LIMITED"
+                      : upstreamStatus === 404
+                        ? "IMPORT_START_UPSTREAM_NOT_FOUND"
+                        : "IMPORT_START_UPSTREAM_FAILED",
               message:
                 upstreamStatus === 400
                   ? "Upstream rejected the request (400)"
-                  : upstreamStatus === 404
-                    ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
-                    : `XAI returned ${upstreamStatus}`,
+                  : upstreamStatus === 401 || upstreamStatus === 403
+                    ? "XAI endpoint rejected the request (unauthorized). Check XAI_EXTERNAL_KEY / authorization settings."
+                    : upstreamStatus === 429
+                      ? "XAI endpoint rate-limited the request (429)."
+                      : upstreamStatus === 404
+                        ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
+                        : `XAI returned ${upstreamStatus}`,
               upstream_status: upstreamStatus,
               upstream_url: xaiUrlForLog,
               upstream_text_preview: upstreamTextPreview,
               ...(upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {}),
               xai_status: upstreamStatus,
               xai_url: xaiUrlForLog,
+              meta: xaiCallMeta,
             },
           });
         }
@@ -3976,22 +4066,30 @@ Return ONLY the JSON array, no other text.`,
         const upstreamErrorCode =
           upstreamStatus === 400
             ? "IMPORT_START_UPSTREAM_BAD_REQUEST"
-            : upstreamStatus === 404
-              ? "IMPORT_START_UPSTREAM_NOT_FOUND"
-              : upstreamStatus === 401 || upstreamStatus === 403
-                ? "IMPORT_START_UPSTREAM_UNAUTHORIZED"
-                : "IMPORT_START_UPSTREAM_FAILED";
+            : upstreamStatus === 401 || upstreamStatus === 403
+              ? "IMPORT_START_UPSTREAM_UNAUTHORIZED"
+              : upstreamStatus === 429
+                ? "IMPORT_START_UPSTREAM_RATE_LIMITED"
+                : upstreamStatus === 404
+                  ? "IMPORT_START_UPSTREAM_NOT_FOUND"
+                  : "IMPORT_START_UPSTREAM_FAILED";
 
         const upstreamMessage =
           upstreamStatus === 400
             ? "Upstream rejected the request (400)"
-            : upstreamStatus === 404
-              ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
-              : upstreamStatus === 401 || upstreamStatus === 403
-                ? "XAI endpoint rejected the request (unauthorized). Check XAI_EXTERNAL_KEY / authorization settings."
-                : `XAI call failed: ${toErrorString(xaiError)}`;
+            : upstreamStatus === 401 || upstreamStatus === 403
+              ? "XAI endpoint rejected the request (unauthorized). Check XAI_EXTERNAL_KEY / authorization settings."
+              : upstreamStatus === 429
+                ? "XAI endpoint rate-limited the request (429)."
+                : upstreamStatus === 404
+                  ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
+                  : `XAI call failed: ${toErrorString(xaiError)}`;
 
-        const mappedStatus = upstreamStatus === 400 ? 400 : isTimeout ? 504 : 502;
+        const mappedStatus = isTimeout
+          ? 504
+          : upstreamStatus === 400 || upstreamStatus === 401 || upstreamStatus === 403 || upstreamStatus === 429
+            ? upstreamStatus
+            : 502;
 
         const upstreamRequestId = extractXaiRequestId(xaiError?.response?.headers || {});
         const upstreamTextPreview = toTextPreview(xaiError?.response?.data || xaiError?.response?.body || "");
@@ -4008,6 +4106,7 @@ Return ONLY the JSON array, no other text.`,
             xai_code: xaiError?.code || null,
             xai_status: upstreamStatus,
             xai_url: xaiUrlForLog,
+            meta: xaiCallMeta,
             ...(isTimeout ? { upstream_error_class: "read_timeout" } : {}),
           },
         });
@@ -4084,7 +4183,7 @@ const importStartHandler = async (req, context) => {
       }
     })();
 
-    const handlerVersion = `import-start ${String(buildInfoSafe?.build_id || "unknown")}`;
+    const handlerVersion = getImportStartHandlerVersion(buildInfoSafe);
 
     const env_present = (() => {
       try {
