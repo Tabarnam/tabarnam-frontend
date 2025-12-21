@@ -891,6 +891,47 @@ function toHostPathOnlyForLog(rawUrl) {
   return noScheme;
 }
 
+function redactHostForDiagnostics(host) {
+  const value = String(host || "").trim();
+  if (!value) return "";
+  if (value.length <= 18) return value;
+  return `${value.slice(0, 8)}…${value.slice(-8)}`;
+}
+
+function buildProxyResolutionDetails(req, proxyBase, proxySource) {
+  const reqUrl = tryParseUrl(req?.url);
+  const reqHost = String(reqUrl?.host || "").trim();
+
+  const proxyUrl = tryParseUrl(proxyBase);
+  const proxyHost = String(proxyUrl?.host || "").trim();
+
+  const same_origin =
+    reqHost && proxyHost ? reqHost.toLowerCase() === proxyHost.toLowerCase() : null;
+
+  const resolved_base_host = proxyHost ? redactHostForDiagnostics(proxyHost) : "";
+
+  return {
+    proxy_source: String(proxySource || "").trim() || null,
+    resolved_base_host: resolved_base_host || null,
+    same_origin,
+    is_external: typeof same_origin === "boolean" ? !same_origin : null,
+  };
+}
+
+function classifyAxiosUpstreamError(err) {
+  const status = err?.response?.status;
+  if (Number.isFinite(Number(status))) return "http_error";
+
+  const code = String(err?.code || "").trim();
+  const message = String(err?.message || "").toLowerCase();
+
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "dns";
+  if (code === "ETIMEDOUT") return "connect_timeout";
+  if (code === "ECONNABORTED" || message.includes("timeout") || message.includes("aborted")) return "read_timeout";
+  if (code === "ECONNREFUSED" || code === "EHOSTUNREACH" || code === "ENETUNREACH") return "fetch_failed";
+  return "fetch_failed";
+}
+
 function resolveXaiEndpointForModel(rawEndpoint, model) {
   const u = tryParseUrl(rawEndpoint);
   if (!u) return String(rawEndpoint || "").trim();
@@ -2156,6 +2197,13 @@ const importStartHandler = async (req, context) => {
           ...(body_source_detail ? { body_source_detail } : {}),
         };
 
+        if (!detailsObj.content_type) {
+          detailsObj.content_type = getHeader(req, "content-type") || null;
+        }
+        if (!detailsObj.content_length_header) {
+          detailsObj.content_length_header = getHeader(req, "content-length") || null;
+        }
+
         const env_present = {
           has_xai_key: Boolean(getXAIKey()),
           has_xai_base_url: Boolean(getXAIEndpoint()),
@@ -2167,15 +2215,25 @@ const importStartHandler = async (req, context) => {
           const rawUrl = d.upstream_url || d.xai_url || d.upstream || "";
           const host_path = rawUrl ? toHostPathOnlyForLog(rawUrl) : "";
           const statusVal = d.upstream_status ?? d.xai_status ?? null;
-          const body_preview = d.upstream_text_preview ? toTextPreview(d.upstream_text_preview) : "";
+          const body_preview =
+            d.upstream_text_preview || d.upstream_body_preview
+              ? toTextPreview(d.upstream_text_preview || d.upstream_body_preview)
+              : "";
           const timeout_ms =
             d.upstream_timeout_ms ?? d.timeout_ms ?? (status === 504 ? d.hard_timeout_ms || null : null);
+          const error_class =
+            typeof d.upstream_error_class === "string" && d.upstream_error_class.trim()
+              ? d.upstream_error_class.trim()
+              : typeof d.error_class === "string" && d.error_class.trim()
+                ? d.error_class.trim()
+                : null;
 
           const out = {};
           if (host_path) out.host_path = host_path;
           if (Number.isFinite(Number(statusVal))) out.status = Number(statusVal);
           if (body_preview) out.body_preview = body_preview;
           if (Number.isFinite(Number(timeout_ms))) out.timeout_ms = Number(timeout_ms);
+          if (error_class) out.error_class = error_class;
           return Object.keys(out).length ? out : null;
         })();
 
@@ -2252,7 +2310,7 @@ const importStartHandler = async (req, context) => {
           session_id: sessionId,
           request_id: requestId,
           env_present,
-          ...(upstream ? { upstream } : {}),
+          upstream: upstream || {},
           error: errorObj,
           legacy_error: message,
           ...buildInfo,
@@ -2455,15 +2513,17 @@ const importStartHandler = async (req, context) => {
           controller.abort();
         }, hardTimeoutMs);
 
+        const key = getXAIKey();
+
+        const base = proxyBase.replace(/\/$/, "");
+        const candidatePaths = ["/import/start", "/import-start"]; // support both route styles
+
+        let resp = null;
+        let usedPath = candidatePaths[0];
+        let usedUrl = `${base}${usedPath}`;
+        const proxy_resolution = buildProxyResolutionDetails(req, proxyBase, proxySource);
+
         try {
-          const key = getXAIKey();
-
-          const base = proxyBase.replace(/\/$/, "");
-          const candidatePaths = ["/import/start", "/import-start"]; // support both route styles
-
-          let resp = null;
-          let usedPath = candidatePaths[0];
-          let usedUrl = `${base}${usedPath}`;
 
           for (const p of candidatePaths) {
             const url = `${base}${p}`;
@@ -2502,11 +2562,51 @@ const importStartHandler = async (req, context) => {
           }
 
           const upstreamTextPreview = toTextPreview(resp.data);
+          const responseContentType = String(resp.headers?.["content-type"] || resp.headers?.["Content-Type"] || "").toLowerCase();
+          const expectsJson = responseContentType.includes("application/json") || responseContentType.includes("+json");
 
-          const parsed =
-            typeof resp.data === "string"
-              ? safeJsonParse(resp.data) ?? { message: resp.data }
-              : resp.data;
+          let parsed = null;
+          if (typeof resp.data === "string") {
+            parsed = safeJsonParse(resp.data);
+            if (!parsed && resp.data.trim()) {
+              if (expectsJson) {
+                return respondError(new Error("Upstream returned invalid JSON"), {
+                  status: 500,
+                  details: {
+                    code: "UPSTREAM_INVALID_JSON",
+                    message: "Upstream returned invalid JSON",
+                    upstream_error_class: "invalid_json",
+                    upstream_status: resp.status,
+                    upstream_url: toHostPathOnlyForLog(usedUrl),
+                    upstream_path: usedPath,
+                    upstream_text_preview: upstreamTextPreview,
+                    upstream_timeout_ms: upstreamTimeoutMs,
+                    proxy_resolution,
+                  },
+                });
+              }
+
+              if (responseContentType && !expectsJson && resp.status >= 200 && resp.status < 300) {
+                return respondError(new Error("Upstream returned unexpected content type"), {
+                  status: 500,
+                  details: {
+                    code: "UPSTREAM_UNEXPECTED_CONTENT_TYPE",
+                    message: `Upstream returned unexpected content type (${responseContentType || "unknown"})`,
+                    upstream_error_class: "unexpected_content_type",
+                    upstream_status: resp.status,
+                    upstream_url: toHostPathOnlyForLog(usedUrl),
+                    upstream_path: usedPath,
+                    upstream_text_preview: upstreamTextPreview,
+                    upstream_timeout_ms: upstreamTimeoutMs,
+                    upstream_content_type: responseContentType || null,
+                    proxy_resolution,
+                  },
+                });
+              }
+            }
+          } else if (resp.data && typeof resp.data === "object") {
+            parsed = resp.data;
+          }
 
           const body = parsed && typeof parsed === "object" ? parsed : { message: String(resp.data ?? "") };
 
@@ -2589,6 +2689,8 @@ const importStartHandler = async (req, context) => {
               ? {
                   host_path: usedHostPath,
                   status: resp.status,
+                  timeout_ms: upstreamTimeoutMs,
+                  error_class: "http_error",
                   ...(upstreamTextPreview ? { body_preview: upstreamTextPreview } : {}),
                 }
               : null;
@@ -2623,19 +2725,29 @@ const importStartHandler = async (req, context) => {
             String(e?.message || "").toLowerCase().includes("timeout") ||
             String(e?.message || "").toLowerCase().includes("aborted");
 
+          const usedHostPath = toHostPathOnlyForLog(usedUrl || proxyBase);
           const upstreamStatus = e?.response?.status || null;
           const upstreamTextPreview = toTextPreview(e?.response?.data || e?.response?.body || "");
           const upstreamRequestId = extractXaiRequestId(e?.response?.headers || {});
+          const upstream_error_class = isTimeout ? "read_timeout" : classifyAxiosUpstreamError(e);
+
+          console.error(
+            `[import-start] request_id=${requestId} session=${sessionId} upstream_failure class=${upstream_error_class} target=${usedHostPath} status=${upstreamStatus ?? ""}`
+          );
+
           const details = {
             upstream: toHostPathOnlyForLog(proxyBase),
             upstream_status: upstreamStatus,
-            upstream_url: toHostPathOnlyForLog(proxyBase),
+            upstream_url: usedHostPath,
+            upstream_path: usedPath,
             upstream_text_preview: upstreamTextPreview,
+            upstream_error_class,
             ...(upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {}),
             elapsed_ms: elapsedMs,
             upstream_timeout_ms: upstreamTimeoutMs,
             hard_timeout_ms: hardTimeoutMs,
             original_error: toErrorString(e),
+            proxy_resolution,
           };
 
           // Proxy is an optimization: if it fails and wasn't explicitly forced, fall back to direct import.
