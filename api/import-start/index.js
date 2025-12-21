@@ -2967,10 +2967,16 @@ const importStartHandlerInner = async (req, context) => {
         };
 
         if (!query) {
-          return jsonWithRequestId(
-            { ok: false, stage, session_id: sessionId, request_id: requestId, error: "Missing query" },
-            400
-          );
+          return respondError(new Error("Missing query"), {
+            status: 400,
+            details: {
+              code: "IMPORT_START_BUILD_PROMPT_FAILED",
+              message: "Missing query",
+              queryTypes,
+              prompt_len: xaiCallMeta.prompt_len,
+              meta: xaiCallMeta,
+            },
+          });
         }
 
         let promptString = "";
