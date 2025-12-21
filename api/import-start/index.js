@@ -2451,11 +2451,26 @@ const importStartHandlerInner = async (req, context) => {
       }
 
       if (!String(bodyObj.query || "").trim()) {
+        setStage("build_prompt", { error: "MISSING_QUERY" });
+
+        const normalizedQueryTypes = Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [];
+        const meta = {
+          queryTypes: normalizedQueryTypes,
+          query_len: 0,
+          prompt_len: 0,
+          messages_len: 0,
+          has_system_content: false,
+          has_user_content: false,
+        };
+
         return respondError(new Error("query is required"), {
           status: 400,
           details: {
             code: "IMPORT_START_VALIDATION_FAILED",
             message: "Query is required",
+            queryTypes: normalizedQueryTypes,
+            prompt_len: meta.prompt_len,
+            meta,
           },
         });
       }
