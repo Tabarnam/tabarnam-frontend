@@ -104,6 +104,12 @@ class InvalidJsonBodyError extends Error {
 
     this.is_body_object = typeof options?.isBodyObject === "boolean" ? options.isBodyObject : null;
 
+    this.body_source =
+      typeof options?.bodySource === "string" && options.bodySource.trim() ? options.bodySource.trim() : null;
+
+    this.body_source_detail =
+      typeof options?.bodySourceDetail === "string" && options.bodySourceDetail.trim() ? options.bodySourceDetail.trim() : null;
+
     this.raw_text_preview =
       typeof options?.rawTextPreview === "string" && options.rawTextPreview.trim() ? options.rawTextPreview.trim() : null;
 
@@ -300,7 +306,7 @@ function isProbablyStreamBody(value) {
   );
 }
 
-function parseJsonFromStringOrBinary(value) {
+function parseJsonFromStringOrBinary(value, meta) {
   const text = typeof value === "string" ? value : binaryBodyToString(value);
   const result = parseJsonBodyStrict(text);
   if (!result.ok) {
@@ -313,6 +319,8 @@ function parseJsonFromStringOrBinary(value) {
       rawTextHexPreview,
       firstBytesPreview: buildFirstBytesPreview(value || text),
       rawBodyPreview: rawTextPreview,
+      bodySource: meta?.body_source || null,
+      bodySourceDetail: meta?.body_source_detail || null,
     });
   }
   return result.value;
@@ -456,25 +464,34 @@ async function readStreamLikeToBuffer(streamLike) {
   return Buffer.alloc(0);
 }
 
-async function parseJsonFromStreamLike(value) {
+async function parseJsonFromStreamLike(value, meta) {
   const buf = await readStreamLikeToBuffer(value);
   if (!buf || !buf.length) return {};
-  return parseJsonFromStringOrBinary(buf);
+  return parseJsonFromStringOrBinary(buf, meta);
+}
+
+function isJsonContentType(value) {
+  const v = String(value || "").toLowerCase();
+  return v.includes("application/json") || v.includes("+json");
 }
 
 async function readJsonBody(req) {
-  if (!req) return {};
+  if (!req) {
+    return { body: {}, body_source: "unknown", body_source_detail: "no_req" };
+  }
 
   const rawBody = req.rawBody;
   const body = req.body;
   const bufferBody = req.bufferBody;
 
+  const contentType = getHeader(req, "content-type") || "";
+  const prefersBodyObject = isJsonContentType(contentType);
+
   const isStreamBody = isProbablyStreamBody(rawBody) || isProbablyStreamBody(body) || isProbablyStreamBody(bufferBody);
 
-  const decorateInvalidJsonError = (err) => {
+  const decorateInvalidJsonError = (err, meta) => {
     if (!err || err.code !== "INVALID_JSON_BODY") return err;
 
-    const contentType = getHeader(req, "content-type") || "";
     const bodyType = typeof req?.body;
     const isBodyObject = Boolean(req?.body && typeof req.body === "object" && !Array.isArray(req.body));
     const bodyKeysPreview = getBodyKeysPreview(req?.body);
@@ -483,6 +500,9 @@ async function readJsonBody(req) {
     err.body_type ||= bodyType || null;
     err.is_body_object = typeof err.is_body_object === "boolean" ? err.is_body_object : isBodyObject;
     err.body_keys_preview ||= bodyKeysPreview;
+
+    err.body_source ||= meta?.body_source || null;
+    err.body_source_detail ||= meta?.body_source_detail || null;
 
     return err;
   };
@@ -502,6 +522,20 @@ async function readJsonBody(req) {
     console.log("[import-start] body_sources");
   }
 
+  if (prefersBodyObject && body !== null && typeof body === "object" && !Array.isArray(body)) {
+    const keysPreview = getBodyKeysPreview(body);
+    try {
+      console.log(
+        "[import-start] readJsonBody: using req.body object branch (json content-type)",
+        JSON.stringify({ keys: keysPreview })
+      );
+    } catch {
+      console.log("[import-start] readJsonBody: using req.body object branch (json content-type)");
+    }
+
+    return { body, body_source: "req.body", body_source_detail: "req.body" };
+  }
+
   if (body && typeof body === "object" && !Array.isArray(body) && !isBinaryBody(body) && !isProbablyStreamBody(body)) {
     const keysPreview = getBodyKeysPreview(body);
     try {
@@ -513,29 +547,35 @@ async function readJsonBody(req) {
       console.log("[import-start] readJsonBody: using req.body object branch");
     }
 
-    return body;
+    return { body, body_source: "req.body", body_source_detail: "req.body" };
   }
 
   // Prefer the platform's raw text reader when available (closest to bytes-on-the-wire).
   if (typeof req.text === "function") {
+    const meta = { body_source: "req.text", body_source_detail: "req.text" };
     try {
       const rawVal = await req.text();
-      if (rawVal && typeof rawVal === "object" && !Array.isArray(rawVal)) return rawVal;
+      if (rawVal && typeof rawVal === "object" && !Array.isArray(rawVal)) {
+        return { body: rawVal, body_source: "req.text", body_source_detail: "req.text:object" };
+      }
 
-      const rawText = typeof rawVal === "string" ? rawVal : String(rawVal ?? "");
-      if (rawText && rawText.trim()) return parseJsonFromStringOrBinary(rawText);
+      const rawText = typeof rawVal === "string" ? rawVal : "";
+      if (rawText && rawText.trim()) {
+        return { body: parseJsonFromStringOrBinary(rawText, meta), ...meta };
+      }
     } catch (err) {
-      if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err);
+      if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err, meta);
       // Otherwise, fall through (body may already be consumed or unreadable via this API).
     }
   }
 
   if (typeof req.arrayBuffer === "function") {
+    const meta = { body_source: "req.arrayBuffer", body_source_detail: "req.arrayBuffer" };
     try {
       const ab = await req.arrayBuffer();
-      if (ab) return parseJsonFromStringOrBinary(ab);
+      if (ab) return { body: parseJsonFromStringOrBinary(ab, meta), ...meta };
     } catch (err) {
-      if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err);
+      if (err?.code === "INVALID_JSON_BODY") throw decorateInvalidJsonError(err, meta);
       // Otherwise, fall through.
     }
   }
@@ -544,44 +584,61 @@ async function readJsonBody(req) {
   if (getBodyLen(rawBody) > 0) {
     try {
       if (typeof rawBody === "string" || isBinaryBody(rawBody)) {
-        return parseJsonFromStringOrBinary(rawBody);
+        const meta = {
+          body_source: typeof rawBody === "string" ? "req.text" : "req.arrayBuffer",
+          body_source_detail: "req.rawBody",
+        };
+        return { body: parseJsonFromStringOrBinary(rawBody, meta), ...meta };
       }
       if (isProbablyStreamBody(rawBody)) {
-        return await parseJsonFromStreamLike(rawBody);
+        const meta = { body_source: "unknown", body_source_detail: "req.rawBody:stream" };
+        return { body: await parseJsonFromStreamLike(rawBody, meta), ...meta };
       }
     } catch (err) {
-      throw decorateInvalidJsonError(err);
+      throw decorateInvalidJsonError(err, { body_source: "unknown", body_source_detail: "req.rawBody" });
     }
   }
 
   // Then fall back to body/bufferBody if they look like raw strings/buffers.
   try {
     if (typeof body === "string" || isBinaryBody(body)) {
-      return parseJsonFromStringOrBinary(body);
+      const meta = {
+        body_source: typeof body === "string" ? "req.text" : "req.arrayBuffer",
+        body_source_detail: "req.body",
+      };
+      return { body: parseJsonFromStringOrBinary(body, meta), ...meta };
     }
 
     if (isProbablyStreamBody(body)) {
-      return await parseJsonFromStreamLike(body);
+      const meta = { body_source: "unknown", body_source_detail: "req.body:stream" };
+      return { body: await parseJsonFromStreamLike(body, meta), ...meta };
     }
 
     if (getBodyLen(bufferBody) > 0) {
       if (typeof bufferBody === "string" || isBinaryBody(bufferBody)) {
-        return parseJsonFromStringOrBinary(bufferBody);
+        const meta = {
+          body_source: typeof bufferBody === "string" ? "req.text" : "req.arrayBuffer",
+          body_source_detail: "req.bufferBody",
+        };
+        return { body: parseJsonFromStringOrBinary(bufferBody, meta), ...meta };
       }
     }
 
     if (isProbablyStreamBody(bufferBody)) {
-      return await parseJsonFromStreamLike(bufferBody);
+      const meta = { body_source: "unknown", body_source_detail: "req.bufferBody:stream" };
+      return { body: await parseJsonFromStreamLike(bufferBody, meta), ...meta };
     }
   } catch (err) {
-    throw decorateInvalidJsonError(err);
+    throw decorateInvalidJsonError(err, { body_source: "unknown", body_source_detail: "fallback" });
   }
 
   // As a last resort, try the runtime JSON parser.
   if (typeof req.json === "function") {
     try {
       const val = await req.json();
-      if (val && typeof val === "object") return val;
+      if (val && typeof val === "object") {
+        return { body: val, body_source: "unknown", body_source_detail: "req.json" };
+      }
     } catch {
       // Fall through.
     }
@@ -590,10 +647,12 @@ async function readJsonBody(req) {
   // If body is a plain object but empty, return it only when we have no other body sources.
   if (body && typeof body === "object" && !Array.isArray(body) && !isBinaryBody(body) && !isProbablyStreamBody(body)) {
     const otherLen = getBodyLen(rawBody) + getBodyLen(bufferBody);
-    if (otherLen === 0) return body;
+    if (otherLen === 0) {
+      return { body, body_source: "req.body", body_source_detail: "req.body" };
+    }
   }
 
-  return {};
+  return { body: {}, body_source: "unknown", body_source_detail: "empty" };
 }
 
 function toErrorString(err) {
@@ -1763,12 +1822,20 @@ const importStartHandler = async (req, context) => {
       }
 
       let payload;
+      let body_source = "unknown";
+      let body_source_detail = "";
       try {
-        payload = await readJsonBody(req);
+        const parsed = await readJsonBody(req);
+        payload = parsed.body;
+        body_source = parsed.body_source || "unknown";
+        body_source_detail = parsed.body_source_detail || "";
       } catch (err) {
         if (err?.code === "INVALID_JSON_BODY") {
           const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
           const buildInfo = getBuildInfo();
+
+          body_source = err?.body_source || "unknown";
+          body_source_detail = err?.body_source_detail || "";
 
           try {
             console.error(
@@ -1782,6 +1849,8 @@ const importStartHandler = async (req, context) => {
                     ? err.is_body_object
                     : Boolean(req?.body && typeof req.body === "object" && !Array.isArray(req.body)),
                 body_keys_preview: err?.body_keys_preview || getBodyKeysPreview(req?.body),
+                body_source,
+                body_source_detail,
                 raw_text_preview: err?.raw_text_preview || err?.raw_body_preview || null,
                 raw_text_hex_preview: err?.raw_text_hex_preview || null,
               })
@@ -1818,6 +1887,8 @@ const importStartHandler = async (req, context) => {
                     ? err.is_body_object
                     : Boolean(req?.body && typeof req.body === "object" && !Array.isArray(req.body)),
                 body_keys_preview: err?.body_keys_preview || getBodyKeysPreview(req?.body),
+                body_source,
+                ...(body_source_detail ? { body_source_detail } : {}),
                 raw_text_preview: err?.raw_text_preview || err?.raw_body_preview || null,
                 raw_text_hex_preview: err?.raw_text_hex_preview || null,
 
@@ -1830,6 +1901,8 @@ const importStartHandler = async (req, context) => {
                       handler_reached: true,
                       stage_trace: stageTrace,
                       ...buildBodyDiagnostics(req, {
+                        body_source,
+                        ...(body_source_detail ? { body_source_detail } : {}),
                         parse_error: err?.parse_error || null,
                         first_bytes_preview: err?.first_bytes_preview || null,
                         raw_text_preview: err?.raw_text_preview || err?.raw_body_preview || null,
@@ -1973,6 +2046,12 @@ const importStartHandler = async (req, context) => {
       };
 
       const respondError = async (err, { status = 500, details = {} } = {}) => {
+        const detailsObj = {
+          ...(details && typeof details === "object" ? details : {}),
+          body_source,
+          ...(body_source_detail ? { body_source_detail } : {}),
+        };
+
         const env_present = {
           has_xai_key: Boolean(getXAIKey()),
           has_xai_base_url: Boolean(getXAIEndpoint()),
@@ -1980,7 +2059,7 @@ const importStartHandler = async (req, context) => {
         };
 
         const upstream = (() => {
-          const d = details && typeof details === "object" ? details : {};
+          const d = detailsObj && typeof detailsObj === "object" ? detailsObj : {};
           const rawUrl = d.upstream_url || d.xai_url || d.upstream || "";
           const host_path = rawUrl ? toHostPathOnlyForLog(rawUrl) : "";
           const statusVal = d.upstream_status ?? d.xai_status ?? null;
@@ -2007,12 +2086,12 @@ const importStartHandler = async (req, context) => {
 
         const errorMessage = toErrorString(err);
         const code =
-          (details && typeof details.code === "string" && details.code.trim() ? details.code.trim() : null) ||
+          (detailsObj && typeof detailsObj.code === "string" && detailsObj.code.trim() ? detailsObj.code.trim() : null) ||
           (status === 400 ? "INVALID_REQUEST" : stage === "config" ? "IMPORT_START_NOT_CONFIGURED" : "IMPORT_START_FAILED");
 
         const message =
-          (details && typeof details.message === "string" && details.message.trim()
-            ? details.message.trim()
+          (detailsObj && typeof detailsObj.message === "string" && detailsObj.message.trim()
+            ? detailsObj.message.trim()
             : errorMessage) || "Import start failed";
 
         console.error(`[import-start] request_id=${requestId} session=${sessionId} stage=${stage} code=${code} message=${message}`);
@@ -2035,10 +2114,10 @@ const importStartHandler = async (req, context) => {
           "upstream_request_id",
         ];
 
-        if (details && typeof details === "object") {
+        if (detailsObj && typeof detailsObj === "object") {
           for (const k of passthroughKeys) {
-            if (details[k] === undefined || details[k] === null) continue;
-            const v = details[k];
+            if (detailsObj[k] === undefined || detailsObj[k] === null) continue;
+            const v = detailsObj[k];
             if (typeof v === "string" && !v.trim()) continue;
             errorObj[k] = v;
           }
@@ -2053,7 +2132,7 @@ const importStartHandler = async (req, context) => {
               request_id: requestId,
               stage,
               error: errorObj,
-              details: details && typeof details === "object" ? details : {},
+              details: detailsObj && typeof detailsObj === "object" ? detailsObj : {},
             };
             await upsertItemWithPkCandidates(container, errorDoc);
           }
@@ -2093,7 +2172,7 @@ const importStartHandler = async (req, context) => {
                 debug: debugOutput,
               }
             : {}),
-          ...(details && typeof details === "object" && Object.keys(details).length ? { details } : {}),
+          ...(detailsObj && typeof detailsObj === "object" && Object.keys(detailsObj).length ? { details: detailsObj } : {}),
         };
 
         return jsonWithRequestId(errorPayload, status);
@@ -2139,6 +2218,10 @@ const importStartHandler = async (req, context) => {
             stage,
             session_id: sessionId,
             request_id: requestId,
+            details: {
+              body_source,
+              ...(body_source_detail ? { body_source_detail } : {}),
+            },
             company_name: contextInfo.company_name,
             website_url: contextInfo.website_url,
             normalized_domain: contextInfo.normalized_domain,
