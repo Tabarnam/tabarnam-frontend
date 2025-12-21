@@ -1971,18 +1971,19 @@ const importStartHandler = async (req, context) => {
               normalized_domain: "",
               xai_request_id: null,
               details: {
+                ...buildRequestDetails(req, {
+                  body_source,
+                  body_source_detail,
+                  raw_text_preview: err?.raw_text_preview || err?.raw_body_preview || null,
+                  raw_text_starts_with_brace: /^\s*\{/.test(String(err?.raw_text_preview || err?.raw_body_preview || "")),
+                }),
                 code: "INVALID_JSON_BODY",
                 message: "Invalid JSON body",
-                content_type: err?.content_type || getHeader(req, "content-type") || null,
                 body_type: err?.body_type || typeof req?.body,
                 is_body_object:
                   typeof err?.is_body_object === "boolean"
                     ? err.is_body_object
                     : Boolean(req?.body && typeof req.body === "object" && !Array.isArray(req.body)),
-                body_keys_preview: err?.body_keys_preview || getBodyKeysPreview(req?.body),
-                body_source,
-                ...(body_source_detail ? { body_source_detail } : {}),
-                raw_text_preview: err?.raw_text_preview || err?.raw_body_preview || null,
                 raw_text_hex_preview: err?.raw_text_hex_preview || null,
 
                 // Back-compat.
