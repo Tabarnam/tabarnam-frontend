@@ -61,6 +61,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: diag");
+  require("./diag/index.js");
+  console.log("[api] ✓ diag registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load diag:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: hello");
   require("./hello/index.js");
 } catch (e) {
