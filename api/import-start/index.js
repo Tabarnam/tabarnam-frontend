@@ -2321,10 +2321,14 @@ const importStartHandler = async (req, context) => {
             stage,
             session_id: sessionId,
             request_id: requestId,
-            details: {
-              body_source,
-              ...(body_source_detail ? { body_source_detail } : {}),
-            },
+            details:
+              requestDetails ||
+              buildRequestDetails(req, {
+                body_source,
+                body_source_detail,
+                raw_text_preview,
+                raw_text_starts_with_brace,
+              }),
             company_name: contextInfo.company_name,
             website_url: contextInfo.website_url,
             normalized_domain: contextInfo.normalized_domain,
