@@ -57,22 +57,35 @@ jobs:
           set -euo pipefail
           node - <<'NODE'
           const profile = process.env.AZURE_FUNCTIONAPP_PUBLISH_PROFILE || '';
+
+          const tagMatch =
+            profile.match(/<publishProfile\b[^>]*publishMethod="ZipDeploy"[^>]*>/i) ||
+            profile.match(/<publishProfile\b[^>]*publishMethod="MSDeploy"[^>]*>/i) ||
+            profile.match(/<publishProfile\b[^>]*>/i);
+
+          const tag = tagMatch ? tagMatch[0] : '';
+
           const getAttr = (name) => {
-            const re = new RegExp(name + '="([^"]+)"');
-            const m = profile.match(re);
+            const re = new RegExp(name + '="([^"]+)"', 'i');
+            const m = tag.match(re);
             return m ? m[1] : '';
           };
+
           const user = getAttr('userName');
           const pass = getAttr('userPWD');
-          const publishUrl = getAttr('publishUrl');
-          if (!user || !pass || !publishUrl) {
+          const publishUrlRaw = getAttr('publishUrl');
+
+          if (!user || !pass || !publishUrlRaw) {
             console.log('[kudu] Could not parse publish profile for Kudu credentials.');
             process.exit(0);
           }
-          const isScm = publishUrl.includes('.scm.');
-          const scmHost = isScm ? publishUrl : publishUrl.replace('.azurewebsites.net', '.scm.azurewebsites.net');
+
+          const publishHost = publishUrlRaw.replace(/^https?:\/\//i, '').replace(/:443$/i, '');
+          const scmHost = publishHost.includes('.scm.') ? publishHost : publishHost.replace('.azurewebsites.net', '.scm.azurewebsites.net');
           const base = 'https://' + scmHost;
+
           console.log(JSON.stringify({ event: 'kudu_info', scmHost }));
+
           const { spawnSync } = require('node:child_process');
           const curl = (args) => spawnSync('curl', ['-sS', '-u', `${user}:${pass}`, ...args], { stdio: 'inherit' });
           curl([base + '/api/vfs/site/wwwroot/']);
