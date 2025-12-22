@@ -2169,10 +2169,10 @@ const importStartHandlerInner = async (req, context) => {
         `[import-start] request_id=${requestId} session=${sessionId} normalized_request=` +
           JSON.stringify({
             session_id: sessionId,
-            query: normalizedQuery,
+            query_len: normalizedQuery.length,
             queryType: bodyObj.queryType,
             queryTypes: bodyObj.queryTypes,
-            location: normalizedLocation,
+            location_len: normalizedLocation.length,
             limit: normalizedLimit,
             proxy: Object.prototype.hasOwnProperty.call(bodyObj, "proxy") ? bodyObj.proxy : undefined,
           })
@@ -2183,7 +2183,7 @@ const importStartHandlerInner = async (req, context) => {
         ? {
             xai: {
               payload: null,
-              prompt: null,
+              prompt_len: 0,
               raw_response: null,
               parse_error: null,
               parsed_companies: 0,
