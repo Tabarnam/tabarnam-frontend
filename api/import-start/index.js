@@ -4341,12 +4341,13 @@ Return ONLY the JSON array, no other text.`,
               console.log(
                 `[import-start] Making expansion search for "${xaiPayload.query}" (upstream=${toHostPathOnlyForLog(xaiUrl)})`
               );
-              const expansionResponse = await axios.post(xaiUrl, expansionPayload, {
+              const expansionResponse = await postJsonWithTimeout(xaiUrl, {
                 headers: {
                   "Content-Type": "application/json",
                   "Authorization": `Bearer ${xaiKey}`,
                 },
-                timeout: timeout,
+                body: JSON.stringify(expansionPayload),
+                timeoutMs: timeout,
               });
 
               if (expansionResponse.status >= 200 && expansionResponse.status < 300) {
