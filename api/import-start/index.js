@@ -4206,7 +4206,7 @@ Output JSON only:
 
           // Location refinement pass: if too many companies have missing locations, run a refinement
           // But skip if we're running out of time
-          if (companiesNeedingLocationRefinement.length > 0 && enriched.length > 0 && !shouldAbort()) {
+          if (shouldRunStage("location") && companiesNeedingLocationRefinement.length > 0 && enriched.length > 0 && !shouldAbort()) {
             console.log(`[import-start] ${companiesNeedingLocationRefinement.length} companies need location refinement`);
 
             try {
