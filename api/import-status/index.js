@@ -263,14 +263,13 @@ async function handler(req, context) {
     return json(
       {
         ok: true,
-        state: "running",
         session_id: sessionId,
+        status: "running",
+        stage_beacon,
+        companies_count: saved,
         items,
         saved,
         lastCreatedAt,
-        completed: false,
-        timedOut: false,
-        stopped: false,
       },
       200,
       req
