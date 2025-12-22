@@ -2928,6 +2928,40 @@ const importStartHandlerInner = async (req, context) => {
         return false;
       };
 
+      const respondAcceptedBeforeGatewayTimeout = (nextStageBeacon) => {
+        const beacon = String(nextStageBeacon || stage_beacon || stage || "unknown") || "unknown";
+        mark(beacon);
+
+        try {
+          upsertImportSession({
+            session_id: sessionId,
+            request_id: requestId,
+            status: "running",
+            stage_beacon: beacon,
+            companies_count: Array.isArray(enrichedForCounts) ? enrichedForCounts.length : 0,
+          });
+        } catch {}
+
+        return jsonWithRequestId(
+          {
+            ok: true,
+            accepted: true,
+            session_id: sessionId,
+            request_id: requestId,
+            stage_beacon: beacon,
+            reason: "deadline_exceeded_returning_202",
+          },
+          202
+        );
+      };
+
+      const checkDeadlineOrReturn = (nextStageBeacon) => {
+        if (Date.now() > deadlineMs) {
+          return respondAcceptedBeforeGatewayTimeout(nextStageBeacon);
+        }
+        return null;
+      };
+
       try {
         const center = safeCenter(bodyObj.center);
         const query = String(bodyObj.query || "").trim();
