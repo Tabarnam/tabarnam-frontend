@@ -25,7 +25,7 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
     setError("");
     try {
       const qs = `company_id=${encodeURIComponent(id)}`;
-      const r = await fetch(`${API_BASE}/get-reviews?${qs}`);
+      const r = await apiFetch(`/get-reviews?${qs}`);
       const data = await r.json().catch(() => ({ items: [], reviews: [] }));
       if (!r.ok) throw new Error(data?.error || r.statusText || "Failed to load");
       const reviews = Array.isArray(data?.items)
@@ -51,16 +51,15 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
     }
     setSubmitting(true);
     try {
-      const r = await fetch(`${API_BASE}/submit-review`, {
+      const r = await apiFetch("/submit-review", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: {
           company_name: companyName,
           rating: Number(rating),
           text: text.trim(),
           user_name: userName.trim() || null,
-          user_location: userLocation.trim() || null
-        })
+          user_location: userLocation.trim() || null,
+        },
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data?.ok) throw new Error(data?.error || r.statusText || "Submit failed");
