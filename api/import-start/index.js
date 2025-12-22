@@ -2290,7 +2290,7 @@ const importStartHandlerInner = async (req, context) => {
         const env_present = {
           has_xai_key: Boolean(getXAIKey()),
           has_xai_base_url: Boolean(getXAIEndpoint()),
-          has_import_start_proxy_base: Boolean(getImportStartProxyInfo().base),
+          has_import_start_proxy_base: false,
         };
 
         const upstream = (() => {
@@ -4356,21 +4356,11 @@ const importStartHandler = async (req, context) => {
 
     const handlerVersion = getImportStartHandlerVersion(buildInfoSafe);
 
-    const env_present = (() => {
-      try {
-        return {
-          has_xai_key: Boolean(getXAIKey()),
-          has_xai_base_url: Boolean(getXAIEndpoint()),
-          has_import_start_proxy_base: Boolean(getImportStartProxyInfo().base),
-        };
-      } catch {
-        return {
-          has_xai_key: Boolean(getXAIKey()),
-          has_xai_base_url: Boolean(getXAIEndpoint()),
-          has_import_start_proxy_base: false,
-        };
-      }
-    })();
+    const env_present = {
+      has_xai_key: Boolean(getXAIKey()),
+      has_xai_base_url: Boolean(getXAIEndpoint()),
+      has_import_start_proxy_base: false,
+    };
 
     console.error("[import-start] Top-level handler error:", toErrorString(e));
 
