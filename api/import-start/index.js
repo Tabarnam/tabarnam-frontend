@@ -2529,6 +2529,16 @@ const importStartHandlerInner = async (req, context) => {
 
         const errorStage = stage_beacon || stage;
 
+        try {
+          upsertImportSession({
+            session_id: sessionId,
+            request_id: requestId,
+            status: "failed",
+            stage_beacon: errorStage,
+            companies_count: Array.isArray(enrichedForCounts) ? enrichedForCounts.length : 0,
+          });
+        } catch {}
+
         const env_present = {
           has_xai_key: Boolean(getXAIKey()),
           has_xai_base_url: Boolean(getXAIEndpoint()),
