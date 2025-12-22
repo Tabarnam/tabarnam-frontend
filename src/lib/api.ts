@@ -375,9 +375,10 @@ export async function apiFetch(path: string, init?: RequestInit) {
       }
 
       const configMsg = await getUserFacingConfigMessage(response);
-      if (!configMsg) {
-        console.error("[apiFetch] Non-2xx response", err);
-      }
+      console.error("[apiFetch] Non-2xx response", {
+        ...err,
+        ...(configMsg ? { user_facing_config_message: configMsg } : {}),
+      });
     }
 
     return response;
