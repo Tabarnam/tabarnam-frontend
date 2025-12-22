@@ -4469,6 +4469,10 @@ Return ONLY the JSON array, no other text.`,
               console.log(
                 `[import-start] Making expansion search for "${xaiPayload.query}" (upstream=${toHostPathOnlyForLog(xaiUrl)})`
               );
+
+              const deadlineBeforeExpand = checkDeadlineOrReturn("xai_expand_fetch_start");
+              if (deadlineBeforeExpand) return deadlineBeforeExpand;
+
               mark("xai_expand_fetch_start");
               const expansionResponse = await postJsonWithTimeout(xaiUrl, {
                 headers: {
