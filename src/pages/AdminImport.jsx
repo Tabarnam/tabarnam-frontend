@@ -573,6 +573,70 @@ export default function AdminImport() {
     }
   }, [importConfigLoading, importConfigMessage, importReady, limitInput, location, query, queryTypes, resetPollAttempts, schedulePoll, stopPolling, urlTypeValidationError]);
 
+  const explainImportPayload = useCallback(async () => {
+    const q = query.trim();
+    if (!q) {
+      toast.error("Enter a query to explain.");
+      return;
+    }
+
+    if (urlTypeValidationError) {
+      toast.error(urlTypeValidationError);
+      return;
+    }
+
+    if (!importConfigLoading && !importReady) {
+      toast.error(importConfigMessage || "Import is not configured.");
+      return;
+    }
+
+    const session_id =
+      globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+    const normalizedLimit = normalizeImportLimit(limitInput);
+    const selectedTypes = Array.isArray(queryTypes) && queryTypes.length > 0 ? queryTypes : ["product_keyword"];
+
+    const requestPayload = {
+      session_id,
+      query: q,
+      queryTypes: selectedTypes,
+      location: asString(location).trim() || undefined,
+      limit: normalizedLimit,
+      expand_if_few: true,
+    };
+
+    setExplainLoading(true);
+    setExplainResponseText("");
+
+    try {
+      const { res } = await apiFetchWithFallback(["/import/start?explain=1", "/import-start?explain=1"], {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestPayload),
+      });
+
+      const body = await readJsonOrText(res);
+      const pretty = toPrettyJsonText(body);
+      setExplainResponseText(pretty);
+
+      if (!res.ok || body?.ok === false) {
+        const msg = toErrorString(
+          (await getUserFacingConfigMessage(res)) || body?.error || body?.message || `Explain failed (${res.status})`
+        );
+        toast.error(msg || "Explain failed");
+        return;
+      }
+
+      toast.success("Explain payload ready");
+    } catch (e) {
+      const msg = toErrorString(e) || "Explain failed";
+      setExplainResponseText(JSON.stringify({ error: msg }, null, 2));
+      toast.error(msg);
+    } finally {
+      setExplainLoading(false);
+    }
+  }, [importConfigLoading, importConfigMessage, importReady, limitInput, location, query, queryTypes, urlTypeValidationError]);
+
   const stopImport = useCallback(async () => {
     if (!activeSessionId) return;
 
