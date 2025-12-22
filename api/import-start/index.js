@@ -2776,7 +2776,7 @@ const importStartHandlerInner = async (req, context) => {
       }
 
       setStage("create_session");
-      if (!noUpstreamMode) {
+      if (!noUpstreamMode && cosmosEnabled) {
         try {
           const container = getCompaniesCosmosContainer();
           if (container) {
