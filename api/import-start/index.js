@@ -4109,11 +4109,18 @@ Output JSON only:
           }
 
           // Fetch editorial reviews for companies
-          if (!shouldAbort()) {
+          if (shouldRunStage("reviews") && !shouldAbort()) {
+            const deadlineBeforeReviews = checkDeadlineOrReturn("xai_reviews_fetch_start");
+            if (deadlineBeforeReviews) return deadlineBeforeReviews;
+
             mark("xai_reviews_fetch_start");
             setStage("fetchEditorialReviews");
             console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
             for (let i = 0; i < enriched.length; i++) {
+              if (Date.now() > deadlineMs) {
+                return respondAcceptedBeforeGatewayTimeout("xai_reviews_fetch_start");
+              }
+
               // Check if import was stopped OR we're running out of time
               if (shouldAbort()) {
                 console.log(`[import-start] session=${sessionId} aborting during review fetch: time limit exceeded`);
@@ -4144,7 +4151,9 @@ Output JSON only:
                 );
                 if (editorialReviews.length > 0) {
                   enriched[i] = { ...company, curated_reviews: editorialReviews };
-                  console.log(`[import-start] session=${sessionId} fetched ${editorialReviews.length} editorial reviews for ${company.company_name}`);
+                  console.log(
+                    `[import-start] session=${sessionId} fetched ${editorialReviews.length} editorial reviews for ${company.company_name}`
+                  );
                 } else {
                   enriched[i] = { ...company, curated_reviews: [] };
                 }
@@ -4154,6 +4163,37 @@ Output JSON only:
             }
             console.log(`[import-start] session=${sessionId} editorial review enrichment done`);
             mark("xai_reviews_fetch_done");
+          } else if (!shouldRunStage("reviews")) {
+            mark("xai_reviews_fetch_skipped");
+          }
+
+          if (shouldStopAfterStage("reviews")) {
+            try {
+              upsertImportSession({
+                session_id: sessionId,
+                request_id: requestId,
+                status: "complete",
+                stage_beacon,
+                companies_count: Array.isArray(enriched) ? enriched.length : 0,
+              });
+            } catch {}
+
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                stage_beacon,
+                companies: enriched,
+                meta: {
+                  mode: "direct",
+                  max_stage: maxStage,
+                  skip_stages: Array.from(skipStages),
+                  stopped_after_stage: "reviews",
+                },
+              },
+              200
+            );
           }
 
           // Check if any companies have missing or weak location data
