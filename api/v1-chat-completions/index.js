@@ -130,8 +130,9 @@ app.http("v1-chat-completions", {
   handler: async (req, context) => {
     if (req.method === "OPTIONS") {
       return {
-        status: 204,
+        status: 200,
         headers: withCors({}),
+        body: "",
       };
     }
 
