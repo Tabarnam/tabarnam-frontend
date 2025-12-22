@@ -2524,7 +2524,7 @@ const importStartHandlerInner = async (req, context) => {
           }
         }
 
-        if (!noUpstreamMode) {
+        if (!noUpstreamMode && cosmosEnabled) {
           try {
             const container = getCompaniesCosmosContainer();
             if (container) {
@@ -2532,7 +2532,7 @@ const importStartHandlerInner = async (req, context) => {
                 id: `_import_error_${sessionId}`,
                 ...buildImportControlDocBase(sessionId),
                 request_id: requestId,
-                stage,
+                stage: errorStage,
                 error: errorObj,
                 details: detailsObj && typeof detailsObj === "object" ? detailsObj : {},
               };
