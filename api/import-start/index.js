@@ -3632,30 +3632,32 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             console.log(`[import-start] session=${sessionId} no companies found in XAI response, returning early`);
 
             // Write a completion marker so import-progress knows this session is done with 0 results
-            try {
-              const container = getCompaniesCosmosContainer();
-              if (container) {
-                const completionDoc = {
-                  id: `_import_complete_${sessionId}`,
-                  ...buildImportControlDocBase(sessionId),
-                  completed_at: new Date().toISOString(),
-                  reason: "no_results_from_xai",
-                  saved: 0,
-                };
+            if (cosmosEnabled) {
+              try {
+                const container = getCompaniesCosmosContainer();
+                if (container) {
+                  const completionDoc = {
+                    id: `_import_complete_${sessionId}`,
+                    ...buildImportControlDocBase(sessionId),
+                    completed_at: new Date().toISOString(),
+                    reason: "no_results_from_xai",
+                    saved: 0,
+                  };
 
-                const result = await upsertItemWithPkCandidates(container, completionDoc);
-                if (!result.ok) {
-                  console.warn(
-                    `[import-start] request_id=${requestId} session=${sessionId} failed to upsert completion marker: ${result.error}`
-                  );
-                } else {
-                  console.log(`[import-start] request_id=${requestId} session=${sessionId} completion marker written`);
+                  const result = await upsertItemWithPkCandidates(container, completionDoc);
+                  if (!result.ok) {
+                    console.warn(
+                      `[import-start] request_id=${requestId} session=${sessionId} failed to upsert completion marker: ${result.error}`
+                    );
+                  } else {
+                    console.log(`[import-start] request_id=${requestId} session=${sessionId} completion marker written`);
+                  }
                 }
+              } catch (e) {
+                console.warn(
+                  `[import-start] request_id=${requestId} session=${sessionId} error writing completion marker: ${e?.message || String(e)}`
+                );
               }
-            } catch (e) {
-              console.warn(
-                `[import-start] request_id=${requestId} session=${sessionId} error writing completion marker: ${e?.message || String(e)}`
-              );
             }
 
             return jsonWithRequestId(
