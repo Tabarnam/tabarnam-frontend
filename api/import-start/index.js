@@ -4409,7 +4409,7 @@ Return ONLY the JSON array, no other text.`,
         }
 
         // Write timeout signal if this took too long
-        if (isOutOfTime() || (xaiError.code === 'ECONNABORTED' || xaiError.message.includes('timeout'))) {
+        if (cosmosEnabled && (isOutOfTime() || (xaiError.code === 'ECONNABORTED' || xaiError.message.includes('timeout')))) {
           try {
             console.log(
               `[import-start] request_id=${requestId} session=${sessionId} timeout detected during XAI call, writing timeout signal`
