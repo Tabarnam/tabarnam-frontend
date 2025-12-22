@@ -4049,7 +4049,7 @@ Output JSON only:
 
               const slice = enriched.slice(i, i + keywordsConcurrency);
               const batch = await Promise.all(
-                slice.map(async (company, index) => {
+                slice.map(async (company) => {
                   try {
                     return await ensureCompanyKeywords(company);
                   } catch (e) {
