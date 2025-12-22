@@ -2439,6 +2439,8 @@ const importStartHandlerInner = async (req, context) => {
           detailsObj.content_length_header = getHeader(req, "content-length") || null;
         }
 
+        const errorStage = stage_beacon || stage;
+
         const env_present = {
           has_xai_key: Boolean(getXAIKey()),
           has_xai_base_url: Boolean(getXAIEndpoint()),
