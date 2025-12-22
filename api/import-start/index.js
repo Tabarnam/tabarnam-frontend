@@ -3995,11 +3995,76 @@ Output JSON only:
             return company;
           }
 
-          mark("xai_keywords_fetch_start");
-          setStage("generateKeywords");
-          enriched = await mapWithConcurrency(enriched, 4, ensureCompanyKeywords);
-          enrichedForCounts = enriched;
-          mark("xai_keywords_fetch_done");
+          if (shouldStopAfterStage("primary")) {
+            try {
+              upsertImportSession({
+                session_id: sessionId,
+                request_id: requestId,
+                status: "complete",
+                stage_beacon,
+                companies_count: Array.isArray(enriched) ? enriched.length : 0,
+              });
+            } catch {}
+
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                stage_beacon,
+                companies: enriched,
+                meta: {
+                  mode: "direct",
+                  max_stage: maxStage,
+                  skip_stages: Array.from(skipStages),
+                  stopped_after_stage: "primary",
+                },
+              },
+              200
+            );
+          }
+
+          const deadlineBeforeKeywords = checkDeadlineOrReturn("xai_keywords_fetch_start");
+          if (deadlineBeforeKeywords) return deadlineBeforeKeywords;
+
+          if (shouldRunStage("keywords")) {
+            mark("xai_keywords_fetch_start");
+            setStage("generateKeywords");
+            enriched = await mapWithConcurrency(enriched, 4, ensureCompanyKeywords);
+            enrichedForCounts = enriched;
+            mark("xai_keywords_fetch_done");
+          } else {
+            mark("xai_keywords_fetch_skipped");
+          }
+
+          if (shouldStopAfterStage("keywords")) {
+            try {
+              upsertImportSession({
+                session_id: sessionId,
+                request_id: requestId,
+                status: "complete",
+                stage_beacon,
+                companies_count: Array.isArray(enriched) ? enriched.length : 0,
+              });
+            } catch {}
+
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                stage_beacon,
+                companies: enriched,
+                meta: {
+                  mode: "direct",
+                  max_stage: maxStage,
+                  skip_stages: Array.from(skipStages),
+                  stopped_after_stage: "keywords",
+                },
+              },
+              200
+            );
+          }
 
           // Geocode and persist per-location coordinates (HQ + manufacturing)
           setStage("geocodeLocations");
