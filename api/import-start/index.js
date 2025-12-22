@@ -3339,6 +3339,22 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           });
         }
 
+        logImportStartMeta({
+          request_id: requestId,
+          session_id: sessionId,
+          handler_version: handlerVersion,
+          stage: "build_prompt",
+          queryTypes,
+          query_len: query.length,
+          prompt_len: xaiCallMeta.prompt_len,
+          messages_len: 0,
+          has_system_message: false,
+          has_user_message: false,
+          user_message_len: 0,
+          elapsedMs: Date.now() - startTime,
+          upstream_status: null,
+        });
+
         setStage("build_messages");
         const messages = [
           {
