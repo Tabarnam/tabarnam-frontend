@@ -3489,7 +3489,23 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           } else {
             const parsed = parseAndValidateProvidedMessages(raw);
             if (!parsed.ok) {
-              const debugFields = buildMessageDebugFields([]);
+              const rawArr = Array.isArray(raw) ? raw : [];
+              const system_count = rawArr.filter((m) => m && typeof m === "object" && m.role === "system").length;
+              const user_count = rawArr.filter((m) => m && typeof m === "object" && m.role === "user").length;
+              const firstSystem = rawArr.find((m) => m && typeof m === "object" && m.role === "system");
+              const firstUser = rawArr.find((m) => m && typeof m === "object" && m.role === "user");
+
+              const debugFields = {
+                messages_len: rawArr.length,
+                system_count,
+                user_count,
+                system_content_len: typeof firstSystem?.content === "string" ? firstSystem.content.trim().length : 0,
+                user_content_len: typeof firstUser?.content === "string" ? firstUser.content.trim().length : 0,
+                prompt_len: typeof builtUserPrompt === "string" ? builtUserPrompt.length : 0,
+                handler_version: handlerVersion,
+                mode: String(bodyObj.mode || "direct"),
+                queryTypes,
+              };
               setStage("build_messages", { error: parsed.reason });
               return respondError(new Error("Invalid messages"), {
                 status: 400,
