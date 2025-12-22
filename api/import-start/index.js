@@ -2717,6 +2717,8 @@ const importStartHandlerInner = async (req, context) => {
         upstream_status: null,
       });
 
+      mark("validate_request_done");
+
       const dryRun = bodyObj.dry_run === true || bodyObj.dry_run === "true";
       if (dryRun) {
         setStage("dry_run");
