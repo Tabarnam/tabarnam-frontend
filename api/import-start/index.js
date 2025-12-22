@@ -4873,50 +4873,53 @@ Return ONLY the JSON array, no other text.`,
         return respondError(e, { status: 500 });
       }
     } catch (e) {
-      const safeMessage = "Unhandled error";
       const lastStage = String(stage_beacon || stage || "fatal") || "fatal";
+      const error_message = toErrorString(e) || "Unhandled error";
 
-      console.error("[import-start] Unhandled error:", toErrorString(e));
+      const stackRaw = e && typeof e === "object" && typeof e.stack === "string" ? e.stack : "";
+      const stackRedacted = stackRaw
+        ? stackRaw
+            .replace(/Bearer\s+[^\s]+/gi, "Bearer [REDACTED]")
+            .replace(/(xai[_-]?key|function[_-]?key|cosmos[_-]?key)\s*[:=]\s*[^\s]+/gi, "$1=[REDACTED]")
+        : "";
+      const error_stack_preview = toTextPreview(stackRedacted || "", 2000);
 
-      return jsonWithRequestId(
-        {
-          ok: false,
-          stage: lastStage,
+      try {
+        upsertImportSession({
           session_id: sessionId,
           request_id: requestId,
-          details:
-            requestDetails ||
-            buildRequestDetails(req, {
-              body_source,
-              body_source_detail,
-              raw_text_preview,
-              raw_text_starts_with_brace,
-            }),
-          error: {
-            code: "IMPORT_START_UNHANDLED",
-            message: safeMessage,
-            request_id: requestId,
-            step: lastStage,
-          },
-          legacy_error: safeMessage,
-          ...buildInfo,
-          company_name: contextInfo.company_name,
-          website_url: contextInfo.website_url,
-          normalized_domain: contextInfo.normalized_domain,
-          xai_request_id: contextInfo.xai_request_id,
-          ...(diagnosticsEnabled
-            ? {
-                diagnostics: {
-                  handler_reached: true,
-                  stage_trace: stageTrace,
-                  ...buildBodyDiagnostics(req),
-                  unhandled_error: toErrorString(e),
-                },
-              }
-            : {}),
+          status: "failed",
+          stage_beacon: lastStage,
+          companies_count: Array.isArray(enrichedForCounts) ? enrichedForCounts.length : 0,
+        });
+      } catch {}
+
+      console.error("[import-start] Unhandled error:", error_message);
+
+      return {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+          "Access-Control-Allow-Headers":
+            "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id",
+          "Access-Control-Expose-Headers": "x-request-id,x-correlation-id,x-session-id",
+          ...responseHeaders,
         },
-        500
-      );
+        body: JSON.stringify(
+          {
+            ok: false,
+            stage_beacon: lastStage,
+            request_id: requestId,
+            session_id: sessionId,
+            error_message,
+            error_stack_preview,
+          },
+          null,
+          2
+        ),
+      };
     }
   };
 
