@@ -1,5 +1,6 @@
 const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
+const { getSession: getImportSession } = require("../_importSessionStore");
 const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
@@ -141,13 +142,28 @@ async function handler(req, context) {
     return json({ ok: false, error: "Missing session_id" }, 400, req);
   }
 
+  const mem = getImportSession(sessionId);
+  if (mem) {
+    return json(
+      {
+        ok: true,
+        session_id: sessionId,
+        status: mem.status || "running",
+        stage_beacon: mem.stage_beacon || "init",
+        companies_count: Number.isFinite(Number(mem.companies_count)) ? Number(mem.companies_count) : 0,
+      },
+      200,
+      req
+    );
+  }
+
   const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
   const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
   const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
   const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
   if (!endpoint || !key) {
-    return json({ ok: false, error: "Cosmos not configured" }, 500, req);
+    return json({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404, req);
   }
 
   try {
@@ -188,6 +204,12 @@ async function handler(req, context) {
 
     const lastCreatedAt = Array.isArray(items) && items.length > 0 ? String(items[0]?.created_at || "") : "";
 
+    const stage_beacon =
+      (typeof errorDoc?.stage === "string" && errorDoc.stage.trim() ? errorDoc.stage.trim() : null) ||
+      (typeof errorDoc?.error?.step === "string" && errorDoc.error.step.trim() ? errorDoc.error.step.trim() : null) ||
+      (typeof sessionDoc?.stage_beacon === "string" && sessionDoc.stage_beacon.trim() ? sessionDoc.stage_beacon.trim() : null) ||
+      (completed ? "complete" : timedOut ? "timeout" : stopped ? "stopped" : "running");
+
     if (errorPayload || timedOut || stopped) {
       const errorOut =
         errorPayload ||
@@ -200,15 +222,16 @@ async function handler(req, context) {
       return json(
         {
           ok: true,
-          state: "failed",
           session_id: sessionId,
+          status: "failed",
+          stage_beacon,
+          companies_count: saved,
           error: errorOut,
           items,
           saved,
           lastCreatedAt,
-          completed: false,
           timedOut,
-          stopped: true,
+          stopped,
         },
         200,
         req
@@ -219,8 +242,10 @@ async function handler(req, context) {
       return json(
         {
           ok: true,
-          state: "complete",
           session_id: sessionId,
+          status: "complete",
+          stage_beacon,
+          companies_count: saved,
           result: {
             saved,
             completed_at: completionDoc?.completed_at || completionDoc?.created_at || null,
@@ -229,9 +254,6 @@ async function handler(req, context) {
           items,
           saved,
           lastCreatedAt,
-          completed: true,
-          timedOut: false,
-          stopped: true,
         },
         200,
         req
@@ -241,14 +263,13 @@ async function handler(req, context) {
     return json(
       {
         ok: true,
-        state: "running",
         session_id: sessionId,
+        status: "running",
+        stage_beacon,
+        companies_count: saved,
         items,
         saved,
         lastCreatedAt,
-        completed: false,
-        timedOut: false,
-        stopped: false,
       },
       200,
       req

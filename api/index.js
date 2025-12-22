@@ -170,6 +170,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: cosmos-smoke");
+  require("./cosmos-smoke/index.js");
+} catch (e) {
+  console.error("[api] Failed to load cosmos-smoke:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: import-start");
   require("./import-start/index.js");
 } catch (e) {

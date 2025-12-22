@@ -32,6 +32,7 @@ const {
 } = require("../_reviewQuality");
 const { getBuildInfo } = require("../_buildInfo");
 const { getImportStartHandlerVersion } = require("../_handlerVersions");
+const { upsertSession: upsertImportSession } = require("../_importSessionStore");
 
 const __importStartModuleBuildInfo = (() => {
   try {
@@ -2119,6 +2120,16 @@ const importStartHandlerInner = async (req, context) => {
       }
 
       try {
+        upsertImportSession({
+          session_id: sessionId,
+          request_id: requestId,
+          status: "running",
+          stage_beacon,
+          companies_count: Array.isArray(enrichedForCounts) ? enrichedForCounts.length : 0,
+        });
+      } catch {}
+
+      try {
         console.log("[import-start] stage", { stage: stage_beacon, request_id: requestId, session_id: sessionId });
       } catch {
         console.log("[import-start] stage", { stage: stage_beacon });
@@ -2292,6 +2303,16 @@ const importStartHandlerInner = async (req, context) => {
       const bodyObj = payload && typeof payload === "object" ? payload : {};
       sessionId = bodyObj.session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
+      try {
+        upsertImportSession({
+          session_id: sessionId,
+          request_id: requestId,
+          status: "running",
+          stage_beacon,
+          companies_count: 0,
+        });
+      } catch {}
+
       const hasQueryTypeField =
         Object.prototype.hasOwnProperty.call(bodyObj, "queryType") || Object.prototype.hasOwnProperty.call(bodyObj, "query_type");
       const hasQueryTypesField =
@@ -2410,6 +2431,72 @@ const importStartHandlerInner = async (req, context) => {
       const noCosmosMode = String(readQueryParam(req, "no_cosmos") || "").trim() === "1";
       const cosmosEnabled = !noCosmosMode;
 
+      const deadlineMs = Date.now() + 45_000;
+
+      const allowedStages = ["primary", "keywords", "reviews", "location", "expand"];
+      const stageOrder = new Map(allowedStages.map((s, i) => [s, i]));
+
+      const parseStageParam = (raw) => {
+        const v = String(raw || "").trim().toLowerCase();
+        if (!v) return null;
+        return allowedStages.includes(v) ? v : "__invalid__";
+      };
+
+      const maxStageRaw = readQueryParam(req, "max_stage");
+      const skipStagesRaw = readQueryParam(req, "skip_stages");
+
+      const maxStageParsed = parseStageParam(maxStageRaw);
+      const skipStagesList = String(skipStagesRaw || "")
+        .split(",")
+        .map((s) => String(s || "").trim().toLowerCase())
+        .filter(Boolean);
+
+      if (maxStageParsed === "__invalid__") {
+        return jsonWithRequestId(
+          {
+            ok: false,
+            session_id: sessionId,
+            request_id: requestId,
+            stage_beacon,
+            error_message: "Invalid max_stage. Expected one of: primary,keywords,reviews,location,expand",
+          },
+          400
+        );
+      }
+
+      const skipStages = new Set();
+      for (const s of skipStagesList) {
+        const parsed = parseStageParam(s);
+        if (parsed === "__invalid__") {
+          return jsonWithRequestId(
+            {
+              ok: false,
+              session_id: sessionId,
+              request_id: requestId,
+              stage_beacon,
+              error_message: "Invalid skip_stages. Expected comma-separated list from: primary,keywords,reviews,location,expand",
+            },
+            400
+          );
+        }
+        if (parsed) skipStages.add(parsed);
+      }
+
+      const maxStage = maxStageParsed;
+
+      const shouldRunStage = (stageKey) => {
+        if (!stageKey) return true;
+        if (skipStages.has(stageKey)) return false;
+        if (!maxStage) return true;
+        return stageOrder.get(stageKey) <= stageOrder.get(maxStage);
+      };
+
+      const shouldStopAfterStage = (stageKey) => {
+        if (!maxStage) return false;
+        if (maxStage === stageKey) return true;
+        if (skipStages.has(stageKey) && maxStage === stageKey) return true;
+        return false;
+      };
 
       const safeCheckIfSessionStopped = async (sid) => {
         if (!cosmosEnabled) return false;
@@ -2441,6 +2528,16 @@ const importStartHandlerInner = async (req, context) => {
         }
 
         const errorStage = stage_beacon || stage;
+
+        try {
+          upsertImportSession({
+            session_id: sessionId,
+            request_id: requestId,
+            status: "failed",
+            stage_beacon: errorStage,
+            companies_count: Array.isArray(enrichedForCounts) ? enrichedForCounts.length : 0,
+          });
+        } catch {}
 
         const env_present = {
           has_xai_key: Boolean(getXAIKey()),
@@ -2839,6 +2936,40 @@ const importStartHandlerInner = async (req, context) => {
           return true;
         }
         return false;
+      };
+
+      const respondAcceptedBeforeGatewayTimeout = (nextStageBeacon) => {
+        const beacon = String(nextStageBeacon || stage_beacon || stage || "unknown") || "unknown";
+        mark(beacon);
+
+        try {
+          upsertImportSession({
+            session_id: sessionId,
+            request_id: requestId,
+            status: "running",
+            stage_beacon: beacon,
+            companies_count: Array.isArray(enrichedForCounts) ? enrichedForCounts.length : 0,
+          });
+        } catch {}
+
+        return jsonWithRequestId(
+          {
+            ok: true,
+            accepted: true,
+            session_id: sessionId,
+            request_id: requestId,
+            stage_beacon: beacon,
+            reason: "deadline_exceeded_returning_202",
+          },
+          202
+        );
+      };
+
+      const checkDeadlineOrReturn = (nextStageBeacon) => {
+        if (Date.now() > deadlineMs) {
+          return respondAcceptedBeforeGatewayTimeout(nextStageBeacon);
+        }
+        return null;
       };
 
       try {
@@ -3571,6 +3702,41 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           }
 
           console.log(`[import-start] Calling XAI API at: ${toHostPathOnlyForLog(xaiUrl)}`);
+
+          const deadlineBeforePrimary = checkDeadlineOrReturn("xai_primary_fetch_start");
+          if (deadlineBeforePrimary) return deadlineBeforePrimary;
+
+          if (!shouldRunStage("primary")) {
+            mark("xai_primary_fetch_skipped");
+            try {
+              upsertImportSession({
+                session_id: sessionId,
+                request_id: requestId,
+                status: "complete",
+                stage_beacon,
+                companies_count: 0,
+              });
+            } catch {}
+
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                stage_beacon,
+                companies: [],
+                meta: {
+                  mode: "direct",
+                  max_stage: maxStage,
+                  skip_stages: Array.from(skipStages),
+                  stopped_after_stage: "primary",
+                  skipped_primary: true,
+                },
+              },
+              200
+            );
+          }
+
           mark("xai_primary_fetch_start");
 
           const xaiResponse = await postJsonWithTimeout(xaiUrl, {
@@ -3839,44 +4005,159 @@ Output JSON only:
             return company;
           }
 
-          mark("xai_keywords_fetch_start");
-          setStage("generateKeywords");
-          enriched = await mapWithConcurrency(enriched, 4, ensureCompanyKeywords);
-          enrichedForCounts = enriched;
-          mark("xai_keywords_fetch_done");
-
-          // Geocode and persist per-location coordinates (HQ + manufacturing)
-          setStage("geocodeLocations");
-          console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
-          for (let i = 0; i < enriched.length; i++) {
-            if (shouldAbort()) {
-              console.log(`[import-start] session=${sessionId} aborting during geocoding: time limit exceeded`);
-              break;
-            }
-
-            const stopped = await safeCheckIfSessionStopped(sessionId);
-            if (stopped) {
-              console.log(`[import-start] session=${sessionId} stop signal detected, aborting during geocoding`);
-              break;
-            }
-
-            const company = enriched[i];
+          if (shouldStopAfterStage("primary")) {
             try {
-              enriched[i] = await geocodeCompanyLocations(company, { timeoutMs: 5000 });
-            } catch (e) {
-              console.log(`[import-start] session=${sessionId} geocoding failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`);
-            }
+              upsertImportSession({
+                session_id: sessionId,
+                request_id: requestId,
+                status: "complete",
+                stage_beacon,
+                companies_count: Array.isArray(enriched) ? enriched.length : 0,
+              });
+            } catch {}
+
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                stage_beacon,
+                companies: enriched,
+                meta: {
+                  mode: "direct",
+                  max_stage: maxStage,
+                  skip_stages: Array.from(skipStages),
+                  stopped_after_stage: "primary",
+                },
+              },
+              200
+            );
           }
 
-          const okCount = enriched.filter((c) => Number.isFinite(c.hq_lat) && Number.isFinite(c.hq_lng)).length;
-          console.log(`[import-start] session=${sessionId} geocoding done success=${okCount} failed=${enriched.length - okCount}`);
+          const deadlineBeforeKeywords = checkDeadlineOrReturn("xai_keywords_fetch_start");
+          if (deadlineBeforeKeywords) return deadlineBeforeKeywords;
+
+          if (shouldRunStage("keywords")) {
+            mark("xai_keywords_fetch_start");
+            setStage("generateKeywords");
+
+            const keywordsConcurrency = 4;
+            for (let i = 0; i < enriched.length; i += keywordsConcurrency) {
+              if (Date.now() > deadlineMs) {
+                return respondAcceptedBeforeGatewayTimeout("xai_keywords_fetch_start");
+              }
+
+              const slice = enriched.slice(i, i + keywordsConcurrency);
+              const batch = await Promise.all(
+                slice.map(async (company) => {
+                  try {
+                    return await ensureCompanyKeywords(company);
+                  } catch (e) {
+                    try {
+                      console.log(
+                        `[import-start] session=${sessionId} keyword enrichment failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`
+                      );
+                    } catch {}
+                    return company;
+                  }
+                })
+              );
+
+              for (let j = 0; j < batch.length; j++) {
+                enriched[i + j] = batch[j];
+              }
+
+              enrichedForCounts = enriched;
+            }
+            mark("xai_keywords_fetch_done");
+          } else {
+            mark("xai_keywords_fetch_skipped");
+          }
+
+          if (shouldStopAfterStage("keywords")) {
+            try {
+              upsertImportSession({
+                session_id: sessionId,
+                request_id: requestId,
+                status: "complete",
+                stage_beacon,
+                companies_count: Array.isArray(enriched) ? enriched.length : 0,
+              });
+            } catch {}
+
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                stage_beacon,
+                companies: enriched,
+                meta: {
+                  mode: "direct",
+                  max_stage: maxStage,
+                  skip_stages: Array.from(skipStages),
+                  stopped_after_stage: "keywords",
+                },
+              },
+              200
+            );
+          }
+
+          // Geocode and persist per-location coordinates (HQ + manufacturing)
+          if (shouldRunStage("location")) {
+            const deadlineBeforeGeocode = checkDeadlineOrReturn("xai_location_geocode_start");
+            if (deadlineBeforeGeocode) return deadlineBeforeGeocode;
+
+            mark("xai_location_geocode_start");
+            setStage("geocodeLocations");
+            console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
+
+            for (let i = 0; i < enriched.length; i++) {
+              if (Date.now() > deadlineMs) {
+                return respondAcceptedBeforeGatewayTimeout("xai_location_geocode_start");
+              }
+
+              if (shouldAbort()) {
+                console.log(`[import-start] session=${sessionId} aborting during geocoding: time limit exceeded`);
+                break;
+              }
+
+              const stopped = await safeCheckIfSessionStopped(sessionId);
+              if (stopped) {
+                console.log(`[import-start] session=${sessionId} stop signal detected, aborting during geocoding`);
+                break;
+              }
+
+              const company = enriched[i];
+              try {
+                enriched[i] = await geocodeCompanyLocations(company, { timeoutMs: 5000 });
+              } catch (e) {
+                console.log(
+                  `[import-start] session=${sessionId} geocoding failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`
+                );
+              }
+            }
+
+            const okCount = enriched.filter((c) => Number.isFinite(c.hq_lat) && Number.isFinite(c.hq_lng)).length;
+            console.log(`[import-start] session=${sessionId} geocoding done success=${okCount} failed=${enriched.length - okCount}`);
+            mark("xai_location_geocode_done");
+          } else {
+            mark("xai_location_geocode_skipped");
+          }
 
           // Fetch editorial reviews for companies
-          if (!shouldAbort()) {
+          if (shouldRunStage("reviews") && !shouldAbort()) {
+            const deadlineBeforeReviews = checkDeadlineOrReturn("xai_reviews_fetch_start");
+            if (deadlineBeforeReviews) return deadlineBeforeReviews;
+
             mark("xai_reviews_fetch_start");
             setStage("fetchEditorialReviews");
             console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
             for (let i = 0; i < enriched.length; i++) {
+              if (Date.now() > deadlineMs) {
+                return respondAcceptedBeforeGatewayTimeout("xai_reviews_fetch_start");
+              }
+
               // Check if import was stopped OR we're running out of time
               if (shouldAbort()) {
                 console.log(`[import-start] session=${sessionId} aborting during review fetch: time limit exceeded`);
@@ -3907,7 +4188,9 @@ Output JSON only:
                 );
                 if (editorialReviews.length > 0) {
                   enriched[i] = { ...company, curated_reviews: editorialReviews };
-                  console.log(`[import-start] session=${sessionId} fetched ${editorialReviews.length} editorial reviews for ${company.company_name}`);
+                  console.log(
+                    `[import-start] session=${sessionId} fetched ${editorialReviews.length} editorial reviews for ${company.company_name}`
+                  );
                 } else {
                   enriched[i] = { ...company, curated_reviews: [] };
                 }
@@ -3917,6 +4200,37 @@ Output JSON only:
             }
             console.log(`[import-start] session=${sessionId} editorial review enrichment done`);
             mark("xai_reviews_fetch_done");
+          } else if (!shouldRunStage("reviews")) {
+            mark("xai_reviews_fetch_skipped");
+          }
+
+          if (shouldStopAfterStage("reviews")) {
+            try {
+              upsertImportSession({
+                session_id: sessionId,
+                request_id: requestId,
+                status: "complete",
+                stage_beacon,
+                companies_count: Array.isArray(enriched) ? enriched.length : 0,
+              });
+            } catch {}
+
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                stage_beacon,
+                companies: enriched,
+                meta: {
+                  mode: "direct",
+                  max_stage: maxStage,
+                  skip_stages: Array.from(skipStages),
+                  stopped_after_stage: "reviews",
+                },
+              },
+              200
+            );
           }
 
           // Check if any companies have missing or weak location data
@@ -3929,7 +4243,7 @@ Output JSON only:
 
           // Location refinement pass: if too many companies have missing locations, run a refinement
           // But skip if we're running out of time
-          if (companiesNeedingLocationRefinement.length > 0 && enriched.length > 0 && !shouldAbort()) {
+          if (shouldRunStage("location") && companiesNeedingLocationRefinement.length > 0 && enriched.length > 0 && !shouldAbort()) {
             console.log(`[import-start] ${companiesNeedingLocationRefinement.length} companies need location refinement`);
 
             try {
@@ -3996,6 +4310,10 @@ Return ONLY the JSON array, no other text.`,
                   xaiUrl
                 )})`
               );
+
+              const deadlineBeforeLocationRefinement = checkDeadlineOrReturn("xai_location_refinement_fetch_start");
+              if (deadlineBeforeLocationRefinement) return deadlineBeforeLocationRefinement;
+
               mark("xai_location_refinement_fetch_start");
               const refinementResponse = await postJsonWithTimeout(xaiUrl, {
                 headers: {
@@ -4079,9 +4397,45 @@ Return ONLY the JSON array, no other text.`,
             }
           }
 
+          if (!shouldRunStage("location")) {
+            mark("xai_location_refinement_skipped");
+          }
+
+          if (shouldStopAfterStage("location")) {
+            try {
+              upsertImportSession({
+                session_id: sessionId,
+                request_id: requestId,
+                status: "complete",
+                stage_beacon,
+                companies_count: Array.isArray(enriched) ? enriched.length : 0,
+              });
+            } catch {}
+
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                stage_beacon,
+                companies: enriched,
+                meta: {
+                  mode: "direct",
+                  max_stage: maxStage,
+                  skip_stages: Array.from(skipStages),
+                  stopped_after_stage: "location",
+                },
+              },
+              200
+            );
+          }
+
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
 
           if (enriched.length > 0 && cosmosEnabled) {
+            const deadlineBeforeCosmosWrite = checkDeadlineOrReturn("cosmos_write_start");
+            if (deadlineBeforeCosmosWrite) return deadlineBeforeCosmosWrite;
+
             mark("cosmos_write_start");
             setStage("saveCompaniesToCosmos");
             console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos start count=${enriched.length}`);
@@ -4096,7 +4450,7 @@ Return ONLY the JSON array, no other text.`,
           // If expand_if_few is enabled and we got very few results (or all were skipped), try alternative search
           // But skip if we're running out of time
           const minThreshold = Math.max(1, Math.ceil(xaiPayload.limit * 0.6));
-          if (xaiPayload.expand_if_few && effectiveResultCountForExpansion < minThreshold && companies.length > 0 && !shouldAbort()) {
+          if (shouldRunStage("expand") && xaiPayload.expand_if_few && effectiveResultCountForExpansion < minThreshold && companies.length > 0 && !shouldAbort()) {
             console.log(
               `[import-start] Few results found (${cosmosEnabled ? `${saveResult.saved} saved, ${saveResult.skipped} skipped` : `${enriched.length} found (no_cosmos mode)`}). Attempting expansion search.`
             );
@@ -4152,6 +4506,10 @@ Return ONLY the JSON array, no other text.`,
               console.log(
                 `[import-start] Making expansion search for "${xaiPayload.query}" (upstream=${toHostPathOnlyForLog(xaiUrl)})`
               );
+
+              const deadlineBeforeExpand = checkDeadlineOrReturn("xai_expand_fetch_start");
+              if (deadlineBeforeExpand) return deadlineBeforeExpand;
+
               mark("xai_expand_fetch_start");
               const expansionResponse = await postJsonWithTimeout(xaiUrl, {
                 headers: {
@@ -4252,6 +4610,16 @@ Return ONLY the JSON array, no other text.`,
           const timedOut = isOutOfTime();
 
           if (noCosmosMode) {
+            try {
+              upsertImportSession({
+                session_id: sessionId,
+                request_id: requestId,
+                status: "complete",
+                stage_beacon,
+                companies_count: Array.isArray(enriched) ? enriched.length : 0,
+              });
+            } catch {}
+
             return jsonWithRequestId(
               {
                 ok: true,
@@ -4319,6 +4687,16 @@ Return ONLY the JSON array, no other text.`,
 
             mark("cosmos_write_done");
           }
+
+          try {
+            upsertImportSession({
+              session_id: sessionId,
+              request_id: requestId,
+              status: "complete",
+              stage_beacon,
+              companies_count: Array.isArray(enriched) ? enriched.length : 0,
+            });
+          } catch {}
 
           return jsonWithRequestId(
             {
@@ -4522,50 +4900,53 @@ Return ONLY the JSON array, no other text.`,
         return respondError(e, { status: 500 });
       }
     } catch (e) {
-      const safeMessage = "Unhandled error";
       const lastStage = String(stage_beacon || stage || "fatal") || "fatal";
+      const error_message = toErrorString(e) || "Unhandled error";
 
-      console.error("[import-start] Unhandled error:", toErrorString(e));
+      const stackRaw = e && typeof e === "object" && typeof e.stack === "string" ? e.stack : "";
+      const stackRedacted = stackRaw
+        ? stackRaw
+            .replace(/Bearer\s+[^\s]+/gi, "Bearer [REDACTED]")
+            .replace(/(xai[_-]?key|function[_-]?key|cosmos[_-]?key)\s*[:=]\s*[^\s]+/gi, "$1=[REDACTED]")
+        : "";
+      const error_stack_preview = toTextPreview(stackRedacted || "", 2000);
 
-      return jsonWithRequestId(
-        {
-          ok: false,
-          stage: lastStage,
+      try {
+        upsertImportSession({
           session_id: sessionId,
           request_id: requestId,
-          details:
-            requestDetails ||
-            buildRequestDetails(req, {
-              body_source,
-              body_source_detail,
-              raw_text_preview,
-              raw_text_starts_with_brace,
-            }),
-          error: {
-            code: "IMPORT_START_UNHANDLED",
-            message: safeMessage,
-            request_id: requestId,
-            step: lastStage,
-          },
-          legacy_error: safeMessage,
-          ...buildInfo,
-          company_name: contextInfo.company_name,
-          website_url: contextInfo.website_url,
-          normalized_domain: contextInfo.normalized_domain,
-          xai_request_id: contextInfo.xai_request_id,
-          ...(diagnosticsEnabled
-            ? {
-                diagnostics: {
-                  handler_reached: true,
-                  stage_trace: stageTrace,
-                  ...buildBodyDiagnostics(req),
-                  unhandled_error: toErrorString(e),
-                },
-              }
-            : {}),
+          status: "failed",
+          stage_beacon: lastStage,
+          companies_count: Array.isArray(enrichedForCounts) ? enrichedForCounts.length : 0,
+        });
+      } catch {}
+
+      console.error("[import-start] Unhandled error:", error_message);
+
+      return {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+          "Access-Control-Allow-Headers":
+            "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id",
+          "Access-Control-Expose-Headers": "x-request-id,x-correlation-id,x-session-id",
+          ...responseHeaders,
         },
-        500
-      );
+        body: JSON.stringify(
+          {
+            ok: false,
+            stage_beacon: lastStage,
+            request_id: requestId,
+            session_id: sessionId,
+            error_message,
+            error_stack_preview,
+          },
+          null,
+          2
+        ),
+      };
     }
   };
 
