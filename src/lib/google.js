@@ -1,7 +1,7 @@
 // src/lib/google.js
 // Client helpers for /google/* via API_BASE
 
-import { API_BASE } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 
 const GEO_TTL = 10 * 60 * 1000; // 10m
 const GEO_MAX = 200;
@@ -24,10 +24,9 @@ export async function geocode({ address, lat, lng, ipLookup = true } = {}) {
   if (hit) return hit;
 
   try {
-    const r = await fetch(`${API_BASE}/google/geocode`, {
+    const r = await apiFetch("/google/geocode", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ address, lat, lng, ipLookup })
+      body: { address, lat, lng, ipLookup },
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data?.error || r.statusText || "geocode failed");
@@ -49,10 +48,9 @@ export async function geocode({ address, lat, lng, ipLookup = true } = {}) {
 // Pass-through stub kept for compatibility
 export async function translate({ text, target = "en" }) {
   try {
-    const r = await fetch(`${API_BASE}/google/translate`, {
+    const r = await apiFetch("/google/translate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, target })
+      body: { text, target },
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data?.error || r.statusText || "translate failed");
@@ -72,9 +70,9 @@ export async function placesAutocomplete({ input, country = "" } = {}) {
     params.set("input", query);
     if (country) params.set("country", country);
 
-    const r = await fetch(`${API_BASE}/google/places?${params.toString()}`, {
+    const r = await apiFetch(`/google/places?${params.toString()}`, {
       method: "GET",
-      headers: { "Accept": "application/json" }
+      headers: { Accept: "application/json" },
     });
 
     if (!r.ok) {
@@ -105,9 +103,9 @@ export async function placeDetails({ placeId } = {}) {
     const params = new URLSearchParams();
     params.set("place_id", id);
 
-    const r = await fetch(`${API_BASE}/google/places?${params.toString()}`, {
+    const r = await apiFetch(`/google/places?${params.toString()}`, {
       method: "GET",
-      headers: { "Accept": "application/json" }
+      headers: { Accept: "application/json" },
     });
 
     if (!r.ok) {
