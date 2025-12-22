@@ -1,4 +1,4 @@
-import { API_BASE, join } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 
 export interface BlobUploadResponse {
   ok: boolean;
