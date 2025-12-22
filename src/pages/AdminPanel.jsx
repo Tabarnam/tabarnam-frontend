@@ -177,8 +177,7 @@ export default function AdminPanel() {
     try {
       const res = await apiFetch("/xadmin-api-recalc-review-counts", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company_id: company_id || undefined, company_name: company_name || undefined }),
+        body: { company_id: company_id || undefined, company_name: company_name || undefined },
       });
 
       const body = await readJsonOrText(res);
