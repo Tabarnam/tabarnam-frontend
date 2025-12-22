@@ -16,7 +16,7 @@ export async function uploadLogoBlobFile(file: File, companyId: string): Promise
   formData.append("company_id", companyId);
   formData.append("companyId", companyId);
 
-  const response = await fetch(join(API_BASE, "/upload-logo-blob"), {
+  const response = await apiFetch("/upload-logo-blob", {
     method: "POST",
     body: formData,
   });
@@ -39,10 +39,9 @@ export async function uploadLogoBlobFile(file: File, companyId: string): Promise
  * Delete a logo from Azure Blob Storage.
  */
 export async function deleteLogoBlob(blobUrl: string): Promise<void> {
-  const response = await fetch(join(API_BASE, "/delete-logo-blob"), {
+  const response = await apiFetch("/delete-logo-blob", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ blob_url: blobUrl }),
+    body: { blob_url: blobUrl },
   });
 
   const data = await response.json().catch(() => ({ ok: false, error: "Invalid JSON" }));
