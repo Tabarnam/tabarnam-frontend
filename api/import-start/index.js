@@ -4661,6 +4661,16 @@ Return ONLY the JSON array, no other text.`,
             mark("cosmos_write_done");
           }
 
+          try {
+            upsertImportSession({
+              session_id: sessionId,
+              request_id: requestId,
+              status: "complete",
+              stage_beacon,
+              companies_count: Array.isArray(enriched) ? enriched.length : 0,
+            });
+          } catch {}
+
           return jsonWithRequestId(
             {
               ok: true,
