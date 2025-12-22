@@ -2303,6 +2303,16 @@ const importStartHandlerInner = async (req, context) => {
       const bodyObj = payload && typeof payload === "object" ? payload : {};
       sessionId = bodyObj.session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
+      try {
+        upsertImportSession({
+          session_id: sessionId,
+          request_id: requestId,
+          status: "running",
+          stage_beacon,
+          companies_count: 0,
+        });
+      } catch {}
+
       const hasQueryTypeField =
         Object.prototype.hasOwnProperty.call(bodyObj, "queryType") || Object.prototype.hasOwnProperty.call(bodyObj, "query_type");
       const hasQueryTypesField =
