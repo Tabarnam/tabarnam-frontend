@@ -1,6 +1,6 @@
 // src/components/ReviewsWidget.jsx
 import React, { useEffect, useState } from "react";
-import { API_BASE } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { RatingDots } from "@/components/Stars";
 
