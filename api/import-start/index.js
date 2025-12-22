@@ -3455,7 +3455,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 messages_len: Number(guardDebugFields?.messages_len) || 0,
                 system_count: Number(guardDebugFields?.system_count) || 0,
                 user_count: Number(guardDebugFields?.user_count) || 0,
-                resolved_upstream_url_redacted: xaiUrl ? toHostPathOnlyForLog(xaiUrl) : null,
+                resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
                 auth_header_present: Boolean(xaiKey),
               },
               200,
