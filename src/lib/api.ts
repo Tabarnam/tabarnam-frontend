@@ -301,7 +301,8 @@ function shouldExplainClientRequest(url: string) {
   try {
     if (typeof window === "undefined") return false;
     const parsed = new URL(url, window.location.origin);
-    return parsed.searchParams.get("explain") === "1";
+    // Client-only explain: allow `?explain=1` to reach the server.
+    return parsed.searchParams.get("explain_client") === "1";
   } catch {
     return false;
   }
@@ -346,7 +347,7 @@ export async function apiFetch(path: string, init?: RequestInit) {
   const explain = buildApiRequestExplain(url, normalizedInit, originalBody);
   lastApiRequestExplain = explain;
 
-  // Temporary UI-only debug path: /import/start?explain=1 (and fallback /import-start?explain=1)
+  // Temporary UI-only debug path: /import/start?explain_client=1 (and fallback /import-start?explain_client=1)
   if (shouldExplainClientRequest(url) && /\/import(-start|\/start)\b/i.test(path)) {
     return new Response(JSON.stringify({ ok: true, explain }, null, 2), {
       status: 200,
