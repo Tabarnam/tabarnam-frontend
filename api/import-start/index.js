@@ -3836,9 +3836,11 @@ Output JSON only:
             return company;
           }
 
+          mark("xai_keywords_fetch_start");
           setStage("generateKeywords");
           enriched = await mapWithConcurrency(enriched, 4, ensureCompanyKeywords);
           enrichedForCounts = enriched;
+          mark("xai_keywords_fetch_done");
 
           // Geocode and persist per-location coordinates (HQ + manufacturing)
           setStage("geocodeLocations");
