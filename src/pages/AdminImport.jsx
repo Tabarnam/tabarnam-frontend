@@ -1027,6 +1027,14 @@ export default function AdminImport() {
 
               <Button
                 variant="outline"
+                onClick={explainImportPayload}
+                disabled={importConfigLoading || !importReady || explainLoading}
+              >
+                Explain payload
+              </Button>
+
+              <Button
+                variant="outline"
                 onClick={() => {
                   if (!activeSessionId) {
                     toast.error("No active session");
