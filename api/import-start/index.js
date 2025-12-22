@@ -991,6 +991,111 @@ function resolveXaiEndpointForModel(rawEndpoint, model) {
   return u.toString();
 }
 
+function safeParseJsonObject(raw) {
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildXaiPayloadMetaSnapshotFromOutboundBody(outboundBodyJsonText, { handler_version, build_id }) {
+  const parsed = safeParseJsonObject(outboundBodyJsonText);
+
+  const modelRaw = parsed && typeof parsed.model === "string" ? parsed.model.trim() : "";
+  const model = modelRaw ? modelRaw : null;
+
+  const messages = parsed && Array.isArray(parsed.messages) ? parsed.messages : [];
+
+  const content_lens = messages.map((m) => {
+    if (!m || typeof m !== "object") return 0;
+    const c = m.content;
+    return typeof c === "string" ? c.length : 0;
+  });
+
+  const has_empty_trimmed_content = messages.some((m) => {
+    if (!m || typeof m !== "object") return true;
+    const c = m.content;
+    if (typeof c !== "string") return true;
+    return c.trim().length === 0;
+  });
+
+  const system_count = messages.filter((m) => m && typeof m === "object" && m.role === "system").length;
+  const user_count = messages.filter((m) => m && typeof m === "object" && m.role === "user").length;
+
+  return {
+    handler_version: String(handler_version || ""),
+    build_id: String(build_id || ""),
+    model,
+    messages_len: messages.length,
+    system_count,
+    user_count,
+    content_lens,
+    has_empty_trimmed_content,
+  };
+}
+
+function ensureValidOutboundXaiBodyOrThrow(payloadMeta) {
+  if (!payloadMeta || typeof payloadMeta !== "object") {
+    throw new Error("Invalid outbound payload meta");
+  }
+
+  if (!Number.isFinite(Number(payloadMeta.messages_len)) || Number(payloadMeta.messages_len) < 2) {
+    throw new Error("Bad data: Messages cannot be empty");
+  }
+
+  if (Number(payloadMeta.system_count) < 1 || Number(payloadMeta.user_count) < 1) {
+    throw new Error("Bad data: Missing system or user message");
+  }
+
+  if (payloadMeta.has_empty_trimmed_content) {
+    throw new Error("Bad data: Message content cannot be empty");
+  }
+}
+
+async function postJsonWithTimeout(url, { headers, body, timeoutMs }) {
+  const u = String(url || "").trim();
+  if (!u) throw new Error("Missing URL");
+
+  const ms = Number.isFinite(Number(timeoutMs)) ? Math.max(1, Number(timeoutMs)) : 30_000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    try {
+      controller.abort();
+    } catch {}
+  }, ms);
+
+  try {
+    const res = await fetch(u, {
+      method: "POST",
+      headers: headers && typeof headers === "object" ? headers : {},
+      body: typeof body === "string" ? body : "",
+      signal: controller.signal,
+    });
+
+    const text = await res.text().catch(() => "");
+    const data = safeParseJsonObject(text) || (text ? { text } : {});
+
+    const headersObj = {};
+    try {
+      for (const [k, v] of res.headers.entries()) headersObj[k] = v;
+    } catch {}
+
+    return { status: res.status, headers: headersObj, data };
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e || "fetch failed"));
+    if (String(err.name || "").toLowerCase().includes("abort")) {
+      err.code = "ECONNABORTED";
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 function getImportStartProxyInfo() {
   // Import-start proxying is ONLY for a Tabarnam-controlled import worker.
   // Do not fall back to XAI_EXTERNAL_BASE (that is for XAI chat/search), and never to XAI public API.
@@ -1491,12 +1596,13 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
     console.log(
       `[import-start] Fetching editorial reviews for ${companyName} (upstream=${toHostPathOnlyForLog(xaiUrl)})`
     );
-    const response = await axios.post(xaiUrl, reviewPayload, {
+    const response = await postJsonWithTimeout(xaiUrl, {
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${xaiKey}`,
       },
-      timeout,
+      body: JSON.stringify(reviewPayload),
+      timeoutMs: timeout,
     });
 
     if (!(response.status >= 200 && response.status < 300)) {
@@ -3636,17 +3742,60 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             upstream_status: null,
           });
 
+          const explainRaw = Object.prototype.hasOwnProperty.call(bodyObj || {}, "explain")
+            ? bodyObj.explain
+            : readQueryParam(req, "explain");
+          const explainMode = isProxyExplicitlyEnabled(explainRaw);
+
+          const outboundBody = JSON.stringify(xaiRequestPayload);
+          const payload_meta = buildXaiPayloadMetaSnapshotFromOutboundBody(outboundBody, {
+            handler_version: handlerVersion,
+            build_id: buildInfo?.build_id || "",
+          });
+
+          if (debugOutput) {
+            debugOutput.xai.payload_meta = payload_meta;
+          }
+
+          try {
+            ensureValidOutboundXaiBodyOrThrow(payload_meta);
+          } catch (e) {
+            return respondError(e instanceof Error ? e : new Error(String(e || "Invalid messages")), {
+              status: 400,
+              details: {
+                code: "EMPTY_MESSAGE_CONTENT_BUILDER_BUG",
+                message: "Invalid messages content (refusing to call upstream)",
+                ...payload_meta,
+              },
+            });
+          }
+
+          if (explainMode) {
+            setStage("explain");
+            return jsonWithRequestId(
+              {
+                ok: true,
+                explain: true,
+                session_id: sessionId,
+                request_id: requestId,
+                payload_meta,
+              },
+              200
+            );
+          }
+
           console.log(`[import-start] Calling XAI API at: ${toHostPathOnlyForLog(xaiUrl)}`);
 
-          const xaiResponse = await axios.post(xaiUrl, xaiRequestPayload, {
+          const xaiResponse = await postJsonWithTimeout(xaiUrl, {
             headers: {
               "Content-Type": "application/json",
               "Authorization": `Bearer ${xaiKey}`,
             },
-            timeout: timeout,
+            body: outboundBody,
+            timeoutMs: timeout,
           });
 
-        const elapsed = Date.now() - startTime;
+          const elapsed = Date.now() - startTime;
         console.log(`[import-start] session=${sessionId} xai response status=${xaiResponse.status}`);
 
         const xaiRequestId = extractXaiRequestId(xaiResponse.headers);
@@ -3813,12 +3962,13 @@ Output JSON only:
             };
 
             console.log(`[import-start] Calling XAI API (keywords) at: ${toHostPathOnlyForLog(xaiUrl)}`);
-            const res = await axios.post(xaiUrl, payload, {
+            const res = await postJsonWithTimeout(xaiUrl, {
               headers: {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${xaiKey}`,
               },
-              timeout: timeoutMs,
+              body: JSON.stringify(payload),
+              timeoutMs,
             });
 
             const text = res?.data?.choices?.[0]?.message?.content || "";
@@ -4046,12 +4196,13 @@ Return ONLY the JSON array, no other text.`,
                   xaiUrl
                 )})`
               );
-              const refinementResponse = await axios.post(xaiUrl, refinementPayload, {
+              const refinementResponse = await postJsonWithTimeout(xaiUrl, {
                 headers: {
                   "Content-Type": "application/json",
                   "Authorization": `Bearer ${xaiKey}`,
                 },
-                timeout: timeout,
+                body: JSON.stringify(refinementPayload),
+                timeoutMs: timeout,
               });
 
               if (refinementResponse.status >= 200 && refinementResponse.status < 300) {
@@ -4190,12 +4341,13 @@ Return ONLY the JSON array, no other text.`,
               console.log(
                 `[import-start] Making expansion search for "${xaiPayload.query}" (upstream=${toHostPathOnlyForLog(xaiUrl)})`
               );
-              const expansionResponse = await axios.post(xaiUrl, expansionPayload, {
+              const expansionResponse = await postJsonWithTimeout(xaiUrl, {
                 headers: {
                   "Content-Type": "application/json",
                   "Authorization": `Bearer ${xaiKey}`,
                 },
-                timeout: timeout,
+                body: JSON.stringify(expansionPayload),
+                timeoutMs: timeout,
               });
 
               if (expansionResponse.status >= 200 && expansionResponse.status < 300) {

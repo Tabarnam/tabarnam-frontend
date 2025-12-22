@@ -167,6 +167,9 @@ export default function AdminImport() {
   const [debugStartLoading, setDebugStartLoading] = useState(false);
   const [debugStatusLoading, setDebugStatusLoading] = useState(false);
 
+  const [explainResponseText, setExplainResponseText] = useState("");
+  const [explainLoading, setExplainLoading] = useState(false);
+
   const pollTimerRef = useRef(null);
   const startFetchAbortRef = useRef(null);
   const pollAttemptsRef = useRef(new Map());
@@ -341,6 +344,47 @@ export default function AdminImport() {
     } catch (e) {
       setDebugStartResponseText(JSON.stringify({ error: String(e?.message ?? e) }, null, 2));
       toast.error(e?.message || "Import start failed");
+    } finally {
+      setDebugStartLoading(false);
+    }
+  }, [debugLimitInput, debugQuery]);
+
+  const explainDebugImport = useCallback(async () => {
+    const q = debugQuery.trim();
+    if (!q) {
+      toast.error("Enter a query.");
+      return;
+    }
+
+    const limit = normalizeImportLimit(debugLimitInput);
+
+    setDebugStartLoading(true);
+    setDebugStartResponseText("");
+    setDebugStatusResponseText("");
+    setDebugSessionId("");
+
+    try {
+      const { res } = await apiFetchWithFallback(["/import/start?explain=1", "/import-start?explain=1"], {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q, limit }),
+      });
+
+      const body = await readJsonOrText(res);
+      setDebugStartResponseText(toPrettyJsonText(body));
+
+      if (!res.ok || body?.ok === false) {
+        const msg = toErrorString(
+          (await getUserFacingConfigMessage(res)) || body?.error || body?.message || `Explain failed (${res.status})`
+        );
+        toast.error(msg || "Explain failed");
+        return;
+      }
+
+      toast.success("Explain payload ready");
+    } catch (e) {
+      setDebugStartResponseText(JSON.stringify({ error: String(e?.message ?? e) }, null, 2));
+      toast.error(e?.message || "Explain failed");
     } finally {
       setDebugStartLoading(false);
     }
@@ -528,6 +572,70 @@ export default function AdminImport() {
       stopPolling();
     }
   }, [importConfigLoading, importConfigMessage, importReady, limitInput, location, query, queryTypes, resetPollAttempts, schedulePoll, stopPolling, urlTypeValidationError]);
+
+  const explainImportPayload = useCallback(async () => {
+    const q = query.trim();
+    if (!q) {
+      toast.error("Enter a query to explain.");
+      return;
+    }
+
+    if (urlTypeValidationError) {
+      toast.error(urlTypeValidationError);
+      return;
+    }
+
+    if (!importConfigLoading && !importReady) {
+      toast.error(importConfigMessage || "Import is not configured.");
+      return;
+    }
+
+    const session_id =
+      globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+    const normalizedLimit = normalizeImportLimit(limitInput);
+    const selectedTypes = Array.isArray(queryTypes) && queryTypes.length > 0 ? queryTypes : ["product_keyword"];
+
+    const requestPayload = {
+      session_id,
+      query: q,
+      queryTypes: selectedTypes,
+      location: asString(location).trim() || undefined,
+      limit: normalizedLimit,
+      expand_if_few: true,
+    };
+
+    setExplainLoading(true);
+    setExplainResponseText("");
+
+    try {
+      const { res } = await apiFetchWithFallback(["/import/start?explain=1", "/import-start?explain=1"], {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestPayload),
+      });
+
+      const body = await readJsonOrText(res);
+      const pretty = toPrettyJsonText(body);
+      setExplainResponseText(pretty);
+
+      if (!res.ok || body?.ok === false) {
+        const msg = toErrorString(
+          (await getUserFacingConfigMessage(res)) || body?.error || body?.message || `Explain failed (${res.status})`
+        );
+        toast.error(msg || "Explain failed");
+        return;
+      }
+
+      toast.success("Explain payload ready");
+    } catch (e) {
+      const msg = toErrorString(e) || "Explain failed";
+      setExplainResponseText(JSON.stringify({ error: msg }, null, 2));
+      toast.error(msg);
+    } finally {
+      setExplainLoading(false);
+    }
+  }, [importConfigLoading, importConfigMessage, importReady, limitInput, location, query, queryTypes, urlTypeValidationError]);
 
   const stopImport = useCallback(async () => {
     if (!activeSessionId) return;
@@ -776,6 +884,10 @@ export default function AdminImport() {
                 {debugStartLoading ? "Starting…" : "Start Import"}
               </Button>
 
+              <Button variant="outline" onClick={explainDebugImport} disabled={debugStartLoading}>
+                Explain payload
+              </Button>
+
               <Button variant="outline" onClick={checkDebugStatus} disabled={debugStatusLoading || !debugSessionId.trim()}>
                 {debugStatusLoading ? "Checking…" : "Check Status"}
               </Button>
@@ -915,6 +1027,14 @@ export default function AdminImport() {
 
               <Button
                 variant="outline"
+                onClick={explainImportPayload}
+                disabled={importConfigLoading || !importReady || explainLoading}
+              >
+                Explain payload
+              </Button>
+
+              <Button
+                variant="outline"
                 onClick={() => {
                   if (!activeSessionId) {
                     toast.error("No active session");
@@ -997,6 +1117,13 @@ export default function AdminImport() {
 
               {activeSummary ? <div className="text-sm text-slate-600">{activeSummary}</div> : null}
             </div>
+
+            {explainResponseText ? (
+              <div className="rounded border border-slate-200 bg-slate-50 p-3">
+                <div className="text-xs font-medium text-slate-700">Explain payload response</div>
+                <pre className="mt-2 max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{toDisplayText(explainResponseText)}</pre>
+              </div>
+            ) : null}
 
             {activeRun?.start_error ? (
               <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900 space-y-2">
