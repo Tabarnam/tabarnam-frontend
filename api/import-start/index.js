@@ -1392,10 +1392,22 @@ async function geocodeCompanyLocations(company, { timeoutMs = 5000 } = {}) {
 
   const { headquartersBase, manufacturingBase } = buildImportLocations(c);
 
-  const [headquarters, manufacturing_geocodes] = await Promise.all([
+  const settled = await Promise.allSettled([
     geocodeLocationArray(headquartersBase, { timeoutMs, concurrency: 4 }),
     geocodeLocationArray(manufacturingBase, { timeoutMs, concurrency: 4 }),
   ]);
+
+  const headquarters = settled[0]?.status === "fulfilled" ? settled[0].value : [];
+  const manufacturing_geocodes = settled[1]?.status === "fulfilled" ? settled[1].value : [];
+
+  if (settled[0]?.status === "rejected") {
+    console.warn(`[import-start] geocode HQ rejected: ${settled[0]?.reason?.message || String(settled[0]?.reason || "")}`);
+  }
+  if (settled[1]?.status === "rejected") {
+    console.warn(
+      `[import-start] geocode manufacturing rejected: ${settled[1]?.reason?.message || String(settled[1]?.reason || "")}`
+    );
+  }
 
   const primary = pickPrimaryLatLng(headquarters);
 
