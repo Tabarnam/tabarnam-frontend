@@ -3913,6 +3913,7 @@ Output JSON only:
               }
             }
             console.log(`[import-start] session=${sessionId} editorial review enrichment done`);
+            mark("xai_reviews_fetch_done");
           }
 
           // Check if any companies have missing or weak location data
