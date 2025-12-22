@@ -4079,18 +4079,26 @@ Return ONLY the JSON array, no other text.`,
           }
 
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
-          if (enriched.length > 0) {
+
+          if (enriched.length > 0 && cosmosEnabled) {
+            mark("cosmos_write_start");
             setStage("saveCompaniesToCosmos");
             console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos start count=${enriched.length}`);
             saveResult = await saveCompaniesToCosmos(enriched, sessionId, timeout);
-            console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos done saved=${saveResult.saved} skipped=${saveResult.skipped} duplicates=${saveResult.skipped}`);
+            console.log(
+              `[import-start] session=${sessionId} saveCompaniesToCosmos done saved=${saveResult.saved} skipped=${saveResult.skipped} duplicates=${saveResult.skipped}`
+            );
           }
+
+          const effectiveResultCountForExpansion = cosmosEnabled ? saveResult.saved + saveResult.failed : enriched.length;
 
           // If expand_if_few is enabled and we got very few results (or all were skipped), try alternative search
           // But skip if we're running out of time
           const minThreshold = Math.max(1, Math.ceil(xaiPayload.limit * 0.6));
-          if (xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold && companies.length > 0 && !shouldAbort()) {
-            console.log(`[import-start] Few results found (${saveResult.saved} saved, ${saveResult.skipped} skipped). Attempting expansion search.`);
+          if (xaiPayload.expand_if_few && effectiveResultCountForExpansion < minThreshold && companies.length > 0 && !shouldAbort()) {
+            console.log(
+              `[import-start] Few results found (${cosmosEnabled ? `${saveResult.saved} saved, ${saveResult.skipped} skipped` : `${enriched.length} found (no_cosmos mode)`}). Attempting expansion search.`
+            );
 
             try {
               // Create a more general search prompt for related companies
