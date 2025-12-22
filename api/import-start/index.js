@@ -32,6 +32,7 @@ const {
 } = require("../_reviewQuality");
 const { getBuildInfo } = require("../_buildInfo");
 const { getImportStartHandlerVersion } = require("../_handlerVersions");
+const { upsertSession: upsertImportSession } = require("../_importSessionStore");
 
 const __importStartModuleBuildInfo = (() => {
   try {
