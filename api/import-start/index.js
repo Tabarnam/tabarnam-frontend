@@ -4228,11 +4228,15 @@ Return ONLY the JSON array, no other text.`,
                   enriched = enriched.concat(enrichedExpansion);
 
                   // Re-save with expansion results
-                  const expansionResult = await saveCompaniesToCosmos(enrichedExpansion, sessionId, timeout);
-                  saveResult.saved += expansionResult.saved;
-                  saveResult.skipped += expansionResult.skipped;
-                  saveResult.failed += expansionResult.failed;
-                  console.log(`[import-start] Expansion: saved ${expansionResult.saved}, skipped ${expansionResult.skipped}, failed ${expansionResult.failed}`);
+                  if (cosmosEnabled) {
+                    const expansionResult = await saveCompaniesToCosmos(enrichedExpansion, sessionId, timeout);
+                    saveResult.saved += expansionResult.saved;
+                    saveResult.skipped += expansionResult.skipped;
+                    saveResult.failed += expansionResult.failed;
+                    console.log(
+                      `[import-start] Expansion: saved ${expansionResult.saved}, skipped ${expansionResult.skipped}, failed ${expansionResult.failed}`
+                    );
+                  }
                 }
               }
             } catch (expansionErr) {
