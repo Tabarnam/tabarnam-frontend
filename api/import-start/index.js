@@ -2120,6 +2120,16 @@ const importStartHandlerInner = async (req, context) => {
       }
 
       try {
+        upsertImportSession({
+          session_id: sessionId,
+          request_id: requestId,
+          status: "running",
+          stage_beacon,
+          companies_count: Array.isArray(enrichedForCounts) ? enrichedForCounts.length : 0,
+        });
+      } catch {}
+
+      try {
         console.log("[import-start] stage", { stage: stage_beacon, request_id: requestId, session_id: sessionId });
       } catch {
         console.log("[import-start] stage", { stage: stage_beacon });
