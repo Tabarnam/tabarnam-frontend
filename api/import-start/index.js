@@ -4360,6 +4360,39 @@ Return ONLY the JSON array, no other text.`,
             }
           }
 
+          if (!shouldRunStage("location")) {
+            mark("xai_location_refinement_skipped");
+          }
+
+          if (shouldStopAfterStage("location")) {
+            try {
+              upsertImportSession({
+                session_id: sessionId,
+                request_id: requestId,
+                status: "complete",
+                stage_beacon,
+                companies_count: Array.isArray(enriched) ? enriched.length : 0,
+              });
+            } catch {}
+
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                stage_beacon,
+                companies: enriched,
+                meta: {
+                  mode: "direct",
+                  max_stage: maxStage,
+                  skip_stages: Array.from(skipStages),
+                  stopped_after_stage: "location",
+                },
+              },
+              200
+            );
+          }
+
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
 
           if (enriched.length > 0 && cosmosEnabled) {
