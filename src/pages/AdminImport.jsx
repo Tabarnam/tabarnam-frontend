@@ -167,6 +167,9 @@ export default function AdminImport() {
   const [debugStartLoading, setDebugStartLoading] = useState(false);
   const [debugStatusLoading, setDebugStatusLoading] = useState(false);
 
+  const [explainResponseText, setExplainResponseText] = useState("");
+  const [explainLoading, setExplainLoading] = useState(false);
+
   const pollTimerRef = useRef(null);
   const startFetchAbortRef = useRef(null);
   const pollAttemptsRef = useRef(new Map());
@@ -341,6 +344,47 @@ export default function AdminImport() {
     } catch (e) {
       setDebugStartResponseText(JSON.stringify({ error: String(e?.message ?? e) }, null, 2));
       toast.error(e?.message || "Import start failed");
+    } finally {
+      setDebugStartLoading(false);
+    }
+  }, [debugLimitInput, debugQuery]);
+
+  const explainDebugImport = useCallback(async () => {
+    const q = debugQuery.trim();
+    if (!q) {
+      toast.error("Enter a query.");
+      return;
+    }
+
+    const limit = normalizeImportLimit(debugLimitInput);
+
+    setDebugStartLoading(true);
+    setDebugStartResponseText("");
+    setDebugStatusResponseText("");
+    setDebugSessionId("");
+
+    try {
+      const { res } = await apiFetchWithFallback(["/import/start?explain=1", "/import-start?explain=1"], {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q, limit }),
+      });
+
+      const body = await readJsonOrText(res);
+      setDebugStartResponseText(toPrettyJsonText(body));
+
+      if (!res.ok || body?.ok === false) {
+        const msg = toErrorString(
+          (await getUserFacingConfigMessage(res)) || body?.error || body?.message || `Explain failed (${res.status})`
+        );
+        toast.error(msg || "Explain failed");
+        return;
+      }
+
+      toast.success("Explain payload ready");
+    } catch (e) {
+      setDebugStartResponseText(JSON.stringify({ error: String(e?.message ?? e) }, null, 2));
+      toast.error(e?.message || "Explain failed");
     } finally {
       setDebugStartLoading(false);
     }
