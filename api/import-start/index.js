@@ -3692,6 +3692,41 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           }
 
           console.log(`[import-start] Calling XAI API at: ${toHostPathOnlyForLog(xaiUrl)}`);
+
+          const deadlineBeforePrimary = checkDeadlineOrReturn("xai_primary_fetch_start");
+          if (deadlineBeforePrimary) return deadlineBeforePrimary;
+
+          if (!shouldRunStage("primary")) {
+            mark("xai_primary_fetch_skipped");
+            try {
+              upsertImportSession({
+                session_id: sessionId,
+                request_id: requestId,
+                status: "complete",
+                stage_beacon,
+                companies_count: 0,
+              });
+            } catch {}
+
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                stage_beacon,
+                companies: [],
+                meta: {
+                  mode: "direct",
+                  max_stage: maxStage,
+                  skip_stages: Array.from(skipStages),
+                  stopped_after_stage: "primary",
+                  skipped_primary: true,
+                },
+              },
+              200
+            );
+          }
+
           mark("xai_primary_fetch_start");
 
           const xaiResponse = await postJsonWithTimeout(xaiUrl, {
