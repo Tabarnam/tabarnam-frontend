@@ -3590,6 +3590,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           if (debugOutput) debugOutput.xai.request_id = xaiRequestId;
         }
 
+        mark("xai_primary_fetch_done");
+
         if (xaiResponse.status >= 200 && xaiResponse.status < 300) {
           // Extract the response content
           const responseText = xaiResponse.data?.choices?.[0]?.message?.content || JSON.stringify(xaiResponse.data);
