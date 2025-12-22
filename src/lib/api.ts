@@ -2,12 +2,12 @@
 // Single source of truth for client-side API routing.
 //
 // Preferred configuration:
-// - VITE_XAI_FUNCTIONS_BASE: Base origin for the Functions host (e.g. "" for same-origin, or "https://tabarnam.com").
+// - VITE_XAI_FUNCTIONS_BASE: API base URL (recommended: "/api" for same-origin).
 //
 // Notes:
 // - We still allow legacy VITE_API_BASE for backwards compatibility.
-// - API_BASE is always computed as "{FUNCTIONS_BASE}/api" (or "/api" when same-origin).
-// - If you set an absolute FUNCTIONS_BASE to a different origin, CORS may be required.
+// - API_BASE always falls back to same-origin "/api" when VITE_* is missing or invalid.
+// - If you set an absolute API_BASE to a different origin, CORS may be required.
 
 type JsonRecord = Record<string, unknown>;
 
