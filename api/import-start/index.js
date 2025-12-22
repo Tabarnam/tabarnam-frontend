@@ -4523,7 +4523,7 @@ Return ONLY the JSON array, no other text.`,
       }
     } catch (e) {
       const safeMessage = "Unhandled error";
-      const lastStage = String(stage || "fatal") || "fatal";
+      const lastStage = String(stage_beacon || stage || "fatal") || "fatal";
 
       console.error("[import-start] Unhandled error:", toErrorString(e));
 
