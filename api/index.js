@@ -83,6 +83,27 @@ try {
 }
 
 try {
+  console.log("[api] Registering: v1-chat-completions");
+  require("./v1-chat-completions/index.js");
+} catch (e) {
+  console.error("[api] Failed to load v1-chat-completions:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: _debug-ingress-latest");
+  require("./_debug-ingress-latest/index.js");
+} catch (e) {
+  console.error("[api] Failed to load _debug-ingress-latest:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: _debug-egress-latest");
+  require("./_debug-egress-latest/index.js");
+} catch (e) {
+  console.error("[api] Failed to load _debug-egress-latest:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: submit-review");
   require("./submit-review/index.js");
 } catch (e) {
