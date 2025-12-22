@@ -3741,17 +3741,60 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             upstream_status: null,
           });
 
+          const explainRaw = Object.prototype.hasOwnProperty.call(bodyObj || {}, "explain")
+            ? bodyObj.explain
+            : readQueryParam(req, "explain");
+          const explainMode = isProxyExplicitlyEnabled(explainRaw);
+
+          const outboundBody = JSON.stringify(xaiRequestPayload);
+          const payload_meta = buildXaiPayloadMetaSnapshotFromOutboundBody(outboundBody, {
+            handler_version: handlerVersion,
+            build_id: buildInfo?.build_id || "",
+          });
+
+          if (debugOutput) {
+            debugOutput.xai.payload_meta = payload_meta;
+          }
+
+          try {
+            ensureValidOutboundXaiBodyOrThrow(payload_meta);
+          } catch (e) {
+            return respondError(e instanceof Error ? e : new Error(String(e || "Invalid messages")), {
+              status: 400,
+              details: {
+                code: "EMPTY_MESSAGE_CONTENT_BUILDER_BUG",
+                message: "Invalid messages content (refusing to call upstream)",
+                ...payload_meta,
+              },
+            });
+          }
+
+          if (explainMode) {
+            setStage("explain");
+            return jsonWithRequestId(
+              {
+                ok: true,
+                explain: true,
+                session_id: sessionId,
+                request_id: requestId,
+                payload_meta,
+              },
+              200
+            );
+          }
+
           console.log(`[import-start] Calling XAI API at: ${toHostPathOnlyForLog(xaiUrl)}`);
 
-          const xaiResponse = await axios.post(xaiUrl, xaiRequestPayload, {
+          const xaiResponse = await postJsonWithTimeout(xaiUrl, {
             headers: {
               "Content-Type": "application/json",
               "Authorization": `Bearer ${xaiKey}`,
             },
-            timeout: timeout,
+            body: outboundBody,
+            timeoutMs: timeout,
           });
 
-        const elapsed = Date.now() - startTime;
+          const elapsed = Date.now() - startTime;
         console.log(`[import-start] session=${sessionId} xai response status=${xaiResponse.status}`);
 
         const xaiRequestId = extractXaiRequestId(xaiResponse.headers);
