@@ -4413,7 +4413,7 @@ Return ONLY the JSON array, no other text.`,
           // If expand_if_few is enabled and we got very few results (or all were skipped), try alternative search
           // But skip if we're running out of time
           const minThreshold = Math.max(1, Math.ceil(xaiPayload.limit * 0.6));
-          if (xaiPayload.expand_if_few && effectiveResultCountForExpansion < minThreshold && companies.length > 0 && !shouldAbort()) {
+          if (shouldRunStage("expand") && xaiPayload.expand_if_few && effectiveResultCountForExpansion < minThreshold && companies.length > 0 && !shouldAbort()) {
             console.log(
               `[import-start] Few results found (${cosmosEnabled ? `${saveResult.saved} saved, ${saveResult.skipped} skipped` : `${enriched.length} found (no_cosmos mode)`}). Attempting expansion search.`
             );
