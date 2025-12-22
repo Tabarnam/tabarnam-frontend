@@ -33,6 +33,29 @@ const {
 const { getBuildInfo } = require("../_buildInfo");
 const { getImportStartHandlerVersion } = require("../_handlerVersions");
 
+const __importStartModuleBuildInfo = (() => {
+  try {
+    return getBuildInfo();
+  } catch {
+    return { build_id: "unknown" };
+  }
+})();
+
+const __importStartModuleHandlerVersion = (() => {
+  try {
+    return getImportStartHandlerVersion(__importStartModuleBuildInfo);
+  } catch {
+    return "unknown";
+  }
+})();
+
+try {
+  console.log("[import-start] module_loaded", {
+    handler_version: __importStartModuleHandlerVersion,
+    build_id: String(__importStartModuleBuildInfo?.build_id || "unknown"),
+  });
+} catch {}
+
 const DEFAULT_HARD_TIMEOUT_MS = 25_000;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000;
 
@@ -2083,6 +2106,36 @@ const importStartHandlerInner = async (req, context) => {
         };
       }
 
+      const pingRaw = readQueryParam(req, "ping");
+      if (String(pingRaw || "").trim() === "1") {
+        const route = (() => {
+          try {
+            const rawUrl = typeof req.url === "string" ? req.url : "";
+            const pathname = rawUrl ? new URL(rawUrl, "http://localhost").pathname : "";
+            const normalized = pathname.replace(/^\/+/, "");
+            if (normalized.endsWith("import-start")) return "import-start";
+            return "import/start";
+          } catch {
+            return "import/start";
+          }
+        })();
+
+        return json(
+          {
+            ok: true,
+            route,
+            handler_version: handlerVersion,
+            build_id: String(buildInfo?.build_id || "unknown"),
+          },
+          200,
+          responseHeaders
+        );
+      }
+
+      if (method === "GET") {
+        return json({ ok: false, error: "METHOD_NOT_ALLOWED" }, 405, responseHeaders);
+      }
+
       let payload;
       let body_source = "unknown";
       let body_source_detail = "";
@@ -2316,6 +2369,8 @@ const importStartHandlerInner = async (req, context) => {
         }
       };
 
+      const noUpstreamMode = String(readQueryParam(req, "no_upstream") || "").trim() === "1";
+
       const respondError = async (err, { status = 500, details = {} } = {}) => {
         const baseDetails =
           requestDetails ||
@@ -2421,23 +2476,25 @@ const importStartHandlerInner = async (req, context) => {
           }
         }
 
-        try {
-          const container = getCompaniesCosmosContainer();
-          if (container) {
-            const errorDoc = {
-              id: `_import_error_${sessionId}`,
-              ...buildImportControlDocBase(sessionId),
-              request_id: requestId,
-              stage,
-              error: errorObj,
-              details: detailsObj && typeof detailsObj === "object" ? detailsObj : {},
-            };
-            await upsertItemWithPkCandidates(container, errorDoc);
+        if (!noUpstreamMode) {
+          try {
+            const container = getCompaniesCosmosContainer();
+            if (container) {
+              const errorDoc = {
+                id: `_import_error_${sessionId}`,
+                ...buildImportControlDocBase(sessionId),
+                request_id: requestId,
+                stage,
+                error: errorObj,
+                details: detailsObj && typeof detailsObj === "object" ? detailsObj : {},
+              };
+              await upsertItemWithPkCandidates(container, errorDoc);
+            }
+          } catch (e) {
+            console.warn(
+              `[import-start] request_id=${requestId} session=${sessionId} failed to write error doc: ${e?.message || String(e)}`
+            );
           }
-        } catch (e) {
-          console.warn(
-            `[import-start] request_id=${requestId} session=${sessionId} failed to write error doc: ${e?.message || String(e)}`
-          );
         }
 
         const normalizeArray = (v) => (Array.isArray(v) ? v : []);
@@ -2671,33 +2728,35 @@ const importStartHandlerInner = async (req, context) => {
       }
 
       setStage("create_session");
-      try {
-        const container = getCompaniesCosmosContainer();
-        if (container) {
-          const sessionDoc = {
-            id: `_import_session_${sessionId}`,
-            ...buildImportControlDocBase(sessionId),
-            created_at: new Date().toISOString(),
-            request_id: requestId,
-            request: {
-              query: String(bodyObj.query || ""),
-              queryType: String(bodyObj.queryType || ""),
-              queryTypes: Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [],
-              location: String(bodyObj.location || ""),
-              limit: Number(bodyObj.limit) || 0,
-            },
-          };
-          const result = await upsertItemWithPkCandidates(container, sessionDoc);
-          if (!result.ok) {
-            console.warn(
-              `[import-start] request_id=${requestId} session=${sessionId} failed to write session marker: ${result.error}`
-            );
+      if (!noUpstreamMode) {
+        try {
+          const container = getCompaniesCosmosContainer();
+          if (container) {
+            const sessionDoc = {
+              id: `_import_session_${sessionId}`,
+              ...buildImportControlDocBase(sessionId),
+              created_at: new Date().toISOString(),
+              request_id: requestId,
+              request: {
+                query: String(bodyObj.query || ""),
+                queryType: String(bodyObj.queryType || ""),
+                queryTypes: Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [],
+                location: String(bodyObj.location || ""),
+                limit: Number(bodyObj.limit) || 0,
+              },
+            };
+            const result = await upsertItemWithPkCandidates(container, sessionDoc);
+            if (!result.ok) {
+              console.warn(
+                `[import-start] request_id=${requestId} session=${sessionId} failed to write session marker: ${result.error}`
+              );
+            }
           }
+        } catch (e) {
+          console.warn(
+            `[import-start] request_id=${requestId} session=${sessionId} error writing session marker: ${e?.message || String(e)}`
+          );
         }
-      } catch (e) {
-        console.warn(
-          `[import-start] request_id=${requestId} session=${sessionId} error writing session marker: ${e?.message || String(e)}`
-        );
       }
 
       // Proxying disabled: /api/import/start is the single authority for message building + validation.
@@ -2776,7 +2835,7 @@ const importStartHandlerInner = async (req, context) => {
         console.log(`[import-start] Config source: ${process.env.XAI_EXTERNAL_BASE ? "XAI_EXTERNAL_BASE" : process.env.FUNCTION_URL ? "FUNCTION_URL (legacy)" : "none"}`);
         console.log(`[import-start] XAI Request URL: ${xaiUrlForLog || "(unparseable)"}`);
 
-        if (!xaiUrl || !xaiKey) {
+        if ((!xaiUrl || !xaiKey) && !noUpstreamMode) {
           setStage("config");
           return respondError(new Error("XAI not configured"), {
             status: 500,
@@ -2787,8 +2846,9 @@ const importStartHandlerInner = async (req, context) => {
         }
 
         // Early check: if import was already stopped, return immediately
-        const wasAlreadyStopped = await checkIfSessionStopped(sessionId);
-        if (wasAlreadyStopped) {
+        if (!noUpstreamMode) {
+          const wasAlreadyStopped = await checkIfSessionStopped(sessionId);
+          if (wasAlreadyStopped) {
           setStage("stopped");
           console.log(`[import-start] session=${sessionId} stop signal detected before XAI call`);
           return jsonWithRequestId(
@@ -2818,6 +2878,7 @@ const importStartHandlerInner = async (req, context) => {
             },
             200
           );
+          }
         }
 
         let xaiCallMeta = null;
@@ -3364,6 +3425,22 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 },
               },
             });
+          }
+
+          if (noUpstreamMode) {
+            setStage("no_upstream");
+            return json(
+              {
+                ok: true,
+                messages_len: Number(guardDebugFields?.messages_len) || 0,
+                system_count: Number(guardDebugFields?.system_count) || 0,
+                user_count: Number(guardDebugFields?.user_count) || 0,
+                resolved_upstream_url_redacted: xaiUrl ? toHostPathOnlyForLog(xaiUrl) : null,
+                auth_header_present: Boolean(xaiKey),
+              },
+              200,
+              responseHeaders
+            );
           }
 
           setStage("searchCompanies", {
@@ -4592,7 +4669,7 @@ app.http("xai-smoke", {
 
 app.http("import-start", {
   route: "import/start",
-  methods: ["POST", "OPTIONS"],
+  methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: importStartHandler,
 });
@@ -4600,7 +4677,7 @@ app.http("import-start", {
 // Legacy alias: some clients still call /api/import-start.
 app.http("import-start-legacy", {
   route: "import-start",
-  methods: ["POST", "OPTIONS"],
+  methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
   handler: importStartHandler,
 });
