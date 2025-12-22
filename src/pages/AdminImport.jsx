@@ -1118,6 +1118,13 @@ export default function AdminImport() {
               {activeSummary ? <div className="text-sm text-slate-600">{activeSummary}</div> : null}
             </div>
 
+            {explainResponseText ? (
+              <div className="rounded border border-slate-200 bg-slate-50 p-3">
+                <div className="text-xs font-medium text-slate-700">Explain payload response</div>
+                <pre className="mt-2 max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{toDisplayText(explainResponseText)}</pre>
+              </div>
+            ) : null}
+
             {activeRun?.start_error ? (
               <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900 space-y-2">
                 <div className="font-semibold">Import failed</div>
