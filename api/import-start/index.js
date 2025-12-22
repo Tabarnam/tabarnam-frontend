@@ -2895,7 +2895,7 @@ const importStartHandlerInner = async (req, context) => {
 
         // Early check: if import was already stopped, return immediately
         if (!noUpstreamMode) {
-          const wasAlreadyStopped = await checkIfSessionStopped(sessionId);
+          const wasAlreadyStopped = await safeCheckIfSessionStopped(sessionId);
           if (wasAlreadyStopped) {
           setStage("stopped");
           console.log(`[import-start] session=${sessionId} stop signal detected before XAI call`);
