@@ -3,6 +3,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { test } = require("node:test");
 
+const axios = require("axios");
+
 const { _test } = require("./index.js");
 const { getBuildInfo } = require("../_buildInfo");
 
@@ -352,6 +354,94 @@ test("getBuildInfo uses WEBSITE_COMMIT_HASH when set", async () => {
       const info = getBuildInfo();
       assert.equal(info.build_id, "d983a4b0fd2de51f5754fc4b9130fdc1e9d965cc");
       assert.equal(info.build_id_source, "WEBSITE_COMMIT_HASH");
+    }
+  );
+});
+
+test("/api/import/start live mode builds >=2 messages and hits /v1/chat/completions", async () => {
+  await withTempEnv(
+    {
+      ...NO_NETWORK_ENV,
+      XAI_EXTERNAL_BASE: "https://api.x.ai",
+      XAI_EXTERNAL_KEY: "test_key",
+    },
+    async () => {
+      const originalPost = axios.post;
+      const calls = [];
+
+      axios.post = async (url, payload) => {
+        calls.push({ url, payload });
+        return {
+          status: 200,
+          headers: {},
+          data: { choices: [{ message: { content: "[]" } }] },
+        };
+      };
+
+      try {
+        const req = makeReq({
+          json: async () => ({
+            mode: "live",
+            query: "bath robe",
+            queryTypes: ["product_keyword"],
+            limit: 3,
+          }),
+        });
+
+        const res = await _test.importStartHandler(req, { log() {} });
+        assert.equal(res.status, 200);
+
+        assert.equal(calls.length, 1);
+        assert.ok(String(calls[0].url).includes("/v1/chat/completions"));
+        assert.ok(calls[0].payload);
+        assert.ok(Array.isArray(calls[0].payload.messages));
+        assert.ok(calls[0].payload.messages.length >= 2);
+        assert.ok(calls[0].payload.messages.some((m) => m?.role === "system"));
+        assert.ok(calls[0].payload.messages.some((m) => m?.role === "user"));
+      } finally {
+        axios.post = originalPost;
+      }
+    }
+  );
+});
+
+test("/api/import/start refuses upstream when messages is [] (EMPTY_MESSAGES_BUILDER_BUG)", async () => {
+  await withTempEnv(
+    {
+      ...NO_NETWORK_ENV,
+      XAI_EXTERNAL_BASE: "https://api.x.ai",
+      XAI_EXTERNAL_KEY: "test_key",
+    },
+    async () => {
+      const originalPost = axios.post;
+      let called = 0;
+      axios.post = async () => {
+        called += 1;
+        throw new Error("should not call upstream");
+      };
+
+      try {
+        const req = makeReq({
+          json: async () => ({
+            mode: "live",
+            query: "bath robe",
+            queryTypes: ["product_keyword"],
+            messages: [],
+            prompt: "",
+            limit: 3,
+          }),
+        });
+
+        const res = await _test.importStartHandler(req, { log() {} });
+        const body = parseJsonResponse(res);
+
+        assert.equal(res.status, 400);
+        assert.equal(body?.error?.code, "EMPTY_MESSAGES_BUILDER_BUG");
+        assert.equal(called, 0);
+        assert.equal(body?.details?.messages_len, 0);
+      } finally {
+        axios.post = originalPost;
+      }
     }
   );
 });
