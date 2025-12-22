@@ -1,5 +1,6 @@
 const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
+const { getSession: getImportSession } = require("../_importSessionStore");
 const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
