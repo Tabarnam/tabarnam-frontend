@@ -4067,30 +4067,46 @@ Output JSON only:
           }
 
           // Geocode and persist per-location coordinates (HQ + manufacturing)
-          setStage("geocodeLocations");
-          console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
-          for (let i = 0; i < enriched.length; i++) {
-            if (shouldAbort()) {
-              console.log(`[import-start] session=${sessionId} aborting during geocoding: time limit exceeded`);
-              break;
+          if (shouldRunStage("location")) {
+            const deadlineBeforeGeocode = checkDeadlineOrReturn("xai_location_geocode_start");
+            if (deadlineBeforeGeocode) return deadlineBeforeGeocode;
+
+            mark("xai_location_geocode_start");
+            setStage("geocodeLocations");
+            console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
+
+            for (let i = 0; i < enriched.length; i++) {
+              if (Date.now() > deadlineMs) {
+                return respondAcceptedBeforeGatewayTimeout("xai_location_geocode_start");
+              }
+
+              if (shouldAbort()) {
+                console.log(`[import-start] session=${sessionId} aborting during geocoding: time limit exceeded`);
+                break;
+              }
+
+              const stopped = await safeCheckIfSessionStopped(sessionId);
+              if (stopped) {
+                console.log(`[import-start] session=${sessionId} stop signal detected, aborting during geocoding`);
+                break;
+              }
+
+              const company = enriched[i];
+              try {
+                enriched[i] = await geocodeCompanyLocations(company, { timeoutMs: 5000 });
+              } catch (e) {
+                console.log(
+                  `[import-start] session=${sessionId} geocoding failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`
+                );
+              }
             }
 
-            const stopped = await safeCheckIfSessionStopped(sessionId);
-            if (stopped) {
-              console.log(`[import-start] session=${sessionId} stop signal detected, aborting during geocoding`);
-              break;
-            }
-
-            const company = enriched[i];
-            try {
-              enriched[i] = await geocodeCompanyLocations(company, { timeoutMs: 5000 });
-            } catch (e) {
-              console.log(`[import-start] session=${sessionId} geocoding failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`);
-            }
+            const okCount = enriched.filter((c) => Number.isFinite(c.hq_lat) && Number.isFinite(c.hq_lng)).length;
+            console.log(`[import-start] session=${sessionId} geocoding done success=${okCount} failed=${enriched.length - okCount}`);
+            mark("xai_location_geocode_done");
+          } else {
+            mark("xai_location_geocode_skipped");
           }
-
-          const okCount = enriched.filter((c) => Number.isFinite(c.hq_lat) && Number.isFinite(c.hq_lng)).length;
-          console.log(`[import-start] session=${sessionId} geocoding done success=${okCount} failed=${enriched.length - okCount}`);
 
           // Fetch editorial reviews for companies
           if (!shouldAbort()) {
