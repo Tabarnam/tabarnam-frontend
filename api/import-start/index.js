@@ -984,8 +984,16 @@ function buildXaiExecutionPlan(xaiPayload) {
 }
 
 function resolveXaiEndpointForModel(rawEndpoint, model) {
-  const u = tryParseUrl(rawEndpoint);
-  if (!u) return String(rawEndpoint || "").trim();
+  let raw = String(rawEndpoint || "").trim();
+
+  // Normalize missing scheme so diagnostics always show a full URL.
+  // Only apply when the value looks like a hostname (avoid breaking proxies/relative paths).
+  if (raw && !/^https?:\/\//i.test(raw) && /^[a-z0-9.-]+\.[a-z]{2,}(?::\d+)?(\/.*)?$/i.test(raw)) {
+    raw = `https://${raw}`;
+  }
+
+  const u = tryParseUrl(raw);
+  if (!u) return raw;
 
   const pathLower = String(u.pathname || "").toLowerCase();
   if (pathLower.includes("/proxy-xai")) return u.toString();
