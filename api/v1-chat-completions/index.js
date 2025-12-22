@@ -39,7 +39,10 @@ function resolveXaiChatCompletionsUrl(rawBase) {
     const path = String(u.pathname || "");
     const lower = path.toLowerCase();
 
-    if (/\/v1\/chat\/completions\/?$/.test(lower)) return u.toString();
+    if (/\/v1\/chat\/completions\/?$/.test(lower)) {
+      u.search = "";
+      return u.toString();
+    }
 
     // Normalize bases like https://api.x.ai or https://api.x.ai/v1
     let basePath = path.replace(/\/+$/, "");
@@ -54,6 +57,51 @@ function resolveXaiChatCompletionsUrl(rawBase) {
     // If it's not a valid URL, fall back to the canonical external API.
     return "https://api.x.ai/v1/chat/completions";
   }
+}
+
+function getRequestHost(req) {
+  try {
+    return new URL(req.url).host;
+  } catch {
+    return "";
+  }
+}
+
+function getUpstreamXaiUrl(req) {
+  const requestHost = getRequestHost(req);
+  const candidates = [
+    process.env.XAI_UPSTREAM_BASE,
+    process.env.XAI_BASE,
+    process.env.XAI_EXTERNAL_BASE,
+    process.env.FUNCTION_URL,
+  ];
+
+  for (const c of candidates) {
+    const raw = String(c || "").trim();
+    if (!raw) continue;
+    const resolved = resolveXaiChatCompletionsUrl(raw);
+    try {
+      const u = new URL(resolved);
+      // Avoid accidentally pointing to ourselves and causing recursion.
+      if (requestHost && u.host === requestHost) continue;
+      return resolved;
+    } catch {
+      continue;
+    }
+  }
+
+  return "https://api.x.ai/v1/chat/completions";
+}
+
+function getUpstreamXaiKey() {
+  return (
+    (process.env.XAI_UPSTREAM_KEY || "").trim() ||
+    (process.env.XAI_KEY || "").trim() ||
+    (process.env.XAI_EXTERNAL_KEY || "").trim() ||
+    (process.env.FUNCTION_KEY || "").trim() ||
+    (process.env.XAI_API_KEY || "").trim() ||
+    ""
+  );
 }
 
 async function readRawBodyText(req) {
@@ -117,11 +165,12 @@ app.http("v1-chat-completions", {
         return jsonResponse(401, { ok: false, error: "unauthorized" });
       }
 
-      const xaiUrl = resolveXaiChatCompletionsUrl(process.env.XAI_UPSTREAM_BASE || process.env.XAI_BASE || process.env.XAI_EXTERNAL_BASE);
+      const xaiUrl = getUpstreamXaiUrl(req);
+      const xaiKey = getUpstreamXaiKey();
 
       const outboundHeaders = {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${(process.env.XAI_UPSTREAM_KEY || process.env.XAI_KEY || process.env.XAI_EXTERNAL_KEY || "").trim()}`,
+        Authorization: `Bearer ${xaiKey}`,
       };
 
       const outboundBodyJsonText = parsed.ok ? JSON.stringify(parsed.value) : rawBodyText;
@@ -162,8 +211,8 @@ app.http("v1-chat-completions", {
       });
     }
 
-    const xaiUrl = resolveXaiChatCompletionsUrl(process.env.XAI_UPSTREAM_BASE || process.env.XAI_BASE || process.env.XAI_EXTERNAL_BASE);
-    const xaiKey = (process.env.XAI_UPSTREAM_KEY || process.env.XAI_KEY || process.env.XAI_EXTERNAL_KEY || "").trim();
+    const xaiUrl = getUpstreamXaiUrl(req);
+    const xaiKey = getUpstreamXaiKey();
 
     const outboundHeaders = {
       "Content-Type": "application/json",
