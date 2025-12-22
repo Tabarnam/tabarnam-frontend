@@ -2410,22 +2410,6 @@ const importStartHandlerInner = async (req, context) => {
       const noCosmosMode = String(readQueryParam(req, "no_cosmos") || "").trim() === "1";
       const cosmosEnabled = !noCosmosMode;
 
-      let stage_beacon = "init";
-      let stage_reached = null;
-
-      const mark = (s) => {
-        stage_beacon = String(s || "unknown") || "unknown";
-
-        if (/_done$/.test(stage_beacon)) {
-          stage_reached = `after_${stage_beacon.replace(/_done$/, "")}`;
-        }
-
-        try {
-          console.log("[import-start] stage", { stage: stage_beacon, request_id: requestId, session_id: sessionId });
-        } catch {
-          console.log("[import-start] stage", { stage: stage_beacon });
-        }
-      };
 
       const safeCheckIfSessionStopped = async (sid) => {
         if (!cosmosEnabled) return false;
