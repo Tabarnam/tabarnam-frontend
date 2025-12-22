@@ -145,9 +145,7 @@ export default function AdminImport() {
   const [location, setLocation] = useState("");
   const [limitInput, setLimitInput] = useState(String(IMPORT_LIMIT_DEFAULT));
 
-  const [importConfigLoading, setImportConfigLoading] = useState(true);
-  const [importReady, setImportReady] = useState(true);
-  const [importConfigMessage, setImportConfigMessage] = useState("");
+  const importConfigured = Boolean(API_BASE);
 
   const [runs, setRuns] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
@@ -430,8 +428,8 @@ export default function AdminImport() {
       return;
     }
 
-    if (!importConfigLoading && !importReady) {
-      toast.error(importConfigMessage || "Import is not configured.");
+    if (!importConfigured) {
+      toast.error("Import is not configured.");
       return;
     }
 
@@ -563,7 +561,7 @@ export default function AdminImport() {
     } finally {
       stopPolling();
     }
-  }, [importConfigLoading, importConfigMessage, importReady, limitInput, location, query, queryTypes, resetPollAttempts, schedulePoll, stopPolling, urlTypeValidationError]);
+  }, [importConfigured, limitInput, location, query, queryTypes, resetPollAttempts, schedulePoll, stopPolling, urlTypeValidationError]);
 
   const explainImportPayload = useCallback(async () => {
     const q = query.trim();
@@ -577,8 +575,8 @@ export default function AdminImport() {
       return;
     }
 
-    if (!importConfigLoading && !importReady) {
-      toast.error(importConfigMessage || "Import is not configured.");
+    if (!importConfigured) {
+      toast.error("Import is not configured.");
       return;
     }
 
@@ -626,7 +624,7 @@ export default function AdminImport() {
     } finally {
       setExplainLoading(false);
     }
-  }, [importConfigLoading, importConfigMessage, importReady, limitInput, location, query, queryTypes, urlTypeValidationError]);
+  }, [importConfigured, limitInput, location, query, queryTypes, urlTypeValidationError]);
 
   const stopImport = useCallback(async () => {
     if (!activeSessionId) return;
@@ -749,48 +747,7 @@ export default function AdminImport() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      setImportConfigLoading(true);
-      try {
-        const res = await apiFetch("/xadmin-api-bulk-import-config");
-        const body = await readJsonOrText(res);
-
-        if (cancelled) return;
-
-        if (!res.ok || body?.ok !== true) {
-          const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Config check failed (${res.status})`);
-          setImportReady(false);
-          setImportConfigMessage(msg);
-          return;
-        }
-
-        const ready = Boolean(body?.config?.status?.import_ready);
-        setImportReady(ready);
-
-        if (!ready) {
-          const recs = Array.isArray(body?.config?.recommendations) ? body.config.recommendations : [];
-          const critical = recs.find((r) => String(r?.severity || "").toLowerCase() === "critical");
-          setImportConfigMessage(
-            critical?.message
-              ? String(critical.message)
-              : "Import is not ready. Configure XAI and Cosmos DB environment variables."
-          );
-        } else {
-          setImportConfigMessage("");
-        }
-      } catch (e) {
-        if (cancelled) return;
-        setImportReady(false);
-        setImportConfigMessage(toErrorString(e) || "Config check failed");
-      } finally {
-        if (!cancelled) setImportConfigLoading(false);
-      }
-    })();
-
     return () => {
-      cancelled = true;
       stopPolling();
       startFetchAbortRef.current?.abort?.();
     };
@@ -919,12 +876,12 @@ export default function AdminImport() {
             </div>
           </section>
 
-          {!importConfigLoading && !importReady ? (
+          {!API_BASE ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 mt-0.5" />
               <div className="space-y-1">
                 <div className="font-semibold">Import is not configured</div>
-                <div className="text-amber-900/90">{importConfigMessage || "Configure XAI and Cosmos DB to enable imports."}</div>
+                <div className="text-amber-900/90">API base could not be resolved, and /api fallback is unavailable.</div>
               </div>
             </div>
           ) : null}
@@ -1003,12 +960,7 @@ export default function AdminImport() {
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 onClick={beginImport}
-                disabled={
-                  importConfigLoading ||
-                  !importReady ||
-                  activeStatus === "running" ||
-                  activeStatus === "stopping"
-                }
+                disabled={!API_BASE || activeStatus === "running" || activeStatus === "stopping"}
               >
                 <Play className="h-4 w-4 mr-2" />
                 {activeStatus === "running" ? "Running…" : "Start import"}
@@ -1017,7 +969,7 @@ export default function AdminImport() {
               <Button
                 variant="outline"
                 onClick={explainImportPayload}
-                disabled={importConfigLoading || !importReady || explainLoading}
+                disabled={!API_BASE || explainLoading}
               >
                 Explain payload
               </Button>

@@ -2,62 +2,61 @@
 // Single source of truth for client-side API routing.
 //
 // Preferred configuration:
-// - VITE_XAI_FUNCTIONS_BASE: Base origin for the Functions host (e.g. "" for same-origin, or "https://tabarnam.com").
+// - VITE_XAI_FUNCTIONS_BASE: API base URL (recommended: "/api" for same-origin).
 //
 // Notes:
 // - We still allow legacy VITE_API_BASE for backwards compatibility.
-// - API_BASE is always computed as "{FUNCTIONS_BASE}/api" (or "/api" when same-origin).
-// - If you set an absolute FUNCTIONS_BASE to a different origin, CORS may be required.
+// - API_BASE always falls back to same-origin "/api" when VITE_* is missing or invalid.
+// - If you set an absolute API_BASE to a different origin, CORS may be required.
 
 type JsonRecord = Record<string, unknown>;
-
-function trimSlashes(value: string) {
-  return value.replace(/\/+$/, "");
-}
 
 function looksLikeAbsoluteUrl(value: string) {
   return /^https?:\/\//i.test(value);
 }
 
-function normalizeFunctionsBase(value: string) {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
+function resolveApiBaseFromEnv() {
+  // Canonical resolution logic (must match behavior exactly):
+  //
+  // const rawBase =
+  //   import.meta.env.VITE_XAI_FUNCTIONS_BASE ??
+  //   import.meta.env.VITE_API_BASE ??
+  //   "";
+  //
+  // const isValidBase =
+  //   typeof rawBase === "string" &&
+  //   rawBase.length > 0 &&
+  //   rawBase !== "https://" &&
+  //   rawBase !== "http://" &&
+  //   (rawBase.startsWith("/") || rawBase.startsWith("http"));
+  //
+  // const API_BASE = isValidBase ? rawBase : "/api";
 
-  // Allow users to accidentally include /api; normalize it out.
-  const withoutTrailing = trimSlashes(raw);
-  if (withoutTrailing === "/api") return "";
-  if (withoutTrailing.endsWith("/api")) return withoutTrailing.slice(0, -4);
+  const rawBase = import.meta.env.VITE_XAI_FUNCTIONS_BASE ?? import.meta.env.VITE_API_BASE ?? "";
 
-  return withoutTrailing;
-}
-
-function computeApiBase(functionsBase: string) {
-  const base = functionsBase ? trimSlashes(functionsBase) : "";
-  return base ? `${base}/api` : "/api";
-}
-
-function getFunctionsBaseFromEnv() {
-  const raw =
-    import.meta.env.VITE_XAI_FUNCTIONS_BASE?.trim() ||
-    import.meta.env.VITE_API_BASE?.trim() ||
-    "";
-
-  const normalized = normalizeFunctionsBase(raw);
+  const isValidBase =
+    typeof rawBase === "string" &&
+    rawBase.length > 0 &&
+    rawBase !== "https://" &&
+    rawBase !== "http://" &&
+    (rawBase.startsWith("/") || rawBase.startsWith("http://") || rawBase.startsWith("https://"));
 
   // Keep the console signal from the previous implementation (dev-only).
   const isDev = import.meta.env.MODE === "development";
-  if (isDev && raw && looksLikeAbsoluteUrl(raw) && typeof console !== "undefined" && console.warn) {
+  if (isDev && isValidBase && looksLikeAbsoluteUrl(rawBase) && typeof console !== "undefined" && console.warn) {
     console.warn(
-      `[API Config] Using absolute VITE_XAI_FUNCTIONS_BASE/VITE_API_BASE: ${raw}. ` +
+      `[API Config] Using absolute VITE_XAI_FUNCTIONS_BASE/VITE_API_BASE: ${rawBase}. ` +
         `If this is a different origin than the frontend, you may need CORS on the backend.`
     );
   }
 
-  return normalized;
+  return isValidBase ? rawBase : "/api";
 }
 
-export const FUNCTIONS_BASE = getFunctionsBaseFromEnv();
-export const API_BASE = computeApiBase(FUNCTIONS_BASE);
+export const API_BASE = resolveApiBaseFromEnv();
+
+// Backwards-compatible label used by admin debug UIs.
+export const FUNCTIONS_BASE = API_BASE === "/api" ? "" : API_BASE;
 
 export function toErrorString(err: unknown): string {
   try {
