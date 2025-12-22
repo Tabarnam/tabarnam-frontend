@@ -2493,14 +2493,16 @@ const importStartHandlerInner = async (req, context) => {
             ? detailsObj.message.trim()
             : errorMessage) || "Import start failed";
 
-        console.error(`[import-start] request_id=${requestId} session=${sessionId} stage=${stage} code=${code} message=${message}`);
+        console.error(
+          `[import-start] request_id=${requestId} session=${sessionId} stage=${errorStage} code=${code} message=${message}`
+        );
         if (err?.stack) console.error(err.stack);
 
         const errorObj = {
           code,
           message,
           request_id: requestId,
-          step: stage,
+          step: errorStage,
         };
 
         const passthroughKeys = [
