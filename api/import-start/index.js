@@ -4396,6 +4396,9 @@ Return ONLY the JSON array, no other text.`,
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
 
           if (enriched.length > 0 && cosmosEnabled) {
+            const deadlineBeforeCosmosWrite = checkDeadlineOrReturn("cosmos_write_start");
+            if (deadlineBeforeCosmosWrite) return deadlineBeforeCosmosWrite;
+
             mark("cosmos_write_start");
             setStage("saveCompaniesToCosmos");
             console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos start count=${enriched.length}`);
