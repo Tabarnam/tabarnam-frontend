@@ -305,6 +305,38 @@ function shouldExplainClientRequest(url: string) {
   }
 }
 
+function getMethodFromInit(init?: RequestInit): string {
+  const m = typeof init?.method === "string" && init.method.trim() ? init.method.trim().toUpperCase() : "GET";
+  return m;
+}
+
+function getResponseHeadersSubset(res: Response): {
+  "content-type": string;
+  "x-request-id": string;
+  "x-ms-request-id": string;
+  "x-functions-execution-id": string;
+} {
+  const h = res?.headers;
+
+  const contentType = normalizeHeaderValue(h?.get?.("content-type"));
+  const xRequestId =
+    normalizeHeaderValue(h?.get?.("x-request-id")) ||
+    normalizeHeaderValue(h?.get?.("xai-request-id")) ||
+    normalizeHeaderValue(h?.get?.("request-id"));
+
+  const xMsRequestId = normalizeHeaderValue(h?.get?.("x-ms-request-id"));
+  const xFunctionsExecutionId =
+    normalizeHeaderValue(h?.get?.("x-functions-execution-id")) ||
+    normalizeHeaderValue(h?.get?.("x-functions-executionid"));
+
+  return {
+    "content-type": contentType,
+    "x-request-id": xRequestId,
+    "x-ms-request-id": xMsRequestId,
+    "x-functions-execution-id": xFunctionsExecutionId,
+  };
+}
+
 export async function apiFetch(path: string, init?: RequestInit) {
   const url = join(API_BASE, path);
 
@@ -320,24 +352,65 @@ export async function apiFetch(path: string, init?: RequestInit) {
     });
   }
 
+  const method = getMethodFromInit(normalizedInit);
+
   try {
     const response = await fetch(url, normalizedInit);
 
     if (!response.ok) {
+      const responseText = await response.clone().text().catch(() => "");
+      const err = {
+        status: response.status,
+        url,
+        method,
+        response_text_preview: responseText.length > 2000 ? responseText.slice(0, 2000) : responseText,
+        response_headers: getResponseHeadersSubset(response),
+      };
+
+      // Attach best-effort diagnostics without changing the response contract.
+      try {
+        (response as any).__api_fetch_error = err;
+      } catch {
+        // ignore
+      }
+
       const configMsg = await getUserFacingConfigMessage(response);
       if (!configMsg) {
-        console.error(`API ${url} returned ${response.status}:`, response.statusText);
+        console.error("[apiFetch] Non-2xx response", err);
       }
     }
 
     return response;
   } catch (e: any) {
-    console.error(`API fetch failed for ${url}:`, e?.message);
-    // Return a fake 503 error response instead of throwing
-    return new Response(JSON.stringify({ error: "API unavailable", detail: e?.message }), {
-      status: 503,
-      headers: { "Content-Type": "application/json" },
+    const errorMessage = e?.message ? String(e.message) : "fetch_failed";
+    const errorStackPreview =
+      typeof e?.stack === "string" && e.stack.trim() ? (e.stack.length > 2000 ? e.stack.slice(0, 2000) : e.stack) : "";
+
+    console.error("[apiFetch] Network error", {
+      url,
+      method,
+      error_message: errorMessage,
+      error_stack_preview: errorStackPreview,
     });
+
+    // Return a fake 503 error response instead of throwing
+    return new Response(
+      JSON.stringify(
+        {
+          error: "API unavailable",
+          url,
+          method,
+          error_message: errorMessage,
+          error_stack_preview: errorStackPreview,
+        },
+        null,
+        2
+      ),
+      {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
   }
 }
 
