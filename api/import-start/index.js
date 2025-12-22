@@ -3672,7 +3672,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               }
             });
 
-            await Promise.all(workers);
+            const results = await Promise.allSettled(workers);
+            for (const r of results) {
+              if (r.status === "rejected") {
+                console.warn(`[import-start] mapWithConcurrency worker rejected: ${r.reason?.message || String(r.reason || "")}`);
+              }
+            }
             return out;
           }
 
