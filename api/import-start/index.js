@@ -4196,12 +4196,13 @@ Return ONLY the JSON array, no other text.`,
                   xaiUrl
                 )})`
               );
-              const refinementResponse = await axios.post(xaiUrl, refinementPayload, {
+              const refinementResponse = await postJsonWithTimeout(xaiUrl, {
                 headers: {
                   "Content-Type": "application/json",
                   "Authorization": `Bearer ${xaiKey}`,
                 },
-                timeout: timeout,
+                body: JSON.stringify(refinementPayload),
+                timeoutMs: timeout,
               });
 
               if (refinementResponse.status >= 200 && refinementResponse.status < 300) {
