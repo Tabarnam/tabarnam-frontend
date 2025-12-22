@@ -204,6 +204,12 @@ async function handler(req, context) {
 
     const lastCreatedAt = Array.isArray(items) && items.length > 0 ? String(items[0]?.created_at || "") : "";
 
+    const stage_beacon =
+      (typeof errorDoc?.stage === "string" && errorDoc.stage.trim() ? errorDoc.stage.trim() : null) ||
+      (typeof errorDoc?.error?.step === "string" && errorDoc.error.step.trim() ? errorDoc.error.step.trim() : null) ||
+      (typeof sessionDoc?.stage_beacon === "string" && sessionDoc.stage_beacon.trim() ? sessionDoc.stage_beacon.trim() : null) ||
+      (completed ? "complete" : timedOut ? "timeout" : stopped ? "stopped" : "running");
+
     if (errorPayload || timedOut || stopped) {
       const errorOut =
         errorPayload ||
