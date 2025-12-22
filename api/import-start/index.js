@@ -1596,12 +1596,13 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
     console.log(
       `[import-start] Fetching editorial reviews for ${companyName} (upstream=${toHostPathOnlyForLog(xaiUrl)})`
     );
-    const response = await axios.post(xaiUrl, reviewPayload, {
+    const response = await postJsonWithTimeout(xaiUrl, {
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${xaiKey}`,
       },
-      timeout,
+      body: JSON.stringify(reviewPayload),
+      timeoutMs: timeout,
     });
 
     if (!(response.status >= 200 && response.status < 300)) {
