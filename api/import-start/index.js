@@ -2994,21 +2994,6 @@ const importStartHandlerInner = async (req, context) => {
           ...(center ? { center } : {}),
         };
 
-        logImportStartMeta({
-          request_id: requestId,
-          session_id: sessionId,
-          handler_version: handlerVersion,
-          stage: "build_prompt",
-          queryTypes,
-          query_len: query.length,
-          prompt_len: 0,
-          messages_len: 0,
-          has_system_message: false,
-          has_user_message: false,
-          user_message_len: 0,
-          elapsedMs: Date.now() - startTime,
-          upstream_status: null,
-        });
         if (debugOutput) {
           debugOutput.xai.payload = xaiPayload;
         }
