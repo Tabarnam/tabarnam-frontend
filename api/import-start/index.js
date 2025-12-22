@@ -4337,7 +4337,7 @@ Return ONLY the JSON array, no other text.`,
               companies: enriched,
               meta: {
                 mode: "direct",
-                expanded: xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold,
+                expanded: xaiPayload.expand_if_few && effectiveResultCountForExpansion < minThreshold,
                 timedOut: timedOut,
                 elapsedMs: elapsed,
               },
