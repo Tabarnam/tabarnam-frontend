@@ -2410,6 +2410,72 @@ const importStartHandlerInner = async (req, context) => {
       const noCosmosMode = String(readQueryParam(req, "no_cosmos") || "").trim() === "1";
       const cosmosEnabled = !noCosmosMode;
 
+      const deadlineMs = Date.now() + 45_000;
+
+      const allowedStages = ["primary", "keywords", "reviews", "location", "expand"];
+      const stageOrder = new Map(allowedStages.map((s, i) => [s, i]));
+
+      const parseStageParam = (raw) => {
+        const v = String(raw || "").trim().toLowerCase();
+        if (!v) return null;
+        return allowedStages.includes(v) ? v : "__invalid__";
+      };
+
+      const maxStageRaw = readQueryParam(req, "max_stage");
+      const skipStagesRaw = readQueryParam(req, "skip_stages");
+
+      const maxStageParsed = parseStageParam(maxStageRaw);
+      const skipStagesList = String(skipStagesRaw || "")
+        .split(",")
+        .map((s) => String(s || "").trim().toLowerCase())
+        .filter(Boolean);
+
+      if (maxStageParsed === "__invalid__") {
+        return jsonWithRequestId(
+          {
+            ok: false,
+            session_id: sessionId,
+            request_id: requestId,
+            stage_beacon,
+            error_message: "Invalid max_stage. Expected one of: primary,keywords,reviews,location,expand",
+          },
+          400
+        );
+      }
+
+      const skipStages = new Set();
+      for (const s of skipStagesList) {
+        const parsed = parseStageParam(s);
+        if (parsed === "__invalid__") {
+          return jsonWithRequestId(
+            {
+              ok: false,
+              session_id: sessionId,
+              request_id: requestId,
+              stage_beacon,
+              error_message: "Invalid skip_stages. Expected comma-separated list from: primary,keywords,reviews,location,expand",
+            },
+            400
+          );
+        }
+        if (parsed) skipStages.add(parsed);
+      }
+
+      const maxStage = maxStageParsed;
+
+      const shouldRunStage = (stageKey) => {
+        if (!stageKey) return true;
+        if (skipStages.has(stageKey)) return false;
+        if (!maxStage) return true;
+        return stageOrder.get(stageKey) <= stageOrder.get(maxStage);
+      };
+
+      const shouldStopAfterStage = (stageKey) => {
+        if (!maxStage) return false;
+        if (maxStage === stageKey) return true;
+        if (skipStages.has(stageKey) && maxStage === stageKey) return true;
+        return false;
+      };
 
       const safeCheckIfSessionStopped = async (sid) => {
         if (!cosmosEnabled) return false;
