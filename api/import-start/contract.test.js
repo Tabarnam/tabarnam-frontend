@@ -491,7 +491,7 @@ test("/api/import/start returns 400 when any message has empty/non-string conten
         assert.equal(body?.error?.code, "EMPTY_MESSAGE_CONTENT_BUILDER_BUG");
         assert.equal(called, 0);
 
-        assert.equal(body?.details?.handler_version ? Boolean(body.details.handler_version) : true, true);
+        assert.ok(typeof body?.details?.handler_version === "string");
         assert.equal(body?.details?.mode, "live");
         assert.deepEqual(body?.details?.queryTypes, ["product_keyword"]);
         assert.ok(Number.isFinite(Number(body?.details?.messages_len)));
