@@ -20,7 +20,7 @@ function getXAIEndpoint() {
 }
 
 function getXAIKey() {
-  const key = (process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || '').trim();
+  const key = (process.env.XAI_API_KEY || process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || '').trim();
   return key;
 }
 
