@@ -3350,103 +3350,200 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
         const promptInput = typeof bodyObj.prompt === "string" ? bodyObj.prompt.trim() : "";
 
-        const sanitizeMessages = (raw) => {
-          if (!Array.isArray(raw)) return [];
-          return raw
-            .map((m) => {
-              if (!m || typeof m !== "object") return null;
-              const role = String(m.role || "").trim();
-              const content = String(m.content || "");
-              if (!role || !content.trim()) return null;
-              if (role !== "system" && role !== "user" && role !== "assistant" && role !== "tool") return null;
-              return { role, content };
-            })
-            .filter(Boolean);
+        const SAFE_SYSTEM_PROMPT =
+          typeof XAI_SYSTEM_PROMPT === "string" && XAI_SYSTEM_PROMPT.trim()
+            ? XAI_SYSTEM_PROMPT
+            : "You are a helpful assistant.";
+
+        const ALLOWED_ROLES = new Set(["system", "user", "assistant", "tool"]);
+
+        const buildFallbackPromptFromRequest = () => {
+          const qt = Array.isArray(queryTypes) ? queryTypes.map((t) => String(t || "").trim()).filter(Boolean) : [];
+          const limitVal = Number.isFinite(Number(xaiPayload?.limit)) ? Number(xaiPayload.limit) : 0;
+          const location = typeof bodyObj.location === "string" ? bodyObj.location.trim() : "";
+          const center = safeCenter(bodyObj.center);
+          const centerStr = center ? `${center.lat},${center.lng}` : "";
+
+          const lines = [];
+          if (String(query || "").trim()) lines.push(`Query: ${String(query).trim()}`);
+          if (qt.length) lines.push(`QueryTypes: ${qt.join(", ")}`);
+          if (Number.isFinite(limitVal) && limitVal > 0) lines.push(`Limit: ${limitVal}`);
+          if (location) lines.push(`Location: ${location}`);
+          else if (centerStr) lines.push(`Center: ${centerStr}`);
+
+          return lines.join("\n").trim();
+        };
+
+        const builtUserPrompt = (promptInput || promptString || buildFallbackPromptFromRequest()).trim();
+
+        const parseAndValidateProvidedMessages = (raw) => {
+          if (!Array.isArray(raw)) {
+            return { ok: false, reason: "MESSAGES_NOT_ARRAY", messages: [] };
+          }
+
+          const out = [];
+          for (let i = 0; i < raw.length; i += 1) {
+            const m = raw[i];
+            if (!m || typeof m !== "object") return { ok: false, reason: "MESSAGE_NOT_OBJECT", index: i, messages: [] };
+
+            const role = typeof m.role === "string" ? m.role.trim() : "";
+            if (!role || !ALLOWED_ROLES.has(role)) {
+              return { ok: false, reason: "INVALID_ROLE", index: i, messages: [] };
+            }
+
+            if (typeof m.content !== "string") {
+              return { ok: false, reason: "NON_STRING_CONTENT", index: i, messages: [] };
+            }
+
+            const content = m.content.trim();
+            if (!content) {
+              return { ok: false, reason: "EMPTY_CONTENT", index: i, messages: [] };
+            }
+
+            out.push({ role, content });
+          }
+
+          return { ok: true, messages: out };
         };
 
         const ensureSystemAndUser = (rawMessages, { userFallback }) => {
-          const out = sanitizeMessages(rawMessages);
+          const out = Array.isArray(rawMessages) ? [...rawMessages] : [];
 
-          const hasSystem = out.some((m) => m.role === "system" && String(m.content || "").trim());
-          const hasUser = out.some((m) => m.role === "user" && String(m.content || "").trim());
+          const hasSystem = out.some((m) => m?.role === "system" && typeof m.content === "string" && m.content.trim());
+          const hasUser = out.some((m) => m?.role === "user" && typeof m.content === "string" && m.content.trim());
 
-          if (!hasSystem) out.unshift({ role: "system", content: XAI_SYSTEM_PROMPT });
-          if (!hasUser && userFallback && String(userFallback).trim()) {
-            out.push({ role: "user", content: String(userFallback) });
+          if (!hasSystem) out.unshift({ role: "system", content: SAFE_SYSTEM_PROMPT });
+          if (!hasUser) {
+            const fb = typeof userFallback === "string" ? userFallback.trim() : "";
+            if (fb) out.push({ role: "user", content: fb });
           }
 
           return out;
         };
 
+        const buildMessageDebugFields = (msgs) => {
+          const arr = Array.isArray(msgs) ? msgs : [];
+          const system_count = arr.filter((m) => m?.role === "system").length;
+          const user_count = arr.filter((m) => m?.role === "user").length;
+          const system_content_len =
+            system_count > 0
+              ? (typeof arr.find((m) => m?.role === "system")?.content === "string"
+                  ? arr.find((m) => m?.role === "system").content.trim().length
+                  : 0)
+              : 0;
+          const user_content_len =
+            user_count > 0
+              ? (typeof arr.find((m) => m?.role === "user")?.content === "string"
+                  ? arr.find((m) => m?.role === "user").content.trim().length
+                  : 0)
+              : 0;
+
+          return {
+            messages_len: arr.length,
+            system_count,
+            user_count,
+            system_content_len,
+            user_content_len,
+            prompt_len: builtUserPrompt.length,
+            handler_version: handlerVersion,
+            mode: String(bodyObj.mode || "direct"),
+            queryTypes,
+          };
+        };
+
+        const validateMessagesForUpstream = (msgs) => {
+          if (!Array.isArray(msgs) || msgs.length < 2) {
+            return { ok: false, reason: "MESSAGES_TOO_SHORT" };
+          }
+
+          let system_count = 0;
+          let user_count = 0;
+
+          for (let i = 0; i < msgs.length; i += 1) {
+            const m = msgs[i];
+            if (!m || typeof m !== "object") return { ok: false, reason: "MESSAGE_NOT_OBJECT" };
+            if (m.role === "system") system_count += 1;
+            if (m.role === "user") user_count += 1;
+            if (typeof m.content !== "string" || m.content.trim().length === 0) {
+              return { ok: false, reason: "EMPTY_CONTENT" };
+            }
+          }
+
+          if (system_count < 1 || user_count < 1) {
+            return { ok: false, reason: "MISSING_SYSTEM_OR_USER" };
+          }
+
+          return { ok: true, system_count, user_count };
+        };
+
         let messages;
         if (Object.prototype.hasOwnProperty.call(bodyObj, "messages")) {
           const raw = bodyObj.messages;
-          const rawSanitized = sanitizeMessages(raw);
 
-          if (rawSanitized.length === 0) {
-            if (promptInput) {
-              messages = [
-                { role: "system", content: XAI_SYSTEM_PROMPT },
-                { role: "user", content: promptInput },
-              ];
-            } else {
-              messages = [];
-            }
+          if (Array.isArray(raw) && raw.length === 0) {
+            // Builder bug recovery: if messages is [], always auto-generate from prompt/query.
+            messages = [
+              { role: "system", content: SAFE_SYSTEM_PROMPT },
+              { role: "user", content: builtUserPrompt },
+            ];
           } else {
-            messages = ensureSystemAndUser(rawSanitized, { userFallback: promptString });
+            const parsed = parseAndValidateProvidedMessages(raw);
+            if (!parsed.ok) {
+              const debugFields = buildMessageDebugFields([]);
+              setStage("build_messages", { error: parsed.reason });
+              return respondError(new Error("Invalid messages"), {
+                status: 400,
+                details: {
+                  code: "EMPTY_MESSAGE_CONTENT_BUILDER_BUG",
+                  message: "Invalid messages content (refusing to call upstream)",
+                  ...debugFields,
+                  meta: {
+                    ...xaiCallMeta,
+                    stage: "build_messages",
+                    ...debugFields,
+                    error: parsed.reason,
+                  },
+                },
+              });
+            }
+
+            messages = ensureSystemAndUser(parsed.messages, { userFallback: builtUserPrompt });
           }
         } else {
           messages = [
-            { role: "system", content: XAI_SYSTEM_PROMPT },
-            { role: "user", content: promptString },
+            { role: "system", content: SAFE_SYSTEM_PROMPT },
+            { role: "user", content: builtUserPrompt },
           ];
         }
 
         xaiCallMeta.prompt_input_len = promptInput.length;
-        xaiCallMeta.messages_len = Array.isArray(messages) ? messages.length : 0;
-        xaiCallMeta.has_system_message =
-          Array.isArray(messages) && messages.some((m) => m.role === "system" && String(m.content || "").trim());
-        xaiCallMeta.has_user_message =
-          Array.isArray(messages) && messages.some((m) => m.role === "user" && String(m.content || "").trim());
-        xaiCallMeta.user_message_len =
-          Array.isArray(messages) ? String(messages.find((m) => m.role === "user")?.content || "").length : 0;
 
-        if (!Array.isArray(messages) || messages.length === 0) {
-          setStage("build_messages", { error: "EMPTY_MESSAGES" });
-          return respondError(new Error("messages missing or empty"), {
+        const debugFields = buildMessageDebugFields(messages);
+        const validation = validateMessagesForUpstream(messages);
+
+        xaiCallMeta.prompt_len = debugFields.prompt_len;
+        xaiCallMeta.messages_len = debugFields.messages_len;
+        xaiCallMeta.has_system_message = debugFields.system_count > 0;
+        xaiCallMeta.has_user_message = debugFields.user_count > 0;
+        xaiCallMeta.user_message_len = debugFields.user_content_len;
+        xaiCallMeta.system_message_len = debugFields.system_content_len;
+        xaiCallMeta.system_count = debugFields.system_count;
+        xaiCallMeta.user_count = debugFields.user_count;
+
+        if (!validation.ok) {
+          setStage("build_messages", { error: validation.reason });
+          return respondError(new Error("Invalid messages"), {
             status: 400,
             details: {
-              code: "EMPTY_MESSAGES_BUILDER_BUG",
-              message: "messages missing or empty (refusing to call upstream)",
-              query_len: query.length,
-              prompt_len: promptInput.length,
-              messages_len: 0,
-              queryTypes,
-              mode: String(bodyObj.mode || "direct"),
-              handler_version: handlerVersion,
+              code: "EMPTY_MESSAGE_CONTENT_BUILDER_BUG",
+              message: "Invalid messages content (refusing to call upstream)",
+              ...debugFields,
               meta: {
                 ...xaiCallMeta,
                 stage: "build_messages",
-                query_len: query.length,
-                prompt_len: promptInput.length,
-                messages_len: 0,
-                queryTypes,
-                mode: String(bodyObj.mode || "direct"),
+                ...debugFields,
+                error: validation.reason,
               },
-            },
-          });
-        }
-
-        if (!xaiCallMeta.has_system_message || !xaiCallMeta.has_user_message) {
-          setStage("build_messages", { error: "MISSING_SYSTEM_OR_USER" });
-          return respondError(new Error("Missing system or user message"), {
-            status: 400,
-            details: {
-              code: "IMPORT_START_BUILD_MESSAGES_FAILED",
-              message: "Missing system or user message",
-              queryTypes,
-              prompt_len: xaiCallMeta.prompt_len,
-              meta: xaiCallMeta,
             },
           });
         }
@@ -3464,26 +3561,36 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
         try {
           // Hard guard right before upstream fetch.
-          if (!Array.isArray(xaiRequestPayload.messages) || xaiRequestPayload.messages.length === 0) {
-            return respondError(new Error("messages missing or empty"), {
+          const guardDebugFields = typeof buildMessageDebugFields === "function"
+            ? buildMessageDebugFields(xaiRequestPayload.messages)
+            : {
+                messages_len: Array.isArray(xaiRequestPayload.messages) ? xaiRequestPayload.messages.length : 0,
+                system_count: 0,
+                user_count: 0,
+                system_content_len: 0,
+                user_content_len: 0,
+                prompt_len: typeof builtUserPrompt === "string" ? builtUserPrompt.length : 0,
+                handler_version: handlerVersion,
+                mode: String(bodyObj.mode || "direct"),
+                queryTypes,
+              };
+
+          const guardValidation = typeof validateMessagesForUpstream === "function"
+            ? validateMessagesForUpstream(xaiRequestPayload.messages)
+            : { ok: Array.isArray(xaiRequestPayload.messages) && xaiRequestPayload.messages.length >= 2 };
+
+          if (!guardValidation.ok) {
+            return respondError(new Error("Invalid messages"), {
               status: 400,
               details: {
-                code: "EMPTY_MESSAGES_BUILDER_BUG",
-                message: "messages missing or empty (refusing to call upstream)",
-                query_len: query.length,
-                prompt_len: promptInput.length,
-                messages_len: 0,
-                queryTypes,
-                mode: String(bodyObj.mode || "direct"),
-                handler_version: handlerVersion,
+                code: "EMPTY_MESSAGE_CONTENT_BUILDER_BUG",
+                message: "Invalid messages content (refusing to call upstream)",
+                ...guardDebugFields,
                 meta: {
                   ...xaiCallMeta,
                   stage: "xai_call",
-                  query_len: query.length,
-                  prompt_len: promptInput.length,
-                  messages_len: 0,
-                  queryTypes,
-                  mode: String(bodyObj.mode || "direct"),
+                  ...guardDebugFields,
+                  error: guardValidation.reason || "INVALID_MESSAGES",
                 },
               },
             });
