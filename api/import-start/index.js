@@ -2478,7 +2478,7 @@ const importStartHandlerInner = async (req, context) => {
           try {
             console.error(
               "[import-start] sanitized_diagnostics:",
-              JSON.stringify({ request_id: requestId, session_id: sessionId, stage, status, upstream, env_present })
+              JSON.stringify({ request_id: requestId, session_id: sessionId, stage: errorStage, status, upstream, env_present })
             );
           } catch {}
         }
