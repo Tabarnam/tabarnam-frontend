@@ -820,6 +820,10 @@ export default function AdminImport() {
                 {debugStartLoading ? "Starting…" : "Start Import"}
               </Button>
 
+              <Button variant="outline" onClick={explainDebugImport} disabled={debugStartLoading}>
+                Explain payload
+              </Button>
+
               <Button variant="outline" onClick={checkDebugStatus} disabled={debugStatusLoading || !debugSessionId.trim()}>
                 {debugStatusLoading ? "Checking…" : "Check Status"}
               </Button>
