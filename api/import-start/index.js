@@ -74,6 +74,38 @@ function json(obj, status = 200, extraHeaders) {
   };
 }
 
+function logImportStartMeta(meta) {
+  try {
+    const m = meta && typeof meta === "object" ? meta : {};
+
+    const out = {
+      handler_version: String(m.handler_version || ""),
+      stage: String(m.stage || ""),
+      queryTypes: Array.isArray(m.queryTypes) ? m.queryTypes.map((t) => String(t || "").trim()).filter(Boolean) : [],
+      query_len: Number.isFinite(Number(m.query_len)) ? Number(m.query_len) : 0,
+      prompt_len: Number.isFinite(Number(m.prompt_len)) ? Number(m.prompt_len) : 0,
+      messages_len: Number.isFinite(Number(m.messages_len)) ? Number(m.messages_len) : 0,
+      has_system_message: Boolean(m.has_system_message),
+      has_user_message: Boolean(m.has_user_message),
+      user_message_len: Number.isFinite(Number(m.user_message_len)) ? Number(m.user_message_len) : 0,
+      elapsedMs: Number.isFinite(Number(m.elapsedMs)) ? Number(m.elapsedMs) : 0,
+      upstream_status:
+        m.upstream_status === null || m.upstream_status === undefined || m.upstream_status === ""
+          ? null
+          : Number.isFinite(Number(m.upstream_status))
+            ? Number(m.upstream_status)
+            : null,
+    };
+
+    if (m.request_id) out.request_id = String(m.request_id);
+    if (m.session_id) out.session_id = String(m.session_id);
+
+    console.log(JSON.stringify(out));
+  } catch {
+    console.log("[import-start] meta_log_failed");
+  }
+}
+
 function safeJsonParse(text) {
   const raw = typeof text === "string" ? text.trim() : "";
   if (!raw) return null;
@@ -2468,11 +2500,33 @@ const importStartHandlerInner = async (req, context) => {
         });
       }
 
+      const queryTypesForLog = Array.isArray(bodyObj.queryTypes)
+        ? bodyObj.queryTypes
+            .map((t) => String(t || "").trim())
+            .filter(Boolean)
+            .slice(0, 10)
+        : [];
+
       setStage("validate_request", {
-        query: String(bodyObj.query || ""),
-        queryType: String(bodyObj.queryType || ""),
+        queryTypes: queryTypesForLog,
+        query_len: normalizedQuery.length,
         limit: Number(bodyObj.limit),
-        location: String(bodyObj.location || ""),
+      });
+
+      logImportStartMeta({
+        request_id: requestId,
+        session_id: sessionId,
+        handler_version: handlerVersion,
+        stage: "validate_request",
+        queryTypes: queryTypesForLog,
+        query_len: normalizedQuery.length,
+        prompt_len: 0,
+        messages_len: 0,
+        has_system_message: false,
+        has_user_message: false,
+        user_message_len: 0,
+        elapsedMs: Date.now() - startTime,
+        upstream_status: null,
       });
 
       const dryRun = bodyObj.dry_run === true || bodyObj.dry_run === "true";
@@ -2940,7 +2994,21 @@ const importStartHandlerInner = async (req, context) => {
           ...(center ? { center } : {}),
         };
 
-        console.log(`[import-start] XAI Payload:`, JSON.stringify(xaiPayload));
+        logImportStartMeta({
+          request_id: requestId,
+          session_id: sessionId,
+          handler_version: handlerVersion,
+          stage: "build_prompt",
+          queryTypes,
+          query_len: query.length,
+          prompt_len: 0,
+          messages_len: 0,
+          has_system_message: false,
+          has_user_message: false,
+          user_message_len: 0,
+          elapsedMs: Date.now() - startTime,
+          upstream_status: null,
+        });
         if (debugOutput) {
           debugOutput.xai.payload = xaiPayload;
         }
@@ -3303,7 +3371,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
         }
 
         if (debugOutput) {
-          debugOutput.xai.prompt = promptString;
+          debugOutput.xai.prompt_len = promptString.length;
         }
 
         const xaiRequestPayload = {
@@ -3316,25 +3384,37 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
         try {
           setStage("searchCompanies", {
             queryType: xaiPayload.queryType,
-            query: xaiPayload.query,
             limit: xaiPayload.limit,
           });
 
-          console.log(`[import-start] session=${sessionId} xai request payload = ${JSON.stringify(xaiPayload)}`);
-          console.log(`[import-start] Calling XAI API at: ${toHostPathOnlyForLog(xaiUrl)}`);
           xaiCallMeta.stage = "xai_call";
           const elapsedMs = Date.now() - startTime;
-          console.log(
-            "[import-start] xai_call_meta=",
-            JSON.stringify({ request_id: requestId, session_id: sessionId, elapsedMs, ...xaiCallMeta })
-          );
+
+          logImportStartMeta({
+            request_id: requestId,
+            session_id: sessionId,
+            handler_version: handlerVersion,
+            stage: "xai_call",
+            queryTypes,
+            query_len: query.length,
+            prompt_len: xaiCallMeta.prompt_len,
+            messages_len: xaiCallMeta.messages_len,
+            has_system_message: xaiCallMeta.has_system_message,
+            has_user_message: xaiCallMeta.has_user_message,
+            user_message_len: xaiCallMeta.user_message_len,
+            elapsedMs,
+            upstream_status: null,
+          });
+
+          console.log(`[import-start] Calling XAI API at: ${toHostPathOnlyForLog(xaiUrl)}`);
+
           const xaiResponse = await axios.post(xaiUrl, xaiRequestPayload, {
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${xaiKey}`,
-          },
-          timeout: timeout,
-        });
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${xaiKey}`,
+            },
+            timeout: timeout,
+          });
 
         const elapsed = Date.now() - startTime;
         console.log(`[import-start] session=${sessionId} xai response status=${xaiResponse.status}`);
@@ -3348,7 +3428,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
         if (xaiResponse.status >= 200 && xaiResponse.status < 300) {
           // Extract the response content
           const responseText = xaiResponse.data?.choices?.[0]?.message?.content || JSON.stringify(xaiResponse.data);
-          console.log(`[import-start] XAI response preview: ${responseText.substring(0, 100)}...`);
+          console.log(
+            `[import-start] session=${sessionId} xai response received chars=${typeof responseText === "string" ? responseText.length : 0}`
+          );
 
           // Parse the JSON array from the response
           let companies = [];
@@ -4040,15 +4122,28 @@ Return ONLY the JSON array, no other text.`,
           );
 
           const upstreamStatus = xaiResponse.status;
-          const mappedStatus =
-            upstreamStatus === 400 || upstreamStatus === 401 || upstreamStatus === 403 || upstreamStatus === 429
-              ? upstreamStatus
-              : 502;
+          const mappedStatus = upstreamStatus >= 400 && upstreamStatus < 500 ? upstreamStatus : 502;
 
           if (xaiCallMeta && typeof xaiCallMeta === "object") {
             xaiCallMeta.stage = "xai_error";
             xaiCallMeta.upstream_status = upstreamStatus;
           }
+
+          logImportStartMeta({
+            request_id: requestId,
+            session_id: sessionId,
+            handler_version: handlerVersion,
+            stage: "xai_error",
+            queryTypes,
+            query_len: query.length,
+            prompt_len: xaiCallMeta?.prompt_len || 0,
+            messages_len: xaiCallMeta?.messages_len || 0,
+            has_system_message: Boolean(xaiCallMeta?.has_system_message),
+            has_user_message: Boolean(xaiCallMeta?.has_user_message),
+            user_message_len: Number.isFinite(Number(xaiCallMeta?.user_message_len)) ? Number(xaiCallMeta.user_message_len) : 0,
+            elapsedMs: Date.now() - startTime,
+            upstream_status: upstreamStatus,
+          });
 
           return respondError(new Error(`XAI returned ${upstreamStatus}`), {
             status: mappedStatus,
@@ -4092,7 +4187,9 @@ Return ONLY the JSON array, no other text.`,
         console.error(`[import-start] session=${sessionId} error code: ${xaiError.code}`);
         if (xaiError.response) {
           console.error(`[import-start] session=${sessionId} xai error status: ${xaiError.response.status}`);
-          console.error(`[import-start] session=${sessionId} xai error data:`, JSON.stringify(xaiError.response.data).substring(0, 200));
+          console.error(
+            `[import-start] session=${sessionId} xai error data preview: ${toTextPreview(xaiError.response.data).slice(0, 200)}`
+          );
         }
 
         // Write timeout signal if this took too long
@@ -4161,14 +4258,26 @@ Return ONLY the JSON array, no other text.`,
                   ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
                   : `XAI call failed: ${toErrorString(xaiError)}`;
 
-        const mappedStatus = isTimeout
-          ? 504
-          : upstreamStatus === 400 || upstreamStatus === 401 || upstreamStatus === 403 || upstreamStatus === 429
-            ? upstreamStatus
-            : 502;
+        const mappedStatus = isTimeout ? 504 : upstreamStatus >= 400 && upstreamStatus < 500 ? upstreamStatus : 502;
 
         const upstreamRequestId = extractXaiRequestId(xaiError?.response?.headers || {});
         const upstreamTextPreview = toTextPreview(xaiError?.response?.data || xaiError?.response?.body || "");
+
+        logImportStartMeta({
+          request_id: requestId,
+          session_id: sessionId,
+          handler_version: handlerVersion,
+          stage: "xai_error",
+          queryTypes,
+          query_len: query.length,
+          prompt_len: xaiCallMeta?.prompt_len || 0,
+          messages_len: xaiCallMeta?.messages_len || 0,
+          has_system_message: Boolean(xaiCallMeta?.has_system_message),
+          has_user_message: Boolean(xaiCallMeta?.has_user_message),
+          user_message_len: Number.isFinite(Number(xaiCallMeta?.user_message_len)) ? Number(xaiCallMeta.user_message_len) : 0,
+          elapsedMs: Date.now() - startTime,
+          upstream_status: upstreamStatus,
+        });
 
         return respondError(new Error(`XAI call failed: ${toErrorString(xaiError)}`), {
           status: mappedStatus,
