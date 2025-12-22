@@ -19,7 +19,9 @@ function getXAIEndpoint() {
  * Tries multiple env vars for backwards compatibility
  */
 function getXAIKey() {
-  return (process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || process.env.XAI_API_KEY || '').trim();
+  // Prefer XAI_API_KEY to match direct upstream calls (PowerShell sanity tests),
+  // but keep backwards-compat with older variable names.
+  return (process.env.XAI_API_KEY || process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || '').trim();
 }
 
 /**
