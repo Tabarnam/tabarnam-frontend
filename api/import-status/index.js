@@ -142,6 +142,21 @@ async function handler(req, context) {
     return json({ ok: false, error: "Missing session_id" }, 400, req);
   }
 
+  const mem = getImportSession(sessionId);
+  if (mem) {
+    return json(
+      {
+        ok: true,
+        session_id: sessionId,
+        status: mem.status || "running",
+        stage_beacon: mem.stage_beacon || "init",
+        companies_count: Number.isFinite(Number(mem.companies_count)) ? Number(mem.companies_count) : 0,
+      },
+      200,
+      req
+    );
+  }
+
   const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
   const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
   const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
