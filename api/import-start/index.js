@@ -3870,6 +3870,7 @@ Output JSON only:
 
           // Fetch editorial reviews for companies
           if (!shouldAbort()) {
+            mark("xai_reviews_fetch_start");
             setStage("fetchEditorialReviews");
             console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
             for (let i = 0; i < enriched.length; i++) {
