@@ -179,6 +179,7 @@ type ApiRequestExplain = {
   bodyString?: {
     length: number;
     preview: string;
+    full: string;
   };
   bodyNonString?: {
     tag: string;
@@ -231,6 +232,7 @@ function buildApiRequestExplain(url: string, init: RequestInit, originalBody: un
     explain.bodyString = {
       length: body.length,
       preview: body.slice(0, 120),
+      full: body,
     };
   } else if (body != null) {
     const tag = Object.prototype.toString.call(body);

@@ -10,6 +10,7 @@ import {
   API_BASE,
   FUNCTIONS_BASE,
   apiFetch,
+  getLastApiRequestExplain,
   getResponseRequestId,
   getUserFacingConfigMessage,
   join,
@@ -93,6 +94,36 @@ function toDisplayText(value) {
   } catch {
     return String(value);
   }
+}
+
+function toAbsoluteUrlForRepro(rawUrl) {
+  const s = asString(rawUrl).trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s)) return s;
+  const origin = typeof window !== "undefined" && window.location?.origin ? window.location.origin : "";
+  if (!origin) return s;
+  if (s.startsWith("/")) return `${origin}${s}`;
+  return `${origin}/${s}`;
+}
+
+function buildWindowsSafeCurlOutFileScript({ url, method, jsonBody }) {
+  const safeUrl = toAbsoluteUrlForRepro(url);
+  const safeMethod = asString(method).trim().toUpperCase() || "POST";
+  const body = typeof jsonBody === "string" ? jsonBody : "";
+
+  if (!safeUrl || !body) return "";
+
+  return `@'\n${body}\n'@ | Out-File -Encoding ascii body.json\ncurl.exe -i -X ${safeMethod} "${safeUrl}" -H "Content-Type: application/json" --data-binary "@body.json"`;
+}
+
+function buildWindowsSafeInvokeRestMethodScript({ url, method, jsonBody }) {
+  const safeUrl = toAbsoluteUrlForRepro(url);
+  const safeMethod = asString(method).trim().toUpperCase() || "POST";
+  const body = typeof jsonBody === "string" ? jsonBody : "";
+
+  if (!safeUrl || !body) return "";
+
+  return `$body = @'\n${body}\n'@\nInvoke-RestMethod -Method ${safeMethod} -Uri "${safeUrl}" -ContentType "application/json" -Body $body`;
 }
 
 async function apiFetchWithFallback(paths, init) {
@@ -512,6 +543,7 @@ export default function AdminImport() {
           request_id: requestId,
           request_payload: requestPayload,
           response_body: body,
+          api_fetch_error: res && res.__api_fetch_error ? res.__api_fetch_error : null,
         };
 
         setRuns((prev) =>
@@ -760,6 +792,18 @@ export default function AdminImport() {
       Array.isArray(activeRun.items) &&
       activeRun.items.length > 0
   );
+
+  const lastRequestExplain = getLastApiRequestExplain();
+  const lastRequestWindowsCurlScript = buildWindowsSafeCurlOutFileScript({
+    url: lastRequestExplain?.url,
+    method: lastRequestExplain?.method,
+    jsonBody: lastRequestExplain?.bodyString?.full || "",
+  });
+  const lastRequestWindowsInvokeRestScript = buildWindowsSafeInvokeRestMethodScript({
+    url: lastRequestExplain?.url,
+    method: lastRequestExplain?.method,
+    jsonBody: lastRequestExplain?.bodyString?.full || "",
+  });
 
   const activeSummary = useMemo(() => {
     if (!activeRun) return null;
@@ -1066,6 +1110,72 @@ export default function AdminImport() {
               </div>
             ) : null}
 
+            {lastRequestExplain ? (
+              <div className="rounded border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-medium text-slate-700">Last request repro (Windows PowerShell)</div>
+                    <div className="mt-0.5 text-[11px] text-slate-600">
+                      Uses a here-string and writes JSON to a file first to avoid PowerShell + curl quoting issues.
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!lastRequestWindowsCurlScript}
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(lastRequestWindowsCurlScript);
+                          toast.success("Copied curl repro");
+                        } catch (e) {
+                          toast.error(e?.message || "Copy failed");
+                        }
+                      }}
+                    >
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy curl (Windows-safe)
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!lastRequestWindowsInvokeRestScript}
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(lastRequestWindowsInvokeRestScript);
+                          toast.success("Copied Invoke-RestMethod repro");
+                        } catch (e) {
+                          toast.error(e?.message || "Copy failed");
+                        }
+                      }}
+                    >
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy Invoke-RestMethod
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div className="rounded border border-slate-200 bg-white p-2">
+                    <div className="text-[11px] font-medium text-slate-700">Request</div>
+                    <div className="mt-1 text-[11px] text-slate-700">
+                      <span className="font-medium">{lastRequestExplain.method}</span> {toAbsoluteUrlForRepro(lastRequestExplain.url)}
+                    </div>
+                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 text-[11px] leading-snug text-slate-900">{toDisplayText(lastRequestExplain)}</pre>
+                  </div>
+
+                  <div className="rounded border border-slate-200 bg-white p-2">
+                    <div className="text-[11px] font-medium text-slate-700">PowerShell script (curl.exe via @file)</div>
+                    <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 text-[11px] leading-snug text-slate-900">
+                      {lastRequestWindowsCurlScript || "Run an import to generate a repro."}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             {activeRun?.start_error ? (
               <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900 space-y-2">
                 <div className="font-semibold">Import failed</div>
@@ -1074,6 +1184,7 @@ export default function AdminImport() {
                   const responseBody = activeRun?.start_error_details?.response_body;
                   const bodyObj = responseBody && typeof responseBody === "object" ? responseBody : null;
                   const err = bodyObj?.error && typeof bodyObj.error === "object" ? bodyObj.error : null;
+                  const apiFetchError = activeRun?.start_error_details?.api_fetch_error;
 
                   const requestId =
                     (err?.request_id && String(err.request_id)) ||
@@ -1127,15 +1238,24 @@ export default function AdminImport() {
                   };
 
                   return (
-                    <div className="rounded border border-red-200 bg-white/60 p-2 text-xs text-red-900 space-y-1">
-                      <Row label="error.code" value={code} />
-                      <Row label="error.message" value={message} />
-                      <Row label="error.step" value={step} />
-                      <Row label="stage" value={stage} />
-                      <Row label="request_id" value={requestId} />
-                      <Row label="upstream_status" value={upstreamStatus} />
-                      <Row label="upstream_request_id" value={upstreamRequestId} />
-                      <Row label="upstream_url" value={upstreamUrl} />
+                    <div className="rounded border border-red-200 bg-white/60 p-2 text-xs text-red-900 space-y-2">
+                      <div className="space-y-1">
+                        <Row label="error.code" value={code} />
+                        <Row label="error.message" value={message} />
+                        <Row label="error.step" value={step} />
+                        <Row label="stage" value={stage} />
+                        <Row label="request_id" value={requestId} />
+                        <Row label="upstream_status" value={upstreamStatus} />
+                        <Row label="upstream_request_id" value={upstreamRequestId} />
+                        <Row label="upstream_url" value={upstreamUrl} />
+                      </div>
+
+                      {apiFetchError ? (
+                        <div>
+                          <div className="font-medium">__api_fetch_error (client diagnostics):</div>
+                          <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-red-100 p-2 text-[11px] leading-snug text-red-950">{toPrettyJsonText(apiFetchError)}</pre>
+                        </div>
+                      ) : null}
 
                       {code === "INVALID_JSON_BODY" ? (
                         <>
@@ -1157,6 +1277,13 @@ export default function AdminImport() {
                         <div>
                           <div className="font-medium">upstream_text_preview:</div>
                           <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-red-100 p-2 text-[11px] leading-snug text-red-950">{String(upstreamTextPreview)}</pre>
+                        </div>
+                      ) : null}
+
+                      {bodyObj ? (
+                        <div>
+                          <div className="font-medium">response_body (server payload):</div>
+                          <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-red-100 p-2 text-[11px] leading-snug text-red-950">{toPrettyJsonText(bodyObj)}</pre>
                         </div>
                       ) : null}
                     </div>
