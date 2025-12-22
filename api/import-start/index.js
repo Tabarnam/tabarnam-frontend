@@ -3844,7 +3844,7 @@ Output JSON only:
               break;
             }
 
-            const stopped = await checkIfSessionStopped(sessionId);
+            const stopped = await safeCheckIfSessionStopped(sessionId);
             if (stopped) {
               console.log(`[import-start] session=${sessionId} stop signal detected, aborting during geocoding`);
               break;
@@ -3872,7 +3872,7 @@ Output JSON only:
                 break;
               }
 
-              const stopped = await checkIfSessionStopped(sessionId);
+              const stopped = await safeCheckIfSessionStopped(sessionId);
               if (stopped) {
                 console.log(`[import-start] session=${sessionId} stop signal detected, aborting during review fetch`);
                 break;
