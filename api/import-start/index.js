@@ -3993,6 +3993,7 @@ Return ONLY the JSON array, no other text.`,
                   xaiUrl
                 )})`
               );
+              mark("xai_location_refinement_fetch_start");
               const refinementResponse = await postJsonWithTimeout(xaiUrl, {
                 headers: {
                   "Content-Type": "application/json",
