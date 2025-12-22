@@ -4250,44 +4250,73 @@ Return ONLY the JSON array, no other text.`,
           const elapsed = Date.now() - startTime;
           const timedOut = isOutOfTime();
 
-          // Write a completion marker so import-progress knows this session is done
-          try {
-            const container = getCompaniesCosmosContainer();
-            if (container) {
-              const completionDoc = timedOut
-                ? {
-                    id: `_import_timeout_${sessionId}`,
-                    ...buildImportControlDocBase(sessionId),
-                    completed_at: new Date().toISOString(),
-                    elapsed_ms: elapsed,
-                    reason: "max_processing_time_exceeded",
-                  }
-                : {
-                    id: `_import_complete_${sessionId}`,
-                    ...buildImportControlDocBase(sessionId),
-                    completed_at: new Date().toISOString(),
-                    elapsed_ms: elapsed,
-                    reason: "completed_normally",
-                    saved: saveResult.saved,
-                  };
-
-              const result = await upsertItemWithPkCandidates(container, completionDoc);
-              if (!result.ok) {
-                console.warn(
-                  `[import-start] request_id=${requestId} session=${sessionId} failed to upsert completion marker: ${result.error}`
-                );
-              } else if (timedOut) {
-                console.log(`[import-start] request_id=${requestId} session=${sessionId} timeout signal written`);
-              } else {
-                console.log(
-                  `[import-start] request_id=${requestId} session=${sessionId} completion marker written (saved=${saveResult.saved})`
-                );
-              }
-            }
-          } catch (e) {
-            console.warn(
-              `[import-start] request_id=${requestId} session=${sessionId} error writing completion marker: ${e?.message || String(e)}`
+          if (noCosmosMode) {
+            return jsonWithRequestId(
+              {
+                ok: true,
+                no_cosmos: true,
+                stage_reached: stage_reached || "after_xai_primary_fetch",
+                stage_beacon,
+                session_id: sessionId,
+                request_id: requestId,
+                xai_request_id: contextInfo.xai_request_id,
+                resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
+                build_id: buildInfo?.build_id || null,
+                companies: enriched,
+                meta: {
+                  mode: "direct",
+                  expanded: xaiPayload.expand_if_few && effectiveResultCountForExpansion < minThreshold,
+                  timedOut: timedOut,
+                  elapsedMs: elapsed,
+                  cosmos_skipped: true,
+                },
+              },
+              200
             );
+          }
+
+          // Write a completion marker so import-progress knows this session is done
+          if (cosmosEnabled) {
+            try {
+              const container = getCompaniesCosmosContainer();
+              if (container) {
+                const completionDoc = timedOut
+                  ? {
+                      id: `_import_timeout_${sessionId}`,
+                      ...buildImportControlDocBase(sessionId),
+                      completed_at: new Date().toISOString(),
+                      elapsed_ms: elapsed,
+                      reason: "max_processing_time_exceeded",
+                    }
+                  : {
+                      id: `_import_complete_${sessionId}`,
+                      ...buildImportControlDocBase(sessionId),
+                      completed_at: new Date().toISOString(),
+                      elapsed_ms: elapsed,
+                      reason: "completed_normally",
+                      saved: saveResult.saved,
+                    };
+
+                const result = await upsertItemWithPkCandidates(container, completionDoc);
+                if (!result.ok) {
+                  console.warn(
+                    `[import-start] request_id=${requestId} session=${sessionId} failed to upsert completion marker: ${result.error}`
+                  );
+                } else if (timedOut) {
+                  console.log(`[import-start] request_id=${requestId} session=${sessionId} timeout signal written`);
+                } else {
+                  console.log(
+                    `[import-start] request_id=${requestId} session=${sessionId} completion marker written (saved=${saveResult.saved})`
+                  );
+                }
+              }
+            } catch (e) {
+              console.warn(
+                `[import-start] request_id=${requestId} session=${sessionId} error writing completion marker: ${e?.message || String(e)}`
+              );
+            }
+
+            mark("cosmos_write_done");
           }
 
           return jsonWithRequestId(
