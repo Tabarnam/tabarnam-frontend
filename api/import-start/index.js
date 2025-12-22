@@ -4071,6 +4071,8 @@ Return ONLY the JSON array, no other text.`,
             } catch (refinementErr) {
               console.warn(`[import-start] Location refinement pass failed: ${refinementErr.message}`);
               // Continue with original data if refinement fails
+            } finally {
+              mark("xai_location_refinement_fetch_done");
             }
           }
 
