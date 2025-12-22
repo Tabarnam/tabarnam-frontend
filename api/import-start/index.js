@@ -4384,15 +4384,18 @@ Return ONLY the JSON array, no other text.`,
 
           const failurePayload = {
             ok: false,
-            stage: "xai_primary_fetch",
+            stage: stage_beacon || "xai_primary_fetch_done",
+            session_id: sessionId,
+            request_id: requestId,
             resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
             upstream_status: upstreamStatus,
             xai_request_id: upstreamRequestId || null,
-            upstream_text_preview: toTextPreview(xaiResponse.data, 1000),
             build_id: buildInfo?.build_id || null,
+            error_message: `Upstream XAI returned ${upstreamStatus}`,
+            upstream_text_preview: toTextPreview(xaiResponse.data, 1000),
           };
 
-          return jsonWithRequestId(failurePayload, 502);
+          return jsonWithRequestId(failurePayload, mappedStatus);
         }
       } catch (xaiError) {
         const elapsed = Date.now() - startTime;
