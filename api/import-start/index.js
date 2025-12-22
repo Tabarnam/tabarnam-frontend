@@ -4228,6 +4228,8 @@ Return ONLY the JSON array, no other text.`,
             } catch (expansionErr) {
               console.warn(`[import-start] Expansion search failed: ${expansionErr.message}`);
               // Continue without expansion results
+            } finally {
+              mark("xai_expand_fetch_done");
             }
           }
 
