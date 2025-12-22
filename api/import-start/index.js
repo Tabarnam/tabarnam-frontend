@@ -991,6 +991,111 @@ function resolveXaiEndpointForModel(rawEndpoint, model) {
   return u.toString();
 }
 
+function safeParseJsonObject(raw) {
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildXaiPayloadMetaSnapshotFromOutboundBody(outboundBodyJsonText, { handler_version, build_id }) {
+  const parsed = safeParseJsonObject(outboundBodyJsonText);
+
+  const modelRaw = parsed && typeof parsed.model === "string" ? parsed.model.trim() : "";
+  const model = modelRaw ? modelRaw : null;
+
+  const messages = parsed && Array.isArray(parsed.messages) ? parsed.messages : [];
+
+  const content_lens = messages.map((m) => {
+    if (!m || typeof m !== "object") return 0;
+    const c = m.content;
+    return typeof c === "string" ? c.length : 0;
+  });
+
+  const has_empty_trimmed_content = messages.some((m) => {
+    if (!m || typeof m !== "object") return true;
+    const c = m.content;
+    if (typeof c !== "string") return true;
+    return c.trim().length === 0;
+  });
+
+  const system_count = messages.filter((m) => m && typeof m === "object" && m.role === "system").length;
+  const user_count = messages.filter((m) => m && typeof m === "object" && m.role === "user").length;
+
+  return {
+    handler_version: String(handler_version || ""),
+    build_id: String(build_id || ""),
+    model,
+    messages_len: messages.length,
+    system_count,
+    user_count,
+    content_lens,
+    has_empty_trimmed_content,
+  };
+}
+
+function ensureValidOutboundXaiBodyOrThrow(payloadMeta) {
+  if (!payloadMeta || typeof payloadMeta !== "object") {
+    throw new Error("Invalid outbound payload meta");
+  }
+
+  if (!Number.isFinite(Number(payloadMeta.messages_len)) || Number(payloadMeta.messages_len) < 2) {
+    throw new Error("Bad data: Messages cannot be empty");
+  }
+
+  if (Number(payloadMeta.system_count) < 1 || Number(payloadMeta.user_count) < 1) {
+    throw new Error("Bad data: Missing system or user message");
+  }
+
+  if (payloadMeta.has_empty_trimmed_content) {
+    throw new Error("Bad data: Message content cannot be empty");
+  }
+}
+
+async function postJsonWithTimeout(url, { headers, body, timeoutMs }) {
+  const u = String(url || "").trim();
+  if (!u) throw new Error("Missing URL");
+
+  const ms = Number.isFinite(Number(timeoutMs)) ? Math.max(1, Number(timeoutMs)) : 30_000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    try {
+      controller.abort();
+    } catch {}
+  }, ms);
+
+  try {
+    const res = await fetch(u, {
+      method: "POST",
+      headers: headers && typeof headers === "object" ? headers : {},
+      body: typeof body === "string" ? body : "",
+      signal: controller.signal,
+    });
+
+    const text = await res.text().catch(() => "");
+    const data = safeParseJsonObject(text) || (text ? { text } : {});
+
+    const headersObj = {};
+    try {
+      for (const [k, v] of res.headers.entries()) headersObj[k] = v;
+    } catch {}
+
+    return { status: res.status, headers: headersObj, data };
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e || "fetch failed"));
+    if (String(err.name || "").toLowerCase().includes("abort")) {
+      err.code = "ECONNABORTED";
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 function getImportStartProxyInfo() {
   // Import-start proxying is ONLY for a Tabarnam-controlled import worker.
   // Do not fall back to XAI_EXTERNAL_BASE (that is for XAI chat/search), and never to XAI public API.
