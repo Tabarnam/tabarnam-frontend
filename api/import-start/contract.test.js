@@ -3,7 +3,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { test } = require("node:test");
 
-const axios = require("axios");
 
 const { _test } = require("./index.js");
 const { getBuildInfo } = require("../_buildInfo");
@@ -358,7 +357,7 @@ test("getBuildInfo uses WEBSITE_COMMIT_HASH when set", async () => {
   );
 });
 
-test("/api/import/start live mode builds >=2 messages and hits /v1/chat/completions", async () => {
+test("/api/import/start live mode builds >=2 messages and hits /v1/chat/completions (fetch payload)", async () => {
   await withTempEnv(
     {
       ...NO_NETWORK_ENV,
@@ -366,16 +365,15 @@ test("/api/import/start live mode builds >=2 messages and hits /v1/chat/completi
       XAI_EXTERNAL_KEY: "test_key",
     },
     async () => {
-      const originalPost = axios.post;
+      const originalFetch = globalThis.fetch;
       const calls = [];
 
-      axios.post = async (url, payload) => {
-        calls.push({ url, payload });
-        return {
+      globalThis.fetch = async (url, init) => {
+        calls.push({ url, init });
+        return new Response(JSON.stringify({ choices: [{ message: { content: "[]" } }] }), {
           status: 200,
-          headers: {},
-          data: { choices: [{ message: { content: "[]" } }] },
-        };
+          headers: { "content-type": "application/json" },
+        });
       };
 
       try {
@@ -393,19 +391,25 @@ test("/api/import/start live mode builds >=2 messages and hits /v1/chat/completi
 
         assert.equal(calls.length, 1);
         assert.ok(String(calls[0].url).includes("/v1/chat/completions"));
-        assert.ok(calls[0].payload);
-        assert.ok(Array.isArray(calls[0].payload.messages));
-        assert.ok(calls[0].payload.messages.length >= 2);
-        assert.ok(calls[0].payload.messages.some((m) => m?.role === "system"));
-        assert.ok(calls[0].payload.messages.some((m) => m?.role === "user"));
+
+        const bodyText = calls[0]?.init?.body;
+        assert.ok(typeof bodyText === "string");
+        const bodyObj = JSON.parse(bodyText);
+
+        assert.equal(bodyObj.model, "grok-4-latest");
+        assert.ok(Array.isArray(bodyObj.messages));
+        assert.ok(bodyObj.messages.length >= 2);
+        assert.ok(bodyObj.messages.some((m) => m?.role === "system"));
+        assert.ok(bodyObj.messages.some((m) => m?.role === "user"));
+        assert.ok(bodyObj.messages.every((m) => typeof m?.content === "string" && m.content.trim().length > 0));
       } finally {
-        axios.post = originalPost;
+        globalThis.fetch = originalFetch;
       }
     }
   );
 });
 
-test("/api/import/start auto-generates messages when messages is [] and prompt is empty", async () => {
+test("/api/import/start auto-generates messages when messages is [] and prompt is empty (fetch payload)", async () => {
   await withTempEnv(
     {
       ...NO_NETWORK_ENV,
@@ -413,16 +417,15 @@ test("/api/import/start auto-generates messages when messages is [] and prompt i
       XAI_EXTERNAL_KEY: "test_key",
     },
     async () => {
-      const originalPost = axios.post;
+      const originalFetch = globalThis.fetch;
       const calls = [];
 
-      axios.post = async (url, payload) => {
-        calls.push({ url, payload });
-        return {
+      globalThis.fetch = async (url, init) => {
+        calls.push({ url, init });
+        return new Response(JSON.stringify({ choices: [{ message: { content: "[]" } }] }), {
           status: 200,
-          headers: {},
-          data: { choices: [{ message: { content: "[]" } }] },
-        };
+          headers: { "content-type": "application/json" },
+        });
       };
 
       try {
@@ -442,12 +445,15 @@ test("/api/import/start auto-generates messages when messages is [] and prompt i
 
         assert.equal(calls.length, 1);
         assert.ok(String(calls[0].url).includes("/v1/chat/completions"));
-        assert.ok(Array.isArray(calls[0].payload?.messages));
-        assert.ok(calls[0].payload.messages.length >= 2);
-        assert.ok(calls[0].payload.messages.some((m) => m?.role === "system"));
-        assert.ok(calls[0].payload.messages.some((m) => m?.role === "user"));
+
+        const bodyObj = JSON.parse(String(calls[0]?.init?.body || ""));
+        assert.ok(Array.isArray(bodyObj.messages));
+        assert.ok(bodyObj.messages.length >= 2);
+        assert.ok(bodyObj.messages.some((m) => m?.role === "system"));
+        assert.ok(bodyObj.messages.some((m) => m?.role === "user"));
+        assert.ok(bodyObj.messages.every((m) => typeof m?.content === "string" && m.content.trim().length > 0));
       } finally {
-        axios.post = originalPost;
+        globalThis.fetch = originalFetch;
       }
     }
   );
@@ -461,10 +467,10 @@ test("/api/import/start returns 400 when any message has empty/non-string conten
       XAI_EXTERNAL_KEY: "test_key",
     },
     async () => {
-      const originalPost = axios.post;
+      const originalFetch = globalThis.fetch;
       let called = 0;
 
-      axios.post = async () => {
+      globalThis.fetch = async () => {
         called += 1;
         throw new Error("should not call upstream");
       };
@@ -501,7 +507,59 @@ test("/api/import/start returns 400 when any message has empty/non-string conten
         assert.ok(Number.isFinite(Number(body?.details?.user_content_len)));
         assert.ok(Number.isFinite(Number(body?.details?.prompt_len)));
       } finally {
-        axios.post = originalPost;
+        globalThis.fetch = originalFetch;
+      }
+    }
+  );
+});
+
+test("/api/import/start explain=1 returns outbound payload meta and does not call upstream", async () => {
+  await withTempEnv(
+    {
+      ...NO_NETWORK_ENV,
+      XAI_EXTERNAL_BASE: "https://api.x.ai",
+      XAI_EXTERNAL_KEY: "test_key",
+    },
+    async () => {
+      const originalFetch = globalThis.fetch;
+      let called = 0;
+
+      globalThis.fetch = async () => {
+        called += 1;
+        throw new Error("should not call upstream");
+      };
+
+      try {
+        const req = makeReq({
+          url: "https://example.test/api/import/start?explain=1",
+          json: async () => ({
+            mode: "live",
+            query: "bath robe",
+            queryTypes: ["product_keyword"],
+            limit: 3,
+          }),
+        });
+
+        const res = await _test.importStartHandler(req, { log() {} });
+        const body = parseJsonResponse(res);
+
+        assert.equal(res.status, 200);
+        assert.equal(called, 0);
+        assert.equal(body?.ok, true);
+        assert.equal(body?.explain, true);
+
+        const meta = body?.payload_meta;
+        assert.ok(meta);
+        assert.ok(typeof meta.handler_version === "string");
+        assert.ok(typeof meta.build_id === "string");
+        assert.equal(meta.model, "grok-4-latest");
+        assert.ok(Number(meta.messages_len) >= 2);
+        assert.ok(Number(meta.system_count) >= 1);
+        assert.ok(Number(meta.user_count) >= 1);
+        assert.equal(meta.has_empty_trimmed_content, false);
+        assert.ok(Array.isArray(meta.content_lens));
+      } finally {
+        globalThis.fetch = originalFetch;
       }
     }
   );
