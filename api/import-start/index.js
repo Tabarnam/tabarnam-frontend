@@ -3962,12 +3962,13 @@ Output JSON only:
             };
 
             console.log(`[import-start] Calling XAI API (keywords) at: ${toHostPathOnlyForLog(xaiUrl)}`);
-            const res = await axios.post(xaiUrl, payload, {
+            const res = await postJsonWithTimeout(xaiUrl, {
               headers: {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${xaiKey}`,
               },
-              timeout: timeoutMs,
+              body: JSON.stringify(payload),
+              timeoutMs,
             });
 
             const text = res?.data?.choices?.[0]?.message?.content || "";
