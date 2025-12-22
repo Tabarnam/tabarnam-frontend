@@ -916,6 +916,49 @@ function toHostPathOnlyForLog(rawUrl) {
   return noScheme;
 }
 
+function redactUrlQueryAndHash(rawUrl) {
+  const u = tryParseUrl(rawUrl);
+  if (u) {
+    u.search = "";
+    u.hash = "";
+    return u.toString();
+  }
+
+  const raw = String(rawUrl || "").trim();
+  if (!raw) return "";
+  return raw.split("?")[0].split("#")[0];
+}
+
+function getHostPathFromUrl(rawUrl) {
+  const u = tryParseUrl(rawUrl);
+  if (!u) return { host: null, path: null };
+  return {
+    host: typeof u.host === "string" && u.host.trim() ? u.host : null,
+    path: typeof u.pathname === "string" && u.pathname.trim() ? u.pathname : null,
+  };
+}
+
+function buildUpstreamResolutionSnapshot({ url, authHeaderValue, timeoutMsUsed, executionPlan }) {
+  const { host, path } = getHostPathFromUrl(url);
+  const authVal = typeof authHeaderValue === "string" ? authHeaderValue : "";
+  const prefix = authVal.toLowerCase().startsWith("bearer ") ? "Bearer" : null;
+
+  return {
+    resolved_upstream_url_redacted: redactUrlQueryAndHash(url) || null,
+    resolved_upstream_host: host,
+    resolved_upstream_path: path,
+    auth_header_present: Boolean(authVal),
+    auth_header_prefix: prefix,
+    timeout_ms_used: Number.isFinite(Number(timeoutMsUsed)) ? Number(timeoutMsUsed) : null,
+    execution_plan: Array.isArray(executionPlan) ? executionPlan : [],
+  };
+}
+
+function buildXaiExecutionPlan(xaiPayload) {
+  const plan = ["xai_primary_fetch", "xai_keywords_fetch", "xai_reviews_fetch", "xai_location_refinement_fetch"];
+  if (xaiPayload && xaiPayload.expand_if_few) plan.push("xai_expand_fetch");
+  return plan;
+}
 
 function resolveXaiEndpointForModel(rawEndpoint, model) {
   const u = tryParseUrl(rawEndpoint);
@@ -3367,6 +3410,15 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
           if (explainMode) {
             setStage("explain");
+
+            const execution_plan = buildXaiExecutionPlan(xaiPayload);
+            const upstream_resolution = buildUpstreamResolutionSnapshot({
+              url: xaiUrl,
+              authHeaderValue: xaiKey ? "Bearer [REDACTED]" : "",
+              timeoutMsUsed: timeout,
+              executionPlan: execution_plan,
+            });
+
             return jsonWithRequestId(
               {
                 ok: true,
@@ -3374,6 +3426,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 session_id: sessionId,
                 request_id: requestId,
                 payload_meta,
+                ...upstream_resolution,
               },
               200
             );
@@ -4131,38 +4184,17 @@ Return ONLY the JSON array, no other text.`,
             upstream_status: upstreamStatus,
           });
 
-          return respondError(new Error(`XAI returned ${upstreamStatus}`), {
-            status: mappedStatus,
-            details: {
-              code:
-                upstreamStatus === 400
-                  ? "IMPORT_START_UPSTREAM_BAD_REQUEST"
-                  : upstreamStatus === 401 || upstreamStatus === 403
-                    ? "IMPORT_START_UPSTREAM_UNAUTHORIZED"
-                    : upstreamStatus === 429
-                      ? "IMPORT_START_UPSTREAM_RATE_LIMITED"
-                      : upstreamStatus === 404
-                        ? "IMPORT_START_UPSTREAM_NOT_FOUND"
-                        : "IMPORT_START_UPSTREAM_FAILED",
-              message:
-                upstreamStatus === 400
-                  ? "Upstream rejected the request (400)"
-                  : upstreamStatus === 401 || upstreamStatus === 403
-                    ? "XAI endpoint rejected the request (unauthorized). Check XAI_EXTERNAL_KEY / authorization settings."
-                    : upstreamStatus === 429
-                      ? "XAI endpoint rate-limited the request (429)."
-                      : upstreamStatus === 404
-                        ? "XAI endpoint returned 404 (not found). Check XAI_EXTERNAL_BASE configuration."
-                        : `XAI returned ${upstreamStatus}`,
-              upstream_status: upstreamStatus,
-              upstream_url: xaiUrlForLog,
-              upstream_text_preview: upstreamTextPreview,
-              ...(upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {}),
-              xai_status: upstreamStatus,
-              xai_url: xaiUrlForLog,
-              meta: xaiCallMeta,
-            },
-          });
+          const failurePayload = {
+            ok: false,
+            stage: "xai_primary_fetch",
+            resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
+            upstream_status: upstreamStatus,
+            xai_request_id: upstreamRequestId || null,
+            upstream_text_preview: toTextPreview(xaiResponse.data, 1000),
+            build_id: buildInfo?.build_id || null,
+          };
+
+          return jsonWithRequestId(failurePayload, 502);
         }
       } catch (xaiError) {
         const elapsed = Date.now() - startTime;
@@ -4265,22 +4297,20 @@ Return ONLY the JSON array, no other text.`,
           upstream_status: upstreamStatus,
         });
 
-        return respondError(new Error(`XAI call failed: ${toErrorString(xaiError)}`), {
-          status: mappedStatus,
-          details: {
-            code: upstreamErrorCode,
-            message: upstreamMessage,
-            upstream_status: upstreamStatus,
-            upstream_url: xaiUrlForLog,
-            upstream_text_preview: upstreamTextPreview,
-            ...(upstreamRequestId ? { upstream_request_id: upstreamRequestId } : {}),
-            xai_code: xaiError?.code || null,
-            xai_status: upstreamStatus,
-            xai_url: xaiUrlForLog,
-            meta: xaiCallMeta,
-            ...(isTimeout ? { upstream_error_class: "read_timeout" } : {}),
-          },
-        });
+        const failurePayload = {
+          ok: false,
+          stage: "xai_primary_fetch",
+          resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
+          upstream_status: upstreamStatus,
+          xai_request_id: upstreamRequestId || null,
+          upstream_text_preview: toTextPreview(
+            xaiError?.response?.data || xaiError?.response?.body || xaiError?.message || String(xaiError || ""),
+            1000
+          ),
+          build_id: buildInfo?.build_id || null,
+        };
+
+        return jsonWithRequestId(failurePayload, 502);
       }
       } catch (e) {
         return respondError(e, { status: 500 });
@@ -4387,6 +4417,128 @@ const importStartHandler = async (req, context) => {
     );
   }
 };
+
+const xaiSmokeHandler = async (req, context) => {
+  try {
+    const requestId = generateRequestId(req);
+    const responseHeaders = { "x-request-id": requestId };
+
+    const method = String(req.method || "").toUpperCase();
+    if (method === "OPTIONS") {
+      return {
+        status: 200,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,OPTIONS",
+          "Access-Control-Allow-Headers":
+            "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id",
+          "Access-Control-Expose-Headers": "x-request-id,x-correlation-id,x-session-id",
+          ...responseHeaders,
+        },
+      };
+    }
+
+    if (method !== "GET") {
+      return json(
+        {
+          ok: false,
+          error: { code: "METHOD_NOT_ALLOWED", message: "Method not allowed" },
+        },
+        405,
+        responseHeaders
+      );
+    }
+
+    const buildInfo = getBuildInfo();
+    const handlerVersion = getImportStartHandlerVersion(buildInfo);
+
+    const model = String(readQueryParam(req, "model") || "grok-4-0709").trim() || "grok-4-0709";
+
+    const xaiEndpointRaw = getXAIEndpoint();
+    const xaiKey = getXAIKey();
+    const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, model);
+
+    const resolved_upstream_url_redacted = redactUrlQueryAndHash(xaiUrl) || null;
+
+    if (!xaiUrl || !xaiKey) {
+      return json(
+        {
+          ok: false,
+          handler_version: handlerVersion,
+          build_id: buildInfo?.build_id || null,
+          resolved_upstream_url_redacted,
+          status: null,
+          model_returned: null,
+        },
+        500,
+        responseHeaders
+      );
+    }
+
+    const timeoutMsUsed = Math.min(20000, Number(process.env.XAI_TIMEOUT_MS) || 20000);
+
+    const upstreamBody = {
+      model,
+      messages: [
+        { role: "system", content: XAI_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content:
+            'Return ONLY valid JSON with the schema {"ok":true,"source":"xai_smoke"} and no other text.',
+        },
+      ],
+      temperature: 0,
+      stream: false,
+    };
+
+    const res = await postJsonWithTimeout(xaiUrl, {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${xaiKey}`,
+      },
+      body: JSON.stringify(upstreamBody),
+      timeoutMs: timeoutMsUsed,
+    });
+
+    const model_returned =
+      typeof res?.data?.model === "string" && res.data.model.trim() ? res.data.model.trim() : model;
+
+    return json(
+      {
+        ok: true,
+        handler_version: handlerVersion,
+        build_id: buildInfo?.build_id || null,
+        resolved_upstream_url_redacted,
+        status: res?.status ?? null,
+        model_returned,
+      },
+      200,
+      responseHeaders
+    );
+  } catch (e) {
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const responseHeaders = { "x-request-id": requestId };
+
+    return json(
+      {
+        ok: false,
+        resolved_upstream_url_redacted: null,
+        status: null,
+        model_returned: null,
+        upstream_text_preview: toTextPreview(e?.message || String(e || ""), 1000),
+      },
+      502,
+      responseHeaders
+    );
+  }
+};
+
+app.http("xai-smoke", {
+  route: "xai/smoke",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: xaiSmokeHandler,
+});
 
 app.http("import-start", {
   route: "import/start",
