@@ -4500,18 +4500,22 @@ Return ONLY the JSON array, no other text.`,
 
         const failurePayload = {
           ok: false,
-          stage: "xai_primary_fetch",
+          stage: stage_beacon || "xai_primary_fetch_start",
+          session_id: sessionId,
+          request_id: requestId,
           resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
           upstream_status: upstreamStatus,
           xai_request_id: upstreamRequestId || null,
+          build_id: buildInfo?.build_id || null,
+          error_message: upstreamMessage || "XAI call failed",
+          error_code: upstreamErrorCode,
           upstream_text_preview: toTextPreview(
             xaiError?.response?.data || xaiError?.response?.body || xaiError?.message || String(xaiError || ""),
             1000
           ),
-          build_id: buildInfo?.build_id || null,
         };
 
-        return jsonWithRequestId(failurePayload, 502);
+        return jsonWithRequestId(failurePayload, mappedStatus);
       }
       } catch (e) {
         return respondError(e, { status: 500 });
