@@ -4402,25 +4402,52 @@ const importStartHandler = async (req, context) => {
       has_import_start_proxy_base: false,
     };
 
-    console.error("[import-start] Top-level handler error:", toErrorString(e));
+    const defaultModel = "grok-4-0709";
+    let resolved_upstream_url_redacted = null;
+    try {
+      const xaiEndpointRaw = getXAIEndpoint();
+      const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, defaultModel);
+      resolved_upstream_url_redacted = redactUrlQueryAndHash(xaiUrl) || null;
+    } catch {
+      resolved_upstream_url_redacted = null;
+    }
+
+    const anyErr = e && typeof e === "object" ? e : null;
+    const stage = typeof anyErr?.stage === "string" && anyErr.stage.trim() ? anyErr.stage.trim() : "top_level_handler";
+
+    const upstream_status = Number.isFinite(Number(anyErr?.upstream_status)) ? Number(anyErr.upstream_status) : null;
+
+    const xai_request_id =
+      typeof anyErr?.xai_request_id === "string" && anyErr.xai_request_id.trim()
+        ? anyErr.xai_request_id.trim()
+        : null;
+
+    const error_message = toErrorString(e) || "Import start failed";
+
+    const stackRaw = typeof anyErr?.stack === "string" ? anyErr.stack : "";
+    const stackRedacted = stackRaw
+      ? stackRaw
+          .replace(/Bearer\s+[^\s]+/gi, "Bearer [REDACTED]")
+          .replace(/(xai[_-]?key|function[_-]?key|cosmos[_-]?key)\s*[:=]\s*[^\s]+/gi, "$1=[REDACTED]")
+      : "";
+
+    const error_stack_preview = toTextPreview(stackRedacted || "", 2000);
+
+    console.error("[import-start] Top-level handler error:", error_message);
 
     return json(
       {
         ok: false,
-        stage: "fatal",
-        session_id: `sess_fatal_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        stage,
         request_id: requestId,
         handler_version: handlerVersion,
+        build_id: buildInfoSafe?.build_id || null,
+        resolved_upstream_url_redacted,
+        upstream_status,
+        xai_request_id,
+        error_message,
+        error_stack_preview,
         env_present,
-        error: {
-          code: "IMPORT_START_TOP_LEVEL",
-          message: "Import start failed before handler could respond",
-          request_id: requestId,
-          step: "fatal",
-        },
-        legacy_error: "Import start failed",
-        details: { top_level_error: toErrorString(e) },
-        ...buildInfoSafe,
       },
       500,
       responseHeaders
@@ -4469,6 +4496,7 @@ const xaiSmokeHandler = async (req, context) => {
     const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, model);
 
     const resolved_upstream_url_redacted = redactUrlQueryAndHash(xaiUrl) || null;
+    const auth_header_present = Boolean(xaiKey);
 
     if (!xaiUrl || !xaiKey) {
       return json(
@@ -4477,6 +4505,7 @@ const xaiSmokeHandler = async (req, context) => {
           handler_version: handlerVersion,
           build_id: buildInfo?.build_id || null,
           resolved_upstream_url_redacted,
+          auth_header_present,
           status: null,
           model_returned: null,
         },
@@ -4513,16 +4542,26 @@ const xaiSmokeHandler = async (req, context) => {
     const model_returned =
       typeof res?.data?.model === "string" && res.data.model.trim() ? res.data.model.trim() : model;
 
+    const upstream_status = res?.status ?? null;
+    const okUpstream = upstream_status === 200;
+
+    const headersObj = res && typeof res === "object" ? res.headers : null;
+    const xai_request_id =
+      (headersObj && typeof headersObj === "object" && (headersObj["xai-request-id"] || headersObj["x-request-id"] || headersObj["request-id"])) ||
+      null;
+
     return json(
       {
-        ok: true,
+        ok: okUpstream,
         handler_version: handlerVersion,
         build_id: buildInfo?.build_id || null,
         resolved_upstream_url_redacted,
-        status: res?.status ?? null,
+        auth_header_present,
+        status: upstream_status,
         model_returned,
+        xai_request_id,
       },
-      200,
+      okUpstream ? 200 : 502,
       responseHeaders
     );
   } catch (e) {
@@ -4533,9 +4572,10 @@ const xaiSmokeHandler = async (req, context) => {
       {
         ok: false,
         resolved_upstream_url_redacted: null,
+        auth_header_present: false,
         status: null,
         model_returned: null,
-        upstream_text_preview: toTextPreview(e?.message || String(e || ""), 1000),
+        upstream_text_preview: toTextPreview(e?.message || String(e || ""), 2000),
       },
       502,
       responseHeaders
