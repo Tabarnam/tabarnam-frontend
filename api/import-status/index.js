@@ -222,15 +222,16 @@ async function handler(req, context) {
       return json(
         {
           ok: true,
-          state: "failed",
           session_id: sessionId,
+          status: "failed",
+          stage_beacon,
+          companies_count: saved,
           error: errorOut,
           items,
           saved,
           lastCreatedAt,
-          completed: false,
           timedOut,
-          stopped: true,
+          stopped,
         },
         200,
         req
