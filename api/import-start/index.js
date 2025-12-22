@@ -36,6 +36,9 @@ const { getImportStartHandlerVersion } = require("../_handlerVersions");
 const DEFAULT_HARD_TIMEOUT_MS = 25_000;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000;
 
+const XAI_SYSTEM_PROMPT =
+  "You are a precise assistant. Follow the user's instructions exactly. When asked for JSON, output ONLY valid JSON with no markdown, no prose, and no extra keys.";
+
 if (!globalThis.__importStartProcessHandlersInstalled) {
   globalThis.__importStartProcessHandlersInstalled = true;
 
@@ -1476,8 +1479,11 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
     };
 
     const reviewPayload = {
-      messages: [reviewMessage],
       model: "grok-4-latest",
+      messages: [
+        { role: "system", content: XAI_SYSTEM_PROMPT },
+        reviewMessage,
+      ],
       temperature: 0.2,
       stream: false,
     };
@@ -3341,29 +3347,103 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
         });
 
         setStage("build_messages");
-        const messages = [
-          {
-            role: "system",
-            content:
-              "You are a precise assistant. Follow the user's instructions exactly and output only valid JSON when requested.",
-          },
-          { role: "user", content: promptString },
-        ];
 
-        xaiCallMeta.messages_len = messages.length;
-        xaiCallMeta.has_system_content = Boolean(String(messages?.[0]?.content || "").trim());
-        xaiCallMeta.has_user_content = Boolean(String(messages?.[1]?.content || "").trim());
-        xaiCallMeta.has_system_message = xaiCallMeta.has_system_content;
-        xaiCallMeta.has_user_message = xaiCallMeta.has_user_content;
-        xaiCallMeta.user_message_len = String(messages?.[1]?.content || "").length;
+        const promptInput = typeof bodyObj.prompt === "string" ? bodyObj.prompt.trim() : "";
 
-        if (!xaiCallMeta.has_system_content || !xaiCallMeta.has_user_content) {
-          setStage("build_messages", { error: "Messages cannot be empty" });
-          return respondError(new Error("Messages cannot be empty"), {
+        const sanitizeMessages = (raw) => {
+          if (!Array.isArray(raw)) return [];
+          return raw
+            .map((m) => {
+              if (!m || typeof m !== "object") return null;
+              const role = String(m.role || "").trim();
+              const content = String(m.content || "");
+              if (!role || !content.trim()) return null;
+              if (role !== "system" && role !== "user" && role !== "assistant" && role !== "tool") return null;
+              return { role, content };
+            })
+            .filter(Boolean);
+        };
+
+        const ensureSystemAndUser = (rawMessages, { userFallback }) => {
+          const out = sanitizeMessages(rawMessages);
+
+          const hasSystem = out.some((m) => m.role === "system" && String(m.content || "").trim());
+          const hasUser = out.some((m) => m.role === "user" && String(m.content || "").trim());
+
+          if (!hasSystem) out.unshift({ role: "system", content: XAI_SYSTEM_PROMPT });
+          if (!hasUser && userFallback && String(userFallback).trim()) {
+            out.push({ role: "user", content: String(userFallback) });
+          }
+
+          return out;
+        };
+
+        let messages;
+        if (Object.prototype.hasOwnProperty.call(bodyObj, "messages")) {
+          const raw = bodyObj.messages;
+          const rawSanitized = sanitizeMessages(raw);
+
+          if (rawSanitized.length === 0) {
+            if (promptInput) {
+              messages = [
+                { role: "system", content: XAI_SYSTEM_PROMPT },
+                { role: "user", content: promptInput },
+              ];
+            } else {
+              messages = [];
+            }
+          } else {
+            messages = ensureSystemAndUser(rawSanitized, { userFallback: promptString });
+          }
+        } else {
+          messages = [
+            { role: "system", content: XAI_SYSTEM_PROMPT },
+            { role: "user", content: promptString },
+          ];
+        }
+
+        xaiCallMeta.prompt_input_len = promptInput.length;
+        xaiCallMeta.messages_len = Array.isArray(messages) ? messages.length : 0;
+        xaiCallMeta.has_system_message =
+          Array.isArray(messages) && messages.some((m) => m.role === "system" && String(m.content || "").trim());
+        xaiCallMeta.has_user_message =
+          Array.isArray(messages) && messages.some((m) => m.role === "user" && String(m.content || "").trim());
+        xaiCallMeta.user_message_len =
+          Array.isArray(messages) ? String(messages.find((m) => m.role === "user")?.content || "").length : 0;
+
+        if (!Array.isArray(messages) || messages.length === 0) {
+          setStage("build_messages", { error: "EMPTY_MESSAGES" });
+          return respondError(new Error("messages missing or empty"), {
+            status: 400,
+            details: {
+              code: "EMPTY_MESSAGES_BUILDER_BUG",
+              message: "messages missing or empty (refusing to call upstream)",
+              query_len: query.length,
+              prompt_len: promptInput.length,
+              messages_len: 0,
+              queryTypes,
+              mode: String(bodyObj.mode || "direct"),
+              handler_version: handlerVersion,
+              meta: {
+                ...xaiCallMeta,
+                stage: "build_messages",
+                query_len: query.length,
+                prompt_len: promptInput.length,
+                messages_len: 0,
+                queryTypes,
+                mode: String(bodyObj.mode || "direct"),
+              },
+            },
+          });
+        }
+
+        if (!xaiCallMeta.has_system_message || !xaiCallMeta.has_user_message) {
+          setStage("build_messages", { error: "MISSING_SYSTEM_OR_USER" });
+          return respondError(new Error("Missing system or user message"), {
             status: 400,
             details: {
               code: "IMPORT_START_BUILD_MESSAGES_FAILED",
-              message: "Messages cannot be empty",
+              message: "Missing system or user message",
               queryTypes,
               prompt_len: xaiCallMeta.prompt_len,
               meta: xaiCallMeta,
@@ -3376,13 +3456,39 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
         }
 
         const xaiRequestPayload = {
-          messages,
           model: xaiModel,
+          messages,
           temperature: 0.1,
           stream: false,
         };
 
         try {
+          // Hard guard right before upstream fetch.
+          if (!Array.isArray(xaiRequestPayload.messages) || xaiRequestPayload.messages.length === 0) {
+            return respondError(new Error("messages missing or empty"), {
+              status: 400,
+              details: {
+                code: "EMPTY_MESSAGES_BUILDER_BUG",
+                message: "messages missing or empty (refusing to call upstream)",
+                query_len: query.length,
+                prompt_len: promptInput.length,
+                messages_len: 0,
+                queryTypes,
+                mode: String(bodyObj.mode || "direct"),
+                handler_version: handlerVersion,
+                meta: {
+                  ...xaiCallMeta,
+                  stage: "xai_call",
+                  query_len: query.length,
+                  prompt_len: promptInput.length,
+                  messages_len: 0,
+                  queryTypes,
+                  mode: String(bodyObj.mode || "direct"),
+                },
+              },
+            });
+          }
+
           setStage("searchCompanies", {
             queryType: xaiPayload.queryType,
             limit: xaiPayload.limit,
@@ -3574,8 +3680,11 @@ Output JSON only:
 { "keywords": ["...", "..."] }`;
 
             const payload = {
-              messages: [{ role: "user", content: prompt }],
               model: "grok-4-latest",
+              messages: [
+                { role: "system", content: XAI_SYSTEM_PROMPT },
+                { role: "user", content: prompt },
+              ],
               temperature: 0.2,
               stream: false,
             };
@@ -3800,8 +3909,11 @@ Return ONLY the JSON array, no other text.`,
               };
 
               const refinementPayload = {
-                messages: [refinementMessage],
                 model: "grok-4-latest",
+                messages: [
+                  { role: "system", content: XAI_SYSTEM_PROMPT },
+                  refinementMessage,
+                ],
                 temperature: 0.1,
                 stream: false,
               };
@@ -3943,8 +4055,11 @@ Return ONLY the JSON array, no other text.`,
               };
 
               const expansionPayload = {
-                messages: [expansionMessage],
                 model: "grok-4-latest",
+                messages: [
+                  { role: "system", content: XAI_SYSTEM_PROMPT },
+                  expansionMessage,
+                ],
                 temperature: 0.3,
                 stream: false,
               };
