@@ -3570,6 +3570,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           }
 
           console.log(`[import-start] Calling XAI API at: ${toHostPathOnlyForLog(xaiUrl)}`);
+          mark("xai_primary_fetch_start");
 
           const xaiResponse = await postJsonWithTimeout(xaiUrl, {
             headers: {
