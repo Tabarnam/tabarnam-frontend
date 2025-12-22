@@ -242,8 +242,10 @@ async function handler(req, context) {
       return json(
         {
           ok: true,
-          state: "complete",
           session_id: sessionId,
+          status: "complete",
+          stage_beacon,
+          companies_count: saved,
           result: {
             saved,
             completed_at: completionDoc?.completed_at || completionDoc?.created_at || null,
@@ -252,9 +254,6 @@ async function handler(req, context) {
           items,
           saved,
           lastCreatedAt,
-          completed: true,
-          timedOut: false,
-          stopped: true,
         },
         200,
         req
