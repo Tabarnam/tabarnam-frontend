@@ -163,7 +163,7 @@ async function handler(req, context) {
   const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
   if (!endpoint || !key) {
-    return json({ ok: false, error: "Cosmos not configured" }, 500, req);
+    return json({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404, req);
   }
 
   try {
