@@ -405,7 +405,7 @@ test("/api/import/start live mode builds >=2 messages and hits /v1/chat/completi
   );
 });
 
-test("/api/import/start refuses upstream when messages is [] (EMPTY_MESSAGES_BUILDER_BUG)", async () => {
+test("/api/import/start auto-generates messages when messages is [] and prompt is empty", async () => {
   await withTempEnv(
     {
       ...NO_NETWORK_ENV,
@@ -414,10 +414,15 @@ test("/api/import/start refuses upstream when messages is [] (EMPTY_MESSAGES_BUI
     },
     async () => {
       const originalPost = axios.post;
-      let called = 0;
-      axios.post = async () => {
-        called += 1;
-        throw new Error("should not call upstream");
+      const calls = [];
+
+      axios.post = async (url, payload) => {
+        calls.push({ url, payload });
+        return {
+          status: 200,
+          headers: {},
+          data: { choices: [{ message: { content: "[]" } }] },
+        };
       };
 
       try {
@@ -433,12 +438,68 @@ test("/api/import/start refuses upstream when messages is [] (EMPTY_MESSAGES_BUI
         });
 
         const res = await _test.importStartHandler(req, { log() {} });
+        assert.equal(res.status, 200);
+
+        assert.equal(calls.length, 1);
+        assert.ok(String(calls[0].url).includes("/v1/chat/completions"));
+        assert.ok(Array.isArray(calls[0].payload?.messages));
+        assert.ok(calls[0].payload.messages.length >= 2);
+        assert.ok(calls[0].payload.messages.some((m) => m?.role === "system"));
+        assert.ok(calls[0].payload.messages.some((m) => m?.role === "user"));
+      } finally {
+        axios.post = originalPost;
+      }
+    }
+  );
+});
+
+test("/api/import/start returns 400 when any message has empty/non-string content (EMPTY_MESSAGE_CONTENT_BUILDER_BUG)", async () => {
+  await withTempEnv(
+    {
+      ...NO_NETWORK_ENV,
+      XAI_EXTERNAL_BASE: "https://api.x.ai",
+      XAI_EXTERNAL_KEY: "test_key",
+    },
+    async () => {
+      const originalPost = axios.post;
+      let called = 0;
+
+      axios.post = async () => {
+        called += 1;
+        throw new Error("should not call upstream");
+      };
+
+      try {
+        const req = makeReq({
+          json: async () => ({
+            mode: "live",
+            query: "bath robe",
+            queryTypes: ["product_keyword"],
+            messages: [
+              { role: "system", content: "" },
+              { role: "user", content: "hello" },
+            ],
+            prompt: "",
+            limit: 3,
+          }),
+        });
+
+        const res = await _test.importStartHandler(req, { log() {} });
         const body = parseJsonResponse(res);
 
         assert.equal(res.status, 400);
-        assert.equal(body?.error?.code, "EMPTY_MESSAGES_BUILDER_BUG");
+        assert.equal(body?.error?.code, "EMPTY_MESSAGE_CONTENT_BUILDER_BUG");
         assert.equal(called, 0);
-        assert.equal(body?.details?.messages_len, 0);
+
+        assert.equal(body?.details?.handler_version ? Boolean(body.details.handler_version) : true, true);
+        assert.equal(body?.details?.mode, "live");
+        assert.deepEqual(body?.details?.queryTypes, ["product_keyword"]);
+        assert.ok(Number.isFinite(Number(body?.details?.messages_len)));
+        assert.ok(Number.isFinite(Number(body?.details?.system_count)));
+        assert.ok(Number.isFinite(Number(body?.details?.user_count)));
+        assert.ok(Number.isFinite(Number(body?.details?.system_content_len)));
+        assert.ok(Number.isFinite(Number(body?.details?.user_content_len)));
+        assert.ok(Number.isFinite(Number(body?.details?.prompt_len)));
       } finally {
         axios.post = originalPost;
       }
