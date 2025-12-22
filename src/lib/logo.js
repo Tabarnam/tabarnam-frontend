@@ -1,12 +1,11 @@
 // src/lib/logo.js
-import { API_BASE } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 
 export async function fetchCompanyLogo(input) {
   // input: { url } or { domain }
-  const r = await fetch(`${API_BASE}/logo-scrape`, {
+  const r = await apiFetch("/logo-scrape", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input)
+    body: input,
   });
   const data = await r.json().catch(() => ({}));
   if (!r.ok || !data.ok) return null;

@@ -171,11 +171,158 @@ export async function getUserFacingConfigMessage(res: Response): Promise<string 
   return "Backend configuration incomplete: Cosmos DB environment variables are missing.";
 }
 
+type ApiRequestExplain = {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  contentType: string;
+  bodyTypeof: string;
+  bodyString?: {
+    length: number;
+    preview: string;
+  };
+  bodyNonString?: {
+    tag: string;
+    keys?: string[];
+  };
+};
+
+let lastApiRequestExplain: ApiRequestExplain | null = null;
+export function getLastApiRequestExplain() {
+  return lastApiRequestExplain;
+}
+
+function headersToRecord(headers: Headers): Record<string, string> {
+  const out: Record<string, string> = {};
+  try {
+    headers.forEach((value, key) => {
+      out[key] = value;
+    });
+  } catch {
+    // ignore
+  }
+  return out;
+}
+
+function looksLikeJsonString(value: string) {
+  const s = value.trim();
+  if (!s) return false;
+  if (!(s.startsWith("{") || s.startsWith("["))) return false;
+  return safeJsonParse(s) != null;
+}
+
+function buildApiRequestExplain(url: string, init: RequestInit, originalBody: unknown): ApiRequestExplain {
+  const method = typeof init?.method === "string" && init.method.trim() ? init.method.trim().toUpperCase() : "GET";
+  const headers = new Headers(init?.headers || undefined);
+  const headersObj = headersToRecord(headers);
+  const contentType = normalizeHeaderValue(headers.get("content-type"));
+
+  const body = (init as any)?.body;
+  const bodyTypeof = typeof body;
+
+  const explain: ApiRequestExplain = {
+    url,
+    method,
+    headers: headersObj,
+    contentType,
+    bodyTypeof,
+  };
+
+  if (typeof body === "string") {
+    explain.bodyString = {
+      length: body.length,
+      preview: body.slice(0, 120),
+    };
+  } else if (body != null) {
+    const tag = Object.prototype.toString.call(body);
+
+    const keys =
+      originalBody && typeof originalBody === "object" && !Array.isArray(originalBody)
+        ? Object.keys(originalBody as Record<string, unknown>)
+        : undefined;
+
+    explain.bodyNonString = keys ? { tag, keys } : { tag };
+  }
+
+  return explain;
+}
+
+function normalizeRequestInit(init?: RequestInit) {
+  const nextInit: RequestInit = { ...(init || {}) };
+  const headers = new Headers(nextInit.headers || undefined);
+
+  const originalBody: unknown = (nextInit as any).body;
+
+  // Normalize body encoding in one place.
+  if (originalBody === undefined) {
+    delete (nextInit as any).body;
+  } else if (typeof originalBody === "string") {
+    (nextInit as any).body = originalBody;
+    if (!headers.has("content-type") && looksLikeJsonString(originalBody)) {
+      headers.set("Content-Type", "application/json");
+    }
+  } else if (
+    typeof FormData !== "undefined" &&
+    originalBody instanceof FormData
+  ) {
+    (nextInit as any).body = originalBody as any;
+    // Do not set Content-Type for FormData; the browser will set boundary.
+  } else if (
+    typeof URLSearchParams !== "undefined" &&
+    originalBody instanceof URLSearchParams
+  ) {
+    (nextInit as any).body = originalBody as any;
+  } else if (
+    typeof Blob !== "undefined" &&
+    originalBody instanceof Blob
+  ) {
+    (nextInit as any).body = originalBody as any;
+  } else if (
+    typeof ArrayBuffer !== "undefined" &&
+    originalBody instanceof ArrayBuffer
+  ) {
+    (nextInit as any).body = originalBody as any;
+  } else {
+    // Treat anything else as a JSON-able payload.
+    const json = JSON.stringify(originalBody);
+    (nextInit as any).body = json;
+    if (!headers.has("content-type")) {
+      headers.set("Content-Type", "application/json");
+    }
+  }
+
+  nextInit.headers = headers;
+
+  return { init: nextInit, originalBody };
+}
+
+function shouldExplainClientRequest(url: string) {
+  try {
+    if (typeof window === "undefined") return false;
+    const parsed = new URL(url, window.location.origin);
+    return parsed.searchParams.get("explain") === "1";
+  } catch {
+    return false;
+  }
+}
+
 export async function apiFetch(path: string, init?: RequestInit) {
   const url = join(API_BASE, path);
 
+  const { init: normalizedInit, originalBody } = normalizeRequestInit(init);
+  const explain = buildApiRequestExplain(url, normalizedInit, originalBody);
+  lastApiRequestExplain = explain;
+
+  // Temporary UI-only debug path: /import/start?explain=1 (and fallback /import-start?explain=1)
+  if (shouldExplainClientRequest(url) && /\/import(-start|\/start)\b/i.test(path)) {
+    return new Response(JSON.stringify({ ok: true, explain }, null, 2), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   try {
-    const response = await fetch(url, init);
+    const response = await fetch(url, normalizedInit);
 
     if (!response.ok) {
       const configMsg = await getUserFacingConfigMessage(response);
