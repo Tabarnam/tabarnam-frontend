@@ -60,6 +60,21 @@ try {
 const DEFAULT_HARD_TIMEOUT_MS = 25_000;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000;
 
+// Per-stage upstream hard caps (must stay under SWA gateway wall-clock).
+const STAGE_MAX_MS = {
+  primary: 20_000,
+  keywords: 15_000,
+  reviews: 15_000,
+  location: 10_000,
+  expand: 10_000,
+};
+
+// Safety buffer before the SWA gateway timeout where we stop doing work and return 202.
+const DEADLINE_SAFETY_BUFFER_MS = 8_000;
+
+// Budget we keep in reserve for JSON formatting / logging / finishing the response.
+const UPSTREAM_TIMEOUT_MARGIN_MS = 3_000;
+
 const XAI_SYSTEM_PROMPT =
   "You are a precise assistant. Follow the user's instructions exactly. When asked for JSON, output ONLY valid JSON with no markdown, no prose, and no extra keys.";
 
@@ -99,6 +114,14 @@ function json(obj, status = 200, extraHeaders) {
     },
     body: JSON.stringify(obj),
   };
+}
+
+class AcceptedResponseError extends Error {
+  constructor(response, message = "Accepted") {
+    super(message);
+    this.name = "AcceptedResponseError";
+    this.response = response;
+  }
 }
 
 function logImportStartMeta(meta) {
@@ -2938,9 +2961,11 @@ const importStartHandlerInner = async (req, context) => {
         return false;
       };
 
-      const respondAcceptedBeforeGatewayTimeout = (nextStageBeacon) => {
+      const respondAcceptedBeforeGatewayTimeout = (nextStageBeacon, reason, extra) => {
         const beacon = String(nextStageBeacon || stage_beacon || stage || "unknown") || "unknown";
         mark(beacon);
+
+        const normalizedReason = String(reason || "deadline_budget_guard") || "deadline_budget_guard";
 
         try {
           upsertImportSession({
@@ -2959,7 +2984,8 @@ const importStartHandlerInner = async (req, context) => {
             session_id: sessionId,
             request_id: requestId,
             stage_beacon: beacon,
-            reason: "deadline_exceeded_returning_202",
+            reason: normalizedReason,
+            ...(extra && typeof extra === "object" ? extra : {}),
           },
           202
         );
@@ -2967,7 +2993,7 @@ const importStartHandlerInner = async (req, context) => {
 
       const checkDeadlineOrReturn = (nextStageBeacon) => {
         if (Date.now() > deadlineMs) {
-          return respondAcceptedBeforeGatewayTimeout(nextStageBeacon);
+          return respondAcceptedBeforeGatewayTimeout(nextStageBeacon, "deadline_exceeded_returning_202");
         }
         return null;
       };
@@ -4897,9 +4923,11 @@ Return ONLY the JSON array, no other text.`,
         return jsonWithRequestId(failurePayload, mappedStatus);
       }
       } catch (e) {
+        if (e instanceof AcceptedResponseError && e.response) return e.response;
         return respondError(e, { status: 500 });
       }
     } catch (e) {
+      if (e instanceof AcceptedResponseError && e.response) return e.response;
       const lastStage = String(stage_beacon || stage || "fatal") || "fatal";
       const error_message = toErrorString(e) || "Unhandled error";
 
@@ -4954,6 +4982,7 @@ const importStartHandler = async (req, context) => {
   try {
     return await importStartHandlerInner(req, context);
   } catch (e) {
+    if (e instanceof AcceptedResponseError && e.response) return e.response;
     let requestId = "";
     try {
       requestId = generateRequestId(req);
