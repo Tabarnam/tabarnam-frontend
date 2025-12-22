@@ -977,6 +977,16 @@ function resolveXaiEndpointForModel(rawEndpoint, model) {
 
   // If the URL was set to a base like https://api.x.ai or https://api.x.ai/v1, normalize it.
   let basePath = String(u.pathname || "").replace(/\/+$/, "");
+
+  // Prevent common misconfiguration: https://api.x.ai/api (xAI does not use /api).
+  // Only apply this normalization to the real xAI hostname so we don't break proxies.
+  if (String(u.hostname || "").toLowerCase() === "api.x.ai") {
+    const lower = basePath.toLowerCase();
+    if (lower === "/api") basePath = "";
+    else if (lower.endsWith("/api")) basePath = basePath.slice(0, -4);
+    else if (lower.endsWith("/api/v1")) basePath = basePath.slice(0, -7);
+  }
+
   if (basePath.toLowerCase().endsWith("/v1")) basePath = basePath.slice(0, -3);
   u.pathname = joinUrlPath(basePath || "", desiredSuffix);
 
