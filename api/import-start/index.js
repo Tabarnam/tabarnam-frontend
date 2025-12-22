@@ -2604,7 +2604,7 @@ const importStartHandlerInner = async (req, context) => {
 
         const errorPayload = {
           ok: false,
-          stage,
+          stage: errorStage,
           session_id: sessionId,
           request_id: requestId,
           env_present,
