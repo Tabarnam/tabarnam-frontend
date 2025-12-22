@@ -984,8 +984,16 @@ function buildXaiExecutionPlan(xaiPayload) {
 }
 
 function resolveXaiEndpointForModel(rawEndpoint, model) {
-  const u = tryParseUrl(rawEndpoint);
-  if (!u) return String(rawEndpoint || "").trim();
+  let raw = String(rawEndpoint || "").trim();
+
+  // Normalize missing scheme so diagnostics always show a full URL.
+  // Only apply when the value looks like a hostname (avoid breaking proxies/relative paths).
+  if (raw && !/^https?:\/\//i.test(raw) && /^[a-z0-9.-]+\.[a-z]{2,}(?::\d+)?(\/.*)?$/i.test(raw)) {
+    raw = `https://${raw}`;
+  }
+
+  const u = tryParseUrl(raw);
+  if (!u) return raw;
 
   const pathLower = String(u.pathname || "").toLowerCase();
   if (pathLower.includes("/proxy-xai")) return u.toString();
@@ -1384,10 +1392,22 @@ async function geocodeCompanyLocations(company, { timeoutMs = 5000 } = {}) {
 
   const { headquartersBase, manufacturingBase } = buildImportLocations(c);
 
-  const [headquarters, manufacturing_geocodes] = await Promise.all([
+  const settled = await Promise.allSettled([
     geocodeLocationArray(headquartersBase, { timeoutMs, concurrency: 4 }),
     geocodeLocationArray(manufacturingBase, { timeoutMs, concurrency: 4 }),
   ]);
+
+  const headquarters = settled[0]?.status === "fulfilled" ? settled[0].value : [];
+  const manufacturing_geocodes = settled[1]?.status === "fulfilled" ? settled[1].value : [];
+
+  if (settled[0]?.status === "rejected") {
+    console.warn(`[import-start] geocode HQ rejected: ${settled[0]?.reason?.message || String(settled[0]?.reason || "")}`);
+  }
+  if (settled[1]?.status === "rejected") {
+    console.warn(
+      `[import-start] geocode manufacturing rejected: ${settled[1]?.reason?.message || String(settled[1]?.reason || "")}`
+    );
+  }
 
   const primary = pickPrimaryLatLng(headquarters);
 
@@ -2088,6 +2108,23 @@ const importStartHandlerInner = async (req, context) => {
     let debugOutput = null;
     let enrichedForCounts = [];
 
+    let stage_beacon = "init";
+    let stage_reached = null;
+
+    const mark = (s) => {
+      stage_beacon = String(s || "unknown") || "unknown";
+
+      if (/_done$/.test(stage_beacon)) {
+        stage_reached = `after_${stage_beacon.replace(/_done$/, "")}`;
+      }
+
+      try {
+        console.log("[import-start] stage", { stage: stage_beacon, request_id: requestId, session_id: sessionId });
+      } catch {
+        console.log("[import-start] stage", { stage: stage_beacon });
+      }
+    };
+
     console.log(`[import-start] request_id=${requestId} Function handler invoked`);
 
     try {
@@ -2370,6 +2407,14 @@ const importStartHandlerInner = async (req, context) => {
       };
 
       const noUpstreamMode = String(readQueryParam(req, "no_upstream") || "").trim() === "1";
+      const noCosmosMode = String(readQueryParam(req, "no_cosmos") || "").trim() === "1";
+      const cosmosEnabled = !noCosmosMode;
+
+
+      const safeCheckIfSessionStopped = async (sid) => {
+        if (!cosmosEnabled) return false;
+        return await checkIfSessionStopped(sid);
+      };
 
       const respondError = async (err, { status = 500, details = {} } = {}) => {
         const baseDetails =
@@ -2394,6 +2439,8 @@ const importStartHandlerInner = async (req, context) => {
         if (!detailsObj.content_length_header) {
           detailsObj.content_length_header = getHeader(req, "content-length") || null;
         }
+
+        const errorStage = stage_beacon || stage;
 
         const env_present = {
           has_xai_key: Boolean(getXAIKey()),
@@ -2432,7 +2479,7 @@ const importStartHandlerInner = async (req, context) => {
           try {
             console.error(
               "[import-start] sanitized_diagnostics:",
-              JSON.stringify({ request_id: requestId, session_id: sessionId, stage, status, upstream, env_present })
+              JSON.stringify({ request_id: requestId, session_id: sessionId, stage: errorStage, status, upstream, env_present })
             );
           } catch {}
         }
@@ -2447,14 +2494,16 @@ const importStartHandlerInner = async (req, context) => {
             ? detailsObj.message.trim()
             : errorMessage) || "Import start failed";
 
-        console.error(`[import-start] request_id=${requestId} session=${sessionId} stage=${stage} code=${code} message=${message}`);
+        console.error(
+          `[import-start] request_id=${requestId} session=${sessionId} stage=${errorStage} code=${code} message=${message}`
+        );
         if (err?.stack) console.error(err.stack);
 
         const errorObj = {
           code,
           message,
           request_id: requestId,
-          step: stage,
+          step: errorStage,
         };
 
         const passthroughKeys = [
@@ -2476,7 +2525,7 @@ const importStartHandlerInner = async (req, context) => {
           }
         }
 
-        if (!noUpstreamMode) {
+        if (!noUpstreamMode && cosmosEnabled) {
           try {
             const container = getCompaniesCosmosContainer();
             if (container) {
@@ -2484,7 +2533,7 @@ const importStartHandlerInner = async (req, context) => {
                 id: `_import_error_${sessionId}`,
                 ...buildImportControlDocBase(sessionId),
                 request_id: requestId,
-                stage,
+                stage: errorStage,
                 error: errorObj,
                 details: detailsObj && typeof detailsObj === "object" ? detailsObj : {},
               };
@@ -2556,7 +2605,7 @@ const importStartHandlerInner = async (req, context) => {
 
         const errorPayload = {
           ok: false,
-          stage,
+          stage: errorStage,
           session_id: sessionId,
           request_id: requestId,
           env_present,
@@ -2669,6 +2718,8 @@ const importStartHandlerInner = async (req, context) => {
         upstream_status: null,
       });
 
+      mark("validate_request_done");
+
       const dryRun = bodyObj.dry_run === true || bodyObj.dry_run === "true";
       if (dryRun) {
         setStage("dry_run");
@@ -2728,7 +2779,7 @@ const importStartHandlerInner = async (req, context) => {
       }
 
       setStage("create_session");
-      if (!noUpstreamMode) {
+      if (!noUpstreamMode && cosmosEnabled) {
         try {
           const container = getCompaniesCosmosContainer();
           if (container) {
@@ -2847,7 +2898,7 @@ const importStartHandlerInner = async (req, context) => {
 
         // Early check: if import was already stopped, return immediately
         if (!noUpstreamMode) {
-          const wasAlreadyStopped = await checkIfSessionStopped(sessionId);
+          const wasAlreadyStopped = await safeCheckIfSessionStopped(sessionId);
           if (wasAlreadyStopped) {
           setStage("stopped");
           console.log(`[import-start] session=${sessionId} stop signal detected before XAI call`);
@@ -3435,7 +3486,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 messages_len: Number(guardDebugFields?.messages_len) || 0,
                 system_count: Number(guardDebugFields?.system_count) || 0,
                 user_count: Number(guardDebugFields?.user_count) || 0,
-                resolved_upstream_url_redacted: xaiUrl ? toHostPathOnlyForLog(xaiUrl) : null,
+                resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
                 auth_header_present: Boolean(xaiKey),
               },
               200,
@@ -3520,6 +3571,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           }
 
           console.log(`[import-start] Calling XAI API at: ${toHostPathOnlyForLog(xaiUrl)}`);
+          mark("xai_primary_fetch_start");
 
           const xaiResponse = await postJsonWithTimeout(xaiUrl, {
             headers: {
@@ -3538,6 +3590,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           setStage("searchCompanies", { xai_request_id: xaiRequestId });
           if (debugOutput) debugOutput.xai.request_id = xaiRequestId;
         }
+
+        mark("xai_primary_fetch_done");
 
         if (xaiResponse.status >= 200 && xaiResponse.status < 300) {
           // Extract the response content
@@ -3579,30 +3633,32 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             console.log(`[import-start] session=${sessionId} no companies found in XAI response, returning early`);
 
             // Write a completion marker so import-progress knows this session is done with 0 results
-            try {
-              const container = getCompaniesCosmosContainer();
-              if (container) {
-                const completionDoc = {
-                  id: `_import_complete_${sessionId}`,
-                  ...buildImportControlDocBase(sessionId),
-                  completed_at: new Date().toISOString(),
-                  reason: "no_results_from_xai",
-                  saved: 0,
-                };
+            if (cosmosEnabled) {
+              try {
+                const container = getCompaniesCosmosContainer();
+                if (container) {
+                  const completionDoc = {
+                    id: `_import_complete_${sessionId}`,
+                    ...buildImportControlDocBase(sessionId),
+                    completed_at: new Date().toISOString(),
+                    reason: "no_results_from_xai",
+                    saved: 0,
+                  };
 
-                const result = await upsertItemWithPkCandidates(container, completionDoc);
-                if (!result.ok) {
-                  console.warn(
-                    `[import-start] request_id=${requestId} session=${sessionId} failed to upsert completion marker: ${result.error}`
-                  );
-                } else {
-                  console.log(`[import-start] request_id=${requestId} session=${sessionId} completion marker written`);
+                  const result = await upsertItemWithPkCandidates(container, completionDoc);
+                  if (!result.ok) {
+                    console.warn(
+                      `[import-start] request_id=${requestId} session=${sessionId} failed to upsert completion marker: ${result.error}`
+                    );
+                  } else {
+                    console.log(`[import-start] request_id=${requestId} session=${sessionId} completion marker written`);
+                  }
                 }
+              } catch (e) {
+                console.warn(
+                  `[import-start] request_id=${requestId} session=${sessionId} error writing completion marker: ${e?.message || String(e)}`
+                );
               }
-            } catch (e) {
-              console.warn(
-                `[import-start] request_id=${requestId} session=${sessionId} error writing completion marker: ${e?.message || String(e)}`
-              );
             }
 
             return jsonWithRequestId(
@@ -3652,7 +3708,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               }
             });
 
-            await Promise.all(workers);
+            const results = await Promise.allSettled(workers);
+            for (const r of results) {
+              if (r.status === "rejected") {
+                console.warn(`[import-start] mapWithConcurrency worker rejected: ${r.reason?.message || String(r.reason || "")}`);
+              }
+            }
             return out;
           }
 
@@ -3778,9 +3839,11 @@ Output JSON only:
             return company;
           }
 
+          mark("xai_keywords_fetch_start");
           setStage("generateKeywords");
           enriched = await mapWithConcurrency(enriched, 4, ensureCompanyKeywords);
           enrichedForCounts = enriched;
+          mark("xai_keywords_fetch_done");
 
           // Geocode and persist per-location coordinates (HQ + manufacturing)
           setStage("geocodeLocations");
@@ -3791,7 +3854,7 @@ Output JSON only:
               break;
             }
 
-            const stopped = await checkIfSessionStopped(sessionId);
+            const stopped = await safeCheckIfSessionStopped(sessionId);
             if (stopped) {
               console.log(`[import-start] session=${sessionId} stop signal detected, aborting during geocoding`);
               break;
@@ -3810,6 +3873,7 @@ Output JSON only:
 
           // Fetch editorial reviews for companies
           if (!shouldAbort()) {
+            mark("xai_reviews_fetch_start");
             setStage("fetchEditorialReviews");
             console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
             for (let i = 0; i < enriched.length; i++) {
@@ -3819,7 +3883,7 @@ Output JSON only:
                 break;
               }
 
-              const stopped = await checkIfSessionStopped(sessionId);
+              const stopped = await safeCheckIfSessionStopped(sessionId);
               if (stopped) {
                 console.log(`[import-start] session=${sessionId} stop signal detected, aborting during review fetch`);
                 break;
@@ -3852,6 +3916,7 @@ Output JSON only:
               }
             }
             console.log(`[import-start] session=${sessionId} editorial review enrichment done`);
+            mark("xai_reviews_fetch_done");
           }
 
           // Check if any companies have missing or weak location data
@@ -3931,6 +3996,7 @@ Return ONLY the JSON array, no other text.`,
                   xaiUrl
                 )})`
               );
+              mark("xai_location_refinement_fetch_start");
               const refinementResponse = await postJsonWithTimeout(xaiUrl, {
                 headers: {
                   "Content-Type": "application/json",
@@ -4008,22 +4074,32 @@ Return ONLY the JSON array, no other text.`,
             } catch (refinementErr) {
               console.warn(`[import-start] Location refinement pass failed: ${refinementErr.message}`);
               // Continue with original data if refinement fails
+            } finally {
+              mark("xai_location_refinement_fetch_done");
             }
           }
 
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
-          if (enriched.length > 0) {
+
+          if (enriched.length > 0 && cosmosEnabled) {
+            mark("cosmos_write_start");
             setStage("saveCompaniesToCosmos");
             console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos start count=${enriched.length}`);
             saveResult = await saveCompaniesToCosmos(enriched, sessionId, timeout);
-            console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos done saved=${saveResult.saved} skipped=${saveResult.skipped} duplicates=${saveResult.skipped}`);
+            console.log(
+              `[import-start] session=${sessionId} saveCompaniesToCosmos done saved=${saveResult.saved} skipped=${saveResult.skipped} duplicates=${saveResult.skipped}`
+            );
           }
+
+          const effectiveResultCountForExpansion = cosmosEnabled ? saveResult.saved + saveResult.failed : enriched.length;
 
           // If expand_if_few is enabled and we got very few results (or all were skipped), try alternative search
           // But skip if we're running out of time
           const minThreshold = Math.max(1, Math.ceil(xaiPayload.limit * 0.6));
-          if (xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold && companies.length > 0 && !shouldAbort()) {
-            console.log(`[import-start] Few results found (${saveResult.saved} saved, ${saveResult.skipped} skipped). Attempting expansion search.`);
+          if (xaiPayload.expand_if_few && effectiveResultCountForExpansion < minThreshold && companies.length > 0 && !shouldAbort()) {
+            console.log(
+              `[import-start] Few results found (${cosmosEnabled ? `${saveResult.saved} saved, ${saveResult.skipped} skipped` : `${enriched.length} found (no_cosmos mode)`}). Attempting expansion search.`
+            );
 
             try {
               // Create a more general search prompt for related companies
@@ -4076,6 +4152,7 @@ Return ONLY the JSON array, no other text.`,
               console.log(
                 `[import-start] Making expansion search for "${xaiPayload.query}" (upstream=${toHostPathOnlyForLog(xaiUrl)})`
               );
+              mark("xai_expand_fetch_start");
               const expansionResponse = await postJsonWithTimeout(xaiUrl, {
                 headers: {
                   "Content-Type": "application/json",
@@ -4152,60 +4229,95 @@ Return ONLY the JSON array, no other text.`,
                   enriched = enriched.concat(enrichedExpansion);
 
                   // Re-save with expansion results
-                  const expansionResult = await saveCompaniesToCosmos(enrichedExpansion, sessionId, timeout);
-                  saveResult.saved += expansionResult.saved;
-                  saveResult.skipped += expansionResult.skipped;
-                  saveResult.failed += expansionResult.failed;
-                  console.log(`[import-start] Expansion: saved ${expansionResult.saved}, skipped ${expansionResult.skipped}, failed ${expansionResult.failed}`);
+                  if (cosmosEnabled) {
+                    const expansionResult = await saveCompaniesToCosmos(enrichedExpansion, sessionId, timeout);
+                    saveResult.saved += expansionResult.saved;
+                    saveResult.skipped += expansionResult.skipped;
+                    saveResult.failed += expansionResult.failed;
+                    console.log(
+                      `[import-start] Expansion: saved ${expansionResult.saved}, skipped ${expansionResult.skipped}, failed ${expansionResult.failed}`
+                    );
+                  }
                 }
               }
             } catch (expansionErr) {
               console.warn(`[import-start] Expansion search failed: ${expansionErr.message}`);
               // Continue without expansion results
+            } finally {
+              mark("xai_expand_fetch_done");
             }
           }
 
           const elapsed = Date.now() - startTime;
           const timedOut = isOutOfTime();
 
-          // Write a completion marker so import-progress knows this session is done
-          try {
-            const container = getCompaniesCosmosContainer();
-            if (container) {
-              const completionDoc = timedOut
-                ? {
-                    id: `_import_timeout_${sessionId}`,
-                    ...buildImportControlDocBase(sessionId),
-                    completed_at: new Date().toISOString(),
-                    elapsed_ms: elapsed,
-                    reason: "max_processing_time_exceeded",
-                  }
-                : {
-                    id: `_import_complete_${sessionId}`,
-                    ...buildImportControlDocBase(sessionId),
-                    completed_at: new Date().toISOString(),
-                    elapsed_ms: elapsed,
-                    reason: "completed_normally",
-                    saved: saveResult.saved,
-                  };
-
-              const result = await upsertItemWithPkCandidates(container, completionDoc);
-              if (!result.ok) {
-                console.warn(
-                  `[import-start] request_id=${requestId} session=${sessionId} failed to upsert completion marker: ${result.error}`
-                );
-              } else if (timedOut) {
-                console.log(`[import-start] request_id=${requestId} session=${sessionId} timeout signal written`);
-              } else {
-                console.log(
-                  `[import-start] request_id=${requestId} session=${sessionId} completion marker written (saved=${saveResult.saved})`
-                );
-              }
-            }
-          } catch (e) {
-            console.warn(
-              `[import-start] request_id=${requestId} session=${sessionId} error writing completion marker: ${e?.message || String(e)}`
+          if (noCosmosMode) {
+            return jsonWithRequestId(
+              {
+                ok: true,
+                no_cosmos: true,
+                stage_reached: stage_reached || "after_xai_primary_fetch",
+                stage_beacon,
+                session_id: sessionId,
+                request_id: requestId,
+                xai_request_id: contextInfo.xai_request_id,
+                resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
+                build_id: buildInfo?.build_id || null,
+                companies: enriched,
+                meta: {
+                  mode: "direct",
+                  expanded: xaiPayload.expand_if_few && effectiveResultCountForExpansion < minThreshold,
+                  timedOut: timedOut,
+                  elapsedMs: elapsed,
+                  cosmos_skipped: true,
+                },
+              },
+              200
             );
+          }
+
+          // Write a completion marker so import-progress knows this session is done
+          if (cosmosEnabled) {
+            try {
+              const container = getCompaniesCosmosContainer();
+              if (container) {
+                const completionDoc = timedOut
+                  ? {
+                      id: `_import_timeout_${sessionId}`,
+                      ...buildImportControlDocBase(sessionId),
+                      completed_at: new Date().toISOString(),
+                      elapsed_ms: elapsed,
+                      reason: "max_processing_time_exceeded",
+                    }
+                  : {
+                      id: `_import_complete_${sessionId}`,
+                      ...buildImportControlDocBase(sessionId),
+                      completed_at: new Date().toISOString(),
+                      elapsed_ms: elapsed,
+                      reason: "completed_normally",
+                      saved: saveResult.saved,
+                    };
+
+                const result = await upsertItemWithPkCandidates(container, completionDoc);
+                if (!result.ok) {
+                  console.warn(
+                    `[import-start] request_id=${requestId} session=${sessionId} failed to upsert completion marker: ${result.error}`
+                  );
+                } else if (timedOut) {
+                  console.log(`[import-start] request_id=${requestId} session=${sessionId} timeout signal written`);
+                } else {
+                  console.log(
+                    `[import-start] request_id=${requestId} session=${sessionId} completion marker written (saved=${saveResult.saved})`
+                  );
+                }
+              }
+            } catch (e) {
+              console.warn(
+                `[import-start] request_id=${requestId} session=${sessionId} error writing completion marker: ${e?.message || String(e)}`
+              );
+            }
+
+            mark("cosmos_write_done");
           }
 
           return jsonWithRequestId(
@@ -4226,7 +4338,7 @@ Return ONLY the JSON array, no other text.`,
               companies: enriched,
               meta: {
                 mode: "direct",
-                expanded: xaiPayload.expand_if_few && (saveResult.saved + saveResult.failed) < minThreshold,
+                expanded: xaiPayload.expand_if_few && effectiveResultCountForExpansion < minThreshold,
                 timedOut: timedOut,
                 elapsedMs: elapsed,
               },
@@ -4273,15 +4385,18 @@ Return ONLY the JSON array, no other text.`,
 
           const failurePayload = {
             ok: false,
-            stage: "xai_primary_fetch",
+            stage: stage_beacon || "xai_primary_fetch_done",
+            session_id: sessionId,
+            request_id: requestId,
             resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
             upstream_status: upstreamStatus,
             xai_request_id: upstreamRequestId || null,
-            upstream_text_preview: toTextPreview(xaiResponse.data, 1000),
             build_id: buildInfo?.build_id || null,
+            error_message: `Upstream XAI returned ${upstreamStatus}`,
+            upstream_text_preview: toTextPreview(xaiResponse.data, 1000),
           };
 
-          return jsonWithRequestId(failurePayload, 502);
+          return jsonWithRequestId(failurePayload, mappedStatus);
         }
       } catch (xaiError) {
         const elapsed = Date.now() - startTime;
@@ -4298,7 +4413,7 @@ Return ONLY the JSON array, no other text.`,
         }
 
         // Write timeout signal if this took too long
-        if (isOutOfTime() || (xaiError.code === 'ECONNABORTED' || xaiError.message.includes('timeout'))) {
+        if (cosmosEnabled && (isOutOfTime() || (xaiError.code === 'ECONNABORTED' || xaiError.message.includes('timeout')))) {
           try {
             console.log(
               `[import-start] request_id=${requestId} session=${sessionId} timeout detected during XAI call, writing timeout signal`
@@ -4386,25 +4501,29 @@ Return ONLY the JSON array, no other text.`,
 
         const failurePayload = {
           ok: false,
-          stage: "xai_primary_fetch",
+          stage: stage_beacon || "xai_primary_fetch_start",
+          session_id: sessionId,
+          request_id: requestId,
           resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
           upstream_status: upstreamStatus,
           xai_request_id: upstreamRequestId || null,
+          build_id: buildInfo?.build_id || null,
+          error_message: upstreamMessage || "XAI call failed",
+          error_code: upstreamErrorCode,
           upstream_text_preview: toTextPreview(
             xaiError?.response?.data || xaiError?.response?.body || xaiError?.message || String(xaiError || ""),
             1000
           ),
-          build_id: buildInfo?.build_id || null,
         };
 
-        return jsonWithRequestId(failurePayload, 502);
+        return jsonWithRequestId(failurePayload, mappedStatus);
       }
       } catch (e) {
         return respondError(e, { status: 500 });
       }
     } catch (e) {
       const safeMessage = "Unhandled error";
-      const lastStage = String(stage || "fatal") || "fatal";
+      const lastStage = String(stage_beacon || stage || "fatal") || "fatal";
 
       console.error("[import-start] Unhandled error:", toErrorString(e));
 
