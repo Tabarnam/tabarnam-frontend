@@ -4040,8 +4040,35 @@ Output JSON only:
           if (shouldRunStage("keywords")) {
             mark("xai_keywords_fetch_start");
             setStage("generateKeywords");
-            enriched = await mapWithConcurrency(enriched, 4, ensureCompanyKeywords);
-            enrichedForCounts = enriched;
+
+            const keywordsConcurrency = 4;
+            for (let i = 0; i < enriched.length; i += keywordsConcurrency) {
+              if (Date.now() > deadlineMs) {
+                return respondAcceptedBeforeGatewayTimeout("xai_keywords_fetch_start");
+              }
+
+              const slice = enriched.slice(i, i + keywordsConcurrency);
+              const batch = await Promise.all(
+                slice.map(async (company, index) => {
+                  try {
+                    return await ensureCompanyKeywords(company);
+                  } catch (e) {
+                    try {
+                      console.log(
+                        `[import-start] session=${sessionId} keyword enrichment failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`
+                      );
+                    } catch {}
+                    return company;
+                  }
+                })
+              );
+
+              for (let j = 0; j < batch.length; j++) {
+                enriched[i + j] = batch[j];
+              }
+
+              enrichedForCounts = enriched;
+            }
             mark("xai_keywords_fetch_done");
           } else {
             mark("xai_keywords_fetch_skipped");
