@@ -3549,7 +3549,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
         }
 
         if (debugOutput) {
-          debugOutput.xai.prompt_len = promptString.length;
+          debugOutput.xai.prompt_len = typeof builtUserPrompt === "string" ? builtUserPrompt.length : 0;
         }
 
         const xaiRequestPayload = {
