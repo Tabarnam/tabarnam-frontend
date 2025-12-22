@@ -317,8 +317,7 @@ export default function AdminImport() {
     try {
       const { res } = await apiFetchWithFallback(["/import/start", "/import-start"], {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q, limit }),
+        body: { query: q, limit },
       });
 
       const body = await readJsonOrText(res);
@@ -366,8 +365,7 @@ export default function AdminImport() {
     try {
       const { res } = await apiFetchWithFallback(["/import/start?explain=1", "/import-start?explain=1"], {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q, limit }),
+        body: { query: q, limit },
       });
 
       const body = await readJsonOrText(res);
@@ -484,15 +482,9 @@ export default function AdminImport() {
         expand_if_few: true,
       };
 
-      if (import.meta.env.DEV) {
-        // Dev-only: makes malformed payloads obvious while debugging
-        console.log("[AdminImport] /import/start payload", requestPayload);
-      }
-
       const { res } = await apiFetchWithFallback(["/import/start", "/import-start"], {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestPayload),
+        body: requestPayload,
         signal: abort.signal,
       });
 
@@ -611,8 +603,7 @@ export default function AdminImport() {
     try {
       const { res } = await apiFetchWithFallback(["/import/start?explain=1", "/import-start?explain=1"], {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestPayload),
+        body: requestPayload,
       });
 
       const body = await readJsonOrText(res);
@@ -646,8 +637,7 @@ export default function AdminImport() {
     try {
       const res = await apiFetch("/import/stop", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: activeSessionId }),
+        body: { session_id: activeSessionId },
       });
 
       const body = await readJsonOrText(res);
@@ -701,8 +691,7 @@ export default function AdminImport() {
     try {
       const res = await apiFetch("/save-companies", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companies }),
+        body: { companies },
       });
 
       const body = await readJsonOrText(res);
