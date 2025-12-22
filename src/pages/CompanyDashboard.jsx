@@ -1151,12 +1151,11 @@ function ReviewsImportPanel({ companyId, existingCuratedReviews, disabled, onApp
         usedPath = path;
         res = await apiFetch(path, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+          body: {
             company_id: id,
             take: requestedTake,
             include_existing_in_context: Boolean(includeExisting),
-          }),
+          },
         });
 
         attempts.push({ path, status: res.status });
@@ -2610,8 +2609,7 @@ export default function CompanyDashboard() {
         usedPath = path;
         res = await apiFetch(path, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ company_id: companyId }),
+          body: { company_id: companyId },
         });
 
         attempts.push({ path, status: res.status });
@@ -2853,15 +2851,14 @@ export default function CompanyDashboard() {
 
       const res = await apiFetch("/xadmin-api-companies", {
         method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: {
           company: payload,
           actor_email: actorEmail || undefined,
           actor_user_id: actorEmail || undefined,
           audit_action: audit_action || undefined,
           source,
           request_id: requestId,
-        }),
+        },
       });
 
       const body = await res.json().catch(() => ({}));
@@ -3024,13 +3021,12 @@ export default function CompanyDashboard() {
 
       const res = await apiFetch(`/xadmin-api-companies/${encodeURIComponent(safeId)}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: {
           actor_email: actorEmail || undefined,
           actor_user_id: actorEmail || undefined,
           source: "admin-ui",
           request_id: requestId,
-        }),
+        },
       });
 
       const body = await res.json().catch(() => ({}));
