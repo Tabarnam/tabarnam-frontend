@@ -447,7 +447,7 @@ export default function AdminImport() {
     }
   }, [debugSessionId]);
 
-  const beginImport = useCallback(async () => {
+  const beginImport = useCallback(async (options = {}) => {
     const q = query.trim();
     if (!q) {
       toast.error("Enter a query to import.");
