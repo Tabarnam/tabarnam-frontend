@@ -331,7 +331,8 @@ async function handler(req, context) {
         {
           ok: true,
           session_id: sessionId,
-          status: "failed",
+          status: "error",
+          state: "failed",
           stage_beacon,
           companies_count: saved,
           error: errorOut,
@@ -352,6 +353,7 @@ async function handler(req, context) {
           ok: true,
           session_id: sessionId,
           status: "complete",
+          state: "complete",
           stage_beacon,
           companies_count: saved,
           result: {
@@ -373,6 +375,7 @@ async function handler(req, context) {
         ok: true,
         session_id: sessionId,
         status: "running",
+        state: "running",
         stage_beacon,
         companies_count: saved,
         items,
