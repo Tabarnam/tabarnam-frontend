@@ -33,6 +33,11 @@ const {
 const { getBuildInfo } = require("../_buildInfo");
 const { getImportStartHandlerVersion } = require("../_handlerVersions");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
+const {
+  buildPrimaryJobId: buildImportPrimaryJobId,
+  getJob: getImportPrimaryJob,
+  upsertJob: upsertImportPrimaryJob,
+} = require("../_importPrimaryJobStore");
 
 const __importStartModuleBuildInfo = (() => {
   try {
@@ -2464,7 +2469,23 @@ const importStartHandlerInner = async (req, context) => {
       const noCosmosMode = String(readQueryParam(req, "no_cosmos") || "").trim() === "1";
       const cosmosEnabled = !noCosmosMode;
 
-      const deadlineMs = Date.now() + 45_000;
+      const inline_budget_ms = Number(STAGE_MAX_MS?.primary) || 20_000;
+
+      const requestedDeadlineRaw = readQueryParam(req, "deadline_ms");
+      const requested_deadline_ms_number =
+        Number.isFinite(Number(requestedDeadlineRaw)) && Number(requestedDeadlineRaw) > 0
+          ? Number(requestedDeadlineRaw)
+          : null;
+
+      const requested_deadline_ms = requested_deadline_ms_number
+        ? Math.max(5_000, Math.min(requested_deadline_ms_number, MAX_PROCESSING_TIME_MS))
+        : 45_000;
+
+      const deadlineMs = Date.now() + requested_deadline_ms;
+
+      const stageMsPrimaryRaw = readQueryParam(req, "stage_ms_primary");
+      const requested_stage_ms_primary =
+        Number.isFinite(Number(stageMsPrimaryRaw)) && Number(stageMsPrimaryRaw) > 0 ? Number(stageMsPrimaryRaw) : null;
 
       const allowedStages = ["primary", "keywords", "reviews", "location", "expand"];
       const stageOrder = new Map(allowedStages.map((s, i) => [s, i]));
@@ -3840,9 +3861,131 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
           console.log(`[import-start] Calling XAI API at: ${toHostPathOnlyForLog(xaiUrl)}`);
 
-          const inputCompanies = (Array.isArray(bodyObj.companies) ? bodyObj.companies : [])
+          let inputCompanies = (Array.isArray(bodyObj.companies) ? bodyObj.companies : [])
             .filter((it) => it && typeof it === "object")
             .slice(0, 500);
+
+          const wantsAsyncPrimary =
+            inputCompanies.length === 0 &&
+            shouldRunStage("primary") &&
+            Number.isFinite(Number(requested_stage_ms_primary)) &&
+            Number(requested_stage_ms_primary) > inline_budget_ms;
+
+          if (wantsAsyncPrimary) {
+            const jobId = buildImportPrimaryJobId(sessionId);
+            let existingJob = null;
+
+            try {
+              existingJob = await getImportPrimaryJob({ sessionId, cosmosEnabled });
+            } catch (e) {
+              try {
+                console.warn(
+                  `[import-start] request_id=${requestId} session=${sessionId} failed to read primary job: ${e?.message || String(e)}`
+                );
+              } catch {}
+            }
+
+            const existingState = existingJob ? String(existingJob.job_state || "").trim() : "";
+
+            if (existingState === "complete" && Array.isArray(existingJob.companies)) {
+              inputCompanies = existingJob.companies
+                .filter((it) => it && typeof it === "object")
+                .slice(0, 500);
+
+              try {
+                console.log("[import-start] primary_async_cached_companies", {
+                  request_id: requestId,
+                  session_id: sessionId,
+                  companies_count: inputCompanies.length,
+                });
+              } catch {}
+            } else {
+              const jobDoc = {
+                id: jobId,
+                session_id: sessionId,
+                job_state: existingState === "running" ? "running" : "queued",
+                stage: "primary",
+                stage_beacon:
+                  existingState === "running" ? "xai_primary_fetch_running" : "xai_primary_fetch_queued",
+                request_payload: {
+                  query: String(xaiPayload.query || ""),
+                  queryTypes: Array.isArray(xaiPayload.queryTypes) ? xaiPayload.queryTypes : [],
+                  limit: Number(xaiPayload.limit) || 0,
+                  expand_if_few: Boolean(xaiPayload.expand_if_few),
+                },
+                inline_budget_ms,
+                requested_deadline_ms,
+                requested_stage_ms_primary: Number(requested_stage_ms_primary),
+                xai_outbound_body: outboundBody,
+                attempt: Number.isFinite(Number(existingJob?.attempt)) ? Number(existingJob.attempt) : 0,
+                companies_count: Number.isFinite(Number(existingJob?.companies_count))
+                  ? Number(existingJob.companies_count)
+                  : 0,
+                last_error: existingJob?.last_error || null,
+                created_at: existingJob?.created_at || new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              };
+
+              const upserted = await upsertImportPrimaryJob({ jobDoc, cosmosEnabled }).catch(() => null);
+
+              try {
+                console.log("[import-start] primary_async_decision", {
+                  request_id: requestId,
+                  session_id: sessionId,
+                  decision: "async_enqueue",
+                  max_stage: maxStage,
+                  skip_stages: Array.from(skipStages),
+                  requested_deadline_ms,
+                  requested_stage_ms_primary: Number(requested_stage_ms_primary),
+                  inline_budget_ms,
+                  job_storage: upserted?.job?.storage || (cosmosEnabled ? "cosmos" : "memory"),
+                });
+              } catch {}
+
+              try {
+                upsertImportSession({
+                  session_id: sessionId,
+                  request_id: requestId,
+                  status: "running",
+                  stage_beacon: jobDoc.stage_beacon,
+                  companies_count: 0,
+                });
+              } catch {}
+
+              try {
+                const base = new URL(req.url);
+                const triggerUrl = new URL("/api/import/primary-worker", base.origin);
+                triggerUrl.searchParams.set("session_id", sessionId);
+                if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
+
+                setTimeout(() => {
+                  fetch(triggerUrl.toString(), {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ session_id: sessionId }),
+                  }).catch(() => {});
+                }, 0);
+              } catch {}
+
+              return jsonWithRequestId(
+                {
+                  ok: true,
+                  accepted: true,
+                  session_id: sessionId,
+                  request_id: requestId,
+                  stage_beacon: jobDoc.stage_beacon,
+                  reason: "primary_async_enqueued",
+                  stage: "primary",
+                  inline_budget_ms,
+                  requested_deadline_ms,
+                  requested_stage_ms_primary: Number(requested_stage_ms_primary),
+                  stageCapMs: inline_budget_ms,
+                  note: "start endpoint is inline capped; long primary runs async",
+                },
+                202
+              );
+            }
+          }
 
           const deadlineBeforePrimary = checkDeadlineOrReturn("xai_primary_fetch_start");
           if (deadlineBeforePrimary) return deadlineBeforePrimary;
