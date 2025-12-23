@@ -24,10 +24,15 @@ function json(obj, status = 200, req, extraHeaders) {
     headers: {
       ...cors(req),
       "Content-Type": "application/json",
+      "Cache-Control": "no-store",
       ...(extraHeaders && typeof extraHeaders === "object" ? extraHeaders : {}),
     },
     body: JSON.stringify(obj),
   };
+}
+
+function nowIso() {
+  return new Date().toISOString();
 }
 
 let companiesPkPathPromise;
@@ -143,6 +148,11 @@ async function handler(req, context) {
   if (!sessionId) {
     return json({ ok: false, error: "Missing session_id" }, 400, req);
   }
+
+  const statusCheckedAt = nowIso();
+  const stageBeaconValues = {
+    status_checked_at: statusCheckedAt,
+  };
 
   let primaryJob = await getImportPrimaryJob({ sessionId, cosmosEnabled: true }).catch(() => null);
 
