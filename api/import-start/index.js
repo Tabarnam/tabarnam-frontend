@@ -4141,6 +4141,7 @@ Output JSON only:
                 const merged = [...finalList, ...gen.keywords];
                 finalList = normalizeProductKeywords(merged, { companyName, websiteUrl }).slice(0, 25);
               } catch (e) {
+                if (e instanceof AcceptedResponseError) throw e;
                 debugEntry.generated = true;
                 debugEntry.raw_response = e?.message || String(e);
               }
