@@ -242,7 +242,7 @@ export default function AdminImport() {
           setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
 
           if (!isUnknownSession) toast.error(baseMsg);
-          return { shouldStop: true };
+          return { shouldStop: true, body };
         }
 
         const items = normalizeItems(body?.items || body?.companies);
@@ -268,12 +268,12 @@ export default function AdminImport() {
           })
         );
 
-        if (state === "complete" || state === "failed") return { shouldStop: true };
-        return { shouldStop: completed || timedOut || stopped };
+        if (state === "complete" || state === "failed") return { shouldStop: true, body };
+        return { shouldStop: completed || timedOut || stopped, body };
       } catch (e) {
         const msg = toErrorString(e) || "Progress failed";
         setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
-        return { shouldStop: false };
+        return { shouldStop: false, error: msg };
       }
     },
     []
@@ -486,6 +486,8 @@ export default function AdminImport() {
       completed: false,
       timedOut: false,
       stopped: false,
+      async_primary_active: false,
+      async_primary_timeout_ms: null,
       start_error: null,
       start_error_details: null,
       progress_error: null,
@@ -619,69 +621,166 @@ export default function AdminImport() {
       const stageSequence = ["primary", "keywords", "reviews", "location", "expand"];
       let companiesForNextStage = [];
 
-      for (let stageIndex = 0; stageIndex < stageSequence.length; stageIndex += 1) {
-        const stage = stageSequence[stageIndex];
-        const skipStages = stageSequence.slice(0, stageIndex);
+      const recordStatusFailureAndToast = (body, extra) => {
+        const state = asString(body?.state).trim();
+        const status = asString(body?.status).trim();
+        const reason = asString(body?.reason).trim();
+        const stageBeacon = asString(body?.stage_beacon).trim();
 
-        let attempts = 0;
-        // Retry loop for 202 Accepted.
-        while (true) {
+        const msg =
+          toErrorString(
+            body && typeof body === "object"
+              ? body.error || body.message || body.text || (reason ? `Import failed (${reason})` : "")
+              : ""
+          ) || `Import failed${state ? ` (state: ${state})` : status ? ` (status: ${status})` : ""}`;
+
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === session_id
+              ? {
+                  ...r,
+                  start_error: msg,
+                  start_error_details: {
+                    session_id,
+                    status_body: body,
+                    state,
+                    status,
+                    reason,
+                    stage_beacon: stageBeacon,
+                    ...(extra && typeof extra === "object" ? extra : {}),
+                  },
+                }
+              : r
+          )
+        );
+        setActiveStatus("error");
+        toast.error(msg);
+      };
+
+      const waitForAsyncStatus = async ({ stage }) => {
+        stopPolling();
+
+        for (let pollAttempt = 0; pollAttempt < POLL_MAX_ATTEMPTS; pollAttempt += 1) {
           if (abort.signal.aborted) {
             const aborted = new Error("Aborted");
             aborted.name = "AbortError";
             throw aborted;
           }
 
-          const { res, body, usedPath, payload } = await callImportStage({
-            stage,
-            skipStages,
-            companies: companiesForNextStage,
-          });
-
-          if (res.status === 202 || body?.accepted === true) {
-            attempts += 1;
-
-            setRuns((prev) =>
-              prev.map((r) =>
-                r.session_id === session_id
-                  ? {
-                      ...r,
-                      updatedAt: new Date().toISOString(),
-                      start_error: null,
-                    }
-                  : r
-              )
-            );
-
-            schedulePoll({ session_id });
-
-            if (attempts >= 5) {
-              const msg = `Stage "${stage}" is still returning 202 after ${attempts} attempts.`;
-              setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
-              setActiveStatus("error");
-              toast.error(msg);
-              return;
-            }
-
-            await sleep(2000);
+          const { body, error } = await pollProgress({ session_id });
+          if (error) {
+            await sleep(2500);
             continue;
           }
 
-          if (!res.ok || body?.ok === false) {
-            await recordStartErrorAndToast(res, body, {
-              usedPath,
-              stage,
-              mode: "staged",
-              stage_index: stageIndex,
-              stage_payload: payload,
-            });
+          const state = asString(body?.state).trim();
+          const status = asString(body?.status).trim();
+          const completed = state === "complete" ? true : Boolean(body?.completed);
+          const timedOut = Boolean(body?.timedOut);
+          const stopped = Boolean(body?.stopped);
+
+          const items = normalizeItems(body?.items || body?.companies);
+          const companiesCountRaw = body?.companies_count ?? body?.count ?? items.length ?? 0;
+          const companiesCount = Number.isFinite(Number(companiesCountRaw)) ? Number(companiesCountRaw) : items.length;
+
+          const primaryJobState = asString(body?.primary_job?.state).trim();
+          const primaryJobStatus = asString(body?.primary_job?.status).trim();
+
+          const isFailure =
+            state === "failed" ||
+            status === "error" ||
+            (body && typeof body === "object" && body.ok === false) ||
+            (timedOut ? true : false) ||
+            (stopped && !completed);
+
+          if (isFailure) return { kind: "failed", body };
+
+          const stageReady =
+            completed ||
+            items.length > 0 ||
+            companiesCount > 0 ||
+            (stage === "primary" && (primaryJobState === "complete" || primaryJobStatus === "complete"));
+
+          if (stageReady) return { kind: "ready", body };
+
+          await sleep(2500);
+        }
+
+        return { kind: "timeout", body: null };
+      };
+
+      for (let stageIndex = 0; stageIndex < stageSequence.length; stageIndex += 1) {
+        const stage = stageSequence[stageIndex];
+        const skipStages = stageSequence.slice(0, stageIndex);
+
+        if (abort.signal.aborted) {
+          const aborted = new Error("Aborted");
+          aborted.name = "AbortError";
+          throw aborted;
+        }
+
+        const { res, body, usedPath, payload } = await callImportStage({
+          stage,
+          skipStages,
+          companies: companiesForNextStage,
+        });
+
+        if (res.status === 202 || body?.accepted === true) {
+          const stageBeacon = asString(body?.stage_beacon).trim();
+          const isAsyncPrimary = body?.reason === "primary_async_enqueued" || stageBeacon.startsWith("xai_primary_fetch_");
+          const timeoutMsUsed = Number(body?.timeout_ms_used);
+          const timeoutMsForUi = Number.isFinite(timeoutMsUsed) && timeoutMsUsed > 0 ? timeoutMsUsed : null;
+
+          setRuns((prev) =>
+            prev.map((r) =>
+              r.session_id === session_id
+                ? {
+                    ...r,
+                    updatedAt: new Date().toISOString(),
+                    start_error: null,
+                    async_primary_active: stage === "primary" && isAsyncPrimary,
+                    async_primary_timeout_ms: stage === "primary" && isAsyncPrimary ? timeoutMsForUi : r.async_primary_timeout_ms ?? null,
+                  }
+                : r
+            )
+          );
+
+          const waitResult = await waitForAsyncStatus({ stage });
+          resetPollAttempts(session_id);
+          schedulePoll({ session_id });
+
+          if (waitResult.kind === "timeout") {
+            const msg = `Timed out while waiting for stage "${stage}" to finish.`;
+            setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
+            setActiveStatus("error");
+            toast.error(msg);
             return;
           }
 
-          const stageCompanies = updateRunCompanies(body?.companies);
+          if (waitResult.kind === "failed") {
+            recordStatusFailureAndToast(waitResult.body, { stage, mode: "staged", stage_index: stageIndex });
+            return;
+          }
+
+          const asyncCompanies = normalizeItems(waitResult.body?.items || waitResult.body?.companies);
+          const stageCompanies = updateRunCompanies(asyncCompanies, { async_primary_active: false });
           if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
-          break;
+          continue;
         }
+
+        if (!res.ok || body?.ok === false) {
+          await recordStartErrorAndToast(res, body, {
+            usedPath,
+            stage,
+            mode: "staged",
+            stage_index: stageIndex,
+            stage_payload: payload,
+          });
+          return;
+        }
+
+        const stageCompanies = updateRunCompanies(body?.companies, { async_primary_active: false });
+        if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
       }
 
       setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, completed: true, updatedAt: new Date().toISOString() } : r)));
@@ -919,6 +1018,17 @@ export default function AdminImport() {
     if (activeRun.stopped) flags.push("stopped");
     if (activeRun.start_error) flags.push("error");
     return flags.join(" · ");
+  }, [activeRun]);
+
+  const activeAsyncPrimaryMessage = useMemo(() => {
+    if (!activeRun || !activeRun.async_primary_active) return null;
+
+    const timeoutMs = Number(activeRun.async_primary_timeout_ms);
+    const timeoutSeconds = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.round(timeoutMs / 1000) : null;
+
+    return timeoutSeconds
+      ? `Primary search running asynchronously. This may take up to ${timeoutSeconds} seconds.`
+      : "Primary search running asynchronously. This may take a couple minutes.";
   }, [activeRun]);
 
   return (
@@ -1216,6 +1326,12 @@ export default function AdminImport() {
 
               {activeSummary ? <div className="text-sm text-slate-600">{activeSummary}</div> : null}
             </div>
+
+            {activeAsyncPrimaryMessage ? (
+              <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                {activeAsyncPrimaryMessage}
+              </div>
+            ) : null}
 
             {explainResponseText ? (
               <div className="rounded border border-slate-200 bg-slate-50 p-3">
