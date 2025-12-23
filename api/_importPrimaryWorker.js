@@ -424,11 +424,32 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
   const requestedLimit = Number(job?.request_payload?.limit) || 0;
   const isSingleCompany = requestedLimit === 1;
 
+  const startedAtIso = job?.started_at || nowIso();
+  const startedAtTs = Date.parse(startedAtIso) || Date.now();
+
+  let upstreamCallsMade = toPositiveInt(job?.upstream_calls_made, 0);
+  let companiesCandidatesFound = Number.isFinite(Number(job?.companies_candidates_found))
+    ? Math.max(0, Number(job.companies_candidates_found))
+    : Number.isFinite(Number(job?.companies_count))
+      ? Math.max(0, Number(job.companies_count))
+      : 0;
+  let earlyExitTriggered = Boolean(job?.early_exit_triggered);
+
+  const getRuntime = (nowTs) => {
+    const elapsedMs = Math.max(0, nowTs - startedAtTs);
+    return {
+      start_ts: startedAtTs,
+      elapsed_ms: elapsedMs,
+      remaining_budget_ms: Math.max(0, HARD_MAX_RUNTIME_MS - elapsedMs),
+      upstream_calls_made: upstreamCallsMade,
+      companies_candidates_found: companiesCandidatesFound,
+      early_exit_triggered: earlyExitTriggered,
+    };
+  };
+
   const xaiUrl = getXAIEndpoint();
   const xaiKey = getXAIKey();
   const hasKey = Boolean(xaiKey);
-
-  const startedAtIso = job?.started_at || nowIso();
 
   await patchJob({
     sessionId,
@@ -444,11 +465,9 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
       lock_expires_at: new Date(Date.now() + LOCK_TTL_MS).toISOString(),
       elapsed_ms: 0,
       remaining_budget_ms: HARD_MAX_RUNTIME_MS,
-      upstream_calls_made: toPositiveInt(job?.upstream_calls_made, 0),
-      companies_candidates_found: Number.isFinite(Number(job?.companies_candidates_found))
-        ? Number(job.companies_candidates_found)
-        : 0,
-      early_exit_triggered: Boolean(job?.early_exit_triggered),
+      upstream_calls_made: upstreamCallsMade,
+      companies_candidates_found: companiesCandidatesFound,
+      early_exit_triggered: earlyExitTriggered,
     },
   }).catch(() => null);
 
@@ -494,7 +513,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const nowAttemptTs = Date.now();
-    const runtime = buildRuntimeInfo(job, nowAttemptTs, HARD_MAX_RUNTIME_MS);
+    const runtime = getRuntime(nowAttemptTs);
 
     if (runtime.elapsed_ms > HARD_MAX_RUNTIME_MS) {
       await markPrimaryError({
@@ -560,7 +579,8 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
       Math.min(requestedStageMsPrimary, timeoutBudgetMs, capForLimit)
     );
 
-    const nextUpstreamCallsMade = runtime.upstream_calls_made + 1;
+    upstreamCallsMade += 1;
+    const nextUpstreamCallsMade = upstreamCallsMade;
 
     await heartbeat({
       sessionId,
@@ -572,8 +592,8 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
         elapsed_ms: runtime.elapsed_ms,
         remaining_budget_ms: runtime.remaining_budget_ms,
         upstream_calls_made: nextUpstreamCallsMade,
-        companies_candidates_found: runtime.companies_candidates_found,
-        early_exit_triggered: runtime.early_exit_triggered,
+        companies_candidates_found: companiesCandidatesFound,
+        early_exit_triggered: earlyExitTriggered,
       },
     });
 
@@ -593,7 +613,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
         lockTtlMs: LOCK_TTL_MS,
         extraPatch: {
           stage_beacon: stageBeacon,
-          elapsed_ms: buildRuntimeInfo(job, Date.now(), HARD_MAX_RUNTIME_MS).elapsed_ms,
+          elapsed_ms: getRuntime(Date.now()).elapsed_ms,
         },
       });
 
@@ -623,19 +643,26 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
 
       const parsedCompanies = parsed.companies.slice(0, 200);
       const candidatesFound = parsedCompanies.length;
+      companiesCandidatesFound = candidatesFound;
+
+      const runtimeAfterParse = getRuntime(Date.now());
 
       await patchProgress({
         sessionId,
         cosmosEnabled,
         patch: {
           companies_candidates_found: candidatesFound,
-          elapsed_ms: buildRuntimeInfo(job, Date.now(), HARD_MAX_RUNTIME_MS).elapsed_ms,
-          remaining_budget_ms: buildRuntimeInfo(job, Date.now(), HARD_MAX_RUNTIME_MS).remaining_budget_ms,
+          elapsed_ms: runtimeAfterParse.elapsed_ms,
+          remaining_budget_ms: runtimeAfterParse.remaining_budget_ms,
+          upstream_calls_made: upstreamCallsMade,
+          early_exit_triggered: earlyExitTriggered,
         },
       });
 
       if (isSingleCompany && candidatesFound > 0) {
         const first = parsedCompanies[0];
+
+        earlyExitTriggered = true;
 
         await patchJob({
           sessionId,
@@ -681,7 +708,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
           companies_count: parsedCompanies.length,
           companies: parsedCompanies,
           companies_candidates_found: candidatesFound,
-          early_exit_triggered: Boolean(job?.early_exit_triggered),
+          early_exit_triggered: earlyExitTriggered,
           last_error: null,
           lock_expires_at: null,
           locked_by: null,
@@ -708,7 +735,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
           : true;
 
       const nowErrTs = Date.now();
-      const runtimeAfterErr = buildRuntimeInfo(job, nowErrTs, HARD_MAX_RUNTIME_MS);
+      const runtimeAfterErr = getRuntime(nowErrTs);
       const shouldStopForBudget = runtimeAfterErr.remaining_budget_ms <= 0;
 
       const willRetry = attempt < maxAttempts && isTransient && !shouldStopForBudget;
@@ -724,9 +751,9 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
           stage_beacon: willRetry ? "primary_expanding_candidates" : "primary_expanding_candidates",
           elapsed_ms: runtimeAfterErr.elapsed_ms,
           remaining_budget_ms: runtimeAfterErr.remaining_budget_ms,
-          upstream_calls_made: runtimeAfterErr.upstream_calls_made,
-          companies_candidates_found: runtimeAfterErr.companies_candidates_found,
-          early_exit_triggered: runtimeAfterErr.early_exit_triggered,
+          upstream_calls_made: upstreamCallsMade,
+          companies_candidates_found: companiesCandidatesFound,
+          early_exit_triggered: earlyExitTriggered,
           ...(willRetry ? {} : { lock_expires_at: null, locked_by: null }),
         },
       }).catch(() => null);
@@ -746,7 +773,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
       }
 
       const backoffMs = attempt === 1 ? 1000 : attempt === 2 ? 2000 : 4000;
-      await sleep(Math.min(backoffMs, Math.max(0, HARD_MAX_RUNTIME_MS - buildRuntimeInfo(job, Date.now(), HARD_MAX_RUNTIME_MS).elapsed_ms)));
+      await sleep(Math.min(backoffMs, Math.max(0, HARD_MAX_RUNTIME_MS - getRuntime(Date.now()).elapsed_ms)));
     }
   }
 
