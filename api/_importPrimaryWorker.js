@@ -219,13 +219,24 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
 
   const job = claim.job || existing;
   if (!claim.claimed) {
+    const finalJobState = String(job?.job_state || "queued");
+    const status =
+      finalJobState === "complete"
+        ? "complete"
+        : finalJobState === "error"
+          ? "error"
+          : finalJobState === "running"
+            ? "running"
+            : "queued";
+
     return {
-      httpStatus: 202,
+      httpStatus: status === "complete" || status === "error" ? 200 : 202,
       body: {
-        ok: true,
+        ok: status !== "error",
         session_id: sessionId,
-        status: String(job?.job_state || "queued"),
+        status,
         stage_beacon: String(job?.stage_beacon || "xai_primary_fetch_queued"),
+        ...(status === "error" ? { error: job?.last_error || { code: "UNKNOWN", message: "Job failed" } } : {}),
         note: "Job already running or complete",
         meta: { invocation_source: invocationSource || null },
       },
