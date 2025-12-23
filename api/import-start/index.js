@@ -4350,7 +4350,7 @@ Output JSON only:
                   xaiKey,
                   timeout,
                   debugOutput ? debugOutput.reviews_debug : null,
-                  { setStage }
+                  { setStage, postXaiJsonWithBudget }
                 );
                 if (editorialReviews.length > 0) {
                   enriched[i] = { ...company, curated_reviews: editorialReviews };
@@ -4737,7 +4737,7 @@ Return ONLY the JSON array, no other text.`,
                         xaiKey,
                         timeout,
                         debugOutput ? debugOutput.reviews_debug : null,
-                        { setStage }
+                  { setStage, postXaiJsonWithBudget }
                       );
                       if (editorialReviews.length > 0) {
                         enrichedExpansion[i] = { ...company, curated_reviews: editorialReviews };
