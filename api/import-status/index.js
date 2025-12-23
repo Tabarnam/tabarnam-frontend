@@ -2,6 +2,7 @@ const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { getJob: getImportPrimaryJob } = require("../_importPrimaryJobStore");
+const { runPrimaryJob } = require("../_importPrimaryWorker");
 const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
@@ -143,11 +144,33 @@ async function handler(req, context) {
     return json({ ok: false, error: "Missing session_id" }, 400, req);
   }
 
-  const primaryJob = await getImportPrimaryJob({ sessionId, cosmosEnabled: true }).catch(() => null);
+  let primaryJob = await getImportPrimaryJob({ sessionId, cosmosEnabled: true }).catch(() => null);
 
-  if (primaryJob && primaryJob.job_state && String(primaryJob.job_state) !== "complete") {
+  if (primaryJob && primaryJob.job_state) {
     const jobState = String(primaryJob.job_state);
-    const status = jobState === "error" ? "error" : jobState === "running" ? "running" : "queued";
+    const shouldDrive = jobState === "queued" || jobState === "running";
+
+    if (shouldDrive) {
+      await runPrimaryJob({
+        context,
+        sessionId,
+        cosmosEnabled: true,
+        invocationSource: "status",
+      }).catch(() => null);
+
+      primaryJob = await getImportPrimaryJob({ sessionId, cosmosEnabled: true }).catch(() => primaryJob);
+    }
+
+    const finalJobState = String(primaryJob?.job_state || jobState);
+    const status =
+      finalJobState === "complete"
+        ? "complete"
+        : finalJobState === "error"
+          ? "error"
+          : finalJobState === "running"
+            ? "running"
+            : "queued";
+
     const state = status === "error" ? "failed" : status === "complete" ? "complete" : "running";
 
     return json(
@@ -157,37 +180,40 @@ async function handler(req, context) {
         status,
         state,
         stage_beacon:
-          typeof primaryJob.stage_beacon === "string" && primaryJob.stage_beacon.trim()
+          typeof primaryJob?.stage_beacon === "string" && primaryJob.stage_beacon.trim()
             ? primaryJob.stage_beacon.trim()
-            : status === "queued"
-              ? "xai_primary_fetch_queued"
-              : status === "running"
-                ? "xai_primary_fetch_running"
-                : "xai_primary_fetch_error",
-        companies_count: Number.isFinite(Number(primaryJob.companies_count)) ? Number(primaryJob.companies_count) : 0,
-        items: status === "error" ? [] : Array.isArray(primaryJob.companies) ? primaryJob.companies : [],
+            : status === "complete"
+              ? "xai_primary_fetch_complete"
+              : status === "queued"
+                ? "xai_primary_fetch_queued"
+                : status === "running"
+                  ? "xai_primary_fetch_running"
+                  : "xai_primary_fetch_error",
+        companies_count: Number.isFinite(Number(primaryJob?.companies_count)) ? Number(primaryJob.companies_count) : 0,
+        items: status === "error" ? [] : Array.isArray(primaryJob?.companies) ? primaryJob.companies : [],
         primary_job: {
-          id: primaryJob.id || null,
-          job_state: jobState,
-          attempt: Number.isFinite(Number(primaryJob.attempt)) ? Number(primaryJob.attempt) : 0,
-          last_error: primaryJob.last_error || null,
-          storage: primaryJob.storage || null,
+          id: primaryJob?.id || null,
+          job_state: finalJobState,
+          attempt: Number.isFinite(Number(primaryJob?.attempt)) ? Number(primaryJob.attempt) : 0,
+          last_error: primaryJob?.last_error || null,
+          last_heartbeat_at: primaryJob?.last_heartbeat_at || null,
+          storage: primaryJob?.storage || null,
         },
-        inline_budget_ms: Number.isFinite(Number(primaryJob.inline_budget_ms)) ? Number(primaryJob.inline_budget_ms) : 20_000,
+        inline_budget_ms: Number.isFinite(Number(primaryJob?.inline_budget_ms)) ? Number(primaryJob.inline_budget_ms) : 20_000,
         requested_deadline_ms:
-          primaryJob.requested_deadline_ms === null || primaryJob.requested_deadline_ms === undefined
+          primaryJob?.requested_deadline_ms === null || primaryJob?.requested_deadline_ms === undefined
             ? null
             : Number.isFinite(Number(primaryJob.requested_deadline_ms))
               ? Number(primaryJob.requested_deadline_ms)
               : null,
         requested_stage_ms_primary:
-          primaryJob.requested_stage_ms_primary === null || primaryJob.requested_stage_ms_primary === undefined
+          primaryJob?.requested_stage_ms_primary === null || primaryJob?.requested_stage_ms_primary === undefined
             ? null
             : Number.isFinite(Number(primaryJob.requested_stage_ms_primary))
               ? Number(primaryJob.requested_stage_ms_primary)
               : null,
         note:
-          typeof primaryJob.note === "string" && primaryJob.note.trim()
+          typeof primaryJob?.note === "string" && primaryJob.note.trim()
             ? primaryJob.note.trim()
             : "start endpoint is inline capped; long primary runs async",
       },
