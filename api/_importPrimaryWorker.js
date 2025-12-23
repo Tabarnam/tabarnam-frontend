@@ -1,0 +1,435 @@
+const { getXAIEndpoint, getXAIKey } = require("./_shared");
+const { getJob, tryClaimJob, patchJob } = require("./_importPrimaryJobStore");
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function safeJsonParse(text) {
+  const raw = typeof text === "string" ? text.trim() : "";
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function redactErrorForJob(err) {
+  if (!err) return { message: "Unknown error" };
+  const out = {
+    name: typeof err?.name === "string" ? err.name : "Error",
+    message: typeof err?.message === "string" ? err.message : String(err),
+  };
+  if (typeof err?.code === "string") out.code = err.code;
+  if (typeof err?.status === "number") out.status = err.status;
+  if (typeof err?.upstream_status === "number") out.upstream_status = err.upstream_status;
+  return out;
+}
+
+async function postJsonWithTimeout(url, { headers, body, timeoutMs }) {
+  const u = String(url || "").trim();
+  if (!u) throw new Error("Missing upstream URL");
+
+  const ms = Number.isFinite(Number(timeoutMs)) ? Math.max(1, Number(timeoutMs)) : 30_000;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ms);
+
+  try {
+    const res = await fetch(u, {
+      method: "POST",
+      headers: headers && typeof headers === "object" ? headers : {},
+      body: typeof body === "string" ? body : "",
+      signal: controller.signal,
+    });
+
+    const text = await res.text().catch(() => "");
+    const data = safeJsonParse(text) || (text ? { text } : {});
+
+    return {
+      status: res.status,
+      ok: res.ok,
+      headers: Object.fromEntries(res.headers.entries()),
+      data,
+      text,
+    };
+  } catch (e) {
+    const isAbort = e && typeof e === "object" && (e.name === "AbortError" || e.code === "ECONNABORTED");
+    if (isAbort) {
+      const err = new Error("Upstream timeout");
+      err.code = "UPSTREAM_TIMEOUT";
+      throw err;
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function parseCompaniesFromXaiResponse(xaiResponse) {
+  const responseText =
+    xaiResponse?.data?.choices?.[0]?.message?.content ||
+    (typeof xaiResponse?.text === "string" && xaiResponse.text ? xaiResponse.text : "") ||
+    JSON.stringify(xaiResponse?.data || {});
+
+  let companies = [];
+  let parseError = null;
+
+  try {
+    const jsonMatch = typeof responseText === "string" ? responseText.match(/\[[\s\S]*\]/) : null;
+    if (jsonMatch) {
+      companies = JSON.parse(jsonMatch[0]);
+      if (!Array.isArray(companies)) companies = [];
+    }
+  } catch (e) {
+    parseError = e?.message || String(e);
+    companies = [];
+  }
+
+  return {
+    companies: Array.isArray(companies) ? companies.filter((it) => it && typeof it === "object") : [],
+    parse_error: parseError,
+    response_len: typeof responseText === "string" ? responseText.length : 0,
+  };
+}
+
+function isTransientUpstream(status) {
+  if (!Number.isFinite(Number(status))) return true;
+  const s = Number(status);
+  if (s === 408 || s === 429) return true;
+  return s >= 500 && s <= 599;
+}
+
+function getHeartbeatTimestamp(job) {
+  const hb = Date.parse(job?.last_heartbeat_at || "") || 0;
+  if (hb) return hb;
+  const updated = Date.parse(job?.updated_at || "") || 0;
+  if (updated) return updated;
+  const started = Date.parse(job?.started_at || "") || 0;
+  return started || 0;
+}
+
+async function markStalledJob({ sessionId, cosmosEnabled, nowTs, note }) {
+  const now = Number.isFinite(Number(nowTs)) ? Number(nowTs) : Date.now();
+
+  await patchJob({
+    sessionId,
+    cosmosEnabled,
+    patch: {
+      job_state: "error",
+      stage_beacon: "xai_primary_fetch_error",
+      last_error: {
+        code: "stalled_worker",
+        message: "Worker heartbeat stale",
+        ...(note ? { note: String(note) } : {}),
+      },
+      last_heartbeat_at: new Date(now).toISOString(),
+      updated_at: new Date(now).toISOString(),
+      lock_expires_at: null,
+      locked_by: null,
+    },
+  }).catch(() => null);
+}
+
+async function heartbeat({ sessionId, cosmosEnabled, lockTtlMs }) {
+  const ttlMs = Number.isFinite(Number(lockTtlMs)) ? Math.max(1000, Number(lockTtlMs)) : 240_000;
+  const now = Date.now();
+
+  await patchJob({
+    sessionId,
+    cosmosEnabled,
+    patch: {
+      last_heartbeat_at: new Date(now).toISOString(),
+      updated_at: new Date(now).toISOString(),
+      lock_expires_at: new Date(now + ttlMs).toISOString(),
+    },
+  }).catch(() => null);
+}
+
+async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSource }) {
+  const workerId =
+    (context && typeof context === "object" && context.invocationId ? `inv_${context.invocationId}` : "") ||
+    `inv_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  const existing = await getJob({ sessionId, cosmosEnabled });
+  if (!existing) {
+    return {
+      httpStatus: 404,
+      body: { ok: false, error: "Unknown session_id", session_id: sessionId },
+    };
+  }
+
+  const state = String(existing?.job_state || "queued");
+  const now = Date.now();
+
+  const HEARTBEAT_STALE_MS = 5 * 60_000;
+  if (state === "running") {
+    const hbTs = getHeartbeatTimestamp(existing);
+    if (hbTs && now - hbTs > HEARTBEAT_STALE_MS) {
+      await markStalledJob({
+        sessionId,
+        cosmosEnabled,
+        nowTs: now,
+        note: `heartbeat_stale_ms=${now - hbTs}`,
+      });
+
+      const after = await getJob({ sessionId, cosmosEnabled }).catch(() => null);
+      return {
+        httpStatus: 200,
+        body: {
+          ok: false,
+          session_id: sessionId,
+          status: "error",
+          stage_beacon: "xai_primary_fetch_error",
+          error: after?.last_error || { code: "stalled_worker", message: "Worker heartbeat stale" },
+          note: "Job marked as error due to stalled worker heartbeat",
+          meta: { invocation_source: invocationSource || null },
+        },
+      };
+    }
+  }
+
+  const LOCK_TTL_MS = 240_000;
+
+  const claim = await tryClaimJob({
+    sessionId,
+    cosmosEnabled,
+    workerId,
+    lockTtlMs: LOCK_TTL_MS,
+  });
+
+  if (!claim.ok) {
+    return {
+      httpStatus: 200,
+      body: {
+        ok: false,
+        error: claim.error || "claim_failed",
+        session_id: sessionId,
+        status: "error",
+        stage_beacon: "xai_primary_fetch_error",
+        meta: { invocation_source: invocationSource || null },
+      },
+    };
+  }
+
+  const job = claim.job || existing;
+  if (!claim.claimed) {
+    return {
+      httpStatus: 202,
+      body: {
+        ok: true,
+        session_id: sessionId,
+        status: String(job?.job_state || "queued"),
+        stage_beacon: String(job?.stage_beacon || "xai_primary_fetch_queued"),
+        note: "Job already running or complete",
+        meta: { invocation_source: invocationSource || null },
+      },
+    };
+  }
+
+  const xaiUrl = getXAIEndpoint();
+  const xaiKey = getXAIKey();
+  const hasKey = Boolean(xaiKey);
+
+  await patchJob({
+    sessionId,
+    cosmosEnabled,
+    patch: {
+      job_state: "running",
+      stage: "primary",
+      stage_beacon: "xai_primary_fetch_running",
+      updated_at: nowIso(),
+      started_at: job?.started_at || nowIso(),
+      last_error: null,
+      last_heartbeat_at: nowIso(),
+      lock_expires_at: new Date(Date.now() + LOCK_TTL_MS).toISOString(),
+    },
+  }).catch(() => null);
+
+  const requested = Number(job?.requested_stage_ms_primary);
+  const requestedStageMsPrimary = Number.isFinite(requested) && requested > 0 ? requested : 20_000;
+
+  const effectiveTimeoutMs = Math.max(1_000, Math.min(requestedStageMsPrimary, 180_000));
+  const outboundBody = typeof job?.xai_outbound_body === "string" ? job.xai_outbound_body : "";
+
+  if (!xaiUrl || !hasKey || !outboundBody) {
+    const code = !xaiUrl
+      ? "MISSING_XAI_ENDPOINT"
+      : !hasKey
+        ? "MISSING_XAI_KEY"
+        : "MISSING_OUTBOUND_BODY";
+
+    const msg =
+      code === "MISSING_XAI_ENDPOINT"
+        ? "Missing XAI endpoint"
+        : code === "MISSING_XAI_KEY"
+          ? "Missing XAI key"
+          : "Missing xai_outbound_body";
+
+    await patchJob({
+      sessionId,
+      cosmosEnabled,
+      patch: {
+        job_state: "error",
+        stage_beacon: "xai_primary_fetch_error",
+        last_error: { code, message: msg },
+        last_heartbeat_at: nowIso(),
+        updated_at: nowIso(),
+        lock_expires_at: null,
+        locked_by: null,
+      },
+    }).catch(() => null);
+
+    return {
+      httpStatus: 200,
+      body: {
+        ok: false,
+        error: msg,
+        session_id: sessionId,
+        status: "error",
+        stage_beacon: "xai_primary_fetch_error",
+        meta: { invocation_source: invocationSource || null },
+      },
+    };
+  }
+
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    await heartbeat({ sessionId, cosmosEnabled, lockTtlMs: LOCK_TTL_MS });
+
+    await patchJob({
+      sessionId,
+      cosmosEnabled,
+      patch: {
+        attempt,
+        stage_beacon: "xai_primary_fetch_running",
+        updated_at: nowIso(),
+        last_heartbeat_at: nowIso(),
+      },
+    }).catch(() => null);
+
+    try {
+      const xaiResponse = await postJsonWithTimeout(xaiUrl, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${xaiKey}`,
+        },
+        body: outboundBody,
+        timeoutMs: effectiveTimeoutMs,
+      });
+
+      await heartbeat({ sessionId, cosmosEnabled, lockTtlMs: LOCK_TTL_MS });
+
+      if (!xaiResponse.ok) {
+        const err = new Error(`Upstream error (${xaiResponse.status})`);
+        err.upstream_status = xaiResponse.status;
+        err.code = "UPSTREAM_ERROR";
+        err.text_preview =
+          typeof xaiResponse.text === "string" && xaiResponse.text ? xaiResponse.text.slice(0, 500) : "";
+        throw err;
+      }
+
+      const parsed = parseCompaniesFromXaiResponse(xaiResponse);
+      if (parsed.parse_error) {
+        const err = new Error(`Parse error: ${parsed.parse_error}`);
+        err.code = "PARSE_ERROR";
+        throw err;
+      }
+
+      const companies = parsed.companies.slice(0, 200);
+
+      await patchJob({
+        sessionId,
+        cosmosEnabled,
+        patch: {
+          job_state: "complete",
+          stage_beacon: "xai_primary_fetch_complete",
+          completed_at: nowIso(),
+          updated_at: nowIso(),
+          last_heartbeat_at: nowIso(),
+          companies_count: companies.length,
+          companies,
+          last_error: null,
+          lock_expires_at: null,
+          locked_by: null,
+        },
+      }).catch(() => null);
+
+      return {
+        httpStatus: 200,
+        body: {
+          ok: true,
+          session_id: sessionId,
+          status: "complete",
+          stage_beacon: "xai_primary_fetch_complete",
+          companies_count: companies.length,
+          meta: { invocation_source: invocationSource || null },
+        },
+      };
+    } catch (e) {
+      const redacted = redactErrorForJob(e);
+
+      const isTransient =
+        redacted.code === "UPSTREAM_TIMEOUT" || redacted.code === "UPSTREAM_ERROR"
+          ? isTransientUpstream(e?.upstream_status)
+          : true;
+
+      const willRetry = attempt < maxAttempts && isTransient;
+
+      await patchJob({
+        sessionId,
+        cosmosEnabled,
+        patch: {
+          updated_at: nowIso(),
+          last_heartbeat_at: nowIso(),
+          last_error: redacted,
+          job_state: willRetry ? "running" : "error",
+          stage_beacon: willRetry ? "xai_primary_fetch_running" : "xai_primary_fetch_error",
+          ...(willRetry ? {} : { lock_expires_at: null, locked_by: null }),
+        },
+      }).catch(() => null);
+
+      if (!willRetry) {
+        return {
+          httpStatus: 200,
+          body: {
+            ok: false,
+            session_id: sessionId,
+            status: "error",
+            stage_beacon: "xai_primary_fetch_error",
+            error: redacted,
+            meta: { invocation_source: invocationSource || null },
+          },
+        };
+      }
+
+      const backoffMs = attempt === 1 ? 1000 : attempt === 2 ? 2000 : 4000;
+      await sleep(backoffMs);
+    }
+  }
+
+  return {
+    httpStatus: 200,
+    body: {
+      ok: false,
+      session_id: sessionId,
+      status: "error",
+      stage_beacon: "xai_primary_fetch_error",
+      error: { code: "UNKNOWN", message: "Worker reached unexpected end" },
+      meta: { invocation_source: invocationSource || null },
+    },
+  };
+}
+
+module.exports = {
+  runPrimaryJob,
+  _test: {
+    getHeartbeatTimestamp,
+  },
+};
