@@ -686,7 +686,7 @@ export default function AdminImport() {
 
       setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, completed: true, updatedAt: new Date().toISOString() } : r)));
       setActiveStatus("done");
-      toast.success("Import finished (staged)");
+      toast.success(`Import finished (staged, ${companiesForNextStage.length} companies)`);
     } catch (e) {
       const msg = e?.name === "AbortError" ? "Import aborted" : toErrorString(e) || "Import failed";
       setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
