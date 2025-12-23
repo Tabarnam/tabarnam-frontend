@@ -124,6 +124,67 @@ function getHeartbeatTimestamp(job) {
   return started || 0;
 }
 
+function toPositiveInt(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.trunc(n);
+}
+
+function buildRuntimeInfo(job, nowTs, hardMaxRuntimeMs) {
+  const startedAtTs = Date.parse(job?.started_at || "") || 0;
+  const startTs = startedAtTs || nowTs;
+
+  const elapsedMs = Math.max(0, nowTs - startTs);
+  const remainingBudgetMs = Math.max(0, hardMaxRuntimeMs - elapsedMs);
+
+  const upstreamCallsMade = toPositiveInt(job?.upstream_calls_made, 0);
+  const candidatesFoundFromJob = Number.isFinite(Number(job?.companies_candidates_found))
+    ? Math.max(0, Number(job.companies_candidates_found))
+    : Number.isFinite(Number(job?.companies_count))
+      ? Math.max(0, Number(job.companies_count))
+      : 0;
+
+  return {
+    start_ts: startTs,
+    elapsed_ms: elapsedMs,
+    remaining_budget_ms: remainingBudgetMs,
+    upstream_calls_made: upstreamCallsMade,
+    companies_candidates_found: candidatesFoundFromJob,
+    early_exit_triggered: Boolean(job?.early_exit_triggered),
+  };
+}
+
+async function markPrimaryError({
+  sessionId,
+  cosmosEnabled,
+  code,
+  message,
+  stageBeacon,
+  details,
+  lockTtlMs,
+}) {
+  const now = Date.now();
+  const patch = {
+    job_state: "error",
+    stage_beacon: stageBeacon,
+    last_error: {
+      code,
+      message,
+      ...(details && typeof details === "object" ? details : {}),
+    },
+    last_heartbeat_at: new Date(now).toISOString(),
+    updated_at: new Date(now).toISOString(),
+    lock_expires_at: null,
+    locked_by: null,
+  };
+
+  if (Number.isFinite(Number(lockTtlMs)) && Number(lockTtlMs) > 0) {
+    patch.lock_expires_at = new Date(now + Math.max(1000, Number(lockTtlMs))).toISOString();
+  }
+
+  await patchJob({ sessionId, cosmosEnabled, patch }).catch(() => null);
+}
+
 async function markStalledJob({ sessionId, cosmosEnabled, nowTs, note }) {
   const now = Number.isFinite(Number(nowTs)) ? Number(nowTs) : Date.now();
 
@@ -132,7 +193,7 @@ async function markStalledJob({ sessionId, cosmosEnabled, nowTs, note }) {
     cosmosEnabled,
     patch: {
       job_state: "error",
-      stage_beacon: "xai_primary_fetch_error",
+      stage_beacon: "primary_search_started",
       last_error: {
         code: "stalled_worker",
         message: "Worker heartbeat stale",
@@ -146,7 +207,19 @@ async function markStalledJob({ sessionId, cosmosEnabled, nowTs, note }) {
   }).catch(() => null);
 }
 
-async function heartbeat({ sessionId, cosmosEnabled, lockTtlMs }) {
+async function patchProgress({ sessionId, cosmosEnabled, patch }) {
+  await patchJob({
+    sessionId,
+    cosmosEnabled,
+    patch: {
+      ...(patch && typeof patch === "object" ? patch : {}),
+      updated_at: nowIso(),
+      last_heartbeat_at: nowIso(),
+    },
+  }).catch(() => null);
+}
+
+async function heartbeat({ sessionId, cosmosEnabled, lockTtlMs, extraPatch }) {
   const ttlMs = Number.isFinite(Number(lockTtlMs)) ? Math.max(1000, Number(lockTtlMs)) : 240_000;
   const now = Date.now();
 
@@ -157,6 +230,7 @@ async function heartbeat({ sessionId, cosmosEnabled, lockTtlMs }) {
       last_heartbeat_at: new Date(now).toISOString(),
       updated_at: new Date(now).toISOString(),
       lock_expires_at: new Date(now + ttlMs).toISOString(),
+      ...(extraPatch && typeof extraPatch === "object" ? extraPatch : {}),
     },
   }).catch(() => null);
 }
@@ -174,12 +248,30 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
     };
   }
 
+  const HARD_MAX_RUNTIME_MS = Math.max(
+    10_000,
+    toPositiveInt(process.env.IMPORT_PRIMARY_HARD_TIMEOUT_MS, 120_000)
+  );
+  const NO_CANDIDATES_AFTER_MS = Math.max(
+    5_000,
+    toPositiveInt(process.env.IMPORT_PRIMARY_NO_CANDIDATES_MS, 60_000)
+  );
+  const UPSTREAM_TIMEOUT_CAP_MS = Math.max(
+    5_000,
+    toPositiveInt(process.env.IMPORT_PRIMARY_UPSTREAM_TIMEOUT_CAP_MS, 45_000)
+  );
+  const UPSTREAM_TIMEOUT_CAP_SINGLE_MS = Math.max(
+    5_000,
+    toPositiveInt(process.env.IMPORT_PRIMARY_UPSTREAM_TIMEOUT_CAP_SINGLE_MS, 25_000)
+  );
+
   const state = String(existing?.job_state || "queued");
   const now = Date.now();
 
   const HEARTBEAT_STALE_MS = Number.isFinite(Number(process.env.IMPORT_HEARTBEAT_STALE_MS))
     ? Math.max(5_000, Number(process.env.IMPORT_HEARTBEAT_STALE_MS))
     : 120_000;
+
   if (state === "running") {
     const hbTs = getHeartbeatTimestamp(existing);
     if (hbTs && now - hbTs > HEARTBEAT_STALE_MS) {
@@ -197,10 +289,73 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
           ok: false,
           session_id: sessionId,
           status: "error",
-          stage_beacon: "xai_primary_fetch_error",
+          stage_beacon: "primary_search_started",
           error: after?.last_error || { code: "stalled_worker", message: "Worker heartbeat stale" },
           note: "Job marked as error due to stalled worker heartbeat",
           meta: buildMeta({ invocationSource, workerId, workerClaimed: false, stallDetected: true }),
+        },
+      };
+    }
+
+    const runtime = buildRuntimeInfo(existing, now, HARD_MAX_RUNTIME_MS);
+    if (runtime.elapsed_ms > HARD_MAX_RUNTIME_MS) {
+      await markPrimaryError({
+        sessionId,
+        cosmosEnabled,
+        code: "primary_timeout",
+        message: "Primary search exceeded hard runtime limit",
+        stageBeacon: "primary_timeout",
+        details: {
+          elapsed_ms: runtime.elapsed_ms,
+          hard_timeout_ms: HARD_MAX_RUNTIME_MS,
+        },
+      });
+
+      const after = await getJob({ sessionId, cosmosEnabled }).catch(() => null);
+      return {
+        httpStatus: 200,
+        body: {
+          ok: false,
+          session_id: sessionId,
+          status: "error",
+          stage_beacon: "primary_timeout",
+          error:
+            after?.last_error ||
+            ({ code: "primary_timeout", message: "Primary search exceeded hard runtime limit" }),
+          meta: buildMeta({ invocationSource, workerId, workerClaimed: false }),
+        },
+      };
+    }
+
+    if (runtime.elapsed_ms > NO_CANDIDATES_AFTER_MS && runtime.companies_candidates_found === 0) {
+      await markPrimaryError({
+        sessionId,
+        cosmosEnabled,
+        code: "no_candidates_found",
+        message: "Primary search produced no candidates within progress threshold",
+        stageBeacon: "primary_expanding_candidates",
+        details: {
+          elapsed_ms: runtime.elapsed_ms,
+          no_candidates_threshold_ms: NO_CANDIDATES_AFTER_MS,
+          upstream_calls_made: runtime.upstream_calls_made,
+        },
+      });
+
+      const after = await getJob({ sessionId, cosmosEnabled }).catch(() => null);
+      return {
+        httpStatus: 200,
+        body: {
+          ok: false,
+          session_id: sessionId,
+          status: "error",
+          stage_beacon: "primary_expanding_candidates",
+          error:
+            after?.last_error ||
+            ({
+              code: "no_candidates_found",
+              message: "Primary search produced no candidates within progress threshold",
+            }),
+          meta: buildMeta({ invocationSource, workerId, workerClaimed: false }),
         },
       };
     }
@@ -225,7 +380,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
         error: claim.error || "claim_failed",
         session_id: sessionId,
         status: "error",
-        stage_beacon: "xai_primary_fetch_error",
+        stage_beacon: "primary_search_started",
         meta: buildMeta({
           invocationSource,
           workerId,
@@ -237,6 +392,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
   }
 
   const job = claim.job || existing;
+
   if (!claim.claimed) {
     const finalJobState = String(job?.job_state || "queued");
     const status =
@@ -248,19 +404,48 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
             ? "running"
             : "queued";
 
+    const runtime = buildRuntimeInfo(job, Date.now(), HARD_MAX_RUNTIME_MS);
+
     return {
       httpStatus: status === "complete" || status === "error" ? 200 : 202,
       body: {
         ok: status !== "error",
         session_id: sessionId,
         status,
-        stage_beacon: String(job?.stage_beacon || "xai_primary_fetch_queued"),
+        stage_beacon: String(job?.stage_beacon || "primary_search_started"),
         ...(status === "error" ? { error: job?.last_error || { code: "UNKNOWN", message: "Job failed" } } : {}),
         note: "Job already running or complete",
         meta: buildMeta({ invocationSource, workerId, workerClaimed: false }),
+        progress: runtime,
       },
     };
   }
+
+  const requestedLimit = Number(job?.request_payload?.limit) || 0;
+  const isSingleCompany = requestedLimit === 1;
+
+  const startedAtIso = job?.started_at || nowIso();
+  const startedAtTs = Date.parse(startedAtIso) || Date.now();
+
+  let upstreamCallsMade = toPositiveInt(job?.upstream_calls_made, 0);
+  let companiesCandidatesFound = Number.isFinite(Number(job?.companies_candidates_found))
+    ? Math.max(0, Number(job.companies_candidates_found))
+    : Number.isFinite(Number(job?.companies_count))
+      ? Math.max(0, Number(job.companies_count))
+      : 0;
+  let earlyExitTriggered = Boolean(job?.early_exit_triggered);
+
+  const getRuntime = (nowTs) => {
+    const elapsedMs = Math.max(0, nowTs - startedAtTs);
+    return {
+      start_ts: startedAtTs,
+      elapsed_ms: elapsedMs,
+      remaining_budget_ms: Math.max(0, HARD_MAX_RUNTIME_MS - elapsedMs),
+      upstream_calls_made: upstreamCallsMade,
+      companies_candidates_found: companiesCandidatesFound,
+      early_exit_triggered: earlyExitTriggered,
+    };
+  };
 
   const xaiUrl = getXAIEndpoint();
   const xaiKey = getXAIKey();
@@ -272,19 +457,21 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
     patch: {
       job_state: "running",
       stage: "primary",
-      stage_beacon: "xai_primary_fetch_running",
+      stage_beacon: "primary_search_started",
       updated_at: nowIso(),
-      started_at: job?.started_at || nowIso(),
+      started_at: startedAtIso,
       last_error: null,
       last_heartbeat_at: nowIso(),
       lock_expires_at: new Date(Date.now() + LOCK_TTL_MS).toISOString(),
+      elapsed_ms: 0,
+      remaining_budget_ms: HARD_MAX_RUNTIME_MS,
+      upstream_calls_made: upstreamCallsMade,
+      companies_candidates_found: companiesCandidatesFound,
+      early_exit_triggered: earlyExitTriggered,
     },
   }).catch(() => null);
 
-  const requested = Number(job?.requested_stage_ms_primary);
-  const requestedStageMsPrimary = Number.isFinite(requested) && requested > 0 ? requested : 20_000;
-
-  const effectiveTimeoutMs = Math.max(1_000, Math.min(requestedStageMsPrimary, 180_000));
+  const requestedStageMsPrimary = Math.max(1000, Number(job?.requested_stage_ms_primary) || 20_000);
   const outboundBody = typeof job?.xai_outbound_body === "string" ? job.xai_outbound_body : "";
 
   if (!xaiUrl || !hasKey || !outboundBody) {
@@ -301,19 +488,13 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
           ? "Missing XAI key"
           : "Missing xai_outbound_body";
 
-    await patchJob({
+    await markPrimaryError({
       sessionId,
       cosmosEnabled,
-      patch: {
-        job_state: "error",
-        stage_beacon: "xai_primary_fetch_error",
-        last_error: { code, message: msg },
-        last_heartbeat_at: nowIso(),
-        updated_at: nowIso(),
-        lock_expires_at: null,
-        locked_by: null,
-      },
-    }).catch(() => null);
+      code,
+      message: msg,
+      stageBeacon: "primary_search_started",
+    });
 
     return {
       httpStatus: 200,
@@ -322,7 +503,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
         error: msg,
         session_id: sessionId,
         status: "error",
-        stage_beacon: "xai_primary_fetch_error",
+        stage_beacon: "primary_search_started",
         meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
       },
     };
@@ -331,18 +512,90 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
   const maxAttempts = 3;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    await heartbeat({ sessionId, cosmosEnabled, lockTtlMs: LOCK_TTL_MS });
+    const nowAttemptTs = Date.now();
+    const runtime = getRuntime(nowAttemptTs);
 
-    await patchJob({
+    if (runtime.elapsed_ms > HARD_MAX_RUNTIME_MS) {
+      await markPrimaryError({
+        sessionId,
+        cosmosEnabled,
+        code: "primary_timeout",
+        message: "Primary search exceeded hard runtime limit",
+        stageBeacon: "primary_timeout",
+        details: {
+          elapsed_ms: runtime.elapsed_ms,
+          hard_timeout_ms: HARD_MAX_RUNTIME_MS,
+          upstream_calls_made: runtime.upstream_calls_made,
+          companies_candidates_found: runtime.companies_candidates_found,
+        },
+      });
+
+      return {
+        httpStatus: 200,
+        body: {
+          ok: false,
+          session_id: sessionId,
+          status: "error",
+          stage_beacon: "primary_timeout",
+          error: { code: "primary_timeout", message: "Primary search exceeded hard runtime limit" },
+          meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
+        },
+      };
+    }
+
+    if (runtime.elapsed_ms > NO_CANDIDATES_AFTER_MS && runtime.companies_candidates_found === 0) {
+      await markPrimaryError({
+        sessionId,
+        cosmosEnabled,
+        code: "no_candidates_found",
+        message: "Primary search produced no candidates within progress threshold",
+        stageBeacon: "primary_expanding_candidates",
+        details: {
+          elapsed_ms: runtime.elapsed_ms,
+          no_candidates_threshold_ms: NO_CANDIDATES_AFTER_MS,
+          upstream_calls_made: runtime.upstream_calls_made,
+        },
+      });
+
+      return {
+        httpStatus: 200,
+        body: {
+          ok: false,
+          session_id: sessionId,
+          status: "error",
+          stage_beacon: "primary_expanding_candidates",
+          error: { code: "no_candidates_found", message: "Primary search produced no candidates within progress threshold" },
+          meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
+        },
+      };
+    }
+
+    const stageBeacon = attempt === 1 ? "primary_search_started" : "primary_expanding_candidates";
+
+    const capForLimit = isSingleCompany ? UPSTREAM_TIMEOUT_CAP_SINGLE_MS : UPSTREAM_TIMEOUT_CAP_MS;
+    const timeoutBudgetMs = Math.max(1_000, runtime.remaining_budget_ms);
+    const perCallTimeoutMs = Math.max(
+      1_000,
+      Math.min(requestedStageMsPrimary, timeoutBudgetMs, capForLimit)
+    );
+
+    upstreamCallsMade += 1;
+    const nextUpstreamCallsMade = upstreamCallsMade;
+
+    await heartbeat({
       sessionId,
       cosmosEnabled,
-      patch: {
+      lockTtlMs: LOCK_TTL_MS,
+      extraPatch: {
         attempt,
-        stage_beacon: "xai_primary_fetch_running",
-        updated_at: nowIso(),
-        last_heartbeat_at: nowIso(),
+        stage_beacon: stageBeacon,
+        elapsed_ms: runtime.elapsed_ms,
+        remaining_budget_ms: runtime.remaining_budget_ms,
+        upstream_calls_made: nextUpstreamCallsMade,
+        companies_candidates_found: companiesCandidatesFound,
+        early_exit_triggered: earlyExitTriggered,
       },
-    }).catch(() => null);
+    });
 
     try {
       const xaiResponse = await postJsonWithTimeout(xaiUrl, {
@@ -351,10 +604,18 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
           Authorization: `Bearer ${xaiKey}`,
         },
         body: outboundBody,
-        timeoutMs: effectiveTimeoutMs,
+        timeoutMs: perCallTimeoutMs,
       });
 
-      await heartbeat({ sessionId, cosmosEnabled, lockTtlMs: LOCK_TTL_MS });
+      await heartbeat({
+        sessionId,
+        cosmosEnabled,
+        lockTtlMs: LOCK_TTL_MS,
+        extraPatch: {
+          stage_beacon: stageBeacon,
+          elapsed_ms: getRuntime(Date.now()).elapsed_ms,
+        },
+      });
 
       if (!xaiResponse.ok) {
         const err = new Error(`Upstream error (${xaiResponse.status})`);
@@ -365,6 +626,14 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
         throw err;
       }
 
+      await patchProgress({
+        sessionId,
+        cosmosEnabled,
+        patch: {
+          stage_beacon: "primary_candidate_found",
+        },
+      });
+
       const parsed = parseCompaniesFromXaiResponse(xaiResponse);
       if (parsed.parse_error) {
         const err = new Error(`Parse error: ${parsed.parse_error}`);
@@ -372,19 +641,74 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
         throw err;
       }
 
-      const companies = parsed.companies.slice(0, 200);
+      const parsedCompanies = parsed.companies.slice(0, 200);
+      const candidatesFound = parsedCompanies.length;
+      companiesCandidatesFound = candidatesFound;
+
+      const runtimeAfterParse = getRuntime(Date.now());
+
+      await patchProgress({
+        sessionId,
+        cosmosEnabled,
+        patch: {
+          companies_candidates_found: candidatesFound,
+          elapsed_ms: runtimeAfterParse.elapsed_ms,
+          remaining_budget_ms: runtimeAfterParse.remaining_budget_ms,
+          upstream_calls_made: upstreamCallsMade,
+          early_exit_triggered: earlyExitTriggered,
+        },
+      });
+
+      if (isSingleCompany && candidatesFound > 0) {
+        const first = parsedCompanies[0];
+
+        earlyExitTriggered = true;
+
+        await patchJob({
+          sessionId,
+          cosmosEnabled,
+          patch: {
+            job_state: "complete",
+            stage_beacon: "primary_early_exit",
+            completed_at: nowIso(),
+            updated_at: nowIso(),
+            last_heartbeat_at: nowIso(),
+            companies_count: 1,
+            companies: [first],
+            companies_candidates_found: candidatesFound,
+            early_exit_triggered: true,
+            last_error: null,
+            lock_expires_at: null,
+            locked_by: null,
+          },
+        }).catch(() => null);
+
+        return {
+          httpStatus: 200,
+          body: {
+            ok: true,
+            session_id: sessionId,
+            status: "complete",
+            stage_beacon: "primary_early_exit",
+            companies_count: 1,
+            meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
+          },
+        };
+      }
 
       await patchJob({
         sessionId,
         cosmosEnabled,
         patch: {
           job_state: "complete",
-          stage_beacon: "xai_primary_fetch_complete",
+          stage_beacon: "primary_complete",
           completed_at: nowIso(),
           updated_at: nowIso(),
           last_heartbeat_at: nowIso(),
-          companies_count: companies.length,
-          companies,
+          companies_count: parsedCompanies.length,
+          companies: parsedCompanies,
+          companies_candidates_found: candidatesFound,
+          early_exit_triggered: earlyExitTriggered,
           last_error: null,
           lock_expires_at: null,
           locked_by: null,
@@ -397,8 +721,8 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
           ok: true,
           session_id: sessionId,
           status: "complete",
-          stage_beacon: "xai_primary_fetch_complete",
-          companies_count: companies.length,
+          stage_beacon: "primary_complete",
+          companies_count: parsedCompanies.length,
           meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
         },
       };
@@ -410,7 +734,11 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
           ? isTransientUpstream(e?.upstream_status)
           : true;
 
-      const willRetry = attempt < maxAttempts && isTransient;
+      const nowErrTs = Date.now();
+      const runtimeAfterErr = getRuntime(nowErrTs);
+      const shouldStopForBudget = runtimeAfterErr.remaining_budget_ms <= 0;
+
+      const willRetry = attempt < maxAttempts && isTransient && !shouldStopForBudget;
 
       await patchJob({
         sessionId,
@@ -420,7 +748,12 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
           last_heartbeat_at: nowIso(),
           last_error: redacted,
           job_state: willRetry ? "running" : "error",
-          stage_beacon: willRetry ? "xai_primary_fetch_running" : "xai_primary_fetch_error",
+          stage_beacon: willRetry ? "primary_expanding_candidates" : "primary_expanding_candidates",
+          elapsed_ms: runtimeAfterErr.elapsed_ms,
+          remaining_budget_ms: runtimeAfterErr.remaining_budget_ms,
+          upstream_calls_made: upstreamCallsMade,
+          companies_candidates_found: companiesCandidatesFound,
+          early_exit_triggered: earlyExitTriggered,
           ...(willRetry ? {} : { lock_expires_at: null, locked_by: null }),
         },
       }).catch(() => null);
@@ -432,7 +765,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
             ok: false,
             session_id: sessionId,
             status: "error",
-            stage_beacon: "xai_primary_fetch_error",
+            stage_beacon: "primary_expanding_candidates",
             error: redacted,
             meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
           },
@@ -440,7 +773,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
       }
 
       const backoffMs = attempt === 1 ? 1000 : attempt === 2 ? 2000 : 4000;
-      await sleep(backoffMs);
+      await sleep(Math.min(backoffMs, Math.max(0, HARD_MAX_RUNTIME_MS - getRuntime(Date.now()).elapsed_ms)));
     }
   }
 
@@ -450,7 +783,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
       ok: false,
       session_id: sessionId,
       status: "error",
-      stage_beacon: "xai_primary_fetch_error",
+      stage_beacon: "primary_expanding_candidates",
       error: { code: "UNKNOWN", message: "Worker reached unexpected end" },
       meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
     },
@@ -461,5 +794,6 @@ module.exports = {
   runPrimaryJob,
   _test: {
     getHeartbeatTimestamp,
+    buildRuntimeInfo,
   },
 };

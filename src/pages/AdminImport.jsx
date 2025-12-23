@@ -260,6 +260,20 @@ export default function AdminImport() {
               completed,
               timedOut,
               stopped,
+              stage_beacon: asString(body?.stage_beacon || r.stage_beacon),
+              elapsed_ms: Number.isFinite(Number(body?.elapsed_ms)) ? Number(body.elapsed_ms) : r.elapsed_ms ?? null,
+              remaining_budget_ms: Number.isFinite(Number(body?.remaining_budget_ms))
+                ? Number(body.remaining_budget_ms)
+                : r.remaining_budget_ms ?? null,
+              upstream_calls_made: Number.isFinite(Number(body?.upstream_calls_made))
+                ? Number(body.upstream_calls_made)
+                : Number(r.upstream_calls_made ?? 0) || 0,
+              companies_candidates_found: Number.isFinite(Number(body?.companies_candidates_found))
+                ? Number(body.companies_candidates_found)
+                : Number(r.companies_candidates_found ?? 0) || 0,
+              early_exit_triggered:
+                typeof body?.early_exit_triggered === "boolean" ? body.early_exit_triggered : Boolean(r.early_exit_triggered),
+              last_error: body?.last_error || r.last_error || null,
               updatedAt: new Date().toISOString(),
             };
           })
@@ -481,6 +495,13 @@ export default function AdminImport() {
       completed: false,
       timedOut: false,
       stopped: false,
+      stage_beacon: "",
+      elapsed_ms: null,
+      remaining_budget_ms: null,
+      upstream_calls_made: 0,
+      companies_candidates_found: 0,
+      early_exit_triggered: false,
+      last_error: null,
       async_primary_active: false,
       async_primary_timeout_ms: null,
       start_error: null,
@@ -625,7 +646,7 @@ export default function AdminImport() {
         const msg =
           toErrorString(
             body && typeof body === "object"
-              ? body.error || body.message || body.text || (reason ? `Import failed (${reason})` : "")
+              ? body.error || body.last_error || body.message || body.text || (reason ? `Import failed (${reason})` : "")
               : ""
           ) || `Import failed${state ? ` (state: ${state})` : status ? ` (status: ${status})` : ""}`;
 
@@ -722,7 +743,10 @@ export default function AdminImport() {
 
         if (res.status === 202 || body?.accepted === true) {
           const stageBeacon = asString(body?.stage_beacon).trim();
-          const isAsyncPrimary = body?.reason === "primary_async_enqueued" || stageBeacon.startsWith("xai_primary_fetch_");
+          const isAsyncPrimary =
+            body?.reason === "primary_async_enqueued" ||
+            stageBeacon.startsWith("primary_") ||
+            stageBeacon.startsWith("xai_primary_fetch_");
           const timeoutMsUsed = Number(body?.timeout_ms_used);
           const timeoutMsForUi = Number.isFinite(timeoutMsUsed) && timeoutMsUsed > 0 ? timeoutMsUsed : null;
 
@@ -1018,12 +1042,31 @@ export default function AdminImport() {
   const activeAsyncPrimaryMessage = useMemo(() => {
     if (!activeRun || !activeRun.async_primary_active) return null;
 
-    const timeoutMs = Number(activeRun.async_primary_timeout_ms);
-    const timeoutSeconds = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.round(timeoutMs / 1000) : null;
+    const stageBeacon = asString(activeRun.stage_beacon).trim();
 
-    return timeoutSeconds
-      ? `Primary search running asynchronously. This may take up to ${timeoutSeconds} seconds.`
-      : "Primary search running asynchronously. This may take a couple minutes.";
+    const elapsedMs = Number(activeRun.elapsed_ms);
+    const remainingMs = Number(activeRun.remaining_budget_ms);
+    const upstreamCalls = Number(activeRun.upstream_calls_made);
+    const candidatesFound = Number(activeRun.companies_candidates_found);
+
+    const elapsedSeconds = Number.isFinite(elapsedMs) && elapsedMs >= 0 ? Math.round(elapsedMs / 1000) : null;
+    const remainingSeconds = Number.isFinite(remainingMs) && remainingMs >= 0 ? Math.round(remainingMs / 1000) : null;
+
+    const progressBits = [];
+    if (elapsedSeconds != null) progressBits.push(`${elapsedSeconds}s elapsed`);
+    if (remainingSeconds != null) progressBits.push(`${remainingSeconds}s remaining`);
+    if (Number.isFinite(upstreamCalls) && upstreamCalls > 0) progressBits.push(`${upstreamCalls} upstream call${upstreamCalls === 1 ? "" : "s"}`);
+    if (Number.isFinite(candidatesFound) && candidatesFound > 0) progressBits.push(`${candidatesFound} candidate${candidatesFound === 1 ? "" : "s"}`);
+
+    const suffix = progressBits.length > 0 ? ` (${progressBits.join(" · ")})` : "";
+
+    if (stageBeacon === "primary_candidate_found") return `Company candidate found. Finalizing…${suffix}`;
+    if (stageBeacon === "primary_expanding_candidates") return `Expanding search…${suffix}`;
+    if (stageBeacon === "primary_early_exit") return `Match found (single-company import). Finalizing…${suffix}`;
+    if (stageBeacon === "primary_complete") return `Finalizing…${suffix}`;
+    if (stageBeacon === "primary_timeout") return `Primary search timed out.${suffix}`;
+
+    return `Searching for companies…${suffix}`;
   }, [activeRun]);
 
   return (

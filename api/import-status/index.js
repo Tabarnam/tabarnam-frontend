@@ -214,12 +214,12 @@ async function handler(req, context) {
           typeof primaryJob?.stage_beacon === "string" && primaryJob.stage_beacon.trim()
             ? primaryJob.stage_beacon.trim()
             : status === "complete"
-              ? "xai_primary_fetch_complete"
+              ? "primary_complete"
               : status === "queued"
-                ? "xai_primary_fetch_queued"
+                ? "primary_search_started"
                 : status === "running"
-                  ? "xai_primary_fetch_running"
-                  : "xai_primary_fetch_error",
+                  ? "primary_search_started"
+                  : "primary_search_started",
         stage_beacon_values: stageBeaconValues,
         primary_job_state: finalJobState,
         last_heartbeat_at: primaryJob?.last_heartbeat_at || null,
@@ -227,6 +227,15 @@ async function handler(req, context) {
         attempts: Number.isFinite(Number(primaryJob?.attempt)) ? Number(primaryJob.attempt) : 0,
         last_error: primaryJob?.last_error || null,
         worker_meta: workerResult?.body?.meta || null,
+        elapsed_ms: Number.isFinite(Number(primaryJob?.elapsed_ms)) ? Number(primaryJob.elapsed_ms) : null,
+        remaining_budget_ms: Number.isFinite(Number(primaryJob?.remaining_budget_ms)) ? Number(primaryJob.remaining_budget_ms) : null,
+        upstream_calls_made: Number.isFinite(Number(primaryJob?.upstream_calls_made)) ? Number(primaryJob.upstream_calls_made) : 0,
+        companies_candidates_found: Number.isFinite(Number(primaryJob?.companies_candidates_found))
+          ? Number(primaryJob.companies_candidates_found)
+          : Number.isFinite(Number(primaryJob?.companies_count))
+            ? Number(primaryJob.companies_count)
+            : 0,
+        early_exit_triggered: Boolean(primaryJob?.early_exit_triggered),
         companies_count: Number.isFinite(Number(primaryJob?.companies_count)) ? Number(primaryJob.companies_count) : 0,
         items: status === "error" ? [] : Array.isArray(primaryJob?.companies) ? primaryJob.companies : [],
         primary_job: {
@@ -235,6 +244,15 @@ async function handler(req, context) {
           attempt: Number.isFinite(Number(primaryJob?.attempt)) ? Number(primaryJob.attempt) : 0,
           attempts: Number.isFinite(Number(primaryJob?.attempt)) ? Number(primaryJob.attempt) : 0,
           last_error: primaryJob?.last_error || null,
+          elapsed_ms: Number.isFinite(Number(primaryJob?.elapsed_ms)) ? Number(primaryJob.elapsed_ms) : null,
+          remaining_budget_ms: Number.isFinite(Number(primaryJob?.remaining_budget_ms)) ? Number(primaryJob.remaining_budget_ms) : null,
+          upstream_calls_made: Number.isFinite(Number(primaryJob?.upstream_calls_made)) ? Number(primaryJob.upstream_calls_made) : 0,
+          companies_candidates_found: Number.isFinite(Number(primaryJob?.companies_candidates_found))
+            ? Number(primaryJob.companies_candidates_found)
+            : Number.isFinite(Number(primaryJob?.companies_count))
+              ? Number(primaryJob.companies_count)
+              : 0,
+          early_exit_triggered: Boolean(primaryJob?.early_exit_triggered),
           last_heartbeat_at: primaryJob?.last_heartbeat_at || null,
           lock_expires_at: primaryJob?.lock_expires_at || null,
           locked_by: primaryJob?.locked_by || null,
@@ -309,18 +327,27 @@ async function handler(req, context) {
             typeof primaryJob.stage_beacon === "string" && primaryJob.stage_beacon.trim()
               ? primaryJob.stage_beacon.trim()
               : status === "complete"
-                ? "xai_primary_fetch_complete"
+                ? "primary_complete"
                 : status === "error"
-                  ? "xai_primary_fetch_error"
+                  ? "primary_search_started"
                   : status === "running"
-                    ? "xai_primary_fetch_running"
-                    : "xai_primary_fetch_queued",
+                    ? "primary_search_started"
+                    : "primary_search_started",
           stage_beacon_values: stageBeaconValues,
           primary_job_state: jobState,
           last_heartbeat_at: primaryJob?.last_heartbeat_at || null,
           lock_until: primaryJob?.lock_expires_at || null,
           attempts: Number.isFinite(Number(primaryJob?.attempt)) ? Number(primaryJob.attempt) : 0,
           last_error: primaryJob?.last_error || null,
+          elapsed_ms: Number.isFinite(Number(primaryJob?.elapsed_ms)) ? Number(primaryJob.elapsed_ms) : null,
+          remaining_budget_ms: Number.isFinite(Number(primaryJob?.remaining_budget_ms)) ? Number(primaryJob.remaining_budget_ms) : null,
+          upstream_calls_made: Number.isFinite(Number(primaryJob?.upstream_calls_made)) ? Number(primaryJob.upstream_calls_made) : 0,
+          companies_candidates_found: Number.isFinite(Number(primaryJob?.companies_candidates_found))
+            ? Number(primaryJob.companies_candidates_found)
+            : Number.isFinite(Number(primaryJob?.companies_count))
+              ? Number(primaryJob.companies_count)
+              : 0,
+          early_exit_triggered: Boolean(primaryJob?.early_exit_triggered),
           companies_count: Number.isFinite(Number(primaryJob.companies_count)) ? Number(primaryJob.companies_count) : 0,
           items: Array.isArray(primaryJob.companies) ? primaryJob.companies : [],
           primary_job: {
@@ -329,6 +356,15 @@ async function handler(req, context) {
             attempt: Number.isFinite(Number(primaryJob.attempt)) ? Number(primaryJob.attempt) : 0,
             attempts: Number.isFinite(Number(primaryJob.attempt)) ? Number(primaryJob.attempt) : 0,
             last_error: primaryJob.last_error || null,
+            elapsed_ms: Number.isFinite(Number(primaryJob?.elapsed_ms)) ? Number(primaryJob.elapsed_ms) : null,
+            remaining_budget_ms: Number.isFinite(Number(primaryJob?.remaining_budget_ms)) ? Number(primaryJob.remaining_budget_ms) : null,
+            upstream_calls_made: Number.isFinite(Number(primaryJob?.upstream_calls_made)) ? Number(primaryJob.upstream_calls_made) : 0,
+            companies_candidates_found: Number.isFinite(Number(primaryJob?.companies_candidates_found))
+              ? Number(primaryJob.companies_candidates_found)
+              : Number.isFinite(Number(primaryJob?.companies_count))
+                ? Number(primaryJob.companies_count)
+                : 0,
+            early_exit_triggered: Boolean(primaryJob?.early_exit_triggered),
             last_heartbeat_at: primaryJob?.last_heartbeat_at || null,
             lock_expires_at: primaryJob?.lock_expires_at || null,
             locked_by: primaryJob?.locked_by || null,
