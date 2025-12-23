@@ -37,8 +37,12 @@ async function handler(req, context) {
 
   let body = {};
   try {
-    const txt = await req.text();
-    if (txt) body = JSON.parse(txt);
+    if (typeof req?.json === "function") {
+      body = (await req.json().catch(() => ({}))) || {};
+    } else {
+      const txt = await req.text();
+      if (txt) body = JSON.parse(txt);
+    }
   } catch {}
 
   const sessionId = String(body?.session_id || body?.sessionId || url.searchParams.get("session_id") || "").trim();

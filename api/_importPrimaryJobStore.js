@@ -306,14 +306,24 @@ async function tryClaimJob({ sessionId, cosmosEnabled, workerId, lockTtlMs }) {
   if (!prev) return { ok: false, error: "not_found" };
 
   const state = String(prev.job_state || "").trim();
-  if (state && state !== "queued") {
+
+  if (state && state !== "queued" && state !== "running") {
     return { ok: true, claimed: false, job: prev };
   }
 
   const now = Date.now();
   const lockExpiresAt = Date.parse(prev.lock_expires_at || "") || 0;
-  if (lockExpiresAt && lockExpiresAt > now && prev.locked_by && String(prev.locked_by) !== wid) {
-    return { ok: true, claimed: false, job: prev };
+
+  if (lockExpiresAt && lockExpiresAt > now) {
+    const lockedBy = String(prev.locked_by || "").trim();
+
+    if (lockedBy && lockedBy !== wid) {
+      return { ok: true, claimed: false, job: prev };
+    }
+
+    if (!lockedBy && state === "running") {
+      return { ok: true, claimed: false, job: prev };
+    }
   }
 
   const next = {

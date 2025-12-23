@@ -24,10 +24,15 @@ function json(obj, status = 200, req, extraHeaders) {
     headers: {
       ...cors(req),
       "Content-Type": "application/json",
+      "Cache-Control": "no-store",
       ...(extraHeaders && typeof extraHeaders === "object" ? extraHeaders : {}),
     },
     body: JSON.stringify(obj),
   };
+}
+
+function nowIso() {
+  return new Date().toISOString();
 }
 
 let companiesPkPathPromise;
@@ -144,19 +149,45 @@ async function handler(req, context) {
     return json({ ok: false, error: "Missing session_id" }, 400, req);
   }
 
+  const statusCheckedAt = nowIso();
+  const stageBeaconValues = {
+    status_checked_at: statusCheckedAt,
+  };
+
   let primaryJob = await getImportPrimaryJob({ sessionId, cosmosEnabled: true }).catch(() => null);
 
   if (primaryJob && primaryJob.job_state) {
+    stageBeaconValues.status_seen_primary_job = nowIso();
+
     const jobState = String(primaryJob.job_state);
     const shouldDrive = jobState === "queued" || jobState === "running";
 
+    if (jobState === "running") stageBeaconValues.status_seen_running = nowIso();
+
+    let workerResult = null;
     if (shouldDrive) {
-      await runPrimaryJob({
+      stageBeaconValues.status_invoked_worker = nowIso();
+
+      workerResult = await runPrimaryJob({
         context,
         sessionId,
         cosmosEnabled: true,
         invocationSource: "status",
-      }).catch(() => null);
+      }).catch((e) => {
+        stageBeaconValues.status_worker_error = nowIso();
+        stageBeaconValues.status_worker_error_detail = typeof e?.message === "string" ? e.message : String(e);
+        return null;
+      });
+
+      stageBeaconValues.status_worker_returned = nowIso();
+
+      const claimed = Boolean(workerResult?.body?.meta?.worker_claimed);
+      if (claimed) stageBeaconValues.status_worker_claimed = nowIso();
+      else stageBeaconValues.status_worker_no_claim = nowIso();
+
+      if (workerResult?.body?.status === "error" || workerResult?.body?.ok === false) {
+        stageBeaconValues.status_worker_error = stageBeaconValues.status_worker_error || nowIso();
+      }
 
       primaryJob = await getImportPrimaryJob({ sessionId, cosmosEnabled: true }).catch(() => primaryJob);
     }
@@ -189,14 +220,25 @@ async function handler(req, context) {
                 : status === "running"
                   ? "xai_primary_fetch_running"
                   : "xai_primary_fetch_error",
+        stage_beacon_values: stageBeaconValues,
+        primary_job_state: finalJobState,
+        last_heartbeat_at: primaryJob?.last_heartbeat_at || null,
+        lock_until: primaryJob?.lock_expires_at || null,
+        attempts: Number.isFinite(Number(primaryJob?.attempt)) ? Number(primaryJob.attempt) : 0,
+        last_error: primaryJob?.last_error || null,
+        worker_meta: workerResult?.body?.meta || null,
         companies_count: Number.isFinite(Number(primaryJob?.companies_count)) ? Number(primaryJob.companies_count) : 0,
         items: status === "error" ? [] : Array.isArray(primaryJob?.companies) ? primaryJob.companies : [],
         primary_job: {
           id: primaryJob?.id || null,
           job_state: finalJobState,
           attempt: Number.isFinite(Number(primaryJob?.attempt)) ? Number(primaryJob.attempt) : 0,
+          attempts: Number.isFinite(Number(primaryJob?.attempt)) ? Number(primaryJob.attempt) : 0,
           last_error: primaryJob?.last_error || null,
           last_heartbeat_at: primaryJob?.last_heartbeat_at || null,
+          lock_expires_at: primaryJob?.lock_expires_at || null,
+          locked_by: primaryJob?.locked_by || null,
+          etag: primaryJob?._etag || primaryJob?.etag || null,
           storage: primaryJob?.storage || null,
         },
         inline_budget_ms: Number.isFinite(Number(primaryJob?.inline_budget_ms)) ? Number(primaryJob.inline_budget_ms) : 20_000,
@@ -224,6 +266,8 @@ async function handler(req, context) {
 
   const mem = getImportSession(sessionId);
   if (mem) {
+    stageBeaconValues.status_seen_session_memory = nowIso();
+
     return json(
       {
         ok: true,
@@ -231,6 +275,12 @@ async function handler(req, context) {
         status: mem.status || "running",
         state: mem.status === "complete" ? "complete" : mem.status === "failed" ? "failed" : "running",
         stage_beacon: mem.stage_beacon || "init",
+        stage_beacon_values: stageBeaconValues,
+        primary_job_state: null,
+        last_heartbeat_at: null,
+        lock_until: null,
+        attempts: 0,
+        last_error: null,
         companies_count: Number.isFinite(Number(mem.companies_count)) ? Number(mem.companies_count) : 0,
       },
       200,
@@ -265,13 +315,24 @@ async function handler(req, context) {
                   : status === "running"
                     ? "xai_primary_fetch_running"
                     : "xai_primary_fetch_queued",
+          stage_beacon_values: stageBeaconValues,
+          primary_job_state: jobState,
+          last_heartbeat_at: primaryJob?.last_heartbeat_at || null,
+          lock_until: primaryJob?.lock_expires_at || null,
+          attempts: Number.isFinite(Number(primaryJob?.attempt)) ? Number(primaryJob.attempt) : 0,
+          last_error: primaryJob?.last_error || null,
           companies_count: Number.isFinite(Number(primaryJob.companies_count)) ? Number(primaryJob.companies_count) : 0,
           items: Array.isArray(primaryJob.companies) ? primaryJob.companies : [],
           primary_job: {
             id: primaryJob.id || null,
             job_state: jobState,
             attempt: Number.isFinite(Number(primaryJob.attempt)) ? Number(primaryJob.attempt) : 0,
+            attempts: Number.isFinite(Number(primaryJob.attempt)) ? Number(primaryJob.attempt) : 0,
             last_error: primaryJob.last_error || null,
+            last_heartbeat_at: primaryJob?.last_heartbeat_at || null,
+            lock_expires_at: primaryJob?.lock_expires_at || null,
+            locked_by: primaryJob?.locked_by || null,
+            etag: primaryJob?._etag || primaryJob?.etag || null,
             storage: primaryJob.storage || null,
           },
           inline_budget_ms: Number.isFinite(Number(primaryJob.inline_budget_ms)) ? Number(primaryJob.inline_budget_ms) : 20_000,
@@ -325,6 +386,8 @@ async function handler(req, context) {
       return json({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404, req);
     }
 
+    stageBeaconValues.status_seen_control_docs = nowIso();
+
     const errorPayload = normalizeErrorPayload(errorDoc?.error || null);
     const timedOut = Boolean(timeoutDoc);
     const stopped = Boolean(stopDoc);
@@ -360,6 +423,12 @@ async function handler(req, context) {
           status: "error",
           state: "failed",
           stage_beacon,
+          stage_beacon_values: stageBeaconValues,
+          primary_job_state: null,
+          last_heartbeat_at: null,
+          lock_until: null,
+          attempts: 0,
+          last_error: errorOut,
           companies_count: saved,
           error: errorOut,
           items,
@@ -381,6 +450,12 @@ async function handler(req, context) {
           status: "complete",
           state: "complete",
           stage_beacon,
+          stage_beacon_values: stageBeaconValues,
+          primary_job_state: null,
+          last_heartbeat_at: null,
+          lock_until: null,
+          attempts: 0,
+          last_error: null,
           companies_count: saved,
           result: {
             saved,
@@ -403,6 +478,12 @@ async function handler(req, context) {
         status: "running",
         state: "running",
         stage_beacon,
+        stage_beacon_values: stageBeaconValues,
+        primary_job_state: null,
+        last_heartbeat_at: null,
+        lock_until: null,
+        attempts: 0,
+        last_error: null,
         companies_count: saved,
         items,
         saved,
@@ -420,6 +501,32 @@ async function handler(req, context) {
   }
 }
 
+function deprecatedHandler(req) {
+  const method = String(req?.method || "").toUpperCase();
+  if (method === "OPTIONS") return { status: 200, headers: cors(req) };
+
+  const url = new URL(req.url);
+  const canonicalPath = "/api/import/status";
+  const location = `${canonicalPath}${url.search || ""}`;
+
+  return json(
+    {
+      ok: false,
+      deprecated: true,
+      deprecated_route: "/api/import-status",
+      canonical_route: canonicalPath,
+      redirect_to: location,
+      message: "Deprecated. Use GET /api/import/status",
+    },
+    308,
+    req,
+    {
+      Location: location,
+      "Cache-Control": "no-store",
+    }
+  );
+}
+
 app.http("import-status", {
   route: "import/status",
   methods: ["GET", "OPTIONS"],
@@ -431,7 +538,7 @@ app.http("import-status-alt", {
   route: "import-status",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler,
+  handler: deprecatedHandler,
 });
 
 module.exports = { _test: { handler } };

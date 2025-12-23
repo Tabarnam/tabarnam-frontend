@@ -219,10 +219,7 @@ export default function AdminImport() {
     async ({ session_id }) => {
       try {
         const encoded = encodeURIComponent(session_id);
-        const { res } = await apiFetchWithFallback([
-          `/import/status?session_id=${encoded}`,
-          `/import-status?session_id=${encoded}`,
-        ]);
+        const { res } = await apiFetchWithFallback([`/import/status?session_id=${encoded}`]);
         const body = await readJsonOrText(res);
 
         const state = typeof body?.state === "string" ? body.state : "";
@@ -427,9 +424,7 @@ export default function AdminImport() {
     setDebugStatusLoading(true);
 
     try {
-      const { res } = await apiFetchWithFallback(
-        [`/import/status?session_id=${encodeURIComponent(sid)}`, `/import-status?session_id=${encodeURIComponent(sid)}`]
-      );
+      const { res } = await apiFetchWithFallback([`/import/status?session_id=${encodeURIComponent(sid)}`]);
       const body = await readJsonOrText(res);
       setDebugStatusResponseText(toPrettyJsonText(body));
 
@@ -1690,7 +1685,7 @@ export default function AdminImport() {
               <code className="rounded bg-slate-100 px-1 py-0.5 break-all">GET {join(API_BASE, "/import/status")}</code>
             </div>
             <div>
-              <span className="font-medium">Status URL (try 2):</span>{" "}
+              <span className="font-medium">Status URL (deprecated):</span>{" "}
               <code className="rounded bg-slate-100 px-1 py-0.5 break-all">GET {join(API_BASE, "/import-status")}</code>
             </div>
           </div>

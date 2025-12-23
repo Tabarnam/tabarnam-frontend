@@ -31,6 +31,16 @@ function redactErrorForJob(err) {
   return out;
 }
 
+function buildMeta({ invocationSource, workerId, workerClaimed, claimError, stallDetected }) {
+  return {
+    invocation_source: invocationSource || null,
+    worker_id: workerId || null,
+    worker_claimed: Boolean(workerClaimed),
+    ...(claimError ? { claim_error: String(claimError) } : {}),
+    ...(stallDetected ? { stall_detected: true } : {}),
+  };
+}
+
 async function postJsonWithTimeout(url, { headers, body, timeoutMs }) {
   const u = String(url || "").trim();
   if (!u) throw new Error("Missing upstream URL");
@@ -167,7 +177,9 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
   const state = String(existing?.job_state || "queued");
   const now = Date.now();
 
-  const HEARTBEAT_STALE_MS = 5 * 60_000;
+  const HEARTBEAT_STALE_MS = Number.isFinite(Number(process.env.IMPORT_HEARTBEAT_STALE_MS))
+    ? Math.max(5_000, Number(process.env.IMPORT_HEARTBEAT_STALE_MS))
+    : 120_000;
   if (state === "running") {
     const hbTs = getHeartbeatTimestamp(existing);
     if (hbTs && now - hbTs > HEARTBEAT_STALE_MS) {
@@ -188,13 +200,15 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
           stage_beacon: "xai_primary_fetch_error",
           error: after?.last_error || { code: "stalled_worker", message: "Worker heartbeat stale" },
           note: "Job marked as error due to stalled worker heartbeat",
-          meta: { invocation_source: invocationSource || null },
+          meta: buildMeta({ invocationSource, workerId, workerClaimed: false, stallDetected: true }),
         },
       };
     }
   }
 
-  const LOCK_TTL_MS = 240_000;
+  const LOCK_TTL_MS = Number.isFinite(Number(process.env.IMPORT_LOCK_TTL_MS))
+    ? Math.max(5_000, Number(process.env.IMPORT_LOCK_TTL_MS))
+    : 60_000;
 
   const claim = await tryClaimJob({
     sessionId,
@@ -212,7 +226,12 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
         session_id: sessionId,
         status: "error",
         stage_beacon: "xai_primary_fetch_error",
-        meta: { invocation_source: invocationSource || null },
+        meta: buildMeta({
+          invocationSource,
+          workerId,
+          workerClaimed: false,
+          claimError: claim.error || "claim_failed",
+        }),
       },
     };
   }
@@ -238,7 +257,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
         stage_beacon: String(job?.stage_beacon || "xai_primary_fetch_queued"),
         ...(status === "error" ? { error: job?.last_error || { code: "UNKNOWN", message: "Job failed" } } : {}),
         note: "Job already running or complete",
-        meta: { invocation_source: invocationSource || null },
+        meta: buildMeta({ invocationSource, workerId, workerClaimed: false }),
       },
     };
   }
@@ -304,7 +323,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
         session_id: sessionId,
         status: "error",
         stage_beacon: "xai_primary_fetch_error",
-        meta: { invocation_source: invocationSource || null },
+        meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
       },
     };
   }
@@ -380,7 +399,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
           status: "complete",
           stage_beacon: "xai_primary_fetch_complete",
           companies_count: companies.length,
-          meta: { invocation_source: invocationSource || null },
+          meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
         },
       };
     } catch (e) {
@@ -415,7 +434,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
             status: "error",
             stage_beacon: "xai_primary_fetch_error",
             error: redacted,
-            meta: { invocation_source: invocationSource || null },
+            meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
           },
         };
       }
@@ -433,7 +452,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
       status: "error",
       stage_beacon: "xai_primary_fetch_error",
       error: { code: "UNKNOWN", message: "Worker reached unexpected end" },
-      meta: { invocation_source: invocationSource || null },
+      meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
     },
   };
 }
