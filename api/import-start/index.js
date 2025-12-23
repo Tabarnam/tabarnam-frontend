@@ -4197,12 +4197,11 @@ Output JSON only:
             );
           }
 
-          ensureStageBudgetOrThrow("keywords", "xai_keywords_fetch_start");
-
           const deadlineBeforeKeywords = checkDeadlineOrReturn("xai_keywords_fetch_start");
           if (deadlineBeforeKeywords) return deadlineBeforeKeywords;
 
           if (shouldRunStage("keywords")) {
+            ensureStageBudgetOrThrow("keywords", "xai_keywords_fetch_start");
             mark("xai_keywords_fetch_start");
             setStage("generateKeywords");
 
