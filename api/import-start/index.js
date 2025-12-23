@@ -3941,6 +3941,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 last_error: existingJob?.last_error || null,
                 created_at: existingJob?.created_at || new Date().toISOString(),
                 updated_at: new Date().toISOString(),
+                last_heartbeat_at: existingJob?.last_heartbeat_at || null,
               };
 
               const upserted = await upsertImportPrimaryJob({ jobDoc, cosmosEnabled }).catch(() => null);
