@@ -266,6 +266,8 @@ async function handler(req, context) {
 
   const mem = getImportSession(sessionId);
   if (mem) {
+    stageBeaconValues.status_seen_session_memory = nowIso();
+
     return json(
       {
         ok: true,
@@ -273,6 +275,12 @@ async function handler(req, context) {
         status: mem.status || "running",
         state: mem.status === "complete" ? "complete" : mem.status === "failed" ? "failed" : "running",
         stage_beacon: mem.stage_beacon || "init",
+        stage_beacon_values: stageBeaconValues,
+        primary_job_state: null,
+        last_heartbeat_at: null,
+        lock_until: null,
+        attempts: 0,
+        last_error: null,
         companies_count: Number.isFinite(Number(mem.companies_count)) ? Number(mem.companies_count) : 0,
       },
       200,
