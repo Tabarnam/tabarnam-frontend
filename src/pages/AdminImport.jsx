@@ -1062,7 +1062,7 @@ export default function AdminImport() {
 
     if (stageBeacon === "primary_candidate_found") return `Company candidate found. Finalizing…${suffix}`;
     if (stageBeacon === "primary_expanding_candidates") return `Expanding search…${suffix}`;
-    if (stageBeacon === "primary_early_exit") return `Match found. Finalizing…${suffix}`;
+    if (stageBeacon === "primary_early_exit") return `Match found (single-company import). Finalizing…${suffix}`;
     if (stageBeacon === "primary_complete") return `Finalizing…${suffix}`;
     if (stageBeacon === "primary_timeout") return `Primary search timed out.${suffix}`;
 
