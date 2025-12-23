@@ -3053,6 +3053,107 @@ const importStartHandlerInner = async (req, context) => {
           });
         }
 
+        const getRemainingMs = () => deadlineMs - Date.now();
+
+        const throwAccepted = (nextStageBeacon, reason, extra) => {
+          const beacon = String(nextStageBeacon || stage_beacon || stage || "unknown") || "unknown";
+          const remainingMs = getRemainingMs();
+
+          try {
+            console.log("[import-start] returning_202", {
+              stage: extra && typeof extra === "object" && typeof extra.stage === "string" ? extra.stage : stage,
+              stage_beacon: beacon,
+              reason: String(reason || "deadline_budget_guard"),
+              remainingMs,
+              request_id: requestId,
+              session_id: sessionId,
+            });
+          } catch {}
+
+          throw new AcceptedResponseError(
+            respondAcceptedBeforeGatewayTimeout(beacon, reason, {
+              ...(extra && typeof extra === "object" ? extra : {}),
+              remainingMs,
+            })
+          );
+        };
+
+        const ensureStageBudgetOrThrow = (stageKey, nextStageBeacon) => {
+          const remainingMs = getRemainingMs();
+          if (remainingMs < DEADLINE_SAFETY_BUFFER_MS) {
+            throwAccepted(nextStageBeacon, "remaining_budget_low", { stage: stageKey });
+          }
+          return remainingMs;
+        };
+
+        const postXaiJsonWithBudget = async ({ stageKey, stageBeacon, body, stageCapMsOverride }) => {
+          const remainingMs = ensureStageBudgetOrThrow(stageKey, stageBeacon);
+          const stageCapMs =
+            Number.isFinite(Number(stageCapMsOverride)) && Number(stageCapMsOverride) > 0
+              ? Number(stageCapMsOverride)
+              : Number(STAGE_MAX_MS?.[stageKey]) || DEFAULT_UPSTREAM_TIMEOUT_MS;
+
+          const timeoutForThisStage = Math.min(Math.max(1, remainingMs - UPSTREAM_TIMEOUT_MARGIN_MS), stageCapMs);
+
+          if (timeoutForThisStage < 1_000) {
+            throwAccepted(stageBeacon, "insufficient_time_for_fetch", {
+              stage: stageKey,
+              timeoutForThisStage,
+              stageCapMs,
+            });
+          }
+
+          const fetchStart = Date.now();
+
+          try {
+            console.log("[import-start] fetch_begin", {
+              stage: stageKey,
+              remainingMs,
+              timeoutForThisStage,
+              request_id: requestId,
+              session_id: sessionId,
+            });
+          } catch {}
+
+          try {
+            const res = await postJsonWithTimeout(xaiUrl, {
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${xaiKey}`,
+              },
+              body: typeof body === "string" ? body : "",
+              timeoutMs: timeoutForThisStage,
+            });
+
+            const elapsedMs = Date.now() - fetchStart;
+            try {
+              console.log("[import-start] fetch_end", {
+                stage: stageKey,
+                elapsedMs,
+                request_id: requestId,
+                session_id: sessionId,
+                status: res?.status,
+              });
+            } catch {}
+
+            return res;
+          } catch (e) {
+            const name = String(e?.name || "").toLowerCase();
+            const code = String(e?.code || "").toUpperCase();
+            const isAbort = code === "ECONNABORTED" || name.includes("abort");
+
+            if (isAbort) {
+              throwAccepted(stageBeacon, "upstream_timeout_returning_202", {
+                stage: stageKey,
+                timeoutForThisStage,
+                stageCapMs,
+              });
+            }
+
+            throw e;
+          }
+        };
+
         // Early check: if import was already stopped, return immediately
         if (!noUpstreamMode) {
           const wasAlreadyStopped = await safeCheckIfSessionStopped(sessionId);
