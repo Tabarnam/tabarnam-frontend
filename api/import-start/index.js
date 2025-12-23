@@ -3837,7 +3837,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           const deadlineBeforePrimary = checkDeadlineOrReturn("xai_primary_fetch_start");
           if (deadlineBeforePrimary) return deadlineBeforePrimary;
 
-          if (!shouldRunStage("primary")) {
+          if (!shouldRunStage("primary") && inputCompanies.length === 0) {
             mark("xai_primary_fetch_skipped");
             try {
               upsertImportSession({
