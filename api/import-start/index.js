@@ -4560,6 +4560,7 @@ Return ONLY the JSON array, no other text.`,
                 }
               }
             } catch (refinementErr) {
+              if (refinementErr instanceof AcceptedResponseError) throw refinementErr;
               console.warn(`[import-start] Location refinement pass failed: ${refinementErr.message}`);
               // Continue with original data if refinement fails
             } finally {
@@ -4769,6 +4770,7 @@ Return ONLY the JSON array, no other text.`,
                 }
               }
             } catch (expansionErr) {
+              if (expansionErr instanceof AcceptedResponseError) throw expansionErr;
               console.warn(`[import-start] Expansion search failed: ${expansionErr.message}`);
               // Continue without expansion results
             } finally {
