@@ -420,6 +420,32 @@ async function handler(req, context) {
   }
 }
 
+function deprecatedHandler(req) {
+  const method = String(req?.method || "").toUpperCase();
+  if (method === "OPTIONS") return { status: 200, headers: cors(req) };
+
+  const url = new URL(req.url);
+  const canonicalPath = "/api/import/status";
+  const location = `${canonicalPath}${url.search || ""}`;
+
+  return json(
+    {
+      ok: false,
+      deprecated: true,
+      deprecated_route: "/api/import-status",
+      canonical_route: canonicalPath,
+      redirect_to: location,
+      message: "Deprecated. Use GET /api/import/status",
+    },
+    308,
+    req,
+    {
+      Location: location,
+      "Cache-Control": "no-store",
+    }
+  );
+}
+
 app.http("import-status", {
   route: "import/status",
   methods: ["GET", "OPTIONS"],
@@ -431,7 +457,7 @@ app.http("import-status-alt", {
   route: "import-status",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
-  handler,
+  handler: deprecatedHandler,
 });
 
 module.exports = { _test: { handler } };
