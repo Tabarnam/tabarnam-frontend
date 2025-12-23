@@ -4481,17 +4481,17 @@ Return ONLY the JSON array, no other text.`,
                 )})`
               );
 
+              ensureStageBudgetOrThrow("location", "xai_location_refinement_fetch_start");
+
               const deadlineBeforeLocationRefinement = checkDeadlineOrReturn("xai_location_refinement_fetch_start");
               if (deadlineBeforeLocationRefinement) return deadlineBeforeLocationRefinement;
 
               mark("xai_location_refinement_fetch_start");
-              const refinementResponse = await postJsonWithTimeout(xaiUrl, {
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": `Bearer ${xaiKey}`,
-                },
+              const refinementResponse = await postXaiJsonWithBudget({
+                stageKey: "location",
+                stageBeacon: "xai_location_refinement_fetch_start",
                 body: JSON.stringify(refinementPayload),
-                timeoutMs: timeout,
+                stageCapMsOverride: timeout,
               });
 
               if (refinementResponse.status >= 200 && refinementResponse.status < 300) {
