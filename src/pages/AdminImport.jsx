@@ -1109,11 +1109,19 @@ export default function AdminImport() {
 
             <div className="flex flex-wrap items-center gap-2">
               <Button
-                onClick={beginImport}
+                onClick={() => beginImport()}
                 disabled={!API_BASE || activeStatus === "running" || activeStatus === "stopping"}
               >
                 <Play className="h-4 w-4 mr-2" />
-                {activeStatus === "running" ? "Running…" : "Start import"}
+                {activeStatus === "running" ? "Running…" : "Start import (staged)"}
+              </Button>
+
+              <Button
+                variant="outline"
+                onClick={() => beginImport({ mode: "best_effort" })}
+                disabled={!API_BASE || activeStatus === "running" || activeStatus === "stopping"}
+              >
+                Run all stages (best effort)
               </Button>
 
               <Button
