@@ -386,6 +386,8 @@ async function handler(req, context) {
       return json({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404, req);
     }
 
+    stageBeaconValues.status_seen_control_docs = nowIso();
+
     const errorPayload = normalizeErrorPayload(errorDoc?.error || null);
     const timedOut = Boolean(timeoutDoc);
     const stopped = Boolean(stopDoc);
