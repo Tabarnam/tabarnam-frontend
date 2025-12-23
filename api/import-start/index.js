@@ -2499,6 +2499,15 @@ const importStartHandlerInner = async (req, context) => {
       const maxStageRaw = readQueryParam(req, "max_stage");
       const skipStagesRaw = readQueryParam(req, "skip_stages");
 
+      try {
+        console.log("[import-start] received_query_params", {
+          deadline_ms: requested_deadline_ms_number,
+          stage_ms_primary: requested_stage_ms_primary,
+          max_stage: typeof maxStageRaw === "string" ? maxStageRaw : null,
+          skip_stages: typeof skipStagesRaw === "string" ? skipStagesRaw : null,
+        });
+      } catch {}
+
       const maxStageParsed = parseStageParam(maxStageRaw);
       const skipStagesList = String(skipStagesRaw || "")
         .split(",")
@@ -3016,6 +3025,10 @@ const importStartHandlerInner = async (req, context) => {
             request_id: requestId,
             stage_beacon: beacon,
             reason: normalizedReason,
+            inline_budget_ms,
+            requested_deadline_ms,
+            requested_stage_ms_primary,
+            note: "start endpoint is inline capped; long primary runs async",
             ...(extra && typeof extra === "object" ? extra : {}),
           },
           202
@@ -3071,6 +3084,10 @@ const importStartHandlerInner = async (req, context) => {
 
         console.log(`[import-start] XAI Endpoint: ${xaiEndpointRaw ? "configured" : "NOT SET"}`);
         console.log(`[import-start] XAI Key: ${xaiKey ? "configured" : "NOT SET"}`);
+        console.log("[import-start] env_check", {
+          has_xai_key: Boolean(xaiKey),
+          xai_key_length: xaiKey ? String(xaiKey).length : 0,
+        });
         console.log(`[import-start] Config source: ${process.env.XAI_EXTERNAL_BASE ? "XAI_EXTERNAL_BASE" : process.env.FUNCTION_URL ? "FUNCTION_URL (legacy)" : "none"}`);
         console.log(`[import-start] XAI Request URL: ${xaiUrlForLog || "(unparseable)"}`);
 
