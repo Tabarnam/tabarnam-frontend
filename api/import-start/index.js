@@ -4949,6 +4949,7 @@ Return ONLY the JSON array, no other text.`,
           return jsonWithRequestId(failurePayload, mappedStatus);
         }
       } catch (xaiError) {
+        if (xaiError instanceof AcceptedResponseError) throw xaiError;
         const elapsed = Date.now() - startTime;
         const xaiUrlForLog = toHostPathOnlyForLog(xaiUrl);
         console.error(
