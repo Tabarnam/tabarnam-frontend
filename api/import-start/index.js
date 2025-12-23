@@ -1634,14 +1634,23 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
     console.log(
       `[import-start] Fetching editorial reviews for ${companyName} (upstream=${toHostPathOnlyForLog(xaiUrl)})`
     );
-    const response = await postJsonWithTimeout(xaiUrl, {
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${xaiKey}`,
-      },
-      body: JSON.stringify(reviewPayload),
-      timeoutMs: timeout,
-    });
+
+    const response =
+      stageCtx && typeof stageCtx.postXaiJsonWithBudget === "function"
+        ? await stageCtx.postXaiJsonWithBudget({
+            stageKey: "reviews",
+            stageBeacon: "xai_reviews_fetch_start",
+            body: JSON.stringify(reviewPayload),
+            stageCapMsOverride: timeout,
+          })
+        : await postJsonWithTimeout(xaiUrl, {
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${xaiKey}`,
+            },
+            body: JSON.stringify(reviewPayload),
+            timeoutMs: timeout,
+          });
 
     if (!(response.status >= 200 && response.status < 300)) {
       console.warn(`[import-start] Failed to fetch reviews for ${companyName}: status ${response.status}`);
