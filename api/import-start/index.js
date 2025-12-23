@@ -4196,8 +4196,8 @@ Output JSON only:
 
             const keywordsConcurrency = 4;
             for (let i = 0; i < enriched.length; i += keywordsConcurrency) {
-              if (Date.now() > deadlineMs) {
-                return respondAcceptedBeforeGatewayTimeout("xai_keywords_fetch_start");
+              if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
+                throwAccepted("xai_keywords_fetch_start", "remaining_budget_low", { stage: "keywords" });
               }
 
               const slice = enriched.slice(i, i + keywordsConcurrency);
@@ -4206,6 +4206,7 @@ Output JSON only:
                   try {
                     return await ensureCompanyKeywords(company);
                   } catch (e) {
+                    if (e instanceof AcceptedResponseError) throw e;
                     try {
                       console.log(
                         `[import-start] session=${sessionId} keyword enrichment failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`
