@@ -60,6 +60,21 @@ try {
 const DEFAULT_HARD_TIMEOUT_MS = 25_000;
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000;
 
+// Per-stage upstream hard caps (must stay under SWA gateway wall-clock).
+const STAGE_MAX_MS = {
+  primary: 20_000,
+  keywords: 15_000,
+  reviews: 15_000,
+  location: 10_000,
+  expand: 10_000,
+};
+
+// Safety buffer before the SWA gateway timeout where we stop doing work and return 202.
+const DEADLINE_SAFETY_BUFFER_MS = 8_000;
+
+// Budget we keep in reserve for JSON formatting / logging / finishing the response.
+const UPSTREAM_TIMEOUT_MARGIN_MS = 3_000;
+
 const XAI_SYSTEM_PROMPT =
   "You are a precise assistant. Follow the user's instructions exactly. When asked for JSON, output ONLY valid JSON with no markdown, no prose, and no extra keys.";
 
@@ -99,6 +114,14 @@ function json(obj, status = 200, extraHeaders) {
     },
     body: JSON.stringify(obj),
   };
+}
+
+class AcceptedResponseError extends Error {
+  constructor(response, message = "Accepted") {
+    super(message);
+    this.name = "AcceptedResponseError";
+    this.response = response;
+  }
 }
 
 function logImportStartMeta(meta) {
@@ -1611,14 +1634,23 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
     console.log(
       `[import-start] Fetching editorial reviews for ${companyName} (upstream=${toHostPathOnlyForLog(xaiUrl)})`
     );
-    const response = await postJsonWithTimeout(xaiUrl, {
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${xaiKey}`,
-      },
-      body: JSON.stringify(reviewPayload),
-      timeoutMs: timeout,
-    });
+
+    const response =
+      stageCtx && typeof stageCtx.postXaiJsonWithBudget === "function"
+        ? await stageCtx.postXaiJsonWithBudget({
+            stageKey: "reviews",
+            stageBeacon: "xai_reviews_fetch_start",
+            body: JSON.stringify(reviewPayload),
+            stageCapMsOverride: timeout,
+          })
+        : await postJsonWithTimeout(xaiUrl, {
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${xaiKey}`,
+            },
+            body: JSON.stringify(reviewPayload),
+            timeoutMs: timeout,
+          });
 
     if (!(response.status >= 200 && response.status < 300)) {
       console.warn(`[import-start] Failed to fetch reviews for ${companyName}: status ${response.status}`);
@@ -1798,6 +1830,7 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
 
     return curated;
   } catch (e) {
+    if (e instanceof AcceptedResponseError) throw e;
     console.warn(`[import-start] Error fetching reviews for ${companyName}: ${e.message}`);
     if (debugCollector) debugCollector.push({ ...debug, reason: e?.message || String(e) });
     return [];
@@ -2938,9 +2971,11 @@ const importStartHandlerInner = async (req, context) => {
         return false;
       };
 
-      const respondAcceptedBeforeGatewayTimeout = (nextStageBeacon) => {
+      const respondAcceptedBeforeGatewayTimeout = (nextStageBeacon, reason, extra) => {
         const beacon = String(nextStageBeacon || stage_beacon || stage || "unknown") || "unknown";
         mark(beacon);
+
+        const normalizedReason = String(reason || "deadline_budget_guard") || "deadline_budget_guard";
 
         try {
           upsertImportSession({
@@ -2959,7 +2994,8 @@ const importStartHandlerInner = async (req, context) => {
             session_id: sessionId,
             request_id: requestId,
             stage_beacon: beacon,
-            reason: "deadline_exceeded_returning_202",
+            reason: normalizedReason,
+            ...(extra && typeof extra === "object" ? extra : {}),
           },
           202
         );
@@ -2967,7 +3003,7 @@ const importStartHandlerInner = async (req, context) => {
 
       const checkDeadlineOrReturn = (nextStageBeacon) => {
         if (Date.now() > deadlineMs) {
-          return respondAcceptedBeforeGatewayTimeout(nextStageBeacon);
+          return respondAcceptedBeforeGatewayTimeout(nextStageBeacon, "deadline_exceeded_returning_202");
         }
         return null;
       };
@@ -3026,6 +3062,107 @@ const importStartHandlerInner = async (req, context) => {
             },
           });
         }
+
+        const getRemainingMs = () => deadlineMs - Date.now();
+
+        const throwAccepted = (nextStageBeacon, reason, extra) => {
+          const beacon = String(nextStageBeacon || stage_beacon || stage || "unknown") || "unknown";
+          const remainingMs = getRemainingMs();
+
+          try {
+            console.log("[import-start] returning_202", {
+              stage: extra && typeof extra === "object" && typeof extra.stage === "string" ? extra.stage : stage,
+              stage_beacon: beacon,
+              reason: String(reason || "deadline_budget_guard"),
+              remainingMs,
+              request_id: requestId,
+              session_id: sessionId,
+            });
+          } catch {}
+
+          throw new AcceptedResponseError(
+            respondAcceptedBeforeGatewayTimeout(beacon, reason, {
+              ...(extra && typeof extra === "object" ? extra : {}),
+              remainingMs,
+            })
+          );
+        };
+
+        const ensureStageBudgetOrThrow = (stageKey, nextStageBeacon) => {
+          const remainingMs = getRemainingMs();
+          if (remainingMs < DEADLINE_SAFETY_BUFFER_MS) {
+            throwAccepted(nextStageBeacon, "remaining_budget_low", { stage: stageKey });
+          }
+          return remainingMs;
+        };
+
+        const postXaiJsonWithBudget = async ({ stageKey, stageBeacon, body, stageCapMsOverride }) => {
+          const remainingMs = ensureStageBudgetOrThrow(stageKey, stageBeacon);
+          const stageCapMsBase = Number(STAGE_MAX_MS?.[stageKey]) || DEFAULT_UPSTREAM_TIMEOUT_MS;
+          const stageCapMsOverrideNumber =
+            Number.isFinite(Number(stageCapMsOverride)) && Number(stageCapMsOverride) > 0 ? Number(stageCapMsOverride) : null;
+          const stageCapMs = stageCapMsOverrideNumber ? Math.min(stageCapMsOverrideNumber, stageCapMsBase) : stageCapMsBase;
+
+          const timeoutForThisStage = Math.min(Math.max(1, remainingMs - UPSTREAM_TIMEOUT_MARGIN_MS), stageCapMs);
+
+          if (timeoutForThisStage < 1_000) {
+            throwAccepted(stageBeacon, "insufficient_time_for_fetch", {
+              stage: stageKey,
+              timeoutForThisStage,
+              stageCapMs,
+            });
+          }
+
+          const fetchStart = Date.now();
+
+          try {
+            console.log("[import-start] fetch_begin", {
+              stage: stageKey,
+              remainingMs,
+              timeoutForThisStage,
+              request_id: requestId,
+              session_id: sessionId,
+            });
+          } catch {}
+
+          try {
+            const res = await postJsonWithTimeout(xaiUrl, {
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${xaiKey}`,
+              },
+              body: typeof body === "string" ? body : "",
+              timeoutMs: timeoutForThisStage,
+            });
+
+            const elapsedMs = Date.now() - fetchStart;
+            try {
+              console.log("[import-start] fetch_end", {
+                stage: stageKey,
+                elapsedMs,
+                request_id: requestId,
+                session_id: sessionId,
+                status: res?.status,
+              });
+            } catch {}
+
+            return res;
+          } catch (e) {
+            const name = String(e?.name || "").toLowerCase();
+            const code = String(e?.code || "").toUpperCase();
+            const isAbort = code === "ECONNABORTED" || name.includes("abort");
+
+            if (isAbort) {
+              throwAccepted(stageBeacon, "upstream_timeout_returning_202", {
+                stage: stageKey,
+                timeoutForThisStage,
+                stageCapMs,
+              });
+            }
+
+            throw e;
+          }
+        };
 
         // Early check: if import was already stopped, return immediately
         if (!noUpstreamMode) {
@@ -3703,10 +3840,14 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
           console.log(`[import-start] Calling XAI API at: ${toHostPathOnlyForLog(xaiUrl)}`);
 
+          const inputCompanies = (Array.isArray(bodyObj.companies) ? bodyObj.companies : [])
+            .filter((it) => it && typeof it === "object")
+            .slice(0, 500);
+
           const deadlineBeforePrimary = checkDeadlineOrReturn("xai_primary_fetch_start");
           if (deadlineBeforePrimary) return deadlineBeforePrimary;
 
-          if (!shouldRunStage("primary")) {
+          if (!shouldRunStage("primary") && inputCompanies.length === 0) {
             mark("xai_primary_fetch_skipped");
             try {
               upsertImportSession({
@@ -3737,16 +3878,39 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             );
           }
 
+          ensureStageBudgetOrThrow("primary", "xai_primary_fetch_start");
           mark("xai_primary_fetch_start");
 
-          const xaiResponse = await postJsonWithTimeout(xaiUrl, {
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${xaiKey}`,
-            },
-            body: outboundBody,
-            timeoutMs: timeout,
-          });
+          let xaiResponse;
+          if (inputCompanies.length > 0) {
+            try {
+              console.log("[import-start] primary_input_companies", {
+                count: inputCompanies.length,
+                request_id: requestId,
+                session_id: sessionId,
+              });
+            } catch {}
+
+            xaiResponse = {
+              status: 200,
+              headers: {},
+              data: {
+                choices: [
+                  {
+                    message: {
+                      content: JSON.stringify(inputCompanies),
+                    },
+                  },
+                ],
+              },
+            };
+          } else {
+            xaiResponse = await postXaiJsonWithBudget({
+              stageKey: "primary",
+              stageBeacon: "xai_primary_fetch_start",
+              body: outboundBody,
+            });
+          }
 
           const elapsed = Date.now() - startTime;
         console.log(`[import-start] session=${sessionId} xai response status=${xaiResponse.status}`);
@@ -3924,13 +4088,11 @@ Output JSON only:
             };
 
             console.log(`[import-start] Calling XAI API (keywords) at: ${toHostPathOnlyForLog(xaiUrl)}`);
-            const res = await postJsonWithTimeout(xaiUrl, {
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${xaiKey}`,
-              },
+            const res = await postXaiJsonWithBudget({
+              stageKey: "keywords",
+              stageBeacon: "xai_keywords_fetch_start",
               body: JSON.stringify(payload),
-              timeoutMs,
+              stageCapMsOverride: timeoutMs,
             });
 
             const text = res?.data?.choices?.[0]?.message?.content || "";
@@ -3989,6 +4151,7 @@ Output JSON only:
                 const merged = [...finalList, ...gen.keywords];
                 finalList = normalizeProductKeywords(merged, { companyName, websiteUrl }).slice(0, 25);
               } catch (e) {
+                if (e instanceof AcceptedResponseError) throw e;
                 debugEntry.generated = true;
                 debugEntry.raw_response = e?.message || String(e);
               }
@@ -4038,13 +4201,14 @@ Output JSON only:
           if (deadlineBeforeKeywords) return deadlineBeforeKeywords;
 
           if (shouldRunStage("keywords")) {
+            ensureStageBudgetOrThrow("keywords", "xai_keywords_fetch_start");
             mark("xai_keywords_fetch_start");
             setStage("generateKeywords");
 
             const keywordsConcurrency = 4;
             for (let i = 0; i < enriched.length; i += keywordsConcurrency) {
-              if (Date.now() > deadlineMs) {
-                return respondAcceptedBeforeGatewayTimeout("xai_keywords_fetch_start");
+              if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
+                throwAccepted("xai_keywords_fetch_start", "remaining_budget_low", { stage: "keywords" });
               }
 
               const slice = enriched.slice(i, i + keywordsConcurrency);
@@ -4053,6 +4217,7 @@ Output JSON only:
                   try {
                     return await ensureCompanyKeywords(company);
                   } catch (e) {
+                    if (e instanceof AcceptedResponseError) throw e;
                     try {
                       console.log(
                         `[import-start] session=${sessionId} keyword enrichment failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`
@@ -4105,6 +4270,8 @@ Output JSON only:
 
           // Geocode and persist per-location coordinates (HQ + manufacturing)
           if (shouldRunStage("location")) {
+            ensureStageBudgetOrThrow("location", "xai_location_geocode_start");
+
             const deadlineBeforeGeocode = checkDeadlineOrReturn("xai_location_geocode_start");
             if (deadlineBeforeGeocode) return deadlineBeforeGeocode;
 
@@ -4113,8 +4280,8 @@ Output JSON only:
             console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
 
             for (let i = 0; i < enriched.length; i++) {
-              if (Date.now() > deadlineMs) {
-                return respondAcceptedBeforeGatewayTimeout("xai_location_geocode_start");
+              if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
+                throwAccepted("xai_location_geocode_start", "remaining_budget_low", { stage: "location" });
               }
 
               if (shouldAbort()) {
@@ -4147,6 +4314,8 @@ Output JSON only:
 
           // Fetch editorial reviews for companies
           if (shouldRunStage("reviews") && !shouldAbort()) {
+            ensureStageBudgetOrThrow("reviews", "xai_reviews_fetch_start");
+
             const deadlineBeforeReviews = checkDeadlineOrReturn("xai_reviews_fetch_start");
             if (deadlineBeforeReviews) return deadlineBeforeReviews;
 
@@ -4154,8 +4323,8 @@ Output JSON only:
             setStage("fetchEditorialReviews");
             console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
             for (let i = 0; i < enriched.length; i++) {
-              if (Date.now() > deadlineMs) {
-                return respondAcceptedBeforeGatewayTimeout("xai_reviews_fetch_start");
+              if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
+                throwAccepted("xai_reviews_fetch_start", "remaining_budget_low", { stage: "reviews" });
               }
 
               // Check if import was stopped OR we're running out of time
@@ -4184,7 +4353,7 @@ Output JSON only:
                   xaiKey,
                   timeout,
                   debugOutput ? debugOutput.reviews_debug : null,
-                  { setStage }
+                  { setStage, postXaiJsonWithBudget }
                 );
                 if (editorialReviews.length > 0) {
                   enriched[i] = { ...company, curated_reviews: editorialReviews };
@@ -4311,17 +4480,17 @@ Return ONLY the JSON array, no other text.`,
                 )})`
               );
 
+              ensureStageBudgetOrThrow("location", "xai_location_refinement_fetch_start");
+
               const deadlineBeforeLocationRefinement = checkDeadlineOrReturn("xai_location_refinement_fetch_start");
               if (deadlineBeforeLocationRefinement) return deadlineBeforeLocationRefinement;
 
               mark("xai_location_refinement_fetch_start");
-              const refinementResponse = await postJsonWithTimeout(xaiUrl, {
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": `Bearer ${xaiKey}`,
-                },
+              const refinementResponse = await postXaiJsonWithBudget({
+                stageKey: "location",
+                stageBeacon: "xai_location_refinement_fetch_start",
                 body: JSON.stringify(refinementPayload),
-                timeoutMs: timeout,
+                stageCapMsOverride: timeout,
               });
 
               if (refinementResponse.status >= 200 && refinementResponse.status < 300) {
@@ -4390,6 +4559,7 @@ Return ONLY the JSON array, no other text.`,
                 }
               }
             } catch (refinementErr) {
+              if (refinementErr instanceof AcceptedResponseError) throw refinementErr;
               console.warn(`[import-start] Location refinement pass failed: ${refinementErr.message}`);
               // Continue with original data if refinement fails
             } finally {
@@ -4507,17 +4677,17 @@ Return ONLY the JSON array, no other text.`,
                 `[import-start] Making expansion search for "${xaiPayload.query}" (upstream=${toHostPathOnlyForLog(xaiUrl)})`
               );
 
+              ensureStageBudgetOrThrow("expand", "xai_expand_fetch_start");
+
               const deadlineBeforeExpand = checkDeadlineOrReturn("xai_expand_fetch_start");
               if (deadlineBeforeExpand) return deadlineBeforeExpand;
 
               mark("xai_expand_fetch_start");
-              const expansionResponse = await postJsonWithTimeout(xaiUrl, {
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": `Bearer ${xaiKey}`,
-                },
+              const expansionResponse = await postXaiJsonWithBudget({
+                stageKey: "expand",
+                stageBeacon: "xai_expand_fetch_start",
                 body: JSON.stringify(expansionPayload),
-                timeoutMs: timeout,
+                stageCapMsOverride: timeout,
               });
 
               if (expansionResponse.status >= 200 && expansionResponse.status < 300) {
@@ -4571,7 +4741,7 @@ Return ONLY the JSON array, no other text.`,
                         xaiKey,
                         timeout,
                         debugOutput ? debugOutput.reviews_debug : null,
-                        { setStage }
+                  { setStage, postXaiJsonWithBudget }
                       );
                       if (editorialReviews.length > 0) {
                         enrichedExpansion[i] = { ...company, curated_reviews: editorialReviews };
@@ -4599,6 +4769,7 @@ Return ONLY the JSON array, no other text.`,
                 }
               }
             } catch (expansionErr) {
+              if (expansionErr instanceof AcceptedResponseError) throw expansionErr;
               console.warn(`[import-start] Expansion search failed: ${expansionErr.message}`);
               // Continue without expansion results
             } finally {
@@ -4777,6 +4948,7 @@ Return ONLY the JSON array, no other text.`,
           return jsonWithRequestId(failurePayload, mappedStatus);
         }
       } catch (xaiError) {
+        if (xaiError instanceof AcceptedResponseError) throw xaiError;
         const elapsed = Date.now() - startTime;
         const xaiUrlForLog = toHostPathOnlyForLog(xaiUrl);
         console.error(
@@ -4897,9 +5069,11 @@ Return ONLY the JSON array, no other text.`,
         return jsonWithRequestId(failurePayload, mappedStatus);
       }
       } catch (e) {
+        if (e instanceof AcceptedResponseError && e.response) return e.response;
         return respondError(e, { status: 500 });
       }
     } catch (e) {
+      if (e instanceof AcceptedResponseError && e.response) return e.response;
       const lastStage = String(stage_beacon || stage || "fatal") || "fatal";
       const error_message = toErrorString(e) || "Unhandled error";
 
@@ -4954,6 +5128,7 @@ const importStartHandler = async (req, context) => {
   try {
     return await importStartHandlerInner(req, context);
   } catch (e) {
+    if (e instanceof AcceptedResponseError && e.response) return e.response;
     let requestId = "";
     try {
       requestId = generateRequestId(req);
