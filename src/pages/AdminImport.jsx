@@ -486,6 +486,8 @@ export default function AdminImport() {
       completed: false,
       timedOut: false,
       stopped: false,
+      async_primary_active: false,
+      async_primary_timeout_ms: null,
       start_error: null,
       start_error_details: null,
       progress_error: null,
