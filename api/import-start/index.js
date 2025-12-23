@@ -1830,6 +1830,7 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
 
     return curated;
   } catch (e) {
+    if (e instanceof AcceptedResponseError) throw e;
     console.warn(`[import-start] Error fetching reviews for ${companyName}: ${e.message}`);
     if (debugCollector) debugCollector.push({ ...debug, reason: e?.message || String(e) });
     return [];
