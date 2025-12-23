@@ -4271,6 +4271,8 @@ Output JSON only:
 
           // Geocode and persist per-location coordinates (HQ + manufacturing)
           if (shouldRunStage("location")) {
+            ensureStageBudgetOrThrow("location", "xai_location_geocode_start");
+
             const deadlineBeforeGeocode = checkDeadlineOrReturn("xai_location_geocode_start");
             if (deadlineBeforeGeocode) return deadlineBeforeGeocode;
 
@@ -4279,8 +4281,8 @@ Output JSON only:
             console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
 
             for (let i = 0; i < enriched.length; i++) {
-              if (Date.now() > deadlineMs) {
-                return respondAcceptedBeforeGatewayTimeout("xai_location_geocode_start");
+              if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
+                throwAccepted("xai_location_geocode_start", "remaining_budget_low", { stage: "location" });
               }
 
               if (shouldAbort()) {
@@ -4313,6 +4315,8 @@ Output JSON only:
 
           // Fetch editorial reviews for companies
           if (shouldRunStage("reviews") && !shouldAbort()) {
+            ensureStageBudgetOrThrow("reviews", "xai_reviews_fetch_start");
+
             const deadlineBeforeReviews = checkDeadlineOrReturn("xai_reviews_fetch_start");
             if (deadlineBeforeReviews) return deadlineBeforeReviews;
 
@@ -4320,8 +4324,8 @@ Output JSON only:
             setStage("fetchEditorialReviews");
             console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
             for (let i = 0; i < enriched.length; i++) {
-              if (Date.now() > deadlineMs) {
-                return respondAcceptedBeforeGatewayTimeout("xai_reviews_fetch_start");
+              if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
+                throwAccepted("xai_reviews_fetch_start", "remaining_budget_low", { stage: "reviews" });
               }
 
               // Check if import was stopped OR we're running out of time
