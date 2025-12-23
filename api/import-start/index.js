@@ -4078,13 +4078,11 @@ Output JSON only:
             };
 
             console.log(`[import-start] Calling XAI API (keywords) at: ${toHostPathOnlyForLog(xaiUrl)}`);
-            const res = await postJsonWithTimeout(xaiUrl, {
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${xaiKey}`,
-              },
+            const res = await postXaiJsonWithBudget({
+              stageKey: "keywords",
+              stageBeacon: "xai_keywords_fetch_start",
               body: JSON.stringify(payload),
-              timeoutMs,
+              stageCapMsOverride: timeoutMs,
             });
 
             const text = res?.data?.choices?.[0]?.message?.content || "";
