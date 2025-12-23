@@ -3088,10 +3088,10 @@ const importStartHandlerInner = async (req, context) => {
 
         const postXaiJsonWithBudget = async ({ stageKey, stageBeacon, body, stageCapMsOverride }) => {
           const remainingMs = ensureStageBudgetOrThrow(stageKey, stageBeacon);
-          const stageCapMs =
-            Number.isFinite(Number(stageCapMsOverride)) && Number(stageCapMsOverride) > 0
-              ? Number(stageCapMsOverride)
-              : Number(STAGE_MAX_MS?.[stageKey]) || DEFAULT_UPSTREAM_TIMEOUT_MS;
+          const stageCapMsBase = Number(STAGE_MAX_MS?.[stageKey]) || DEFAULT_UPSTREAM_TIMEOUT_MS;
+          const stageCapMsOverrideNumber =
+            Number.isFinite(Number(stageCapMsOverride)) && Number(stageCapMsOverride) > 0 ? Number(stageCapMsOverride) : null;
+          const stageCapMs = stageCapMsOverrideNumber ? Math.min(stageCapMsOverrideNumber, stageCapMsBase) : stageCapMsBase;
 
           const timeoutForThisStage = Math.min(Math.max(1, remainingMs - UPSTREAM_TIMEOUT_MARGIN_MS), stageCapMs);
 
