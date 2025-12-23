@@ -514,15 +514,9 @@ export default function AdminImport() {
         expand_if_few: true,
       };
 
-      const { res } = await apiFetchWithFallback(["/import/start", "/import-start"], {
-        method: "POST",
-        body: requestPayload,
-        signal: abort.signal,
-      });
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-      const body = await readJsonOrText(res);
-
-      if (!res.ok || body?.ok === false) {
+      const recordStartErrorAndToast = async (res, body, extra) => {
         const configMsg = await getUserFacingConfigMessage(res);
         const errorObj = body?.error && typeof body.error === "object" ? body.error : null;
         const requestId =
@@ -547,6 +541,7 @@ export default function AdminImport() {
           request_payload: requestPayload,
           response_body: body,
           api_fetch_error: res && res.__api_fetch_error ? res.__api_fetch_error : null,
+          ...(extra && typeof extra === "object" ? extra : {}),
         };
 
         setRuns((prev) =>
@@ -566,24 +561,128 @@ export default function AdminImport() {
             ? `${msg} (code: ${errorObj.code}${errorObj.step ? `, step: ${errorObj.step}` : ""}${requestId ? `, request_id: ${requestId}` : ""})`
             : msg
         );
+      };
+
+      const updateRunCompanies = (companies, extra) => {
+        const list = normalizeItems(companies);
+        setRuns((prev) =>
+          prev.map((r) => {
+            if (r.session_id !== session_id) return r;
+            return {
+              ...r,
+              ...(extra && typeof extra === "object" ? extra : {}),
+              items: mergeById(r.items, list),
+              updatedAt: new Date().toISOString(),
+            };
+          })
+        );
+        return list;
+      };
+
+      const callImportStage = async ({ stage, skipStages, companies }) => {
+        const params = new URLSearchParams();
+        if (stage) params.set("max_stage", stage);
+        if (skipStages && skipStages.length > 0) params.set("skip_stages", skipStages.join(","));
+        const qs = params.toString();
+
+        const paths = [`/import/start${qs ? `?${qs}` : ""}`, `/import-start${qs ? `?${qs}` : ""}`];
+
+        const payload = {
+          ...requestPayload,
+          ...(Array.isArray(companies) && companies.length > 0 ? { companies } : {}),
+        };
+
+        const { res, usedPath } = await apiFetchWithFallback(paths, {
+          method: "POST",
+          body: payload,
+          signal: abort.signal,
+        });
+
+        const body = await readJsonOrText(res);
+        return { res, body, usedPath, payload };
+      };
+
+      if (bestEffort) {
+        const { res, body, usedPath, payload } = await callImportStage({ stage: "", skipStages: [], companies: [] });
+
+        if (!res.ok || body?.ok === false) {
+          await recordStartErrorAndToast(res, body, { usedPath, mode: "best_effort" });
+          return;
+        }
+
+        const finalCompanies = updateRunCompanies(body?.companies, { completed: true });
+        setActiveStatus("done");
+        toast.success(`Import finished (${finalCompanies.length} companies)`);
         return;
       }
 
-      const finalCompanies = normalizeItems(body?.companies);
-      setRuns((prev) =>
-        prev.map((r) => {
-          if (r.session_id !== session_id) return r;
-          return {
-            ...r,
-            items: mergeById(r.items, finalCompanies),
-            completed: true,
-            updatedAt: new Date().toISOString(),
-          };
-        })
-      );
+      const stageSequence = ["primary", "keywords", "reviews", "location", "expand"];
+      let companiesForNextStage = [];
 
+      for (let stageIndex = 0; stageIndex < stageSequence.length; stageIndex += 1) {
+        const stage = stageSequence[stageIndex];
+        const skipStages = stageSequence.slice(0, stageIndex);
+
+        let attempts = 0;
+        // Retry loop for 202 Accepted.
+        while (true) {
+          if (abort.signal.aborted) throw new DOMException("Aborted", "AbortError");
+
+          const { res, body, usedPath, payload } = await callImportStage({
+            stage,
+            skipStages,
+            companies: companiesForNextStage,
+          });
+
+          if (res.status === 202 || body?.accepted === true) {
+            attempts += 1;
+
+            setRuns((prev) =>
+              prev.map((r) =>
+                r.session_id === session_id
+                  ? {
+                      ...r,
+                      updatedAt: new Date().toISOString(),
+                      start_error: null,
+                    }
+                  : r
+              )
+            );
+
+            schedulePoll({ session_id });
+
+            if (attempts >= 5) {
+              const msg = `Stage "${stage}" is still returning 202 after ${attempts} attempts.`;
+              setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
+              setActiveStatus("error");
+              toast.error(msg);
+              return;
+            }
+
+            await sleep(2000);
+            continue;
+          }
+
+          if (!res.ok || body?.ok === false) {
+            await recordStartErrorAndToast(res, body, {
+              usedPath,
+              stage,
+              mode: "staged",
+              stage_index: stageIndex,
+              stage_payload: payload,
+            });
+            return;
+          }
+
+          const stageCompanies = updateRunCompanies(body?.companies);
+          if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
+          break;
+        }
+      }
+
+      setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, completed: true, updatedAt: new Date().toISOString() } : r)));
       setActiveStatus("done");
-      toast.success(`Import finished (${finalCompanies.length} companies)`);
+      toast.success("Import finished (staged)");
     } catch (e) {
       const msg = e?.name === "AbortError" ? "Import aborted" : toErrorString(e) || "Import failed";
       setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
