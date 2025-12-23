@@ -3923,7 +3923,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 job_state: existingState === "running" ? "running" : "queued",
                 stage: "primary",
                 stage_beacon:
-                  existingState === "running" ? "xai_primary_fetch_running" : "xai_primary_fetch_queued",
+                  typeof existingJob?.stage_beacon === "string" && existingJob.stage_beacon.trim()
+                    ? existingJob.stage_beacon.trim()
+                    : "primary_search_started",
                 request_payload: {
                   query: String(xaiPayload.query || ""),
                   queryTypes: Array.isArray(xaiPayload.queryTypes) ? xaiPayload.queryTypes : [],
