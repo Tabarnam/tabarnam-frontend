@@ -3868,16 +3868,39 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             );
           }
 
+          ensureStageBudgetOrThrow("primary", "xai_primary_fetch_start");
           mark("xai_primary_fetch_start");
 
-          const xaiResponse = await postJsonWithTimeout(xaiUrl, {
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${xaiKey}`,
-            },
-            body: outboundBody,
-            timeoutMs: timeout,
-          });
+          let xaiResponse;
+          if (inputCompanies.length > 0) {
+            try {
+              console.log("[import-start] primary_input_companies", {
+                count: inputCompanies.length,
+                request_id: requestId,
+                session_id: sessionId,
+              });
+            } catch {}
+
+            xaiResponse = {
+              status: 200,
+              headers: {},
+              data: {
+                choices: [
+                  {
+                    message: {
+                      content: JSON.stringify(inputCompanies),
+                    },
+                  },
+                ],
+              },
+            };
+          } else {
+            xaiResponse = await postXaiJsonWithBudget({
+              stageKey: "primary",
+              stageBeacon: "xai_primary_fetch_start",
+              body: outboundBody,
+            });
+          }
 
           const elapsed = Date.now() - startTime;
         console.log(`[import-start] session=${sessionId} xai response status=${xaiResponse.status}`);
