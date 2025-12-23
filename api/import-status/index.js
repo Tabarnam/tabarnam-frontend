@@ -1,6 +1,7 @@
 const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
 const { getSession: getImportSession } = require("../_importSessionStore");
+const { getJob: getImportPrimaryJob } = require("../_importPrimaryJobStore");
 const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
@@ -142,6 +143,59 @@ async function handler(req, context) {
     return json({ ok: false, error: "Missing session_id" }, 400, req);
   }
 
+  const primaryJob = await getImportPrimaryJob({ sessionId, cosmosEnabled: true }).catch(() => null);
+
+  if (primaryJob && primaryJob.job_state && String(primaryJob.job_state) !== "complete") {
+    const jobState = String(primaryJob.job_state);
+    const status = jobState === "error" ? "error" : jobState === "running" ? "running" : "queued";
+    const state = status === "error" ? "failed" : status === "complete" ? "complete" : "running";
+
+    return json(
+      {
+        ok: true,
+        session_id: sessionId,
+        status,
+        state,
+        stage_beacon:
+          typeof primaryJob.stage_beacon === "string" && primaryJob.stage_beacon.trim()
+            ? primaryJob.stage_beacon.trim()
+            : status === "queued"
+              ? "xai_primary_fetch_queued"
+              : status === "running"
+                ? "xai_primary_fetch_running"
+                : "xai_primary_fetch_error",
+        companies_count: Number.isFinite(Number(primaryJob.companies_count)) ? Number(primaryJob.companies_count) : 0,
+        items: status === "error" ? [] : Array.isArray(primaryJob.companies) ? primaryJob.companies : [],
+        primary_job: {
+          id: primaryJob.id || null,
+          job_state: jobState,
+          attempt: Number.isFinite(Number(primaryJob.attempt)) ? Number(primaryJob.attempt) : 0,
+          last_error: primaryJob.last_error || null,
+          storage: primaryJob.storage || null,
+        },
+        inline_budget_ms: Number.isFinite(Number(primaryJob.inline_budget_ms)) ? Number(primaryJob.inline_budget_ms) : 20_000,
+        requested_deadline_ms:
+          primaryJob.requested_deadline_ms === null || primaryJob.requested_deadline_ms === undefined
+            ? null
+            : Number.isFinite(Number(primaryJob.requested_deadline_ms))
+              ? Number(primaryJob.requested_deadline_ms)
+              : null,
+        requested_stage_ms_primary:
+          primaryJob.requested_stage_ms_primary === null || primaryJob.requested_stage_ms_primary === undefined
+            ? null
+            : Number.isFinite(Number(primaryJob.requested_stage_ms_primary))
+              ? Number(primaryJob.requested_stage_ms_primary)
+              : null,
+        note:
+          typeof primaryJob.note === "string" && primaryJob.note.trim()
+            ? primaryJob.note.trim()
+            : "start endpoint is inline capped; long primary runs async",
+      },
+      200,
+      req
+    );
+  }
+
   const mem = getImportSession(sessionId);
   if (mem) {
     return json(
@@ -149,6 +203,7 @@ async function handler(req, context) {
         ok: true,
         session_id: sessionId,
         status: mem.status || "running",
+        state: mem.status === "complete" ? "complete" : mem.status === "failed" ? "failed" : "running",
         stage_beacon: mem.stage_beacon || "init",
         companies_count: Number.isFinite(Number(mem.companies_count)) ? Number(mem.companies_count) : 0,
       },
@@ -163,6 +218,59 @@ async function handler(req, context) {
   const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
   if (!endpoint || !key) {
+    if (primaryJob) {
+      const jobState = String(primaryJob.job_state || "queued");
+      const status = jobState === "error" ? "error" : jobState === "complete" ? "complete" : jobState === "running" ? "running" : "queued";
+      const state = status === "error" ? "failed" : status === "complete" ? "complete" : "running";
+
+      return json(
+        {
+          ok: true,
+          session_id: sessionId,
+          status,
+          state,
+          stage_beacon:
+            typeof primaryJob.stage_beacon === "string" && primaryJob.stage_beacon.trim()
+              ? primaryJob.stage_beacon.trim()
+              : status === "complete"
+                ? "xai_primary_fetch_complete"
+                : status === "error"
+                  ? "xai_primary_fetch_error"
+                  : status === "running"
+                    ? "xai_primary_fetch_running"
+                    : "xai_primary_fetch_queued",
+          companies_count: Number.isFinite(Number(primaryJob.companies_count)) ? Number(primaryJob.companies_count) : 0,
+          items: Array.isArray(primaryJob.companies) ? primaryJob.companies : [],
+          primary_job: {
+            id: primaryJob.id || null,
+            job_state: jobState,
+            attempt: Number.isFinite(Number(primaryJob.attempt)) ? Number(primaryJob.attempt) : 0,
+            last_error: primaryJob.last_error || null,
+            storage: primaryJob.storage || null,
+          },
+          inline_budget_ms: Number.isFinite(Number(primaryJob.inline_budget_ms)) ? Number(primaryJob.inline_budget_ms) : 20_000,
+          requested_deadline_ms:
+            primaryJob.requested_deadline_ms === null || primaryJob.requested_deadline_ms === undefined
+              ? null
+              : Number.isFinite(Number(primaryJob.requested_deadline_ms))
+                ? Number(primaryJob.requested_deadline_ms)
+                : null,
+          requested_stage_ms_primary:
+            primaryJob.requested_stage_ms_primary === null || primaryJob.requested_stage_ms_primary === undefined
+              ? null
+              : Number.isFinite(Number(primaryJob.requested_stage_ms_primary))
+                ? Number(primaryJob.requested_stage_ms_primary)
+                : null,
+          note:
+            typeof primaryJob.note === "string" && primaryJob.note.trim()
+              ? primaryJob.note.trim()
+              : "start endpoint is inline capped; long primary runs async",
+        },
+        200,
+        req
+      );
+    }
+
     return json({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404, req);
   }
 
@@ -223,7 +331,8 @@ async function handler(req, context) {
         {
           ok: true,
           session_id: sessionId,
-          status: "failed",
+          status: "error",
+          state: "failed",
           stage_beacon,
           companies_count: saved,
           error: errorOut,
@@ -244,6 +353,7 @@ async function handler(req, context) {
           ok: true,
           session_id: sessionId,
           status: "complete",
+          state: "complete",
           stage_beacon,
           companies_count: saved,
           result: {
@@ -265,6 +375,7 @@ async function handler(req, context) {
         ok: true,
         session_id: sessionId,
         status: "running",
+        state: "running",
         stage_beacon,
         companies_count: saved,
         items,
