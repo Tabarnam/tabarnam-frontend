@@ -157,16 +157,37 @@ async function handler(req, context) {
   let primaryJob = await getImportPrimaryJob({ sessionId, cosmosEnabled: true }).catch(() => null);
 
   if (primaryJob && primaryJob.job_state) {
+    stageBeaconValues.status_seen_primary_job = nowIso();
+
     const jobState = String(primaryJob.job_state);
     const shouldDrive = jobState === "queued" || jobState === "running";
 
+    if (jobState === "running") stageBeaconValues.status_seen_running = nowIso();
+
+    let workerResult = null;
     if (shouldDrive) {
-      await runPrimaryJob({
+      stageBeaconValues.status_invoked_worker = nowIso();
+
+      workerResult = await runPrimaryJob({
         context,
         sessionId,
         cosmosEnabled: true,
         invocationSource: "status",
-      }).catch(() => null);
+      }).catch((e) => {
+        stageBeaconValues.status_worker_error = nowIso();
+        stageBeaconValues.status_worker_error_detail = typeof e?.message === "string" ? e.message : String(e);
+        return null;
+      });
+
+      stageBeaconValues.status_worker_returned = nowIso();
+
+      const claimed = Boolean(workerResult?.body?.meta?.worker_claimed);
+      if (claimed) stageBeaconValues.status_worker_claimed = nowIso();
+      else stageBeaconValues.status_worker_no_claim = nowIso();
+
+      if (workerResult?.body?.status === "error" || workerResult?.body?.ok === false) {
+        stageBeaconValues.status_worker_error = stageBeaconValues.status_worker_error || nowIso();
+      }
 
       primaryJob = await getImportPrimaryJob({ sessionId, cosmosEnabled: true }).catch(() => primaryJob);
     }
