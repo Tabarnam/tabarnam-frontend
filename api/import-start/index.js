@@ -4677,17 +4677,17 @@ Return ONLY the JSON array, no other text.`,
                 `[import-start] Making expansion search for "${xaiPayload.query}" (upstream=${toHostPathOnlyForLog(xaiUrl)})`
               );
 
+              ensureStageBudgetOrThrow("expand", "xai_expand_fetch_start");
+
               const deadlineBeforeExpand = checkDeadlineOrReturn("xai_expand_fetch_start");
               if (deadlineBeforeExpand) return deadlineBeforeExpand;
 
               mark("xai_expand_fetch_start");
-              const expansionResponse = await postJsonWithTimeout(xaiUrl, {
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": `Bearer ${xaiKey}`,
-                },
+              const expansionResponse = await postXaiJsonWithBudget({
+                stageKey: "expand",
+                stageBeacon: "xai_expand_fetch_start",
                 body: JSON.stringify(expansionPayload),
-                timeoutMs: timeout,
+                stageCapMsOverride: timeout,
               });
 
               if (expansionResponse.status >= 200 && expansionResponse.status < 300) {
