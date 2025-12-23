@@ -212,6 +212,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: import/primary-worker");
+  require("./import/primary-worker/index.js");
+} catch (e) {
+  console.error("[api] Failed to load import/primary-worker:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: google/geocode");
   require("./google/geocode/index.js");
 } catch (e) {

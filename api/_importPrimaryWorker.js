@@ -1,34 +1,5 @@
-try {
-  ({ app } = require("@azure/functions"));
-} catch {
-  app = { http() {} };
-}
-
-const { getXAIEndpoint, getXAIKey } = require("../_shared");
-const {
-  getJob,
-  tryClaimJob,
-  patchJob,
-} = require("../_importPrimaryJobStore");
-
-function cors(req) {
-  const origin = req?.headers?.get?.("origin") || "*";
-  return {
-    "Access-Control-Allow-Origin": origin,
-    Vary: "Origin",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Access-Control-Allow-Headers":
-      "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id",
-  };
-}
-
-function json(obj, status = 200, req) {
-  return {
-    status,
-    headers: { ...cors(req), "Content-Type": "application/json" },
-    body: JSON.stringify(obj),
-  };
-}
+const { getXAIEndpoint, getXAIKey } = require("./_shared");
+const { getJob, tryClaimJob, patchJob } = require("./_importPrimaryJobStore");
 
 function nowIso() {
   return new Date().toISOString();
@@ -134,62 +105,147 @@ function isTransientUpstream(status) {
   return s >= 500 && s <= 599;
 }
 
-async function runPrimaryJob({ req, context, sessionId, cosmosEnabled }) {
+function getHeartbeatTimestamp(job) {
+  const hb = Date.parse(job?.last_heartbeat_at || "") || 0;
+  if (hb) return hb;
+  const updated = Date.parse(job?.updated_at || "") || 0;
+  if (updated) return updated;
+  const started = Date.parse(job?.started_at || "") || 0;
+  return started || 0;
+}
+
+async function markStalledJob({ sessionId, cosmosEnabled, nowTs, note }) {
+  const now = Number.isFinite(Number(nowTs)) ? Number(nowTs) : Date.now();
+
+  await patchJob({
+    sessionId,
+    cosmosEnabled,
+    patch: {
+      job_state: "error",
+      stage_beacon: "xai_primary_fetch_error",
+      last_error: {
+        code: "stalled_worker",
+        message: "Worker heartbeat stale",
+        ...(note ? { note: String(note) } : {}),
+      },
+      last_heartbeat_at: new Date(now).toISOString(),
+      updated_at: new Date(now).toISOString(),
+      lock_expires_at: null,
+      locked_by: null,
+    },
+  }).catch(() => null);
+}
+
+async function heartbeat({ sessionId, cosmosEnabled, lockTtlMs }) {
+  const ttlMs = Number.isFinite(Number(lockTtlMs)) ? Math.max(1000, Number(lockTtlMs)) : 240_000;
+  const now = Date.now();
+
+  await patchJob({
+    sessionId,
+    cosmosEnabled,
+    patch: {
+      last_heartbeat_at: new Date(now).toISOString(),
+      updated_at: new Date(now).toISOString(),
+      lock_expires_at: new Date(now + ttlMs).toISOString(),
+    },
+  }).catch(() => null);
+}
+
+async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSource }) {
   const workerId =
     (context && typeof context === "object" && context.invocationId ? `inv_${context.invocationId}` : "") ||
     `inv_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
   const existing = await getJob({ sessionId, cosmosEnabled });
   if (!existing) {
-    return json(
-      {
-        ok: false,
-        error: "Unknown session_id",
-        session_id: sessionId,
-      },
-      404,
-      req
-    );
+    return {
+      httpStatus: 404,
+      body: { ok: false, error: "Unknown session_id", session_id: sessionId },
+    };
   }
+
+  const state = String(existing?.job_state || "queued");
+  const now = Date.now();
+
+  const HEARTBEAT_STALE_MS = 5 * 60_000;
+  if (state === "running") {
+    const hbTs = getHeartbeatTimestamp(existing);
+    if (hbTs && now - hbTs > HEARTBEAT_STALE_MS) {
+      await markStalledJob({
+        sessionId,
+        cosmosEnabled,
+        nowTs: now,
+        note: `heartbeat_stale_ms=${now - hbTs}`,
+      });
+
+      const after = await getJob({ sessionId, cosmosEnabled }).catch(() => null);
+      return {
+        httpStatus: 200,
+        body: {
+          ok: false,
+          session_id: sessionId,
+          status: "error",
+          stage_beacon: "xai_primary_fetch_error",
+          error: after?.last_error || { code: "stalled_worker", message: "Worker heartbeat stale" },
+          note: "Job marked as error due to stalled worker heartbeat",
+          meta: { invocation_source: invocationSource || null },
+        },
+      };
+    }
+  }
+
+  const LOCK_TTL_MS = 240_000;
 
   const claim = await tryClaimJob({
     sessionId,
     cosmosEnabled,
     workerId,
-    lockTtlMs: 120_000,
+    lockTtlMs: LOCK_TTL_MS,
   });
 
   if (!claim.ok) {
-    return json({ ok: false, error: claim.error || "claim_failed", session_id: sessionId }, 500, req);
+    return {
+      httpStatus: 200,
+      body: {
+        ok: false,
+        error: claim.error || "claim_failed",
+        session_id: sessionId,
+        status: "error",
+        stage_beacon: "xai_primary_fetch_error",
+        meta: { invocation_source: invocationSource || null },
+      },
+    };
   }
 
   const job = claim.job || existing;
   if (!claim.claimed) {
-    return json(
-      {
-        ok: true,
+    const finalJobState = String(job?.job_state || "queued");
+    const status =
+      finalJobState === "complete"
+        ? "complete"
+        : finalJobState === "error"
+          ? "error"
+          : finalJobState === "running"
+            ? "running"
+            : "queued";
+
+    return {
+      httpStatus: status === "complete" || status === "error" ? 200 : 202,
+      body: {
+        ok: status !== "error",
         session_id: sessionId,
-        status: String(job?.job_state || "queued"),
+        status,
         stage_beacon: String(job?.stage_beacon || "xai_primary_fetch_queued"),
+        ...(status === "error" ? { error: job?.last_error || { code: "UNKNOWN", message: "Job failed" } } : {}),
         note: "Job already running or complete",
+        meta: { invocation_source: invocationSource || null },
       },
-      200,
-      req
-    );
+    };
   }
 
   const xaiUrl = getXAIEndpoint();
   const xaiKey = getXAIKey();
   const hasKey = Boolean(xaiKey);
-  const keyLen = hasKey ? String(xaiKey).length : 0;
-
-  try {
-    console.log("[import-primary-worker] env_check", {
-      session_id: sessionId,
-      has_xai_key: hasKey,
-      xai_key_length: keyLen,
-    });
-  } catch {}
 
   await patchJob({
     sessionId,
@@ -201,8 +257,10 @@ async function runPrimaryJob({ req, context, sessionId, cosmosEnabled }) {
       updated_at: nowIso(),
       started_at: job?.started_at || nowIso(),
       last_error: null,
+      last_heartbeat_at: nowIso(),
+      lock_expires_at: new Date(Date.now() + LOCK_TTL_MS).toISOString(),
     },
-  });
+  }).catch(() => null);
 
   const requested = Number(job?.requested_stage_ms_primary);
   const requestedStageMsPrimary = Number.isFinite(requested) && requested > 0 ? requested : 20_000;
@@ -210,52 +268,52 @@ async function runPrimaryJob({ req, context, sessionId, cosmosEnabled }) {
   const effectiveTimeoutMs = Math.max(1_000, Math.min(requestedStageMsPrimary, 180_000));
   const outboundBody = typeof job?.xai_outbound_body === "string" ? job.xai_outbound_body : "";
 
-  if (!xaiUrl) {
+  if (!xaiUrl || !hasKey || !outboundBody) {
+    const code = !xaiUrl
+      ? "MISSING_XAI_ENDPOINT"
+      : !hasKey
+        ? "MISSING_XAI_KEY"
+        : "MISSING_OUTBOUND_BODY";
+
+    const msg =
+      code === "MISSING_XAI_ENDPOINT"
+        ? "Missing XAI endpoint"
+        : code === "MISSING_XAI_KEY"
+          ? "Missing XAI key"
+          : "Missing xai_outbound_body";
+
     await patchJob({
       sessionId,
       cosmosEnabled,
       patch: {
         job_state: "error",
         stage_beacon: "xai_primary_fetch_error",
-        last_error: { code: "MISSING_XAI_ENDPOINT", message: "Missing XAI endpoint" },
+        last_error: { code, message: msg },
+        last_heartbeat_at: nowIso(),
         updated_at: nowIso(),
+        lock_expires_at: null,
+        locked_by: null,
       },
-    });
-    return json({ ok: false, error: "Missing XAI endpoint", session_id: sessionId }, 500, req);
-  }
+    }).catch(() => null);
 
-  if (!hasKey) {
-    await patchJob({
-      sessionId,
-      cosmosEnabled,
-      patch: {
-        job_state: "error",
+    return {
+      httpStatus: 200,
+      body: {
+        ok: false,
+        error: msg,
+        session_id: sessionId,
+        status: "error",
         stage_beacon: "xai_primary_fetch_error",
-        last_error: { code: "MISSING_XAI_KEY", message: "Missing XAI key" },
-        updated_at: nowIso(),
+        meta: { invocation_source: invocationSource || null },
       },
-    });
-    return json({ ok: false, error: "Missing XAI key", session_id: sessionId }, 500, req);
-  }
-
-  if (!outboundBody) {
-    await patchJob({
-      sessionId,
-      cosmosEnabled,
-      patch: {
-        job_state: "error",
-        stage_beacon: "xai_primary_fetch_error",
-        last_error: { code: "MISSING_OUTBOUND_BODY", message: "Missing xai_outbound_body" },
-        updated_at: nowIso(),
-      },
-    });
-
-    return json({ ok: false, error: "Missing xai_outbound_body", session_id: sessionId }, 500, req);
+    };
   }
 
   const maxAttempts = 3;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    await heartbeat({ sessionId, cosmosEnabled, lockTtlMs: LOCK_TTL_MS });
+
     await patchJob({
       sessionId,
       cosmosEnabled,
@@ -263,12 +321,12 @@ async function runPrimaryJob({ req, context, sessionId, cosmosEnabled }) {
         attempt,
         stage_beacon: "xai_primary_fetch_running",
         updated_at: nowIso(),
+        last_heartbeat_at: nowIso(),
       },
-    });
+    }).catch(() => null);
 
-    let xaiResponse;
     try {
-      xaiResponse = await postJsonWithTimeout(xaiUrl, {
+      const xaiResponse = await postJsonWithTimeout(xaiUrl, {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${xaiKey}`,
@@ -277,19 +335,18 @@ async function runPrimaryJob({ req, context, sessionId, cosmosEnabled }) {
         timeoutMs: effectiveTimeoutMs,
       });
 
+      await heartbeat({ sessionId, cosmosEnabled, lockTtlMs: LOCK_TTL_MS });
+
       if (!xaiResponse.ok) {
         const err = new Error(`Upstream error (${xaiResponse.status})`);
         err.upstream_status = xaiResponse.status;
         err.code = "UPSTREAM_ERROR";
         err.text_preview =
-          typeof xaiResponse.text === "string" && xaiResponse.text
-            ? xaiResponse.text.slice(0, 500)
-            : "";
+          typeof xaiResponse.text === "string" && xaiResponse.text ? xaiResponse.text.slice(0, 500) : "";
         throw err;
       }
 
       const parsed = parseCompaniesFromXaiResponse(xaiResponse);
-
       if (parsed.parse_error) {
         const err = new Error(`Parse error: ${parsed.parse_error}`);
         err.code = "PARSE_ERROR";
@@ -306,47 +363,31 @@ async function runPrimaryJob({ req, context, sessionId, cosmosEnabled }) {
           stage_beacon: "xai_primary_fetch_complete",
           completed_at: nowIso(),
           updated_at: nowIso(),
+          last_heartbeat_at: nowIso(),
           companies_count: companies.length,
           companies,
           last_error: null,
+          lock_expires_at: null,
+          locked_by: null,
         },
-      });
+      }).catch(() => null);
 
-      try {
-        console.log("[import-primary-worker] job_complete", {
-          session_id: sessionId,
-          companies_count: companies.length,
-          requested_stage_ms_primary: requestedStageMsPrimary,
-          effective_timeout_ms: effectiveTimeoutMs,
-        });
-      } catch {}
-
-      return json(
-        {
+      return {
+        httpStatus: 200,
+        body: {
           ok: true,
           session_id: sessionId,
           status: "complete",
           stage_beacon: "xai_primary_fetch_complete",
           companies_count: companies.length,
+          meta: { invocation_source: invocationSource || null },
         },
-        200,
-        req
-      );
+      };
     } catch (e) {
       const redacted = redactErrorForJob(e);
 
-      try {
-        console.warn("[import-primary-worker] upstream_error", {
-          session_id: sessionId,
-          attempt,
-          code: redacted.code || redacted.name,
-          message: redacted.message,
-        });
-      } catch {}
-
       const isTransient =
-        redacted.code === "UPSTREAM_TIMEOUT" ||
-        redacted.code === "UPSTREAM_ERROR"
+        redacted.code === "UPSTREAM_TIMEOUT" || redacted.code === "UPSTREAM_ERROR"
           ? isTransientUpstream(e?.upstream_status)
           : true;
 
@@ -357,90 +398,49 @@ async function runPrimaryJob({ req, context, sessionId, cosmosEnabled }) {
         cosmosEnabled,
         patch: {
           updated_at: nowIso(),
+          last_heartbeat_at: nowIso(),
           last_error: redacted,
           job_state: willRetry ? "running" : "error",
           stage_beacon: willRetry ? "xai_primary_fetch_running" : "xai_primary_fetch_error",
+          ...(willRetry ? {} : { lock_expires_at: null, locked_by: null }),
         },
-      });
+      }).catch(() => null);
 
       if (!willRetry) {
-        return json(
-          {
+        return {
+          httpStatus: 200,
+          body: {
             ok: false,
             session_id: sessionId,
             status: "error",
             stage_beacon: "xai_primary_fetch_error",
             error: redacted,
+            meta: { invocation_source: invocationSource || null },
           },
-          500,
-          req
-        );
+        };
       }
 
       const backoffMs = attempt === 1 ? 1000 : attempt === 2 ? 2000 : 4000;
       await sleep(backoffMs);
-      continue;
     }
   }
 
-  return json(
-    {
+  return {
+    httpStatus: 200,
+    body: {
       ok: false,
       session_id: sessionId,
       status: "error",
       stage_beacon: "xai_primary_fetch_error",
       error: { code: "UNKNOWN", message: "Worker reached unexpected end" },
+      meta: { invocation_source: invocationSource || null },
     },
-    500,
-    req
-  );
+  };
 }
 
-async function handler(req, context) {
-  const method = String(req?.method || "").toUpperCase();
-  if (method === "OPTIONS") return { status: 200, headers: cors(req) };
-
-  const url = new URL(req.url);
-  const noCosmosMode = String(url.searchParams.get("no_cosmos") || "").trim() === "1";
-  const cosmosEnabled = !noCosmosMode;
-
-  let body = {};
-  if (method === "POST") {
-    try {
-      const txt = await req.text();
-      if (txt) body = JSON.parse(txt);
-    } catch {}
-  }
-
-  const sessionId =
-    String(body?.session_id || body?.sessionId || url.searchParams.get("session_id") || "").trim() || "";
-
-  if (!sessionId) {
-    return json({ ok: false, error: "Missing session_id" }, 400, req);
-  }
-
-  try {
-    console.log("[import-primary-worker] received", {
-      session_id: sessionId,
-      no_cosmos: noCosmosMode,
-    });
-  } catch {}
-
-  return await runPrimaryJob({ req, context, sessionId, cosmosEnabled });
-}
-
-app.http("import-primary-worker", {
-  route: "import/primary-worker",
-  methods: ["GET", "POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler,
-});
-
-app.http("import-primary-worker-alt", {
-  route: "import-primary-worker",
-  methods: ["GET", "POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler,
-});
-
-module.exports = { _test: { handler } };
+module.exports = {
+  runPrimaryJob,
+  _test: {
+    getHeartbeatTimestamp,
+  },
+};
