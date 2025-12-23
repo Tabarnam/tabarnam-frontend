@@ -626,7 +626,11 @@ export default function AdminImport() {
         let attempts = 0;
         // Retry loop for 202 Accepted.
         while (true) {
-          if (abort.signal.aborted) throw new DOMException("Aborted", "AbortError");
+          if (abort.signal.aborted) {
+            const aborted = new Error("Aborted");
+            aborted.name = "AbortError";
+            throw aborted;
+          }
 
           const { res, body, usedPath, payload } = await callImportStage({
             stage,
