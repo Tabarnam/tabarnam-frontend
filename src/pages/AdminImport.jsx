@@ -770,6 +770,13 @@ export default function AdminImport() {
           companies: companiesForNextStage,
         });
 
+        syncCanonicalSessionId(body);
+
+        if (stageIndex === 0) {
+          resetPollAttempts(canonicalSessionId);
+          schedulePoll({ session_id: canonicalSessionId });
+        }
+
         if (res.status === 202 || body?.accepted === true) {
           const stageBeacon = asString(body?.stage_beacon).trim();
           const isAsyncPrimary =
