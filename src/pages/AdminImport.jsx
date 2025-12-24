@@ -536,7 +536,7 @@ export default function AdminImport() {
     };
 
     setRuns((prev) => [newRun, ...prev]);
-    setActiveSessionId(session_id);
+    setActiveSessionId(uiSessionIdBefore);
     setActiveStatus("running");
 
     startFetchAbortRef.current?.abort?.();
@@ -545,7 +545,7 @@ export default function AdminImport() {
 
     try {
       const requestPayload = {
-        session_id,
+        session_id: uiSessionIdBefore,
         query: q,
         queryTypes: selectedTypes,
         location: asString(location).trim() || undefined,
