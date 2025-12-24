@@ -453,7 +453,7 @@ async function handler(req, context) {
   if (mem) {
     stageBeaconValues.status_seen_session_memory = nowIso();
 
-    return json(
+    return jsonWithSessionId(
       {
         ok: true,
         session_id: sessionId,
