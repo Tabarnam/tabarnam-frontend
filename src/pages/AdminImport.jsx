@@ -498,7 +498,7 @@ export default function AdminImport() {
     const runMode = options && typeof options === "object" ? asString(options.mode).trim() : "";
     const bestEffort = runMode === "best_effort";
 
-    const session_id = (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    const uiSessionIdBefore = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
     const normalizedLimit = normalizeImportLimit(limitInput);
 
