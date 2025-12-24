@@ -654,7 +654,7 @@ export default function AdminImport() {
 
         setRuns((prev) =>
           prev.map((r) =>
-            r.session_id === session_id
+            r.session_id === canonicalSessionId
               ? {
                   ...r,
                   start_error: msg,
@@ -675,7 +675,7 @@ export default function AdminImport() {
         const list = normalizeItems(companies);
         setRuns((prev) =>
           prev.map((r) => {
-            if (r.session_id !== session_id) return r;
+            if (r.session_id !== canonicalSessionId) return r;
             return {
               ...r,
               ...(extra && typeof extra === "object" ? extra : {}),
@@ -712,6 +712,8 @@ export default function AdminImport() {
 
       if (bestEffort) {
         const { res, body, usedPath, payload } = await callImportStage({ stage: "", skipStages: [], companies: [] });
+
+        syncCanonicalSessionId({ res, body });
 
         if (!res.ok || body?.ok === false) {
           await recordStartErrorAndToast(res, body, { usedPath, mode: "best_effort" });
@@ -859,7 +861,7 @@ export default function AdminImport() {
           companies: companiesForNextStage,
         });
 
-        syncCanonicalSessionId(body);
+        syncCanonicalSessionId({ res, body });
 
         if (stageIndex === 0) {
           resetPollAttempts(canonicalSessionId);
