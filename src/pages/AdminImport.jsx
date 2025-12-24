@@ -564,7 +564,7 @@ export default function AdminImport() {
 
         const detailsForCopy = {
           status: res.status,
-          session_id,
+          session_id: canonicalSessionId,
           request_id: requestId,
           request_payload: requestPayload,
           response_body: body,
