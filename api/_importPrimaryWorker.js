@@ -124,6 +124,15 @@ function getHeartbeatTimestamp(job) {
   return started || 0;
 }
 
+function getJobCreatedTimestamp(job) {
+  const created = Date.parse(job?.created_at || "") || 0;
+  if (created) return created;
+  const updated = Date.parse(job?.updated_at || "") || 0;
+  if (updated) return updated;
+  const started = Date.parse(job?.started_at || "") || 0;
+  return started || 0;
+}
+
 function toPositiveInt(value, fallback) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return fallback;
@@ -271,6 +280,42 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
   const HEARTBEAT_STALE_MS = Number.isFinite(Number(process.env.IMPORT_HEARTBEAT_STALE_MS))
     ? Math.max(5_000, Number(process.env.IMPORT_HEARTBEAT_STALE_MS))
     : 120_000;
+
+  if (state === "queued") {
+    const createdTs = getJobCreatedTimestamp(existing);
+    if (createdTs && now - createdTs > HARD_MAX_RUNTIME_MS) {
+      const queueAgeMs = now - createdTs;
+
+      await markPrimaryError({
+        sessionId,
+        cosmosEnabled,
+        code: "primary_timeout",
+        message: "Primary search exceeded hard runtime limit",
+        stageBeacon: "primary_timeout",
+        details: {
+          elapsed_ms: queueAgeMs,
+          hard_timeout_ms: HARD_MAX_RUNTIME_MS,
+          note: "Job remained queued beyond hard timeout",
+        },
+      });
+
+      const after = await getJob({ sessionId, cosmosEnabled }).catch(() => null);
+      return {
+        httpStatus: 200,
+        body: {
+          ok: false,
+          session_id: sessionId,
+          status: "error",
+          stage_beacon: "primary_timeout",
+          error:
+            after?.last_error ||
+            ({ code: "primary_timeout", message: "Primary search exceeded hard runtime limit" }),
+          note: "Job marked as error due to queued timeout",
+          meta: buildMeta({ invocationSource, workerId, workerClaimed: false }),
+        },
+      };
+    }
+  }
 
   if (state === "running") {
     const hbTs = getHeartbeatTimestamp(existing);
