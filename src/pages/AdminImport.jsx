@@ -535,6 +535,7 @@ export default function AdminImport() {
       save_error: null,
     };
 
+    setSessionIdMismatchDebug(null);
     setRuns((prev) => [newRun, ...prev]);
     setActiveSessionId(uiSessionIdBefore);
     setActiveStatus("running");
