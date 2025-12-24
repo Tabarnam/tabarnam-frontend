@@ -1298,6 +1298,12 @@ export default function AdminImport() {
                 <div className="mt-2 text-[11px] text-slate-600">
                   Polling session_id: <code className="text-[11px] text-slate-900 break-all">{pollingSessionId || "—"}</code>
                 </div>
+
+                {sessionIdMismatchDebug ? (
+                  <pre className="mt-2 max-h-24 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">
+                    {toDisplayText(toPrettyJsonText(sessionIdMismatchDebug))}
+                  </pre>
+                ) : null}
               </div>
 
               <div className="rounded border border-slate-200 bg-slate-50 p-3">
