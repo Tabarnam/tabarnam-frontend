@@ -302,6 +302,7 @@ export default function AdminImport() {
   const schedulePoll = useCallback(
     ({ session_id }) => {
       stopPolling();
+      setPollingSessionId(asString(session_id).trim());
       pollTimerRef.current = setTimeout(async () => {
         const prevAttempts = pollAttemptsRef.current.get(session_id) || 0;
         const nextAttempts = prevAttempts + 1;
