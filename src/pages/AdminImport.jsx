@@ -686,7 +686,7 @@ export default function AdminImport() {
             throw aborted;
           }
 
-          const { body, error } = await pollProgress({ session_id });
+          const { body, error } = await pollProgress({ session_id: canonicalSessionId });
           if (error) {
             await sleep(2500);
             continue;
@@ -694,6 +694,8 @@ export default function AdminImport() {
 
           const state = asString(body?.state).trim();
           const status = asString(body?.status).trim();
+          const jobState = asString(body?.job_state || body?.primary_job_state).trim();
+
           const completed = state === "complete" ? true : Boolean(body?.completed);
           const timedOut = Boolean(body?.timedOut);
           const stopped = Boolean(body?.stopped);
@@ -702,12 +704,13 @@ export default function AdminImport() {
           const companiesCountRaw = body?.companies_count ?? body?.count ?? items.length ?? 0;
           const companiesCount = Number.isFinite(Number(companiesCountRaw)) ? Number(companiesCountRaw) : items.length;
 
-          const primaryJobState = asString(body?.primary_job?.state).trim();
-          const primaryJobStatus = asString(body?.primary_job?.status).trim();
+          const primaryJobState = asString(body?.primary_job?.job_state || body?.primary_job_state || jobState).trim();
 
           const isFailure =
             state === "failed" ||
             status === "error" ||
+            jobState === "error" ||
+            primaryJobState === "error" ||
             (body && typeof body === "object" && body.ok === false) ||
             (timedOut ? true : false) ||
             (stopped && !completed);
@@ -716,16 +719,32 @@ export default function AdminImport() {
 
           const stageReady =
             completed ||
+            jobState === "complete" ||
+            primaryJobState === "complete" ||
             items.length > 0 ||
-            companiesCount > 0 ||
-            (stage === "primary" && (primaryJobState === "complete" || primaryJobStatus === "complete"));
+            companiesCount > 0;
 
           if (stageReady) return { kind: "ready", body };
 
           await sleep(2500);
         }
 
-        return { kind: "timeout", body: null };
+        return {
+          kind: "failed",
+          body: {
+            ok: true,
+            status: "error",
+            state: "failed",
+            job_state: "error",
+            stage_beacon: stage === "primary" ? "primary_timeout" : `stage_${stage}_timeout`,
+            last_error: {
+              code: stage === "primary" ? "primary_timeout" : "stage_timeout",
+              message:
+                stage === "primary" ? "Primary import timed out (120s hard cap)." : `Stage \"${stage}\" did not reach a terminal state.`,
+            },
+            error: stage === "primary" ? "Primary import timed out (120s hard cap)." : `Stage \"${stage}\" did not reach a terminal state.`,
+          },
+        };
       };
 
       for (let stageIndex = 0; stageIndex < stageSequence.length; stageIndex += 1) {
