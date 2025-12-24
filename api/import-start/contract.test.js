@@ -5,6 +5,7 @@ const { test } = require("node:test");
 
 
 const { _test } = require("./index.js");
+const { _test: importStatusTest } = require("../import-status/index.js");
 const { getBuildInfo } = require("../_buildInfo");
 
 function makeReq({
