@@ -2137,7 +2137,7 @@ const importStartHandlerInner = async (req, context) => {
         responseHeaders["x-session-id"] = sessionId;
       }
 
-      if (sessionIdOverride && typeof sessionIdOriginal === "string" && sessionIdOriginal) {
+      if (sessionIdOverride && typeof sessionIdOriginal === "string") {
         payload.session_id_override = true;
         payload.session_id_original = sessionIdOriginal;
         payload.session_id_canonical = sessionId;
