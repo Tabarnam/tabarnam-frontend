@@ -553,13 +553,72 @@ export default function AdminImport() {
         expand_if_few: true,
       };
 
-      let canonicalSessionId = session_id;
-      const syncCanonicalSessionId = (value) => {
-        const sid = extractSessionId(value);
-        if (sid) {
-          canonicalSessionId = sid;
-          requestPayload.session_id = sid;
+      let canonicalSessionId = uiSessionIdBefore;
+      let mismatchDetected = false;
+
+      const getResponseSessionIdHeader = (res) => {
+        try {
+          if (res?.headers?.get) return String(res.headers.get("x-session-id") || "");
+          if (res?.headers && typeof res.headers === "object") return String(res.headers["x-session-id"] || "");
+        } catch {}
+        return "";
+      };
+
+      const applyCanonicalSessionId = (nextSessionId) => {
+        const normalized = asString(nextSessionId).trim();
+        if (!normalized) return canonicalSessionId;
+        if (normalized === canonicalSessionId) return canonicalSessionId;
+
+        const before = canonicalSessionId;
+        canonicalSessionId = normalized;
+        requestPayload.session_id = canonicalSessionId;
+
+        if (!mismatchDetected && uiSessionIdBefore && uiSessionIdBefore !== canonicalSessionId) {
+          mismatchDetected = true;
+          const mismatch = {
+            session_id_mismatch_detected: true,
+            ui_session_id_before: uiSessionIdBefore,
+            canonical_session_id: canonicalSessionId,
+          };
+
+          setSessionIdMismatchDebug(mismatch);
+          try {
+            console.warn("[admin-import] session_id mismatch", mismatch);
+          } catch {}
         }
+
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === before
+              ? {
+                  ...r,
+                  session_id: canonicalSessionId,
+                  session_id_confirmed: true,
+                  ui_session_id_before: r.ui_session_id_before || uiSessionIdBefore,
+                }
+              : r
+          )
+        );
+
+        setActiveSessionId((prev) => (prev === before ? canonicalSessionId : prev));
+        setDebugSessionId(canonicalSessionId);
+
+        const prevAttempts = pollAttemptsRef.current.get(before);
+        if (prevAttempts != null) {
+          pollAttemptsRef.current.delete(before);
+          pollAttemptsRef.current.set(canonicalSessionId, prevAttempts);
+        }
+
+        return canonicalSessionId;
+      };
+
+      const syncCanonicalSessionId = ({ res, body }) => {
+        const headerSid = getResponseSessionIdHeader(res).trim();
+        if (headerSid) return applyCanonicalSessionId(headerSid);
+
+        const sid = extractSessionId(body);
+        if (sid) return applyCanonicalSessionId(sid);
+
         return canonicalSessionId;
       };
 
