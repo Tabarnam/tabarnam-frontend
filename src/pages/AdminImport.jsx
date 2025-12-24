@@ -753,12 +753,12 @@ export default function AdminImport() {
 
         setRuns((prev) =>
           prev.map((r) =>
-            r.session_id === session_id
+            r.session_id === canonicalSessionId
               ? {
                   ...r,
                   start_error: msg,
                   start_error_details: {
-                    session_id,
+                    session_id: canonicalSessionId,
                     status_body: body,
                     state,
                     status,
@@ -879,7 +879,7 @@ export default function AdminImport() {
 
           setRuns((prev) =>
             prev.map((r) =>
-              r.session_id === session_id
+              r.session_id === canonicalSessionId
                 ? {
                     ...r,
                     updatedAt: new Date().toISOString(),
@@ -921,12 +921,16 @@ export default function AdminImport() {
         if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
       }
 
-      setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, completed: true, updatedAt: new Date().toISOString() } : r)));
+      setRuns((prev) =>
+        prev.map((r) =>
+          r.session_id === canonicalSessionId ? { ...r, completed: true, updatedAt: new Date().toISOString() } : r
+        )
+      );
       setActiveStatus("done");
       toast.success(`Import finished (staged, ${companiesForNextStage.length} companies)`);
     } catch (e) {
       const msg = e?.name === "AbortError" ? "Import aborted" : toErrorString(e) || "Import failed";
-      setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
+      setRuns((prev) => prev.map((r) => (r.session_id === canonicalSessionId ? { ...r, start_error: msg } : r)));
       if (e?.name === "AbortError") {
         setActiveStatus("idle");
       } else {
