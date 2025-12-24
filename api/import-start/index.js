@@ -2129,6 +2129,20 @@ const importStartHandlerInner = async (req, context) => {
         obj && typeof obj === "object" && !Array.isArray(obj)
           ? { handler_version: handlerVersion, ...obj }
           : { handler_version: handlerVersion, value: obj };
+
+      if (typeof sessionId === "string" && sessionId.trim()) {
+        if (!Object.prototype.hasOwnProperty.call(payload, "session_id")) {
+          payload.session_id = sessionId;
+        }
+        responseHeaders["x-session-id"] = sessionId;
+      }
+
+      if (sessionIdOverride && typeof sessionIdOriginal === "string" && sessionIdOriginal) {
+        payload.session_id_override = true;
+        payload.session_id_original = sessionIdOriginal;
+        payload.session_id_canonical = sessionId;
+      }
+
       return json(payload, status, responseHeaders);
     };
 
@@ -2142,6 +2156,9 @@ const importStartHandlerInner = async (req, context) => {
     };
 
     let sessionId = "";
+    let sessionIdOriginal = "";
+    let sessionIdOverride = false;
+
     let stage = "init";
     let debugEnabled = false;
     let debugOutput = null;
@@ -2244,7 +2261,21 @@ const importStartHandlerInner = async (req, context) => {
         });
       } catch (err) {
         if (err?.code === "INVALID_JSON_BODY") {
-          const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+          const rawPreview = String(err?.raw_text_preview || err?.raw_body_preview || "");
+          const extractedSessionId = (() => {
+            if (!rawPreview) return "";
+            const match = rawPreview.match(/"session_id"\s*:\s*"([^"]+)"/);
+            return match && match[1] ? String(match[1]) : "";
+          })();
+
+          sessionIdOriginal = extractedSessionId;
+          const canonicalCandidate = String(extractedSessionId || "").trim();
+          if (sessionIdOriginal && canonicalCandidate !== sessionIdOriginal) sessionIdOverride = true;
+          sessionId = canonicalCandidate || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+          if (sessionIdOriginal && !canonicalCandidate) sessionIdOverride = true;
+
+          responseHeaders["x-session-id"] = sessionId;
+
           const buildInfo = getBuildInfo();
 
           body_source = err?.body_source || "unknown";
@@ -2339,7 +2370,37 @@ const importStartHandlerInner = async (req, context) => {
       }
 
       const bodyObj = payload && typeof payload === "object" ? payload : {};
-      sessionId = bodyObj.session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+      const bodySessionIdRaw = (() => {
+        if (bodyObj && typeof bodyObj === "object" && Object.prototype.hasOwnProperty.call(bodyObj, "session_id")) {
+          return String(bodyObj.session_id || "");
+        }
+
+        if (typeof payload === "string" && payload) {
+          const match = payload.match(/"session_id"\s*:\s*"([^"]+)"/);
+          if (match && match[1]) return String(match[1]);
+        }
+
+        return "";
+      })();
+
+      const headerSessionIdRaw = String(getHeader(req, "x-session-id") || "");
+
+      if (bodySessionIdRaw) {
+        sessionIdOriginal = bodySessionIdRaw;
+      } else if (headerSessionIdRaw) {
+        sessionIdOriginal = headerSessionIdRaw;
+      } else {
+        sessionIdOriginal = "";
+      }
+
+      const canonicalCandidate = String(sessionIdOriginal || "").trim();
+      if (sessionIdOriginal && canonicalCandidate !== sessionIdOriginal) sessionIdOverride = true;
+      if (Object.prototype.hasOwnProperty.call(bodyObj, "session_id") && sessionIdOriginal && !canonicalCandidate) sessionIdOverride = true;
+
+      sessionId = canonicalCandidate || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      responseHeaders["x-session-id"] = sessionId;
+      bodyObj.session_id = sessionId;
 
       try {
         upsertImportSession({
