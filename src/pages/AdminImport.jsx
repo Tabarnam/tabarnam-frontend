@@ -771,14 +771,6 @@ export default function AdminImport() {
           resetPollAttempts(session_id);
           schedulePoll({ session_id });
 
-          if (waitResult.kind === "timeout") {
-            const msg = `Timed out while waiting for stage "${stage}" to finish.`;
-            setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
-            setActiveStatus("error");
-            toast.error(msg);
-            return;
-          }
-
           if (waitResult.kind === "failed") {
             recordStatusFailureAndToast(waitResult.body, { stage, mode: "staged", stage_index: stageIndex });
             return;
