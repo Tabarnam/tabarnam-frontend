@@ -378,7 +378,7 @@ async function handler(req, context) {
 
     const state = status === "error" ? "failed" : status === "complete" ? "complete" : "running";
 
-    return json(
+    return jsonWithSessionId(
       {
         ok: true,
         session_id: sessionId,
