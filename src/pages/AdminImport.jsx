@@ -567,24 +567,27 @@ export default function AdminImport() {
       const applyCanonicalSessionId = (nextSessionId) => {
         const normalized = asString(nextSessionId).trim();
         if (!normalized) return canonicalSessionId;
-        if (normalized === canonicalSessionId) return canonicalSessionId;
 
         const before = canonicalSessionId;
-        canonicalSessionId = normalized;
-        requestPayload.session_id = canonicalSessionId;
+        const changed = normalized !== canonicalSessionId;
 
-        if (!mismatchDetected && uiSessionIdBefore && uiSessionIdBefore !== canonicalSessionId) {
-          mismatchDetected = true;
-          const mismatch = {
-            session_id_mismatch_detected: true,
-            ui_session_id_before: uiSessionIdBefore,
-            canonical_session_id: canonicalSessionId,
-          };
+        if (changed) {
+          canonicalSessionId = normalized;
+          requestPayload.session_id = canonicalSessionId;
 
-          setSessionIdMismatchDebug(mismatch);
-          try {
-            console.warn("[admin-import] session_id mismatch", mismatch);
-          } catch {}
+          if (!mismatchDetected && uiSessionIdBefore && uiSessionIdBefore !== canonicalSessionId) {
+            mismatchDetected = true;
+            const mismatch = {
+              session_id_mismatch_detected: true,
+              ui_session_id_before: uiSessionIdBefore,
+              canonical_session_id: canonicalSessionId,
+            };
+
+            setSessionIdMismatchDebug(mismatch);
+            try {
+              console.warn("[admin-import] session_id mismatch", mismatch);
+            } catch {}
+          }
         }
 
         setRuns((prev) =>
@@ -592,7 +595,7 @@ export default function AdminImport() {
             r.session_id === before
               ? {
                   ...r,
-                  session_id: canonicalSessionId,
+                  session_id: changed ? canonicalSessionId : r.session_id,
                   session_id_confirmed: true,
                   ui_session_id_before: r.ui_session_id_before || uiSessionIdBefore,
                 }
@@ -600,14 +603,17 @@ export default function AdminImport() {
           )
         );
 
-        setActiveSessionId((prev) => (prev === before ? canonicalSessionId : prev));
-        setDebugSessionId(canonicalSessionId);
+        if (changed) {
+          setActiveSessionId((prev) => (prev === before ? canonicalSessionId : prev));
 
-        const prevAttempts = pollAttemptsRef.current.get(before);
-        if (prevAttempts != null) {
-          pollAttemptsRef.current.delete(before);
-          pollAttemptsRef.current.set(canonicalSessionId, prevAttempts);
+          const prevAttempts = pollAttemptsRef.current.get(before);
+          if (prevAttempts != null) {
+            pollAttemptsRef.current.delete(before);
+            pollAttemptsRef.current.set(canonicalSessionId, prevAttempts);
+          }
         }
+
+        setDebugSessionId(changed ? canonicalSessionId : before);
 
         return canonicalSessionId;
       };
