@@ -261,6 +261,9 @@ async function handler(req, context) {
     return json({ ok: false, error: "Missing session_id" }, 400, req);
   }
 
+  const extraHeaders = { "x-session-id": sessionId };
+  const jsonWithSessionId = (obj, status = 200) => json(obj, status, req, extraHeaders);
+
   const statusCheckedAt = nowIso();
   const stageBeaconValues = {
     status_checked_at: statusCheckedAt,
