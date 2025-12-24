@@ -625,5 +625,18 @@ test("/api/import/start?explain=1 echoes client-provided session_id (and sets x-
     assert.equal(body.session_id, session_id);
     assert.equal(res.headers?.["x-session-id"], session_id);
     assert.notEqual(body.session_id, "");
+
+    const statusReq = makeReq({
+      url: `https://example.test/api/import/status?session_id=${encodeURIComponent(session_id)}`,
+      method: "GET",
+    });
+
+    const statusRes = await importStatusTest.handler(statusReq, { log() {} });
+    const statusBody = JSON.parse(String(statusRes.body || "{}"));
+
+    assert.equal(statusRes.status, 200);
+    assert.equal(statusBody.ok, true);
+    assert.equal(statusBody.session_id, session_id);
+    assert.equal(statusRes.headers?.["x-session-id"], session_id);
   });
 });
