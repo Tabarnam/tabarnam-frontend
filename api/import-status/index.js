@@ -490,7 +490,7 @@ async function handler(req, context) {
       const status = jobState === "error" ? "error" : jobState === "complete" ? "complete" : jobState === "running" ? "running" : "queued";
       const state = status === "error" ? "failed" : status === "complete" ? "complete" : "running";
 
-      return json(
+      return jsonWithSessionId(
         {
           ok: true,
           session_id: sessionId,
