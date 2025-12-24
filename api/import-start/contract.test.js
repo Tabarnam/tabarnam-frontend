@@ -601,7 +601,13 @@ test("getBuildInfo uses __build_id.txt when env vars are absent", async () => {
 });
 
 test("/api/import/start?explain=1 echoes client-provided session_id (and sets x-session-id)", async () => {
-  await withTempEnv(NO_NETWORK_ENV, async () => {
+  await withTempEnv(
+    {
+      ...NO_NETWORK_ENV,
+      XAI_EXTERNAL_BASE: "https://api.x.ai",
+      XAI_EXTERNAL_KEY: "test_key",
+    },
+    async () => {
     const session_id = "11111111-2222-3333-4444-555555555555";
 
     const req = makeReq({
