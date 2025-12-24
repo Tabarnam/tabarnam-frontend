@@ -505,7 +505,9 @@ export default function AdminImport() {
     const selectedTypes = Array.isArray(queryTypes) && queryTypes.length > 0 ? queryTypes : ["product_keyword"];
 
     const newRun = {
-      session_id,
+      session_id: uiSessionIdBefore,
+      session_id_confirmed: false,
+      ui_session_id_before: uiSessionIdBefore,
       query: q,
       queryTypes: selectedTypes,
       location: asString(location).trim() || "",
