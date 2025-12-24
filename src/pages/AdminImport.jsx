@@ -671,7 +671,16 @@ export default function AdminImport() {
         const reason = asString(body?.reason).trim();
         const stageBeacon = asString(body?.stage_beacon).trim();
 
+        const lastErrorCode = asString(body?.last_error?.code).trim();
+        const mappedMsg =
+          lastErrorCode === "primary_timeout"
+            ? "Primary import timed out (120s hard cap)."
+            : lastErrorCode === "no_candidates_found"
+              ? "No candidates found after 60s."
+              : "";
+
         const msg =
+          mappedMsg ||
           toErrorString(
             body && typeof body === "object"
               ? body.error || body.last_error || body.message || body.text || (reason ? `Import failed (${reason})` : "")
