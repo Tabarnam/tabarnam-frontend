@@ -1,4 +1,9 @@
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("@azure/functions"));
+} catch {
+  app = { http() {} };
+}
 const { CosmosClient } = require("@azure/cosmos");
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { getJob: getImportPrimaryJob, patchJob: patchImportPrimaryJob } = require("../_importPrimaryJobStore");
