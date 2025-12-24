@@ -522,9 +522,6 @@ export default function AdminImport() {
     const abort = new AbortController();
     startFetchAbortRef.current = abort;
 
-    resetPollAttempts(session_id);
-    schedulePoll({ session_id });
-
     try {
       const requestPayload = {
         session_id,
