@@ -1421,15 +1421,15 @@ export default function AdminImport() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  if (!activeSessionId) {
-                    toast.error("No active session");
+                  if (!activeSessionId || !activeRun?.session_id_confirmed) {
+                    toast.error("Session id is not ready yet");
                     return;
                   }
                   resetPollAttempts(activeSessionId);
                   schedulePoll({ session_id: activeSessionId });
                   toast.success("Polling refresh started");
                 }}
-                disabled={!activeSessionId}
+                disabled={!activeSessionId || !activeRun?.session_id_confirmed}
               >
                 <RefreshCcw className="h-4 w-4 mr-2" />
                 Poll now
@@ -1439,7 +1439,7 @@ export default function AdminImport() {
                 variant="outline"
                 className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
                 onClick={stopImport}
-                disabled={!activeSessionId || activeStatus !== "running"}
+                disabled={!activeSessionId || !activeRun?.session_id_confirmed || activeStatus !== "running"}
               >
                 <Square className="h-4 w-4 mr-2" />
                 Stop
@@ -1459,7 +1459,7 @@ export default function AdminImport() {
                 </Button>
               ) : null}
 
-              {activeSessionId ? (
+              {activeSessionId && activeRun?.session_id_confirmed ? (
                 <Button
                   variant="outline"
                   onClick={async () => {
@@ -1496,7 +1496,8 @@ export default function AdminImport() {
 
               {activeSessionId ? (
                 <div className="text-sm text-slate-700">
-                  Session: <code className="rounded bg-slate-100 px-1 py-0.5">{activeSessionId}</code>
+                  Session:{" "}
+                  <code className="rounded bg-slate-100 px-1 py-0.5">{activeRun?.session_id_confirmed ? activeSessionId : "—"}</code>
                 </div>
               ) : null}
 
