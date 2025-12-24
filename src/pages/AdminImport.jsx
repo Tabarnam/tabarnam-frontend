@@ -1063,11 +1063,17 @@ export default function AdminImport() {
 
     const suffix = progressBits.length > 0 ? ` (${progressBits.join(" · ")})` : "";
 
+    const lastErrorCode = asString(activeRun?.last_error?.code).trim();
+
+    if (lastErrorCode === "no_candidates_found") return `No candidates found after 60s.${suffix}`;
+    if (lastErrorCode === "primary_timeout" || stageBeacon === "primary_timeout") {
+      return `Primary import timed out (120s hard cap).${suffix}`;
+    }
+
     if (stageBeacon === "primary_candidate_found") return `Company candidate found. Finalizing…${suffix}`;
     if (stageBeacon === "primary_expanding_candidates") return `Expanding search…${suffix}`;
     if (stageBeacon === "primary_early_exit") return `Match found (single-company import). Finalizing…${suffix}`;
     if (stageBeacon === "primary_complete") return `Finalizing…${suffix}`;
-    if (stageBeacon === "primary_timeout") return `Primary search timed out.${suffix}`;
 
     return `Searching for companies…${suffix}`;
   }, [activeRun]);
