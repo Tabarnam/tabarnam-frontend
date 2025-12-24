@@ -598,3 +598,31 @@ test("getBuildInfo uses __build_id.txt when env vars are absent", async () => {
     else fs.rmSync(buildIdFilePath, { force: true });
   }
 });
+
+test("/api/import/start?explain=1 echoes client-provided session_id (and sets x-session-id)", async () => {
+  await withTempEnv(NO_NETWORK_ENV, async () => {
+    const session_id = "11111111-2222-3333-4444-555555555555";
+
+    const req = makeReq({
+      url: "https://example.test/api/import/start?explain=1",
+      body: JSON.stringify({
+        session_id,
+        query: "test",
+        queryTypes: ["product_keyword"],
+        limit: 1,
+      }),
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+
+    const res = await _test.importStartHandler(req, { log() {} });
+    const body = parseJsonResponse(res);
+
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.session_id, session_id);
+    assert.equal(res.headers?.["x-session-id"], session_id);
+    assert.notEqual(body.session_id, "");
+  });
+});
