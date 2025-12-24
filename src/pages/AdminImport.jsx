@@ -247,9 +247,25 @@ export default function AdminImport() {
         const items = normalizeItems(body?.items || body?.companies);
         const saved = Number(body?.saved ?? body?.count ?? items.length ?? 0);
 
+        const status = asString(body?.status).trim();
+        const jobState = asString(body?.job_state || body?.primary_job_state || body?.primary_job?.job_state).trim();
+        const stageBeacon = asString(body?.stage_beacon).trim();
+        const lastError = body?.last_error || null;
+
         const completed = state === "complete" ? true : Boolean(body?.completed);
         const timedOut = Boolean(body?.timedOut);
         const stopped = state === "failed" || state === "complete" ? true : Boolean(body?.stopped);
+
+        const isTerminalError = state === "failed" || status === "error" || jobState === "error";
+        const isTerminalComplete = state === "complete" || status === "complete" || jobState === "complete" || completed;
+
+        const lastErrorCode = asString(lastError?.code).trim();
+        const userFacingError =
+          lastErrorCode === "primary_timeout"
+            ? "Primary import timed out (120s hard cap)."
+            : lastErrorCode === "no_candidates_found"
+              ? "No candidates found after 60s."
+              : asString(lastError?.message).trim() || "Import failed.";
 
         setRuns((prev) =>
           prev.map((r) => {
@@ -259,10 +275,10 @@ export default function AdminImport() {
               items: mergeById(r.items, items),
               lastCreatedAt: asString(body?.lastCreatedAt || r.lastCreatedAt),
               saved: Number.isFinite(saved) ? saved : Number(r.saved ?? 0) || 0,
-              completed,
+              completed: isTerminalComplete,
               timedOut,
-              stopped,
-              stage_beacon: asString(body?.stage_beacon || r.stage_beacon),
+              stopped: isTerminalError || isTerminalComplete ? true : stopped,
+              stage_beacon: stageBeacon || asString(r.stage_beacon),
               elapsed_ms: Number.isFinite(Number(body?.elapsed_ms)) ? Number(body.elapsed_ms) : r.elapsed_ms ?? null,
               remaining_budget_ms: Number.isFinite(Number(body?.remaining_budget_ms))
                 ? Number(body.remaining_budget_ms)
@@ -275,14 +291,16 @@ export default function AdminImport() {
                 : Number(r.companies_candidates_found ?? 0) || 0,
               early_exit_triggered:
                 typeof body?.early_exit_triggered === "boolean" ? body.early_exit_triggered : Boolean(r.early_exit_triggered),
-              last_error: body?.last_error || r.last_error || null,
+              last_error: lastError || r.last_error || null,
+              progress_error: isTerminalError ? userFacingError : r.progress_error,
               updatedAt: new Date().toISOString(),
             };
           })
         );
 
-        if (state === "complete" || state === "failed") return { shouldStop: true, body };
-        return { shouldStop: completed || timedOut || stopped, body };
+        if (isTerminalError) return { shouldStop: true, body };
+        if (isTerminalComplete) return { shouldStop: true, body };
+        return { shouldStop: timedOut || stopped, body };
       } catch (e) {
         const msg = toErrorString(e) || "Progress failed";
         setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
