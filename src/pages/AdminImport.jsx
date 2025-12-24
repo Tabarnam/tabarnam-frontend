@@ -196,6 +196,8 @@ export default function AdminImport() {
   const [debugStartLoading, setDebugStartLoading] = useState(false);
   const [debugStatusLoading, setDebugStatusLoading] = useState(false);
 
+  const [pollingSessionId, setPollingSessionId] = useState("");
+
   const [explainResponseText, setExplainResponseText] = useState("");
   const [explainLoading, setExplainLoading] = useState(false);
 
