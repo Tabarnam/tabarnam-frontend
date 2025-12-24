@@ -1,4 +1,9 @@
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("@azure/functions"));
+} catch {
+  app = { http() {} };
+}
 const { CosmosClient } = require("@azure/cosmos");
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { getJob: getImportPrimaryJob, patchJob: patchImportPrimaryJob } = require("../_importPrimaryJobStore");
@@ -261,6 +266,9 @@ async function handler(req, context) {
     return json({ ok: false, error: "Missing session_id" }, 400, req);
   }
 
+  const extraHeaders = { "x-session-id": sessionId };
+  const jsonWithSessionId = (obj, status = 200) => json(obj, status, req, extraHeaders);
+
   const statusCheckedAt = nowIso();
   const stageBeaconValues = {
     status_checked_at: statusCheckedAt,
@@ -375,7 +383,7 @@ async function handler(req, context) {
 
     const state = status === "error" ? "failed" : status === "complete" ? "complete" : "running";
 
-    return json(
+    return jsonWithSessionId(
       {
         ok: true,
         session_id: sessionId,
@@ -450,7 +458,7 @@ async function handler(req, context) {
   if (mem) {
     stageBeaconValues.status_seen_session_memory = nowIso();
 
-    return json(
+    return jsonWithSessionId(
       {
         ok: true,
         session_id: sessionId,
@@ -487,7 +495,7 @@ async function handler(req, context) {
       const status = jobState === "error" ? "error" : jobState === "complete" ? "complete" : jobState === "running" ? "running" : "queued";
       const state = status === "error" ? "failed" : status === "complete" ? "complete" : "running";
 
-      return json(
+      return jsonWithSessionId(
         {
           ok: true,
           session_id: sessionId,
@@ -564,7 +572,7 @@ async function handler(req, context) {
       );
     }
 
-    return json({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404, req);
+    return jsonWithSessionId({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404);
   }
 
   try {
@@ -589,7 +597,7 @@ async function handler(req, context) {
     if (!known) known = await hasAnyCompanyDocs(container, sessionId);
 
     if (!known) {
-      return json({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404, req);
+      return jsonWithSessionId({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404);
     }
 
     stageBeaconValues.status_seen_control_docs = nowIso();
@@ -622,7 +630,7 @@ async function handler(req, context) {
             ? { code: "IMPORT_STOPPED", message: "Import was stopped" }
             : null);
 
-      return json(
+      return jsonWithSessionId(
         {
           ok: true,
           session_id: sessionId,
@@ -655,7 +663,7 @@ async function handler(req, context) {
     }
 
     if (completed) {
-      return json(
+      return jsonWithSessionId(
         {
           ok: true,
           session_id: sessionId,
@@ -689,7 +697,7 @@ async function handler(req, context) {
       );
     }
 
-    return json(
+    return jsonWithSessionId(
       {
         ok: true,
         session_id: sessionId,
@@ -721,7 +729,7 @@ async function handler(req, context) {
     try {
       console.error(`[import-status] session=${sessionId} error: ${msg}`);
     } catch {}
-    return json({ ok: false, error: "Status handler failure", detail: msg, session_id: sessionId }, 500, req);
+    return jsonWithSessionId({ ok: false, error: "Status handler failure", detail: msg, session_id: sessionId }, 500);
   }
 }
 

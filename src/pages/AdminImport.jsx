@@ -197,6 +197,7 @@ export default function AdminImport() {
   const [debugStatusLoading, setDebugStatusLoading] = useState(false);
 
   const [pollingSessionId, setPollingSessionId] = useState("");
+  const [sessionIdMismatchDebug, setSessionIdMismatchDebug] = useState(null);
 
   const [explainResponseText, setExplainResponseText] = useState("");
   const [explainLoading, setExplainLoading] = useState(false);
@@ -497,14 +498,16 @@ export default function AdminImport() {
     const runMode = options && typeof options === "object" ? asString(options.mode).trim() : "";
     const bestEffort = runMode === "best_effort";
 
-    const session_id = (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    const uiSessionIdBefore = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
     const normalizedLimit = normalizeImportLimit(limitInput);
 
     const selectedTypes = Array.isArray(queryTypes) && queryTypes.length > 0 ? queryTypes : ["product_keyword"];
 
     const newRun = {
-      session_id,
+      session_id: uiSessionIdBefore,
+      session_id_confirmed: false,
+      ui_session_id_before: uiSessionIdBefore,
       query: q,
       queryTypes: selectedTypes,
       location: asString(location).trim() || "",
@@ -532,8 +535,9 @@ export default function AdminImport() {
       save_error: null,
     };
 
+    setSessionIdMismatchDebug(null);
     setRuns((prev) => [newRun, ...prev]);
-    setActiveSessionId(session_id);
+    setActiveSessionId(uiSessionIdBefore);
     setActiveStatus("running");
 
     startFetchAbortRef.current?.abort?.();
@@ -542,7 +546,7 @@ export default function AdminImport() {
 
     try {
       const requestPayload = {
-        session_id,
+        session_id: uiSessionIdBefore,
         query: q,
         queryTypes: selectedTypes,
         location: asString(location).trim() || undefined,
@@ -550,13 +554,78 @@ export default function AdminImport() {
         expand_if_few: true,
       };
 
-      let canonicalSessionId = session_id;
-      const syncCanonicalSessionId = (value) => {
-        const sid = extractSessionId(value);
-        if (sid) {
-          canonicalSessionId = sid;
-          requestPayload.session_id = sid;
+      let canonicalSessionId = uiSessionIdBefore;
+      let mismatchDetected = false;
+
+      const getResponseSessionIdHeader = (res) => {
+        try {
+          if (res?.headers?.get) return String(res.headers.get("x-session-id") || "");
+          if (res?.headers && typeof res.headers === "object") return String(res.headers["x-session-id"] || "");
+        } catch {}
+        return "";
+      };
+
+      const applyCanonicalSessionId = (nextSessionId) => {
+        const normalized = asString(nextSessionId).trim();
+        if (!normalized) return canonicalSessionId;
+
+        const before = canonicalSessionId;
+        const changed = normalized !== canonicalSessionId;
+
+        if (changed) {
+          canonicalSessionId = normalized;
+          requestPayload.session_id = canonicalSessionId;
+
+          if (!mismatchDetected && uiSessionIdBefore && uiSessionIdBefore !== canonicalSessionId) {
+            mismatchDetected = true;
+            const mismatch = {
+              session_id_mismatch_detected: true,
+              ui_session_id_before: uiSessionIdBefore,
+              canonical_session_id: canonicalSessionId,
+            };
+
+            setSessionIdMismatchDebug(mismatch);
+            try {
+              console.warn("[admin-import] session_id mismatch", mismatch);
+            } catch {}
+          }
         }
+
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === before
+              ? {
+                  ...r,
+                  session_id: changed ? canonicalSessionId : r.session_id,
+                  session_id_confirmed: true,
+                  ui_session_id_before: r.ui_session_id_before || uiSessionIdBefore,
+                }
+              : r
+          )
+        );
+
+        if (changed) {
+          setActiveSessionId((prev) => (prev === before ? canonicalSessionId : prev));
+
+          const prevAttempts = pollAttemptsRef.current.get(before);
+          if (prevAttempts != null) {
+            pollAttemptsRef.current.delete(before);
+            pollAttemptsRef.current.set(canonicalSessionId, prevAttempts);
+          }
+        }
+
+        setDebugSessionId(changed ? canonicalSessionId : before);
+
+        return canonicalSessionId;
+      };
+
+      const syncCanonicalSessionId = ({ res, body }) => {
+        const headerSid = getResponseSessionIdHeader(res).trim();
+        if (headerSid) return applyCanonicalSessionId(headerSid);
+
+        const sid = extractSessionId(body);
+        if (sid) return applyCanonicalSessionId(sid);
+
         return canonicalSessionId;
       };
 
@@ -592,7 +661,7 @@ export default function AdminImport() {
 
         setRuns((prev) =>
           prev.map((r) =>
-            r.session_id === session_id
+            r.session_id === canonicalSessionId
               ? {
                   ...r,
                   start_error: msg,
@@ -613,7 +682,7 @@ export default function AdminImport() {
         const list = normalizeItems(companies);
         setRuns((prev) =>
           prev.map((r) => {
-            if (r.session_id !== session_id) return r;
+            if (r.session_id !== canonicalSessionId) return r;
             return {
               ...r,
               ...(extra && typeof extra === "object" ? extra : {}),
@@ -650,6 +719,8 @@ export default function AdminImport() {
 
       if (bestEffort) {
         const { res, body, usedPath, payload } = await callImportStage({ stage: "", skipStages: [], companies: [] });
+
+        syncCanonicalSessionId({ res, body });
 
         if (!res.ok || body?.ok === false) {
           await recordStartErrorAndToast(res, body, { usedPath, mode: "best_effort" });
@@ -689,12 +760,12 @@ export default function AdminImport() {
 
         setRuns((prev) =>
           prev.map((r) =>
-            r.session_id === session_id
+            r.session_id === canonicalSessionId
               ? {
                   ...r,
                   start_error: msg,
                   start_error_details: {
-                    session_id,
+                    session_id: canonicalSessionId,
                     status_body: body,
                     state,
                     status,
@@ -797,7 +868,7 @@ export default function AdminImport() {
           companies: companiesForNextStage,
         });
 
-        syncCanonicalSessionId(body);
+        syncCanonicalSessionId({ res, body });
 
         if (stageIndex === 0) {
           resetPollAttempts(canonicalSessionId);
@@ -815,7 +886,7 @@ export default function AdminImport() {
 
           setRuns((prev) =>
             prev.map((r) =>
-              r.session_id === session_id
+              r.session_id === canonicalSessionId
                 ? {
                     ...r,
                     updatedAt: new Date().toISOString(),
@@ -857,12 +928,16 @@ export default function AdminImport() {
         if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
       }
 
-      setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, completed: true, updatedAt: new Date().toISOString() } : r)));
+      setRuns((prev) =>
+        prev.map((r) =>
+          r.session_id === canonicalSessionId ? { ...r, completed: true, updatedAt: new Date().toISOString() } : r
+        )
+      );
       setActiveStatus("done");
       toast.success(`Import finished (staged, ${companiesForNextStage.length} companies)`);
     } catch (e) {
       const msg = e?.name === "AbortError" ? "Import aborted" : toErrorString(e) || "Import failed";
-      setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
+      setRuns((prev) => prev.map((r) => (r.session_id === canonicalSessionId ? { ...r, start_error: msg } : r)));
       if (e?.name === "AbortError") {
         setActiveStatus("idle");
       } else {
@@ -1224,6 +1299,12 @@ export default function AdminImport() {
                 <div className="mt-2 text-[11px] text-slate-600">
                   Polling session_id: <code className="text-[11px] text-slate-900 break-all">{pollingSessionId || "—"}</code>
                 </div>
+
+                {sessionIdMismatchDebug ? (
+                  <pre className="mt-2 max-h-24 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">
+                    {toDisplayText(toPrettyJsonText(sessionIdMismatchDebug))}
+                  </pre>
+                ) : null}
               </div>
 
               <div className="rounded border border-slate-200 bg-slate-50 p-3">
@@ -1347,15 +1428,15 @@ export default function AdminImport() {
               <Button
                 variant="outline"
                 onClick={() => {
-                  if (!activeSessionId) {
-                    toast.error("No active session");
+                  if (!activeSessionId || !activeRun?.session_id_confirmed) {
+                    toast.error("Session id is not ready yet");
                     return;
                   }
                   resetPollAttempts(activeSessionId);
                   schedulePoll({ session_id: activeSessionId });
                   toast.success("Polling refresh started");
                 }}
-                disabled={!activeSessionId}
+                disabled={!activeSessionId || !activeRun?.session_id_confirmed}
               >
                 <RefreshCcw className="h-4 w-4 mr-2" />
                 Poll now
@@ -1365,7 +1446,7 @@ export default function AdminImport() {
                 variant="outline"
                 className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
                 onClick={stopImport}
-                disabled={!activeSessionId || activeStatus !== "running"}
+                disabled={!activeSessionId || !activeRun?.session_id_confirmed || activeStatus !== "running"}
               >
                 <Square className="h-4 w-4 mr-2" />
                 Stop
@@ -1385,7 +1466,7 @@ export default function AdminImport() {
                 </Button>
               ) : null}
 
-              {activeSessionId ? (
+              {activeSessionId && activeRun?.session_id_confirmed ? (
                 <Button
                   variant="outline"
                   onClick={async () => {
@@ -1422,7 +1503,8 @@ export default function AdminImport() {
 
               {activeSessionId ? (
                 <div className="text-sm text-slate-700">
-                  Session: <code className="rounded bg-slate-100 px-1 py-0.5">{activeSessionId}</code>
+                  Session:{" "}
+                  <code className="rounded bg-slate-100 px-1 py-0.5">{activeRun?.session_id_confirmed ? activeSessionId : "—"}</code>
                 </div>
               ) : null}
 
