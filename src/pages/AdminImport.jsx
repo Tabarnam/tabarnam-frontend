@@ -532,6 +532,16 @@ export default function AdminImport() {
         expand_if_few: true,
       };
 
+      let canonicalSessionId = session_id;
+      const syncCanonicalSessionId = (value) => {
+        const sid = extractSessionId(value);
+        if (sid) {
+          canonicalSessionId = sid;
+          requestPayload.session_id = sid;
+        }
+        return canonicalSessionId;
+      };
+
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
       const recordStartErrorAndToast = async (res, body, extra) => {
