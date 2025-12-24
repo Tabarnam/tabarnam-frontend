@@ -2371,23 +2371,21 @@ const importStartHandlerInner = async (req, context) => {
 
       const bodyObj = payload && typeof payload === "object" ? payload : {};
 
-      const bodySessionIdRaw = (() => {
-        if (bodyObj && typeof bodyObj === "object" && Object.prototype.hasOwnProperty.call(bodyObj, "session_id")) {
-          return String(bodyObj.session_id || "");
-        }
+      const hasBodySessionId = Boolean(bodyObj && typeof bodyObj === "object" && Object.prototype.hasOwnProperty.call(bodyObj, "session_id"));
+      const bodySessionIdValue = hasBodySessionId ? bodyObj.session_id : undefined;
 
-        if (typeof payload === "string" && payload) {
-          const match = payload.match(/"session_id"\s*:\s*"([^"]+)"/);
-          if (match && match[1]) return String(match[1]);
-        }
-
-        return "";
+      const parsedSessionIdFromText = (() => {
+        if (typeof payload !== "string" || !payload) return "";
+        const match = payload.match(/"session_id"\s*:\s*"([^"]+)"/);
+        return match && match[1] ? String(match[1]) : "";
       })();
 
       const headerSessionIdRaw = String(getHeader(req, "x-session-id") || "");
 
-      if (bodySessionIdRaw) {
-        sessionIdOriginal = bodySessionIdRaw;
+      if (hasBodySessionId) {
+        sessionIdOriginal = String(bodySessionIdValue ?? "");
+      } else if (parsedSessionIdFromText) {
+        sessionIdOriginal = parsedSessionIdFromText;
       } else if (headerSessionIdRaw) {
         sessionIdOriginal = headerSessionIdRaw;
       } else {
@@ -2396,7 +2394,7 @@ const importStartHandlerInner = async (req, context) => {
 
       const canonicalCandidate = String(sessionIdOriginal || "").trim();
       if (sessionIdOriginal && canonicalCandidate !== sessionIdOriginal) sessionIdOverride = true;
-      if (Object.prototype.hasOwnProperty.call(bodyObj, "session_id") && sessionIdOriginal && !canonicalCandidate) sessionIdOverride = true;
+      if (hasBodySessionId && !canonicalCandidate) sessionIdOverride = true;
 
       sessionId = canonicalCandidate || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
       responseHeaders["x-session-id"] = sessionId;
