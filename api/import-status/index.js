@@ -625,7 +625,7 @@ async function handler(req, context) {
             ? { code: "IMPORT_STOPPED", message: "Import was stopped" }
             : null);
 
-      return json(
+      return jsonWithSessionId(
         {
           ok: true,
           session_id: sessionId,
@@ -658,7 +658,7 @@ async function handler(req, context) {
     }
 
     if (completed) {
-      return json(
+      return jsonWithSessionId(
         {
           ok: true,
           session_id: sessionId,
@@ -692,7 +692,7 @@ async function handler(req, context) {
       );
     }
 
-    return json(
+    return jsonWithSessionId(
       {
         ok: true,
         session_id: sessionId,
@@ -724,7 +724,7 @@ async function handler(req, context) {
     try {
       console.error(`[import-status] session=${sessionId} error: ${msg}`);
     } catch {}
-    return json({ ok: false, error: "Status handler failure", detail: msg, session_id: sessionId }, 500, req);
+    return jsonWithSessionId({ ok: false, error: "Status handler failure", detail: msg, session_id: sessionId }, 500);
   }
 }
 
