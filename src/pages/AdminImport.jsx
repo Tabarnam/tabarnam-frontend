@@ -784,8 +784,8 @@ export default function AdminImport() {
           );
 
           const waitResult = await waitForAsyncStatus({ stage });
-          resetPollAttempts(session_id);
-          schedulePoll({ session_id });
+          resetPollAttempts(canonicalSessionId);
+          schedulePoll({ session_id: canonicalSessionId });
 
           if (waitResult.kind === "failed") {
             recordStatusFailureAndToast(waitResult.body, { stage, mode: "staged", stage_index: stageIndex });
