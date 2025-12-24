@@ -646,3 +646,82 @@ test("/api/import/start?explain=1 echoes client-provided session_id (and sets x-
     assert.equal(statusRes.headers?.["x-session-id"], session_id);
   });
 });
+
+test("/api/import/start uses provided session_id for async primary job and import-status reaches terminal state", async () => {
+  await withTempEnv(
+    {
+      ...NO_NETWORK_ENV,
+      XAI_EXTERNAL_BASE: "https://api.x.ai",
+      XAI_EXTERNAL_KEY: "test_key",
+    },
+    async () => {
+      const session_id = "22222222-3333-4444-5555-666666666666";
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async () => {
+        return new Response(JSON.stringify({ choices: [{ message: { content: "[]" } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      };
+
+      try {
+        const startReq = makeReq({
+          url: "https://example.test/api/import/start?stage_ms_primary=30000",
+          body: JSON.stringify({
+            session_id,
+            query: "test",
+            queryTypes: ["product_keyword"],
+            limit: 1,
+          }),
+          headers: {
+            "content-type": "application/json",
+          },
+        });
+
+        const startRes = await _test.importStartHandler(startReq, { log() {} });
+        const startBody = parseJsonResponse(startRes);
+
+        assert.equal(startRes.status, 202);
+        assert.equal(startBody.ok, true);
+        assert.equal(startBody.session_id, session_id);
+        assert.equal(startRes.headers?.["x-session-id"], session_id);
+
+        let terminalBody = null;
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          const statusReq = makeReq({
+            url: `https://example.test/api/import/status?session_id=${encodeURIComponent(session_id)}`,
+            method: "GET",
+          });
+
+          const statusRes = await importStatusTest.handler(statusReq, { log() {} });
+          const statusBody = JSON.parse(String(statusRes.body || "{}"));
+
+          assert.equal(statusRes.status, 200);
+          assert.equal(statusBody.ok, true);
+          assert.equal(statusBody.session_id, session_id);
+          assert.equal(statusRes.headers?.["x-session-id"], session_id);
+
+          const jobState = String(statusBody.job_state || statusBody.primary_job_state || "").trim();
+          if (jobState === "complete" || jobState === "error") {
+            terminalBody = statusBody;
+            break;
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+
+        assert.ok(terminalBody);
+        const terminalState = String(terminalBody.job_state || terminalBody.primary_job_state || "").trim();
+        assert.ok(terminalState === "complete" || terminalState === "error");
+
+        if (terminalState === "error") {
+          assert.ok(terminalBody.last_error);
+          assert.ok(String(terminalBody.last_error.code || "").trim());
+        }
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    }
+  );
+});
