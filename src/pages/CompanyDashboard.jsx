@@ -3872,7 +3872,13 @@ export default function CompanyDashboard() {
 
                               if (!rawLogoUrl) {
                                 return (
-                                  <div className="text-xs text-slate-500">{status === "not_found" ? "No logo found." : "No logo uploaded."}</div>
+                                  <div className="text-xs text-slate-500">
+                                    {status === "not_found_on_site"
+                                      ? "No logo found on company website."
+                                      : status === "not_found"
+                                        ? "No logo found."
+                                        : "No logo uploaded."}
+                                  </div>
                                 );
                               }
 
@@ -3888,7 +3894,7 @@ export default function CompanyDashboard() {
                                     />
                                   ) : (
                                     <div className="h-12 w-12 rounded border border-slate-200 bg-slate-50 flex items-center justify-center text-[11px] text-slate-600 text-center px-1">
-                                      No logo found
+                                      {status === "not_found_on_site" ? "No logo on site" : "No logo found"}
                                     </div>
                                   )}
 
