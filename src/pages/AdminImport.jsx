@@ -1265,12 +1265,9 @@ export default function AdminImport() {
       return `Primary import timed out (120s hard cap).${suffix}`;
     }
 
-    if (stageBeacon === "primary_candidate_found") return `Company candidate found. Finalizing…${suffix}`;
-    if (stageBeacon === "primary_expanding_candidates") return `Expanding search…${suffix}`;
-    if (stageBeacon === "primary_early_exit") return `Match found (single-company import). Finalizing…${suffix}`;
-    if (stageBeacon === "primary_complete") return `Finalizing…${suffix}`;
+    if (stageBeacon) return `${toEnglishImportStage(stageBeacon)}${suffix}`;
 
-    return `Searching for companies…${suffix}`;
+    return `Searching for matching companies${suffix}`;
   }, [activeRun]);
 
   const plainEnglishProgress = useMemo(() => {
