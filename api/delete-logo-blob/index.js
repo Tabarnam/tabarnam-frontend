@@ -214,6 +214,8 @@ app.http("delete-logo-blob", {
               const updatedDoc = {
                 ...doc,
                 logo_url: null,
+                logo_status: "not_found",
+                logo_import_status: "missing",
                 updated_at: new Date().toISOString(),
               };
 
