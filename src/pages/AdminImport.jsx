@@ -1273,6 +1273,53 @@ export default function AdminImport() {
     return `Searching for companies…${suffix}`;
   }, [activeRun]);
 
+  const plainEnglishProgress = useMemo(() => {
+    if (!activeRun) {
+      return {
+        hasRun: false,
+        isTerminal: false,
+        terminalKind: "",
+        stepText: "",
+        reasonText: "",
+      };
+    }
+
+    const rawJobState = asString(activeRun.final_job_state || activeRun.job_state).trim().toLowerCase();
+
+    const inferredTerminal =
+      rawJobState === "complete" ||
+      rawJobState === "error" ||
+      Boolean(activeRun.completed || activeRun.timedOut || activeRun.stopped) ||
+      Boolean(activeRun.start_error || activeRun.progress_error);
+
+    const stageBeacon = asString(
+      (inferredTerminal ? activeRun.final_stage_beacon : "") || activeRun.stage_beacon || activeRun.last_stage_beacon
+    ).trim();
+
+    const stepText = stageBeacon ? toEnglishImportStage(stageBeacon) : "";
+
+    const terminalKind =
+      rawJobState === "error" || activeRun.start_error || activeRun.progress_error
+        ? "error"
+        : rawJobState === "complete" || activeRun.completed
+          ? "complete"
+          : "";
+
+    const lastErrorCode = asString(
+      (inferredTerminal ? activeRun.final_last_error_code : "") || activeRun?.last_error?.code
+    ).trim();
+
+    const reasonText = terminalKind === "error" ? toEnglishImportStopReason(lastErrorCode) : "";
+
+    return {
+      hasRun: true,
+      isTerminal: inferredTerminal,
+      terminalKind,
+      stepText,
+      reasonText,
+    };
+  }, [activeRun]);
+
   const startImportDisabled = !API_BASE || activeStatus === "running" || activeStatus === "stopping";
 
   useEffect(() => {
@@ -1988,6 +2035,45 @@ export default function AdminImport() {
               <code className="rounded bg-slate-100 px-1 py-0.5 break-all">GET {join(API_BASE, "/import-status")}</code>
             </div>
           </div>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold text-slate-900">Import progress (plain English)</h2>
+              <div className="text-xs text-slate-500">Shows what the importer is doing without reading logs.</div>
+            </div>
+
+            <div className="rounded border border-slate-200 bg-slate-50 p-4 space-y-2">
+              {!plainEnglishProgress.hasRun ? (
+                <div className="text-sm text-slate-700">Start an import to see a step-by-step explanation.</div>
+              ) : (
+                <>
+                  <div className="text-sm text-slate-900">
+                    <span className="font-medium">{plainEnglishProgress.isTerminal ? "Final step:" : "Current step:"}</span>{" "}
+                    {plainEnglishProgress.stepText || (activeStatus === "running" ? "Starting import…" : "Waiting for the next update…")}
+                  </div>
+
+                  {plainEnglishProgress.isTerminal ? (
+                    <>
+                      <div className="text-sm text-slate-900">
+                        <span className="font-medium">{plainEnglishProgress.terminalKind === "error" ? "Stopped at:" : "Finished at:"}</span>{" "}
+                        {plainEnglishProgress.stepText || "—"}
+                      </div>
+
+                      {plainEnglishProgress.terminalKind === "error" ? (
+                        <div className="text-sm text-slate-900">
+                          <span className="font-medium">Reason:</span> {plainEnglishProgress.reasonText || "Import failed."}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-slate-900">
+                          <span className="font-medium">Result:</span> Import completed.
+                        </div>
+                      )}
+                    </>
+                  ) : null}
+                </>
+              )}
+            </div>
+          </section>
         </main>
       </div>
     </>
