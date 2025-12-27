@@ -49,7 +49,7 @@ app.http("logo-scrape", {
           domain: domain || "",
           website_url: websiteUrl || "",
           logo_source_url: out?.logo_source_url || "",
-          logo_url: out?.logo_source_url || "",
+          logo_url: "",
           strategy: out?.strategy || "",
           page_url: out?.page_url || "",
           warning: out?.warning || "",
