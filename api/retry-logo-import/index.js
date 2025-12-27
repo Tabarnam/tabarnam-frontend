@@ -94,6 +94,7 @@ app.http("retry-logo-import", {
       const result = await importCompanyLogo(
         {
           companyId: doc.id,
+          companyName: String(doc.company_name || doc.name || "").trim(),
           domain,
           websiteUrl,
           logoSourceUrl: String(doc.logo_source_url || "").trim() || undefined,
@@ -105,9 +106,11 @@ app.http("retry-logo-import", {
 
       const updatedDoc = {
         ...doc,
-        logo_status: result.logo_status || (result.logo_url ? "imported" : "not_found"),
+        logo_status: result.logo_status || (result.logo_url ? "imported" : "not_found_on_site"),
         logo_import_status: result.logo_import_status,
         logo_source_url: result.logo_source_url || doc.logo_source_url || null,
+        logo_source_location: result.logo_source_location || doc.logo_source_location || null,
+        logo_source_domain: result.logo_source_domain || doc.logo_source_domain || null,
         logo_source_type: result.logo_source_type || doc.logo_source_type || null,
         logo_error: result.logo_error || "",
         logo_url: result.logo_url || null,
@@ -125,9 +128,11 @@ app.http("retry-logo-import", {
         {
           ok: true,
           company_id: doc.id,
-          logo_status: result.logo_status || (result.logo_url ? "imported" : "not_found"),
+          logo_status: result.logo_status || (result.logo_url ? "imported" : "not_found_on_site"),
           logo_import_status: result.logo_import_status,
           logo_source_url: result.logo_source_url || null,
+          logo_source_location: result.logo_source_location || null,
+          logo_source_domain: result.logo_source_domain || null,
           logo_source_type: result.logo_source_type || null,
           logo_url: result.logo_url || null,
           logo_error: result.logo_error || "",
