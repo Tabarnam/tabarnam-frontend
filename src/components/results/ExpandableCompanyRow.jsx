@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import ReviewsWidget from "@/components/ReviewsWidget";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { getCompanyCanonicalName, getCompanyDisplayName } from "@/lib/companyDisplayName";
@@ -92,6 +92,14 @@ export default function ExpandableCompanyRow({
   const displayName = title || getCompanyDisplayName(company);
   const logoUrl = toStableLogoUrl(company?.logo_url);
   const canonicalName = getCompanyCanonicalName(company);
+
+  const [logoFailed, setLogoFailed] = useState(false);
+  useEffect(() => {
+    setLogoFailed(false);
+  }, [logoUrl]);
+
+  const logoStatus = typeof company?.logo_status === "string" ? company.logo_status.trim().toLowerCase() : "";
+  const shouldShowLogo = Boolean(logoUrl) && !logoFailed;
 
   const websiteUrl =
     company.website_url ||
@@ -407,23 +415,25 @@ export default function ExpandableCompanyRow({
           </div>
 
           <div>
-            {logoUrl ? (
+            {shouldShowLogo ? (
               <img
                 src={logoUrl}
                 alt={displayName}
                 className="w-full h-24 object-contain mb-3"
-                onError={(e) => {
-                  e.target.style.display = "none";
-                }}
+                onError={() => setLogoFailed(true)}
               />
             ) : (
               <div className="w-full h-24 mb-3 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-2xl">
-                {displayName
-                  .split(" ")
-                  .map((w) => w[0])
-                  .join("")
-                  .substring(0, 2)
-                  .toUpperCase()}
+                {logoStatus === "not_found" ? (
+                  <span className="text-sm font-semibold text-gray-500">No logo found</span>
+                ) : (
+                  displayName
+                    .split(" ")
+                    .map((w) => w[0])
+                    .join("")
+                    .substring(0, 2)
+                    .toUpperCase()
+                )}
               </div>
             )}
             <div className="text-sm font-semibold text-gray-700">Keywords</div>
@@ -580,23 +590,25 @@ export default function ExpandableCompanyRow({
       </div>
 
       <div className="col-span-2 lg:col-span-1">
-        {logoUrl ? (
+        {shouldShowLogo ? (
           <img
             src={logoUrl}
             alt={displayName}
             className="w-full h-20 object-contain mb-2"
-            onError={(e) => {
-              e.target.style.display = "none";
-            }}
+            onError={() => setLogoFailed(true)}
           />
         ) : (
           <div className="w-full h-20 mb-2 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-lg">
-            {displayName
-              .split(" ")
-              .map((w) => w[0])
-              .join("")
-              .substring(0, 2)
-              .toUpperCase()}
+            {logoStatus === "not_found" ? (
+              <span className="text-xs font-semibold text-gray-500">No logo found</span>
+            ) : (
+              displayName
+                .split(" ")
+                .map((w) => w[0])
+                .join("")
+                .substring(0, 2)
+                .toUpperCase()
+            )}
           </div>
         )}
         <div className="text-xs font-semibold text-gray-700">Keywords</div>
