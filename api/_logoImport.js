@@ -449,13 +449,96 @@ function isLikelyNonLogoByContentType(contentType, candidate) {
   return false;
 }
 
+function isAllowedLogoExtension(ext) {
+  const e = String(ext || "").toLowerCase();
+  return e === "png" || e === "jpg" || e === "jpeg" || e === "svg";
+}
+
+function isAllowedLogoContentType(contentType) {
+  const ct = String(contentType || "").toLowerCase();
+  if (!ct.startsWith("image/")) return false;
+  if (ct.includes("image/png")) return true;
+  if (ct.includes("image/jpeg") || ct.includes("image/jpg")) return true;
+  if (ct.includes("image/svg+xml")) return true;
+  return false;
+}
+
+function looksLikeUnsafeSvg(buf) {
+  try {
+    const head = Buffer.from(buf).subarray(0, 24000).toString("utf8").toLowerCase();
+    if (head.includes("<script")) return true;
+    if (head.includes("javascript:")) return true;
+    if (/\son\w+\s*=/.test(head)) return true; // onload=, onclick=, etc
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function isReasonableLogoAspectRatio({ width, height }) {
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return false;
+  if (width <= 0 || height <= 0) return false;
+  const ratio = width / height;
+  if (ratio < 0.2) return false;
+  if (ratio > 5) return false;
+  return true;
+}
+
+async function headProbeImage(url, { timeoutMs = 6000 } = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      method: "HEAD",
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        Accept: "image/svg+xml,image/png,image/jpeg,image/*,*/*",
+        "User-Agent": "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)",
+      },
+    });
+
+    const contentType = res.headers.get("content-type") || "";
+    const contentLengthRaw = res.headers.get("content-length") || "";
+    const contentLength = Number.isFinite(Number(contentLengthRaw)) ? Number(contentLengthRaw) : null;
+
+    return {
+      ok: res.ok,
+      status: res.status,
+      finalUrl: res.url,
+      contentType,
+      contentLength,
+    };
+  } catch {
+    return { ok: false, status: 0, finalUrl: "", contentType: "", contentLength: null };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function fetchAndEvaluateCandidate(candidate, logger = console) {
   const sourceUrl = String(candidate?.url || "").trim();
   if (!sourceUrl) return { ok: false, reason: "missing_url" };
 
+  if (sourceUrl.startsWith("data:")) return { ok: false, reason: "data_url" };
+
   if (hasAnyToken(sourceUrl, LOGO_NEGATIVE_TOKENS) && !candidate?.strong_signal) {
     return { ok: false, reason: "negative_url_tokens" };
   }
+
+  const urlExt = getFileExt(sourceUrl);
+  if (urlExt && !isAllowedLogoExtension(urlExt)) {
+    return { ok: false, reason: `unsupported_extension_${urlExt}` };
+  }
+
+  // Lightweight probe before downloading full image
+  const head = await headProbeImage(sourceUrl, { timeoutMs: 6000 });
+  const probedType = String(head.contentType || "").toLowerCase();
+
+  if (!head.ok) return { ok: false, reason: `head_status_${head.status || 0}` };
+  if (!isAllowedLogoContentType(probedType)) return { ok: false, reason: `unsupported_content_type_${probedType || "unknown"}` };
+  if (head.contentLength != null && head.contentLength <= 5 * 1024) return { ok: false, reason: `too_small_${head.contentLength}_bytes` };
 
   try {
     const { buf, contentType, finalUrl } = await fetchImageBufferWithRetries(sourceUrl, {
@@ -464,24 +547,43 @@ async function fetchAndEvaluateCandidate(candidate, logger = console) {
       maxBytes: 6 * 1024 * 1024,
     });
 
-    const resolvedUrl = finalUrl || sourceUrl;
-    const isSvg = sniffIsSvg(contentType, resolvedUrl, buf);
-
-    if (isSvg) {
-      return { ok: true, buf, contentType, finalUrl: resolvedUrl, isSvg, width: null, height: null };
+    if (!Buffer.isBuffer(buf) || buf.length <= 5 * 1024) {
+      return { ok: false, reason: `too_small_${buf?.length || 0}_bytes` };
     }
 
-    if (isLikelyNonLogoByContentType(contentType, candidate)) {
+    const resolvedUrl = finalUrl || head.finalUrl || sourceUrl;
+    const ct = String(contentType || head.contentType || "").toLowerCase();
+
+    if (!isAllowedLogoContentType(ct)) {
+      return { ok: false, reason: `unsupported_content_type_${ct || "unknown"}` };
+    }
+
+    const isSvg = sniffIsSvg(ct, resolvedUrl, buf);
+
+    if (isSvg) {
+      if (looksLikeUnsafeSvg(buf)) return { ok: false, reason: "unsafe_svg" };
+      return { ok: true, buf, contentType: ct, finalUrl: resolvedUrl, isSvg, width: null, height: null };
+    }
+
+    if (isLikelyNonLogoByContentType(ct, candidate)) {
       return { ok: false, reason: "raster_jpeg_weak_signal" };
     }
 
     const { width, height } = await getImageMetadata(buf, isSvg);
 
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width < 128 || height < 128) {
+      return { ok: false, reason: `too_small_dimensions_${width || "?"}x${height || "?"}` };
+    }
+
+    if (!isReasonableLogoAspectRatio({ width, height }) && !candidate?.strong_signal) {
+      return { ok: false, reason: `unreasonable_aspect_ratio_${width}x${height}` };
+    }
+
     if (isLikelyHeroDimensions({ width, height }) && !candidate?.strong_signal) {
       return { ok: false, reason: `likely_hero_dimensions_${width}x${height}` };
     }
 
-    return { ok: true, buf, contentType, finalUrl: resolvedUrl, isSvg, width, height };
+    return { ok: true, buf, contentType: ct, finalUrl: resolvedUrl, isSvg, width, height };
   } catch (e) {
     logger?.warn?.(`[logoImport] candidate fetch/eval failed: ${candidate?.url} ${e?.message || e}`);
     return { ok: false, reason: e?.message || String(e) };
@@ -620,22 +722,12 @@ async function discoverLogoSourceUrl({ domain, websiteUrl }, logger = console) {
     }
   }
 
-  if (d) {
-    return {
-      ok: true,
-      logo_source_url: `https://logo.clearbit.com/${encodeURIComponent(d)}`,
-      strategy: "clearbit",
-      page_url: "",
-      warning: discovered?.error || "fallback",
-    };
-  }
-
   return {
     ok: false,
     logo_source_url: "",
     strategy: "",
     page_url: "",
-    error: discovered?.error || "missing domain",
+    error: discovered?.error || "no suitable logo found",
   };
 }
 
