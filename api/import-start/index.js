@@ -2103,6 +2103,8 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
             normalized_domain: finalNormalizedDomain,
             logo_url: logoImport.logo_url || null,
             logo_source_url: logoImport.logo_source_url || null,
+            logo_source_type: logoImport.logo_source_type || null,
+            logo_status: logoImport.logo_status || (logoImport.logo_url ? "imported" : "not_found"),
             logo_import_status: logoImport.logo_import_status || "missing",
             logo_error: logoImport.logo_error || "",
             tagline: company.tagline || "",
