@@ -101,7 +101,12 @@ const CompanyRow = ({
   }, [logoUrl]);
 
   const logoStatus = typeof company?.logo_status === "string" ? company.logo_status.trim().toLowerCase() : "";
-  const missingLogoLabel = logoStatus === "not_found" ? "No logo found" : "No logo";
+  const missingLogoLabel =
+    logoStatus === "not_found_on_site"
+      ? "No logo found on company website"
+      : logoStatus === "not_found"
+        ? "No logo found"
+        : "No logo";
   const shouldShowLogo = Boolean(logoUrl) && !logoFailed;
 
   const hqs = company.headquarters || [];
