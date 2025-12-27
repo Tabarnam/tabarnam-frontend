@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Copy, MapPin, Factory, Tag, FileText } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
@@ -94,6 +94,15 @@ const CompanyRow = ({
   );
 
   const logoUrl = toStableLogoUrl(company.logo_url);
+  const [logoFailed, setLogoFailed] = useState(false);
+
+  useEffect(() => {
+    setLogoFailed(false);
+  }, [logoUrl]);
+
+  const logoStatus = typeof company?.logo_status === "string" ? company.logo_status.trim().toLowerCase() : "";
+  const missingLogoLabel = logoStatus === "not_found" ? "No logo found" : "No logo";
+  const shouldShowLogo = Boolean(logoUrl) && !logoFailed;
 
   const hqs = company.headquarters || [];
   const mfgs = company.manufacturing_sites || [];
@@ -152,7 +161,7 @@ const CompanyRow = ({
 
         {/* Logo column with admin Add button if missing */}
         <td className="p-4 align-top">
-          {logoUrl ? (
+          {shouldShowLogo ? (
             <img
               src={logoUrl}
               alt={`${displayName || "Company"} logo`}
@@ -160,10 +169,11 @@ const CompanyRow = ({
               loading="lazy"
               decoding="async"
               onClick={(e) => e.stopPropagation()}
+              onError={() => setLogoFailed(true)}
             />
           ) : (
             <div className="w-16 h-16 md:w-20 md:h-20 rounded-md bg-gray-100 flex items-center justify-center text-xs text-gray-400 relative">
-              No logo
+              {missingLogoLabel}
             </div>
           )}
         </td>
@@ -256,7 +266,7 @@ const CompanyRow = ({
                     />
                   ) : (
                     <div className="w-20 h-20 rounded-md bg-gray-100 flex items-center justify-center text-xs text-gray-400 relative">
-                      No logo
+                      {missingLogoLabel}
                     </div>
                   )}
                 </div>
