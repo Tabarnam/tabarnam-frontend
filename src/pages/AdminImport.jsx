@@ -203,6 +203,10 @@ export default function AdminImport() {
   const startFetchAbortRef = useRef(null);
   const pollAttemptsRef = useRef(new Map());
 
+  const startImportRequestInFlightRef = useRef(false);
+  const activeStatusRef = useRef(activeStatus);
+  activeStatusRef.current = activeStatus;
+
   const activeRun = useMemo(() => {
     if (!activeSessionId) return null;
     return runs.find((r) => r.session_id === activeSessionId) || null;
@@ -1069,6 +1073,42 @@ export default function AdminImport() {
     return `Searching for companies…${suffix}`;
   }, [activeRun]);
 
+  const startImportDisabled = !API_BASE || activeStatus === "running" || activeStatus === "stopping";
+
+  useEffect(() => {
+    if (activeStatus !== "running" && activeStatus !== "stopping") {
+      startImportRequestInFlightRef.current = false;
+    }
+  }, [activeStatus]);
+
+  const handleStartImportStaged = useCallback(() => {
+    if (startImportDisabled) return;
+    if (startImportRequestInFlightRef.current) return;
+
+    startImportRequestInFlightRef.current = true;
+    beginImport();
+
+    // If beginImport bails early (validation/config), don't lock the UI.
+    setTimeout(() => {
+      const status = activeStatusRef.current;
+      if (status !== "running" && status !== "stopping") {
+        startImportRequestInFlightRef.current = false;
+      }
+    }, 0);
+  }, [beginImport, startImportDisabled]);
+
+  const handleQueryInputEnter = useCallback(
+    (e) => {
+      if (!e) return;
+      if (e.nativeEvent?.isComposing) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      handleStartImportStaged();
+    },
+    [handleStartImportStaged]
+  );
+
   return (
     <>
       <Helmet>
@@ -1188,7 +1228,12 @@ export default function AdminImport() {
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
               <div className="lg:col-span-2 space-y-1">
                 <label className="text-sm text-slate-700">Search query</label>
-                <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="e.g. running shoes" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onEnter={handleQueryInputEnter}
+                  placeholder="e.g. running shoes"
+                />
               </div>
 
               <div className="space-y-1">
@@ -1256,23 +1301,22 @@ export default function AdminImport() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button
-                onClick={() => beginImport()}
-                disabled={!API_BASE || activeStatus === "running" || activeStatus === "stopping"}
-              >
+              <Button type="button" onClick={handleStartImportStaged} disabled={startImportDisabled}>
                 <Play className="h-4 w-4 mr-2" />
                 {activeStatus === "running" ? "Running…" : "Start import (staged)"}
               </Button>
 
               <Button
+                type="button"
                 variant="outline"
                 onClick={() => beginImport({ mode: "best_effort" })}
-                disabled={!API_BASE || activeStatus === "running" || activeStatus === "stopping"}
+                disabled={startImportDisabled}
               >
                 Run all stages (best effort)
               </Button>
 
               <Button
+                type="button"
                 variant="outline"
                 onClick={explainImportPayload}
                 disabled={!API_BASE || explainLoading}
@@ -1281,6 +1325,7 @@ export default function AdminImport() {
               </Button>
 
               <Button
+                type="button"
                 variant="outline"
                 onClick={() => {
                   if (!activeSessionId) {
@@ -1298,6 +1343,7 @@ export default function AdminImport() {
               </Button>
 
               <Button
+                type="button"
                 variant="outline"
                 className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
                 onClick={stopImport}
