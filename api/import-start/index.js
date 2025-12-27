@@ -1512,16 +1512,58 @@ async function findExistingCompany(container, normalizedDomain, companyName) {
 
 // Helper: import logo (discover -> fetch w/ retries -> rasterize SVG -> upload to blob)
 async function fetchLogo({ companyId, domain, websiteUrl, existingLogoUrl }) {
-  if (existingLogoUrl) {
-    return {
-      ok: true,
-      logo_import_status: "imported",
-      logo_source_url: existingLogoUrl,
-      logo_url: existingLogoUrl,
-      logo_error: "",
-      logo_discovery_strategy: "provided",
-      logo_discovery_page_url: "",
-    };
+  const existing = String(existingLogoUrl || "").trim();
+
+  const looksLikeCompanyLogoBlobUrl = (u) => {
+    const s = String(u || "");
+    return s.includes(".blob.core.windows.net") && s.includes("/company-logos/");
+  };
+
+  const headCheck = async (u) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+
+    try {
+      const res = await fetch(u, {
+        method: "HEAD",
+        redirect: "follow",
+        signal: controller.signal,
+        headers: {
+          Accept: "image/svg+xml,image/png,image/jpeg,image/*,*/*",
+          "User-Agent": "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)",
+        },
+      });
+
+      const contentType = String(res.headers.get("content-type") || "");
+      const contentLengthRaw = String(res.headers.get("content-length") || "");
+      const contentLength = Number.isFinite(Number(contentLengthRaw)) ? Number(contentLengthRaw) : null;
+
+      if (!res.ok) return { ok: false, reason: `head_status_${res.status}` };
+      if (!contentType.toLowerCase().startsWith("image/")) return { ok: false, reason: `non_image_${contentType || "unknown"}` };
+      if (contentLength != null && contentLength <= 5 * 1024) return { ok: false, reason: `too_small_${contentLength}_bytes` };
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: e?.message || "head_failed" };
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  // Only accept an existing logo URL if it's a previously uploaded blob AND it actually exists.
+  // Never persist arbitrary / synthetic URLs as logo_url.
+  if (existing && looksLikeCompanyLogoBlobUrl(existing)) {
+    const verified = await headCheck(existing);
+    if (verified.ok) {
+      return {
+        ok: true,
+        logo_import_status: "imported",
+        logo_source_url: null,
+        logo_url: existing,
+        logo_error: "",
+        logo_discovery_strategy: "existing_blob",
+        logo_discovery_page_url: "",
+      };
+    }
   }
 
   if (!domain || domain === "unknown") {
