@@ -3903,7 +3903,7 @@ export default function CompanyDashboard() {
                             <div className="flex flex-wrap items-center gap-2">
                               <input
                                 type="file"
-                                accept="image/png,image/jpeg,image/webp"
+                                accept="image/png,image/jpeg,image/svg+xml"
                                 onChange={handleLogoFileChange}
                                 className="block w-full max-w-[360px] text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-900/90"
                                 disabled={logoUploading || logoDeleting}
