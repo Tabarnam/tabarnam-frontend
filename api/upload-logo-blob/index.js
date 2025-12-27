@@ -243,6 +243,11 @@ app.http("upload-logo-blob", {
       const updatedDoc = {
         ...doc,
         logo_url: logoUrl,
+        logo_status: "imported",
+        logo_import_status: "imported",
+        logo_source_url: doc.logo_source_url || null,
+        logo_source_type: "admin_upload",
+        logo_error: "",
         updated_at: new Date().toISOString(),
       };
 
