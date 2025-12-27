@@ -562,7 +562,19 @@ async function fetchAndEvaluateCandidate(candidate, logger = console) {
 
     if (isSvg) {
       if (looksLikeUnsafeSvg(buf)) return { ok: false, reason: "unsafe_svg" };
-      return { ok: true, buf, contentType: ct, finalUrl: resolvedUrl, isSvg, width: null, height: null };
+
+      const { width, height } = await getImageMetadata(buf, true);
+      if (!Number.isFinite(width) || !Number.isFinite(height)) {
+        return { ok: false, reason: "unknown_svg_dimensions" };
+      }
+      if (width < 128 || height < 128) {
+        return { ok: false, reason: `too_small_dimensions_${width}x${height}` };
+      }
+      if (!isReasonableLogoAspectRatio({ width, height }) && !candidate?.strong_signal) {
+        return { ok: false, reason: `unreasonable_aspect_ratio_${width}x${height}` };
+      }
+
+      return { ok: true, buf, contentType: ct, finalUrl: resolvedUrl, isSvg, width, height };
     }
 
     if (isLikelyNonLogoByContentType(ct, candidate)) {
