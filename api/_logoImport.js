@@ -735,23 +735,21 @@ async function rasterizeToPng(buf, { maxSize = 500, isSvg = false } = {}) {
   try {
     let pipeline = sharp(buf, isSvg ? { density: 300 } : undefined);
     pipeline = pipeline.resize({ width: maxSize, height: maxSize, fit: "inside", withoutEnlargement: true });
+
+    // By default Sharp strips metadata unless withMetadata() is explicitly used.
     return await pipeline.png({ quality: 90 }).toBuffer();
   } catch (e) {
     throw new Error(`image processing failed: ${e?.message || String(e)}`);
   }
 }
 
-function getStorageCredentials() {
-  const accountName = env("AZURE_STORAGE_ACCOUNT_NAME", "");
-  const accountKey = env("AZURE_STORAGE_ACCOUNT_KEY", "");
-  return { accountName, accountKey };
-}
-
-async function uploadPngToBlob({ companyId, pngBuffer }, logger = console) {
+async function uploadBufferToBlob({ companyId, buffer, ext, contentType }, logger = console) {
   const { accountName, accountKey } = getStorageCredentials();
   if (!accountName || !accountKey) {
     throw new Error("storage not configured");
   }
+
+  const safeExt = String(ext || "").replace(/[^a-z0-9]/gi, "").toLowerCase() || "bin";
 
   const credentials = new StorageSharedKeyCredential(accountName, accountKey);
   const blobServiceClient = new BlobServiceClient(`https://${accountName}.blob.core.windows.net`, credentials);
@@ -766,14 +764,63 @@ async function uploadPngToBlob({ companyId, pngBuffer }, logger = console) {
     logger?.warn?.(`[logoImport] container create/exists failed: ${e?.message || e}`);
   }
 
-  const blobName = `${companyId}/${uuidv4()}.png`;
+  const blobName = `${companyId}/${uuidv4()}.${safeExt}`;
   const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
-  await blockBlobClient.upload(pngBuffer, pngBuffer.length, {
-    blobHTTPHeaders: { blobContentType: "image/png" },
+  await blockBlobClient.upload(buffer, buffer.length, {
+    blobHTTPHeaders: { blobContentType: contentType || "application/octet-stream" },
   });
 
   return blockBlobClient.url;
+}
+
+function getStorageCredentials() {
+  const accountName = env("AZURE_STORAGE_ACCOUNT_NAME", "");
+  const accountKey = env("AZURE_STORAGE_ACCOUNT_KEY", "");
+  return { accountName, accountKey };
+}
+
+async function uploadPngToBlob({ companyId, pngBuffer }, logger = console) {
+  return uploadBufferToBlob({ companyId, buffer: pngBuffer, ext: "png", contentType: "image/png" }, logger);
+}
+
+async function uploadSvgToBlob({ companyId, svgBuffer }, logger = console) {
+  return uploadBufferToBlob({ companyId, buffer: svgBuffer, ext: "svg", contentType: "image/svg+xml" }, logger);
+}
+
+function candidateSourceRank(source) {
+  switch (String(source || "").toLowerCase()) {
+    case "favicon":
+      return 10; // website (icons)
+    case "img":
+      return 20; // website (img tags)
+    case "schema.org":
+      return 30; // website (structured on homepage)
+    case "og:image":
+      return 40; // open graph (explicit second priority)
+    case "twitter:image":
+      return 50;
+    case "provided":
+      return 60;
+    default:
+      return 70;
+  }
+}
+
+function isIcoUrl(url) {
+  return getFileExt(url) === "ico";
+}
+
+function sortCandidatesStrict(a, b) {
+  const ar = candidateSourceRank(a?.source);
+  const br = candidateSourceRank(b?.source);
+  if (ar !== br) return ar - br;
+
+  const aIco = isIcoUrl(a?.url);
+  const bIco = isIcoUrl(b?.url);
+  if (aIco !== bIco) return aIco ? 1 : -1;
+
+  return (Number(b?.score) || 0) - (Number(a?.score) || 0);
 }
 
 async function importCompanyLogo({ companyId, domain, websiteUrl, logoSourceUrl }, logger = console) {
@@ -796,7 +843,7 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, logoSourceUrl 
         url: providedUrl,
         source: "provided",
         page_url: "",
-        score: 1000 + extScore(getFileExt(providedUrl)) + (hasAnyToken(providedUrl, LOGO_POSITIVE_TOKENS) ? 50 : 0),
+        score: 5 + extScore(getFileExt(providedUrl)) + (hasAnyToken(providedUrl, LOGO_POSITIVE_TOKENS) ? 50 : 0),
         strong_signal: strongLogoSignal({ url: providedUrl }),
       });
     }
@@ -806,9 +853,10 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, logoSourceUrl 
   candidates.push(...(discovered?.candidates || []));
 
   const sorted = dedupeAndSortCandidates(candidates);
+  sorted.sort(sortCandidatesStrict);
 
   let lastReason = "";
-  const maxToTry = 10;
+  const maxToTry = 12;
 
   for (let i = 0; i < Math.min(maxToTry, sorted.length); i += 1) {
     const candidate = sorted[i];
@@ -820,8 +868,14 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, logoSourceUrl 
     }
 
     try {
-      const pngBuffer = await rasterizeToPng(evalResult.buf, { maxSize: 500, isSvg: evalResult.isSvg });
-      const logoUrl = await uploadPngToBlob({ companyId, pngBuffer }, logger);
+      let logoUrl = null;
+
+      if (evalResult.isSvg) {
+        logoUrl = await uploadSvgToBlob({ companyId, svgBuffer: evalResult.buf }, logger);
+      } else {
+        const pngBuffer = await rasterizeToPng(evalResult.buf, { maxSize: 500, isSvg: false });
+        logoUrl = await uploadPngToBlob({ companyId, pngBuffer }, logger);
+      }
 
       return {
         ok: true,
