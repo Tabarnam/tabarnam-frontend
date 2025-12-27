@@ -105,10 +105,12 @@ app.http("retry-logo-import", {
 
       const updatedDoc = {
         ...doc,
+        logo_status: result.logo_status || (result.logo_url ? "imported" : "not_found"),
         logo_import_status: result.logo_import_status,
         logo_source_url: result.logo_source_url || doc.logo_source_url || null,
+        logo_source_type: result.logo_source_type || doc.logo_source_type || null,
         logo_error: result.logo_error || "",
-        ...(result.logo_url ? { logo_url: result.logo_url } : {}),
+        logo_url: result.logo_url || null,
         updated_at: new Date().toISOString(),
       };
 
@@ -123,8 +125,10 @@ app.http("retry-logo-import", {
         {
           ok: true,
           company_id: doc.id,
+          logo_status: result.logo_status || (result.logo_url ? "imported" : "not_found"),
           logo_import_status: result.logo_import_status,
           logo_source_url: result.logo_source_url || null,
+          logo_source_type: result.logo_source_type || null,
           logo_url: result.logo_url || null,
           logo_error: result.logo_error || "",
         },
