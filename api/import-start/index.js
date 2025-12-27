@@ -1556,8 +1556,10 @@ async function fetchLogo({ companyId, domain, websiteUrl, existingLogoUrl }) {
     if (verified.ok) {
       return {
         ok: true,
+        logo_status: "imported",
         logo_import_status: "imported",
         logo_source_url: null,
+        logo_source_type: "existing_blob",
         logo_url: existing,
         logo_error: "",
         logo_discovery_strategy: "existing_blob",
@@ -1569,8 +1571,10 @@ async function fetchLogo({ companyId, domain, websiteUrl, existingLogoUrl }) {
   if (!domain || domain === "unknown") {
     return {
       ok: true,
+      logo_status: "not_found",
       logo_import_status: "missing",
-      logo_source_url: "",
+      logo_source_url: null,
+      logo_source_type: null,
       logo_url: null,
       logo_error: "missing domain",
       logo_discovery_strategy: "",
