@@ -824,6 +824,15 @@ function isIcoUrl(url) {
   return getFileExt(url) === "ico";
 }
 
+function toLogoSourceType(source) {
+  const s = String(source || "").toLowerCase();
+  if (s === "favicon" || s === "img" || s === "schema.org") return "website";
+  if (s === "og:image") return "og_image";
+  if (s === "twitter:image") return "og_image";
+  if (s === "provided") return "provided";
+  return s || "unknown";
+}
+
 function sortCandidatesStrict(a, b) {
   const ar = candidateSourceRank(a?.source);
   const br = candidateSourceRank(b?.source);
@@ -840,9 +849,11 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, logoSourceUrl 
   if (!companyId) {
     return {
       ok: false,
+      logo_status: "error",
       logo_import_status: "failed",
       logo_error: "missing companyId",
-      logo_source_url: logoSourceUrl || "",
+      logo_source_url: logoSourceUrl || null,
+      logo_source_type: logoSourceUrl ? "provided" : null,
       logo_url: null,
     };
   }
@@ -892,9 +903,11 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, logoSourceUrl 
 
       return {
         ok: true,
+        logo_status: "imported",
         logo_import_status: "imported",
         logo_error: "",
         logo_source_url: evalResult.finalUrl || candidate.url,
+        logo_source_type: toLogoSourceType(candidate.source),
         logo_url: logoUrl,
         logo_discovery_strategy: candidate.source || "",
         logo_discovery_page_url: candidate.page_url || discovered?.page_url || "",
@@ -907,9 +920,11 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, logoSourceUrl 
 
   return {
     ok: true,
+    logo_status: "not_found",
     logo_import_status: "missing",
     logo_error: lastReason || discovered?.error || "no suitable logo found",
-    logo_source_url: "",
+    logo_source_url: null,
+    logo_source_type: null,
     logo_url: null,
     logo_discovery_strategy: "",
     logo_discovery_page_url: discovered?.page_url || "",
