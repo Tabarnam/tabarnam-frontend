@@ -159,6 +159,44 @@ const IMPORT_LIMIT_MIN = 1;
 const IMPORT_LIMIT_MAX = 25;
 const IMPORT_LIMIT_DEFAULT = 1;
 
+const IMPORT_STAGE_BEACON_TO_ENGLISH = Object.freeze({
+  primary_search_started: "Searching for matching companies",
+  primary_candidate_found: "Company candidate found",
+  primary_expanding_candidates: "Expanding search for better matches",
+  primary_early_exit: "Single match found. Finalizing import",
+  primary_complete: "Primary search complete",
+  primary_timeout: "Primary search timed out",
+  no_candidates_found: "No matching companies found",
+});
+
+const IMPORT_ERROR_CODE_TO_REASON = Object.freeze({
+  primary_timeout: "Primary search timed out (120s hard cap)",
+  no_candidates_found: "No matching companies found",
+});
+
+function humanizeImportCode(raw) {
+  const input = asString(raw).trim();
+  if (!input) return "";
+
+  const cleaned = input.replace(/[_-]+/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
+function toEnglishImportStage(stageBeacon) {
+  const key = asString(stageBeacon).trim();
+  if (!key) return "";
+  if (Object.prototype.hasOwnProperty.call(IMPORT_STAGE_BEACON_TO_ENGLISH, key)) return IMPORT_STAGE_BEACON_TO_ENGLISH[key];
+  return humanizeImportCode(key);
+}
+
+function toEnglishImportStopReason(lastErrorCode) {
+  const key = asString(lastErrorCode).trim();
+  if (!key) return "Import stopped.";
+  if (Object.prototype.hasOwnProperty.call(IMPORT_ERROR_CODE_TO_REASON, key)) return IMPORT_ERROR_CODE_TO_REASON[key];
+  return humanizeImportCode(key);
+}
+
 function normalizeImportLimit(raw, fallback = IMPORT_LIMIT_DEFAULT) {
   const s = String(raw ?? "").trim();
   if (!s) return fallback;
@@ -275,6 +313,22 @@ export default function AdminImport() {
         setRuns((prev) =>
           prev.map((r) => {
             if (r.session_id !== session_id) return r;
+
+            const nextLastStageBeacon = stageBeacon || asString(r.last_stage_beacon) || asString(r.stage_beacon);
+            const reachedTerminal = isTerminalError || isTerminalComplete;
+            const finalStageBeacon = reachedTerminal
+              ? stageBeacon || nextLastStageBeacon || asString(r.final_stage_beacon)
+              : asString(r.final_stage_beacon);
+
+            const normalizedJobState = jobState || asString(r.job_state);
+            const finalJobState = reachedTerminal
+              ? normalizedJobState || asString(r.final_job_state) || asString(r.job_state)
+              : asString(r.final_job_state);
+
+            const finalLastErrorCode = reachedTerminal
+              ? lastErrorCode || asString(r.final_last_error_code)
+              : asString(r.final_last_error_code);
+
             return {
               ...r,
               items: mergeById(r.items, items),
@@ -283,7 +337,12 @@ export default function AdminImport() {
               completed: isTerminalComplete,
               timedOut,
               stopped: isTerminalError || isTerminalComplete ? true : stopped,
+              job_state: normalizedJobState,
               stage_beacon: stageBeacon || asString(r.stage_beacon),
+              last_stage_beacon: nextLastStageBeacon,
+              final_stage_beacon: finalStageBeacon,
+              final_job_state: finalJobState,
+              final_last_error_code: finalLastErrorCode,
               elapsed_ms: Number.isFinite(Number(body?.elapsed_ms)) ? Number(body.elapsed_ms) : r.elapsed_ms ?? null,
               remaining_budget_ms: Number.isFinite(Number(body?.remaining_budget_ms))
                 ? Number(body.remaining_budget_ms)
@@ -523,7 +582,12 @@ export default function AdminImport() {
       completed: false,
       timedOut: false,
       stopped: false,
+      job_state: "",
       stage_beacon: "",
+      last_stage_beacon: "",
+      final_stage_beacon: "",
+      final_job_state: "",
+      final_last_error_code: "",
       elapsed_ms: null,
       remaining_budget_ms: null,
       upstream_calls_made: 0,
