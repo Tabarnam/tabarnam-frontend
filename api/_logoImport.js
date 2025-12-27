@@ -718,6 +718,7 @@ async function discoverLogoSourceUrl({ domain, websiteUrl }, logger = console) {
 
   const discovered = await discoverLogoCandidates({ domain: d, websiteUrl }, logger);
   const candidates = dedupeAndSortCandidates(discovered?.candidates || []);
+  candidates.sort(sortCandidatesStrict);
 
   const maxToTry = 8;
   for (let i = 0; i < Math.min(maxToTry, candidates.length); i += 1) {
