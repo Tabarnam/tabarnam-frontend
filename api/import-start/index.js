@@ -1511,7 +1511,7 @@ async function findExistingCompany(container, normalizedDomain, companyName) {
 }
 
 // Helper: import logo (discover -> fetch w/ retries -> rasterize SVG -> upload to blob)
-async function fetchLogo({ companyId, domain, websiteUrl, existingLogoUrl }) {
+async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingLogoUrl }) {
   const existing = String(existingLogoUrl || "").trim();
 
   const looksLikeCompanyLogoBlobUrl = (u) => {
