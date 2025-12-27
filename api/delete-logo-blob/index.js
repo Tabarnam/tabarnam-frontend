@@ -214,8 +214,13 @@ app.http("delete-logo-blob", {
               const updatedDoc = {
                 ...doc,
                 logo_url: null,
-                logo_status: "not_found",
+                logo_status: "not_found_on_site",
                 logo_import_status: "missing",
+                logo_source_url: null,
+                logo_source_location: null,
+                logo_source_domain: null,
+                logo_source_type: null,
+                logo_error: "deleted",
                 updated_at: new Date().toISOString(),
               };
 
