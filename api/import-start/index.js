@@ -1571,9 +1571,11 @@ async function fetchLogo({ companyId, domain, websiteUrl, existingLogoUrl }) {
   if (!domain || domain === "unknown") {
     return {
       ok: true,
-      logo_status: "not_found",
+      logo_status: "not_found_on_site",
       logo_import_status: "missing",
       logo_source_url: null,
+      logo_source_location: null,
+      logo_source_domain: null,
       logo_source_type: null,
       logo_url: null,
       logo_error: "missing domain",
@@ -1583,7 +1585,7 @@ async function fetchLogo({ companyId, domain, websiteUrl, existingLogoUrl }) {
   }
 
   const importCompanyLogo = requireImportCompanyLogo();
-  return importCompanyLogo({ companyId, domain, websiteUrl }, console);
+  return importCompanyLogo({ companyId, domain, websiteUrl, companyName }, console);
 }
 
 // Fetch editorial reviews for a company using XAI
@@ -2068,6 +2070,7 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
 
           const logoImport = await fetchLogo({
             companyId,
+            companyName,
             domain: finalNormalizedDomain,
             websiteUrl: company.website_url || company.canonical_url || company.url || "",
             existingLogoUrl: company.logo_url || null,
@@ -2103,8 +2106,10 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
             normalized_domain: finalNormalizedDomain,
             logo_url: logoImport.logo_url || null,
             logo_source_url: logoImport.logo_source_url || null,
+            logo_source_location: logoImport.logo_source_location || null,
+            logo_source_domain: logoImport.logo_source_domain || null,
             logo_source_type: logoImport.logo_source_type || null,
-            logo_status: logoImport.logo_status || (logoImport.logo_url ? "imported" : "not_found"),
+            logo_status: logoImport.logo_status || (logoImport.logo_url ? "imported" : "not_found_on_site"),
             logo_import_status: logoImport.logo_import_status || "missing",
             logo_error: logoImport.logo_error || "",
             tagline: company.tagline || "",
