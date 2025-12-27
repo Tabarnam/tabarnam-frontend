@@ -424,7 +424,9 @@ export default function ExpandableCompanyRow({
               />
             ) : (
               <div className="w-full h-24 mb-3 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-2xl">
-                {logoStatus === "not_found" ? (
+                {logoStatus === "not_found_on_site" ? (
+                  <span className="text-sm font-semibold text-gray-500">No logo found on company website</span>
+                ) : logoStatus === "not_found" ? (
                   <span className="text-sm font-semibold text-gray-500">No logo found</span>
                 ) : (
                   displayName
@@ -599,7 +601,9 @@ export default function ExpandableCompanyRow({
           />
         ) : (
           <div className="w-full h-20 mb-2 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-lg">
-            {logoStatus === "not_found" ? (
+            {logoStatus === "not_found_on_site" ? (
+              <span className="text-xs font-semibold text-gray-500">No logo found on company website</span>
+            ) : logoStatus === "not_found" ? (
               <span className="text-xs font-semibold text-gray-500">No logo found</span>
             ) : (
               displayName
