@@ -158,11 +158,11 @@ app.http("upload-logo-blob", {
         if (existsResponse) {
           ctx.log(`[upload-logo-blob] Container already exists: ${containerName}`);
 
-          // If the container already exists, it may have been created with private access.
-          // Ensure it is publicly readable so stored logo URLs (without SAS) render in the UI.
+          // Storage accounts can forbid public access entirely.
+          // This call is best-effort and will be ignored if it fails.
           try {
             await containerClient.setAccessPolicy("blob");
-            ctx.log(`[upload-logo-blob] Ensured container access level: blob (public read)`);
+            ctx.log(`[upload-logo-blob] Best-effort: attempted to set container access level: blob (public read)`);
           } catch (accessError) {
             ctx.warn?.(
               `[upload-logo-blob] Warning: could not set container access policy to public: ${accessError?.message || accessError}`
@@ -170,8 +170,16 @@ app.http("upload-logo-blob", {
           }
         } else {
           ctx.log(`[upload-logo-blob] DEBUG container does not exist, attempting create...`);
-          await containerClient.create({ access: "blob" });
-          ctx.log(`[upload-logo-blob] Created new container: ${containerName}`);
+          try {
+            await containerClient.create({ access: "blob" });
+            ctx.log(`[upload-logo-blob] Created new container: ${containerName} (public read)`);
+          } catch (createError) {
+            ctx.warn?.(
+              `[upload-logo-blob] Warning: could not create container with public access, retrying private: ${createError?.message || createError}`
+            );
+            await containerClient.create();
+            ctx.log(`[upload-logo-blob] Created new container: ${containerName} (private)`);
+          }
         }
       } catch (containerError) {
         ctx.error(`[upload-logo-blob] Container operation error: ${containerError.message}`);
