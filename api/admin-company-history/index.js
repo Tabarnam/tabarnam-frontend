@@ -1,4 +1,4 @@
-const { app } = require("../_app");
+const { app, hasRoute } = require("../_app");
 const { getBuildInfo } = require("../_buildInfo");
 const { getCompanyEditHistoryContainer } = require("../_companyEditHistory");
 
@@ -126,11 +126,15 @@ async function handler(req, context) {
   }
 }
 
-app.http("adminCompanyHistory", {
-  route: "admin/companies/{company_id}/history",
-  methods: ["GET", "OPTIONS"],
-  authLevel: "anonymous",
-  handler,
-});
+const ROUTE = "admin/companies/{company_id}/history";
+
+if (!hasRoute(ROUTE)) {
+  app.http("adminCompanyHistory", {
+    route: ROUTE,
+    methods: ["GET", "OPTIONS"],
+    authLevel: "anonymous",
+    handler,
+  });
+}
 
 module.exports._test = { handler, decodeCursor, encodeCursor };
