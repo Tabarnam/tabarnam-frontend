@@ -159,6 +159,44 @@ const IMPORT_LIMIT_MIN = 1;
 const IMPORT_LIMIT_MAX = 25;
 const IMPORT_LIMIT_DEFAULT = 1;
 
+const IMPORT_STAGE_BEACON_TO_ENGLISH = Object.freeze({
+  primary_search_started: "Searching for matching companies",
+  primary_candidate_found: "Company candidate found",
+  primary_expanding_candidates: "Expanding search for better matches",
+  primary_early_exit: "Single match found. Finalizing import",
+  primary_complete: "Primary search complete",
+  primary_timeout: "Primary search timed out",
+  no_candidates_found: "No matching companies found",
+});
+
+const IMPORT_ERROR_CODE_TO_REASON = Object.freeze({
+  primary_timeout: "Primary search timed out (120s hard cap)",
+  no_candidates_found: "No matching companies found",
+});
+
+function humanizeImportCode(raw) {
+  const input = asString(raw).trim();
+  if (!input) return "";
+
+  const cleaned = input.replace(/[_-]+/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
+function toEnglishImportStage(stageBeacon) {
+  const key = asString(stageBeacon).trim();
+  if (!key) return "";
+  if (Object.prototype.hasOwnProperty.call(IMPORT_STAGE_BEACON_TO_ENGLISH, key)) return IMPORT_STAGE_BEACON_TO_ENGLISH[key];
+  return humanizeImportCode(key);
+}
+
+function toEnglishImportStopReason(lastErrorCode) {
+  const key = asString(lastErrorCode).trim();
+  if (!key) return "Import stopped.";
+  if (Object.prototype.hasOwnProperty.call(IMPORT_ERROR_CODE_TO_REASON, key)) return IMPORT_ERROR_CODE_TO_REASON[key];
+  return humanizeImportCode(key);
+}
+
 function normalizeImportLimit(raw, fallback = IMPORT_LIMIT_DEFAULT) {
   const s = String(raw ?? "").trim();
   if (!s) return fallback;
@@ -275,6 +313,22 @@ export default function AdminImport() {
         setRuns((prev) =>
           prev.map((r) => {
             if (r.session_id !== session_id) return r;
+
+            const nextLastStageBeacon = stageBeacon || asString(r.last_stage_beacon) || asString(r.stage_beacon);
+            const reachedTerminal = isTerminalError || isTerminalComplete;
+            const finalStageBeacon = reachedTerminal
+              ? stageBeacon || nextLastStageBeacon || asString(r.final_stage_beacon)
+              : asString(r.final_stage_beacon);
+
+            const normalizedJobState = jobState || asString(r.job_state);
+            const finalJobState = reachedTerminal
+              ? normalizedJobState || asString(r.final_job_state) || asString(r.job_state)
+              : asString(r.final_job_state);
+
+            const finalLastErrorCode = reachedTerminal
+              ? lastErrorCode || asString(r.final_last_error_code)
+              : asString(r.final_last_error_code);
+
             return {
               ...r,
               items: mergeById(r.items, items),
@@ -283,7 +337,12 @@ export default function AdminImport() {
               completed: isTerminalComplete,
               timedOut,
               stopped: isTerminalError || isTerminalComplete ? true : stopped,
+              job_state: normalizedJobState,
               stage_beacon: stageBeacon || asString(r.stage_beacon),
+              last_stage_beacon: nextLastStageBeacon,
+              final_stage_beacon: finalStageBeacon,
+              final_job_state: finalJobState,
+              final_last_error_code: finalLastErrorCode,
               elapsed_ms: Number.isFinite(Number(body?.elapsed_ms)) ? Number(body.elapsed_ms) : r.elapsed_ms ?? null,
               remaining_budget_ms: Number.isFinite(Number(body?.remaining_budget_ms))
                 ? Number(body.remaining_budget_ms)
@@ -523,7 +582,12 @@ export default function AdminImport() {
       completed: false,
       timedOut: false,
       stopped: false,
+      job_state: "",
       stage_beacon: "",
+      last_stage_beacon: "",
+      final_stage_beacon: "",
+      final_job_state: "",
+      final_last_error_code: "",
       elapsed_ms: null,
       remaining_budget_ms: null,
       upstream_calls_made: 0,
@@ -1201,12 +1265,56 @@ export default function AdminImport() {
       return `Primary import timed out (120s hard cap).${suffix}`;
     }
 
-    if (stageBeacon === "primary_candidate_found") return `Company candidate found. Finalizing…${suffix}`;
-    if (stageBeacon === "primary_expanding_candidates") return `Expanding search…${suffix}`;
-    if (stageBeacon === "primary_early_exit") return `Match found (single-company import). Finalizing…${suffix}`;
-    if (stageBeacon === "primary_complete") return `Finalizing…${suffix}`;
+    if (stageBeacon) return `${toEnglishImportStage(stageBeacon)}${suffix}`;
 
-    return `Searching for companies…${suffix}`;
+    return `Searching for matching companies${suffix}`;
+  }, [activeRun]);
+
+  const plainEnglishProgress = useMemo(() => {
+    if (!activeRun) {
+      return {
+        hasRun: false,
+        isTerminal: false,
+        terminalKind: "",
+        stepText: "",
+        reasonText: "",
+      };
+    }
+
+    const rawJobState = asString(activeRun.final_job_state || activeRun.job_state).trim().toLowerCase();
+
+    const inferredTerminal =
+      rawJobState === "complete" ||
+      rawJobState === "error" ||
+      Boolean(activeRun.completed || activeRun.timedOut || activeRun.stopped) ||
+      Boolean(activeRun.start_error || activeRun.progress_error);
+
+    const stageBeacon = asString(
+      (inferredTerminal ? activeRun.final_stage_beacon : "") || activeRun.stage_beacon || activeRun.last_stage_beacon
+    ).trim();
+
+    const stepText = stageBeacon ? toEnglishImportStage(stageBeacon) : "";
+
+    const terminalKind =
+      rawJobState === "error" || activeRun.start_error || activeRun.progress_error
+        ? "error"
+        : rawJobState === "complete" || activeRun.completed
+          ? "complete"
+          : "";
+
+    const lastErrorCode = asString(
+      (inferredTerminal ? activeRun.final_last_error_code : "") || activeRun?.last_error?.code
+    ).trim();
+
+    const reasonText = terminalKind === "error" ? toEnglishImportStopReason(lastErrorCode) : "";
+
+    return {
+      hasRun: true,
+      isTerminal: inferredTerminal,
+      terminalKind,
+      stepText,
+      reasonText,
+    };
   }, [activeRun]);
 
   const startImportDisabled = !API_BASE || activeStatus === "running" || activeStatus === "stopping";
@@ -1924,6 +2032,45 @@ export default function AdminImport() {
               <code className="rounded bg-slate-100 px-1 py-0.5 break-all">GET {join(API_BASE, "/import-status")}</code>
             </div>
           </div>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold text-slate-900">Import progress (plain English)</h2>
+              <div className="text-xs text-slate-500">Shows what the importer is doing without reading logs.</div>
+            </div>
+
+            <div className="rounded border border-slate-200 bg-slate-50 p-4 space-y-2">
+              {!plainEnglishProgress.hasRun ? (
+                <div className="text-sm text-slate-700">Start an import to see a step-by-step explanation.</div>
+              ) : (
+                <>
+                  <div className="text-sm text-slate-900">
+                    <span className="font-medium">{plainEnglishProgress.isTerminal ? "Final step:" : "Current step:"}</span>{" "}
+                    {plainEnglishProgress.stepText || (activeStatus === "running" ? "Starting import…" : "Waiting for the next update…")}
+                  </div>
+
+                  {plainEnglishProgress.isTerminal ? (
+                    <>
+                      <div className="text-sm text-slate-900">
+                        <span className="font-medium">{plainEnglishProgress.terminalKind === "error" ? "Stopped at:" : "Finished at:"}</span>{" "}
+                        {plainEnglishProgress.stepText || "—"}
+                      </div>
+
+                      {plainEnglishProgress.terminalKind === "error" ? (
+                        <div className="text-sm text-slate-900">
+                          <span className="font-medium">Reason:</span> {plainEnglishProgress.reasonText || "Import failed."}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-slate-900">
+                          <span className="font-medium">Result:</span> Import completed.
+                        </div>
+                      )}
+                    </>
+                  ) : null}
+                </>
+              )}
+            </div>
+          </section>
         </main>
       </div>
     </>
