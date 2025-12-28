@@ -5,6 +5,9 @@ export function toStableLogoUrl(input) {
   const url = typeof input === "string" ? input.trim() : "";
   if (!url) return "";
 
+  // Our logo proxy endpoint needs its query string preserved.
+  if (url.startsWith("/api/company-logo?")) return url;
+
   // If the logo URL includes Azure SAS parameters, we must preserve the query string
   // or the asset will 403 (private container / signed URL access).
   if (hasSasParams(url)) return url;
