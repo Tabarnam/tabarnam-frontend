@@ -85,8 +85,16 @@ export async function searchCompanies(opts: SearchOptions) {
       .filter((it) => it && typeof it === "object")
       .map((it) => {
         const cid = asStr(it.company_id || it.companyId || it.id).trim();
+        const logo_url =
+          asStr(it.logo_url).trim() ||
+          asStr(it.logoUrl).trim() ||
+          asStr(it.logoURL).trim() ||
+          (it.logo && typeof it.logo === "object" ? asStr(it.logo.url).trim() : asStr(it.logo).trim()) ||
+          "";
+
         return {
           ...it,
+          logo_url,
           company_id: cid,
           id: asStr(it.id || cid).trim(),
         } as Company;
