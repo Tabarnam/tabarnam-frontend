@@ -1,7 +1,12 @@
-const { app } = require("@azure/functions");
+let app;
+try {
+  ({ app } = require("@azure/functions"));
+} catch {
+  app = { http() {} };
+}
 const { CosmosClient } = require("@azure/cosmos");
 const { getSession: getImportSession } = require("../_importSessionStore");
-const { getJob: getImportPrimaryJob } = require("../_importPrimaryJobStore");
+const { getJob: getImportPrimaryJob, patchJob: patchImportPrimaryJob } = require("../_importPrimaryJobStore");
 const { runPrimaryJob } = require("../_importPrimaryWorker");
 const {
   getContainerPartitionKeyPath,
@@ -33,6 +38,118 @@ function json(obj, status = 200, req, extraHeaders) {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function toPositiveInt(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return fallback;
+  return Math.trunc(n);
+}
+
+function getHeartbeatTimestamp(job) {
+  const hb = Date.parse(job?.last_heartbeat_at || "") || 0;
+  if (hb) return hb;
+  const updated = Date.parse(job?.updated_at || "") || 0;
+  if (updated) return updated;
+  const started = Date.parse(job?.started_at || "") || 0;
+  return started || 0;
+}
+
+function getJobCreatedTimestamp(job) {
+  const created = Date.parse(job?.created_at || "") || 0;
+  if (created) return created;
+  const updated = Date.parse(job?.updated_at || "") || 0;
+  if (updated) return updated;
+  const started = Date.parse(job?.started_at || "") || 0;
+  return started || 0;
+}
+
+function computePrimaryProgress(job, nowTs, hardMaxRuntimeMs) {
+  const state = String(job?.job_state || "queued");
+  const startedAtTs = Date.parse(job?.started_at || "") || 0;
+  const createdAtTs = getJobCreatedTimestamp(job);
+
+  const startTs = startedAtTs || (state === "queued" ? createdAtTs || nowTs : nowTs);
+  const elapsedMs = Math.max(0, nowTs - startTs);
+
+  const upstreamCallsMade = toPositiveInt(job?.upstream_calls_made, 0);
+  const candidatesFound = Number.isFinite(Number(job?.companies_candidates_found))
+    ? Math.max(0, Number(job.companies_candidates_found))
+    : Number.isFinite(Number(job?.companies_count))
+      ? Math.max(0, Number(job.companies_count))
+      : 0;
+
+  return {
+    elapsed_ms: elapsedMs,
+    remaining_budget_ms: Math.max(0, hardMaxRuntimeMs - elapsedMs),
+    upstream_calls_made: upstreamCallsMade,
+    companies_candidates_found: candidatesFound,
+    early_exit_triggered: Boolean(job?.early_exit_triggered),
+  };
+}
+
+async function ensurePrimaryJobProgressFields({ sessionId, job, hardMaxRuntimeMs, stageBeaconValues }) {
+  const nowTs = Date.now();
+  const progress = computePrimaryProgress(job, nowTs, hardMaxRuntimeMs);
+
+  const patch = {};
+
+  if (!(typeof job?.stage_beacon === "string" && job.stage_beacon.trim())) {
+    patch.stage_beacon = "primary_search_started";
+  }
+
+  if (!Number.isFinite(Number(job?.elapsed_ms))) patch.elapsed_ms = progress.elapsed_ms;
+  if (!Number.isFinite(Number(job?.remaining_budget_ms))) patch.remaining_budget_ms = progress.remaining_budget_ms;
+
+  if (!Number.isFinite(Number(job?.upstream_calls_made))) patch.upstream_calls_made = progress.upstream_calls_made;
+
+  if (!Number.isFinite(Number(job?.companies_candidates_found)) && !Number.isFinite(Number(job?.companies_count))) {
+    patch.companies_candidates_found = progress.companies_candidates_found;
+  }
+
+  if (typeof job?.early_exit_triggered !== "boolean") patch.early_exit_triggered = progress.early_exit_triggered;
+
+  const patchKeys = Object.keys(patch);
+  if (patchKeys.length === 0) return { job, progress };
+
+  stageBeaconValues.status_patched_progress_fields = nowIso();
+
+  await patchImportPrimaryJob({
+    sessionId,
+    cosmosEnabled: true,
+    patch: {
+      ...patch,
+      updated_at: nowIso(),
+    },
+  }).catch(() => null);
+
+  const refreshed = await getImportPrimaryJob({ sessionId, cosmosEnabled: true }).catch(() => job);
+  return { job: refreshed || job, progress: computePrimaryProgress(refreshed || job, Date.now(), hardMaxRuntimeMs) };
+}
+
+async function markPrimaryJobError({ sessionId, code, message, stageBeacon, details, stageBeaconValues }) {
+  stageBeaconValues.status_marked_error = nowIso();
+  if (code) stageBeaconValues.status_marked_error_code = String(code);
+
+  await patchImportPrimaryJob({
+    sessionId,
+    cosmosEnabled: true,
+    patch: {
+      job_state: "error",
+      stage_beacon: String(stageBeacon || "primary_search_started"),
+      last_error: {
+        code: String(code || "UNKNOWN"),
+        message: String(message || "Job failed"),
+        ...(details && typeof details === "object" ? details : {}),
+      },
+      last_heartbeat_at: nowIso(),
+      updated_at: nowIso(),
+      lock_expires_at: null,
+      locked_by: null,
+    },
+  }).catch(() => null);
+
+  return await getImportPrimaryJob({ sessionId, cosmosEnabled: true }).catch(() => null);
 }
 
 let companiesPkPathPromise;
@@ -149,6 +266,9 @@ async function handler(req, context) {
     return json({ ok: false, error: "Missing session_id" }, 400, req);
   }
 
+  const extraHeaders = { "x-session-id": sessionId };
+  const jsonWithSessionId = (obj, status = 200) => json(obj, status, req, extraHeaders);
+
   const statusCheckedAt = nowIso();
   const stageBeaconValues = {
     status_checked_at: statusCheckedAt,
@@ -158,6 +278,65 @@ async function handler(req, context) {
 
   if (primaryJob && primaryJob.job_state) {
     stageBeaconValues.status_seen_primary_job = nowIso();
+
+    const HARD_MAX_RUNTIME_MS = Math.max(
+      10_000,
+      Number.isFinite(Number(process.env.IMPORT_PRIMARY_HARD_TIMEOUT_MS))
+        ? Math.trunc(Number(process.env.IMPORT_PRIMARY_HARD_TIMEOUT_MS))
+        : 120_000
+    );
+
+    const HEARTBEAT_STALE_MS = Number.isFinite(Number(process.env.IMPORT_HEARTBEAT_STALE_MS))
+      ? Math.max(5_000, Number(process.env.IMPORT_HEARTBEAT_STALE_MS))
+      : 120_000;
+
+    let progress = computePrimaryProgress(primaryJob, Date.now(), HARD_MAX_RUNTIME_MS);
+
+    // Deterministic staleness handling (status must never allow indefinite running).
+    const preState = String(primaryJob.job_state);
+    if (preState === "running") {
+      const hbTs = getHeartbeatTimestamp(primaryJob);
+      if (hbTs && Date.now() - hbTs > HEARTBEAT_STALE_MS) {
+        primaryJob =
+          (await markPrimaryJobError({
+            sessionId,
+            code: "stalled_worker",
+            message: "Worker heartbeat stale",
+            stageBeacon: String(primaryJob?.stage_beacon || "primary_search_started"),
+            details: { heartbeat_stale_ms: Date.now() - hbTs },
+            stageBeaconValues,
+          })) || primaryJob;
+      }
+    }
+
+    // Hard-timeout guard even if the worker isn't making progress.
+    const stateAfterStall = String(primaryJob?.job_state || preState);
+    progress = computePrimaryProgress(primaryJob, Date.now(), HARD_MAX_RUNTIME_MS);
+
+    if ((stateAfterStall === "queued" || stateAfterStall === "running") && progress.elapsed_ms > HARD_MAX_RUNTIME_MS) {
+      primaryJob =
+        (await markPrimaryJobError({
+          sessionId,
+          code: "primary_timeout",
+          message: "Primary search exceeded hard runtime limit",
+          stageBeacon: "primary_timeout",
+          details: {
+            elapsed_ms: progress.elapsed_ms,
+            hard_timeout_ms: HARD_MAX_RUNTIME_MS,
+            note: "Marked by status staleness guard",
+          },
+          stageBeaconValues,
+        })) || primaryJob;
+    }
+
+    const ensured = await ensurePrimaryJobProgressFields({
+      sessionId,
+      job: primaryJob,
+      hardMaxRuntimeMs: HARD_MAX_RUNTIME_MS,
+      stageBeaconValues,
+    });
+    primaryJob = ensured.job;
+    progress = ensured.progress;
 
     const jobState = String(primaryJob.job_state);
     const shouldDrive = jobState === "queued" || jobState === "running";
@@ -204,12 +383,13 @@ async function handler(req, context) {
 
     const state = status === "error" ? "failed" : status === "complete" ? "complete" : "running";
 
-    return json(
+    return jsonWithSessionId(
       {
         ok: true,
         session_id: sessionId,
         status,
         state,
+        job_state: finalJobState,
         stage_beacon:
           typeof primaryJob?.stage_beacon === "string" && primaryJob.stage_beacon.trim()
             ? primaryJob.stage_beacon.trim()
@@ -227,15 +407,11 @@ async function handler(req, context) {
         attempts: Number.isFinite(Number(primaryJob?.attempt)) ? Number(primaryJob.attempt) : 0,
         last_error: primaryJob?.last_error || null,
         worker_meta: workerResult?.body?.meta || null,
-        elapsed_ms: Number.isFinite(Number(primaryJob?.elapsed_ms)) ? Number(primaryJob.elapsed_ms) : null,
-        remaining_budget_ms: Number.isFinite(Number(primaryJob?.remaining_budget_ms)) ? Number(primaryJob.remaining_budget_ms) : null,
-        upstream_calls_made: Number.isFinite(Number(primaryJob?.upstream_calls_made)) ? Number(primaryJob.upstream_calls_made) : 0,
-        companies_candidates_found: Number.isFinite(Number(primaryJob?.companies_candidates_found))
-          ? Number(primaryJob.companies_candidates_found)
-          : Number.isFinite(Number(primaryJob?.companies_count))
-            ? Number(primaryJob.companies_count)
-            : 0,
-        early_exit_triggered: Boolean(primaryJob?.early_exit_triggered),
+        elapsed_ms: Number(progress?.elapsed_ms),
+        remaining_budget_ms: Number(progress?.remaining_budget_ms),
+        upstream_calls_made: Number(progress?.upstream_calls_made),
+        companies_candidates_found: Number(progress?.companies_candidates_found),
+        early_exit_triggered: Boolean(progress?.early_exit_triggered),
         companies_count: Number.isFinite(Number(primaryJob?.companies_count)) ? Number(primaryJob.companies_count) : 0,
         items: status === "error" ? [] : Array.isArray(primaryJob?.companies) ? primaryJob.companies : [],
         primary_job: {
@@ -244,15 +420,11 @@ async function handler(req, context) {
           attempt: Number.isFinite(Number(primaryJob?.attempt)) ? Number(primaryJob.attempt) : 0,
           attempts: Number.isFinite(Number(primaryJob?.attempt)) ? Number(primaryJob.attempt) : 0,
           last_error: primaryJob?.last_error || null,
-          elapsed_ms: Number.isFinite(Number(primaryJob?.elapsed_ms)) ? Number(primaryJob.elapsed_ms) : null,
-          remaining_budget_ms: Number.isFinite(Number(primaryJob?.remaining_budget_ms)) ? Number(primaryJob.remaining_budget_ms) : null,
-          upstream_calls_made: Number.isFinite(Number(primaryJob?.upstream_calls_made)) ? Number(primaryJob.upstream_calls_made) : 0,
-          companies_candidates_found: Number.isFinite(Number(primaryJob?.companies_candidates_found))
-            ? Number(primaryJob.companies_candidates_found)
-            : Number.isFinite(Number(primaryJob?.companies_count))
-              ? Number(primaryJob.companies_count)
-              : 0,
-          early_exit_triggered: Boolean(primaryJob?.early_exit_triggered),
+          elapsed_ms: Number(progress?.elapsed_ms),
+          remaining_budget_ms: Number(progress?.remaining_budget_ms),
+          upstream_calls_made: Number(progress?.upstream_calls_made),
+          companies_candidates_found: Number(progress?.companies_candidates_found),
+          early_exit_triggered: Boolean(progress?.early_exit_triggered),
           last_heartbeat_at: primaryJob?.last_heartbeat_at || null,
           lock_expires_at: primaryJob?.lock_expires_at || null,
           locked_by: primaryJob?.locked_by || null,
@@ -286,14 +458,20 @@ async function handler(req, context) {
   if (mem) {
     stageBeaconValues.status_seen_session_memory = nowIso();
 
-    return json(
+    return jsonWithSessionId(
       {
         ok: true,
         session_id: sessionId,
         status: mem.status || "running",
         state: mem.status === "complete" ? "complete" : mem.status === "failed" ? "failed" : "running",
+        job_state: null,
         stage_beacon: mem.stage_beacon || "init",
         stage_beacon_values: stageBeaconValues,
+        elapsed_ms: null,
+        remaining_budget_ms: null,
+        upstream_calls_made: 0,
+        companies_candidates_found: 0,
+        early_exit_triggered: false,
         primary_job_state: null,
         last_heartbeat_at: null,
         lock_until: null,
@@ -317,7 +495,7 @@ async function handler(req, context) {
       const status = jobState === "error" ? "error" : jobState === "complete" ? "complete" : jobState === "running" ? "running" : "queued";
       const state = status === "error" ? "failed" : status === "complete" ? "complete" : "running";
 
-      return json(
+      return jsonWithSessionId(
         {
           ok: true,
           session_id: sessionId,
@@ -394,7 +572,7 @@ async function handler(req, context) {
       );
     }
 
-    return json({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404, req);
+    return jsonWithSessionId({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404);
   }
 
   try {
@@ -419,7 +597,7 @@ async function handler(req, context) {
     if (!known) known = await hasAnyCompanyDocs(container, sessionId);
 
     if (!known) {
-      return json({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404, req);
+      return jsonWithSessionId({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404);
     }
 
     stageBeaconValues.status_seen_control_docs = nowIso();
@@ -452,15 +630,21 @@ async function handler(req, context) {
             ? { code: "IMPORT_STOPPED", message: "Import was stopped" }
             : null);
 
-      return json(
+      return jsonWithSessionId(
         {
           ok: true,
           session_id: sessionId,
           status: "error",
           state: "failed",
+          job_state: null,
           stage_beacon,
           stage_beacon_values: stageBeaconValues,
           primary_job_state: null,
+          elapsed_ms: null,
+          remaining_budget_ms: null,
+          upstream_calls_made: 0,
+          companies_candidates_found: 0,
+          early_exit_triggered: false,
           last_heartbeat_at: null,
           lock_until: null,
           attempts: 0,
@@ -479,15 +663,21 @@ async function handler(req, context) {
     }
 
     if (completed) {
-      return json(
+      return jsonWithSessionId(
         {
           ok: true,
           session_id: sessionId,
           status: "complete",
           state: "complete",
+          job_state: null,
           stage_beacon,
           stage_beacon_values: stageBeaconValues,
           primary_job_state: null,
+          elapsed_ms: null,
+          remaining_budget_ms: null,
+          upstream_calls_made: 0,
+          companies_candidates_found: 0,
+          early_exit_triggered: false,
           last_heartbeat_at: null,
           lock_until: null,
           attempts: 0,
@@ -507,15 +697,21 @@ async function handler(req, context) {
       );
     }
 
-    return json(
+    return jsonWithSessionId(
       {
         ok: true,
         session_id: sessionId,
         status: "running",
         state: "running",
+        job_state: null,
         stage_beacon,
         stage_beacon_values: stageBeaconValues,
         primary_job_state: null,
+        elapsed_ms: null,
+        remaining_budget_ms: null,
+        upstream_calls_made: 0,
+        companies_candidates_found: 0,
+        early_exit_triggered: false,
         last_heartbeat_at: null,
         lock_until: null,
         attempts: 0,
@@ -533,7 +729,7 @@ async function handler(req, context) {
     try {
       console.error(`[import-status] session=${sessionId} error: ${msg}`);
     } catch {}
-    return json({ ok: false, error: "Status handler failure", detail: msg, session_id: sessionId }, 500, req);
+    return jsonWithSessionId({ ok: false, error: "Status handler failure", detail: msg, session_id: sessionId }, 500);
   }
 }
 

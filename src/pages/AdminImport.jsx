@@ -159,6 +159,44 @@ const IMPORT_LIMIT_MIN = 1;
 const IMPORT_LIMIT_MAX = 25;
 const IMPORT_LIMIT_DEFAULT = 1;
 
+const IMPORT_STAGE_BEACON_TO_ENGLISH = Object.freeze({
+  primary_search_started: "Searching for matching companies",
+  primary_candidate_found: "Company candidate found",
+  primary_expanding_candidates: "Expanding search for better matches",
+  primary_early_exit: "Single match found. Finalizing import",
+  primary_complete: "Primary search complete",
+  primary_timeout: "Primary search timed out",
+  no_candidates_found: "No matching companies found",
+});
+
+const IMPORT_ERROR_CODE_TO_REASON = Object.freeze({
+  primary_timeout: "Primary search timed out (120s hard cap)",
+  no_candidates_found: "No matching companies found",
+});
+
+function humanizeImportCode(raw) {
+  const input = asString(raw).trim();
+  if (!input) return "";
+
+  const cleaned = input.replace(/[_-]+/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
+function toEnglishImportStage(stageBeacon) {
+  const key = asString(stageBeacon).trim();
+  if (!key) return "";
+  if (Object.prototype.hasOwnProperty.call(IMPORT_STAGE_BEACON_TO_ENGLISH, key)) return IMPORT_STAGE_BEACON_TO_ENGLISH[key];
+  return humanizeImportCode(key);
+}
+
+function toEnglishImportStopReason(lastErrorCode) {
+  const key = asString(lastErrorCode).trim();
+  if (!key) return "Import stopped.";
+  if (Object.prototype.hasOwnProperty.call(IMPORT_ERROR_CODE_TO_REASON, key)) return IMPORT_ERROR_CODE_TO_REASON[key];
+  return humanizeImportCode(key);
+}
+
 function normalizeImportLimit(raw, fallback = IMPORT_LIMIT_DEFAULT) {
   const s = String(raw ?? "").trim();
   if (!s) return fallback;
@@ -196,12 +234,19 @@ export default function AdminImport() {
   const [debugStartLoading, setDebugStartLoading] = useState(false);
   const [debugStatusLoading, setDebugStatusLoading] = useState(false);
 
+  const [pollingSessionId, setPollingSessionId] = useState("");
+  const [sessionIdMismatchDebug, setSessionIdMismatchDebug] = useState(null);
+
   const [explainResponseText, setExplainResponseText] = useState("");
   const [explainLoading, setExplainLoading] = useState(false);
 
   const pollTimerRef = useRef(null);
   const startFetchAbortRef = useRef(null);
   const pollAttemptsRef = useRef(new Map());
+
+  const startImportRequestInFlightRef = useRef(false);
+  const activeStatusRef = useRef(activeStatus);
+  activeStatusRef.current = activeStatus;
 
   const activeRun = useMemo(() => {
     if (!activeSessionId) return null;
@@ -245,22 +290,59 @@ export default function AdminImport() {
         const items = normalizeItems(body?.items || body?.companies);
         const saved = Number(body?.saved ?? body?.count ?? items.length ?? 0);
 
+        const status = asString(body?.status).trim();
+        const jobState = asString(body?.job_state || body?.primary_job_state || body?.primary_job?.job_state).trim();
+        const stageBeacon = asString(body?.stage_beacon).trim();
+        const lastError = body?.last_error || null;
+
         const completed = state === "complete" ? true : Boolean(body?.completed);
         const timedOut = Boolean(body?.timedOut);
         const stopped = state === "failed" || state === "complete" ? true : Boolean(body?.stopped);
 
+        const isTerminalError = state === "failed" || status === "error" || jobState === "error";
+        const isTerminalComplete = state === "complete" || status === "complete" || jobState === "complete" || completed;
+
+        const lastErrorCode = asString(lastError?.code).trim();
+        const userFacingError =
+          lastErrorCode === "primary_timeout"
+            ? "Primary import timed out (120s hard cap)."
+            : lastErrorCode === "no_candidates_found"
+              ? "No candidates found after 60s."
+              : asString(lastError?.message).trim() || "Import failed.";
+
         setRuns((prev) =>
           prev.map((r) => {
             if (r.session_id !== session_id) return r;
+
+            const nextLastStageBeacon = stageBeacon || asString(r.last_stage_beacon) || asString(r.stage_beacon);
+            const reachedTerminal = isTerminalError || isTerminalComplete;
+            const finalStageBeacon = reachedTerminal
+              ? stageBeacon || nextLastStageBeacon || asString(r.final_stage_beacon)
+              : asString(r.final_stage_beacon);
+
+            const normalizedJobState = jobState || asString(r.job_state);
+            const finalJobState = reachedTerminal
+              ? normalizedJobState || asString(r.final_job_state) || asString(r.job_state)
+              : asString(r.final_job_state);
+
+            const finalLastErrorCode = reachedTerminal
+              ? lastErrorCode || asString(r.final_last_error_code)
+              : asString(r.final_last_error_code);
+
             return {
               ...r,
               items: mergeById(r.items, items),
               lastCreatedAt: asString(body?.lastCreatedAt || r.lastCreatedAt),
               saved: Number.isFinite(saved) ? saved : Number(r.saved ?? 0) || 0,
-              completed,
+              completed: isTerminalComplete,
               timedOut,
-              stopped,
-              stage_beacon: asString(body?.stage_beacon || r.stage_beacon),
+              stopped: isTerminalError || isTerminalComplete ? true : stopped,
+              job_state: normalizedJobState,
+              stage_beacon: stageBeacon || asString(r.stage_beacon),
+              last_stage_beacon: nextLastStageBeacon,
+              final_stage_beacon: finalStageBeacon,
+              final_job_state: finalJobState,
+              final_last_error_code: finalLastErrorCode,
               elapsed_ms: Number.isFinite(Number(body?.elapsed_ms)) ? Number(body.elapsed_ms) : r.elapsed_ms ?? null,
               remaining_budget_ms: Number.isFinite(Number(body?.remaining_budget_ms))
                 ? Number(body.remaining_budget_ms)
@@ -273,14 +355,16 @@ export default function AdminImport() {
                 : Number(r.companies_candidates_found ?? 0) || 0,
               early_exit_triggered:
                 typeof body?.early_exit_triggered === "boolean" ? body.early_exit_triggered : Boolean(r.early_exit_triggered),
-              last_error: body?.last_error || r.last_error || null,
+              last_error: lastError || r.last_error || null,
+              progress_error: isTerminalError ? userFacingError : r.progress_error,
               updatedAt: new Date().toISOString(),
             };
           })
         );
 
-        if (state === "complete" || state === "failed") return { shouldStop: true, body };
-        return { shouldStop: completed || timedOut || stopped, body };
+        if (isTerminalError) return { shouldStop: true, body };
+        if (isTerminalComplete) return { shouldStop: true, body };
+        return { shouldStop: timedOut || stopped, body };
       } catch (e) {
         const msg = toErrorString(e) || "Progress failed";
         setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
@@ -300,6 +384,7 @@ export default function AdminImport() {
   const schedulePoll = useCallback(
     ({ session_id }) => {
       stopPolling();
+      setPollingSessionId(asString(session_id).trim());
       pollTimerRef.current = setTimeout(async () => {
         const prevAttempts = pollAttemptsRef.current.get(session_id) || 0;
         const nextAttempts = prevAttempts + 1;
@@ -476,14 +561,16 @@ export default function AdminImport() {
     const runMode = options && typeof options === "object" ? asString(options.mode).trim() : "";
     const bestEffort = runMode === "best_effort";
 
-    const session_id = (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    const uiSessionIdBefore = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
     const normalizedLimit = normalizeImportLimit(limitInput);
 
     const selectedTypes = Array.isArray(queryTypes) && queryTypes.length > 0 ? queryTypes : ["product_keyword"];
 
     const newRun = {
-      session_id,
+      session_id: uiSessionIdBefore,
+      session_id_confirmed: false,
+      ui_session_id_before: uiSessionIdBefore,
       query: q,
       queryTypes: selectedTypes,
       location: asString(location).trim() || "",
@@ -495,7 +582,12 @@ export default function AdminImport() {
       completed: false,
       timedOut: false,
       stopped: false,
+      job_state: "",
       stage_beacon: "",
+      last_stage_beacon: "",
+      final_stage_beacon: "",
+      final_job_state: "",
+      final_last_error_code: "",
       elapsed_ms: null,
       remaining_budget_ms: null,
       upstream_calls_made: 0,
@@ -511,25 +603,98 @@ export default function AdminImport() {
       save_error: null,
     };
 
+    setSessionIdMismatchDebug(null);
     setRuns((prev) => [newRun, ...prev]);
-    setActiveSessionId(session_id);
+    setActiveSessionId(uiSessionIdBefore);
     setActiveStatus("running");
 
     startFetchAbortRef.current?.abort?.();
     const abort = new AbortController();
     startFetchAbortRef.current = abort;
 
-    resetPollAttempts(session_id);
-    schedulePoll({ session_id });
-
     try {
       const requestPayload = {
-        session_id,
+        session_id: uiSessionIdBefore,
         query: q,
         queryTypes: selectedTypes,
         location: asString(location).trim() || undefined,
         limit: normalizedLimit,
         expand_if_few: true,
+      };
+
+      let canonicalSessionId = uiSessionIdBefore;
+      let mismatchDetected = false;
+
+      const getResponseSessionIdHeader = (res) => {
+        try {
+          if (res?.headers?.get) return String(res.headers.get("x-session-id") || "");
+          if (res?.headers && typeof res.headers === "object") return String(res.headers["x-session-id"] || "");
+        } catch {}
+        return "";
+      };
+
+      const applyCanonicalSessionId = (nextSessionId) => {
+        const normalized = asString(nextSessionId).trim();
+        if (!normalized) return canonicalSessionId;
+
+        const before = canonicalSessionId;
+        const changed = normalized !== canonicalSessionId;
+
+        if (changed) {
+          canonicalSessionId = normalized;
+          requestPayload.session_id = canonicalSessionId;
+
+          if (!mismatchDetected && uiSessionIdBefore && uiSessionIdBefore !== canonicalSessionId) {
+            mismatchDetected = true;
+            const mismatch = {
+              session_id_mismatch_detected: true,
+              ui_session_id_before: uiSessionIdBefore,
+              canonical_session_id: canonicalSessionId,
+            };
+
+            setSessionIdMismatchDebug(mismatch);
+            try {
+              console.warn("[admin-import] session_id mismatch", mismatch);
+            } catch {}
+          }
+        }
+
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === before
+              ? {
+                  ...r,
+                  session_id: changed ? canonicalSessionId : r.session_id,
+                  session_id_confirmed: true,
+                  ui_session_id_before: r.ui_session_id_before || uiSessionIdBefore,
+                }
+              : r
+          )
+        );
+
+        if (changed) {
+          setActiveSessionId((prev) => (prev === before ? canonicalSessionId : prev));
+
+          const prevAttempts = pollAttemptsRef.current.get(before);
+          if (prevAttempts != null) {
+            pollAttemptsRef.current.delete(before);
+            pollAttemptsRef.current.set(canonicalSessionId, prevAttempts);
+          }
+        }
+
+        setDebugSessionId(changed ? canonicalSessionId : before);
+
+        return canonicalSessionId;
+      };
+
+      const syncCanonicalSessionId = ({ res, body }) => {
+        const headerSid = getResponseSessionIdHeader(res).trim();
+        if (headerSid) return applyCanonicalSessionId(headerSid);
+
+        const sid = extractSessionId(body);
+        if (sid) return applyCanonicalSessionId(sid);
+
+        return canonicalSessionId;
       };
 
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -554,7 +719,7 @@ export default function AdminImport() {
 
         const detailsForCopy = {
           status: res.status,
-          session_id,
+          session_id: canonicalSessionId,
           request_id: requestId,
           request_payload: requestPayload,
           response_body: body,
@@ -564,7 +729,7 @@ export default function AdminImport() {
 
         setRuns((prev) =>
           prev.map((r) =>
-            r.session_id === session_id
+            r.session_id === canonicalSessionId
               ? {
                   ...r,
                   start_error: msg,
@@ -585,7 +750,7 @@ export default function AdminImport() {
         const list = normalizeItems(companies);
         setRuns((prev) =>
           prev.map((r) => {
-            if (r.session_id !== session_id) return r;
+            if (r.session_id !== canonicalSessionId) return r;
             return {
               ...r,
               ...(extra && typeof extra === "object" ? extra : {}),
@@ -623,6 +788,8 @@ export default function AdminImport() {
       if (bestEffort) {
         const { res, body, usedPath, payload } = await callImportStage({ stage: "", skipStages: [], companies: [] });
 
+        syncCanonicalSessionId({ res, body });
+
         if (!res.ok || body?.ok === false) {
           await recordStartErrorAndToast(res, body, { usedPath, mode: "best_effort" });
           return;
@@ -643,7 +810,16 @@ export default function AdminImport() {
         const reason = asString(body?.reason).trim();
         const stageBeacon = asString(body?.stage_beacon).trim();
 
+        const lastErrorCode = asString(body?.last_error?.code).trim();
+        const mappedMsg =
+          lastErrorCode === "primary_timeout"
+            ? "Primary import timed out (120s hard cap)."
+            : lastErrorCode === "no_candidates_found"
+              ? "No candidates found after 60s."
+              : "";
+
         const msg =
+          mappedMsg ||
           toErrorString(
             body && typeof body === "object"
               ? body.error || body.last_error || body.message || body.text || (reason ? `Import failed (${reason})` : "")
@@ -652,12 +828,12 @@ export default function AdminImport() {
 
         setRuns((prev) =>
           prev.map((r) =>
-            r.session_id === session_id
+            r.session_id === canonicalSessionId
               ? {
                   ...r,
                   start_error: msg,
                   start_error_details: {
-                    session_id,
+                    session_id: canonicalSessionId,
                     status_body: body,
                     state,
                     status,
@@ -683,7 +859,7 @@ export default function AdminImport() {
             throw aborted;
           }
 
-          const { body, error } = await pollProgress({ session_id });
+          const { body, error } = await pollProgress({ session_id: canonicalSessionId });
           if (error) {
             await sleep(2500);
             continue;
@@ -691,6 +867,8 @@ export default function AdminImport() {
 
           const state = asString(body?.state).trim();
           const status = asString(body?.status).trim();
+          const jobState = asString(body?.job_state || body?.primary_job_state).trim();
+
           const completed = state === "complete" ? true : Boolean(body?.completed);
           const timedOut = Boolean(body?.timedOut);
           const stopped = Boolean(body?.stopped);
@@ -699,12 +877,13 @@ export default function AdminImport() {
           const companiesCountRaw = body?.companies_count ?? body?.count ?? items.length ?? 0;
           const companiesCount = Number.isFinite(Number(companiesCountRaw)) ? Number(companiesCountRaw) : items.length;
 
-          const primaryJobState = asString(body?.primary_job?.state).trim();
-          const primaryJobStatus = asString(body?.primary_job?.status).trim();
+          const primaryJobState = asString(body?.primary_job?.job_state || body?.primary_job_state || jobState).trim();
 
           const isFailure =
             state === "failed" ||
             status === "error" ||
+            jobState === "error" ||
+            primaryJobState === "error" ||
             (body && typeof body === "object" && body.ok === false) ||
             (timedOut ? true : false) ||
             (stopped && !completed);
@@ -713,16 +892,32 @@ export default function AdminImport() {
 
           const stageReady =
             completed ||
+            jobState === "complete" ||
+            primaryJobState === "complete" ||
             items.length > 0 ||
-            companiesCount > 0 ||
-            (stage === "primary" && (primaryJobState === "complete" || primaryJobStatus === "complete"));
+            companiesCount > 0;
 
           if (stageReady) return { kind: "ready", body };
 
           await sleep(2500);
         }
 
-        return { kind: "timeout", body: null };
+        return {
+          kind: "failed",
+          body: {
+            ok: true,
+            status: "error",
+            state: "failed",
+            job_state: "error",
+            stage_beacon: stage === "primary" ? "primary_timeout" : `stage_${stage}_timeout`,
+            last_error: {
+              code: stage === "primary" ? "primary_timeout" : "stage_timeout",
+              message:
+                stage === "primary" ? "Primary import timed out (120s hard cap)." : `Stage \"${stage}\" did not reach a terminal state.`,
+            },
+            error: stage === "primary" ? "Primary import timed out (120s hard cap)." : `Stage \"${stage}\" did not reach a terminal state.`,
+          },
+        };
       };
 
       for (let stageIndex = 0; stageIndex < stageSequence.length; stageIndex += 1) {
@@ -741,6 +936,13 @@ export default function AdminImport() {
           companies: companiesForNextStage,
         });
 
+        syncCanonicalSessionId({ res, body });
+
+        if (stageIndex === 0) {
+          resetPollAttempts(canonicalSessionId);
+          schedulePoll({ session_id: canonicalSessionId });
+        }
+
         if (res.status === 202 || body?.accepted === true) {
           const stageBeacon = asString(body?.stage_beacon).trim();
           const isAsyncPrimary =
@@ -752,7 +954,7 @@ export default function AdminImport() {
 
           setRuns((prev) =>
             prev.map((r) =>
-              r.session_id === session_id
+              r.session_id === canonicalSessionId
                 ? {
                     ...r,
                     updatedAt: new Date().toISOString(),
@@ -765,16 +967,8 @@ export default function AdminImport() {
           );
 
           const waitResult = await waitForAsyncStatus({ stage });
-          resetPollAttempts(session_id);
-          schedulePoll({ session_id });
-
-          if (waitResult.kind === "timeout") {
-            const msg = `Timed out while waiting for stage "${stage}" to finish.`;
-            setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
-            setActiveStatus("error");
-            toast.error(msg);
-            return;
-          }
+          resetPollAttempts(canonicalSessionId);
+          schedulePoll({ session_id: canonicalSessionId });
 
           if (waitResult.kind === "failed") {
             recordStatusFailureAndToast(waitResult.body, { stage, mode: "staged", stage_index: stageIndex });
@@ -802,12 +996,16 @@ export default function AdminImport() {
         if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
       }
 
-      setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, completed: true, updatedAt: new Date().toISOString() } : r)));
+      setRuns((prev) =>
+        prev.map((r) =>
+          r.session_id === canonicalSessionId ? { ...r, completed: true, updatedAt: new Date().toISOString() } : r
+        )
+      );
       setActiveStatus("done");
       toast.success(`Import finished (staged, ${companiesForNextStage.length} companies)`);
     } catch (e) {
       const msg = e?.name === "AbortError" ? "Import aborted" : toErrorString(e) || "Import failed";
-      setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, start_error: msg } : r)));
+      setRuns((prev) => prev.map((r) => (r.session_id === canonicalSessionId ? { ...r, start_error: msg } : r)));
       if (e?.name === "AbortError") {
         setActiveStatus("idle");
       } else {
@@ -1060,14 +1258,100 @@ export default function AdminImport() {
 
     const suffix = progressBits.length > 0 ? ` (${progressBits.join(" · ")})` : "";
 
-    if (stageBeacon === "primary_candidate_found") return `Company candidate found. Finalizing…${suffix}`;
-    if (stageBeacon === "primary_expanding_candidates") return `Expanding search…${suffix}`;
-    if (stageBeacon === "primary_early_exit") return `Match found (single-company import). Finalizing…${suffix}`;
-    if (stageBeacon === "primary_complete") return `Finalizing…${suffix}`;
-    if (stageBeacon === "primary_timeout") return `Primary search timed out.${suffix}`;
+    const lastErrorCode = asString(activeRun?.last_error?.code).trim();
 
-    return `Searching for companies…${suffix}`;
+    if (lastErrorCode === "no_candidates_found") return `No candidates found after 60s.${suffix}`;
+    if (lastErrorCode === "primary_timeout" || stageBeacon === "primary_timeout") {
+      return `Primary import timed out (120s hard cap).${suffix}`;
+    }
+
+    if (stageBeacon) return `${toEnglishImportStage(stageBeacon)}${suffix}`;
+
+    return `Searching for matching companies${suffix}`;
   }, [activeRun]);
+
+  const plainEnglishProgress = useMemo(() => {
+    if (!activeRun) {
+      return {
+        hasRun: false,
+        isTerminal: false,
+        terminalKind: "",
+        stepText: "",
+        reasonText: "",
+      };
+    }
+
+    const rawJobState = asString(activeRun.final_job_state || activeRun.job_state).trim().toLowerCase();
+
+    const inferredTerminal =
+      rawJobState === "complete" ||
+      rawJobState === "error" ||
+      Boolean(activeRun.completed || activeRun.timedOut || activeRun.stopped) ||
+      Boolean(activeRun.start_error || activeRun.progress_error);
+
+    const stageBeacon = asString(
+      (inferredTerminal ? activeRun.final_stage_beacon : "") || activeRun.stage_beacon || activeRun.last_stage_beacon
+    ).trim();
+
+    const stepText = stageBeacon ? toEnglishImportStage(stageBeacon) : "";
+
+    const terminalKind =
+      rawJobState === "error" || activeRun.start_error || activeRun.progress_error
+        ? "error"
+        : rawJobState === "complete" || activeRun.completed
+          ? "complete"
+          : "";
+
+    const lastErrorCode = asString(
+      (inferredTerminal ? activeRun.final_last_error_code : "") || activeRun?.last_error?.code
+    ).trim();
+
+    const reasonText = terminalKind === "error" ? toEnglishImportStopReason(lastErrorCode) : "";
+
+    return {
+      hasRun: true,
+      isTerminal: inferredTerminal,
+      terminalKind,
+      stepText,
+      reasonText,
+    };
+  }, [activeRun]);
+
+  const startImportDisabled = !API_BASE || activeStatus === "running" || activeStatus === "stopping";
+
+  useEffect(() => {
+    if (activeStatus !== "running" && activeStatus !== "stopping") {
+      startImportRequestInFlightRef.current = false;
+    }
+  }, [activeStatus]);
+
+  const handleStartImportStaged = useCallback(() => {
+    if (startImportDisabled) return;
+    if (startImportRequestInFlightRef.current) return;
+
+    startImportRequestInFlightRef.current = true;
+    beginImport();
+
+    // If beginImport bails early (validation/config), don't lock the UI.
+    setTimeout(() => {
+      const status = activeStatusRef.current;
+      if (status !== "running" && status !== "stopping") {
+        startImportRequestInFlightRef.current = false;
+      }
+    }, 0);
+  }, [beginImport, startImportDisabled]);
+
+  const handleQueryInputEnter = useCallback(
+    (e) => {
+      if (!e) return;
+      if (e.nativeEvent?.isComposing) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      handleStartImportStaged();
+    },
+    [handleStartImportStaged]
+  );
 
   return (
     <>
@@ -1160,6 +1444,15 @@ export default function AdminImport() {
                     <Copy className="h-4 w-4" />
                   </Button>
                 </div>
+                <div className="mt-2 text-[11px] text-slate-600">
+                  Polling session_id: <code className="text-[11px] text-slate-900 break-all">{pollingSessionId || "—"}</code>
+                </div>
+
+                {sessionIdMismatchDebug ? (
+                  <pre className="mt-2 max-h-24 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">
+                    {toDisplayText(toPrettyJsonText(sessionIdMismatchDebug))}
+                  </pre>
+                ) : null}
               </div>
 
               <div className="rounded border border-slate-200 bg-slate-50 p-3">
@@ -1188,7 +1481,12 @@ export default function AdminImport() {
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
               <div className="lg:col-span-2 space-y-1">
                 <label className="text-sm text-slate-700">Search query</label>
-                <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="e.g. running shoes" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onEnter={handleQueryInputEnter}
+                  placeholder="e.g. running shoes"
+                />
               </div>
 
               <div className="space-y-1">
@@ -1256,23 +1554,22 @@ export default function AdminImport() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button
-                onClick={() => beginImport()}
-                disabled={!API_BASE || activeStatus === "running" || activeStatus === "stopping"}
-              >
+              <Button type="button" onClick={handleStartImportStaged} disabled={startImportDisabled}>
                 <Play className="h-4 w-4 mr-2" />
                 {activeStatus === "running" ? "Running…" : "Start import (staged)"}
               </Button>
 
               <Button
+                type="button"
                 variant="outline"
                 onClick={() => beginImport({ mode: "best_effort" })}
-                disabled={!API_BASE || activeStatus === "running" || activeStatus === "stopping"}
+                disabled={startImportDisabled}
               >
                 Run all stages (best effort)
               </Button>
 
               <Button
+                type="button"
                 variant="outline"
                 onClick={explainImportPayload}
                 disabled={!API_BASE || explainLoading}
@@ -1281,27 +1578,29 @@ export default function AdminImport() {
               </Button>
 
               <Button
+                type="button"
                 variant="outline"
                 onClick={() => {
-                  if (!activeSessionId) {
-                    toast.error("No active session");
+                  if (!activeSessionId || !activeRun?.session_id_confirmed) {
+                    toast.error("Session id is not ready yet");
                     return;
                   }
                   resetPollAttempts(activeSessionId);
                   schedulePoll({ session_id: activeSessionId });
                   toast.success("Polling refresh started");
                 }}
-                disabled={!activeSessionId}
+                disabled={!activeSessionId || !activeRun?.session_id_confirmed}
               >
                 <RefreshCcw className="h-4 w-4 mr-2" />
                 Poll now
               </Button>
 
               <Button
+                type="button"
                 variant="outline"
                 className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
                 onClick={stopImport}
-                disabled={!activeSessionId || activeStatus !== "running"}
+                disabled={!activeSessionId || !activeRun?.session_id_confirmed || activeStatus !== "running"}
               >
                 <Square className="h-4 w-4 mr-2" />
                 Stop
@@ -1321,7 +1620,7 @@ export default function AdminImport() {
                 </Button>
               ) : null}
 
-              {activeSessionId ? (
+              {activeSessionId && activeRun?.session_id_confirmed ? (
                 <Button
                   variant="outline"
                   onClick={async () => {
@@ -1358,7 +1657,8 @@ export default function AdminImport() {
 
               {activeSessionId ? (
                 <div className="text-sm text-slate-700">
-                  Session: <code className="rounded bg-slate-100 px-1 py-0.5">{activeSessionId}</code>
+                  Session:{" "}
+                  <code className="rounded bg-slate-100 px-1 py-0.5">{activeRun?.session_id_confirmed ? activeSessionId : "—"}</code>
                 </div>
               ) : null}
 
@@ -1732,6 +2032,45 @@ export default function AdminImport() {
               <code className="rounded bg-slate-100 px-1 py-0.5 break-all">GET {join(API_BASE, "/import-status")}</code>
             </div>
           </div>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-semibold text-slate-900">Import progress (plain English)</h2>
+              <div className="text-xs text-slate-500">Shows what the importer is doing without reading logs.</div>
+            </div>
+
+            <div className="rounded border border-slate-200 bg-slate-50 p-4 space-y-2">
+              {!plainEnglishProgress.hasRun ? (
+                <div className="text-sm text-slate-700">Start an import to see a step-by-step explanation.</div>
+              ) : (
+                <>
+                  <div className="text-sm text-slate-900">
+                    <span className="font-medium">{plainEnglishProgress.isTerminal ? "Final step:" : "Current step:"}</span>{" "}
+                    {plainEnglishProgress.stepText || (activeStatus === "running" ? "Starting import…" : "Waiting for the next update…")}
+                  </div>
+
+                  {plainEnglishProgress.isTerminal ? (
+                    <>
+                      <div className="text-sm text-slate-900">
+                        <span className="font-medium">{plainEnglishProgress.terminalKind === "error" ? "Stopped at:" : "Finished at:"}</span>{" "}
+                        {plainEnglishProgress.stepText || "—"}
+                      </div>
+
+                      {plainEnglishProgress.terminalKind === "error" ? (
+                        <div className="text-sm text-slate-900">
+                          <span className="font-medium">Reason:</span> {plainEnglishProgress.reasonText || "Import failed."}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-slate-900">
+                          <span className="font-medium">Result:</span> Import completed.
+                        </div>
+                      )}
+                    </>
+                  ) : null}
+                </>
+              )}
+            </div>
+          </section>
         </main>
       </div>
     </>

@@ -1941,6 +1941,11 @@ export default function CompanyDashboard() {
   const [logoUpdating, setLogoUpdating] = useState(false);
   const [logoUploadError, setLogoUploadError] = useState(null);
   const [logoDeleting, setLogoDeleting] = useState(false);
+  const [logoPreviewFailed, setLogoPreviewFailed] = useState(false);
+
+  useEffect(() => {
+    setLogoPreviewFailed(false);
+  }, [asString(editorDraft?.logo_url).trim()]);
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -3861,34 +3866,50 @@ export default function CompanyDashboard() {
                           <div className="space-y-2">
                             <label className="text-sm text-slate-700">Logo</label>
 
-                            {asString(editorDraft.logo_url).trim() ? (
-                              <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-2">
-                                <img
-                                  src={getCompanyLogoUrl({
-                                    id: asString(editorOriginalId).trim(),
-                                    company_id: asString(editorOriginalId).trim(),
-                                    logo_url: asString(editorDraft.logo_url),
-                                  })}
-                                  alt="Company logo"
-                                  className="h-12 w-12 rounded border border-slate-200 object-contain bg-white"
-                                  loading="lazy"
-                                  onError={(e) => {
-                                    e.currentTarget.style.display = "none";
-                                  }}
-                                />
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-xs text-slate-500">Current logo_url</div>
-                                  <div className="text-xs text-slate-800 break-all">{asString(editorDraft.logo_url).trim()}</div>
+                            {(() => {
+                              const rawLogoUrl = asString(editorDraft?.logo_url).trim();
+                              const status = asString(editorDraft?.logo_status).trim().toLowerCase();
+
+                              if (!rawLogoUrl) {
+                                return (
+                                  <div className="text-xs text-slate-500">
+                                    {status === "not_found_on_site"
+                                      ? "No logo found on company website."
+                                      : status === "not_found"
+                                        ? "No logo found."
+                                        : "No logo uploaded."}
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-2">
+                                  {!logoPreviewFailed ? (
+                                    <img
+                                      src={toStableLogoUrl(rawLogoUrl)}
+                                      alt="Company logo"
+                                      className="h-12 w-12 rounded border border-slate-200 object-contain bg-white"
+                                      loading="lazy"
+                                      onError={() => setLogoPreviewFailed(true)}
+                                    />
+                                  ) : (
+                                    <div className="h-12 w-12 rounded border border-slate-200 bg-slate-50 flex items-center justify-center text-[11px] text-slate-600 text-center px-1">
+                                      {status === "not_found_on_site" ? "No logo on site" : "No logo found"}
+                                    </div>
+                                  )}
+
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs text-slate-500">Current logo_url</div>
+                                    <div className="text-xs text-slate-800 break-all">{rawLogoUrl}</div>
+                                  </div>
                                 </div>
-                              </div>
-                            ) : (
-                              <div className="text-xs text-slate-500">No logo uploaded.</div>
-                            )}
+                              );
+                            })()}
 
                             <div className="flex flex-wrap items-center gap-2">
                               <input
                                 type="file"
-                                accept="image/png,image/jpeg,image/webp"
+                                accept="image/png,image/jpeg,image/svg+xml"
                                 onChange={handleLogoFileChange}
                                 className="block w-full max-w-[360px] text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-900/90"
                                 disabled={logoUploading || logoDeleting}

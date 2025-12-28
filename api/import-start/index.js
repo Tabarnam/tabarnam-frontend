@@ -1511,24 +1511,72 @@ async function findExistingCompany(container, normalizedDomain, companyName) {
 }
 
 // Helper: import logo (discover -> fetch w/ retries -> rasterize SVG -> upload to blob)
-async function fetchLogo({ companyId, domain, websiteUrl, existingLogoUrl }) {
-  if (existingLogoUrl) {
-    return {
-      ok: true,
-      logo_import_status: "imported",
-      logo_source_url: existingLogoUrl,
-      logo_url: existingLogoUrl,
-      logo_error: "",
-      logo_discovery_strategy: "provided",
-      logo_discovery_page_url: "",
-    };
+async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingLogoUrl }) {
+  const existing = String(existingLogoUrl || "").trim();
+
+  const looksLikeCompanyLogoBlobUrl = (u) => {
+    const s = String(u || "");
+    return s.includes(".blob.core.windows.net") && s.includes("/company-logos/");
+  };
+
+  const headCheck = async (u) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+
+    try {
+      const res = await fetch(u, {
+        method: "HEAD",
+        redirect: "follow",
+        signal: controller.signal,
+        headers: {
+          Accept: "image/svg+xml,image/png,image/jpeg,image/*,*/*",
+          "User-Agent": "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)",
+        },
+      });
+
+      const contentType = String(res.headers.get("content-type") || "");
+      const contentLengthRaw = String(res.headers.get("content-length") || "");
+      const contentLength = Number.isFinite(Number(contentLengthRaw)) ? Number(contentLengthRaw) : null;
+
+      if (!res.ok) return { ok: false, reason: `head_status_${res.status}` };
+      if (!contentType.toLowerCase().startsWith("image/")) return { ok: false, reason: `non_image_${contentType || "unknown"}` };
+      if (contentLength != null && contentLength <= 5 * 1024) return { ok: false, reason: `too_small_${contentLength}_bytes` };
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: e?.message || "head_failed" };
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  // Only accept an existing logo URL if it's a previously uploaded blob AND it actually exists.
+  // Never persist arbitrary / synthetic URLs as logo_url.
+  if (existing && looksLikeCompanyLogoBlobUrl(existing)) {
+    const verified = await headCheck(existing);
+    if (verified.ok) {
+      return {
+        ok: true,
+        logo_status: "imported",
+        logo_import_status: "imported",
+        logo_source_url: null,
+        logo_source_type: "existing_blob",
+        logo_url: existing,
+        logo_error: "",
+        logo_discovery_strategy: "existing_blob",
+        logo_discovery_page_url: "",
+      };
+    }
   }
 
   if (!domain || domain === "unknown") {
     return {
       ok: true,
+      logo_status: "not_found_on_site",
       logo_import_status: "missing",
-      logo_source_url: "",
+      logo_source_url: null,
+      logo_source_location: null,
+      logo_source_domain: null,
+      logo_source_type: null,
       logo_url: null,
       logo_error: "missing domain",
       logo_discovery_strategy: "",
@@ -1537,7 +1585,7 @@ async function fetchLogo({ companyId, domain, websiteUrl, existingLogoUrl }) {
   }
 
   const importCompanyLogo = requireImportCompanyLogo();
-  return importCompanyLogo({ companyId, domain, websiteUrl }, console);
+  return importCompanyLogo({ companyId, domain, websiteUrl, companyName }, console);
 }
 
 // Fetch editorial reviews for a company using XAI
@@ -2022,6 +2070,7 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
 
           const logoImport = await fetchLogo({
             companyId,
+            companyName,
             domain: finalNormalizedDomain,
             websiteUrl: company.website_url || company.canonical_url || company.url || "",
             existingLogoUrl: company.logo_url || null,
@@ -2057,6 +2106,10 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
             normalized_domain: finalNormalizedDomain,
             logo_url: logoImport.logo_url || null,
             logo_source_url: logoImport.logo_source_url || null,
+            logo_source_location: logoImport.logo_source_location || null,
+            logo_source_domain: logoImport.logo_source_domain || null,
+            logo_source_type: logoImport.logo_source_type || null,
+            logo_status: logoImport.logo_status || (logoImport.logo_url ? "imported" : "not_found_on_site"),
             logo_import_status: logoImport.logo_import_status || "missing",
             logo_error: logoImport.logo_error || "",
             tagline: company.tagline || "",
@@ -2129,6 +2182,20 @@ const importStartHandlerInner = async (req, context) => {
         obj && typeof obj === "object" && !Array.isArray(obj)
           ? { handler_version: handlerVersion, ...obj }
           : { handler_version: handlerVersion, value: obj };
+
+      if (typeof sessionId === "string" && sessionId.trim()) {
+        if (!Object.prototype.hasOwnProperty.call(payload, "session_id")) {
+          payload.session_id = sessionId;
+        }
+        responseHeaders["x-session-id"] = sessionId;
+      }
+
+      if (sessionIdOverride && typeof sessionIdOriginal === "string") {
+        payload.session_id_override = true;
+        payload.session_id_original = sessionIdOriginal;
+        payload.session_id_canonical = sessionId;
+      }
+
       return json(payload, status, responseHeaders);
     };
 
@@ -2142,6 +2209,9 @@ const importStartHandlerInner = async (req, context) => {
     };
 
     let sessionId = "";
+    let sessionIdOriginal = "";
+    let sessionIdOverride = false;
+
     let stage = "init";
     let debugEnabled = false;
     let debugOutput = null;
@@ -2244,7 +2314,21 @@ const importStartHandlerInner = async (req, context) => {
         });
       } catch (err) {
         if (err?.code === "INVALID_JSON_BODY") {
-          const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+          const rawPreview = String(err?.raw_text_preview || err?.raw_body_preview || "");
+          const extractedSessionId = (() => {
+            if (!rawPreview) return "";
+            const match = rawPreview.match(/"session_id"\s*:\s*"([^"]+)"/);
+            return match && match[1] ? String(match[1]) : "";
+          })();
+
+          sessionIdOriginal = extractedSessionId;
+          const canonicalCandidate = String(extractedSessionId || "").trim();
+          if (sessionIdOriginal && canonicalCandidate !== sessionIdOriginal) sessionIdOverride = true;
+          sessionId = canonicalCandidate || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+          if (sessionIdOriginal && !canonicalCandidate) sessionIdOverride = true;
+
+          responseHeaders["x-session-id"] = sessionId;
+
           const buildInfo = getBuildInfo();
 
           body_source = err?.body_source || "unknown";
@@ -2339,7 +2423,35 @@ const importStartHandlerInner = async (req, context) => {
       }
 
       const bodyObj = payload && typeof payload === "object" ? payload : {};
-      sessionId = bodyObj.session_id || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+      const hasBodySessionId = Boolean(bodyObj && typeof bodyObj === "object" && Object.prototype.hasOwnProperty.call(bodyObj, "session_id"));
+      const bodySessionIdValue = hasBodySessionId ? bodyObj.session_id : undefined;
+
+      const parsedSessionIdFromText = (() => {
+        if (typeof payload !== "string" || !payload) return "";
+        const match = payload.match(/"session_id"\s*:\s*"([^"]+)"/);
+        return match && match[1] ? String(match[1]) : "";
+      })();
+
+      const headerSessionIdRaw = String(getHeader(req, "x-session-id") || "");
+
+      if (hasBodySessionId) {
+        sessionIdOriginal = String(bodySessionIdValue ?? "");
+      } else if (parsedSessionIdFromText) {
+        sessionIdOriginal = parsedSessionIdFromText;
+      } else if (headerSessionIdRaw) {
+        sessionIdOriginal = headerSessionIdRaw;
+      } else {
+        sessionIdOriginal = "";
+      }
+
+      const canonicalCandidate = String(sessionIdOriginal || "").trim();
+      if (sessionIdOriginal && canonicalCandidate !== sessionIdOriginal) sessionIdOverride = true;
+      if (hasBodySessionId && !canonicalCandidate) sessionIdOverride = true;
+
+      sessionId = canonicalCandidate || `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      responseHeaders["x-session-id"] = sessionId;
+      bodyObj.session_id = sessionId;
 
       try {
         upsertImportSession({

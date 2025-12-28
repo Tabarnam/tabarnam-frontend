@@ -139,9 +139,9 @@ app.http("upload-logo-blob", {
         return json({ ok: false, error: "File too large (max 300KB)" }, 400, req);
       }
 
-      const allowedTypes = ["image/png", "image/jpeg", "image/webp"];
+      const allowedTypes = ["image/png", "image/jpeg", "image/jpg", "image/svg+xml"];
       if (!allowedTypes.includes(file.type)) {
-        return json({ ok: false, error: "Invalid file type (PNG, JPG, WebP only)" }, 400, req);
+        return json({ ok: false, error: "Invalid file type (PNG, JPG, JPEG, SVG only)" }, 400, req);
       }
 
       const containerName = "company-logos";
@@ -157,6 +157,17 @@ app.http("upload-logo-blob", {
         ctx.log(`[upload-logo-blob] DEBUG containerClient.exists() returned: ${existsResponse}`);
         if (existsResponse) {
           ctx.log(`[upload-logo-blob] Container already exists: ${containerName}`);
+
+          // If the container already exists, it may have been created with private access.
+          // Ensure it is publicly readable so stored logo URLs (without SAS) render in the UI.
+          try {
+            await containerClient.setAccessPolicy("blob");
+            ctx.log(`[upload-logo-blob] Ensured container access level: blob (public read)`);
+          } catch (accessError) {
+            ctx.warn?.(
+              `[upload-logo-blob] Warning: could not set container access policy to public: ${accessError?.message || accessError}`
+            );
+          }
         } else {
           ctx.log(`[upload-logo-blob] DEBUG container does not exist, attempting create...`);
           await containerClient.create({ access: "blob" });
@@ -173,27 +184,66 @@ app.http("upload-logo-blob", {
       const buffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(buffer);
 
-      let processedBuffer;
-      try {
-        processedBuffer = await sharp(uint8Array)
-          .resize(256, 256, {
-            fit: "contain",
-            background: { r: 0, g: 0, b: 0, alpha: 0 },
-          })
-          .webp({ quality: 80 })
-          .toBuffer();
+      const svgTextLooksUnsafe = (buf) => {
+        try {
+          const head = Buffer.from(buf).subarray(0, 24000).toString("utf8").toLowerCase();
+          if (head.includes("<script")) return true;
+          if (head.includes("javascript:")) return true;
+          if (/\son\w+\s*=/.test(head)) return true;
+          return false;
+        } catch {
+          return true;
+        }
+      };
 
-        ctx.log(`[upload-logo-blob] Processed logo to 256x256 WebP for company ${companyId}`);
-      } catch (sharpError) {
-        ctx.error(`[upload-logo-blob] Failed to process image: ${sharpError.message}`);
-        return json({ ok: false, error: "Failed to process image. Please try a different file." }, 400, req);
+      const isSvg = String(file.type || "").toLowerCase().includes("image/svg+xml") || String(file.name || "").toLowerCase().endsWith(".svg");
+
+      let processedBuffer;
+      let blobExt = "png";
+      let blobContentType = "image/png";
+
+      if (isSvg) {
+        const svgBuffer = Buffer.from(uint8Array);
+        if (svgTextLooksUnsafe(svgBuffer)) {
+          return json({ ok: false, error: "SVG contains unsafe scripts and was rejected." }, 400, req);
+        }
+
+        try {
+          const meta = await sharp(svgBuffer, { density: 200 }).metadata();
+          const w = Number.isFinite(meta?.width) ? meta.width : null;
+          const h = Number.isFinite(meta?.height) ? meta.height : null;
+          if (!w || !h || w < 128 || h < 128) {
+            return json({ ok: false, error: "SVG is too small (minimum 128×128)." }, 400, req);
+          }
+        } catch {
+          return json({ ok: false, error: "Could not validate SVG dimensions." }, 400, req);
+        }
+
+        processedBuffer = svgBuffer;
+        blobExt = "svg";
+        blobContentType = "image/svg+xml";
+      } else {
+        try {
+          processedBuffer = await sharp(uint8Array)
+            .resize(256, 256, {
+              fit: "contain",
+              background: { r: 0, g: 0, b: 0, alpha: 0 },
+            })
+            .png({ quality: 90 })
+            .toBuffer();
+
+          ctx.log(`[upload-logo-blob] Processed logo to 256x256 PNG for company ${companyId}`);
+        } catch (sharpError) {
+          ctx.error(`[upload-logo-blob] Failed to process image: ${sharpError.message}`);
+          return json({ ok: false, error: "Failed to process image. Please try a different file." }, 400, req);
+        }
       }
 
-      const blobName = `${companyId}/${uuidv4()}.webp`;
+      const blobName = `${companyId}/${uuidv4()}.${blobExt}`;
 
       const blockBlobClient = containerClient.getBlockBlobClient(blobName);
       await blockBlobClient.upload(processedBuffer, processedBuffer.length, {
-        blobHTTPHeaders: { blobContentType: "image/webp" },
+        blobHTTPHeaders: { blobContentType: blobContentType },
       });
 
       // Public container (Blob) + stable URL (no SAS). This URL should not expire.
@@ -243,6 +293,11 @@ app.http("upload-logo-blob", {
       const updatedDoc = {
         ...doc,
         logo_url: logoUrl,
+        logo_status: "imported",
+        logo_import_status: "imported",
+        logo_source_url: doc.logo_source_url || null,
+        logo_source_type: "admin_upload",
+        logo_error: "",
         updated_at: new Date().toISOString(),
       };
 
