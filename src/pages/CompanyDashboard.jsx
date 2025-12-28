@@ -3886,7 +3886,7 @@ export default function CompanyDashboard() {
                                 <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-2">
                                   {!logoPreviewFailed ? (
                                     <img
-                                      src={toStableLogoUrl(rawLogoUrl)}
+                                      src={getCompanyLogoUrl({ ...editorDraft, id: editorOriginalId, logo_url: rawLogoUrl })}
                                       alt="Company logo"
                                       className="h-12 w-12 rounded border border-slate-200 object-contain bg-white"
                                       loading="lazy"
