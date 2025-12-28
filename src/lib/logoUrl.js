@@ -49,14 +49,46 @@ function buildAzureCompanyLogoUrl(path) {
   return `https://${accountName}.blob.core.windows.net/${COMPANY_LOGOS_CONTAINER}/${normalizedPath}`;
 }
 
+function isAzureCompanyLogosBlobUrl(input) {
+  try {
+    const u = new URL(input);
+    if (!u.hostname.toLowerCase().endsWith(".blob.core.windows.net")) return false;
+
+    const path = u.pathname || "";
+    return path === `/${COMPANY_LOGOS_CONTAINER}` || path.startsWith(`/${COMPANY_LOGOS_CONTAINER}/`);
+  } catch {
+    return false;
+  }
+}
+
+function toCompanyLogoProxyUrl(absoluteAzureUrl) {
+  return `/api/company-logo?src=${encodeURIComponent(absoluteAzureUrl)}`;
+}
+
+function maybeProxyAzureCompanyLogoUrl(input) {
+  const stable = toStableLogoUrl(input);
+  if (!stable) return "";
+
+  // Local assets and our own proxy URLs should never be rewritten.
+  if (stable.startsWith("/")) return stable;
+
+  // If a SAS URL is provided, keep it as-is (it may already be signed for private access).
+  if (hasSasParams(stable)) return stable;
+
+  // If this is an Azure Blob URL under company-logos, proxy it so it can be served from private storage.
+  if (isAzureCompanyLogosBlobUrl(stable)) return toCompanyLogoProxyUrl(stable);
+
+  return stable;
+}
+
 function normalizeRawLogoUrl(raw) {
   const trimmed = typeof raw === "string" ? raw.trim() : "";
   if (!trimmed) return "";
   if (/^blob:/i.test(trimmed)) return "";
 
-  if (trimmed.startsWith("//")) return toStableLogoUrl(`https:${trimmed}`);
-  if (looksLikeBlobHostWithoutProtocol(trimmed)) return toStableLogoUrl(`https://${trimmed}`);
-  if (isAbsoluteHttpUrl(trimmed)) return toStableLogoUrl(trimmed);
+  if (trimmed.startsWith("//")) return maybeProxyAzureCompanyLogoUrl(`https:${trimmed}`);
+  if (looksLikeBlobHostWithoutProtocol(trimmed)) return maybeProxyAzureCompanyLogoUrl(`https://${trimmed}`);
+  if (isAbsoluteHttpUrl(trimmed)) return maybeProxyAzureCompanyLogoUrl(trimmed);
 
   return trimmed;
 }
@@ -72,18 +104,22 @@ function buildCompanyLogoUrlFromFallback(companyId, rawLogoUrl) {
 
   // If someone stored the container path without hostname, normalize it.
   if (cleaned.startsWith(`${COMPANY_LOGOS_CONTAINER}/`)) {
-    return buildAzureCompanyLogoUrl(cleaned.slice(`${COMPANY_LOGOS_CONTAINER}/`.length));
+    return maybeProxyAzureCompanyLogoUrl(
+      buildAzureCompanyLogoUrl(cleaned.slice(`${COMPANY_LOGOS_CONTAINER}/`.length))
+    );
   }
 
   // If we already have a companyId and the stored value is just the filename,
   // build: https://<account>.blob.core.windows.net/company-logos/<companyId>/<filename>
   if (companyId && !cleaned.includes("/")) {
-    return buildAzureCompanyLogoUrl(`${encodeURIComponent(companyId)}/${encodeURIComponent(cleaned)}`);
+    return maybeProxyAzureCompanyLogoUrl(
+      buildAzureCompanyLogoUrl(`${encodeURIComponent(companyId)}/${encodeURIComponent(cleaned)}`)
+    );
   }
 
   // If it already looks like <companyId>/<filename>, just prepend the Azure base.
   if (cleaned.includes("/")) {
-    return buildAzureCompanyLogoUrl(cleaned);
+    return maybeProxyAzureCompanyLogoUrl(buildAzureCompanyLogoUrl(cleaned));
   }
 
   return "";
@@ -102,12 +138,12 @@ function buildCompanyLogoUrlFromFallback(companyId, rawLogoUrl) {
 export function getCompanyLogoUrl(company) {
   const rawLogo = typeof company?.logo_url === "string" ? company.logo_url : "";
   const normalized = normalizeRawLogoUrl(rawLogo);
-  if (normalized) return normalized;
+  if (normalized) return maybeProxyAzureCompanyLogoUrl(normalized);
 
   const companyId =
     (typeof company?.company_id === "string" && company.company_id.trim()) ||
     (typeof company?.id === "string" && company.id.trim()) ||
     "";
 
-  return buildCompanyLogoUrlFromFallback(companyId, rawLogo);
+  return maybeProxyAzureCompanyLogoUrl(buildCompanyLogoUrlFromFallback(companyId, rawLogo));
 }
