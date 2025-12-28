@@ -33,6 +33,13 @@ if (ROUTES_TEST_MODE) {
   } catch (e) {
     console.error("[api] ❌ Failed to load xadmin-api-refresh-reviews:", e?.message || e);
   }
+
+  try {
+    console.log("[api] Registering (routes-test): admin-company-history");
+    require("./admin-company-history/index.js");
+  } catch (e) {
+    console.error("[api] ❌ Failed to load admin-company-history:", e?.message || e);
+  }
 } else {
   // -------------------------
   // Public endpoints
