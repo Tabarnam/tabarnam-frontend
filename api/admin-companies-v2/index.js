@@ -96,14 +96,74 @@ function normalizeDisplayNameFromDoc(doc) {
   return name !== companyName ? name : "";
 }
 
+function hasAzureSasParams(input) {
+  const url = typeof input === "string" ? input : "";
+  return /[?&](sv|sig|se)=/i.test(url);
+}
+
+function toStableLogoUrl(input) {
+  const url = typeof input === "string" ? input.trim() : "";
+  if (!url) return "";
+
+  // Our logo proxy endpoint needs its query string preserved.
+  if (url.startsWith("/api/company-logo?")) return url;
+
+  // If the logo URL includes Azure SAS parameters, we must preserve the query string.
+  if (hasAzureSasParams(url)) return url;
+
+  const qIndex = url.indexOf("?");
+  return qIndex === -1 ? url : url.slice(0, qIndex);
+}
+
+function looksLikeBlobHostWithoutProtocol(input) {
+  return /^[a-z0-9-]+\.blob\.core\.windows\.net\//i.test(input);
+}
+
+function isAzureCompanyLogosBlobUrl(input) {
+  try {
+    const u = new URL(input);
+    if (!u.hostname.toLowerCase().endsWith(".blob.core.windows.net")) return false;
+
+    const path = u.pathname || "";
+    return path === "/company-logos" || path.startsWith("/company-logos/");
+  } catch {
+    return false;
+  }
+}
+
+function proxyAzureCompanyLogoUrlForClient(rawLogoUrl) {
+  const raw = typeof rawLogoUrl === "string" ? rawLogoUrl.trim() : "";
+  if (!raw) return "";
+
+  if (raw.startsWith("/api/company-logo?")) return raw;
+  if (hasAzureSasParams(raw)) return raw;
+
+  const stable = toStableLogoUrl(raw);
+
+  const absolute = looksLikeBlobHostWithoutProtocol(stable)
+    ? `https://${stable}`
+    : stable;
+
+  if (!isAzureCompanyLogosBlobUrl(absolute)) return raw;
+
+  return `/api/company-logo?src=${encodeURIComponent(absolute)}`;
+}
+
 function normalizeCompanyForResponse(doc) {
   if (!doc || typeof doc !== "object") return doc;
   const company_id = String(doc.company_id || doc.id || "").trim() || doc.company_id;
   const display_name = normalizeDisplayNameFromDoc(doc);
+
+  const normalizedLogoUrl =
+    typeof doc.logo_url === "string"
+      ? proxyAzureCompanyLogoUrlForClient(doc.logo_url)
+      : "";
+
   return {
     ...doc,
     company_id,
     ...(display_name ? { display_name } : {}),
+    ...(typeof doc.logo_url === "string" ? { logo_url: normalizedLogoUrl } : {}),
   };
 }
 
