@@ -236,6 +236,8 @@ const SELECT_FIELDS = [
   "c.confidence_score",
   "c.tagline",
   "c.logo_url",
+  "c.logoUrl",
+  "c.logo",
   "c.star_overrides",
   "c.admin_manual_extra",
   "c.star_notes",
@@ -313,6 +315,13 @@ function mapCompanyToPublic(doc) {
 
   const amazon_url = doc.amazon_url || "";
 
+  const logo_url =
+    asString(doc.logo_url).trim() ||
+    asString(doc.logoUrl).trim() ||
+    asString(doc.logoURL).trim() ||
+    (doc.logo && typeof doc.logo === "object" ? asString(doc.logo.url).trim() : asString(doc.logo).trim()) ||
+    "";
+
   const company_id = doc.company_id || doc.id;
 
   const display_name =
@@ -334,7 +343,7 @@ function mapCompanyToPublic(doc) {
     website_url,
     normalized_domain: doc.normalized_domain || "",
     amazon_url,
-    logo_url: doc.logo_url || "",
+    logo_url,
     industries,
     manufacturing_locations,
     headquarters_location: doc.headquarters_location || "",
