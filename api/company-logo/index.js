@@ -20,7 +20,7 @@ function getStorageCredentials(ctx) {
     "tabarnamstor2356";
   const accountKey = process.env.AZURE_STORAGE_ACCOUNT_KEY;
 
-  ctx.log(`[company-logo] Using account: ${accountName}`);
+  ctx.log(`[company-logo] Configured account: ${accountName}`);
   ctx.log(`[company-logo] Account key present: ${!!accountKey}`);
 
   return { accountName, accountKey };
@@ -41,6 +41,22 @@ async function streamToBuffer(readableStream) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   return Buffer.concat(chunks);
+}
+
+function extractAccountNameFromSrc(src) {
+  const raw = typeof src === "string" ? src.trim() : "";
+  if (!raw || !/^https?:\/\//i.test(raw)) return "";
+
+  try {
+    const u = new URL(raw);
+    const host = (u.hostname || "").toLowerCase();
+    if (!host.endsWith(".blob.core.windows.net")) return "";
+
+    const account = host.split(".")[0] || "";
+    return account.trim();
+  } catch {
+    return "";
+  }
 }
 
 function extractBlobName(src) {
@@ -79,7 +95,7 @@ app.http("company-logo", {
     if (req.method === "OPTIONS") return { status: 200, headers: cors(req) };
 
     try {
-      const { accountName, accountKey } = getStorageCredentials(ctx);
+      let { accountName, accountKey } = getStorageCredentials(ctx);
       if (!accountKey) {
         return json(
           {
@@ -93,6 +109,13 @@ app.http("company-logo", {
       }
 
       const src = req.query.get("src") || "";
+
+      const accountNameFromSrc = extractAccountNameFromSrc(src);
+      if (accountNameFromSrc && accountNameFromSrc !== String(accountName || "").toLowerCase()) {
+        ctx.log(`[company-logo] Overriding account from src URL: ${accountName} -> ${accountNameFromSrc}`);
+        accountName = accountNameFromSrc;
+      }
+
       const blobName = extractBlobName(src);
 
       if (!blobName) {
