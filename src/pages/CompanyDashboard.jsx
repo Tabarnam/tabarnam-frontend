@@ -27,7 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 import { apiFetch, getUserFacingConfigMessage, toErrorString } from "@/lib/api";
 import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
-import { toStableLogoUrl } from "@/lib/logoUrl";
+import { getCompanyLogoUrl } from "@/lib/logoUrl";
 import { getAdminUser } from "@/lib/azureAuth";
 import {
   Dialog,

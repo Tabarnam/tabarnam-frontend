@@ -4,7 +4,7 @@ import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { getCompanyCanonicalName, getCompanyDisplayName } from "@/lib/companyDisplayName";
 import { RatingDots, RatingHearts } from "@/components/Stars";
 import { getQQDefaultIconType, getQQFilledCount } from "@/lib/stars/qqRating";
-import { toStableLogoUrl } from "@/lib/logoUrl";
+import { getCompanyLogoUrl } from "@/lib/logoUrl";
 
 function toFiniteNumber(v) {
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
@@ -90,7 +90,7 @@ export default function ExpandableCompanyRow({
     "";
 
   const displayName = title || getCompanyDisplayName(company);
-  const logoUrl = toStableLogoUrl(company?.logo_url);
+  const logoUrl = getCompanyLogoUrl(company);
   const canonicalName = getCompanyCanonicalName(company);
 
   const [logoFailed, setLogoFailed] = useState(false);
