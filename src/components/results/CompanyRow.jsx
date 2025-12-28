@@ -10,7 +10,7 @@ import { CompanyStarsBlock } from "@/components/results/CompanyStarsBlock";
 import { calcStars } from "@/lib/stars/calcStars";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { getCompanyDisplayName } from "@/lib/companyDisplayName";
-import { toStableLogoUrl } from "@/lib/logoUrl";
+import { getCompanyLogoUrl } from "@/lib/logoUrl";
 
 const TranslatedText = ({ originalText, translation, loading }) => {
   if (loading)
@@ -93,7 +93,7 @@ const CompanyRow = ({
     "notes"
   );
 
-  const logoUrl = toStableLogoUrl(company.logo_url);
+  const logoUrl = getCompanyLogoUrl(company);
 
   const hqs = company.headquarters || [];
   const mfgs = company.manufacturing_sites || [];
