@@ -93,7 +93,7 @@ const CompanyRow = ({
     "notes"
   );
 
-  const logoUrl = toStableLogoUrl(company.logo_url);
+  const logoUrl = getCompanyLogoUrl(company);
   const [logoFailed, setLogoFailed] = useState(false);
 
   useEffect(() => {
