@@ -669,7 +669,17 @@ async function uploadPngToBlob({ companyId, pngBuffer }, logger = console) {
 
   try {
     const exists = await containerClient.exists();
-    if (!exists) await containerClient.create({ access: "blob" });
+    if (!exists) {
+      await containerClient.create({ access: "blob" });
+    } else {
+      // The container might already exist with private access.
+      // Ensure it's publicly readable so returned logo URLs (without SAS) work in the UI.
+      try {
+        await containerClient.setAccessPolicy("blob");
+      } catch (e) {
+        logger?.warn?.(`[logoImport] setAccessPolicy failed: ${e?.message || e}`);
+      }
+    }
   } catch (e) {
     logger?.warn?.(`[logoImport] container create/exists failed: ${e?.message || e}`);
   }
