@@ -1,5 +1,12 @@
-const { app } = require("@azure/functions");
-const { BlobServiceClient, StorageSharedKeyCredential } = require("@azure/storage-blob");
+const { app } = require("../_app");
+
+function getAzureStorageBlobSdk() {
+  try {
+    return require("@azure/storage-blob");
+  } catch {
+    return null;
+  }
+}
 
 const CONTAINER_NAME = "company-logos";
 
@@ -137,6 +144,19 @@ app.http("company-logo", {
         );
       }
 
+      const sdk = getAzureStorageBlobSdk();
+      if (!sdk) {
+        return json(
+          {
+            ok: false,
+            error: "Server dependency missing. Please ensure @azure/storage-blob is installed in the Function App.",
+          },
+          500,
+          req
+        );
+      }
+
+      const { BlobServiceClient, StorageSharedKeyCredential } = sdk;
       const credentials = new StorageSharedKeyCredential(accountName, accountKey);
       const storageUrl = `https://${accountName}.blob.core.windows.net`;
       const blobServiceClient = new BlobServiceClient(storageUrl, credentials);
