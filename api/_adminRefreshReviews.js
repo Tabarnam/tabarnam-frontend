@@ -424,7 +424,12 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
           stage,
           error: "Upstream reviews fetch failed",
           status: resp.status,
-          details: { upstream_preview: asString(responseText).slice(0, 8000) },
+          details: {
+            upstream_preview: asString(responseText).slice(0, 8000),
+            xai_model: xaiModel,
+            resolved_upstream_url: xaiUrl,
+            endpoint_source: xaiEndpointRaw ? "configured" : "missing",
+          },
           config,
           elapsed_ms: Date.now() - startedAt,
         },
