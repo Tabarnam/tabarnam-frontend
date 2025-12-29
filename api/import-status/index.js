@@ -625,6 +625,14 @@ async function handler(req, context) {
       (completed ? "complete" : timedOut ? "timeout" : stopped ? "stopped" : "running");
 
     const report = {
+      session: sessionDoc
+        ? {
+            created_at: sessionDoc?.created_at || null,
+            request_id: sessionDoc?.request_id || null,
+            status: sessionDoc?.status || null,
+            stage_beacon: sessionDoc?.stage_beacon || null,
+          }
+        : null,
       accepted: Boolean(acceptDoc),
       accept: acceptDoc
         ? {
