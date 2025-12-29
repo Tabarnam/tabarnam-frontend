@@ -150,11 +150,19 @@ export default defineConfig(({ mode }) => {
           ws: true,
           timeout: 600000,
           proxyTimeout: 600000,
-          rewrite: (p) => p // keep /api prefix because host.json uses routePrefix "api"
-        }
-      }
-    }
-,
+          rewrite: (p) => p, // keep /api prefix because host.json uses routePrefix "api"
+        },
+        "/xapi": {
+          target: "http://127.0.0.1:7080", // local func core tools
+          changeOrigin: true,
+          secure: false,
+          ws: true,
+          timeout: 600000,
+          proxyTimeout: 600000,
+          rewrite: (p) => p.replace(/^\/xapi(\/|$)/, "/api$1"),
+        },
+      },
+    },
     build: {
       chunkSizeWarningLimit: 1000,
       sourcemap: true, // help trace prod errors (disabled by default in Vite)
