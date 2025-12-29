@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
 import { Link } from "react-router-dom";
 import DataTable from "react-data-table-component";
@@ -1116,13 +1116,29 @@ function formatProposedReviewForClipboard(review) {
   return [header, meta, excerpt].filter(Boolean).join("\n");
 }
 
-function ReviewsImportPanel({ companyId, existingCuratedReviews, disabled, onApply }) {
+const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
+  { companyId, existingCuratedReviews, disabled, onApply },
+  ref
+) {
   const stableId = asString(companyId).trim();
   const [take, setTake] = useState(25);
   const [includeExisting, setIncludeExisting] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [items, setItems] = useState([]);
+
+  const itemsRef = useRef([]);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      getSelectedReviews: () => itemsRef.current.filter((r) => r?.include),
+    }),
+    []
+  );
 
   const existingCount = Array.isArray(existingCuratedReviews) ? existingCuratedReviews.length : 0;
   const selectedCount = items.reduce((sum, r) => sum + (r?.include ? 1 : 0), 0);
@@ -1512,7 +1528,7 @@ function ReviewsImportPanel({ companyId, existingCuratedReviews, disabled, onApp
       )}
     </div>
   );
-}
+});
 
 function ImportedReviewsPanel({ companyId }) {
   const stableId = asString(companyId).trim();
@@ -1955,6 +1971,7 @@ export default function CompanyDashboard() {
   const requestSeqRef = useRef(0);
   const abortRef = useRef(null);
   const editorFetchSeqRef = useRef(0);
+  const reviewsImportRef = useRef(null);
   const editorScrollRef = useRef(null);
   const [editorScrollEl, setEditorScrollEl] = useState(null);
 
@@ -2750,7 +2767,7 @@ export default function CompanyDashboard() {
     const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
     const protectedKeys = new Set(["logo_url", "notes", "notes_entries", "rating"]);
 
-    const draftForSave = (() => {
+    let draftForSave = (() => {
       if (!baseProposed) return editorDraft;
 
       const base = editorDraft;
@@ -2766,6 +2783,23 @@ export default function CompanyDashboard() {
 
       return next;
     })();
+
+    const selectedProposedReviews = reviewsImportRef.current?.getSelectedReviews?.() || [];
+    let autoAddedReviews = 0;
+    let autoSkippedReviews = 0;
+
+    if (selectedProposedReviews.length > 0) {
+      const existingCurated = Array.isArray(draftForSave?.curated_reviews) ? draftForSave.curated_reviews : [];
+      const { merged, addedCount, skippedDuplicates } = mergeCuratedReviews(existingCurated, selectedProposedReviews);
+
+      autoAddedReviews = addedCount;
+      autoSkippedReviews = skippedDuplicates;
+
+      if (addedCount > 0) {
+        draftForSave = { ...(draftForSave || {}), curated_reviews: merged };
+        setEditorDraft((prev) => ({ ...(prev || {}), curated_reviews: merged }));
+      }
+    }
 
     const validationError = validateCompanyDraft(draftForSave);
     if (validationError) {
@@ -2851,7 +2885,9 @@ export default function CompanyDashboard() {
           ? crypto.randomUUID()
           : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-      const audit_action = refreshApplied && editorOriginalId ? "refresh_apply" : "";
+      const baseAuditAction = refreshApplied && editorOriginalId ? "refresh_apply" : "";
+      const reviewsAuditAction = autoAddedReviews > 0 ? "reviews_import_apply" : "";
+      const audit_action = baseAuditAction || reviewsAuditAction;
       const source = refreshApplied && editorOriginalId ? "refresh" : "admin-ui";
 
       const res = await apiFetch("/xadmin-api-companies", {
@@ -2882,7 +2918,12 @@ export default function CompanyDashboard() {
         return [savedCompany, ...next];
       });
 
-      toast.success(isNew ? "Company created" : "Company saved");
+      const label = isNew ? "Company created" : "Company saved";
+      const reviewSuffix = autoAddedReviews
+        ? ` (+${autoAddedReviews} review${autoAddedReviews === 1 ? "" : "s"}${autoSkippedReviews ? `, skipped ${autoSkippedReviews} duplicate${autoSkippedReviews === 1 ? "" : "s"}` : ""})`
+        : "";
+
+      toast.success(`${label}${reviewSuffix}`);
       closeEditor();
     } catch (e) {
       toast.error(e?.message || "Save failed");
@@ -4066,6 +4107,7 @@ export default function CompanyDashboard() {
                           <RatingEditor draft={editorDraft} onChange={(next) => setEditorDraft(next)} />
 
                           <ReviewsImportPanel
+                            ref={reviewsImportRef}
                             companyId={
                               asString(editorDraft.company_id).trim() ||
                               asString(editorOriginalId).trim() ||
