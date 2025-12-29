@@ -8,6 +8,7 @@ const { CosmosClient } = require("@azure/cosmos");
 const { getBuildInfo } = require("../_buildInfo");
 const { hasRoute } = require("../_app");
 const { computeTopLevelDiff, writeCompanyEditHistoryEntry, getCompanyEditHistoryContainer } = require("../_companyEditHistory");
+const { geocodeLocationArray, pickPrimaryLatLng, extractLatLng } = require("../_geocode");
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "admin-companies-v2";
@@ -83,6 +84,110 @@ function isPlainObject(value) {
   if (typeof value.arrayBuffer === "function") return false;
   if (ArrayBuffer.isView(value)) return false;
   return Object.prototype.toString.call(value) === "[object Object]";
+}
+
+function toFiniteNumber(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function normalizeLocationList(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : [];
+}
+
+function hasAnyLatLng(list) {
+  if (!Array.isArray(list) || list.length === 0) return false;
+  return list.some((loc) => Boolean(extractLatLng(loc)));
+}
+
+function buildHeadquartersSeedFromDoc(doc) {
+  const base = doc && typeof doc === "object" ? doc : {};
+
+  const listRaw =
+    Array.isArray(base.headquarters_locations) && base.headquarters_locations.length
+      ? base.headquarters_locations
+      : Array.isArray(base.headquarters) && base.headquarters.length
+        ? base.headquarters
+        : [];
+
+  const list = normalizeLocationList(listRaw);
+
+  const primaryRaw = typeof base.headquarters_location === "string" ? base.headquarters_location.trim() : "";
+  if (!primaryRaw) return list;
+
+  const already = list.some((h) => {
+    if (!h) return false;
+    if (typeof h === "string") return h.trim() === primaryRaw;
+    if (typeof h !== "object") return false;
+    const candidates = [h.address, h.full_address, h.formatted, h.location].map((v) => (typeof v === "string" ? v.trim() : ""));
+    return candidates.some((c) => c === primaryRaw);
+  });
+
+  if (already) return list;
+
+  return [{ address: primaryRaw }, ...list];
+}
+
+function buildManufacturingSeedFromDoc(doc) {
+  const base = doc && typeof doc === "object" ? doc : {};
+
+  const raw =
+    Array.isArray(base.manufacturing_geocodes) && base.manufacturing_geocodes.length
+      ? base.manufacturing_geocodes
+      : Array.isArray(base.manufacturing_locations) && base.manufacturing_locations.length
+        ? base.manufacturing_locations
+        : [];
+
+  return normalizeLocationList(raw);
+}
+
+async function maybeGeocodeLocationsForCompanyDoc(doc, { timeoutMs = 5000 } = {}) {
+  if (!doc || typeof doc !== "object") return doc;
+
+  const next = doc;
+
+  // HQ
+  const hqSeed = buildHeadquartersSeedFromDoc(next);
+  const hasLegacyHq = toFiniteNumber(next.hq_lat) != null && toFiniteNumber(next.hq_lng) != null;
+  const hasHqCoordsInList = hasAnyLatLng(hqSeed);
+
+  if (!hasLegacyHq && !hasHqCoordsInList && hqSeed.length > 0) {
+    const geocoded = await geocodeLocationArray(hqSeed, { timeoutMs, concurrency: 4 });
+    const primary = pickPrimaryLatLng(geocoded);
+
+    if (primary) {
+      next.headquarters_locations = geocoded;
+      next.headquarters = geocoded;
+      next.hq_lat = primary.lat;
+      next.hq_lng = primary.lng;
+    }
+  } else if (!hasLegacyHq && hasHqCoordsInList) {
+    const primary = pickPrimaryLatLng(hqSeed);
+    if (primary) {
+      next.hq_lat = primary.lat;
+      next.hq_lng = primary.lng;
+    }
+  }
+
+  // Manufacturing
+  const manuSeed = buildManufacturingSeedFromDoc(next);
+  const hasManuCoords = hasAnyLatLng(manuSeed);
+
+  if (!hasManuCoords && manuSeed.length > 0) {
+    const geocoded = await geocodeLocationArray(manuSeed, { timeoutMs, concurrency: 4 });
+    if (hasAnyLatLng(geocoded)) {
+      next.manufacturing_geocodes = geocoded;
+    }
+  } else if (!Array.isArray(next.manufacturing_geocodes) || next.manufacturing_geocodes.length === 0) {
+    // Ensure manufacturing_geocodes is present when the editor sends structured entries.
+    next.manufacturing_geocodes = manuSeed;
+  }
+
+  return next;
 }
 
 function normalizeDisplayNameFromDoc(doc) {
@@ -636,6 +741,17 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           updated_at: now,
           created_at: (existingDoc && existingDoc.created_at) || base.created_at || now,
         };
+
+        // Ensure HQ/manufacturing have coordinates so the public Results page can compute distances.
+        // This is especially important for locations manually entered in the admin editor.
+        try {
+          await maybeGeocodeLocationsForCompanyDoc(doc, { timeoutMs: 5000 });
+        } catch (e) {
+          context.log("[admin-companies-v2] geocode_on_save_failed", {
+            company_id: String(doc.company_id || doc.id || "").trim(),
+            error: e?.message || String(e),
+          });
+        }
 
         if (resolvedDisplayName) {
           doc.display_name = resolvedDisplayName;

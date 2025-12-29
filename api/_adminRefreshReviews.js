@@ -14,7 +14,7 @@ try {
 
 const { createHash, randomUUID } = require("node:crypto");
 
-const { getXAIEndpoint, getXAIKey } = require("./_shared");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
 const { getBuildInfo } = require("./_buildInfo");
 const { loadCompanyById, toNormalizedDomain } = require("./_adminRefreshCompany");
 
@@ -353,7 +353,9 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       : "";
 
     stage = "init_xai";
-    const xaiUrl = asString(deps.xaiUrl || getXAIEndpoint()).trim();
+    const xaiEndpointRaw = asString(deps.xaiUrl || getXAIEndpoint()).trim();
+    const xaiModel = "grok-4-latest";
+    const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, xaiModel);
     const xaiKey = asString(deps.xaiKey || getXAIKey()).trim();
 
     if (!xaiUrl || !xaiKey) {
@@ -381,7 +383,7 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
 
     const payload = {
       messages: [{ role: "user", content: prompt }],
-      model: "grok-4-latest",
+      model: xaiModel,
       temperature: 0.2,
       stream: false,
     };
@@ -422,7 +424,12 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
           stage,
           error: "Upstream reviews fetch failed",
           status: resp.status,
-          details: { upstream_preview: asString(responseText).slice(0, 8000) },
+          details: {
+            upstream_preview: asString(responseText).slice(0, 8000),
+            xai_model: xaiModel,
+            resolved_upstream_url: xaiUrl,
+            endpoint_source: xaiEndpointRaw ? "configured" : "missing",
+          },
           config,
           elapsed_ms: Date.now() - startedAt,
         },

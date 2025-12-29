@@ -388,7 +388,11 @@ export async function apiFetch(path: string, init?: RequestInit) {
   } catch (e: any) {
     const errorMessage = e?.message ? String(e.message) : "fetch_failed";
     const errorStackPreview =
-      typeof e?.stack === "string" && e.stack.trim() ? (e.stack.length > 2000 ? e.stack.slice(0, 2000) : e.stack) : "";
+      typeof e?.stack === "string" && e.stack.trim()
+        ? e.stack.length > 2000
+          ? e.stack.slice(0, 2000)
+          : e.stack
+        : "";
 
     console.error("[apiFetch] Network error", {
       url,
@@ -396,6 +400,88 @@ export async function apiFetch(path: string, init?: RequestInit) {
       error_message: errorMessage,
       error_stack_preview: errorStackPreview,
     });
+
+    // Production hardening: some deployments (CDNs/WAF) can intermittently block or reset
+    // connections to /api/*, while allowing the same backend via an alternate route.
+    // Our SWA config supports /xapi/* -> /api/{*path} rewrites.
+    const canRetryViaXapi =
+      API_BASE === "/api" &&
+      typeof path === "string" &&
+      !/^\s*https?:\/\//i.test(path) &&
+      !/^\s*\/xapi\//i.test(path);
+
+    if (canRetryViaXapi) {
+      const fallbackUrl = join("/xapi", path);
+
+      try {
+        console.warn("[apiFetch] Retrying via /xapi after network error", {
+          original_url: url,
+          fallback_url: fallbackUrl,
+          method,
+        });
+
+        const response = await fetch(fallbackUrl, normalizedInit);
+
+        if (!response.ok) {
+          const responseText = await response.clone().text().catch(() => "");
+          const err = {
+            status: response.status,
+            url: fallbackUrl,
+            method,
+            response_text_preview: responseText.length > 2000 ? responseText.slice(0, 2000) : responseText,
+            response_headers: getResponseHeadersSubset(response),
+            fallback_from: url,
+          };
+
+          try {
+            (response as any).__api_fetch_error = err;
+          } catch {
+            // ignore
+          }
+
+          const configMsg = await getUserFacingConfigMessage(response);
+          console.error("[apiFetch] Non-2xx response (fallback /xapi)", {
+            ...err,
+            ...(configMsg ? { user_facing_config_message: configMsg } : {}),
+          });
+        }
+
+        return response;
+      } catch (e2: any) {
+        const fallbackMessage = e2?.message ? String(e2.message) : "fetch_failed";
+        const fallbackStackPreview =
+          typeof e2?.stack === "string" && e2.stack.trim() ? (e2.stack.length > 2000 ? e2.stack.slice(0, 2000) : e2.stack) : "";
+
+        console.error("[apiFetch] Network error (fallback /xapi)", {
+          original_url: url,
+          fallback_url: fallbackUrl,
+          method,
+          error_message: fallbackMessage,
+          error_stack_preview: fallbackStackPreview,
+        });
+
+        return new Response(
+          JSON.stringify(
+            {
+              error: "API unavailable",
+              url,
+              method,
+              error_message: errorMessage,
+              error_stack_preview: errorStackPreview,
+              fallback_url_attempted: fallbackUrl,
+              fallback_error_message: fallbackMessage,
+              fallback_error_stack_preview: fallbackStackPreview,
+            },
+            null,
+            2
+          ),
+          {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+    }
 
     // Return a fake 503 error response instead of throwing
     return new Response(
