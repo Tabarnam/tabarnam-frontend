@@ -1,4 +1,4 @@
-const { getXAIEndpoint, getXAIKey } = require("./_shared");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
 const { getJob, tryClaimJob, patchJob } = require("./_importPrimaryJobStore");
 
 function nowIso() {
@@ -19,6 +19,19 @@ function safeJsonParse(text) {
   }
 }
 
+function redactUrlQueryAndHash(rawUrl) {
+  const s = String(rawUrl || "").trim();
+  if (!s) return null;
+  try {
+    const u = new URL(s);
+    u.search = "";
+    u.hash = "";
+    return u.toString();
+  } catch {
+    return s.split("?")[0].split("#")[0];
+  }
+}
+
 function redactErrorForJob(err) {
   if (!err) return { message: "Unknown error" };
   const out = {
@@ -28,6 +41,8 @@ function redactErrorForJob(err) {
   if (typeof err?.code === "string") out.code = err.code;
   if (typeof err?.status === "number") out.status = err.status;
   if (typeof err?.upstream_status === "number") out.upstream_status = err.upstream_status;
+  if (typeof err?.xai_request_id === "string" && err.xai_request_id.trim()) out.xai_request_id = err.xai_request_id.trim();
+  if (typeof err?.text_preview === "string" && err.text_preview.trim()) out.upstream_text_preview = err.text_preview.trim();
   return out;
 }
 
@@ -159,7 +174,7 @@ function parseCompaniesFromXaiResponse(xaiResponse) {
 function isTransientUpstream(status) {
   if (!Number.isFinite(Number(status))) return true;
   const s = Number(status);
-  if (s === 408 || s === 429) return true;
+  if (s === 408 || s === 421 || s === 429) return true;
   return s >= 500 && s <= 599;
 }
 
@@ -540,7 +555,12 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
     };
   };
 
-  const xaiUrl = getXAIEndpoint();
+  const xaiModel =
+    typeof job?.xai_model === "string" && job.xai_model.trim() ? job.xai_model.trim() : "grok-4-latest";
+
+  const xaiEndpointRaw = getXAIEndpoint();
+  const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, xaiModel);
+
   const xaiKey = getXAIKey();
   const hasKey = Boolean(xaiKey);
 
@@ -551,6 +571,8 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
       job_state: "running",
       stage: "primary",
       stage_beacon: "primary_search_started",
+      xai_model: xaiModel,
+      resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl),
       updated_at: nowIso(),
       started_at: startedAtIso,
       last_error: null,
@@ -729,8 +751,17 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
         const err = new Error(`Upstream error (${xaiResponse.status})`);
         err.upstream_status = xaiResponse.status;
         err.code = "UPSTREAM_ERROR";
+
+        const headersObj = xaiResponse && typeof xaiResponse === "object" ? xaiResponse.headers : null;
+        const xaiRequestId =
+          headersObj && typeof headersObj === "object"
+            ? headersObj["xai-request-id"] || headersObj["x-request-id"] || headersObj["request-id"] || null
+            : null;
+        if (typeof xaiRequestId === "string" && xaiRequestId.trim()) err.xai_request_id = xaiRequestId.trim();
+
         err.text_preview =
           typeof xaiResponse.text === "string" && xaiResponse.text ? xaiResponse.text.slice(0, 500) : "";
+
         throw err;
       }
 
