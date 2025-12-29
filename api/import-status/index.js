@@ -584,16 +584,18 @@ async function handler(req, context) {
     const timeoutDocId = `_import_timeout_${sessionId}`;
     const stopDocId = `_import_stop_${sessionId}`;
     const errorDocId = `_import_error_${sessionId}`;
+    const acceptDocId = `_import_accept_${sessionId}`;
 
-    const [sessionDoc, completionDoc, timeoutDoc, stopDoc, errorDoc] = await Promise.all([
+    const [sessionDoc, completionDoc, timeoutDoc, stopDoc, errorDoc, acceptDoc] = await Promise.all([
       readControlDoc(container, sessionDocId, sessionId),
       readControlDoc(container, completionDocId, sessionId),
       readControlDoc(container, timeoutDocId, sessionId),
       readControlDoc(container, stopDocId, sessionId),
       readControlDoc(container, errorDocId, sessionId),
+      readControlDoc(container, acceptDocId, sessionId),
     ]);
 
-    let known = Boolean(sessionDoc || completionDoc || timeoutDoc || stopDoc || errorDoc);
+    let known = Boolean(sessionDoc || completionDoc || timeoutDoc || stopDoc || errorDoc || acceptDoc);
     if (!known) known = await hasAnyCompanyDocs(container, sessionId);
 
     if (!known) {
@@ -619,7 +621,32 @@ async function handler(req, context) {
       (typeof errorDoc?.stage === "string" && errorDoc.stage.trim() ? errorDoc.stage.trim() : null) ||
       (typeof errorDoc?.error?.step === "string" && errorDoc.error.step.trim() ? errorDoc.error.step.trim() : null) ||
       (typeof sessionDoc?.stage_beacon === "string" && sessionDoc.stage_beacon.trim() ? sessionDoc.stage_beacon.trim() : null) ||
+      (typeof acceptDoc?.stage_beacon === "string" && acceptDoc.stage_beacon.trim() ? acceptDoc.stage_beacon.trim() : null) ||
       (completed ? "complete" : timedOut ? "timeout" : stopped ? "stopped" : "running");
+
+    const report = {
+      accepted: Boolean(acceptDoc),
+      accept: acceptDoc
+        ? {
+            accepted_at: acceptDoc?.accepted_at || acceptDoc?.created_at || null,
+            reason: acceptDoc?.reason || null,
+            stage_beacon: acceptDoc?.stage_beacon || null,
+            remaining_ms: Number.isFinite(Number(acceptDoc?.remaining_ms)) ? Number(acceptDoc.remaining_ms) : null,
+          }
+        : null,
+      completion: completionDoc
+        ? {
+            completed_at: completionDoc?.completed_at || completionDoc?.created_at || null,
+            reason: completionDoc?.reason || null,
+            saved: typeof completionDoc?.saved === "number" ? completionDoc.saved : null,
+            skipped: typeof completionDoc?.skipped === "number" ? completionDoc.skipped : null,
+            failed: typeof completionDoc?.failed === "number" ? completionDoc.failed : null,
+            saved_ids: Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [],
+            skipped_ids: Array.isArray(completionDoc?.skipped_ids) ? completionDoc.skipped_ids : [],
+            failed_items: Array.isArray(completionDoc?.failed_items) ? completionDoc.failed_items : [],
+          }
+        : null,
+    };
 
     if (errorPayload || timedOut || stopped) {
       const errorOut =
@@ -656,6 +683,7 @@ async function handler(req, context) {
           lastCreatedAt,
           timedOut,
           stopped,
+          report,
         },
         200,
         req
@@ -685,12 +713,18 @@ async function handler(req, context) {
           companies_count: saved,
           result: {
             saved,
+            skipped: typeof completionDoc?.skipped === "number" ? completionDoc.skipped : null,
+            failed: typeof completionDoc?.failed === "number" ? completionDoc.failed : null,
             completed_at: completionDoc?.completed_at || completionDoc?.created_at || null,
             reason: completionDoc?.reason || null,
+            saved_ids: Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [],
+            skipped_ids: Array.isArray(completionDoc?.skipped_ids) ? completionDoc.skipped_ids : [],
+            failed_items: Array.isArray(completionDoc?.failed_items) ? completionDoc.failed_items : [],
           },
           items,
           saved,
           lastCreatedAt,
+          report,
         },
         200,
         req
@@ -720,6 +754,7 @@ async function handler(req, context) {
         items,
         saved,
         lastCreatedAt,
+        report,
       },
       200,
       req
