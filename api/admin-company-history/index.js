@@ -1,13 +1,6 @@
 const { app, hasRoute } = require("../_app");
-let app;
-try {
-  ({ app } = require("@azure/functions"));
-} catch {
-  app = { http() {} };
-}
 
 const { getBuildInfo } = require("../_buildInfo");
-const { hasRoute } = require("../_app");
 const { getCompanyEditHistoryContainer } = require("../_companyEditHistory");
 
 const BUILD_INFO = getBuildInfo();
