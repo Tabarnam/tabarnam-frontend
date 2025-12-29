@@ -1,5 +1,12 @@
-const { app } = require("@azure/functions");
-const { BlobServiceClient, StorageSharedKeyCredential } = require("@azure/storage-blob");
+const { app } = require("../_app");
+
+function getAzureStorageBlobSdk() {
+  try {
+    return require("@azure/storage-blob");
+  } catch {
+    return null;
+  }
+}
 
 const CONTAINER_NAME = "company-logos";
 
@@ -67,6 +74,7 @@ function extractBlobName(src) {
   if (!/^https?:\/\//i.test(raw)) {
     const cleaned = raw.replace(/^\/+/, "");
     if (!cleaned) return "";
+
     return cleaned.startsWith(`${CONTAINER_NAME}/`) ? cleaned.slice(`${CONTAINER_NAME}/`.length) : cleaned;
   }
 
@@ -81,10 +89,17 @@ function extractBlobName(src) {
   if (!u.hostname.toLowerCase().endsWith(".blob.core.windows.net")) return "";
 
   const rawPath = u.pathname.startsWith("/") ? u.pathname.slice(1) : u.pathname;
-  const segments = rawPath.split("/");
-  if (segments[0] !== CONTAINER_NAME) return "";
+  const segments = rawPath.split("/").filter(Boolean);
+  if (!segments.length) return "";
 
-  return segments.slice(1).join("/");
+  // Expected: /company-logos/<companyId>/<file>
+  if (segments[0] === CONTAINER_NAME) return segments.slice(1).join("/");
+
+  // Tolerate paths where the container appears later in the path.
+  const idx = segments.indexOf(CONTAINER_NAME);
+  if (idx !== -1 && idx + 1 < segments.length) return segments.slice(idx + 1).join("/");
+
+  return "";
 }
 
 app.http("company-logo", {
@@ -129,6 +144,19 @@ app.http("company-logo", {
         );
       }
 
+      const sdk = getAzureStorageBlobSdk();
+      if (!sdk) {
+        return json(
+          {
+            ok: false,
+            error: "Server dependency missing. Please ensure @azure/storage-blob is installed in the Function App.",
+          },
+          500,
+          req
+        );
+      }
+
+      const { BlobServiceClient, StorageSharedKeyCredential } = sdk;
       const credentials = new StorageSharedKeyCredential(accountName, accountKey);
       const storageUrl = `https://${accountName}.blob.core.windows.net`;
       const blobServiceClient = new BlobServiceClient(storageUrl, credentials);
