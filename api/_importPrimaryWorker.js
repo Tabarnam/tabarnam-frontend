@@ -174,7 +174,7 @@ function parseCompaniesFromXaiResponse(xaiResponse) {
 function isTransientUpstream(status) {
   if (!Number.isFinite(Number(status))) return true;
   const s = Number(status);
-  if (s === 408 || s === 429) return true;
+  if (s === 408 || s === 421 || s === 429) return true;
   return s >= 500 && s <= 599;
 }
 
