@@ -353,7 +353,9 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       : "";
 
     stage = "init_xai";
-    const xaiUrl = asString(deps.xaiUrl || getXAIEndpoint()).trim();
+    const xaiEndpointRaw = asString(deps.xaiUrl || getXAIEndpoint()).trim();
+    const xaiModel = "grok-4-latest";
+    const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, xaiModel);
     const xaiKey = asString(deps.xaiKey || getXAIKey()).trim();
 
     if (!xaiUrl || !xaiKey) {
