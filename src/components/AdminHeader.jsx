@@ -5,7 +5,6 @@ import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { API_BASE, FUNCTIONS_BASE, apiFetch, join, readJsonOrText } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import Logo from "@/assets/tabarnam.png";
 
 const navLinkClass = ({ isActive }) =>
   cn(
@@ -138,7 +137,7 @@ export default function AdminHeader() {
       <div className="p-4 flex items-end justify-between gap-4">
         <div className="flex items-end gap-4">
           <Link to="/" className="flex items-end" aria-label="Tabarnam home">
-            <img src={Logo} alt="Tabarnam" className="h-[5rem] w-auto" />
+            <img src="/tabarnam.png" alt="Tabarnam" className="h-[5rem] w-auto" />
           </Link>
           <div className="flex flex-col gap-2">
             <span className="text-2xl font-bold text-white">Admin</span>
