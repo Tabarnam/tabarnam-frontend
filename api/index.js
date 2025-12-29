@@ -40,6 +40,13 @@ if (ROUTES_TEST_MODE) {
   } catch (e) {
     console.error("[api] ❌ Failed to load admin-company-history:", e?.message || e);
   }
+
+  try {
+    console.log("[api] Registering (routes-test): company-logo");
+    require("./company-logo/index.js");
+  } catch (e) {
+    console.error("[api] ❌ Failed to load company-logo:", e?.message || e);
+  }
 } else {
   // -------------------------
   // Public endpoints
@@ -277,6 +284,14 @@ try {
   console.log("[api] ✓ delete-logo-blob registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load delete-logo-blob:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: company-logo");
+  require("./company-logo/index.js");
+  console.log("[api] ✓ company-logo registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load company-logo:", e?.message || e);
 }
 
 try {
