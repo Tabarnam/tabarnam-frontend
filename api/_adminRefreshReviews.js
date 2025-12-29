@@ -383,7 +383,7 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
 
     const payload = {
       messages: [{ role: "user", content: prompt }],
-      model: "grok-4-latest",
+      model: xaiModel,
       temperature: 0.2,
       stream: false,
     };
