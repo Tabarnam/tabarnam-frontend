@@ -14,7 +14,7 @@ try {
 
 const { createHash, randomUUID } = require("node:crypto");
 
-const { getXAIEndpoint, getXAIKey } = require("./_shared");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
 const { getBuildInfo } = require("./_buildInfo");
 const { loadCompanyById, toNormalizedDomain } = require("./_adminRefreshCompany");
 
