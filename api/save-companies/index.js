@@ -110,6 +110,7 @@ app.http("save-companies", {
 
       let saved = 0;
       let failed = 0;
+      const saved_ids = [];
       const errors = [];
       const sessionId = `manual_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
@@ -196,8 +197,10 @@ app.http("save-companies", {
             continue;
           }
 
-          await container.items.create(doc);
+          const created = await container.items.create(doc);
           saved++;
+          const savedId = created?.resource?.id || doc.id;
+          if (savedId) saved_ids.push(savedId);
         } catch (e) {
           failed++;
           errors.push(
@@ -213,6 +216,7 @@ app.http("save-companies", {
           failed,
           total: companies.length,
           session_id: sessionId,
+          saved_ids,
           errors: errors.length > 0 ? errors : undefined,
         },
         200
