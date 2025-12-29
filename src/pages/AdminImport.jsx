@@ -172,6 +172,10 @@ const IMPORT_STAGE_BEACON_TO_ENGLISH = Object.freeze({
 const IMPORT_ERROR_CODE_TO_REASON = Object.freeze({
   primary_timeout: "Primary search timed out (120s hard cap)",
   no_candidates_found: "No matching companies found",
+  MISSING_XAI_ENDPOINT: "Missing XAI endpoint configuration",
+  MISSING_XAI_KEY: "Missing XAI API key configuration",
+  MISSING_OUTBOUND_BODY: "Missing outbound body (import request payload)",
+  stalled_worker: "Import worker stalled (heartbeat stale)",
 });
 
 function humanizeImportCode(raw) {
@@ -309,7 +313,13 @@ export default function AdminImport() {
             ? "Primary import timed out (120s hard cap)."
             : lastErrorCode === "no_candidates_found"
               ? "No candidates found after 60s."
-              : asString(lastError?.message).trim() || "Import failed.";
+              : lastErrorCode === "MISSING_XAI_ENDPOINT"
+                ? "Import failed: missing XAI endpoint configuration."
+                : lastErrorCode === "MISSING_XAI_KEY"
+                  ? "Import failed: missing XAI API key configuration."
+                  : lastErrorCode === "MISSING_OUTBOUND_BODY"
+                    ? "Import failed: missing outbound request body. (This should be fixed now; rerun import.)"
+                    : asString(lastError?.message).trim() || "Import failed.";
 
         setRuns((prev) =>
           prev.map((r) => {
