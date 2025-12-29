@@ -259,3 +259,85 @@ test("xadmin-api-companies: PUT infers and persists display_name from name overr
   assert.ok(storedCleared);
   assert.ok(!("display_name" in storedCleared));
 });
+
+test("xadmin-api-companies: persists curated_reviews array", async () => {
+  const container = makeMemoryContainer();
+
+  const companyId = "company_curated_reviews_contract";
+
+  const createRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "POST",
+      url: "https://example.test/api/xadmin-api-companies",
+      json: async () => ({
+        id: companyId,
+        company_id: companyId,
+        company_name: "Curated Reviews Co",
+        name: "Curated Reviews Co",
+        website_url: "https://example.com",
+        curated_reviews: [
+          {
+            id: "curated_1",
+            source: "professional_review",
+            source_url: "https://example.com/review-1",
+            title: "Review One",
+            excerpt: "Good stuff",
+            author: "Example Magazine",
+            date: "2025-01-01",
+            show_to_users: true,
+            is_public: true,
+          },
+        ],
+      }),
+    }),
+    { log() {} },
+    { container }
+  );
+
+  assert.equal(createRes.status, 200);
+  const createBody = parseJson(createRes);
+  assert.equal(createBody.ok, true);
+  assert.equal(Array.isArray(createBody.company?.curated_reviews), true);
+  assert.equal(createBody.company.curated_reviews.length, 1);
+
+  const updateRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "PUT",
+      url: `https://example.test/api/xadmin-api-companies/${encodeURIComponent(companyId)}`,
+      json: async () => ({
+        id: companyId,
+        company_id: companyId,
+        company_name: "Curated Reviews Co",
+        name: "Curated Reviews Co",
+        website_url: "https://example.com",
+        curated_reviews: [
+          ...(createBody.company.curated_reviews || []),
+          {
+            id: "curated_2",
+            source: "professional_review",
+            source_url: "https://example.com/review-2",
+            title: "Review Two",
+            excerpt: "Even better",
+            author: "Example Lab",
+            date: "2025-02-01",
+            show_to_users: true,
+            is_public: true,
+          },
+        ],
+      }),
+    }),
+    { log() {}, bindingData: { id: companyId } },
+    { container }
+  );
+
+  assert.equal(updateRes.status, 200);
+  const updateBody = parseJson(updateRes);
+  assert.equal(updateBody.ok, true);
+  assert.equal(Array.isArray(updateBody.company?.curated_reviews), true);
+  assert.equal(updateBody.company.curated_reviews.length, 2);
+
+  const stored = container._dump().find((d) => d && d.id === companyId);
+  assert.ok(stored);
+  assert.equal(Array.isArray(stored.curated_reviews), true);
+  assert.equal(stored.curated_reviews.length, 2);
+});
