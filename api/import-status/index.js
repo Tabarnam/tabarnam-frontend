@@ -383,6 +383,81 @@ async function handler(req, context) {
 
     const state = status === "error" ? "failed" : status === "complete" ? "complete" : "running";
 
+    let report = null;
+
+    try {
+      const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+      const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+      const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+      const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+
+      if (endpoint && key) {
+        const client = new CosmosClient({ endpoint, key });
+        const container = client.database(databaseId).container(containerId);
+
+        const [sessionDoc, completionDoc, acceptDoc] = await Promise.all([
+          readControlDoc(container, `_import_session_${sessionId}`, sessionId),
+          readControlDoc(container, `_import_complete_${sessionId}`, sessionId),
+          readControlDoc(container, `_import_accept_${sessionId}`, sessionId),
+        ]);
+
+        report = {
+          session: sessionDoc
+            ? {
+                created_at: sessionDoc?.created_at || null,
+                request_id: sessionDoc?.request_id || null,
+                status: sessionDoc?.status || null,
+                stage_beacon: sessionDoc?.stage_beacon || null,
+              }
+            : null,
+          accepted: Boolean(acceptDoc),
+          accept: acceptDoc
+            ? {
+                accepted_at: acceptDoc?.accepted_at || acceptDoc?.created_at || null,
+                reason: acceptDoc?.reason || null,
+                stage_beacon: acceptDoc?.stage_beacon || null,
+                remaining_ms: Number.isFinite(Number(acceptDoc?.remaining_ms)) ? Number(acceptDoc.remaining_ms) : null,
+              }
+            : null,
+          completion: completionDoc
+            ? {
+                completed_at: completionDoc?.completed_at || completionDoc?.created_at || null,
+                reason: completionDoc?.reason || null,
+                saved: typeof completionDoc?.saved === "number" ? completionDoc.saved : null,
+                skipped: typeof completionDoc?.skipped === "number" ? completionDoc.skipped : null,
+                failed: typeof completionDoc?.failed === "number" ? completionDoc.failed : null,
+                saved_ids: Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [],
+                skipped_ids: Array.isArray(completionDoc?.skipped_ids) ? completionDoc.skipped_ids : [],
+                failed_items: Array.isArray(completionDoc?.failed_items) ? completionDoc.failed_items : [],
+              }
+            : null,
+        };
+      }
+    } catch {
+      report = null;
+    }
+
+    if (!report) {
+      report = {
+        session: null,
+        accepted: false,
+        accept: null,
+        completion: null,
+      };
+    }
+
+    report.primary_job = primaryJob
+      ? {
+          id: primaryJob?.id || null,
+          job_state: finalJobState,
+          stage_beacon: primaryJob?.stage_beacon || null,
+          attempt: Number.isFinite(Number(primaryJob?.attempt)) ? Number(primaryJob.attempt) : 0,
+          last_error: primaryJob?.last_error || null,
+          created_at: primaryJob?.created_at || null,
+          updated_at: primaryJob?.updated_at || null,
+        }
+      : null;
+
     return jsonWithSessionId(
       {
         ok: true,
@@ -448,6 +523,7 @@ async function handler(req, context) {
           typeof primaryJob?.note === "string" && primaryJob.note.trim()
             ? primaryJob.note.trim()
             : "start endpoint is inline capped; long primary runs async",
+        report,
       },
       200,
       req

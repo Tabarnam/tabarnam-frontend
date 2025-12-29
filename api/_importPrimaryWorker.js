@@ -41,6 +41,54 @@ function buildMeta({ invocationSource, workerId, workerClaimed, claimError, stal
   };
 }
 
+function buildFallbackOutboundBodyFromJob(job) {
+  const req = job?.request_payload && typeof job.request_payload === "object" ? job.request_payload : {};
+
+  const query = typeof req.query === "string" ? req.query.trim() : "";
+  if (!query) return "";
+
+  const queryTypes = Array.isArray(req.queryTypes)
+    ? req.queryTypes
+        .map((t) => String(t || "").trim())
+        .filter(Boolean)
+        .slice(0, 10)
+    : [];
+
+  const limitRaw = Number(req.limit);
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.trunc(limitRaw), 25) : 10;
+
+  const userPrompt = [
+    `Find ${limit} companies that match the following search: ${query}`,
+    queryTypes.length ? `QueryTypes: ${queryTypes.join(", ")}` : "",
+    "Return ONLY valid JSON.",
+    "Response must be a JSON array.",
+    "Each object must include: company_name (string) and website_url (string).",
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+
+  const systemPrompt =
+    "You are a precise assistant. Follow the user's instructions exactly. When asked for JSON, output ONLY valid JSON with no markdown, no prose, and no extra keys.";
+
+  const model =
+    typeof job?.xai_model === "string" && job.xai_model.trim() ? job.xai_model.trim() : "grok-4-latest";
+
+  try {
+    return JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.1,
+      stream: false,
+    });
+  } catch {
+    return "";
+  }
+}
+
 async function postJsonWithTimeout(url, { headers, body, timeoutMs }) {
   const u = String(url || "").trim();
   if (!u) throw new Error("Missing upstream URL");
@@ -517,7 +565,22 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
   }).catch(() => null);
 
   const requestedStageMsPrimary = Math.max(1000, Number(job?.requested_stage_ms_primary) || 20_000);
-  const outboundBody = typeof job?.xai_outbound_body === "string" ? job.xai_outbound_body : "";
+  let outboundBody = typeof job?.xai_outbound_body === "string" ? job.xai_outbound_body : "";
+
+  if (!outboundBody) {
+    outboundBody = buildFallbackOutboundBodyFromJob(job);
+
+    if (outboundBody) {
+      await patchJob({
+        sessionId,
+        cosmosEnabled,
+        patch: {
+          xai_outbound_body: outboundBody,
+          updated_at: nowIso(),
+        },
+      }).catch(() => null);
+    }
+  }
 
   if (!xaiUrl || !hasKey || !outboundBody) {
     const code = !xaiUrl

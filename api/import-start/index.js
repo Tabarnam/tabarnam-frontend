@@ -2268,6 +2268,7 @@ const importStartHandlerInner = async (req, context) => {
     let debugEnabled = false;
     let debugOutput = null;
     let enrichedForCounts = [];
+    let primaryXaiOutboundBody = "";
 
     let stage_beacon = "init";
     let stage_reached = null;
@@ -3232,6 +3233,10 @@ const importStartHandlerInner = async (req, context) => {
                 requested_stage_ms_primary: Number.isFinite(Number(requested_stage_ms_primary))
                   ? Number(requested_stage_ms_primary)
                   : null,
+                xai_outbound_body:
+                  typeof primaryXaiOutboundBody === "string" && primaryXaiOutboundBody.trim()
+                    ? primaryXaiOutboundBody
+                    : null,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
               };
@@ -4069,6 +4074,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           const explainMode = isProxyExplicitlyEnabled(explainRaw);
 
           const outboundBody = JSON.stringify(xaiRequestPayload);
+          primaryXaiOutboundBody = outboundBody;
           const payload_meta = buildXaiPayloadMetaSnapshotFromOutboundBody(outboundBody, {
             handler_version: handlerVersion,
             build_id: buildInfo?.build_id || "",
@@ -4210,6 +4216,26 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   companies_count: 0,
                 });
               } catch {}
+
+              if (!noUpstreamMode && cosmosEnabled) {
+                (async () => {
+                  const container = getCompaniesCosmosContainer();
+                  if (!container) return;
+
+                  const acceptDoc = {
+                    id: `_import_accept_${sessionId}`,
+                    ...buildImportControlDocBase(sessionId),
+                    created_at: new Date().toISOString(),
+                    accepted_at: new Date().toISOString(),
+                    request_id: requestId,
+                    stage_beacon: jobDoc.stage_beacon,
+                    reason: "primary_async_enqueued",
+                    remaining_ms: null,
+                  };
+
+                  await upsertItemWithPkCandidates(container, acceptDoc).catch(() => null);
+                })().catch(() => null);
+              }
 
               try {
                 const base = new URL(req.url);

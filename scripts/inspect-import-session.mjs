@@ -71,6 +71,7 @@ async function main() {
 
   const idsToCheck = [
     `_import_session_${sessionId}`,
+    `_import_accept_${sessionId}`,
     `_import_complete_${sessionId}`,
     `_import_timeout_${sessionId}`,
     `_import_stop_${sessionId}`,
