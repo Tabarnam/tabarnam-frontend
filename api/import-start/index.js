@@ -2028,6 +2028,10 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
     let failed = 0;
     let skipped = 0;
 
+    const saved_ids = [];
+    const skipped_ids = [];
+    const failed_items = [];
+
     // Process companies in batches for better concurrency
     const BATCH_SIZE = 4;
     for (let batchStart = 0; batchStart < companies.length; batchStart += BATCH_SIZE) {
@@ -2043,127 +2047,175 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
       const batch = companies.slice(batchStart, Math.min(batchStart + BATCH_SIZE, companies.length));
 
       // Process batch in parallel
-      const batchResults = await Promise.allSettled(
-        batch.map(async (company) => {
+      const batchResults = await Promise.all(
+        batch.map(async (company, batchIndex) => {
+          const companyIndex = batchStart + batchIndex;
           const companyName = company.company_name || company.name || "";
 
-          const normalizedDomain = toNormalizedDomain(
-            company.website_url ||
-              company.canonical_url ||
-              company.url ||
-              company.amazon_url ||
-              company.normalized_domain ||
-              ""
-          );
+          try {
+            const normalizedDomain = toNormalizedDomain(
+              company.website_url ||
+                company.canonical_url ||
+                company.url ||
+                company.amazon_url ||
+                company.normalized_domain ||
+                ""
+            );
 
-          // Check if company already exists
-          const existing = await findExistingCompany(container, normalizedDomain, companyName);
-          if (existing) {
-            console.log(`[import-start] Skipping duplicate company: ${companyName} (${normalizedDomain})`);
-            return { type: "skipped" };
+            // Check if company already exists
+            const existing = await findExistingCompany(container, normalizedDomain, companyName);
+            if (existing) {
+              console.log(`[import-start] Skipping duplicate company: ${companyName} (${normalizedDomain})`);
+              return { type: "skipped", index: companyIndex, company_name: companyName, existing_id: existing?.id || null };
+            }
+
+            const finalNormalizedDomain =
+              normalizedDomain && normalizedDomain !== "unknown" ? normalizedDomain : "unknown";
+
+            // Fetch + upload logo for the company
+            const companyId = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+            const logoImport = await fetchLogo({
+              companyId,
+              companyName,
+              domain: finalNormalizedDomain,
+              websiteUrl: company.website_url || company.canonical_url || company.url || "",
+              existingLogoUrl: company.logo_url || null,
+            });
+
+            // Calculate default rating based on company data
+            const hasManufacturingLocations =
+              Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0;
+            const hasHeadquarters = !!(company.headquarters_location && company.headquarters_location.trim());
+
+            // Check for reviews from curated_reviews or legacy fields
+            const hasCuratedReviews = Array.isArray(company.curated_reviews) && company.curated_reviews.length > 0;
+            const hasEditorialReviews =
+              (company.editorial_review_count || 0) > 0 ||
+              (Array.isArray(company.reviews) && company.reviews.length > 0) ||
+              hasCuratedReviews;
+
+            const defaultRatingWithReviews = {
+              star1: { value: hasManufacturingLocations ? 1.0 : 0.0, notes: [] },
+              star2: { value: hasHeadquarters ? 1.0 : 0.0, notes: [] },
+              star3: { value: hasEditorialReviews ? 1.0 : 0.0, notes: [] },
+              star4: { value: 0.0, notes: [] },
+              star5: { value: 0.0, notes: [] },
+            };
+
+            const doc = {
+              id: companyId,
+              company_name: companyName,
+              name: company.name || companyName,
+              url: company.url || company.website_url || company.canonical_url || "",
+              website_url: company.website_url || company.canonical_url || company.url || "",
+              industries: company.industries || [],
+              product_keywords: company.product_keywords || "",
+              keywords: Array.isArray(company.keywords) ? company.keywords : [],
+              normalized_domain: finalNormalizedDomain,
+              logo_url: logoImport.logo_url || null,
+              logo_source_url: logoImport.logo_source_url || null,
+              logo_source_location: logoImport.logo_source_location || null,
+              logo_source_domain: logoImport.logo_source_domain || null,
+              logo_source_type: logoImport.logo_source_type || null,
+              logo_status: logoImport.logo_status || (logoImport.logo_url ? "imported" : "not_found_on_site"),
+              logo_import_status: logoImport.logo_import_status || "missing",
+              logo_error: logoImport.logo_error || "",
+              tagline: company.tagline || "",
+              location_sources: Array.isArray(company.location_sources) ? company.location_sources : [],
+              show_location_sources_to_users: Boolean(company.show_location_sources_to_users),
+              hq_lat: company.hq_lat,
+              hq_lng: company.hq_lng,
+              headquarters_location: company.headquarters_location || "",
+              headquarters_locations: company.headquarters_locations || [],
+              headquarters: Array.isArray(company.headquarters)
+                ? company.headquarters
+                : Array.isArray(company.headquarters_locations)
+                  ? company.headquarters_locations
+                  : [],
+              manufacturing_locations: company.manufacturing_locations || [],
+              manufacturing_geocodes: Array.isArray(company.manufacturing_geocodes) ? company.manufacturing_geocodes : [],
+              curated_reviews: Array.isArray(company.curated_reviews) ? company.curated_reviews : [],
+              red_flag: Boolean(company.red_flag),
+              red_flag_reason: company.red_flag_reason || "",
+              location_confidence: company.location_confidence || "medium",
+              social: company.social || {},
+              amazon_url: company.amazon_url || "",
+              rating_icon_type: "star",
+              rating: defaultRatingWithReviews,
+              source: "xai_import",
+              session_id: sessionId,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            };
+
+            if (!doc.company_name && !doc.url) {
+              return {
+                type: "failed",
+                index: companyIndex,
+                company_name: companyName,
+                error: "Missing company_name and url",
+              };
+            }
+
+            await container.items.create(doc);
+            return {
+              type: "saved",
+              index: companyIndex,
+              id: companyId,
+              company_name: companyName,
+              normalized_domain: finalNormalizedDomain,
+            };
+          } catch (e) {
+            return {
+              type: "failed",
+              index: companyIndex,
+              company_name: companyName,
+              error: e?.message ? String(e.message) : String(e || "save_failed"),
+            };
           }
-
-          const finalNormalizedDomain = normalizedDomain && normalizedDomain !== "unknown" ? normalizedDomain : "unknown";
-
-          // Fetch + upload logo for the company
-          const companyId = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-          const logoImport = await fetchLogo({
-            companyId,
-            companyName,
-            domain: finalNormalizedDomain,
-            websiteUrl: company.website_url || company.canonical_url || company.url || "",
-            existingLogoUrl: company.logo_url || null,
-          });
-
-          // Calculate default rating based on company data
-          const hasManufacturingLocations = Array.isArray(company.manufacturing_locations) && company.manufacturing_locations.length > 0;
-          const hasHeadquarters = !!(company.headquarters_location && company.headquarters_location.trim());
-
-          // Check for reviews from curated_reviews or legacy fields
-          const hasCuratedReviews = Array.isArray(company.curated_reviews) && company.curated_reviews.length > 0;
-          const hasEditorialReviews = (company.editorial_review_count || 0) > 0 ||
-                                      (Array.isArray(company.reviews) && company.reviews.length > 0) ||
-                                      hasCuratedReviews;
-
-          const defaultRatingWithReviews = {
-            star1: { value: hasManufacturingLocations ? 1.0 : 0.0, notes: [] },
-            star2: { value: hasHeadquarters ? 1.0 : 0.0, notes: [] },
-            star3: { value: hasEditorialReviews ? 1.0 : 0.0, notes: [] },
-            star4: { value: 0.0, notes: [] },
-            star5: { value: 0.0, notes: [] },
-          };
-
-          const doc = {
-            id: companyId,
-            company_name: companyName,
-            name: company.name || companyName,
-            url: company.url || company.website_url || company.canonical_url || "",
-            website_url: company.website_url || company.canonical_url || company.url || "",
-            industries: company.industries || [],
-            product_keywords: company.product_keywords || "",
-            keywords: Array.isArray(company.keywords) ? company.keywords : [],
-            normalized_domain: finalNormalizedDomain,
-            logo_url: logoImport.logo_url || null,
-            logo_source_url: logoImport.logo_source_url || null,
-            logo_source_location: logoImport.logo_source_location || null,
-            logo_source_domain: logoImport.logo_source_domain || null,
-            logo_source_type: logoImport.logo_source_type || null,
-            logo_status: logoImport.logo_status || (logoImport.logo_url ? "imported" : "not_found_on_site"),
-            logo_import_status: logoImport.logo_import_status || "missing",
-            logo_error: logoImport.logo_error || "",
-            tagline: company.tagline || "",
-            location_sources: Array.isArray(company.location_sources) ? company.location_sources : [],
-            show_location_sources_to_users: Boolean(company.show_location_sources_to_users),
-            hq_lat: company.hq_lat,
-            hq_lng: company.hq_lng,
-            headquarters_location: company.headquarters_location || "",
-            headquarters_locations: company.headquarters_locations || [],
-            headquarters: Array.isArray(company.headquarters) ? company.headquarters : Array.isArray(company.headquarters_locations) ? company.headquarters_locations : [],
-            manufacturing_locations: company.manufacturing_locations || [],
-            manufacturing_geocodes: Array.isArray(company.manufacturing_geocodes) ? company.manufacturing_geocodes : [],
-            curated_reviews: Array.isArray(company.curated_reviews) ? company.curated_reviews : [],
-            red_flag: Boolean(company.red_flag),
-            red_flag_reason: company.red_flag_reason || "",
-            location_confidence: company.location_confidence || "medium",
-            social: company.social || {},
-            amazon_url: company.amazon_url || "",
-            rating_icon_type: "star",
-            rating: defaultRatingWithReviews,
-            source: "xai_import",
-            session_id: sessionId,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          };
-
-          if (!doc.company_name && !doc.url) {
-            throw new Error("Missing company_name and url");
-          }
-
-          await container.items.create(doc);
-          return { type: "saved" };
         })
       );
 
       // Process batch results
       for (const result of batchResults) {
-        if (result.status === "fulfilled") {
-          if (result.value.type === "skipped") {
-            skipped++;
-          } else if (result.value.type === "saved") {
-            saved++;
-          }
-        } else {
+        if (!result || typeof result !== "object") continue;
+
+        if (result.type === "skipped") {
+          skipped++;
+          if (result.existing_id) skipped_ids.push(result.existing_id);
+          continue;
+        }
+
+        if (result.type === "saved") {
+          saved++;
+          if (result.id) saved_ids.push(result.id);
+          continue;
+        }
+
+        if (result.type === "failed") {
           failed++;
-          console.warn(`[import-start] Failed to save company: ${result.reason?.message}`);
+          failed_items.push({
+            index: Number.isFinite(Number(result.index)) ? Number(result.index) : null,
+            company_name: result.company_name || "",
+            error: result.error || "save_failed",
+          });
+          console.warn(`[import-start] Failed to save company: ${result.error || "save_failed"}`);
         }
       }
     }
 
-    return { saved, failed, skipped };
+    return { saved, failed, skipped, saved_ids, skipped_ids, failed_items };
   } catch (e) {
     console.error("[import-start] Error in saveCompaniesToCosmos:", e.message);
-    return { saved: 0, failed: companies?.length || 0, skipped: 0 };
+    return {
+      saved: 0,
+      failed: companies?.length || 0,
+      skipped: 0,
+      saved_ids: [],
+      skipped_ids: [],
+      failed_items: [{ index: null, company_name: "", error: e?.message || String(e || "save_failed") }],
+    };
   }
 }
 
@@ -3060,6 +3112,8 @@ const importStartHandlerInner = async (req, context) => {
               ...buildImportControlDocBase(sessionId),
               created_at: new Date().toISOString(),
               request_id: requestId,
+              status: "running",
+              stage_beacon: "create_session",
               request: {
                 query: String(bodyObj.query || ""),
                 queryType: String(bodyObj.queryType || ""),
@@ -3128,6 +3182,79 @@ const importStartHandlerInner = async (req, context) => {
             companies_count: Array.isArray(enrichedForCounts) ? enrichedForCounts.length : 0,
           });
         } catch {}
+
+        // Fire-and-forget: persist an acceptance marker so status can explain what happened even if the
+        // start handler had to return 202 early.
+        if (!noUpstreamMode && cosmosEnabled) {
+          (async () => {
+            const container = getCompaniesCosmosContainer();
+            if (!container) return;
+
+            const acceptDoc = {
+              id: `_import_accept_${sessionId}`,
+              ...buildImportControlDocBase(sessionId),
+              created_at: new Date().toISOString(),
+              accepted_at: new Date().toISOString(),
+              request_id: requestId,
+              stage_beacon: beacon,
+              reason: normalizedReason,
+              remaining_ms:
+                extra && typeof extra === "object" && Number.isFinite(Number(extra.remainingMs)) ? Number(extra.remainingMs) : null,
+            };
+
+            await upsertItemWithPkCandidates(container, acceptDoc).catch(() => null);
+
+            const shouldEnqueuePrimary =
+              beacon === "xai_primary_fetch_start" ||
+              beacon === "xai_primary_fetch_done" ||
+              beacon.startsWith("xai_primary_fetch_") ||
+              beacon.startsWith("primary_");
+
+            // If we had to return early while we're still in primary, enqueue a durable primary job so
+            // /api/import/status can drive it to completion.
+            if (shouldEnqueuePrimary) {
+              const jobDoc = {
+                id: buildImportPrimaryJobId(sessionId),
+                session_id: sessionId,
+                job_state: "queued",
+                stage: "primary",
+                stage_beacon: "primary_search_started",
+                request_payload: {
+                  query: String(bodyObj.query || ""),
+                  queryTypes: Array.isArray(bodyObj.queryTypes)
+                    ? bodyObj.queryTypes
+                    : [String(bodyObj.queryType || "product_keyword").trim() || "product_keyword"],
+                  limit: Number(bodyObj.limit) || 0,
+                  expand_if_few: bodyObj.expand_if_few ?? true,
+                },
+                inline_budget_ms,
+                requested_deadline_ms,
+                requested_stage_ms_primary: Number.isFinite(Number(requested_stage_ms_primary))
+                  ? Number(requested_stage_ms_primary)
+                  : null,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              };
+
+              await upsertImportPrimaryJob({ jobDoc, cosmosEnabled }).catch(() => null);
+
+              try {
+                const base = new URL(req.url);
+                const triggerUrl = new URL("/api/import/primary-worker", base.origin);
+                triggerUrl.searchParams.set("session_id", sessionId);
+                if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
+
+                setTimeout(() => {
+                  fetch(triggerUrl.toString(), {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ session_id: sessionId }),
+                  }).catch(() => {});
+                }, 0);
+              } catch {}
+            }
+          })().catch(() => null);
+        }
 
         return jsonWithRequestId(
           {
@@ -4248,6 +4375,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     completed_at: new Date().toISOString(),
                     reason: "no_results_from_xai",
                     saved: 0,
+                    skipped: 0,
+                    failed: 0,
+                    saved_ids: [],
+                    skipped_ids: [],
+                    failed_items: [],
                   };
 
                   const result = await upsertItemWithPkCandidates(container, completionDoc);
@@ -5110,6 +5242,11 @@ Return ONLY the JSON array, no other text.`,
                       elapsed_ms: elapsed,
                       reason: "completed_normally",
                       saved: saveResult.saved,
+                      skipped: saveResult.skipped,
+                      failed: saveResult.failed,
+                      saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                      skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                      failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
                     };
 
                 const result = await upsertItemWithPkCandidates(container, completionDoc);
@@ -5169,6 +5306,14 @@ Return ONLY the JSON array, no other text.`,
               saved: saveResult.saved,
               skipped: saveResult.skipped,
               failed: saveResult.failed,
+              save_report: {
+                saved: saveResult.saved,
+                skipped: saveResult.skipped,
+                failed: saveResult.failed,
+                saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
+              },
               ...(debugOutput ? { debug: debugOutput } : {}),
             },
             200

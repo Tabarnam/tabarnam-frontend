@@ -294,6 +294,7 @@ export default function AdminImport() {
         const jobState = asString(body?.job_state || body?.primary_job_state || body?.primary_job?.job_state).trim();
         const stageBeacon = asString(body?.stage_beacon).trim();
         const lastError = body?.last_error || null;
+        const report = body?.report && typeof body.report === "object" ? body.report : null;
 
         const completed = state === "complete" ? true : Boolean(body?.completed);
         const timedOut = Boolean(body?.timedOut);
@@ -356,6 +357,7 @@ export default function AdminImport() {
               early_exit_triggered:
                 typeof body?.early_exit_triggered === "boolean" ? body.early_exit_triggered : Boolean(r.early_exit_triggered),
               last_error: lastError || r.last_error || null,
+              report: report || r.report || null,
               progress_error: isTerminalError ? userFacingError : r.progress_error,
               updatedAt: new Date().toISOString(),
             };
@@ -1317,6 +1319,35 @@ export default function AdminImport() {
     };
   }, [activeRun]);
 
+  const activeReportPayload = useMemo(() => {
+    if (!activeRun) return null;
+
+    const report = activeRun.report && typeof activeRun.report === "object" ? activeRun.report : null;
+    const saveResult =
+      activeRun.save_result && typeof activeRun.save_result === "object" && activeRun.save_result.ok === true
+        ? activeRun.save_result
+        : null;
+
+    if (!report && !saveResult) return null;
+
+    return {
+      session_id: activeRun.session_id,
+      stage_beacon: asString(activeRun.final_stage_beacon || activeRun.stage_beacon || activeRun.last_stage_beacon).trim() || null,
+      saved: Number.isFinite(Number(activeRun.saved)) ? Number(activeRun.saved) : null,
+      report,
+      ...(saveResult ? { save_result: saveResult } : {}),
+    };
+  }, [activeRun]);
+
+  const activeReportText = useMemo(() => {
+    if (!activeReportPayload) return "";
+    try {
+      return JSON.stringify(activeReportPayload, null, 2);
+    } catch {
+      return String(activeReportPayload);
+    }
+  }, [activeReportPayload]);
+
   const startImportDisabled = !API_BASE || activeStatus === "running" || activeStatus === "stopping";
 
   useEffect(() => {
@@ -1668,6 +1699,39 @@ export default function AdminImport() {
             {activeAsyncPrimaryMessage ? (
               <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
                 {activeAsyncPrimaryMessage}
+              </div>
+            ) : null}
+
+            {activeReportText ? (
+              <div className="rounded border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-medium text-slate-700">Import report</div>
+                    <div className="mt-0.5 text-[11px] text-slate-600">
+                      Shows what happened after the command (accepted reasons, completion details, saved ids, and failures).
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(activeReportText);
+                        toast.success("Report copied");
+                      } catch {
+                        toast.error("Could not copy");
+                      }
+                    }}
+                  >
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copy report
+                  </Button>
+                </div>
+
+                <pre className="max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">
+                  {toDisplayText(activeReportText)}
+                </pre>
               </div>
             ) : null}
 
