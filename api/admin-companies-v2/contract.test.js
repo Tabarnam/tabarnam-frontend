@@ -112,7 +112,7 @@ function makeMemoryContainer() {
       },
       delete: async () => {
         store.delete(String(id));
-        return { statusCode: 204 };
+        return { statusCode: 200 };
       },
     }),
     _dump: () => Array.from(store.values()),
