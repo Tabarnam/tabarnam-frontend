@@ -1588,7 +1588,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   );
 });
 
-function ImportedReviewsPanel({ companyId, existingCuratedReviews }) {
+function ImportedReviewsPanel({ companyId, existingCuratedReviews, disabled, onDeleteSavedReview }) {
   const stableId = asString(companyId).trim();
   const savedItems = Array.isArray(existingCuratedReviews) ? existingCuratedReviews : [];
   const savedVisibleCount = savedItems.filter(isCuratedReviewPubliclyVisible).length;
@@ -1596,6 +1596,26 @@ function ImportedReviewsPanel({ companyId, existingCuratedReviews }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [items, setItems] = useState([]);
+
+  const [deleteReviewOpen, setDeleteReviewOpen] = useState(false);
+  const [deleteReviewTarget, setDeleteReviewTarget] = useState(null);
+
+  const openDeleteReviewConfirm = useCallback((review, index) => {
+    setDeleteReviewTarget({ review, index });
+    setDeleteReviewOpen(true);
+  }, []);
+
+  const confirmDeleteReview = useCallback(() => {
+    const target = deleteReviewTarget;
+    if (!target) return;
+
+    const reviewId = asString(target?.review?.id).trim();
+    onDeleteSavedReview?.(reviewId, target.index);
+
+    setDeleteReviewOpen(false);
+    setDeleteReviewTarget(null);
+    toast.success("Review removed from this draft. Click Save changes to persist.");
+  }, [deleteReviewTarget, onDeleteSavedReview]);
 
   const load = useCallback(async () => {
     const id = asString(stableId).trim();
