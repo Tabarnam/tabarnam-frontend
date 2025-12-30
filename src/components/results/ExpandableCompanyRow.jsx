@@ -3,6 +3,7 @@ import { Copy } from "lucide-react";
 import ReviewsWidget from "@/components/ReviewsWidget";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
+import { normalizeExternalUrl } from "@/lib/externalUrl";
 import { getCompanyCanonicalName, getCompanyDisplayName } from "@/lib/companyDisplayName";
 import { toast } from "@/lib/toast";
 import { RatingDots, RatingHearts } from "@/components/Stars";
@@ -283,7 +284,7 @@ export default function ExpandableCompanyRow({
   const normalizeReview = (r) => {
     if (!r || typeof r !== "object") return null;
     const sourceName = (r.source_name || r.source || "").toString().trim();
-    const sourceUrl = (r.source_url || r.url || "").toString().trim();
+    const sourceUrl = normalizeExternalUrl((r.source_url || r.url || "").toString().trim());
     const text = (r.text || r.abstract || r.excerpt || "").toString().trim();
 
     return {
@@ -748,7 +749,7 @@ export default function ExpandableCompanyRow({
                 {source.source_url && (
                   <div className="mt-2">
                     <a
-                      href={withAmazonAffiliate(source.source_url)}
+                      href={withAmazonAffiliate(normalizeExternalUrl(String(source.source_url || "")))}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-blue-600 hover:underline text-xs"

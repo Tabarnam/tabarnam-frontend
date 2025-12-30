@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
+import { normalizeExternalUrl } from "@/lib/externalUrl";
 import { RatingDots } from "@/components/Stars";
 
 export default function ReviewsWidget({ companyId, companyName, displayName }) {
@@ -87,6 +88,7 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
             {list.map((r, idx) => {
               const sourceName = r.source_name || r.source || "";
               const sourceUrl = r.source_url || r.url || null;
+              const normalizedSourceUrl = normalizeExternalUrl(String(sourceUrl || ""));
               const text = r.text || r.abstract || "";
               const truncateUrl = (url, maxLen = 40) => {
                 if (!url) return null;
@@ -112,16 +114,16 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
                       </div>
                     )}
 
-                    {sourceUrl && (
+                    {normalizedSourceUrl && (
                       <div className="text-xs">
                         <a
-                          href={withAmazonAffiliate(sourceUrl)}
+                          href={withAmazonAffiliate(normalizedSourceUrl)}
                           target="_blank"
                           rel="noreferrer"
                           className="text-blue-600 hover:underline inline-flex items-center gap-1"
-                          title={withAmazonAffiliate(sourceUrl)}
+                          title={withAmazonAffiliate(normalizedSourceUrl)}
                         >
-                          {truncateUrl(withAmazonAffiliate(sourceUrl))}
+                          {truncateUrl(withAmazonAffiliate(normalizedSourceUrl))}
                           <span className="text-gray-400">↗</span>
                         </a>
                       </div>

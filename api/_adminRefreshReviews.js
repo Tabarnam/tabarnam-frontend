@@ -17,6 +17,7 @@ const { createHash, randomUUID } = require("node:crypto");
 const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
 const { getBuildInfo } = require("./_buildInfo");
 const { loadCompanyById, toNormalizedDomain } = require("./_adminRefreshCompany");
+const { normalizeUrl, validateCuratedReviewCandidate } = require("./_reviewQuality");
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "refresh-reviews";
@@ -246,6 +247,13 @@ function normalizeReviewCandidate(value) {
     author,
     date: date || null,
     rating,
+
+    // Filled after validation
+    link_status: null,
+    final_url: null,
+    match_confidence: null,
+    last_checked_at: null,
+    reason_if_rejected: null,
   };
 }
 
@@ -291,8 +299,13 @@ Return a JSON array of review objects. Each review object MUST be:
   "excerpt": "1-2 sentence summary of the editorial analysis or findings",
   "rating": null,
   "author": "Publication name or author name",
-  "date": "YYYY-MM-DD" 
+  "date": "YYYY-MM-DD"
 }
+
+IMPORTANT LINK RULES:
+- "source_url" must be a DIRECT link to the specific article/review page.
+- Do NOT return homepages, category pages, search pages, or social media URLs.
+- If you are not confident the exact article URL is correct, omit that review.
 
 Return ONLY the JSON array and no other text.${existingBlock}`;
 }
@@ -330,6 +343,11 @@ Return a JSON array of objects:
   "author": "Publication or author",
   "date": "YYYY-MM-DD"
 }
+
+IMPORTANT LINK RULES:
+- "source_url" must be a DIRECT link to the specific article page.
+- Do NOT return homepages, category pages, search pages, or social media URLs.
+- If you are not confident the exact article URL is correct, omit that item.
 
 Return ONLY the JSON array and no other text.${existingBlock}`;
 }
@@ -688,7 +706,77 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       }
     }
 
-    const proposed_reviews = proposed.map((r) => {
+    async function mapWithConcurrency(items, concurrency, mapper) {
+      const out = new Array(items.length);
+      let next = 0;
+
+      async function worker() {
+        for (;;) {
+          const idx = next;
+          next += 1;
+          if (idx >= items.length) return;
+          out[idx] = await mapper(items[idx], idx);
+        }
+      }
+
+      const workers = new Array(Math.max(1, Math.min(concurrency, items.length)))
+        .fill(null)
+        .map(() => worker());
+      await Promise.all(workers);
+      return out;
+    }
+
+    const normalizedDomainHint = asString(company.normalized_domain).trim() || toNormalizedDomain(websiteUrl);
+
+    const validated = await mapWithConcurrency(proposed, 4, async (r) => {
+      const normalizedCandidateUrl = normalizeUrl(r.source_url);
+      if (!normalizedCandidateUrl) {
+        return {
+          ...r,
+          source_url: r.source_url,
+          link_status: "invalid_url",
+          final_url: null,
+          match_confidence: 0,
+          last_checked_at: new Date().toISOString(),
+          reason_if_rejected: "invalid url",
+        };
+      }
+
+      const v = await validateCuratedReviewCandidate(
+        {
+          companyName,
+          websiteUrl,
+          normalizedDomain: normalizedDomainHint,
+          url: normalizedCandidateUrl,
+          title: asString(r.title).trim(),
+        },
+        { timeoutMs: 6000, maxBytes: 60000, maxSnippets: 2, minWords: 10, maxWords: 25 }
+      ).catch((e) => ({
+        is_valid: false,
+        link_status: "blocked",
+        final_url: null,
+        matched_brand_terms: [],
+        evidence_snippets: [],
+        match_confidence: 0,
+        last_checked_at: new Date().toISOString(),
+        reason_if_rejected: asString(e?.message).trim() || "validation error",
+      }));
+
+      return {
+        ...r,
+        source_url: v?.final_url || normalizedCandidateUrl,
+        link_status: asString(v?.link_status).trim() || "blocked",
+        final_url: v?.final_url || null,
+        match_confidence: typeof v?.match_confidence === "number" ? v.match_confidence : null,
+        last_checked_at: v?.last_checked_at || new Date().toISOString(),
+        reason_if_rejected: v?.reason_if_rejected || null,
+        evidence_snippets: Array.isArray(v?.evidence_snippets) ? v.evidence_snippets : [],
+        matched_brand_terms: Array.isArray(v?.matched_brand_terms) ? v.matched_brand_terms : [],
+        is_valid: v?.is_valid === true,
+      };
+    });
+
+    const proposed_reviews = validated.map((r) => {
       const urlKey = normalizeUrlForCompare(r.source_url);
       const hashKey = computeReviewHash(r);
       const duplicate = (urlKey && existingUrlSet.has(urlKey)) || (hashKey && existingHashSet.has(hashKey));
