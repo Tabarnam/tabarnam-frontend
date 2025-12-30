@@ -4399,6 +4399,8 @@ export default function CompanyDashboard() {
                               asString(editorCompanyId).trim()
                             }
                             existingCuratedReviews={Array.isArray(editorDraft.curated_reviews) ? editorDraft.curated_reviews : []}
+                            disabled={editorSaving}
+                            onDeleteSavedReview={deleteCuratedReviewFromDraft}
                           />
 
                           <CompanyNotesEditor
