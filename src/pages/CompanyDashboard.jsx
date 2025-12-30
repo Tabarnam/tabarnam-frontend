@@ -3020,6 +3020,21 @@ export default function CompanyDashboard() {
     [editorDraft]
   );
 
+  const deleteCuratedReviewFromDraft = useCallback((reviewId, index) => {
+    const id = asString(reviewId).trim();
+
+    setEditorDraft((prev) => {
+      if (!prev || typeof prev !== "object") return prev;
+
+      const list = Array.isArray(prev.curated_reviews) ? prev.curated_reviews : [];
+      const next = id
+        ? list.filter((r) => asString(r?.id).trim() !== id)
+        : list.filter((_, i) => i !== index);
+
+      return { ...prev, curated_reviews: next };
+    });
+  }, []);
+
   const saveEditor = useCallback(async () => {
     if (!editorDraft) return;
 
