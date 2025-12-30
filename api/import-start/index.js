@@ -1670,6 +1670,11 @@ For each review found, return a JSON object with:
   "date": "YYYY-MM-DD or null if unknown"
 }
 
+IMPORTANT LINK RULES:
+- "source_url" must be a DIRECT link to the specific article/review page.
+- Do NOT return homepages, category pages, search pages, or social media URLs.
+- If you are not confident the exact article URL is correct, omit that review.
+
 Return ONLY a valid JSON array of review objects (0-3 items), no other text.
 If you find NO editorial reviews after exhaustive search, return an empty array: []`,
     };

@@ -299,8 +299,13 @@ Return a JSON array of review objects. Each review object MUST be:
   "excerpt": "1-2 sentence summary of the editorial analysis or findings",
   "rating": null,
   "author": "Publication name or author name",
-  "date": "YYYY-MM-DD" 
+  "date": "YYYY-MM-DD"
 }
+
+IMPORTANT LINK RULES:
+- "source_url" must be a DIRECT link to the specific article/review page.
+- Do NOT return homepages, category pages, search pages, or social media URLs.
+- If you are not confident the exact article URL is correct, omit that review.
 
 Return ONLY the JSON array and no other text.${existingBlock}`;
 }
@@ -338,6 +343,11 @@ Return a JSON array of objects:
   "author": "Publication or author",
   "date": "YYYY-MM-DD"
 }
+
+IMPORTANT LINK RULES:
+- "source_url" must be a DIRECT link to the specific article page.
+- Do NOT return homepages, category pages, search pages, or social media URLs.
+- If you are not confident the exact article URL is correct, omit that item.
 
 Return ONLY the JSON array and no other text.${existingBlock}`;
 }
