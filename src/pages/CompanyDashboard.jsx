@@ -1264,7 +1264,15 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
         .filter(Boolean);
 
       setItems(normalized);
-      toast.success(`Fetched ${normalized.length} proposed review${normalized.length === 1 ? "" : "s"}`);
+
+      const parseError = asString(body?.parse_error).trim();
+
+      if (normalized.length === 0) {
+        if (parseError) toast.error(`No reviews parsed (${parseError}). Try again.`);
+        else toast.success("No proposed reviews found");
+      } else {
+        toast.success(`Fetched ${normalized.length} proposed review${normalized.length === 1 ? "" : "s"}`);
+      }
     } catch (e) {
       const msg = asString(e?.message).trim() || "Reviews fetch failed";
       setError({ status: 0, message: msg, url: "(request failed)", response: { error: msg } });

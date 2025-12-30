@@ -246,6 +246,43 @@ Return a JSON array of review objects. Each review object MUST be:
 Return ONLY the JSON array and no other text.${existingBlock}`;
 }
 
+function buildReviewsPromptFallback({ companyName, websiteUrl, industries, take, existingContext }) {
+  const hints = [
+    companyName ? `Company: ${companyName}` : null,
+    websiteUrl ? `Website: ${websiteUrl}` : null,
+    industries ? `Industries: ${industries}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const existingBlock = existingContext
+    ? `\n\nALREADY IMPORTED REVIEWS (avoid duplicates):\n${existingContext}`
+    : "";
+
+  return `You are a research assistant finding professional and editorial commentary.
+For this company, find and summarize up to ${take} credible non-user reviews, articles, or product roundups.
+
+${hints || "(no company hints provided)"}
+
+RULES:
+- Do NOT include Amazon customer reviews, Yelp/Google reviews, or social media comments.
+- Prefer reputable publications, labs, journalists, and retailer editorial content.
+- If the company has little coverage, include credible third-party articles that discuss the company/products.
+
+Return a JSON array of objects:
+{
+  "source": "magazine|editorial_site|lab_test|news|professional_review",
+  "source_url": "https://example.com/article",
+  "title": "Article headline",
+  "excerpt": "1-2 sentence summary",
+  "rating": null,
+  "author": "Publication or author",
+  "date": "YYYY-MM-DD"
+}
+
+Return ONLY the JSON array and no other text.${existingBlock}`;
+}
+
 async function adminRefreshReviewsHandler(req, context, deps = {}) {
   if (req?.method === "OPTIONS") {
     return json({ ok: true }, 200);
@@ -458,12 +495,72 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       );
     }
 
-    const { items, parse_error } = parseJsonArrayFromText(responseText);
+    let { items, parse_error } = parseJsonArrayFromText(responseText);
 
-    const proposed = (Array.isArray(items) ? items : [])
+    let proposed = (Array.isArray(items) ? items : [])
       .map(normalizeReviewCandidate)
       .filter(Boolean)
       .slice(0, take);
+
+    const attemptsOut = [
+      {
+        kind: "primary",
+        parse_error: parse_error || null,
+        returned_count: proposed.length,
+      },
+    ];
+
+    if (proposed.length === 0) {
+      stage = "call_xai_fallback";
+      const fallbackPrompt = buildReviewsPromptFallback({
+        companyName,
+        websiteUrl,
+        industries,
+        take,
+        existingContext,
+      });
+
+      const fallbackPayload = {
+        messages: [{ role: "user", content: fallbackPrompt }],
+        model: xaiModel,
+        temperature: 0.2,
+        stream: false,
+      };
+
+      const fallbackResp = await axiosPost(xaiUrl, fallbackPayload, {
+        headers,
+        timeout: xaiTimeoutMs,
+        validateStatus: () => true,
+      });
+
+      stage = "parse_xai_fallback";
+      const fallbackText =
+        fallbackResp?.data?.choices?.[0]?.message?.content ||
+        (typeof fallbackResp?.data === "string" ? fallbackResp.data : JSON.stringify(fallbackResp.data || {}));
+
+      if (fallbackResp.status >= 200 && fallbackResp.status < 300) {
+        const parsedFallback = parseJsonArrayFromText(fallbackText);
+        items = parsedFallback.items;
+        parse_error = parsedFallback.parse_error;
+
+        proposed = (Array.isArray(items) ? items : [])
+          .map(normalizeReviewCandidate)
+          .filter(Boolean)
+          .slice(0, take);
+
+        attemptsOut.push({
+          kind: "fallback",
+          parse_error: parse_error || null,
+          returned_count: proposed.length,
+        });
+      } else {
+        attemptsOut.push({
+          kind: "fallback",
+          parse_error: `Upstream HTTP ${fallbackResp.status}`,
+          returned_count: 0,
+        });
+      }
+    }
 
     const proposed_reviews = proposed.map((r) => {
       const urlKey = normalizeUrlForCompare(r.source_url);
@@ -483,6 +580,7 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       requested_take: take,
       returned_count: proposed_reviews.length,
       proposed_reviews,
+      attempts: attemptsOut,
       ...(parse_error ? { parse_error } : {}),
       elapsed_ms: Date.now() - startedAt,
       hints: {
