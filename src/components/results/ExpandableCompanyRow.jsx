@@ -1,10 +1,92 @@
 import React, { useEffect, useState } from "react";
+import { Copy } from "lucide-react";
 import ReviewsWidget from "@/components/ReviewsWidget";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { getCompanyCanonicalName, getCompanyDisplayName } from "@/lib/companyDisplayName";
+import { toast } from "@/lib/toast";
 import { RatingDots, RatingHearts } from "@/components/Stars";
 import { getQQDefaultIconType, getQQFilledCount } from "@/lib/stars/qqRating";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
+
+async function copyToClipboard(text) {
+  const value = (text || "").toString();
+  if (!value.trim()) return false;
+
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    try {
+      const el = document.createElement("textarea");
+      el.value = value;
+      el.setAttribute("readonly", "");
+      el.style.position = "absolute";
+      el.style.left = "-9999px";
+      document.body.appendChild(el);
+      el.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(el);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function CompanyNameWithUrlTooltip({ href, className, children, onClick }) {
+  if (!href) {
+    return <span className={className}>{children}</span>;
+  }
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={className}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClick?.(e);
+            }}
+            title={href}
+          >
+            {children}
+          </a>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-[340px]">
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-mono text-xs" title={href}>
+                {href}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="inline-flex h-7 w-7 items-center justify-center rounded border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label="Copy link"
+              onClick={async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const ok = await copyToClipboard(href);
+                if (ok) {
+                  toast({ title: "Copied", description: "Link copied to clipboard." });
+                } else {
+                  toast.error("Copy failed");
+                }
+              }}
+            >
+              <Copy className="h-4 w-4" />
+            </button>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 function toFiniteNumber(v) {
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
@@ -116,8 +198,6 @@ export default function ExpandableCompanyRow({
     return text.length > length ? text.substring(0, length) + "…" : text;
   };
 
-  const DISTANCE_COLOR = "hsl(187, 47%, 32%)";
-
   const formatDistance = (dist, unitLabel) => {
     return typeof dist === "number" ? `${dist.toFixed(1)} ${unitLabel}` : "—";
   };
@@ -220,7 +300,7 @@ export default function ExpandableCompanyRow({
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
               {loc.formatted !== "—" && (
-                <div className="text-xs font-semibold whitespace-nowrap pt-0.5" style={{ color: DISTANCE_COLOR }}>
+                <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)]">
                   {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
               )}
@@ -238,7 +318,7 @@ export default function ExpandableCompanyRow({
           {hqLocation.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
               {loc.formatted !== "—" && (
-                <div className="text-xs font-semibold whitespace-nowrap pt-0.5" style={{ color: DISTANCE_COLOR }}>
+                <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)]">
                   {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
               )}
@@ -256,7 +336,7 @@ export default function ExpandableCompanyRow({
           {manuLocations.map((loc, idx) => (
             <div key={idx} className="text-sm flex items-start gap-1">
               {loc.formatted !== "—" && (
-                <div className="text-xs font-semibold whitespace-nowrap pt-0.5" style={{ color: DISTANCE_COLOR }}>
+                <div className="text-xs font-semibold whitespace-nowrap pt-0.5 text-[hsl(187,_47%,_32%)]">
                   {typeof loc.distance === "number" ? formatDistance(loc.distance, unit) : "Distance unavailable"}
                 </div>
               )}
@@ -341,21 +421,18 @@ export default function ExpandableCompanyRow({
     return (
       <div
         onClick={handleExpandedClick}
-        className="border-2 rounded-lg mb-4 p-6 bg-white cursor-pointer"
-        style={{ borderColor: "#B1DDE3", borderWidth: "2px" }}
+        className="border-2 border-[#B1DDE3] rounded-lg mb-4 p-6 bg-white cursor-pointer"
       >
         <div className="grid grid-cols-5 gap-4 mb-6 pb-6 border-b">
           <div className="col-span-2">
             <h2 className="font-bold text-lg text-gray-900">
               {websiteUrl ? (
-                <a
+                <CompanyNameWithUrlTooltip
                   href={withAmazonAffiliate(websiteUrl)}
-                  target="_blank"
-                  rel="noopener noreferrer"
                   className="text-blue-700 hover:underline"
                 >
                   {websiteLabel}
-                </a>
+                </CompanyNameWithUrlTooltip>
               ) : (
                 <span className="text-gray-900">{displayName}</span>
               )}
@@ -515,20 +592,18 @@ export default function ExpandableCompanyRow({
   return (
     <div
       onClick={handleRowClick}
-      className="grid grid-cols-12 lg:grid-cols-[minmax(0,_2fr)_minmax(0,_2fr)_minmax(0,_2.6667fr)_minmax(0,_2.6667fr)_minmax(0,_2.6667fr)] gap-3 border rounded-lg p-2 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors"
-      style={{ borderColor: "#649BA0" }}
+      className="grid grid-cols-12 lg:grid-cols-[minmax(0,_2fr)_minmax(0,_2fr)_minmax(0,_2.6667fr)_minmax(0,_2.6667fr)_minmax(0,_2.6667fr)] gap-3 border border-[#649BA0] rounded-lg p-2 bg-white hover:bg-gray-50 cursor-pointer mb-3 transition-colors"
     >
       <div className="col-span-4 lg:col-span-1">
         <h2 className="font-bold text-gray-900">
           {websiteUrl ? (
-            <a
+            <CompanyNameWithUrlTooltip
               href={withAmazonAffiliate(websiteUrl)}
-              target="_blank"
-              rel="noopener noreferrer"
               className="font-semibold text-sm text-blue-700 hover:underline"
+              onClick={(e) => e.stopPropagation()}
             >
               {websiteLabel}
-            </a>
+            </CompanyNameWithUrlTooltip>
           ) : (
             <span className="font-semibold text-sm">{displayName}</span>
           )}
