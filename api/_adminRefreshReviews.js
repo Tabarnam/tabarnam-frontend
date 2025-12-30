@@ -344,7 +344,7 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
 
   const xaiTimeoutMs = readTimeoutMs(
     deps.xaiTimeoutMs ?? process.env.XAI_TIMEOUT_MS ?? process.env.XAI_REQUEST_TIMEOUT_MS,
-    120000
+    25000
   );
 
   const config = {
