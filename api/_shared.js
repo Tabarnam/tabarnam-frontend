@@ -3,15 +3,44 @@
  * Consolidated approach: XAI_EXTERNAL_BASE is primary, FUNCTION_URL is fallback (deprecated)
  * Avoids loops where FUNCTION_URL points to /api/xai (diagnostic endpoint)
  */
+function normalizeXaiBaseUrl(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+
+  const u = tryParseUrl(s);
+  if (!u) return s;
+
+  const hostLower = String(u.hostname || "").toLowerCase();
+  const pathLower = String(u.pathname || "").toLowerCase().replace(/\/+$/, "");
+
+  // Common production setup: a dedicated Azure Function host with a proxy route at /api/xai.
+  // If the base is configured as just /api, normalize it to /api/xai so callers don't
+  // mistakenly append /v1/chat/completions (which won't exist on the function host).
+  if (hostLower.endsWith(".azurewebsites.net") && pathLower === "/api") {
+    u.pathname = "/api/xai";
+    return u.toString();
+  }
+
+  return s;
+}
+
 function getXAIEndpoint() {
-  const external = (process.env.XAI_EXTERNAL_BASE || '').trim();
-  if (external) return external;
+  const external = (process.env.XAI_EXTERNAL_BASE || "").trim();
+  const normalizedExternal = normalizeXaiBaseUrl(external);
+  if (normalizedExternal) return normalizedExternal;
 
-  const fnUrl = (process.env.FUNCTION_URL || '').trim();
-  // Avoid using /api/xai - it's a diagnostic endpoint, not a real XAI search
-  if (fnUrl && !fnUrl.includes('/api/xai')) return fnUrl;
+  const fnUrl = (process.env.FUNCTION_URL || "").trim();
+  if (fnUrl) {
+    const lower = fnUrl.toLowerCase();
+    const isLikelyLocal = !/^https?:\/\//i.test(fnUrl) || lower.includes("localhost") || lower.includes("127.0.0.1");
 
-  return '';
+    // Avoid loops where FUNCTION_URL points back at this app's own diagnostic endpoint.
+    if (isLikelyLocal && lower.includes("/api/xai")) return "";
+
+    return normalizeXaiBaseUrl(fnUrl);
+  }
+
+  return "";
 }
 
 function tryParseUrl(raw) {

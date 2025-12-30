@@ -103,8 +103,13 @@ function getCompaniesContainer() {
   const containerName = asString(process.env.COSMOS_DB_COMPANIES_CONTAINER || process.env.COSMOS_CONTAINER || "companies").trim();
   if (!endpoint || !key) return null;
   if (!CosmosClient) return null;
-  const client = new CosmosClient({ endpoint, key });
-  return client.database(database).container(containerName);
+
+  try {
+    const client = new CosmosClient({ endpoint, key });
+    return client.database(database).container(containerName);
+  } catch {
+    return null;
+  }
 }
 
 function parseJsonArrayFromText(text) {
@@ -403,11 +408,27 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       );
     }
 
+    const headers = {
+      "Content-Type": "application/json",
+    };
+
+    // If the configured upstream is an Azure Function proxy, it typically expects the
+    // function key via x-functions-key rather than Authorization: Bearer.
+    let useFunctionsKey = false;
+    try {
+      const u = new URL(xaiUrl);
+      useFunctionsKey = /\.azurewebsites\.net$/i.test(String(u.hostname || ""));
+    } catch {}
+
+    if (useFunctionsKey) {
+      headers["x-functions-key"] = xaiKey;
+      headers.Authorization = `Bearer ${xaiKey}`;
+    } else {
+      headers.Authorization = `Bearer ${xaiKey}`;
+    }
+
     const resp = await axiosPost(xaiUrl, payload, {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${xaiKey}`,
-      },
+      headers,
       timeout: xaiTimeoutMs,
       validateStatus: () => true,
     });
