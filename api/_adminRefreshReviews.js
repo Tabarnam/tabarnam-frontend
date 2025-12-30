@@ -360,18 +360,18 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
   const startedAt = Date.now();
   let stage = "start";
 
+  const xaiTimeoutMs = readTimeoutMs(
+    deps.xaiTimeoutMs ?? process.env.XAI_TIMEOUT_MS ?? process.env.XAI_REQUEST_TIMEOUT_MS,
+    60000
+  );
+
   let requestDeadlineMs = readTimeoutMs(
     deps.deadlineMs ?? process.env.ADMIN_REFRESH_REVIEWS_DEADLINE_MS,
-    25000
+    Math.min(120000, xaiTimeoutMs + 5000)
   );
 
   const elapsedMs = () => Date.now() - startedAt;
   const timeRemainingMs = () => requestDeadlineMs - elapsedMs();
-
-  const xaiTimeoutMs = readTimeoutMs(
-    deps.xaiTimeoutMs ?? process.env.XAI_TIMEOUT_MS ?? process.env.XAI_REQUEST_TIMEOUT_MS,
-    25000
-  );
 
   const config = {
     COSMOS_DB_ENDPOINT_SET: Boolean(asString(process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_ENDPOINT).trim()),

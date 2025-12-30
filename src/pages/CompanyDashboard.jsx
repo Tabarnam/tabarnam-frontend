@@ -1203,6 +1203,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
             company_id: id,
             take: requestedTake,
             include_existing_in_context: Boolean(includeExisting),
+            deadline_ms: 65000,
           },
         });
 
