@@ -422,6 +422,7 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
 
     if (useFunctionsKey) {
       headers["x-functions-key"] = xaiKey;
+      headers.Authorization = `Bearer ${xaiKey}`;
     } else {
       headers.Authorization = `Bearer ${xaiKey}`;
     }
