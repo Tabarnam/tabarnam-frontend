@@ -1694,6 +1694,7 @@ function ImportedReviewsPanel({ companyId, existingCuratedReviews, disabled, onD
           <div className="mt-1 text-xs text-slate-500">
             Public list fetched from <code className="text-[11px]">/api/get-reviews?company_id=…</code>
           </div>
+          <div className="mt-1 text-xs text-slate-500">To remove a curated review, click the red trash icon, then Save changes.</div>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={load} disabled={!stableId || loading}>
           <RefreshCcw className="h-4 w-4 mr-2" />
