@@ -1600,10 +1600,14 @@ function ImportedReviewsPanel({ companyId, existingCuratedReviews, disabled, onD
   const [deleteReviewOpen, setDeleteReviewOpen] = useState(false);
   const [deleteReviewTarget, setDeleteReviewTarget] = useState(null);
 
-  const openDeleteReviewConfirm = useCallback((review, index) => {
-    setDeleteReviewTarget({ review, index });
-    setDeleteReviewOpen(true);
-  }, []);
+  const openDeleteReviewConfirm = useCallback(
+    (review, index) => {
+      if (disabled) return;
+      setDeleteReviewTarget({ review, index });
+      setDeleteReviewOpen(true);
+    },
+    [disabled]
+  );
 
   const confirmDeleteReview = useCallback(() => {
     const target = deleteReviewTarget;
@@ -1702,7 +1706,14 @@ function ImportedReviewsPanel({ companyId, existingCuratedReviews, disabled, onD
         </Button>
       </div>
 
-      <AlertDialog open={deleteReviewOpen} onOpenChange={(open) => !disabled && setDeleteReviewOpen(open)}>
+      <AlertDialog
+        open={deleteReviewOpen}
+        onOpenChange={(open) => {
+          if (disabled) return;
+          setDeleteReviewOpen(open);
+          if (!open) setDeleteReviewTarget(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete review</AlertDialogTitle>
@@ -1727,7 +1738,10 @@ function ImportedReviewsPanel({ companyId, existingCuratedReviews, disabled, onD
           <AlertDialogFooter>
             <AlertDialogCancel disabled={disabled}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={confirmDeleteReview}
+              onClick={(e) => {
+                e.preventDefault();
+                confirmDeleteReview();
+              }}
               disabled={disabled || !deleteReviewTarget}
               className="bg-red-600 hover:bg-red-600/90"
             >
