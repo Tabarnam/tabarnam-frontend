@@ -1,4 +1,9 @@
-const { CosmosClient } = require("@azure/cosmos");
+let CosmosClient;
+try {
+  ({ CosmosClient } = require("@azure/cosmos"));
+} catch {
+  CosmosClient = null;
+}
 
 function env(k, d = "") {
   const v = process.env[k];
