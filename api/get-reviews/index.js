@@ -430,15 +430,34 @@ async function getReviewsHandler(req, context, deps = {}) {
               ? companyRecord.reviews
               : [];
 
+          function normalizeHttpUrlOrNull(input) {
+            const raw = String(input || "").trim();
+            if (!raw) return null;
+
+            try {
+              const u = raw.includes("://") ? new URL(raw) : new URL(`https://${raw}`);
+              if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+              u.hash = "";
+              return u.toString();
+            } catch {
+              return null;
+            }
+          }
+
           const curatedArrVisible = curatedArrRaw.filter((r) => {
             const flag = r?.show_to_users ?? r?.showToUsers ?? r?.is_public ?? r?.visible_to_users ?? r?.visible;
             if (normalizeIsPublicFlag(flag, true) === false) return false;
 
+            // Reliability rules for public-facing reviews:
+            // - Must have a valid http(s) URL
+            // - Must have been validated and marked ok
+            const sourceUrlRaw = r?.source_url || r?.url || "";
+            const normalizedUrl = normalizeHttpUrlOrNull(sourceUrlRaw);
+            if (!normalizedUrl) return false;
+
             const linkStatusRaw = r?.link_status ?? r?.linkStatus;
-            if (typeof linkStatusRaw === "string" && linkStatusRaw.trim()) {
-              const ls = linkStatusRaw.trim().toLowerCase();
-              if (ls !== "ok") return false;
-            }
+            if (typeof linkStatusRaw !== "string" || !linkStatusRaw.trim()) return false;
+            if (linkStatusRaw.trim().toLowerCase() !== "ok") return false;
 
             const mcRaw = r?.match_confidence ?? r?.matchConfidence;
             const mc = typeof mcRaw === "number" ? mcRaw : typeof mcRaw === "string" && mcRaw.trim() ? Number(mcRaw) : null;

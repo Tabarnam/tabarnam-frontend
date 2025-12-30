@@ -29,6 +29,7 @@ import { apiFetch, getUserFacingConfigMessage, toErrorString } from "@/lib/api";
 import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
 import { getAdminUser } from "@/lib/azureAuth";
+import { normalizeExternalUrl } from "@/lib/externalUrl";
 import {
   Dialog,
   DialogContent,
@@ -927,19 +928,6 @@ function getReviewUrl(review) {
   return asString(review.source_url).trim() || asString(review.url).trim() || asString(review.link).trim();
 }
 
-function normalizeExternalUrl(value) {
-  const raw = asString(value).trim();
-  if (!raw) return "";
-
-  const withScheme = raw.includes("://") ? raw : `https://${raw}`;
-  try {
-    const u = new URL(withScheme);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return "";
-    return u.toString();
-  } catch {
-    return "";
-  }
-}
 
 function getReviewDate(review) {
   if (!review || typeof review !== "object") return "";
@@ -1248,6 +1236,18 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
 
           if (!source_url && !title && !excerpt) return null;
 
+          const link_status = asString(r?.link_status).trim();
+          const match_confidence =
+            typeof r?.match_confidence === "number"
+              ? r.match_confidence
+              : typeof r?.match_confidence === "string" && r.match_confidence.trim()
+                ? Number(r.match_confidence)
+                : null;
+
+          const isPublishable =
+            link_status.toLowerCase() === "ok" &&
+            (typeof match_confidence !== "number" || !Number.isFinite(match_confidence) || match_confidence >= 0.7);
+
           return {
             id: asString(r?.id).trim() || `${Date.now()}_${idx}_${Math.random().toString(36).slice(2)}`,
             source: asString(r?.source).trim() || "professional_review",
@@ -1258,7 +1258,9 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
             date: date || null,
             rating,
             duplicate,
-            include: !duplicate,
+            link_status: link_status || null,
+            match_confidence: typeof match_confidence === "number" && Number.isFinite(match_confidence) ? match_confidence : null,
+            include: !duplicate && isPublishable,
           };
         })
         .filter(Boolean);
