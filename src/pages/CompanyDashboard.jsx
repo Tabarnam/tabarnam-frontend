@@ -1701,6 +1701,41 @@ function ImportedReviewsPanel({ companyId, existingCuratedReviews, disabled, onD
         </Button>
       </div>
 
+      <AlertDialog open={deleteReviewOpen} onOpenChange={(open) => !disabled && setDeleteReviewOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete review</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the selected review from <code className="text-xs">company.curated_reviews</code>. You still need to click
+              <span className="font-medium"> Save changes</span> to persist it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-1 text-sm text-slate-700">
+            <div>
+              Review:
+              <span className="font-semibold"> {asString(getReviewSourceName(deleteReviewTarget?.review) || "Unknown source")}</span>
+            </div>
+            {asString(deleteReviewTarget?.review?.id).trim() ? (
+              <div>
+                id: <code className="text-xs">{asString(deleteReviewTarget?.review?.id).trim()}</code>
+              </div>
+            ) : null}
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={disabled}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteReview}
+              disabled={disabled || !deleteReviewTarget}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Delete review
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {!stableId ? (
         <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
           Save the company first to generate a <code className="text-[11px]">company_id</code>.
