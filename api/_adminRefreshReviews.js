@@ -360,6 +360,14 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
   const startedAt = Date.now();
   let stage = "start";
 
+  let requestDeadlineMs = readTimeoutMs(
+    deps.deadlineMs ?? process.env.ADMIN_REFRESH_REVIEWS_DEADLINE_MS,
+    25000
+  );
+
+  const elapsedMs = () => Date.now() - startedAt;
+  const timeRemainingMs = () => requestDeadlineMs - elapsedMs();
+
   const xaiTimeoutMs = readTimeoutMs(
     deps.xaiTimeoutMs ?? process.env.XAI_TIMEOUT_MS ?? process.env.XAI_REQUEST_TIMEOUT_MS,
     25000
@@ -377,6 +385,7 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       asString(process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || process.env.XAI_API_KEY).trim()
     ),
     XAI_TIMEOUT_MS: xaiTimeoutMs,
+    DEADLINE_MS: requestDeadlineMs,
   };
 
   try {
@@ -386,6 +395,13 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
     const body = method === "POST" ? await readJsonBody(req) : {};
 
     const query = req?.query && typeof req.query === "object" ? req.query : {};
+
+    requestDeadlineMs = readTimeoutMs(
+      deps.deadlineMs ?? body.deadline_ms ?? query.deadline_ms ?? process.env.ADMIN_REFRESH_REVIEWS_DEADLINE_MS,
+      requestDeadlineMs
+    );
+
+    config.DEADLINE_MS = requestDeadlineMs;
 
     const companyId = asString(body.company_id || body.id || query.company_id || query.id).trim();
     const take = readTake(body.take ?? query.take, 10);
@@ -518,11 +534,32 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
           stage,
           error: "Axios not available",
           config,
-          elapsed_ms: Date.now() - startedAt,
+          elapsed_ms: elapsedMs(),
         },
         500
       );
     }
+
+    const timeBudgetBeforeXai = timeRemainingMs();
+    if (timeBudgetBeforeXai < 6500) {
+      return json(
+        {
+          ok: false,
+          stage,
+          error: "Deadline exceeded before upstream call",
+          code: "DEADLINE_EXCEEDED",
+          details: {
+            deadline_ms: requestDeadlineMs,
+            elapsed_ms: elapsedMs(),
+          },
+          config,
+          elapsed_ms: elapsedMs(),
+        },
+        504
+      );
+    }
+
+    const xaiRequestTimeoutMs = Math.max(5000, Math.min(xaiTimeoutMs, Math.floor(timeBudgetBeforeXai - 1500)));
 
     const headers = {
       "Content-Type": "application/json",
@@ -542,12 +579,12 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
     try {
       const controller = typeof AbortController === "function" ? new AbortController() : null;
       const timeoutId =
-        controller && Number.isFinite(xaiTimeoutMs) ? setTimeout(() => controller.abort(), xaiTimeoutMs) : null;
+        controller && Number.isFinite(xaiRequestTimeoutMs) ? setTimeout(() => controller.abort(), xaiRequestTimeoutMs) : null;
 
       try {
         resp = await axiosPost(xaiUrl, payload, {
           headers,
-          timeout: xaiTimeoutMs,
+          timeout: xaiRequestTimeoutMs,
           ...(controller ? { signal: controller.signal } : {}),
           validateStatus: () => true,
         });
@@ -564,7 +601,7 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
             code: "UPSTREAM_TIMEOUT",
             details: {
               message: "The reviews provider did not respond before the timeout.",
-              timeout_ms: xaiTimeoutMs,
+              timeout_ms: xaiRequestTimeoutMs,
               resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
             },
             config,
@@ -641,6 +678,12 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
         existingContext,
       });
 
+      const fallbackBudget = timeRemainingMs();
+      const fallbackTimeoutMs =
+        fallbackBudget >= 6500
+          ? Math.max(5000, Math.min(xaiTimeoutMs, Math.floor(fallbackBudget - 1500)))
+          : 0;
+
       const fallbackPayload = {
         messages: [{ role: "user", content: fallbackPrompt }],
         model: xaiModel,
@@ -651,19 +694,29 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       let fallbackResp;
 
       try {
-        const controller = typeof AbortController === "function" ? new AbortController() : null;
-        const timeoutId =
-          controller && Number.isFinite(xaiTimeoutMs) ? setTimeout(() => controller.abort(), xaiTimeoutMs) : null;
-
-        try {
-          fallbackResp = await axiosPost(xaiUrl, fallbackPayload, {
-            headers,
-            timeout: xaiTimeoutMs,
-            ...(controller ? { signal: controller.signal } : {}),
-            validateStatus: () => true,
+        if (!fallbackTimeoutMs) {
+          attemptsOut.push({
+            kind: "fallback",
+            parse_error: "Skipped due to deadline",
+            returned_count: 0,
           });
-        } finally {
-          if (timeoutId) clearTimeout(timeoutId);
+
+          fallbackResp = null;
+        } else {
+          const controller = typeof AbortController === "function" ? new AbortController() : null;
+          const timeoutId =
+            controller && Number.isFinite(fallbackTimeoutMs) ? setTimeout(() => controller.abort(), fallbackTimeoutMs) : null;
+
+          try {
+            fallbackResp = await axiosPost(xaiUrl, fallbackPayload, {
+              headers,
+              timeout: fallbackTimeoutMs,
+              ...(controller ? { signal: controller.signal } : {}),
+              validateStatus: () => true,
+            });
+          } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+          }
         }
       } catch (e) {
         attemptsOut.push({
@@ -728,53 +781,90 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
 
     const normalizedDomainHint = asString(company.normalized_domain).trim() || toNormalizedDomain(websiteUrl);
 
-    const validated = await mapWithConcurrency(proposed, 4, async (r) => {
-      const normalizedCandidateUrl = normalizeUrl(r.source_url);
-      if (!normalizedCandidateUrl) {
-        return {
-          ...r,
-          source_url: r.source_url,
-          link_status: "invalid_url",
-          final_url: null,
-          match_confidence: 0,
-          last_checked_at: new Date().toISOString(),
-          reason_if_rejected: "invalid url",
-        };
-      }
+    stage = "validate_candidates";
+    const validationBudget = timeRemainingMs();
 
-      const v = await validateCuratedReviewCandidate(
-        {
-          companyName,
-          websiteUrl,
-          normalizedDomain: normalizedDomainHint,
-          url: normalizedCandidateUrl,
-          title: asString(r.title).trim(),
-        },
-        { timeoutMs: 6000, maxBytes: 60000, maxSnippets: 2, minWords: 10, maxWords: 25 }
-      ).catch((e) => ({
-        is_valid: false,
-        link_status: "blocked",
-        final_url: null,
-        matched_brand_terms: [],
-        evidence_snippets: [],
-        match_confidence: 0,
-        last_checked_at: new Date().toISOString(),
-        reason_if_rejected: asString(e?.message).trim() || "validation error",
-      }));
+    const validated =
+      validationBudget < 2500
+        ? proposed.map((r) => {
+            const normalizedCandidateUrl = normalizeUrl(r.source_url);
+            const nowIso = new Date().toISOString();
 
-      return {
-        ...r,
-        source_url: v?.final_url || normalizedCandidateUrl,
-        link_status: asString(v?.link_status).trim() || "blocked",
-        final_url: v?.final_url || null,
-        match_confidence: typeof v?.match_confidence === "number" ? v.match_confidence : null,
-        last_checked_at: v?.last_checked_at || new Date().toISOString(),
-        reason_if_rejected: v?.reason_if_rejected || null,
-        evidence_snippets: Array.isArray(v?.evidence_snippets) ? v.evidence_snippets : [],
-        matched_brand_terms: Array.isArray(v?.matched_brand_terms) ? v.matched_brand_terms : [],
-        is_valid: v?.is_valid === true,
-      };
-    });
+            if (!normalizedCandidateUrl) {
+              return {
+                ...r,
+                source_url: r.source_url,
+                link_status: "invalid_url",
+                final_url: null,
+                match_confidence: 0,
+                last_checked_at: nowIso,
+                reason_if_rejected: "invalid url",
+                is_valid: false,
+              };
+            }
+
+            return {
+              ...r,
+              source_url: normalizedCandidateUrl,
+              link_status: null,
+              final_url: null,
+              match_confidence: null,
+              last_checked_at: nowIso,
+              reason_if_rejected: "validation skipped due to deadline",
+              is_valid: false,
+            };
+          })
+        : await mapWithConcurrency(proposed, validationBudget < 7000 ? 2 : 3, async (r) => {
+            const normalizedCandidateUrl = normalizeUrl(r.source_url);
+            if (!normalizedCandidateUrl) {
+              return {
+                ...r,
+                source_url: r.source_url,
+                link_status: "invalid_url",
+                final_url: null,
+                match_confidence: 0,
+                last_checked_at: new Date().toISOString(),
+                reason_if_rejected: "invalid url",
+                is_valid: false,
+              };
+            }
+
+            const remaining = timeRemainingMs();
+            const timeoutMs = Math.max(800, Math.min(2500, Math.floor((remaining - 800) / 2)));
+
+            const v = await validateCuratedReviewCandidate(
+              {
+                companyName,
+                websiteUrl,
+                normalizedDomain: normalizedDomainHint,
+                url: normalizedCandidateUrl,
+                title: asString(r.title).trim(),
+              },
+              { timeoutMs, maxBytes: 60000, maxSnippets: 2, minWords: 10, maxWords: 25 }
+            ).catch((e) => ({
+              is_valid: false,
+              link_status: "blocked",
+              final_url: null,
+              matched_brand_terms: [],
+              evidence_snippets: [],
+              match_confidence: 0,
+              last_checked_at: new Date().toISOString(),
+              reason_if_rejected: asString(e?.message).trim() || "validation error",
+            }));
+
+            return {
+              ...r,
+              source_url: v?.final_url || normalizedCandidateUrl,
+              link_status: asString(v?.link_status).trim() || "blocked",
+              final_url: v?.final_url || null,
+              match_confidence: typeof v?.match_confidence === "number" ? v.match_confidence : null,
+              last_checked_at: v?.last_checked_at || new Date().toISOString(),
+              reason_if_rejected: v?.reason_if_rejected || null,
+              evidence_snippets: Array.isArray(v?.evidence_snippets) ? v.evidence_snippets : [],
+              matched_brand_terms: Array.isArray(v?.matched_brand_terms) ? v.matched_brand_terms : [],
+              is_valid: v?.is_valid === true,
+            };
+          });
 
     const proposed_reviews = validated.map((r) => {
       const urlKey = normalizeUrlForCompare(r.source_url);
