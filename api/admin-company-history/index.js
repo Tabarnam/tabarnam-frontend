@@ -1,5 +1,4 @@
 const { app, hasRoute } = require("../_app");
-
 const { getBuildInfo } = require("../_buildInfo");
 const { getCompanyEditHistoryContainer } = require("../_companyEditHistory");
 
