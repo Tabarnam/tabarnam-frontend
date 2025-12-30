@@ -1785,6 +1785,18 @@ function ImportedReviewsPanel({ companyId, existingCuratedReviews, disabled, onD
                               Rating: {rating}
                             </span>
                           ) : null}
+
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => openDeleteReviewConfirm(review, idx)}
+                            disabled={disabled}
+                            title="Delete curated review"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
 
