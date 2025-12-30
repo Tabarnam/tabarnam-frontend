@@ -23,6 +23,7 @@ export default function SearchCard({
   onSubmitParams,
   filtersRightSlot = null,
   containerClassName = "",
+  autoFocus = false,
 }) {
   const nav = useNavigate();
   const { search } = useLocation();
@@ -49,6 +50,16 @@ export default function SearchCard({
   const inputRef = useRef(null);
   const cityInputRef = useRef(null);
   const stateInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+
+    const t = setTimeout(() => {
+      inputRef.current?.focus();
+    }, 0);
+
+    return () => clearTimeout(t);
+  }, [autoFocus]);
 
   useEffect(() => {
     getCountries().then(setCountries);
@@ -235,6 +246,7 @@ export default function SearchCard({
           )}
           <Input
             ref={inputRef}
+            autoFocus={autoFocus}
             value={q}
             onChange={(e)=>setQ(e.target.value)}
             onKeyDown={onKeyDown}
