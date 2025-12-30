@@ -23,7 +23,7 @@ export default function HomePage() {
         </Link>
 
         {/* Two-row search bar */}
-        <SearchCard />
+        <SearchCard autoFocus />
       </main>
     </>
   );
