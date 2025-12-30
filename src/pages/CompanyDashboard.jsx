@@ -1251,7 +1251,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           const hasValidUrl = Boolean(normalizeExternalUrl(source_url));
 
           return {
-            id: asString(r?.id).trim() || `${Date.now()}_${idx}_${Math.random()}_${Math.random().toString(36).slice(2)}`,
+            id: asString(r?.id).trim() || `${Date.now()}_${idx}_${Math.random().toString(36).slice(2)}`,
             source: asString(r?.source).trim() || "professional_review",
             source_url,
             title,
