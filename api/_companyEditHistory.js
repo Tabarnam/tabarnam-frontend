@@ -1,4 +1,9 @@
-const { CosmosClient } = require("@azure/cosmos");
+let CosmosClient;
+try {
+  ({ CosmosClient } = require("@azure/cosmos"));
+} catch {
+  CosmosClient = null;
+}
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -148,6 +153,7 @@ function getCosmosClient() {
   const endpoint = env("COSMOS_DB_ENDPOINT", "");
   const key = env("COSMOS_DB_KEY", "");
   if (!endpoint || !key) return null;
+  if (!CosmosClient) return null;
 
   try {
     cachedClient ||= new CosmosClient({ endpoint, key });

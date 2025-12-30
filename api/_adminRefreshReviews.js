@@ -110,6 +110,26 @@ function resolveAbsoluteUrl(maybeRelativeUrl, reqUrl) {
   return raw;
 }
 
+function redactUrlQueryAndHash(rawUrl) {
+  const s = asString(rawUrl).trim();
+  if (!s) return "";
+  try {
+    const u = new URL(s);
+    u.search = "";
+    u.hash = "";
+    return u.toString();
+  } catch {
+    return s;
+  }
+}
+
+function isUpstreamTimeoutError(err) {
+  const code = asString(err?.code).trim();
+  if (code === "ECONNABORTED" || code === "ERR_CANCELED") return true;
+  const msg = asString(err?.message).toLowerCase();
+  return msg.includes("timeout") || msg.includes("timed out") || msg.includes("aborted");
+}
+
 function isAzureWebsitesUrl(rawUrl) {
   const raw = asString(rawUrl).trim();
   if (!raw) return false;
@@ -324,7 +344,7 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
 
   const xaiTimeoutMs = readTimeoutMs(
     deps.xaiTimeoutMs ?? process.env.XAI_TIMEOUT_MS ?? process.env.XAI_REQUEST_TIMEOUT_MS,
-    120000
+    25000
   );
 
   const config = {
@@ -499,11 +519,59 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       headers.Authorization = `Bearer ${xaiKey}`;
     }
 
-    const resp = await axiosPost(xaiUrl, payload, {
-      headers,
-      timeout: xaiTimeoutMs,
-      validateStatus: () => true,
-    });
+    let resp;
+
+    try {
+      const controller = typeof AbortController === "function" ? new AbortController() : null;
+      const timeoutId =
+        controller && Number.isFinite(xaiTimeoutMs) ? setTimeout(() => controller.abort(), xaiTimeoutMs) : null;
+
+      try {
+        resp = await axiosPost(xaiUrl, payload, {
+          headers,
+          timeout: xaiTimeoutMs,
+          ...(controller ? { signal: controller.signal } : {}),
+          validateStatus: () => true,
+        });
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+    } catch (e) {
+      if (isUpstreamTimeoutError(e)) {
+        return json(
+          {
+            ok: false,
+            stage,
+            error: "Upstream timeout",
+            code: "UPSTREAM_TIMEOUT",
+            details: {
+              message: "The reviews provider did not respond before the timeout.",
+              timeout_ms: xaiTimeoutMs,
+              resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
+            },
+            config,
+            elapsed_ms: Date.now() - startedAt,
+          },
+          504
+        );
+      }
+
+      return json(
+        {
+          ok: false,
+          stage,
+          error: "Upstream request failed",
+          code: "UPSTREAM_REQUEST_FAILED",
+          details: {
+            message: asString(e?.message).trim() || "Request failed",
+            resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
+          },
+          config,
+          elapsed_ms: Date.now() - startedAt,
+        },
+        502
+      );
+    }
 
     stage = "parse_xai";
     const responseText =
@@ -520,7 +588,7 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
           details: {
             upstream_preview: asString(responseText).slice(0, 8000),
             xai_model: xaiModel,
-            resolved_upstream_url: xaiUrl,
+            resolved_upstream_url: redactUrlQueryAndHash(xaiUrl),
             endpoint_source: xaiEndpointRaw ? "configured" : "missing",
           },
           config,
@@ -562,38 +630,61 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
         stream: false,
       };
 
-      const fallbackResp = await axiosPost(xaiUrl, fallbackPayload, {
-        headers,
-        timeout: xaiTimeoutMs,
-        validateStatus: () => true,
-      });
+      let fallbackResp;
 
-      stage = "parse_xai_fallback";
-      const fallbackText =
-        fallbackResp?.data?.choices?.[0]?.message?.content ||
-        (typeof fallbackResp?.data === "string" ? fallbackResp.data : JSON.stringify(fallbackResp.data || {}));
+      try {
+        const controller = typeof AbortController === "function" ? new AbortController() : null;
+        const timeoutId =
+          controller && Number.isFinite(xaiTimeoutMs) ? setTimeout(() => controller.abort(), xaiTimeoutMs) : null;
 
-      if (fallbackResp.status >= 200 && fallbackResp.status < 300) {
-        const parsedFallback = parseJsonArrayFromText(fallbackText);
-        items = parsedFallback.items;
-        parse_error = parsedFallback.parse_error;
-
-        proposed = (Array.isArray(items) ? items : [])
-          .map(normalizeReviewCandidate)
-          .filter(Boolean)
-          .slice(0, take);
-
+        try {
+          fallbackResp = await axiosPost(xaiUrl, fallbackPayload, {
+            headers,
+            timeout: xaiTimeoutMs,
+            ...(controller ? { signal: controller.signal } : {}),
+            validateStatus: () => true,
+          });
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId);
+        }
+      } catch (e) {
         attemptsOut.push({
           kind: "fallback",
-          parse_error: parse_error || null,
-          returned_count: proposed.length,
-        });
-      } else {
-        attemptsOut.push({
-          kind: "fallback",
-          parse_error: `Upstream HTTP ${fallbackResp.status}`,
+          parse_error: isUpstreamTimeoutError(e) ? "Upstream timeout" : asString(e?.message).trim() || "Request failed",
           returned_count: 0,
         });
+
+        fallbackResp = null;
+      }
+
+      if (fallbackResp) {
+        stage = "parse_xai_fallback";
+        const fallbackText =
+          fallbackResp?.data?.choices?.[0]?.message?.content ||
+          (typeof fallbackResp?.data === "string" ? fallbackResp.data : JSON.stringify(fallbackResp.data || {}));
+
+        if (fallbackResp.status >= 200 && fallbackResp.status < 300) {
+          const parsedFallback = parseJsonArrayFromText(fallbackText);
+          items = parsedFallback.items;
+          parse_error = parsedFallback.parse_error;
+
+          proposed = (Array.isArray(items) ? items : [])
+            .map(normalizeReviewCandidate)
+            .filter(Boolean)
+            .slice(0, take);
+
+          attemptsOut.push({
+            kind: "fallback",
+            parse_error: parse_error || null,
+            returned_count: proposed.length,
+          });
+        } else {
+          attemptsOut.push({
+            kind: "fallback",
+            parse_error: `Upstream HTTP ${fallbackResp.status}`,
+            returned_count: 0,
+          });
+        }
       }
     }
 
