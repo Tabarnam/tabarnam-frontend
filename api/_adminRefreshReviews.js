@@ -1,4 +1,5 @@
 let axios;
+let axios;
 try {
   axios = require("axios");
 } catch {
@@ -88,6 +89,37 @@ function readTimeoutMs(value, fallback) {
   const num = Number(raw);
   if (!Number.isFinite(num) || num <= 0) return fallback;
   return Math.max(5000, Math.min(300000, Math.floor(num)));
+}
+
+function resolveAbsoluteUrl(maybeRelativeUrl, reqUrl) {
+  const raw = asString(maybeRelativeUrl).trim();
+  if (!raw) return "";
+
+  // Allow callers to configure relative endpoints like "/api/xai".
+  // Axios in Node requires an absolute URL, so resolve against the incoming request URL.
+  if (raw.startsWith("/")) {
+    const base = asString(reqUrl).trim();
+    if (base) {
+      try {
+        return new URL(raw, base).toString();
+      } catch {
+        // fall through
+      }
+    }
+  }
+
+  return raw;
+}
+
+function isAzureWebsitesUrl(rawUrl) {
+  const raw = asString(rawUrl).trim();
+  if (!raw) return false;
+  try {
+    const u = new URL(raw);
+    return /\.azurewebsites\.net$/i.test(String(u.hostname || ""));
+  } catch {
+    return false;
+  }
 }
 
 function readTake(value, fallback) {
@@ -397,8 +429,18 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
     stage = "init_xai";
     const xaiEndpointRaw = asString(deps.xaiUrl || getXAIEndpoint()).trim();
     const xaiModel = "grok-4-latest";
-    const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, xaiModel);
-    const xaiKey = asString(deps.xaiKey || getXAIKey()).trim();
+
+    const resolvedUpstreamUrl = resolveXaiEndpointForModel(xaiEndpointRaw, xaiModel);
+    const xaiUrl = resolveAbsoluteUrl(resolvedUpstreamUrl, req?.url);
+
+    const defaultKey = asString(deps.xaiKey || getXAIKey()).trim();
+
+    // When calling an Azure Function proxy host, we typically need its function key
+    // (FUNCTION_KEY / XAI_EXTERNAL_KEY), not the direct XAI_API_KEY.
+    const functionKey = asString(process.env.FUNCTION_KEY).trim();
+    const externalKey = asString(process.env.XAI_EXTERNAL_KEY).trim();
+    const useFunctionsKey = isAzureWebsitesUrl(xaiUrl);
+    const xaiKey = useFunctionsKey ? functionKey || externalKey || defaultKey : defaultKey;
 
     if (!xaiUrl || !xaiKey) {
       return json(
@@ -449,17 +491,11 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       "Content-Type": "application/json",
     };
 
-    // If the configured upstream is an Azure Function proxy, it typically expects the
-    // function key via x-functions-key rather than Authorization: Bearer.
-    let useFunctionsKey = false;
-    try {
-      const u = new URL(xaiUrl);
-      useFunctionsKey = /\.azurewebsites\.net$/i.test(String(u.hostname || ""));
-    } catch {}
-
     if (useFunctionsKey) {
       headers["x-functions-key"] = xaiKey;
-      headers.Authorization = `Bearer ${xaiKey}`;
+
+      // Avoid sending the Azure Function key as an Authorization bearer token.
+      // Many proxies forward Authorization to the upstream model provider.
     } else {
       headers.Authorization = `Bearer ${xaiKey}`;
     }
