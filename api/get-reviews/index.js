@@ -468,7 +468,7 @@ async function getReviewsHandler(req, context, deps = {}) {
 
           const curatedReviews = curatedArrVisible.map((r, idx) => {
             const sourceName = (r?.author || r?.source_name || r?.source || "Unknown Source").toString();
-            const sourceUrl = r?.source_url || r?.url || null;
+            const sourceUrl = normalizeHttpUrlOrNull(r?.source_url || r?.url || null);
             const text = r?.abstract || r?.excerpt || r?.text || "";
             const importedAt = r?.imported_at || r?.created_at || r?.last_updated_at || r?.date || null;
 
