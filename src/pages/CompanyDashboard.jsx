@@ -1248,8 +1248,10 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
             link_status.toLowerCase() === "ok" &&
             (typeof match_confidence !== "number" || !Number.isFinite(match_confidence) || match_confidence >= 0.7);
 
+          const hasValidUrl = Boolean(normalizeExternalUrl(source_url));
+
           return {
-            id: asString(r?.id).trim() || `${Date.now()}_${idx}_${Math.random().toString(36).slice(2)}`,
+            id: asString(r?.id).trim() || `${Date.now()}_${idx}_${Math.random()}_${Math.random().toString(36).slice(2)}`,
             source: asString(r?.source).trim() || "professional_review",
             source_url,
             title,
@@ -1260,7 +1262,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
             duplicate,
             link_status: link_status || null,
             match_confidence: typeof match_confidence === "number" && Number.isFinite(match_confidence) ? match_confidence : null,
-            include: !duplicate && isPublishable,
+            include: !duplicate && (isPublishable || (!link_status && hasValidUrl)),
           };
         })
         .filter(Boolean);
