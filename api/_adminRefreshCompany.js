@@ -1,4 +1,5 @@
 let axios;
+let axios;
 try {
   axios = require("axios");
 } catch {
