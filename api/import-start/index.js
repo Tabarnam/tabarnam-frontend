@@ -4779,22 +4779,27 @@ Output JSON only:
                 normalized_domain: String(company?.normalized_domain || ""),
               });
 
-              if (company.company_name && company.website_url) {
+              const effectiveWebsiteUrl = String(company?.website_url || company?.canonical_url || company?.url || "").trim();
+
+              if (company.company_name && effectiveWebsiteUrl) {
+                const companyForReviews = company.website_url ? company : { ...company, website_url: effectiveWebsiteUrl };
+
                 const editorialReviews = await fetchEditorialReviews(
-                  company,
+                  companyForReviews,
                   xaiUrl,
                   xaiKey,
                   timeout,
                   debugOutput ? debugOutput.reviews_debug : null,
                   { setStage, postXaiJsonWithBudget }
                 );
+
                 if (editorialReviews.length > 0) {
-                  enriched[i] = { ...company, curated_reviews: editorialReviews };
+                  enriched[i] = { ...companyForReviews, curated_reviews: editorialReviews };
                   console.log(
-                    `[import-start] session=${sessionId} fetched ${editorialReviews.length} editorial reviews for ${company.company_name}`
+                    `[import-start] session=${sessionId} fetched ${editorialReviews.length} editorial reviews for ${companyForReviews.company_name}`
                   );
                 } else {
-                  enriched[i] = { ...company, curated_reviews: [] };
+                  enriched[i] = { ...companyForReviews, curated_reviews: [] };
                 }
               } else {
                 enriched[i] = { ...company, curated_reviews: [] };
@@ -5161,26 +5166,33 @@ Return ONLY the JSON array, no other text.`,
                   console.log(`[import-start] Fetching editorial reviews for ${enrichedExpansion.length} expansion companies`);
                   for (let i = 0; i < enrichedExpansion.length; i++) {
                     const company = enrichedExpansion[i];
-                    if (company.company_name && company.website_url) {
+                    const effectiveWebsiteUrl = String(company?.website_url || company?.canonical_url || company?.url || "").trim();
+
+                    if (company.company_name && effectiveWebsiteUrl) {
+                      const companyForReviews = company.website_url ? company : { ...company, website_url: effectiveWebsiteUrl };
+
                       setStage("fetchEditorialReviews", {
-                        company_name: String(company?.company_name || company?.name || ""),
-                        website_url: String(company?.website_url || company?.url || ""),
-                        normalized_domain: String(company?.normalized_domain || ""),
+                        company_name: String(companyForReviews?.company_name || companyForReviews?.name || ""),
+                        website_url: String(companyForReviews?.website_url || companyForReviews?.url || ""),
+                        normalized_domain: String(companyForReviews?.normalized_domain || ""),
                       });
 
                       const editorialReviews = await fetchEditorialReviews(
-                        company,
+                        companyForReviews,
                         xaiUrl,
                         xaiKey,
                         timeout,
                         debugOutput ? debugOutput.reviews_debug : null,
-                  { setStage, postXaiJsonWithBudget }
+                        { setStage, postXaiJsonWithBudget }
                       );
+
                       if (editorialReviews.length > 0) {
-                        enrichedExpansion[i] = { ...company, curated_reviews: editorialReviews };
-                        console.log(`[import-start] Fetched ${editorialReviews.length} editorial reviews for expansion company ${company.company_name}`);
+                        enrichedExpansion[i] = { ...companyForReviews, curated_reviews: editorialReviews };
+                        console.log(
+                          `[import-start] Fetched ${editorialReviews.length} editorial reviews for expansion company ${companyForReviews.company_name}`
+                        );
                       } else {
-                        enrichedExpansion[i] = { ...company, curated_reviews: [] };
+                        enrichedExpansion[i] = { ...companyForReviews, curated_reviews: [] };
                       }
                     } else {
                       enrichedExpansion[i] = { ...company, curated_reviews: [] };

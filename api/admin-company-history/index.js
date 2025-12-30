@@ -74,6 +74,9 @@ async function handler(req, context) {
   const company_id = String(
     (context && context.bindingData && (context.bindingData.company_id || context.bindingData.companyId)) ||
       (req && req.params && (req.params.company_id || req.params.companyId)) ||
+      getParam(req, "company_id") ||
+      getParam(req, "companyId") ||
+      getParam(req, "id") ||
       ""
   ).trim();
 
@@ -128,10 +131,22 @@ async function handler(req, context) {
 }
 
 const ROUTE = "admin/companies/{company_id}/history";
+const ALIAS_ROUTE = "admin-company-history";
 
 if (!hasRoute(ROUTE)) {
   app.http("adminCompanyHistory", {
     route: ROUTE,
+    methods: ["GET", "OPTIONS"],
+    authLevel: "anonymous",
+    handler,
+  });
+}
+
+// Backup route: avoids path-param routing issues in some deployments.
+// Usage: /api/admin-company-history?company_id=company_...&limit=25
+if (!hasRoute(ALIAS_ROUTE)) {
+  app.http("adminCompanyHistoryAlias", {
+    route: ALIAS_ROUTE,
     methods: ["GET", "OPTIONS"],
     authLevel: "anonymous",
     handler,

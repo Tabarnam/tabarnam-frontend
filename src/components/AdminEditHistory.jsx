@@ -122,14 +122,20 @@ export default function AdminEditHistory({ companyId }) {
     return Array.from(set).sort();
   }, [items]);
 
-  const buildUrl = useCallback(
+  const buildUrls = useCallback(
     (cursor = null) => {
       const params = new URLSearchParams();
       params.set("limit", "25");
       if (cursor) params.set("cursor", cursor);
       if (fieldFilter) params.set("field", fieldFilter);
       if (searchQuery) params.set("q", searchQuery);
-      return `/admin/companies/${encodeURIComponent(id)}/history?${params.toString()}`;
+
+      const qs = params.toString();
+
+      return {
+        primary: `/admin/companies/${encodeURIComponent(id)}/history?${qs}`,
+        fallback: `/admin-company-history?company_id=${encodeURIComponent(id)}&${qs}`,
+      };
     },
     [fieldFilter, id, searchQuery]
   );
@@ -142,7 +148,12 @@ export default function AdminEditHistory({ companyId }) {
     setNextCursor(null);
 
     try {
-      const res = await apiFetch(buildUrl(null));
+      const { primary, fallback } = buildUrls(null);
+
+      let res = await apiFetch(primary);
+      if (res.status === 404) {
+        res = await apiFetch(fallback);
+      }
       const body = await res.json().catch(() => ({}));
 
       if (!res.ok || body?.ok !== true) {
@@ -158,7 +169,7 @@ export default function AdminEditHistory({ companyId }) {
     } finally {
       setLoading(false);
     }
-  }, [buildUrl, id]);
+  }, [buildUrls, id]);
 
   const loadMore = useCallback(async () => {
     if (!id || !nextCursor || loadingMore) return;
@@ -166,7 +177,12 @@ export default function AdminEditHistory({ companyId }) {
     setError("");
 
     try {
-      const res = await apiFetch(buildUrl(nextCursor));
+      const { primary, fallback } = buildUrls(nextCursor);
+
+      let res = await apiFetch(primary);
+      if (res.status === 404) {
+        res = await apiFetch(fallback);
+      }
       const body = await res.json().catch(() => ({}));
 
       if (!res.ok || body?.ok !== true) {
@@ -183,7 +199,7 @@ export default function AdminEditHistory({ companyId }) {
     } finally {
       setLoadingMore(false);
     }
-  }, [buildUrl, id, loadingMore, nextCursor]);
+  }, [buildUrls, id, loadingMore, nextCursor]);
 
   useEffect(() => {
     if (!id) return;
