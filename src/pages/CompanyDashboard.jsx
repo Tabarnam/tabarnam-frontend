@@ -1588,7 +1588,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   );
 });
 
-function ImportedReviewsPanel({ companyId, existingCuratedReviews }) {
+function ImportedReviewsPanel({ companyId, existingCuratedReviews, disabled, onDeleteSavedReview }) {
   const stableId = asString(companyId).trim();
   const savedItems = Array.isArray(existingCuratedReviews) ? existingCuratedReviews : [];
   const savedVisibleCount = savedItems.filter(isCuratedReviewPubliclyVisible).length;
@@ -1596,6 +1596,26 @@ function ImportedReviewsPanel({ companyId, existingCuratedReviews }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [items, setItems] = useState([]);
+
+  const [deleteReviewOpen, setDeleteReviewOpen] = useState(false);
+  const [deleteReviewTarget, setDeleteReviewTarget] = useState(null);
+
+  const openDeleteReviewConfirm = useCallback((review, index) => {
+    setDeleteReviewTarget({ review, index });
+    setDeleteReviewOpen(true);
+  }, []);
+
+  const confirmDeleteReview = useCallback(() => {
+    const target = deleteReviewTarget;
+    if (!target) return;
+
+    const reviewId = asString(target?.review?.id).trim();
+    onDeleteSavedReview?.(reviewId, target.index);
+
+    setDeleteReviewOpen(false);
+    setDeleteReviewTarget(null);
+    toast.success("Review removed from this draft. Click Save changes to persist.");
+  }, [deleteReviewTarget, onDeleteSavedReview]);
 
   const load = useCallback(async () => {
     const id = asString(stableId).trim();
@@ -1674,12 +1694,48 @@ function ImportedReviewsPanel({ companyId, existingCuratedReviews }) {
           <div className="mt-1 text-xs text-slate-500">
             Public list fetched from <code className="text-[11px]">/api/get-reviews?company_id=…</code>
           </div>
+          <div className="mt-1 text-xs text-slate-500">To remove a curated review, click the red trash icon, then Save changes.</div>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={load} disabled={!stableId || loading}>
           <RefreshCcw className="h-4 w-4 mr-2" />
           {loading ? "Loading…" : "Retry"}
         </Button>
       </div>
+
+      <AlertDialog open={deleteReviewOpen} onOpenChange={(open) => !disabled && setDeleteReviewOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete review</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the selected review from <code className="text-xs">company.curated_reviews</code>. You still need to click
+              <span className="font-medium"> Save changes</span> to persist it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-1 text-sm text-slate-700">
+            <div>
+              Review:
+              <span className="font-semibold"> {asString(getReviewSourceName(deleteReviewTarget?.review) || "Unknown source")}</span>
+            </div>
+            {asString(deleteReviewTarget?.review?.id).trim() ? (
+              <div>
+                id: <code className="text-xs">{asString(deleteReviewTarget?.review?.id).trim()}</code>
+              </div>
+            ) : null}
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={disabled}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteReview}
+              disabled={disabled || !deleteReviewTarget}
+              className="bg-red-600 hover:bg-red-600/90"
+            >
+              Delete review
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {!stableId ? (
         <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
@@ -1765,6 +1821,18 @@ function ImportedReviewsPanel({ companyId, existingCuratedReviews }) {
                               Rating: {rating}
                             </span>
                           ) : null}
+
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => openDeleteReviewConfirm(review, idx)}
+                            disabled={disabled}
+                            title="Delete curated review"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
 
@@ -2952,6 +3020,21 @@ export default function CompanyDashboard() {
     },
     [editorDraft]
   );
+
+  const deleteCuratedReviewFromDraft = useCallback((reviewId, index) => {
+    const id = asString(reviewId).trim();
+
+    setEditorDraft((prev) => {
+      if (!prev || typeof prev !== "object") return prev;
+
+      const list = Array.isArray(prev.curated_reviews) ? prev.curated_reviews : [];
+      const next = id
+        ? list.filter((r) => asString(r?.id).trim() !== id)
+        : list.filter((_, i) => i !== index);
+
+      return { ...prev, curated_reviews: next };
+    });
+  }, []);
 
   const saveEditor = useCallback(async () => {
     if (!editorDraft) return;
@@ -4317,6 +4400,8 @@ export default function CompanyDashboard() {
                               asString(editorCompanyId).trim()
                             }
                             existingCuratedReviews={Array.isArray(editorDraft.curated_reviews) ? editorDraft.curated_reviews : []}
+                            disabled={editorSaving}
+                            onDeleteSavedReview={deleteCuratedReviewFromDraft}
                           />
 
                           <CompanyNotesEditor
