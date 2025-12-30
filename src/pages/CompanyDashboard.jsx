@@ -928,6 +928,48 @@ function getReviewUrl(review) {
   return asString(review.source_url).trim() || asString(review.url).trim() || asString(review.link).trim();
 }
 
+function normalizeIsPublicFlag(value, defaultValue = true) {
+  if (value === undefined || value === null) return defaultValue;
+  if (value === false) return false;
+  if (value === true) return true;
+
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (!v) return defaultValue;
+    if (v === "false" || v === "0" || v === "no" || v === "off") return false;
+    if (v === "true" || v === "1" || v === "yes" || v === "on") return true;
+  }
+
+  return Boolean(value);
+}
+
+function isCuratedReviewPubliclyVisible(review) {
+  if (!review || typeof review !== "object") return false;
+
+  const flag =
+    review?.show_to_users ??
+    review?.showToUsers ??
+    review?.is_public ??
+    review?.visible_to_users ??
+    review?.visible;
+
+  if (normalizeIsPublicFlag(flag, true) === false) return false;
+
+  const urlRaw = getReviewUrl(review);
+  const url = normalizeExternalUrl(urlRaw);
+  if (!url) return false;
+
+  const linkStatus = asString(review?.link_status ?? review?.linkStatus).trim();
+  if (!linkStatus || linkStatus.toLowerCase() !== "ok") return false;
+
+  const mcRaw = review?.match_confidence ?? review?.matchConfidence;
+  const mc =
+    typeof mcRaw === "number" ? mcRaw : typeof mcRaw === "string" && mcRaw.trim() ? Number(mcRaw) : null;
+
+  if (typeof mc === "number" && Number.isFinite(mc) && mc < 0.7) return false;
+
+  return true;
+}
 
 function getReviewDate(review) {
   if (!review || typeof review !== "object") return "";
@@ -1109,7 +1151,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   ref
 ) {
   const stableId = asString(companyId).trim();
-  const [take, setTake] = useState(25);
+  const [take, setTake] = useState(1);
   const [includeExisting, setIncludeExisting] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -1128,7 +1170,9 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
     []
   );
 
-  const existingCount = Array.isArray(existingCuratedReviews) ? existingCuratedReviews.length : 0;
+  const existingList = Array.isArray(existingCuratedReviews) ? existingCuratedReviews : [];
+  const existingCount = existingList.length;
+  const existingVisibleCount = existingList.filter(isCuratedReviewPubliclyVisible).length;
   const selectedCount = items.reduce((sum, r) => sum + (r?.include ? 1 : 0), 0);
 
   const fetchReviews = useCallback(async () => {
@@ -1320,6 +1364,8 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           <div className="text-xs text-slate-500">Fetch editorial/pro reviews without running company enrichment.</div>
           <div className="mt-1 text-xs text-slate-600">
             Existing imported reviews: <span className="font-medium">{existingCount}</span>
+            <span className="mx-1">•</span>
+            Publicly visible: <span className="font-medium">{existingVisibleCount}</span>
           </div>
         </div>
 
@@ -1542,8 +1588,11 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   );
 });
 
-function ImportedReviewsPanel({ companyId }) {
+function ImportedReviewsPanel({ companyId, existingCuratedReviews }) {
   const stableId = asString(companyId).trim();
+  const savedItems = Array.isArray(existingCuratedReviews) ? existingCuratedReviews : [];
+  const savedVisibleCount = savedItems.filter(isCuratedReviewPubliclyVisible).length;
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [items, setItems] = useState([]);
@@ -1613,12 +1662,17 @@ function ImportedReviewsPanel({ companyId }) {
   }, [stableId]);
 
   return (
-    <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4">
+    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <div className="text-sm font-semibold text-slate-900">Imported reviews (read only)</div>
-          <div className="text-xs text-slate-500">
-            Fetched from <code className="text-[11px]">/api/get-reviews?company_id=…</code>
+          <div className="mt-1 text-xs text-slate-600">
+            Saved on company record: <span className="font-medium">{savedItems.length}</span>
+            <span className="mx-1">•</span>
+            Publicly visible: <span className="font-medium">{savedVisibleCount}</span>
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            Public list fetched from <code className="text-[11px]">/api/get-reviews?company_id=…</code>
           </div>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={load} disabled={!stableId || loading}>
@@ -1631,93 +1685,219 @@ function ImportedReviewsPanel({ companyId }) {
         <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
           Save the company first to generate a <code className="text-[11px]">company_id</code>.
         </div>
-      ) : error ? (
-        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 mt-0.5" />
-            <div className="min-w-0">
-              <div className="font-medium">Imported reviews failed to load</div>
-              <div className="text-xs mt-1 break-words">{asString(error.message)}</div>
-            </div>
-          </div>
-        </div>
-      ) : loading ? (
-        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">Loading imported reviews…</div>
-      ) : items.length === 0 ? (
-        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-          No imported reviews found for this company_id.
-        </div>
       ) : (
-        <div className="space-y-3">
-          {items.map((review, idx) => {
-            const sourceName = getReviewSourceName(review) || "Unknown source";
-            const text = getReviewText(review);
-            const urlRaw = getReviewUrl(review);
-            const url = normalizeExternalUrl(urlRaw);
-            const date = getReviewDate(review);
-            const rating = getReviewRating(review);
-            const metadata = extractReviewMetadata(review);
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <div className="text-xs font-medium text-slate-700">Saved curated reviews (company.curated_reviews)</div>
+            {savedItems.length === 0 ? (
+              <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                No curated reviews are saved on this company record.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {savedItems.map((review, idx) => {
+                  const sourceName = getReviewSourceName(review) || "Unknown source";
+                  const text = getReviewText(review);
+                  const urlRaw = getReviewUrl(review);
+                  const url = normalizeExternalUrl(urlRaw);
+                  const date = getReviewDate(review);
+                  const rating = getReviewRating(review);
 
-            return (
-              <div
-                key={asString(review?.id).trim() || `${stableId}-${idx}`}
-                className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
+                  const publishable = isCuratedReviewPubliclyVisible(review);
+                  const showToUsersFlag =
+                    review?.show_to_users ??
+                    review?.showToUsers ??
+                    review?.is_public ??
+                    review?.visible_to_users ??
+                    review?.visible;
+
+                  const showToUsers = normalizeIsPublicFlag(showToUsersFlag, true);
+                  const linkStatus = asString(review?.link_status ?? review?.linkStatus).trim();
+
+                  const mcRaw = review?.match_confidence ?? review?.matchConfidence;
+                  const mc =
+                    typeof mcRaw === "number" ? mcRaw : typeof mcRaw === "string" && mcRaw.trim() ? Number(mcRaw) : null;
+
+                  return (
+                    <div
+                      key={asString(review?.id).trim() || `${stableId}-saved-${idx}`}
+                      className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-slate-900 truncate">{sourceName}</div>
+                          {date ? <div className="text-xs text-slate-500">{toDisplayDate(date)}</div> : null}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={
+                              publishable
+                                ? "inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-900"
+                                : "inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700"
+                            }
+                            title={publishable ? "Returned by /api/get-reviews" : "Not returned by /api/get-reviews"}
+                          >
+                            {publishable ? "Public" : "Not public"}
+                          </span>
+
+                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                            {showToUsers ? "show_to_users" : "hidden"}
+                          </span>
+
+                          {linkStatus ? (
+                            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                              link_status: {linkStatus}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-900">
+                              link_status: missing
+                            </span>
+                          )}
+
+                          {typeof mc === "number" && Number.isFinite(mc) ? (
+                            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                              match: {mc.toFixed(2)}
+                            </span>
+                          ) : null}
+
+                          {rating != null ? (
+                            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                              Rating: {rating}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {asString(review?.title).trim() ? (
+                        <div className="text-xs font-medium text-slate-800">{asString(review.title).trim()}</div>
+                      ) : null}
+
+                      {text ? (
+                        <div className="text-sm text-slate-800 whitespace-pre-wrap break-words">{text}</div>
+                      ) : (
+                        <div className="text-xs text-slate-500">(No text snippet saved)</div>
+                      )}
+
+                      {url ? (
+                        <div className="text-xs">
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-700 hover:underline break-all"
+                            title={urlRaw}
+                          >
+                            {truncateMiddle(urlRaw, 90)}
+                          </a>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-slate-500">(No valid URL)</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-xs font-medium text-slate-700">Public reviews (returned by /api/get-reviews)</div>
+
+            {error ? (
+              <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 mt-0.5" />
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-slate-900 truncate">{sourceName}</div>
-                    {date ? <div className="text-xs text-slate-500">{toDisplayDate(date)}</div> : null}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {rating != null ? (
-                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
-                        Rating: {rating}
-                      </span>
-                    ) : null}
-                    {asString(review?.type).trim() ? (
-                      <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
-                        {asString(review.type).trim()}
-                      </span>
-                    ) : null}
+                    <div className="font-medium">Public reviews failed to load</div>
+                    <div className="text-xs mt-1 break-words">{asString(error.message)}</div>
                   </div>
                 </div>
-
-                {text ? (
-                  <div className="text-sm text-slate-800 whitespace-pre-wrap break-words">{text}</div>
-                ) : (
-                  <div className="text-xs text-slate-500">(No text snippet returned)</div>
-                )}
-
-                {url ? (
-                  <div className="text-xs">
-                    <a
-                      href={url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-blue-700 hover:underline break-all"
-                      title={urlRaw}
-                    >
-                      {truncateMiddle(urlRaw, 90)}
-                    </a>
-                  </div>
-                ) : null}
-
-                {metadata.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {metadata.map(([k, v]) => (
-                      <span
-                        key={k}
-                        className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700"
-                        title={`${k}: ${v}`}
-                      >
-                        {k}: {truncateMiddle(v, 40)}
-                      </span>
-                    ))}
+              </div>
+            ) : loading ? (
+              <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">Loading public reviews…</div>
+            ) : items.length === 0 ? (
+              <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                No public reviews returned for this company_id.
+                {savedItems.length > 0 && savedVisibleCount === 0 ? (
+                  <div className="mt-2 text-[11px] text-slate-500">
+                    Note: curated reviews are saved, but are not publishable until they have a valid URL, <code>link_status</code> set to <code>ok</code>, and (optionally) a high <code>match_confidence</code>.
                   </div>
                 ) : null}
               </div>
-            );
-          })}
+            ) : (
+              <div className="space-y-3">
+                {items.map((review, idx) => {
+                  const sourceName = getReviewSourceName(review) || "Unknown source";
+                  const text = getReviewText(review);
+                  const urlRaw = getReviewUrl(review);
+                  const url = normalizeExternalUrl(urlRaw);
+                  const date = getReviewDate(review);
+                  const rating = getReviewRating(review);
+                  const metadata = extractReviewMetadata(review);
+
+                  return (
+                    <div
+                      key={asString(review?.id).trim() || `${stableId}-public-${idx}`}
+                      className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-slate-900 truncate">{sourceName}</div>
+                          {date ? <div className="text-xs text-slate-500">{toDisplayDate(date)}</div> : null}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {rating != null ? (
+                            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                              Rating: {rating}
+                            </span>
+                          ) : null}
+                          {asString(review?.type).trim() ? (
+                            <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
+                              {asString(review.type).trim()}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {text ? (
+                        <div className="text-sm text-slate-800 whitespace-pre-wrap break-words">{text}</div>
+                      ) : (
+                        <div className="text-xs text-slate-500">(No text snippet returned)</div>
+                      )}
+
+                      {url ? (
+                        <div className="text-xs">
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-700 hover:underline break-all"
+                            title={urlRaw}
+                          >
+                            {truncateMiddle(urlRaw, 90)}
+                          </a>
+                        </div>
+                      ) : null}
+
+                      {metadata.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {metadata.map(([k, v]) => (
+                            <span
+                              key={k}
+                              className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700"
+                              title={`${k}: ${v}`}
+                            >
+                              {k}: {truncateMiddle(v, 40)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -4136,6 +4316,7 @@ export default function CompanyDashboard() {
                               asString(editorOriginalId).trim() ||
                               asString(editorCompanyId).trim()
                             }
+                            existingCuratedReviews={Array.isArray(editorDraft.curated_reviews) ? editorDraft.curated_reviews : []}
                           />
 
                           <CompanyNotesEditor
