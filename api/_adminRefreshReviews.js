@@ -657,36 +657,34 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
         fallbackResp = null;
       }
 
-      if (!fallbackResp) {
+      if (fallbackResp) {
         stage = "parse_xai_fallback";
-      }
+        const fallbackText =
+          fallbackResp?.data?.choices?.[0]?.message?.content ||
+          (typeof fallbackResp?.data === "string" ? fallbackResp.data : JSON.stringify(fallbackResp.data || {}));
 
-      stage = "parse_xai_fallback";
-      const fallbackText =
-        fallbackResp?.data?.choices?.[0]?.message?.content ||
-        (typeof fallbackResp?.data === "string" ? fallbackResp.data : JSON.stringify(fallbackResp.data || {}));
+        if (fallbackResp.status >= 200 && fallbackResp.status < 300) {
+          const parsedFallback = parseJsonArrayFromText(fallbackText);
+          items = parsedFallback.items;
+          parse_error = parsedFallback.parse_error;
 
-      if (fallbackResp.status >= 200 && fallbackResp.status < 300) {
-        const parsedFallback = parseJsonArrayFromText(fallbackText);
-        items = parsedFallback.items;
-        parse_error = parsedFallback.parse_error;
+          proposed = (Array.isArray(items) ? items : [])
+            .map(normalizeReviewCandidate)
+            .filter(Boolean)
+            .slice(0, take);
 
-        proposed = (Array.isArray(items) ? items : [])
-          .map(normalizeReviewCandidate)
-          .filter(Boolean)
-          .slice(0, take);
-
-        attemptsOut.push({
-          kind: "fallback",
-          parse_error: parse_error || null,
-          returned_count: proposed.length,
-        });
-      } else {
-        attemptsOut.push({
-          kind: "fallback",
-          parse_error: `Upstream HTTP ${fallbackResp.status}`,
-          returned_count: 0,
-        });
+          attemptsOut.push({
+            kind: "fallback",
+            parse_error: parse_error || null,
+            returned_count: proposed.length,
+          });
+        } else {
+          attemptsOut.push({
+            kind: "fallback",
+            parse_error: `Upstream HTTP ${fallbackResp.status}`,
+            returned_count: 0,
+          });
+        }
       }
     }
 
