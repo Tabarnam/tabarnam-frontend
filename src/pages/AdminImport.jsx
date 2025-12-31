@@ -1410,103 +1410,6 @@ export default function AdminImport() {
             <p className="text-sm text-slate-600">Start an import session and poll progress until it completes.</p>
           </header>
 
-          <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-slate-900">Import Debug Panel (temporary)</h2>
-              <div className="text-xs text-slate-500">Tries /api/import/start (fallback /api/import-start) and /api/import/status (fallback /api/import-status).</div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="md:col-span-2 space-y-1">
-                <label className="text-sm text-slate-700">Query string</label>
-                <Input
-                  value={debugQuery}
-                  onChange={(e) => setDebugQuery(e.target.value)}
-                  placeholder="query string"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-sm text-slate-700">Limit (number)</label>
-                <Input
-                  value={debugLimitInput}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    if (next === "" || /^\d+$/.test(next)) {
-                      setDebugLimitInput(next);
-                    }
-                  }}
-                  onBlur={() => setDebugLimitInput((prev) => String(normalizeImportLimit(prev)))}
-                  inputMode="numeric"
-                  placeholder="1"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm text-slate-700">Session id (for status)</label>
-              <Input value={debugSessionId} onChange={(e) => setDebugSessionId(e.target.value)} placeholder="session id" />
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={startDebugImport} disabled={debugStartLoading || startImportDisabled}>
-                {debugStartLoading ? "Starting…" : "Start (debug)"}
-              </Button>
-
-              <Button variant="outline" onClick={explainDebugImport} disabled={debugStartLoading}>
-                Explain payload
-              </Button>
-
-              <Button variant="outline" onClick={checkDebugStatus} disabled={debugStatusLoading || !debugSessionId.trim()}>
-                {debugStatusLoading ? "Checking…" : "Check Status"}
-              </Button>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                <div className="text-xs font-medium text-slate-700">session_id</div>
-                <div className="mt-1 flex items-start justify-between gap-2">
-                  <code className="text-xs text-slate-900 break-all">{debugSessionId || "—"}</code>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    disabled={!debugSessionId}
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(debugSessionId);
-                        toast.success("Copied session_id");
-                      } catch (e) {
-                        toast.error(e?.message || "Copy failed");
-                      }
-                    }}
-                  >
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className="mt-2 text-[11px] text-slate-600">
-                  Polling session_id: <code className="text-[11px] text-slate-900 break-all">{pollingSessionId || "—"}</code>
-                </div>
-
-                {sessionIdMismatchDebug ? (
-                  <pre className="mt-2 max-h-24 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">
-                    {toDisplayText(toPrettyJsonText(sessionIdMismatchDebug))}
-                  </pre>
-                ) : null}
-              </div>
-
-              <div className="rounded border border-slate-200 bg-slate-50 p-3">
-                <div className="text-xs font-medium text-slate-700">Start response</div>
-                <pre className="mt-2 max-h-48 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{toDisplayText(debugStartResponseText)}</pre>
-              </div>
-            </div>
-
-            <div className="rounded border border-slate-200 bg-slate-50 p-3">
-              <div className="text-xs font-medium text-slate-700">Status response</div>
-              <pre className="mt-2 max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{toDisplayText(debugStatusResponseText)}</pre>
-            </div>
-          </section>
 
           {!API_BASE ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 flex items-start gap-3">
@@ -2143,6 +2046,103 @@ export default function AdminImport() {
                   ) : null}
                 </>
               )}
+            </div>
+          </section>
+          <section className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-slate-900">Import Debug Panel (temporary)</h2>
+              <div className="text-xs text-slate-500">Tries /api/import/start (fallback /api/import-start) and /api/import/status (fallback /api/import-status).</div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="md:col-span-2 space-y-1">
+                <label className="text-sm text-slate-700">Query string</label>
+                <Input
+                  value={debugQuery}
+                  onChange={(e) => setDebugQuery(e.target.value)}
+                  placeholder="query string"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm text-slate-700">Limit (number)</label>
+                <Input
+                  value={debugLimitInput}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    if (next === "" || /^\d+$/.test(next)) {
+                      setDebugLimitInput(next);
+                    }
+                  }}
+                  onBlur={() => setDebugLimitInput((prev) => String(normalizeImportLimit(prev)))}
+                  inputMode="numeric"
+                  placeholder="1"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm text-slate-700">Session id (for status)</label>
+              <Input value={debugSessionId} onChange={(e) => setDebugSessionId(e.target.value)} placeholder="session id" />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={startDebugImport} disabled={debugStartLoading || startImportDisabled}>
+                {debugStartLoading ? "Starting…" : "Start (debug)"}
+              </Button>
+
+              <Button variant="outline" onClick={explainDebugImport} disabled={debugStartLoading}>
+                Explain payload
+              </Button>
+
+              <Button variant="outline" onClick={checkDebugStatus} disabled={debugStatusLoading || !debugSessionId.trim()}>
+                {debugStatusLoading ? "Checking…" : "Check Status"}
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <div className="rounded border border-slate-200 bg-slate-50 p-3">
+                <div className="text-xs font-medium text-slate-700">session_id</div>
+                <div className="mt-1 flex items-start justify-between gap-2">
+                  <code className="text-xs text-slate-900 break-all">{debugSessionId || "—"}</code>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled={!debugSessionId}
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(debugSessionId);
+                        toast.success("Copied session_id");
+                      } catch (e) {
+                        toast.error(e?.message || "Copy failed");
+                      }
+                    }}
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="mt-2 text-[11px] text-slate-600">
+                  Polling session_id: <code className="text-[11px] text-slate-900 break-all">{pollingSessionId || "—"}</code>
+                </div>
+
+                {sessionIdMismatchDebug ? (
+                  <pre className="mt-2 max-h-24 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">
+                    {toDisplayText(toPrettyJsonText(sessionIdMismatchDebug))}
+                  </pre>
+                ) : null}
+              </div>
+
+              <div className="rounded border border-slate-200 bg-slate-50 p-3">
+                <div className="text-xs font-medium text-slate-700">Start response</div>
+                <pre className="mt-2 max-h-48 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{toDisplayText(debugStartResponseText)}</pre>
+              </div>
+            </div>
+
+            <div className="rounded border border-slate-200 bg-slate-50 p-3">
+              <div className="text-xs font-medium text-slate-700">Status response</div>
+              <pre className="mt-2 max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">{toDisplayText(debugStatusResponseText)}</pre>
             </div>
           </section>
         </main>
