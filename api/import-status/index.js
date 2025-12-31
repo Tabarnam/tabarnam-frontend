@@ -396,7 +396,7 @@ async function handler(req, context) {
       const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
       const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
-      if (endpoint && key) {
+      if (endpoint && key && CosmosClient) {
         const client = new CosmosClient({ endpoint, key });
         const container = client.database(databaseId).container(containerId);
 
