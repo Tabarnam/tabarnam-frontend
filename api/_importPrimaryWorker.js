@@ -322,19 +322,19 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
 
   const HARD_MAX_RUNTIME_MS = Math.max(
     10_000,
-    toPositiveInt(process.env.IMPORT_PRIMARY_HARD_TIMEOUT_MS, 120_000)
+    toPositiveInt(process.env.IMPORT_PRIMARY_HARD_TIMEOUT_MS, 300_000)
   );
   const NO_CANDIDATES_AFTER_MS = Math.max(
     5_000,
-    toPositiveInt(process.env.IMPORT_PRIMARY_NO_CANDIDATES_MS, 60_000)
+    toPositiveInt(process.env.IMPORT_PRIMARY_NO_CANDIDATES_MS, 300_000)
   );
   const UPSTREAM_TIMEOUT_CAP_MS = Math.max(
     5_000,
-    toPositiveInt(process.env.IMPORT_PRIMARY_UPSTREAM_TIMEOUT_CAP_MS, 45_000)
+    toPositiveInt(process.env.IMPORT_PRIMARY_UPSTREAM_TIMEOUT_CAP_MS, 300_000)
   );
   const UPSTREAM_TIMEOUT_CAP_SINGLE_MS = Math.max(
     5_000,
-    toPositiveInt(process.env.IMPORT_PRIMARY_UPSTREAM_TIMEOUT_CAP_SINGLE_MS, 25_000)
+    toPositiveInt(process.env.IMPORT_PRIMARY_UPSTREAM_TIMEOUT_CAP_SINGLE_MS, 300_000)
   );
 
   const state = String(existing?.job_state || "queued");
@@ -342,7 +342,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
 
   const HEARTBEAT_STALE_MS = Number.isFinite(Number(process.env.IMPORT_HEARTBEAT_STALE_MS))
     ? Math.max(5_000, Number(process.env.IMPORT_HEARTBEAT_STALE_MS))
-    : 120_000;
+    : 330_000;
 
   if (state === "queued") {
     const createdTs = getJobCreatedTimestamp(existing);
@@ -471,7 +471,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
 
   const LOCK_TTL_MS = Number.isFinite(Number(process.env.IMPORT_LOCK_TTL_MS))
     ? Math.max(5_000, Number(process.env.IMPORT_LOCK_TTL_MS))
-    : 60_000;
+    : 360_000;
 
   const claim = await tryClaimJob({
     sessionId,
@@ -639,7 +639,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
     };
   }
 
-  const maxAttempts = 3;
+  const maxAttempts = Math.max(1, toPositiveInt(process.env.IMPORT_PRIMARY_MAX_ATTEMPTS, 5));
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const nowAttemptTs = Date.now();
@@ -911,7 +911,9 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
         };
       }
 
-      const backoffMs = attempt === 1 ? 1000 : attempt === 2 ? 2000 : 4000;
+      const baseBackoffMs = Math.min(30_000, 1000 * 2 ** (attempt - 1));
+      const jitterMs = Math.floor(Math.random() * 500);
+      const backoffMs = baseBackoffMs + jitterMs;
       await sleep(Math.min(backoffMs, Math.max(0, HARD_MAX_RUNTIME_MS - getRuntime(Date.now()).elapsed_ms)));
     }
   }
