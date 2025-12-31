@@ -1567,6 +1567,18 @@ export default function AdminImport() {
               )}
             </div>
 
+            {skipEnrichmentWarning ? (
+              <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 mt-0.5" />
+                <div className="space-y-0.5">
+                  <div className="font-semibold">You are skipping enrichment</div>
+                  <div className="text-xs text-amber-900/90">
+                    Saved companies will be stub profiles. Skipped stages: {skipEnrichmentWarning.skippedEnrichment.join(", ")}.
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             <div className="flex flex-wrap items-center gap-2">
               <Button type="button" onClick={handleStartImportStaged} disabled={startImportDisabled}>
                 <Play className="h-4 w-4 mr-2" />
