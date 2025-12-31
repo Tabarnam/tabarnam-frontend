@@ -705,8 +705,13 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
   }
 
   const requestedStageMsPrimaryBase = Math.max(1000, Number(job?.requested_stage_ms_primary) || 20_000);
+
+  // When driven by /import/status polling, keep the handler bounded, but not so short that every upstream call times out.
+  // Default is 60s; can be overridden via IMPORT_PRIMARY_STATUS_STAGE_MS.
+  const statusStageMsCap = Math.max(5_000, toPositiveInt(process.env.IMPORT_PRIMARY_STATUS_STAGE_MS, 60_000));
+
   const requestedStageMsPrimary =
-    invocationSource === "status" ? Math.min(requestedStageMsPrimaryBase, 20_000) : requestedStageMsPrimaryBase;
+    invocationSource === "status" ? Math.min(requestedStageMsPrimaryBase, statusStageMsCap) : requestedStageMsPrimaryBase;
 
   let outboundBody = typeof job?.xai_outbound_body === "string" ? job.xai_outbound_body : "";
 
