@@ -241,10 +241,12 @@ async function findExistingCompany(container, normalizedDomain, companyName) {
   const name = String(companyName || "").trim();
   const nameLower = name.toLowerCase();
 
+  const notDeletedClause = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
+
   try {
     if (domain && domain !== "unknown") {
       const q = {
-        query: `SELECT TOP 1 c.id, c.normalized_domain FROM c WHERE NOT STARTSWITH(c.id, '_import_') AND c.normalized_domain = @domain`,
+        query: `SELECT TOP 1 c.id, c.normalized_domain FROM c WHERE NOT STARTSWITH(c.id, '_import_') AND ${notDeletedClause} AND c.normalized_domain = @domain`,
         parameters: [{ name: "@domain", value: domain }],
       };
 
@@ -252,12 +254,18 @@ async function findExistingCompany(container, normalizedDomain, companyName) {
         .query(q, { enableCrossPartitionQuery: true })
         .fetchAll();
 
-      if (Array.isArray(resources) && resources[0]) return resources[0];
+      if (Array.isArray(resources) && resources[0]) {
+        return {
+          ...resources[0],
+          duplicate_match_key: "normalized_domain",
+          duplicate_match_value: domain,
+        };
+      }
     }
 
     if (nameLower) {
       const q = {
-        query: `SELECT TOP 1 c.id, c.company_name, c.name FROM c WHERE NOT STARTSWITH(c.id, '_import_') AND (LOWER(c.company_name) = @name OR LOWER(c.name) = @name)`,
+        query: `SELECT TOP 1 c.id, c.company_name, c.name FROM c WHERE NOT STARTSWITH(c.id, '_import_') AND ${notDeletedClause} AND (LOWER(c.company_name) = @name OR LOWER(c.name) = @name)`,
         parameters: [{ name: "@name", value: nameLower }],
       };
 
@@ -265,7 +273,13 @@ async function findExistingCompany(container, normalizedDomain, companyName) {
         .query(q, { enableCrossPartitionQuery: true })
         .fetchAll();
 
-      if (Array.isArray(resources) && resources[0]) return resources[0];
+      if (Array.isArray(resources) && resources[0]) {
+        return {
+          ...resources[0],
+          duplicate_match_key: "company_name",
+          duplicate_match_value: nameLower,
+        };
+      }
     }
   } catch (e) {
     console.warn(`[save-companies] duplicate check failed: ${e?.message || String(e)}`);
@@ -333,6 +347,7 @@ app.http("save-companies", {
 
       const saved_ids = [];
       const skipped_ids = [];
+      const skipped_duplicates = [];
       const failed_items = [];
       const errors = [];
 
@@ -371,6 +386,13 @@ app.http("save-companies", {
           if (existing) {
             skipped += 1;
             if (existing?.id) skipped_ids.push(existing.id);
+            skipped_duplicates.push({
+              company_name: companyName,
+              duplicate_of_id: existing?.id || null,
+              duplicate_match_key: existing?.duplicate_match_key || null,
+              duplicate_match_value: existing?.duplicate_match_value || null,
+              normalized_domain: normalizedDomain,
+            });
             continue;
           }
 
@@ -524,6 +546,7 @@ app.http("save-companies", {
             failed,
             saved_ids,
             skipped_ids,
+            skipped_duplicates,
             failed_items,
           };
 
@@ -559,6 +582,7 @@ app.http("save-companies", {
           session_id: sessionId,
           saved_ids,
           skipped_ids,
+          skipped_duplicates: skipped_duplicates.length > 0 ? skipped_duplicates : [],
           failed_items: failed_items.length > 0 ? failed_items : [],
           errors: errors.length > 0 ? errors : undefined,
         },
