@@ -9,6 +9,7 @@ const { getBuildInfo } = require("../_buildInfo");
 const { hasRoute } = require("../_app");
 const { computeTopLevelDiff, writeCompanyEditHistoryEntry, getCompanyEditHistoryContainer } = require("../_companyEditHistory");
 const { geocodeLocationArray, pickPrimaryLatLng, extractLatLng } = require("../_geocode");
+const { computeProfileCompleteness } = require("../_profileCompleteness");
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "admin-companies-v2";
@@ -759,6 +760,13 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           if (Object.prototype.hasOwnProperty.call(doc, "display_name")) delete doc.display_name;
           if (Object.prototype.hasOwnProperty.call(doc, "displayName")) delete doc.displayName;
         }
+
+        try {
+          const completeness = computeProfileCompleteness(doc);
+          doc.profile_completeness = completeness.profile_completeness;
+          doc.profile_completeness_version = completeness.profile_completeness_version;
+          doc.profile_completeness_meta = completeness.profile_completeness_meta;
+        } catch {}
 
         context.log("[admin-companies-v2] Upserting company", {
           id: partitionKeyValue,
