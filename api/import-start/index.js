@@ -2311,6 +2311,7 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
       skipped: 0,
       saved_ids: [],
       skipped_ids: [],
+      skipped_duplicates: [],
       failed_items: [{ index: null, company_name: "", error: e?.message || String(e || "save_failed") }],
     };
   }
