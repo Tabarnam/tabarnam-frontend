@@ -1449,8 +1449,8 @@ export default function AdminImport() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={startDebugImport} disabled={debugStartLoading}>
-                {debugStartLoading ? "Starting…" : "Start Import"}
+              <Button variant="outline" onClick={startDebugImport} disabled={debugStartLoading || startImportDisabled}>
+                {debugStartLoading ? "Starting…" : "Start (debug)"}
               </Button>
 
               <Button variant="outline" onClick={explainDebugImport} disabled={debugStartLoading}>
@@ -1597,7 +1597,7 @@ export default function AdminImport() {
             <div className="flex flex-wrap items-center gap-2">
               <Button type="button" onClick={handleStartImportStaged} disabled={startImportDisabled}>
                 <Play className="h-4 w-4 mr-2" />
-                {activeStatus === "running" ? "Running…" : "Start import (staged)"}
+                {activeStatus === "running" ? "Running…" : "Start import"}
               </Button>
 
               <Button
