@@ -1189,7 +1189,7 @@ export default function AdminImport() {
     try {
       const res = await apiFetch("/save-companies", {
         method: "POST",
-        body: { companies },
+        body: { companies, session_id },
       });
 
       const body = await readJsonOrText(res);
