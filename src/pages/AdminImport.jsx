@@ -945,9 +945,9 @@ export default function AdminImport() {
             last_error: {
               code: stage === "primary" ? "primary_timeout" : "stage_timeout",
               message:
-                stage === "primary" ? "Primary import timed out (120s hard cap)." : `Stage \"${stage}\" did not reach a terminal state.`,
+                stage === "primary" ? "Primary import timed out." : `Stage \"${stage}\" did not reach a terminal state.`,
             },
-            error: stage === "primary" ? "Primary import timed out (120s hard cap)." : `Stage \"${stage}\" did not reach a terminal state.`,
+            error: stage === "primary" ? "Primary import timed out." : `Stage \"${stage}\" did not reach a terminal state.`,
           },
         };
       };
