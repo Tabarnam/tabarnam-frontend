@@ -495,6 +495,13 @@ app.http("save-companies", {
             updated_at: nowIso,
           };
 
+          try {
+            const completeness = computeProfileCompleteness(doc);
+            doc.profile_completeness = completeness.profile_completeness;
+            doc.profile_completeness_version = completeness.profile_completeness_version;
+            doc.profile_completeness_meta = completeness.profile_completeness_meta;
+          } catch {}
+
           if (!doc.company_name && !doc.url) {
             skipped += 1;
             errors.push("Skipped entry: no company_name or url");
