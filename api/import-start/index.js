@@ -1993,6 +1993,40 @@ function buildImportControlDocBase(sessionId) {
   };
 }
 
+async function upsertCosmosImportSessionDoc({ sessionId, requestId, patch }) {
+  try {
+    const sid = String(sessionId || "").trim();
+    if (!sid) return { ok: false, error: "missing_session_id" };
+
+    const container = getCompaniesCosmosContainer();
+    if (!container) return { ok: false, error: "no_container" };
+
+    const id = `_import_session_${sid}`;
+
+    const existing = await readItemWithPkCandidates(container, id, {
+      id,
+      ...buildImportControlDocBase(sid),
+      created_at: "",
+    });
+
+    const createdAt = existing?.created_at || new Date().toISOString();
+    const existingRequest = existing?.request && typeof existing.request === "object" ? existing.request : null;
+
+    const sessionDoc = {
+      id,
+      ...buildImportControlDocBase(sid),
+      created_at: createdAt,
+      request_id: requestId,
+      ...(existingRequest ? { request: existingRequest } : {}),
+      ...(patch && typeof patch === "object" ? patch : {}),
+    };
+
+    return await upsertItemWithPkCandidates(container, sessionDoc);
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e || "session_upsert_failed") };
+  }
+}
+
 // Check if a session has been stopped
 async function checkIfSessionStopped(sessionId) {
   try {
@@ -4452,6 +4486,19 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   } else {
                     console.log(`[import-start] request_id=${requestId} session=${sessionId} completion marker written`);
                   }
+
+                  await upsertCosmosImportSessionDoc({
+                    sessionId,
+                    requestId,
+                    patch: {
+                      status: "complete",
+                      stage_beacon,
+                      saved: 0,
+                      skipped: 0,
+                      failed: 0,
+                      completed_at: completionDoc.completed_at,
+                    },
+                  }).catch(() => null);
                 }
               } catch (e) {
                 console.warn(
@@ -5353,6 +5400,19 @@ Return ONLY the JSON array, no other text.`,
                     `[import-start] request_id=${requestId} session=${sessionId} completion marker written (saved=${saveResult.saved})`
                   );
                 }
+
+                await upsertCosmosImportSessionDoc({
+                  sessionId,
+                  requestId,
+                  patch: {
+                    status: timedOut ? "timeout" : "complete",
+                    stage_beacon,
+                    saved: saveResult.saved,
+                    skipped: saveResult.skipped,
+                    failed: saveResult.failed,
+                    completed_at: completionDoc.completed_at,
+                  },
+                }).catch(() => null);
               }
             } catch (e) {
               console.warn(
