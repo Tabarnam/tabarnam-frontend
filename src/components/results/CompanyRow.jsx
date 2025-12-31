@@ -11,6 +11,7 @@ import { calcStars } from "@/lib/stars/calcStars";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { getCompanyDisplayName } from "@/lib/companyDisplayName";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
+import { getProfileCompleteness, getProfileCompletenessLabel } from "@/lib/profileCompleteness";
 
 const TranslatedText = ({ originalText, translation, loading }) => {
   if (loading)
@@ -70,6 +71,17 @@ const CompanyRow = ({
   const { toast } = useToast();
 
   const displayName = getCompanyDisplayName(company);
+
+  const profileCompleteness = getProfileCompleteness(company);
+  const profileCompletenessLabel = getProfileCompletenessLabel(profileCompleteness);
+  const profileCompletenessTone =
+    profileCompleteness >= 85
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      : profileCompleteness >= 60
+        ? "border-blue-200 bg-blue-50 text-blue-800"
+        : profileCompleteness >= 35
+          ? "border-amber-200 bg-amber-50 text-amber-900"
+          : "border-red-200 bg-red-50 text-red-800";
 
   const { translatedText: translatedName, loading: nameLoading } = useTranslation(
     displayName,
@@ -162,6 +174,12 @@ const CompanyRow = ({
               loading={nameLoading && viewTranslated}
             />
           </p>
+
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px]", profileCompletenessTone)}>
+              {profileCompletenessLabel} · {profileCompleteness}%
+            </span>
+          </div>
         </td>
 
         {/* Logo column with admin Add button if missing */}

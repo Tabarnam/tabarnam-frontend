@@ -35,6 +35,8 @@ const {
   validateCuratedReviewCandidate,
   checkUrlHealthAndFetchText,
 } = require("../_reviewQuality");
+const { fillCompanyBaselineFromWebsite } = require("../_websiteBaseline");
+const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { getBuildInfo } = require("../_buildInfo");
 const { getImportStartHandlerVersion } = require("../_handlerVersions");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
@@ -1471,44 +1473,64 @@ async function geocodeHQLocation(address, { timeoutMs = 5000 } = {}) {
   };
 }
 
-// Check if company already exists by normalized domain
+// Check if company already exists by normalized domain / company name.
+// IMPORTANT: Dedupe only against active companies (ignore soft-deleted rows).
 async function findExistingCompany(container, normalizedDomain, companyName) {
   if (!container) return null;
 
-  const nameValue = (companyName || "").toLowerCase();
+  const domain = String(normalizedDomain || "").trim();
+  const nameValue = String(companyName || "").trim().toLowerCase();
+
+  const notDeletedClause = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
 
   try {
-    let query;
-    let parameters;
+    if (domain && domain !== "unknown") {
+      const query = `
+        SELECT TOP 1 c.id
+        FROM c
+        WHERE ${notDeletedClause}
+          AND c.normalized_domain = @domain
+      `;
 
-    if (normalizedDomain && normalizedDomain !== "unknown") {
-      query = `
-        SELECT c.id
-        FROM c
-        WHERE c.normalized_domain = @domain
-           OR LOWER(c.company_name) = @name
-      `;
-      parameters = [
-        { name: "@domain", value: normalizedDomain },
-        { name: "@name", value: nameValue },
-      ];
-    } else {
-      // If domain is unknown, only dedupe by name, not by 'unknown'
-      query = `
-        SELECT c.id
-        FROM c
-        WHERE LOWER(c.company_name) = @name
-      `;
-      parameters = [
-        { name: "@name", value: nameValue },
-      ];
+      const parameters = [{ name: "@domain", value: domain }];
+
+      const { resources } = await container.items
+        .query({ query, parameters }, { enableCrossPartitionQuery: true })
+        .fetchAll();
+
+      if (Array.isArray(resources) && resources[0]) {
+        return {
+          ...resources[0],
+          duplicate_match_key: "normalized_domain",
+          duplicate_match_value: domain,
+        };
+      }
     }
 
-    const { resources } = await container.items
-      .query({ query, parameters }, { enableCrossPartitionQuery: true })
-      .fetchAll();
+    if (nameValue) {
+      const query = `
+        SELECT TOP 1 c.id
+        FROM c
+        WHERE ${notDeletedClause}
+          AND LOWER(c.company_name) = @name
+      `;
 
-    return resources && resources.length > 0 ? resources[0] : null;
+      const parameters = [{ name: "@name", value: nameValue }];
+
+      const { resources } = await container.items
+        .query({ query, parameters }, { enableCrossPartitionQuery: true })
+        .fetchAll();
+
+      if (Array.isArray(resources) && resources[0]) {
+        return {
+          ...resources[0],
+          duplicate_match_key: "company_name",
+          duplicate_match_value: nameValue,
+        };
+      }
+    }
+
+    return null;
   } catch (e) {
     console.warn(`[import-start] Error checking for existing company: ${e.message}`);
     return null;
@@ -2080,6 +2102,7 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
 
     const saved_ids = [];
     const skipped_ids = [];
+    const skipped_duplicates = [];
     const failed_items = [];
 
     // Process companies in batches for better concurrency
@@ -2116,7 +2139,14 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
             const existing = await findExistingCompany(container, normalizedDomain, companyName);
             if (existing) {
               console.log(`[import-start] Skipping duplicate company: ${companyName} (${normalizedDomain})`);
-              return { type: "skipped", index: companyIndex, company_name: companyName, existing_id: existing?.id || null };
+              return {
+                type: "skipped",
+                index: companyIndex,
+                company_name: companyName,
+                duplicate_of_id: existing?.id || null,
+                duplicate_match_key: existing?.duplicate_match_key || null,
+                duplicate_match_value: existing?.duplicate_match_value || null,
+              };
             }
 
             const finalNormalizedDomain =
@@ -2199,6 +2229,13 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
               updated_at: new Date().toISOString(),
             };
 
+            try {
+              const completeness = computeProfileCompleteness(doc);
+              doc.profile_completeness = completeness.profile_completeness;
+              doc.profile_completeness_version = completeness.profile_completeness_version;
+              doc.profile_completeness_meta = completeness.profile_completeness_meta;
+            } catch {}
+
             if (!doc.company_name && !doc.url) {
               return {
                 type: "failed",
@@ -2223,7 +2260,9 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
                 type: "skipped",
                 index: companyIndex,
                 company_name: companyName,
-                existing_id: null,
+                duplicate_of_id: null,
+                duplicate_match_key: null,
+                duplicate_match_value: null,
               };
             }
 
@@ -2243,7 +2282,14 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
 
         if (result.type === "skipped") {
           skipped++;
-          if (result.existing_id) skipped_ids.push(result.existing_id);
+          if (result.duplicate_of_id) skipped_ids.push(result.duplicate_of_id);
+          skipped_duplicates.push({
+            index: Number.isFinite(Number(result.index)) ? Number(result.index) : null,
+            company_name: String(result.company_name || ""),
+            duplicate_of_id: result.duplicate_of_id || null,
+            duplicate_match_key: result.duplicate_match_key || null,
+            duplicate_match_value: result.duplicate_match_value || null,
+          });
           continue;
         }
 
@@ -2265,7 +2311,7 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
       }
     }
 
-    return { saved, failed, skipped, saved_ids, skipped_ids, failed_items };
+    return { saved, failed, skipped, saved_ids, skipped_ids, skipped_duplicates, failed_items };
   } catch (e) {
     console.error("[import-start] Error in saveCompaniesToCosmos:", e.message);
     return {
@@ -2274,6 +2320,7 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
       skipped: 0,
       saved_ids: [],
       skipped_ids: [],
+      skipped_duplicates: [],
       failed_items: [{ index: null, company_name: "", error: e?.message || String(e || "save_failed") }],
     };
   }
@@ -3185,6 +3232,8 @@ const importStartHandlerInner = async (req, context) => {
                 queryTypes: Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [],
                 location: String(bodyObj.location || ""),
                 limit: Number(bodyObj.limit) || 0,
+                max_stage: String(maxStage || ""),
+                skip_stages: Array.from(skipStages),
               },
             };
             const result = await upsertItemWithPkCandidates(container, sessionDoc);
@@ -4501,6 +4550,39 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           let enriched = companies.map((c) => enrichCompany(c, center));
           enrichedForCounts = enriched;
 
+          // When enrichment stages are skipped (or max_stage prevents them), still populate a baseline profile
+          // deterministically from the company's own website. This is especially important for company_url shortcut runs.
+          const downstreamStagesSkipped =
+            !shouldRunStage("keywords") || !shouldRunStage("reviews") || !shouldRunStage("location");
+
+          const baselineEligible = queryTypes.includes("company_url") || enriched.length <= 3;
+
+          if (baselineEligible && downstreamStagesSkipped) {
+            try {
+              const remaining = getRemainingMs();
+              if (remaining > 7000) {
+                setStage("baselineWebsiteParse");
+
+                const baselineConcurrency = queryTypes.includes("company_url") ? 1 : 2;
+                enriched = await mapWithConcurrency(enriched, baselineConcurrency, async (company) => {
+                  try {
+                    return await fillCompanyBaselineFromWebsite(company, {
+                      timeoutMs: queryTypes.includes("company_url") ? 7000 : 5000,
+                      extraPageTimeoutMs: 3500,
+                    });
+                  } catch (e) {
+                    if (e instanceof AcceptedResponseError) throw e;
+                    return company;
+                  }
+                });
+
+                enrichedForCounts = enriched;
+              }
+            } catch (e) {
+              if (e instanceof AcceptedResponseError) throw e;
+            }
+          }
+
           // Early exit if no companies found
           if (enriched.length === 0) {
             console.log(`[import-start] session=${sessionId} no companies found in XAI response, returning early`);
@@ -5486,6 +5568,7 @@ Return ONLY the JSON array, no other text.`,
                       failed: saveResult.failed,
                       saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
                       skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                      skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
                       failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
                     };
 
@@ -5565,6 +5648,7 @@ Return ONLY the JSON array, no other text.`,
                 failed: saveResult.failed,
                 saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
                 skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
                 failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
               },
               ...(debugOutput ? { debug: debugOutput } : {}),

@@ -1335,6 +1335,23 @@ export default function AdminImport() {
     return `Searching for matching companies${suffix}`;
   }, [activeRun]);
 
+  const skipEnrichmentWarning = useMemo(() => {
+    if (!activeRun) return null;
+
+    const report = activeRun.report && typeof activeRun.report === "object" ? activeRun.report : null;
+    const session = report?.session && typeof report.session === "object" ? report.session : null;
+    const request = session?.request && typeof session.request === "object" ? session.request : null;
+
+    const skipStages = Array.isArray(request?.skip_stages) ? request.skip_stages.map((s) => asString(s).trim()).filter(Boolean) : [];
+    if (skipStages.length === 0) return null;
+
+    const enrichmentStages = new Set(["keywords", "reviews", "location"]);
+    const skippedEnrichment = skipStages.filter((s) => enrichmentStages.has(s));
+    if (skippedEnrichment.length === 0) return null;
+
+    return { skipStages, skippedEnrichment };
+  }, [activeRun]);
+
   const plainEnglishProgress = useMemo(() => {
     if (!activeRun) {
       return {
@@ -1549,6 +1566,18 @@ export default function AdminImport() {
                 <div className="text-xs text-slate-600">If you provide a location, results that match it are ranked higher.</div>
               )}
             </div>
+
+            {skipEnrichmentWarning ? (
+              <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 mt-0.5" />
+                <div className="space-y-0.5">
+                  <div className="font-semibold">You are skipping enrichment</div>
+                  <div className="text-xs text-amber-900/90">
+                    Saved companies will be stub profiles. Skipped stages: {skipEnrichmentWarning.skippedEnrichment.join(", ")}.
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             <div className="flex flex-wrap items-center gap-2">
               <Button type="button" onClick={handleStartImportStaged} disabled={startImportDisabled}>
