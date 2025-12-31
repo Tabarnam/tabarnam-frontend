@@ -727,7 +727,13 @@ test("/api/import/start uses provided session_id for async primary job and impor
 });
 
 test("/api/import/start?max_stage=primary does not mark session complete in /api/import/status", async () => {
-  await withTempEnv(NO_NETWORK_ENV, async () => {
+  await withTempEnv(
+    {
+      ...NO_NETWORK_ENV,
+      XAI_EXTERNAL_BASE: "https://api.x.ai",
+      XAI_EXTERNAL_KEY: "test_key",
+    },
+    async () => {
     const { _test: sessionStoreTest } = require("../_importSessionStore");
     const store = sessionStoreTest.getState();
     store.map.clear();
