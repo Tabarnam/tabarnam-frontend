@@ -4,7 +4,12 @@ try {
 } catch {
   app = { http() {} };
 }
-const { CosmosClient } = require("@azure/cosmos");
+let CosmosClient;
+try {
+  ({ CosmosClient } = require("@azure/cosmos"));
+} catch {
+  CosmosClient = null;
+}
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { getJob: getImportPrimaryJob, patchJob: patchImportPrimaryJob } = require("../_importPrimaryJobStore");
 const { runPrimaryJob } = require("../_importPrimaryWorker");
@@ -391,7 +396,7 @@ async function handler(req, context) {
       const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
       const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
-      if (endpoint && key) {
+      if (endpoint && key && CosmosClient) {
         const client = new CosmosClient({ endpoint, key });
         const container = client.database(databaseId).container(containerId);
 
@@ -652,6 +657,18 @@ async function handler(req, context) {
   }
 
   try {
+    if (!CosmosClient) {
+      return jsonWithSessionId(
+        {
+          ok: false,
+          session_id: sessionId,
+          error: "Cosmos client module unavailable",
+          code: "COSMOS_MODULE_MISSING",
+        },
+        200
+      );
+    }
+
     const client = new CosmosClient({ endpoint, key });
     const container = client.database(databaseId).container(containerId);
 
