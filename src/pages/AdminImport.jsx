@@ -1335,6 +1335,23 @@ export default function AdminImport() {
     return `Searching for matching companies${suffix}`;
   }, [activeRun]);
 
+  const skipEnrichmentWarning = useMemo(() => {
+    if (!activeRun) return null;
+
+    const report = activeRun.report && typeof activeRun.report === "object" ? activeRun.report : null;
+    const session = report?.session && typeof report.session === "object" ? report.session : null;
+    const request = session?.request && typeof session.request === "object" ? session.request : null;
+
+    const skipStages = Array.isArray(request?.skip_stages) ? request.skip_stages.map((s) => asString(s).trim()).filter(Boolean) : [];
+    if (skipStages.length === 0) return null;
+
+    const enrichmentStages = new Set(["keywords", "reviews", "location"]);
+    const skippedEnrichment = skipStages.filter((s) => enrichmentStages.has(s));
+    if (skippedEnrichment.length === 0) return null;
+
+    return { skipStages, skippedEnrichment };
+  }, [activeRun]);
+
   const plainEnglishProgress = useMemo(() => {
     if (!activeRun) {
       return {
