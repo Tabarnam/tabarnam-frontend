@@ -2258,8 +2258,8 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
   }
 }
 
-// Max time to spend processing (4 minutes, safe from Azure's 5 minute timeout)
-const MAX_PROCESSING_TIME_MS = 4 * 60 * 1000;
+// Max time to spend processing (5 minutes)
+const MAX_PROCESSING_TIME_MS = 5 * 60 * 1000;
 
 const importStartHandlerInner = async (req, context) => {
     const requestId = generateRequestId(req);
@@ -2683,7 +2683,7 @@ const importStartHandlerInner = async (req, context) => {
 
       const requested_deadline_ms = requested_deadline_ms_number
         ? Math.max(5_000, Math.min(requested_deadline_ms_number, MAX_PROCESSING_TIME_MS))
-        : 45_000;
+        : 300_000;
 
       const deadlineMs = Date.now() + requested_deadline_ms;
 
