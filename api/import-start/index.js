@@ -1025,7 +1025,7 @@ function resolveXaiEndpointForModel(rawEndpoint, model) {
   if (!u) return raw;
 
   const pathLower = String(u.pathname || "").toLowerCase();
-  if (pathLower.includes("/proxy-xai")) return u.toString();
+  if (pathLower.includes("/proxy-xai") || pathLower.includes("/api/xai")) return u.toString();
 
   const alreadyChat = /\/v1\/chat\/completions\/?$/i.test(u.pathname || "");
   const alreadyResponses = /\/v1\/responses\/?$/i.test(u.pathname || "");
@@ -1991,6 +1991,40 @@ function buildImportControlDocBase(sessionId) {
     type: "import_control",
     updated_at: new Date().toISOString(),
   };
+}
+
+async function upsertCosmosImportSessionDoc({ sessionId, requestId, patch }) {
+  try {
+    const sid = String(sessionId || "").trim();
+    if (!sid) return { ok: false, error: "missing_session_id" };
+
+    const container = getCompaniesCosmosContainer();
+    if (!container) return { ok: false, error: "no_container" };
+
+    const id = `_import_session_${sid}`;
+
+    const existing = await readItemWithPkCandidates(container, id, {
+      id,
+      ...buildImportControlDocBase(sid),
+      created_at: "",
+    });
+
+    const createdAt = existing?.created_at || new Date().toISOString();
+    const existingRequest = existing?.request && typeof existing.request === "object" ? existing.request : null;
+
+    const sessionDoc = {
+      id,
+      ...buildImportControlDocBase(sid),
+      created_at: createdAt,
+      request_id: requestId,
+      ...(existingRequest ? { request: existingRequest } : {}),
+      ...(patch && typeof patch === "object" ? patch : {}),
+    };
+
+    return await upsertItemWithPkCandidates(container, sessionDoc);
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e || "session_upsert_failed") };
+  }
 }
 
 // Check if a session has been stopped
@@ -3284,9 +3318,14 @@ const importStartHandlerInner = async (req, context) => {
         );
       };
 
-      const checkDeadlineOrReturn = (nextStageBeacon) => {
+      const checkDeadlineOrReturn = (nextStageBeacon, stageKey) => {
         if (Date.now() > deadlineMs) {
-          return respondAcceptedBeforeGatewayTimeout(nextStageBeacon, "deadline_exceeded_returning_202");
+          // Only primary is allowed to return 202 + continue async.
+          // For downstream enrichment stages, skip the stage and proceed to saving.
+          if (stageKey === "primary") {
+            return respondAcceptedBeforeGatewayTimeout(nextStageBeacon, "deadline_exceeded_returning_202");
+          }
+          return null;
         }
         return null;
       };
@@ -3377,9 +3416,15 @@ const importStartHandlerInner = async (req, context) => {
 
         const ensureStageBudgetOrThrow = (stageKey, nextStageBeacon) => {
           const remainingMs = getRemainingMs();
+
           if (remainingMs < DEADLINE_SAFETY_BUFFER_MS) {
-            throwAccepted(nextStageBeacon, "remaining_budget_low", { stage: stageKey });
+            // Only "primary" is allowed to return 202 + continue async.
+            // For downstream enrichment stages, we prefer to skip and still save whatever we have.
+            if (stageKey === "primary") {
+              throwAccepted(nextStageBeacon, "remaining_budget_low", { stage: stageKey });
+            }
           }
+
           return remainingMs;
         };
 
@@ -3393,11 +3438,21 @@ const importStartHandlerInner = async (req, context) => {
           const timeoutForThisStage = Math.min(Math.max(1, remainingMs - UPSTREAM_TIMEOUT_MARGIN_MS), stageCapMs);
 
           if (timeoutForThisStage < 1_000) {
-            throwAccepted(stageBeacon, "insufficient_time_for_fetch", {
-              stage: stageKey,
-              timeoutForThisStage,
-              stageCapMs,
-            });
+            if (stageKey === "primary") {
+              throwAccepted(stageBeacon, "insufficient_time_for_fetch", {
+                stage: stageKey,
+                timeoutForThisStage,
+                stageCapMs,
+              });
+            }
+
+            const err = new Error("Insufficient time for upstream fetch");
+            err.code = "INSUFFICIENT_TIME_FOR_FETCH";
+            err.stage = stageKey;
+            err.stage_beacon = stageBeacon;
+            err.timeoutForThisStage = timeoutForThisStage;
+            err.stageCapMs = stageCapMs;
+            throw err;
           }
 
           const fetchStart = Date.now();
@@ -3440,11 +3495,21 @@ const importStartHandlerInner = async (req, context) => {
             const isAbort = code === "ECONNABORTED" || name.includes("abort");
 
             if (isAbort) {
-              throwAccepted(stageBeacon, "upstream_timeout_returning_202", {
-                stage: stageKey,
-                timeoutForThisStage,
-                stageCapMs,
-              });
+              if (stageKey === "primary") {
+                throwAccepted(stageBeacon, "upstream_timeout_returning_202", {
+                  stage: stageKey,
+                  timeoutForThisStage,
+                  stageCapMs,
+                });
+              }
+
+              const err = new Error("Upstream timeout");
+              err.code = "UPSTREAM_TIMEOUT";
+              err.stage = stageKey;
+              err.stage_beacon = stageBeacon;
+              err.timeoutForThisStage = timeoutForThisStage;
+              err.stageCapMs = stageCapMs;
+              throw err;
             }
 
             throw e;
@@ -4277,7 +4342,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             }
           }
 
-          const deadlineBeforePrimary = checkDeadlineOrReturn("xai_primary_fetch_start");
+          const deadlineBeforePrimary = checkDeadlineOrReturn("xai_primary_fetch_start", "primary");
           if (deadlineBeforePrimary) return deadlineBeforePrimary;
 
           if (!shouldRunStage("primary") && inputCompanies.length === 0) {
@@ -4421,6 +4486,19 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   } else {
                     console.log(`[import-start] request_id=${requestId} session=${sessionId} completion marker written`);
                   }
+
+                  await upsertCosmosImportSessionDoc({
+                    sessionId,
+                    requestId,
+                    patch: {
+                      status: "complete",
+                      stage_beacon,
+                      saved: 0,
+                      skipped: 0,
+                      failed: 0,
+                      completed_at: completionDoc.completed_at,
+                    },
+                  }).catch(() => null);
                 }
               } catch (e) {
                 console.warn(
@@ -4635,7 +4713,7 @@ Output JSON only:
             );
           }
 
-          const deadlineBeforeKeywords = checkDeadlineOrReturn("xai_keywords_fetch_start");
+          const deadlineBeforeKeywords = checkDeadlineOrReturn("xai_keywords_fetch_start", "keywords");
           if (deadlineBeforeKeywords) return deadlineBeforeKeywords;
 
           if (shouldRunStage("keywords")) {
@@ -4644,9 +4722,14 @@ Output JSON only:
             setStage("generateKeywords");
 
             const keywordsConcurrency = 4;
+            let keywordStageCompleted = true;
             for (let i = 0; i < enriched.length; i += keywordsConcurrency) {
               if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
-                throwAccepted("xai_keywords_fetch_start", "remaining_budget_low", { stage: "keywords" });
+                keywordStageCompleted = false;
+                console.log(
+                  `[import-start] session=${sessionId} keyword enrichment stopping early: remaining budget low`
+                );
+                break;
               }
 
               const slice = enriched.slice(i, i + keywordsConcurrency);
@@ -4672,7 +4755,7 @@ Output JSON only:
 
               enrichedForCounts = enriched;
             }
-            mark("xai_keywords_fetch_done");
+            mark(keywordStageCompleted ? "xai_keywords_fetch_done" : "xai_keywords_fetch_partial");
           } else {
             mark("xai_keywords_fetch_skipped");
           }
@@ -4710,16 +4793,21 @@ Output JSON only:
           if (shouldRunStage("location")) {
             ensureStageBudgetOrThrow("location", "xai_location_geocode_start");
 
-            const deadlineBeforeGeocode = checkDeadlineOrReturn("xai_location_geocode_start");
+            const deadlineBeforeGeocode = checkDeadlineOrReturn("xai_location_geocode_start", "location");
             if (deadlineBeforeGeocode) return deadlineBeforeGeocode;
 
             mark("xai_location_geocode_start");
             setStage("geocodeLocations");
             console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
 
+            let geocodeStageCompleted = true;
             for (let i = 0; i < enriched.length; i++) {
               if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
-                throwAccepted("xai_location_geocode_start", "remaining_budget_low", { stage: "location" });
+                geocodeStageCompleted = false;
+                console.log(
+                  `[import-start] session=${sessionId} geocoding stopping early: remaining budget low`
+                );
+                break;
               }
 
               if (shouldAbort()) {
@@ -4745,7 +4833,7 @@ Output JSON only:
 
             const okCount = enriched.filter((c) => Number.isFinite(c.hq_lat) && Number.isFinite(c.hq_lng)).length;
             console.log(`[import-start] session=${sessionId} geocoding done success=${okCount} failed=${enriched.length - okCount}`);
-            mark("xai_location_geocode_done");
+            mark(geocodeStageCompleted ? "xai_location_geocode_done" : "xai_location_geocode_partial");
           } else {
             mark("xai_location_geocode_skipped");
           }
@@ -4754,15 +4842,20 @@ Output JSON only:
           if (shouldRunStage("reviews") && !shouldAbort()) {
             ensureStageBudgetOrThrow("reviews", "xai_reviews_fetch_start");
 
-            const deadlineBeforeReviews = checkDeadlineOrReturn("xai_reviews_fetch_start");
+            const deadlineBeforeReviews = checkDeadlineOrReturn("xai_reviews_fetch_start", "reviews");
             if (deadlineBeforeReviews) return deadlineBeforeReviews;
 
             mark("xai_reviews_fetch_start");
             setStage("fetchEditorialReviews");
             console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
+            let reviewStageCompleted = true;
             for (let i = 0; i < enriched.length; i++) {
               if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
-                throwAccepted("xai_reviews_fetch_start", "remaining_budget_low", { stage: "reviews" });
+                reviewStageCompleted = false;
+                console.log(
+                  `[import-start] session=${sessionId} review enrichment stopping early: remaining budget low`
+                );
+                break;
               }
 
               // Check if import was stopped OR we're running out of time
@@ -4811,7 +4904,7 @@ Output JSON only:
               }
             }
             console.log(`[import-start] session=${sessionId} editorial review enrichment done`);
-            mark("xai_reviews_fetch_done");
+            mark(reviewStageCompleted ? "xai_reviews_fetch_done" : "xai_reviews_fetch_partial");
           } else if (!shouldRunStage("reviews")) {
             mark("xai_reviews_fetch_skipped");
           }
@@ -4925,7 +5018,10 @@ Return ONLY the JSON array, no other text.`,
 
               ensureStageBudgetOrThrow("location", "xai_location_refinement_fetch_start");
 
-              const deadlineBeforeLocationRefinement = checkDeadlineOrReturn("xai_location_refinement_fetch_start");
+              const deadlineBeforeLocationRefinement = checkDeadlineOrReturn(
+                "xai_location_refinement_fetch_start",
+                "location"
+              );
               if (deadlineBeforeLocationRefinement) return deadlineBeforeLocationRefinement;
 
               mark("xai_location_refinement_fetch_start");
@@ -5122,7 +5218,7 @@ Return ONLY the JSON array, no other text.`,
 
               ensureStageBudgetOrThrow("expand", "xai_expand_fetch_start");
 
-              const deadlineBeforeExpand = checkDeadlineOrReturn("xai_expand_fetch_start");
+              const deadlineBeforeExpand = checkDeadlineOrReturn("xai_expand_fetch_start", "expand");
               if (deadlineBeforeExpand) return deadlineBeforeExpand;
 
               mark("xai_expand_fetch_start");
@@ -5304,6 +5400,19 @@ Return ONLY the JSON array, no other text.`,
                     `[import-start] request_id=${requestId} session=${sessionId} completion marker written (saved=${saveResult.saved})`
                   );
                 }
+
+                await upsertCosmosImportSessionDoc({
+                  sessionId,
+                  requestId,
+                  patch: {
+                    status: timedOut ? "timeout" : "complete",
+                    stage_beacon,
+                    saved: saveResult.saved,
+                    skipped: saveResult.skipped,
+                    failed: saveResult.failed,
+                    completed_at: completionDoc.completed_at,
+                  },
+                }).catch(() => null);
               }
             } catch (e) {
               console.warn(

@@ -961,6 +961,20 @@ export default function AdminImport() {
             body?.reason === "primary_async_enqueued" ||
             stageBeacon.startsWith("primary_") ||
             stageBeacon.startsWith("xai_primary_fetch_");
+
+          // Only the primary stage is expected to return 202 (async worker).
+          // If another stage returns 202, we treat it as an error because the staged pipeline cannot continue.
+          if (!(stage === "primary" && isAsyncPrimary)) {
+            await recordStartErrorAndToast(res, body, {
+              usedPath,
+              stage,
+              mode: "staged",
+              stage_index: stageIndex,
+              stage_payload: payload,
+            });
+            return;
+          }
+
           const timeoutMsUsed = Number(body?.timeout_ms_used);
           const timeoutMsForUi = Number.isFinite(timeoutMsUsed) && timeoutMsUsed > 0 ? timeoutMsUsed : null;
 
