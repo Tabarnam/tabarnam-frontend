@@ -36,6 +36,7 @@ const {
   checkUrlHealthAndFetchText,
 } = require("../_reviewQuality");
 const { fillCompanyBaselineFromWebsite } = require("../_websiteBaseline");
+const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { getBuildInfo } = require("../_buildInfo");
 const { getImportStartHandlerVersion } = require("../_handlerVersions");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
@@ -2227,6 +2228,13 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             };
+
+            try {
+              const completeness = computeProfileCompleteness(doc);
+              doc.profile_completeness = completeness.profile_completeness;
+              doc.profile_completeness_version = completeness.profile_completeness_version;
+              doc.profile_completeness_meta = completeness.profile_completeness_meta;
+            } catch {}
 
             if (!doc.company_name && !doc.url) {
               return {
