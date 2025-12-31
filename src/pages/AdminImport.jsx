@@ -1449,7 +1449,7 @@ export default function AdminImport() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" onClick={startDebugImport} disabled={debugStartLoading || startImportDisabled}>
+              <Button onClick={startDebugImport} disabled={debugStartLoading || startImportDisabled}>
                 {debugStartLoading ? "Starting…" : "Start (debug)"}
               </Button>
 
