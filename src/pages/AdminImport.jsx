@@ -1006,11 +1006,26 @@ export default function AdminImport() {
                     updatedAt: new Date().toISOString(),
                     start_error: null,
                     async_primary_active: stage === "primary" && isAsyncPrimary,
-                    async_primary_timeout_ms: stage === "primary" && isAsyncPrimary ? timeoutMsForUi : r.async_primary_timeout_ms ?? null,
+                    async_primary_timeout_ms:
+                      stage === "primary" && isAsyncPrimary ? timeoutMsForUi : r.async_primary_timeout_ms ?? null,
                   }
                 : r
             )
           );
+
+          // IMPORTANT: actually kick off the primary worker from the browser.
+          // The server-side fire-and-forget trigger is not reliable in serverless environments.
+          if (stage === "primary" && isAsyncPrimary) {
+            try {
+              const workerUrl = join(API_BASE, "import/primary-worker");
+              fetch(`${workerUrl}?session_id=${encodeURIComponent(canonicalSessionId)}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ session_id: canonicalSessionId }),
+                keepalive: true,
+              }).catch(() => {});
+            } catch {}
+          }
 
           const waitResult = await waitForAsyncStatus({ stage });
           resetPollAttempts(canonicalSessionId);
