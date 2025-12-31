@@ -4396,7 +4396,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               upsertImportSession({
                 session_id: sessionId,
                 request_id: requestId,
-                status: "complete",
+                status: "running",
                 stage_beacon,
                 companies_count: 0,
               });
@@ -4736,7 +4736,7 @@ Output JSON only:
               upsertImportSession({
                 session_id: sessionId,
                 request_id: requestId,
-                status: "complete",
+                status: "running",
                 stage_beacon,
                 companies_count: companiesCount,
               });
@@ -4747,10 +4747,9 @@ Output JSON only:
                 sessionId,
                 requestId,
                 patch: {
-                  status: "complete",
+                  status: "running",
                   stage_beacon,
                   companies_count: companiesCount,
-                  completed_at: new Date().toISOString(),
                 },
               }).catch(() => null);
             }
@@ -4827,7 +4826,7 @@ Output JSON only:
               upsertImportSession({
                 session_id: sessionId,
                 request_id: requestId,
-                status: "complete",
+                status: "running",
                 stage_beacon,
                 companies_count: companiesCount,
               });
@@ -4838,10 +4837,9 @@ Output JSON only:
                 sessionId,
                 requestId,
                 patch: {
-                  status: "complete",
+                  status: "running",
                   stage_beacon,
                   companies_count: companiesCount,
-                  completed_at: new Date().toISOString(),
                 },
               }).catch(() => null);
             }
@@ -4991,7 +4989,7 @@ Output JSON only:
               upsertImportSession({
                 session_id: sessionId,
                 request_id: requestId,
-                status: "complete",
+                status: "running",
                 stage_beacon,
                 companies_count: companiesCount,
               });
@@ -5002,10 +5000,9 @@ Output JSON only:
                 sessionId,
                 requestId,
                 patch: {
-                  status: "complete",
+                  status: "running",
                   stage_beacon,
                   companies_count: companiesCount,
-                  completed_at: new Date().toISOString(),
                 },
               }).catch(() => null);
             }
@@ -5207,7 +5204,7 @@ Return ONLY the JSON array, no other text.`,
               upsertImportSession({
                 session_id: sessionId,
                 request_id: requestId,
-                status: "complete",
+                status: "running",
                 stage_beacon,
                 companies_count: companiesCount,
               });
@@ -5218,10 +5215,9 @@ Return ONLY the JSON array, no other text.`,
                 sessionId,
                 requestId,
                 patch: {
-                  status: "complete",
+                  status: "running",
                   stage_beacon,
                   companies_count: companiesCount,
-                  completed_at: new Date().toISOString(),
                 },
               }).catch(() => null);
             }
