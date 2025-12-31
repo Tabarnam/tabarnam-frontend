@@ -11,6 +11,7 @@ import { calcStars } from "@/lib/stars/calcStars";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { getCompanyDisplayName } from "@/lib/companyDisplayName";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
+import { getProfileCompleteness, getProfileCompletenessLabel } from "@/lib/profileCompleteness";
 
 const TranslatedText = ({ originalText, translation, loading }) => {
   if (loading)
