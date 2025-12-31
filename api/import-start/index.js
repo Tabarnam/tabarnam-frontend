@@ -3357,10 +3357,9 @@ const importStartHandlerInner = async (req, context) => {
           debugOutput.xai.payload = xaiPayload;
         }
 
-        // Use a more aggressive timeout to ensure we finish before Azure kills the function
-        // Limit to 2 minutes per API call to stay well within Azure's 5 minute limit
+        // Cap the upstream timeout to 5 minutes to match the import runtime budget.
         const requestedTimeout = Number(bodyObj.timeout_ms) || 600000;
-        const timeout = Math.min(requestedTimeout, 2 * 60 * 1000);
+        const timeout = Math.min(requestedTimeout, 5 * 60 * 1000);
         console.log(`[import-start] Request timeout: ${timeout}ms (requested: ${requestedTimeout}ms)`);
 
         // Get XAI configuration (consolidated to use XAI_EXTERNAL_BASE primarily)
