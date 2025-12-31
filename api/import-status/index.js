@@ -433,6 +433,7 @@ async function handler(req, context) {
                 failed: typeof completionDoc?.failed === "number" ? completionDoc.failed : null,
                 saved_ids: Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [],
                 skipped_ids: Array.isArray(completionDoc?.skipped_ids) ? completionDoc.skipped_ids : [],
+                skipped_duplicates: Array.isArray(completionDoc?.skipped_duplicates) ? completionDoc.skipped_duplicates : [],
                 failed_items: Array.isArray(completionDoc?.failed_items) ? completionDoc.failed_items : [],
               }
             : null,
