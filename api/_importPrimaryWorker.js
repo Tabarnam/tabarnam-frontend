@@ -704,7 +704,10 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
     };
   }
 
-  const requestedStageMsPrimary = Math.max(1000, Number(job?.requested_stage_ms_primary) || 20_000);
+  const requestedStageMsPrimaryBase = Math.max(1000, Number(job?.requested_stage_ms_primary) || 20_000);
+  const requestedStageMsPrimary =
+    invocationSource === "status" ? Math.min(requestedStageMsPrimaryBase, 20_000) : requestedStageMsPrimaryBase;
+
   let outboundBody = typeof job?.xai_outbound_body === "string" ? job.xai_outbound_body : "";
 
   if (!outboundBody) {
