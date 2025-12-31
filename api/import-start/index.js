@@ -35,6 +35,7 @@ const {
   validateCuratedReviewCandidate,
   checkUrlHealthAndFetchText,
 } = require("../_reviewQuality");
+const { fillCompanyBaselineFromWebsite } = require("../_websiteBaseline");
 const { getBuildInfo } = require("../_buildInfo");
 const { getImportStartHandlerVersion } = require("../_handlerVersions");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
@@ -4540,6 +4541,39 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
           enrichedForCounts = enriched;
+
+          // When enrichment stages are skipped (or max_stage prevents them), still populate a baseline profile
+          // deterministically from the company's own website. This is especially important for company_url shortcut runs.
+          const downstreamStagesSkipped =
+            !shouldRunStage("keywords") || !shouldRunStage("reviews") || !shouldRunStage("location");
+
+          const baselineEligible = queryTypes.includes("company_url") || enriched.length <= 3;
+
+          if (baselineEligible && downstreamStagesSkipped) {
+            try {
+              const remaining = getRemainingMs();
+              if (remaining > 7000) {
+                setStage("baselineWebsiteParse");
+
+                const baselineConcurrency = queryTypes.includes("company_url") ? 1 : 2;
+                enriched = await mapWithConcurrency(enriched, baselineConcurrency, async (company) => {
+                  try {
+                    return await fillCompanyBaselineFromWebsite(company, {
+                      timeoutMs: queryTypes.includes("company_url") ? 7000 : 5000,
+                      extraPageTimeoutMs: 3500,
+                    });
+                  } catch (e) {
+                    if (e instanceof AcceptedResponseError) throw e;
+                    return company;
+                  }
+                });
+
+                enrichedForCounts = enriched;
+              }
+            } catch (e) {
+              if (e instanceof AcceptedResponseError) throw e;
+            }
+          }
 
           // Early exit if no companies found
           if (enriched.length === 0) {
