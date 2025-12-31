@@ -2258,8 +2258,8 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
   }
 }
 
-// Max time to spend processing (4 minutes, safe from Azure's 5 minute timeout)
-const MAX_PROCESSING_TIME_MS = 4 * 60 * 1000;
+// Max time to spend processing (5 minutes)
+const MAX_PROCESSING_TIME_MS = 5 * 60 * 1000;
 
 const importStartHandlerInner = async (req, context) => {
     const requestId = generateRequestId(req);
@@ -2683,7 +2683,7 @@ const importStartHandlerInner = async (req, context) => {
 
       const requested_deadline_ms = requested_deadline_ms_number
         ? Math.max(5_000, Math.min(requested_deadline_ms_number, MAX_PROCESSING_TIME_MS))
-        : 45_000;
+        : 300_000;
 
       const deadlineMs = Date.now() + requested_deadline_ms;
 
@@ -3357,10 +3357,9 @@ const importStartHandlerInner = async (req, context) => {
           debugOutput.xai.payload = xaiPayload;
         }
 
-        // Use a more aggressive timeout to ensure we finish before Azure kills the function
-        // Limit to 2 minutes per API call to stay well within Azure's 5 minute limit
+        // Cap the upstream timeout to 5 minutes to match the import runtime budget.
         const requestedTimeout = Number(bodyObj.timeout_ms) || 600000;
-        const timeout = Math.min(requestedTimeout, 2 * 60 * 1000);
+        const timeout = Math.min(requestedTimeout, 5 * 60 * 1000);
         console.log(`[import-start] Request timeout: ${timeout}ms (requested: ${requestedTimeout}ms)`);
 
         // Get XAI configuration (consolidated to use XAI_EXTERNAL_BASE primarily)

@@ -170,7 +170,7 @@ const IMPORT_STAGE_BEACON_TO_ENGLISH = Object.freeze({
 });
 
 const IMPORT_ERROR_CODE_TO_REASON = Object.freeze({
-  primary_timeout: "Primary search timed out (120s hard cap)",
+  primary_timeout: "Primary search timed out",
   no_candidates_found: "No matching companies found",
   MISSING_XAI_ENDPOINT: "Missing XAI endpoint configuration",
   MISSING_XAI_KEY: "Missing XAI API key configuration",
@@ -199,6 +199,17 @@ function toEnglishImportStopReason(lastErrorCode) {
   if (!key) return "Import stopped.";
   if (Object.prototype.hasOwnProperty.call(IMPORT_ERROR_CODE_TO_REASON, key)) return IMPORT_ERROR_CODE_TO_REASON[key];
   return humanizeImportCode(key);
+}
+
+function formatDurationShort(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n < 0) return "";
+  if (n >= 60_000) {
+    const minutes = Math.round(n / 60_000);
+    return `${minutes}m`;
+  }
+  const seconds = Math.round(n / 1000);
+  return `${seconds}s`;
 }
 
 function normalizeImportLimit(raw, fallback = IMPORT_LIMIT_DEFAULT) {
@@ -275,7 +286,10 @@ export default function AdminImport() {
         const isUnknownSession =
           res.status === 404 && body && typeof body === "object" && body.ok === false && body.error === "Unknown session_id";
 
-        if (!res.ok || (body && typeof body === "object" && body.ok === false)) {
+        const hasStructuredBody = body && typeof body === "object";
+        const treatAsOk = Boolean(hasStructuredBody && body.ok === true);
+
+        if ((!res.ok && !treatAsOk) || (hasStructuredBody && body.ok === false)) {
           const bodyPreview = toPrettyJsonText(body);
           const configMsg = await getUserFacingConfigMessage(res);
           const baseMsg = toErrorString(
@@ -308,11 +322,14 @@ export default function AdminImport() {
         const isTerminalComplete = state === "complete" || status === "complete" || jobState === "complete" || completed;
 
         const lastErrorCode = asString(lastError?.code).trim();
+        const primaryTimeoutLabel = formatDurationShort(lastError?.hard_timeout_ms);
+        const noCandidatesLabel = formatDurationShort(lastError?.no_candidates_threshold_ms);
+
         const userFacingError =
           lastErrorCode === "primary_timeout"
-            ? "Primary import timed out (120s hard cap)."
+            ? `Primary import timed out${primaryTimeoutLabel ? ` (${primaryTimeoutLabel} hard cap)` : ""}.`
             : lastErrorCode === "no_candidates_found"
-              ? "No candidates found after 60s."
+              ? `No candidates found${noCandidatesLabel ? ` after ${noCandidatesLabel}` : ""}.`
               : lastErrorCode === "MISSING_XAI_ENDPOINT"
                 ? "Import failed: missing XAI endpoint configuration."
                 : lastErrorCode === "MISSING_XAI_KEY"
@@ -823,11 +840,14 @@ export default function AdminImport() {
         const stageBeacon = asString(body?.stage_beacon).trim();
 
         const lastErrorCode = asString(body?.last_error?.code).trim();
+        const mappedHardTimeout = formatDurationShort(body?.last_error?.hard_timeout_ms);
+        const mappedNoCandidates = formatDurationShort(body?.last_error?.no_candidates_threshold_ms);
+
         const mappedMsg =
           lastErrorCode === "primary_timeout"
-            ? "Primary import timed out (120s hard cap)."
+            ? `Primary import timed out${mappedHardTimeout ? ` (${mappedHardTimeout} hard cap)` : ""}.`
             : lastErrorCode === "no_candidates_found"
-              ? "No candidates found after 60s."
+              ? `No candidates found${mappedNoCandidates ? ` after ${mappedNoCandidates}` : ""}.`
               : "";
 
         const msg =
@@ -925,9 +945,9 @@ export default function AdminImport() {
             last_error: {
               code: stage === "primary" ? "primary_timeout" : "stage_timeout",
               message:
-                stage === "primary" ? "Primary import timed out (120s hard cap)." : `Stage \"${stage}\" did not reach a terminal state.`,
+                stage === "primary" ? "Primary import timed out." : `Stage \"${stage}\" did not reach a terminal state.`,
             },
-            error: stage === "primary" ? "Primary import timed out (120s hard cap)." : `Stage \"${stage}\" did not reach a terminal state.`,
+            error: stage === "primary" ? "Primary import timed out." : `Stage \"${stage}\" did not reach a terminal state.`,
           },
         };
       };
@@ -1286,9 +1306,13 @@ export default function AdminImport() {
 
     const lastErrorCode = asString(activeRun?.last_error?.code).trim();
 
-    if (lastErrorCode === "no_candidates_found") return `No candidates found after 60s.${suffix}`;
+    if (lastErrorCode === "no_candidates_found") {
+      const threshold = formatDurationShort(activeRun?.last_error?.no_candidates_threshold_ms);
+      return `No candidates found${threshold ? ` after ${threshold}` : ""}.${suffix}`;
+    }
     if (lastErrorCode === "primary_timeout" || stageBeacon === "primary_timeout") {
-      return `Primary import timed out (120s hard cap).${suffix}`;
+      const hardCap = formatDurationShort(activeRun?.last_error?.hard_timeout_ms);
+      return `Primary import timed out${hardCap ? ` (${hardCap} hard cap)` : ""}.${suffix}`;
     }
 
     if (stageBeacon) return `${toEnglishImportStage(stageBeacon)}${suffix}`;
