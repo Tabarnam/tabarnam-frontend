@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { calculateInitialRating, clampStarValue, normalizeRating } from "@/lib/stars/calculateRating";
+import { getProfileCompleteness, getProfileCompletenessLabel } from "@/lib/profileCompleteness";
 
 import AdminHeader from "@/components/AdminHeader";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -3506,6 +3507,32 @@ export default function CompanyDashboard() {
         sortable: true,
         right: true,
         width: "110px",
+      },
+      {
+        name: "Profile",
+        selector: (row) => getProfileCompleteness(row),
+        sortable: true,
+        right: true,
+        width: "130px",
+        cell: (row) => {
+          const score = getProfileCompleteness(row);
+          const label = getProfileCompletenessLabel(score);
+
+          const tone =
+            score >= 85
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : score >= 60
+                ? "border-blue-200 bg-blue-50 text-blue-800"
+                : score >= 35
+                  ? "border-amber-200 bg-amber-50 text-amber-900"
+                  : "border-red-200 bg-red-50 text-red-800";
+
+          return (
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] ${tone}`}>
+              {label} · {score}%
+            </span>
+          );
+        },
       },
       {
         name: "Updated",
