@@ -3284,9 +3284,14 @@ const importStartHandlerInner = async (req, context) => {
         );
       };
 
-      const checkDeadlineOrReturn = (nextStageBeacon) => {
+      const checkDeadlineOrReturn = (nextStageBeacon, stageKey) => {
         if (Date.now() > deadlineMs) {
-          return respondAcceptedBeforeGatewayTimeout(nextStageBeacon, "deadline_exceeded_returning_202");
+          // Only primary is allowed to return 202 + continue async.
+          // For downstream enrichment stages, skip the stage and proceed to saving.
+          if (stageKey === "primary") {
+            return respondAcceptedBeforeGatewayTimeout(nextStageBeacon, "deadline_exceeded_returning_202");
+          }
+          return null;
         }
         return null;
       };
@@ -4303,7 +4308,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             }
           }
 
-          const deadlineBeforePrimary = checkDeadlineOrReturn("xai_primary_fetch_start");
+          const deadlineBeforePrimary = checkDeadlineOrReturn("xai_primary_fetch_start", "primary");
           if (deadlineBeforePrimary) return deadlineBeforePrimary;
 
           if (!shouldRunStage("primary") && inputCompanies.length === 0) {
@@ -4661,7 +4666,7 @@ Output JSON only:
             );
           }
 
-          const deadlineBeforeKeywords = checkDeadlineOrReturn("xai_keywords_fetch_start");
+          const deadlineBeforeKeywords = checkDeadlineOrReturn("xai_keywords_fetch_start", "keywords");
           if (deadlineBeforeKeywords) return deadlineBeforeKeywords;
 
           if (shouldRunStage("keywords")) {
@@ -4741,7 +4746,7 @@ Output JSON only:
           if (shouldRunStage("location")) {
             ensureStageBudgetOrThrow("location", "xai_location_geocode_start");
 
-            const deadlineBeforeGeocode = checkDeadlineOrReturn("xai_location_geocode_start");
+            const deadlineBeforeGeocode = checkDeadlineOrReturn("xai_location_geocode_start", "location");
             if (deadlineBeforeGeocode) return deadlineBeforeGeocode;
 
             mark("xai_location_geocode_start");
@@ -4790,7 +4795,7 @@ Output JSON only:
           if (shouldRunStage("reviews") && !shouldAbort()) {
             ensureStageBudgetOrThrow("reviews", "xai_reviews_fetch_start");
 
-            const deadlineBeforeReviews = checkDeadlineOrReturn("xai_reviews_fetch_start");
+            const deadlineBeforeReviews = checkDeadlineOrReturn("xai_reviews_fetch_start", "reviews");
             if (deadlineBeforeReviews) return deadlineBeforeReviews;
 
             mark("xai_reviews_fetch_start");
@@ -4966,7 +4971,10 @@ Return ONLY the JSON array, no other text.`,
 
               ensureStageBudgetOrThrow("location", "xai_location_refinement_fetch_start");
 
-              const deadlineBeforeLocationRefinement = checkDeadlineOrReturn("xai_location_refinement_fetch_start");
+              const deadlineBeforeLocationRefinement = checkDeadlineOrReturn(
+                "xai_location_refinement_fetch_start",
+                "location"
+              );
               if (deadlineBeforeLocationRefinement) return deadlineBeforeLocationRefinement;
 
               mark("xai_location_refinement_fetch_start");
@@ -5163,7 +5171,7 @@ Return ONLY the JSON array, no other text.`,
 
               ensureStageBudgetOrThrow("expand", "xai_expand_fetch_start");
 
-              const deadlineBeforeExpand = checkDeadlineOrReturn("xai_expand_fetch_start");
+              const deadlineBeforeExpand = checkDeadlineOrReturn("xai_expand_fetch_start", "expand");
               if (deadlineBeforeExpand) return deadlineBeforeExpand;
 
               mark("xai_expand_fetch_start");
