@@ -2217,6 +2217,16 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
               normalized_domain: finalNormalizedDomain,
             };
           } catch (e) {
+            const statusCode = Number(e?.code || e?.statusCode || e?.status || 0);
+            if (statusCode === 409) {
+              return {
+                type: "skipped",
+                index: companyIndex,
+                company_name: companyName,
+                existing_id: null,
+              };
+            }
+
             return {
               type: "failed",
               index: companyIndex,
