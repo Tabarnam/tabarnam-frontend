@@ -283,12 +283,12 @@ async function handler(req, context) {
       10_000,
       Number.isFinite(Number(process.env.IMPORT_PRIMARY_HARD_TIMEOUT_MS))
         ? Math.trunc(Number(process.env.IMPORT_PRIMARY_HARD_TIMEOUT_MS))
-        : 120_000
+        : 300_000
     );
 
     const HEARTBEAT_STALE_MS = Number.isFinite(Number(process.env.IMPORT_HEARTBEAT_STALE_MS))
       ? Math.max(5_000, Number(process.env.IMPORT_HEARTBEAT_STALE_MS))
-      : 120_000;
+      : 330_000;
 
     let progress = computePrimaryProgress(primaryJob, Date.now(), HARD_MAX_RUNTIME_MS);
 
@@ -848,7 +848,16 @@ async function handler(req, context) {
     try {
       console.error(`[import-status] session=${sessionId} error: ${msg}`);
     } catch {}
-    return jsonWithSessionId({ ok: false, error: "Status handler failure", detail: msg, session_id: sessionId }, 500);
+    return jsonWithSessionId(
+      {
+        ok: false,
+        session_id: sessionId,
+        error: "Status handler failure",
+        code: "STATUS_HANDLER_FAILURE",
+        detail: msg,
+      },
+      200
+    );
   }
 }
 
