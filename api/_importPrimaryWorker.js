@@ -32,6 +32,61 @@ function redactUrlQueryAndHash(rawUrl) {
   }
 }
 
+function looksLikeUrlOrDomain(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return false;
+  if (/\s/.test(s)) return false;
+
+  try {
+    const u = s.includes("://") ? new URL(s) : new URL(`https://${s}`);
+    const host = String(u.hostname || "").toLowerCase();
+    if (!host || !host.includes(".")) return false;
+    const parts = host.split(".").filter(Boolean);
+    if (parts.length < 2) return false;
+    const tld = parts[parts.length - 1];
+    if (!tld || tld.length < 2) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeWebsiteUrl(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+
+  try {
+    const u = s.includes("://") ? new URL(s) : new URL(`https://${s}`);
+    u.search = "";
+    u.hash = "";
+    u.pathname = u.pathname && u.pathname !== "/" ? u.pathname : "/";
+    return u.toString();
+  } catch {
+    return s.split("?")[0].split("#")[0];
+  }
+}
+
+function deriveCompanyNameFromHostname(hostname) {
+  const host = String(hostname || "").trim().toLowerCase();
+  if (!host) return "";
+
+  const withoutWww = host.startsWith("www.") ? host.slice(4) : host;
+  const base = withoutWww.split(".").filter(Boolean)[0] || "";
+  if (!base) return "";
+
+  const words = base
+    .split(/[-_]+/g)
+    .map((w) => w.trim())
+    .filter(Boolean);
+
+  const title = words
+    .map((w) => (w.length ? w.charAt(0).toUpperCase() + w.slice(1) : ""))
+    .join(" ")
+    .trim();
+
+  return title;
+}
+
 function redactErrorForJob(err) {
   if (!err) return { message: "Unknown error" };
   const out = {
@@ -585,6 +640,69 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
       early_exit_triggered: earlyExitTriggered,
     },
   }).catch(() => null);
+
+  const requestPayload =
+    job?.request_payload && typeof job.request_payload === "object" ? job.request_payload : {};
+
+  const query = typeof requestPayload.query === "string" ? requestPayload.query.trim() : "";
+  const queryTypes = Array.isArray(requestPayload.queryTypes)
+    ? requestPayload.queryTypes.map((t) => String(t || "").trim()).filter(Boolean)
+    : [];
+
+  const isCompanyUrlQuery =
+    query && looksLikeUrlOrDomain(query) && (queryTypes.includes("company_url") || queryTypes.includes("company_domain"));
+
+  if (isCompanyUrlQuery) {
+    let hostname = "";
+    try {
+      const u = query.includes("://") ? new URL(query) : new URL(`https://${query}`);
+      hostname = String(u.hostname || "").trim();
+    } catch {
+      hostname = query.replace(/^https?:\/\//i, "").split("/")[0].trim();
+    }
+
+    const websiteUrl = normalizeWebsiteUrl(query);
+    const companyName = deriveCompanyNameFromHostname(hostname) || hostname;
+
+    const companyCandidate = {
+      company_name: companyName,
+      website_url: websiteUrl,
+      url: websiteUrl,
+      normalized_domain: hostname ? hostname.toLowerCase().replace(/^www\./, "") : "",
+      source: "company_url_shortcut",
+    };
+
+    await patchJob({
+      sessionId,
+      cosmosEnabled,
+      patch: {
+        job_state: "complete",
+        stage_beacon: "primary_early_exit",
+        completed_at: nowIso(),
+        updated_at: nowIso(),
+        last_heartbeat_at: nowIso(),
+        companies_count: 1,
+        companies: [companyCandidate],
+        companies_candidates_found: 1,
+        early_exit_triggered: true,
+        last_error: null,
+        lock_expires_at: null,
+        locked_by: null,
+      },
+    }).catch(() => null);
+
+    return {
+      httpStatus: 200,
+      body: {
+        ok: true,
+        session_id: sessionId,
+        status: "complete",
+        stage_beacon: "primary_early_exit",
+        companies_count: 1,
+        meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
+      },
+    };
+  }
 
   const requestedStageMsPrimary = Math.max(1000, Number(job?.requested_stage_ms_primary) || 20_000);
   let outboundBody = typeof job?.xai_outbound_body === "string" ? job.xai_outbound_body : "";
