@@ -1025,7 +1025,7 @@ function resolveXaiEndpointForModel(rawEndpoint, model) {
   if (!u) return raw;
 
   const pathLower = String(u.pathname || "").toLowerCase();
-  if (pathLower.includes("/proxy-xai")) return u.toString();
+  if (pathLower.includes("/proxy-xai") || pathLower.includes("/api/xai")) return u.toString();
 
   const alreadyChat = /\/v1\/chat\/completions\/?$/i.test(u.pathname || "");
   const alreadyResponses = /\/v1\/responses\/?$/i.test(u.pathname || "");
