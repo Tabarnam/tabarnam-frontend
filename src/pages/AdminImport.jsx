@@ -316,7 +316,7 @@ export default function AdminImport() {
 
         const completed = state === "complete" ? true : Boolean(body?.completed);
         const timedOut = Boolean(body?.timedOut);
-        const stopped = state === "failed" || state === "complete" ? true : Boolean(body?.stopped);
+        const stopped = state === "failed" ? true : Boolean(body?.stopped);
 
         const isTerminalError = state === "failed" || status === "error" || jobState === "error";
         const isTerminalComplete = state === "complete" || status === "complete" || jobState === "complete" || completed;
@@ -364,7 +364,7 @@ export default function AdminImport() {
               saved: Number.isFinite(saved) ? saved : Number(r.saved ?? 0) || 0,
               completed: isTerminalComplete,
               timedOut,
-              stopped: isTerminalError || isTerminalComplete ? true : stopped,
+              stopped: isTerminalError ? true : stopped,
               job_state: normalizedJobState,
               stage_beacon: stageBeacon || asString(r.stage_beacon),
               last_stage_beacon: nextLastStageBeacon,
