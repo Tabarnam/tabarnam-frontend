@@ -734,55 +734,56 @@ test("/api/import/start?max_stage=primary does not mark session complete in /api
       XAI_EXTERNAL_KEY: "test_key",
     },
     async () => {
-    const { _test: sessionStoreTest } = require("../_importSessionStore");
-    const store = sessionStoreTest.getState();
-    store.map.clear();
-    store.order.length = 0;
+      const { _test: sessionStoreTest } = require("../_importSessionStore");
+      const store = sessionStoreTest.getState();
+      store.map.clear();
+      store.order.length = 0;
 
-    const session_id = "33333333-4444-5555-6666-777777777777";
+      const session_id = "33333333-4444-5555-6666-777777777777";
 
-    const startReq = makeReq({
-      url: "https://example.test/api/import/start?max_stage=primary",
-      body: JSON.stringify({
-        session_id,
-        query: "https://mariposaranch.com/",
-        queryTypes: ["company_url"],
-        limit: 1,
-        companies: [
-          {
-            company_name: "Mariposa Ranch",
-            website_url: "https://mariposaranch.com/",
-            url: "https://mariposaranch.com/",
-            normalized_domain: "mariposaranch.com",
-          },
-        ],
-      }),
-      headers: {
-        "content-type": "application/json",
-      },
-    });
+      const startReq = makeReq({
+        url: "https://example.test/api/import/start?max_stage=primary",
+        body: JSON.stringify({
+          session_id,
+          query: "https://mariposaranch.com/",
+          queryTypes: ["company_url"],
+          limit: 1,
+          companies: [
+            {
+              company_name: "Mariposa Ranch",
+              website_url: "https://mariposaranch.com/",
+              url: "https://mariposaranch.com/",
+              normalized_domain: "mariposaranch.com",
+            },
+          ],
+        }),
+        headers: {
+          "content-type": "application/json",
+        },
+      });
 
-    const startRes = await _test.importStartHandler(startReq, { log() {} });
-    const startBody = parseJsonResponse(startRes);
+      const startRes = await _test.importStartHandler(startReq, { log() {} });
+      const startBody = parseJsonResponse(startRes);
 
-    assert.equal(startRes.status, 200);
-    assert.equal(startBody.ok, true);
-    assert.equal(startBody.session_id, session_id);
-    assert.equal(startBody?.meta?.stopped_after_stage, "primary");
+      assert.equal(startRes.status, 200);
+      assert.equal(startBody.ok, true);
+      assert.equal(startBody.session_id, session_id);
+      assert.equal(startBody?.meta?.stopped_after_stage, "primary");
 
-    const statusReq = makeReq({
-      url: `https://example.test/api/import/status?session_id=${encodeURIComponent(session_id)}`,
-      method: "GET",
-    });
+      const statusReq = makeReq({
+        url: `https://example.test/api/import/status?session_id=${encodeURIComponent(session_id)}`,
+        method: "GET",
+      });
 
-    const statusRes = await importStatusTest.handler(statusReq, { log() {} });
-    const statusBody = JSON.parse(String(statusRes.body || "{}"));
+      const statusRes = await importStatusTest.handler(statusReq, { log() {} });
+      const statusBody = JSON.parse(String(statusRes.body || "{}"));
 
-    assert.equal(statusRes.status, 200);
-    assert.equal(statusBody.ok, true);
-    assert.equal(statusBody.session_id, session_id);
+      assert.equal(statusRes.status, 200);
+      assert.equal(statusBody.ok, true);
+      assert.equal(statusBody.session_id, session_id);
 
-    // Staged max_stage calls should not mark the import as complete. Completion is only after save.
-    assert.equal(statusBody.state, "running");
-  });
+      // Staged max_stage calls should not mark the import as complete. Completion is only after save.
+      assert.equal(statusBody.state, "running");
+    }
+  );
 });
