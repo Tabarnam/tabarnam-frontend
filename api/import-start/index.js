@@ -3254,6 +3254,17 @@ const importStartHandlerInner = async (req, context) => {
 
             await upsertItemWithPkCandidates(container, acceptDoc).catch(() => null);
 
+            await upsertCosmosImportSessionDoc({
+              sessionId,
+              requestId,
+              patch: {
+                status: "running",
+                stage_beacon: beacon,
+                requested_deadline_ms,
+                requested_stage_ms_primary: requested_stage_ms_primary_effective,
+              },
+            }).catch(() => null);
+
             const shouldEnqueuePrimary =
               beacon === "xai_primary_fetch_start" ||
               beacon === "xai_primary_fetch_done" ||
@@ -3279,9 +3290,7 @@ const importStartHandlerInner = async (req, context) => {
                 },
                 inline_budget_ms,
                 requested_deadline_ms,
-                requested_stage_ms_primary: Number.isFinite(Number(requested_stage_ms_primary))
-                  ? Number(requested_stage_ms_primary)
-                  : null,
+                requested_stage_ms_primary: requested_stage_ms_primary_effective,
                 xai_outbound_body:
                   typeof primaryXaiOutboundBody === "string" && primaryXaiOutboundBody.trim()
                     ? primaryXaiOutboundBody
@@ -3320,7 +3329,7 @@ const importStartHandlerInner = async (req, context) => {
             reason: normalizedReason,
             inline_budget_ms,
             requested_deadline_ms,
-            requested_stage_ms_primary,
+            requested_stage_ms_primary: requested_stage_ms_primary_effective,
             note: "start endpoint is inline capped; long primary runs async",
             ...(extra && typeof extra === "object" ? extra : {}),
           },
@@ -4258,7 +4267,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 },
                 inline_budget_ms,
                 requested_deadline_ms,
-                requested_stage_ms_primary: Number(requested_stage_ms_primary),
+                requested_stage_ms_primary: requested_stage_ms_primary_effective,
                 xai_outbound_body: outboundBody,
                 attempt: Number.isFinite(Number(existingJob?.attempt)) ? Number(existingJob.attempt) : 0,
                 companies_count: Number.isFinite(Number(existingJob?.companies_count))
@@ -4280,7 +4289,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   max_stage: maxStage,
                   skip_stages: Array.from(skipStages),
                   requested_deadline_ms,
-                  requested_stage_ms_primary: Number(requested_stage_ms_primary),
+                  requested_stage_ms_primary: requested_stage_ms_primary_effective,
                   inline_budget_ms,
                   job_storage: upserted?.job?.storage || (cosmosEnabled ? "cosmos" : "memory"),
                 });
@@ -4313,6 +4322,17 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   };
 
                   await upsertItemWithPkCandidates(container, acceptDoc).catch(() => null);
+
+                  await upsertCosmosImportSessionDoc({
+                    sessionId,
+                    requestId,
+                    patch: {
+                      status: "running",
+                      stage_beacon: jobDoc.stage_beacon,
+                      requested_deadline_ms,
+                      requested_stage_ms_primary: requested_stage_ms_primary_effective,
+                    },
+                  }).catch(() => null);
                 })().catch(() => null);
               }
 
@@ -4342,7 +4362,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   stage: "primary",
                   inline_budget_ms,
                   requested_deadline_ms,
-                  requested_stage_ms_primary: Number(requested_stage_ms_primary),
+                  requested_stage_ms_primary: requested_stage_ms_primary_effective,
                   stageCapMs: inline_budget_ms,
                   note: "start endpoint is inline capped; long primary runs async",
                 },
