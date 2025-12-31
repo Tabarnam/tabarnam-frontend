@@ -526,7 +526,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
 
   const LOCK_TTL_MS = Number.isFinite(Number(process.env.IMPORT_LOCK_TTL_MS))
     ? Math.max(5_000, Number(process.env.IMPORT_LOCK_TTL_MS))
-    : 360_000;
+    : 60_000;
 
   const claim = await tryClaimJob({
     sessionId,
@@ -761,8 +761,10 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
   }
 
   const maxAttempts = Math.max(1, toPositiveInt(process.env.IMPORT_PRIMARY_MAX_ATTEMPTS, 5));
+  const priorAttempts = toPositiveInt(job?.attempt, 0);
+  const firstAttempt = Math.max(1, Math.min(maxAttempts, priorAttempts + 1));
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+  for (let attempt = firstAttempt; attempt <= maxAttempts; attempt += 1) {
     const nowAttemptTs = Date.now();
     const runtime = getRuntime(nowAttemptTs);
 
@@ -1004,17 +1006,18 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
         sessionId,
         cosmosEnabled,
         patch: {
+          attempt,
           updated_at: nowIso(),
           last_heartbeat_at: nowIso(),
           last_error: redacted,
           job_state: willRetry ? "running" : "error",
-          stage_beacon: willRetry ? "primary_expanding_candidates" : "primary_expanding_candidates",
+          stage_beacon: "primary_expanding_candidates",
           elapsed_ms: runtimeAfterErr.elapsed_ms,
           remaining_budget_ms: runtimeAfterErr.remaining_budget_ms,
           upstream_calls_made: upstreamCallsMade,
           companies_candidates_found: companiesCandidatesFound,
           early_exit_triggered: earlyExitTriggered,
-          ...(willRetry ? {} : { lock_expires_at: null, locked_by: null }),
+          ...(willRetry && invocationSource === "status" ? { lock_expires_at: null, locked_by: null } : willRetry ? {} : { lock_expires_at: null, locked_by: null }),
         },
       }).catch(() => null);
 
@@ -1028,6 +1031,21 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
             stage_beacon: "primary_expanding_candidates",
             error: redacted,
             meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
+          },
+        };
+      }
+
+      if (invocationSource === "status") {
+        return {
+          httpStatus: 202,
+          body: {
+            ok: true,
+            session_id: sessionId,
+            status: "running",
+            stage_beacon: "primary_expanding_candidates",
+            meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
+            note: "Retry scheduled; status invocation yields after one attempt",
+            error: redacted,
           },
         };
       }
