@@ -235,6 +235,8 @@ const SELECT_FIELDS = [
   "c.star_score",
   "c.confidence_score",
   "c.tagline",
+  "c.profile_completeness",
+  "c.profile_completeness_version",
   "c.logo_url",
   "c.logoUrl",
   "c.logo",
