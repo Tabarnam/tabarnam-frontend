@@ -15,6 +15,7 @@ try {
 
 const { stripAmazonAffiliateTagForStorage } = require("../_amazonAffiliate");
 const { geocodeLocationArray, pickPrimaryLatLng } = require("../_geocode");
+const { computeProfileCompleteness } = require("../_profileCompleteness");
 const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
