@@ -2065,6 +2065,11 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
       return { saved: 0, failed: 0, skipped: 0 };
     }
 
+    if (!CosmosClient) {
+      console.warn("[import-start] Cosmos client module unavailable, skipping save");
+      return { saved: 0, failed: 0, skipped: 0 };
+    }
+
     const client = new CosmosClient({ endpoint, key });
     const database = client.database(databaseId);
     const container = database.container(containerId);
