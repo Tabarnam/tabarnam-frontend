@@ -4730,15 +4730,30 @@ Output JSON only:
           }
 
           if (shouldStopAfterStage("primary")) {
+            const companiesCount = Array.isArray(enriched) ? enriched.length : 0;
+
             try {
               upsertImportSession({
                 session_id: sessionId,
                 request_id: requestId,
                 status: "complete",
                 stage_beacon,
-                companies_count: Array.isArray(enriched) ? enriched.length : 0,
+                companies_count: companiesCount,
               });
             } catch {}
+
+            if (!noUpstreamMode && cosmosEnabled) {
+              await upsertCosmosImportSessionDoc({
+                sessionId,
+                requestId,
+                patch: {
+                  status: "complete",
+                  stage_beacon,
+                  companies_count: companiesCount,
+                  completed_at: new Date().toISOString(),
+                },
+              }).catch(() => null);
+            }
 
             return jsonWithRequestId(
               {
@@ -4806,15 +4821,30 @@ Output JSON only:
           }
 
           if (shouldStopAfterStage("keywords")) {
+            const companiesCount = Array.isArray(enriched) ? enriched.length : 0;
+
             try {
               upsertImportSession({
                 session_id: sessionId,
                 request_id: requestId,
                 status: "complete",
                 stage_beacon,
-                companies_count: Array.isArray(enriched) ? enriched.length : 0,
+                companies_count: companiesCount,
               });
             } catch {}
+
+            if (!noUpstreamMode && cosmosEnabled) {
+              await upsertCosmosImportSessionDoc({
+                sessionId,
+                requestId,
+                patch: {
+                  status: "complete",
+                  stage_beacon,
+                  companies_count: companiesCount,
+                  completed_at: new Date().toISOString(),
+                },
+              }).catch(() => null);
+            }
 
             return jsonWithRequestId(
               {
@@ -4955,15 +4985,30 @@ Output JSON only:
           }
 
           if (shouldStopAfterStage("reviews")) {
+            const companiesCount = Array.isArray(enriched) ? enriched.length : 0;
+
             try {
               upsertImportSession({
                 session_id: sessionId,
                 request_id: requestId,
                 status: "complete",
                 stage_beacon,
-                companies_count: Array.isArray(enriched) ? enriched.length : 0,
+                companies_count: companiesCount,
               });
             } catch {}
+
+            if (!noUpstreamMode && cosmosEnabled) {
+              await upsertCosmosImportSessionDoc({
+                sessionId,
+                requestId,
+                patch: {
+                  status: "complete",
+                  stage_beacon,
+                  companies_count: companiesCount,
+                  completed_at: new Date().toISOString(),
+                },
+              }).catch(() => null);
+            }
 
             return jsonWithRequestId(
               {
@@ -5156,15 +5201,30 @@ Return ONLY the JSON array, no other text.`,
           }
 
           if (shouldStopAfterStage("location")) {
+            const companiesCount = Array.isArray(enriched) ? enriched.length : 0;
+
             try {
               upsertImportSession({
                 session_id: sessionId,
                 request_id: requestId,
                 status: "complete",
                 stage_beacon,
-                companies_count: Array.isArray(enriched) ? enriched.length : 0,
+                companies_count: companiesCount,
               });
             } catch {}
+
+            if (!noUpstreamMode && cosmosEnabled) {
+              await upsertCosmosImportSessionDoc({
+                sessionId,
+                requestId,
+                patch: {
+                  status: "complete",
+                  stage_beacon,
+                  companies_count: companiesCount,
+                  completed_at: new Date().toISOString(),
+                },
+              }).catch(() => null);
+            }
 
             return jsonWithRequestId(
               {
