@@ -3223,6 +3223,8 @@ const importStartHandlerInner = async (req, context) => {
                 queryTypes: Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [],
                 location: String(bodyObj.location || ""),
                 limit: Number(bodyObj.limit) || 0,
+                max_stage: String(maxStage || ""),
+                skip_stages: Array.from(skipStages),
               },
             };
             const result = await upsertItemWithPkCandidates(container, sessionDoc);
