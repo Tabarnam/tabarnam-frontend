@@ -4233,8 +4233,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           const wantsAsyncPrimary =
             inputCompanies.length === 0 &&
             shouldRunStage("primary") &&
-            maxStage === "primary" &&
-            (!requested_stage_ms_primary || Number(requested_stage_ms_primary) > inline_budget_ms);
+            ((Number.isFinite(Number(requested_stage_ms_primary)) &&
+              Number(requested_stage_ms_primary) > inline_budget_ms) ||
+              maxStage === "primary");
 
           if (wantsAsyncPrimary) {
             const jobId = buildImportPrimaryJobId(sessionId);
