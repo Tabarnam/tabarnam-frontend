@@ -3377,9 +3377,15 @@ const importStartHandlerInner = async (req, context) => {
 
         const ensureStageBudgetOrThrow = (stageKey, nextStageBeacon) => {
           const remainingMs = getRemainingMs();
+
           if (remainingMs < DEADLINE_SAFETY_BUFFER_MS) {
-            throwAccepted(nextStageBeacon, "remaining_budget_low", { stage: stageKey });
+            // Only "primary" is allowed to return 202 + continue async.
+            // For downstream enrichment stages, we prefer to skip and still save whatever we have.
+            if (stageKey === "primary") {
+              throwAccepted(nextStageBeacon, "remaining_budget_low", { stage: stageKey });
+            }
           }
+
           return remainingMs;
         };
 
@@ -3393,11 +3399,21 @@ const importStartHandlerInner = async (req, context) => {
           const timeoutForThisStage = Math.min(Math.max(1, remainingMs - UPSTREAM_TIMEOUT_MARGIN_MS), stageCapMs);
 
           if (timeoutForThisStage < 1_000) {
-            throwAccepted(stageBeacon, "insufficient_time_for_fetch", {
-              stage: stageKey,
-              timeoutForThisStage,
-              stageCapMs,
-            });
+            if (stageKey === "primary") {
+              throwAccepted(stageBeacon, "insufficient_time_for_fetch", {
+                stage: stageKey,
+                timeoutForThisStage,
+                stageCapMs,
+              });
+            }
+
+            const err = new Error("Insufficient time for upstream fetch");
+            err.code = "INSUFFICIENT_TIME_FOR_FETCH";
+            err.stage = stageKey;
+            err.stage_beacon = stageBeacon;
+            err.timeoutForThisStage = timeoutForThisStage;
+            err.stageCapMs = stageCapMs;
+            throw err;
           }
 
           const fetchStart = Date.now();
@@ -3440,11 +3456,21 @@ const importStartHandlerInner = async (req, context) => {
             const isAbort = code === "ECONNABORTED" || name.includes("abort");
 
             if (isAbort) {
-              throwAccepted(stageBeacon, "upstream_timeout_returning_202", {
-                stage: stageKey,
-                timeoutForThisStage,
-                stageCapMs,
-              });
+              if (stageKey === "primary") {
+                throwAccepted(stageBeacon, "upstream_timeout_returning_202", {
+                  stage: stageKey,
+                  timeoutForThisStage,
+                  stageCapMs,
+                });
+              }
+
+              const err = new Error("Upstream timeout");
+              err.code = "UPSTREAM_TIMEOUT";
+              err.stage = stageKey;
+              err.stage_beacon = stageBeacon;
+              err.timeoutForThisStage = timeoutForThisStage;
+              err.stageCapMs = stageCapMs;
+              throw err;
             }
 
             throw e;
@@ -4644,9 +4670,14 @@ Output JSON only:
             setStage("generateKeywords");
 
             const keywordsConcurrency = 4;
+            let keywordStageCompleted = true;
             for (let i = 0; i < enriched.length; i += keywordsConcurrency) {
               if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
-                throwAccepted("xai_keywords_fetch_start", "remaining_budget_low", { stage: "keywords" });
+                keywordStageCompleted = false;
+                console.log(
+                  `[import-start] session=${sessionId} keyword enrichment stopping early: remaining budget low`
+                );
+                break;
               }
 
               const slice = enriched.slice(i, i + keywordsConcurrency);
@@ -4672,7 +4703,7 @@ Output JSON only:
 
               enrichedForCounts = enriched;
             }
-            mark("xai_keywords_fetch_done");
+            mark(keywordStageCompleted ? "xai_keywords_fetch_done" : "xai_keywords_fetch_partial");
           } else {
             mark("xai_keywords_fetch_skipped");
           }
@@ -4717,9 +4748,14 @@ Output JSON only:
             setStage("geocodeLocations");
             console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
 
+            let geocodeStageCompleted = true;
             for (let i = 0; i < enriched.length; i++) {
               if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
-                throwAccepted("xai_location_geocode_start", "remaining_budget_low", { stage: "location" });
+                geocodeStageCompleted = false;
+                console.log(
+                  `[import-start] session=${sessionId} geocoding stopping early: remaining budget low`
+                );
+                break;
               }
 
               if (shouldAbort()) {
@@ -4745,7 +4781,7 @@ Output JSON only:
 
             const okCount = enriched.filter((c) => Number.isFinite(c.hq_lat) && Number.isFinite(c.hq_lng)).length;
             console.log(`[import-start] session=${sessionId} geocoding done success=${okCount} failed=${enriched.length - okCount}`);
-            mark("xai_location_geocode_done");
+            mark(geocodeStageCompleted ? "xai_location_geocode_done" : "xai_location_geocode_partial");
           } else {
             mark("xai_location_geocode_skipped");
           }
@@ -4760,9 +4796,14 @@ Output JSON only:
             mark("xai_reviews_fetch_start");
             setStage("fetchEditorialReviews");
             console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
+            let reviewStageCompleted = true;
             for (let i = 0; i < enriched.length; i++) {
               if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
-                throwAccepted("xai_reviews_fetch_start", "remaining_budget_low", { stage: "reviews" });
+                reviewStageCompleted = false;
+                console.log(
+                  `[import-start] session=${sessionId} review enrichment stopping early: remaining budget low`
+                );
+                break;
               }
 
               // Check if import was stopped OR we're running out of time
@@ -4811,7 +4852,7 @@ Output JSON only:
               }
             }
             console.log(`[import-start] session=${sessionId} editorial review enrichment done`);
-            mark("xai_reviews_fetch_done");
+            mark(reviewStageCompleted ? "xai_reviews_fetch_done" : "xai_reviews_fetch_partial");
           } else if (!shouldRunStage("reviews")) {
             mark("xai_reviews_fetch_skipped");
           }
