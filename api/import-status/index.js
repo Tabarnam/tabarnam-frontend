@@ -657,6 +657,18 @@ async function handler(req, context) {
   }
 
   try {
+    if (!CosmosClient) {
+      return jsonWithSessionId(
+        {
+          ok: false,
+          session_id: sessionId,
+          error: "Cosmos client module unavailable",
+          code: "COSMOS_MODULE_MISSING",
+        },
+        200
+      );
+    }
+
     const client = new CosmosClient({ endpoint, key });
     const container = client.database(databaseId).container(containerId);
 
