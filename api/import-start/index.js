@@ -5,7 +5,12 @@ try {
   app = { http() {} };
 }
 const axios = require("axios");
-const { CosmosClient } = require("@azure/cosmos");
+let CosmosClient;
+try {
+  ({ CosmosClient } = require("@azure/cosmos"));
+} catch {
+  CosmosClient = null;
+}
 let randomUUID;
 try {
   ({ randomUUID } = require("crypto"));
@@ -1906,6 +1911,7 @@ function getCompaniesCosmosContainer() {
     const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
 
     if (!endpoint || !key) return null;
+    if (!CosmosClient) return null;
 
     cosmosCompaniesClient ||= new CosmosClient({ endpoint, key });
     return cosmosCompaniesClient.database(databaseId).container(containerId);
@@ -2690,6 +2696,10 @@ const importStartHandlerInner = async (req, context) => {
       const stageMsPrimaryRaw = readQueryParam(req, "stage_ms_primary");
       const requested_stage_ms_primary =
         Number.isFinite(Number(stageMsPrimaryRaw)) && Number(stageMsPrimaryRaw) > 0 ? Number(stageMsPrimaryRaw) : null;
+
+      const requested_stage_ms_primary_effective = requested_stage_ms_primary
+        ? Math.max(5_000, Math.min(requested_stage_ms_primary, requested_deadline_ms))
+        : requested_deadline_ms;
 
       const allowedStages = ["primary", "keywords", "reviews", "location", "expand"];
       const stageOrder = new Map(allowedStages.map((s, i) => [s, i]));
@@ -4199,8 +4209,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           const wantsAsyncPrimary =
             inputCompanies.length === 0 &&
             shouldRunStage("primary") &&
-            Number.isFinite(Number(requested_stage_ms_primary)) &&
-            Number(requested_stage_ms_primary) > inline_budget_ms;
+            maxStage === "primary" &&
+            (!requested_stage_ms_primary || Number(requested_stage_ms_primary) > inline_budget_ms);
 
           if (wantsAsyncPrimary) {
             const jobId = buildImportPrimaryJobId(sessionId);
