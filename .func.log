@@ -1724,3 +1724,4 @@ For detailed output, run func with --verbose flag.
 [2026-01-01T05:36:14.564Z] The '_diag-hello' function is in error: '_diag-hello' is not a valid function name.
 [2026-01-01T05:36:14.564Z] The 'admin-companies-history' function is in error: The specified route conflicts with one or more built in routes.
 [2026-01-01T05:36:14.564Z] The 'admin-company-history' function is in error: The specified route conflicts with one or more built in routes.
+[2026-01-01T05:36:19.550Z] Host lock lease acquired by instance ID '000000000000000000000000A8B20CCB'.
