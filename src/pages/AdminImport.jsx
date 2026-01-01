@@ -1137,6 +1137,7 @@ export default function AdminImport() {
     query,
     queryTypes,
     resetPollAttempts,
+    pollProgress,
     schedulePoll,
     stopPolling,
     urlTypeValidationError,
