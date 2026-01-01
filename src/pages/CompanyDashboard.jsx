@@ -3085,6 +3085,12 @@ export default function CompanyDashboard() {
     })();
 
     const selectedProposedReviews = reviewsImportRef.current?.getSelectedReviews?.() || [];
+    const proposedReviewCount = Number(reviewsImportRef.current?.getProposedReviewCount?.() || 0) || 0;
+
+    if (proposedReviewCount > 0 && selectedProposedReviews.length === 0) {
+      toast.warning("No reviews were marked 'Include on save', nothing was persisted");
+    }
+
     let autoAddedReviews = 0;
     let autoSkippedReviews = 0;
 
@@ -3219,11 +3225,13 @@ export default function CompanyDashboard() {
       });
 
       const label = isNew ? "Company created" : "Company saved";
-      const reviewSuffix = autoAddedReviews
-        ? ` (+${autoAddedReviews} review${autoAddedReviews === 1 ? "" : "s"}${autoSkippedReviews ? `, skipped ${autoSkippedReviews} duplicate${autoSkippedReviews === 1 ? "" : "s"}` : ""})`
+      const reviewDetail = autoAddedReviews
+        ? `${autoAddedReviews} review${autoAddedReviews === 1 ? "" : "s"} saved and visible on public profile${
+            autoSkippedReviews ? ` (skipped ${autoSkippedReviews} duplicate${autoSkippedReviews === 1 ? "" : "s"})` : ""
+          }`
         : "";
 
-      toast.success(`${label}${reviewSuffix}`);
+      toast.success(reviewDetail ? `${label} — ${reviewDetail}` : label);
       closeEditor();
     } catch (e) {
       toast.error(e?.message || "Save failed");
