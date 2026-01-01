@@ -1,8 +1,6 @@
 const { getBuildInfo } = require("../../../_buildInfo");
 
 const ROUTES = [
-  "/api/admin/industries",
-  "/api/admin/keywords",
   "/api/admin-company-history",
   "/api/admin/companies/{company_id}/history",
 ];

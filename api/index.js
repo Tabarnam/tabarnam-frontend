@@ -331,22 +331,6 @@ try {
 }
 
 try {
-  console.log("[api] Registering: admin-industries");
-  require("./admin/industries/index.js");
-  console.log("[api] ✓ admin-industries registered");
-} catch (e) {
-  console.error("[api] ❌ Failed to load admin-industries:", e?.message || e);
-}
-
-try {
-  console.log("[api] Registering: admin-controlled-keywords");
-  require("./admin/keywords/index.js");
-  console.log("[api] ✓ admin-controlled-keywords registered");
-} catch (e) {
-  console.error("[api] ❌ Failed to load admin-controlled-keywords:", e?.message || e);
-}
-
-try {
   console.log("[api] Registering: admin-analytics");
   require("./admin-analytics/index.js");
   console.log("[api] ✓ admin-analytics registered");
