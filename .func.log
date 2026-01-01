@@ -1381,3 +1381,4 @@ For detailed output, run func with --verbose flag.
 [2026-01-01T21:26:35.721Z] No job functions found. Try making your job classes and methods public. If you're using binding extensions (e.g. Azure Storage, ServiceBus, Timers, etc.) make sure you've called the registration method for the extension(s) in your startup code (e.g. builder.AddAzureStorage(), builder.AddServiceBus(), builder.AddTimers(), etc.).
 [2026-01-01T21:26:35.724Z] The '_diag-hello' function is in error: '_diag-hello' is not a valid function name.
 [2026-01-01T21:26:35.724Z] The 'admin-company-history' function is in error: The specified route conflicts with one or more built in routes.
+[2026-01-01T21:26:40.701Z] Host lock lease acquired by instance ID '0000000000000000000000001C289FEC'.
