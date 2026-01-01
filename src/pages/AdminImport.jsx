@@ -229,6 +229,10 @@ export default function AdminImport() {
   const [location, setLocation] = useState("");
   const [limitInput, setLimitInput] = useState(String(IMPORT_LIMIT_DEFAULT));
 
+  const [importMaxStage, setImportMaxStage] = useState("expand");
+  const [importSkipPrimary, setImportSkipPrimary] = useState(false);
+  const [importDryRunEnabled, setImportDryRunEnabled] = useState(false);
+
   const importConfigured = Boolean(API_BASE);
 
   const [runs, setRuns] = useState([]);
@@ -456,6 +460,28 @@ export default function AdminImport() {
       : "Query looks like a URL. Switch query type to Company URL/domain.";
   }, [isUrlLikeQuery, queryTypes]);
 
+  const effectiveImportConfig = useMemo(() => {
+    const maxStage = asString(importMaxStage).trim() || "expand";
+    const skipStages = importSkipPrimary ? ["primary"] : [];
+    const dryRun = Boolean(importDryRunEnabled);
+
+    const pipeline = maxStage === "expand" ? "primary → keywords → reviews → location → save → expand" : "primary → keywords → reviews → location → save";
+
+    const overrides = [];
+    if (skipStages.length > 0) overrides.push(`Skip: ${skipStages.join(", ")}`);
+    if (maxStage && maxStage !== "expand") overrides.push(`Max stage: ${maxStage}`);
+    if (dryRun) overrides.push("Dry run");
+
+    return {
+      pipeline,
+      overridesLabel: overrides.length > 0 ? overrides.join(" · ") : "None",
+      maxStage,
+      skipStages,
+      dryRun,
+      persistBlocked: !dryRun && (skipStages.includes("primary") || (maxStage && maxStage !== "expand")),
+    };
+  }, [importDryRunEnabled, importMaxStage, importSkipPrimary]);
+
   const startDebugImport = useCallback(async () => {
     const q = debugQuery.trim();
     if (!q) {
@@ -590,7 +616,7 @@ export default function AdminImport() {
     }
 
     const runMode = options && typeof options === "object" ? asString(options.mode).trim() : "";
-    const bestEffort = runMode === "best_effort";
+    const forceDryRun = runMode === "dry_run";
 
     const uiSessionIdBefore = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
@@ -645,6 +671,10 @@ export default function AdminImport() {
     startFetchAbortRef.current = abort;
 
     try {
+      const pipelineMaxStage = asString(importMaxStage).trim() || "expand";
+      const baseSkipStages = importSkipPrimary ? ["primary"] : [];
+      const dryRun = forceDryRun || importDryRunEnabled;
+
       const requestPayload = {
         session_id: uiSessionIdBefore,
         query: q,
@@ -652,6 +682,7 @@ export default function AdminImport() {
         location: asString(location).trim() || undefined,
         limit: normalizedLimit,
         expand_if_few: true,
+        dry_run: dryRun,
       };
 
       let canonicalSessionId = uiSessionIdBefore;
@@ -807,6 +838,17 @@ export default function AdminImport() {
           ...(Array.isArray(companies) && companies.length > 0 ? { companies } : {}),
         };
 
+        try {
+          console.log("[admin-import] import/start payload", {
+            query: payload.query,
+            queryTypes: payload.queryTypes,
+            limit: payload.limit,
+            max_stage: stage || null,
+            skip_stages: Array.isArray(skipStages) ? skipStages : [],
+            dry_run: payload.dry_run === true,
+          });
+        } catch {}
+
         const { res, usedPath } = await apiFetchWithFallback(paths, {
           method: "POST",
           body: payload,
@@ -817,23 +859,6 @@ export default function AdminImport() {
         return { res, body, usedPath, payload };
       };
 
-      if (bestEffort) {
-        const { res, body, usedPath, payload } = await callImportStage({ stage: "", skipStages: [], companies: [] });
-
-        syncCanonicalSessionId({ res, body });
-
-        if (!res.ok || body?.ok === false) {
-          await recordStartErrorAndToast(res, body, { usedPath, mode: "best_effort" });
-          return;
-        }
-
-        const finalCompanies = updateRunCompanies(body?.companies, { completed: true });
-        setActiveStatus("done");
-        toast.success(`Import finished (${finalCompanies.length} companies)`);
-        return;
-      }
-
-      const stageSequence = ["primary", "keywords", "reviews", "location", "expand"];
       let companiesForNextStage = [];
 
       const recordStatusFailureAndToast = (body, extra) => {
@@ -955,108 +980,131 @@ export default function AdminImport() {
         };
       };
 
-      for (let stageIndex = 0; stageIndex < stageSequence.length; stageIndex += 1) {
-        const stage = stageSequence[stageIndex];
-        const skipStages = stageSequence.slice(0, stageIndex);
+      resetPollAttempts(canonicalSessionId);
+      schedulePoll({ session_id: canonicalSessionId });
 
-        if (abort.signal.aborted) {
-          const aborted = new Error("Aborted");
-          aborted.name = "AbortError";
-          throw aborted;
-        }
+      const startResult = await callImportStage({ stage: pipelineMaxStage, skipStages: baseSkipStages, companies: [] });
+      syncCanonicalSessionId({ res: startResult.res, body: startResult.body });
 
-        const { res, body, usedPath, payload } = await callImportStage({
-          stage,
-          skipStages,
-          companies: companiesForNextStage,
+      if (!startResult.res.ok || startResult.body?.ok === false) {
+        await recordStartErrorAndToast(startResult.res, startResult.body, {
+          usedPath: startResult.usedPath,
+          mode: "full",
+          max_stage: pipelineMaxStage,
+          skip_stages: baseSkipStages,
+          dry_run: dryRun,
+          stage_payload: startResult.payload,
         });
+        return;
+      }
 
-        syncCanonicalSessionId({ res, body });
+      if (startResult.res.status === 202 || startResult.body?.accepted === true) {
+        const stageBeacon = asString(startResult.body?.stage_beacon).trim();
+        const isAsyncPrimary =
+          startResult.body?.reason === "primary_async_enqueued" ||
+          stageBeacon.startsWith("primary_") ||
+          stageBeacon.startsWith("xai_primary_fetch_");
 
-        if (stageIndex === 0) {
-          resetPollAttempts(canonicalSessionId);
-          schedulePoll({ session_id: canonicalSessionId });
-        }
-
-        if (res.status === 202 || body?.accepted === true) {
-          const stageBeacon = asString(body?.stage_beacon).trim();
-          const isAsyncPrimary =
-            body?.reason === "primary_async_enqueued" ||
-            stageBeacon.startsWith("primary_") ||
-            stageBeacon.startsWith("xai_primary_fetch_");
-
-          // Only the primary stage is expected to return 202 (async worker).
-          // If another stage returns 202, we treat it as an error because the staged pipeline cannot continue.
-          if (!(stage === "primary" && isAsyncPrimary)) {
-            await recordStartErrorAndToast(res, body, {
-              usedPath,
-              stage,
-              mode: "staged",
-              stage_index: stageIndex,
-              stage_payload: payload,
-            });
-            return;
-          }
-
-          const timeoutMsUsed = Number(body?.timeout_ms_used);
-          const timeoutMsForUi = Number.isFinite(timeoutMsUsed) && timeoutMsUsed > 0 ? timeoutMsUsed : null;
-
-          setRuns((prev) =>
-            prev.map((r) =>
-              r.session_id === canonicalSessionId
-                ? {
-                    ...r,
-                    updatedAt: new Date().toISOString(),
-                    start_error: null,
-                    async_primary_active: stage === "primary" && isAsyncPrimary,
-                    async_primary_timeout_ms:
-                      stage === "primary" && isAsyncPrimary ? timeoutMsForUi : r.async_primary_timeout_ms ?? null,
-                  }
-                : r
-            )
-          );
-
-          // IMPORTANT: actually kick off the primary worker from the browser.
-          // The server-side fire-and-forget trigger is not reliable in serverless environments.
-          if (stage === "primary" && isAsyncPrimary) {
-            try {
-              const workerUrl = join(API_BASE, "import/primary-worker");
-              fetch(`${workerUrl}?session_id=${encodeURIComponent(canonicalSessionId)}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ session_id: canonicalSessionId }),
-                keepalive: true,
-              }).catch(() => {});
-            } catch {}
-          }
-
-          const waitResult = await waitForAsyncStatus({ stage });
-          resetPollAttempts(canonicalSessionId);
-          schedulePoll({ session_id: canonicalSessionId });
-
-          if (waitResult.kind === "failed") {
-            recordStatusFailureAndToast(waitResult.body, { stage, mode: "staged", stage_index: stageIndex });
-            return;
-          }
-
-          const asyncCompanies = normalizeItems(waitResult.body?.items || waitResult.body?.companies);
-          const stageCompanies = updateRunCompanies(asyncCompanies, { async_primary_active: false });
-          if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
-          continue;
-        }
-
-        if (!res.ok || body?.ok === false) {
-          await recordStartErrorAndToast(res, body, {
-            usedPath,
-            stage,
-            mode: "staged",
-            stage_index: stageIndex,
-            stage_payload: payload,
+        if (!isAsyncPrimary) {
+          await recordStartErrorAndToast(startResult.res, startResult.body, {
+            usedPath: startResult.usedPath,
+            mode: "full",
+            max_stage: pipelineMaxStage,
+            skip_stages: baseSkipStages,
+            dry_run: dryRun,
+            stage_payload: startResult.payload,
           });
           return;
         }
 
-        const stageCompanies = updateRunCompanies(body?.companies, { async_primary_active: false });
+        const timeoutMsUsed = Number(startResult.body?.timeout_ms_used);
+        const timeoutMsForUi = Number.isFinite(timeoutMsUsed) && timeoutMsUsed > 0 ? timeoutMsUsed : null;
+
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === canonicalSessionId
+              ? {
+                  ...r,
+                  updatedAt: new Date().toISOString(),
+                  start_error: null,
+                  async_primary_active: true,
+                  async_primary_timeout_ms: timeoutMsForUi,
+                }
+              : r
+          )
+        );
+
+        try {
+          const workerUrl = join(API_BASE, "import/primary-worker");
+          fetch(`${workerUrl}?session_id=${encodeURIComponent(canonicalSessionId)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: canonicalSessionId }),
+            keepalive: true,
+          }).catch(() => {});
+        } catch {}
+
+        const waitResult = await waitForAsyncStatus({ stage: "primary" });
+        resetPollAttempts(canonicalSessionId);
+        schedulePoll({ session_id: canonicalSessionId });
+
+        if (waitResult.kind === "failed") {
+          recordStatusFailureAndToast(waitResult.body, { stage: "primary", mode: "full" });
+          return;
+        }
+
+        const asyncCompanies = normalizeItems(waitResult.body?.items || waitResult.body?.companies);
+        const stageCompanies = updateRunCompanies(asyncCompanies, { async_primary_active: false });
+        if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
+
+        if (companiesForNextStage.length === 0) {
+          const { body: latestBody } = await pollProgress({ session_id: canonicalSessionId });
+          const latestCompanies = normalizeItems(latestBody?.items || latestBody?.companies);
+          const latestStageCompanies = updateRunCompanies(latestCompanies, { async_primary_active: false });
+          if (latestStageCompanies.length > 0) companiesForNextStage = latestStageCompanies;
+        }
+
+        if (companiesForNextStage.length === 0) {
+          recordStatusFailureAndToast(
+            {
+              ok: false,
+              status: "error",
+              state: "failed",
+              stage_beacon: "primary_early_exit",
+              error: "Primary completed but no company candidates were returned.",
+              reason: "primary_missing_companies",
+            },
+            { stage: "primary", mode: "full" }
+          );
+          return;
+        }
+
+        const resumeSkipStages = Array.from(new Set(["primary", ...baseSkipStages]));
+
+        const resumeResult = await callImportStage({
+          stage: pipelineMaxStage,
+          skipStages: resumeSkipStages,
+          companies: companiesForNextStage,
+        });
+
+        syncCanonicalSessionId({ res: resumeResult.res, body: resumeResult.body });
+
+        if (!resumeResult.res.ok || resumeResult.body?.ok === false) {
+          await recordStartErrorAndToast(resumeResult.res, resumeResult.body, {
+            usedPath: resumeResult.usedPath,
+            mode: "full_resume",
+            max_stage: pipelineMaxStage,
+            skip_stages: resumeSkipStages,
+            dry_run: dryRun,
+            stage_payload: resumeResult.payload,
+          });
+          return;
+        }
+
+        const resumeCompanies = updateRunCompanies(resumeResult.body?.companies, { async_primary_active: false });
+        if (resumeCompanies.length > 0) companiesForNextStage = resumeCompanies;
+      } else {
+        const stageCompanies = updateRunCompanies(startResult.body?.companies, { async_primary_active: false });
         if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
       }
 
@@ -1066,7 +1114,7 @@ export default function AdminImport() {
         )
       );
       setActiveStatus("done");
-      toast.success(`Import finished (staged, ${companiesForNextStage.length} companies)`);
+      toast.success(`Import finished (${companiesForNextStage.length} companies)`);
     } catch (e) {
       const msg = e?.name === "AbortError" ? "Import aborted" : toErrorString(e) || "Import failed";
       setRuns((prev) => prev.map((r) => (r.session_id === canonicalSessionId ? { ...r, start_error: msg } : r)));
@@ -1077,9 +1125,23 @@ export default function AdminImport() {
         toast.error(msg);
       }
     } finally {
-      stopPolling();
+      // Keep polling alive long enough to capture saved counts/report from /import/status.
     }
-  }, [importConfigured, limitInput, location, query, queryTypes, resetPollAttempts, schedulePoll, stopPolling, urlTypeValidationError]);
+  }, [
+    importConfigured,
+    importDryRunEnabled,
+    importMaxStage,
+    importSkipPrimary,
+    limitInput,
+    location,
+    query,
+    queryTypes,
+    resetPollAttempts,
+    pollProgress,
+    schedulePoll,
+    stopPolling,
+    urlTypeValidationError,
+  ]);
 
   const explainImportPayload = useCallback(async () => {
     const q = query.trim();
@@ -1413,7 +1475,11 @@ export default function AdminImport() {
         ? request.skip_stages.map((s) => asString(s).trim()).filter(Boolean)
         : [];
 
-      if (skipStages.includes("primary")) {
+      const dryRunEnabled = Boolean(request?.dry_run);
+
+      if (dryRunEnabled) {
+        reasonText = "Dry run: saving was skipped by config (dry_run=true).";
+      } else if (skipStages.includes("primary")) {
         reasonText = "Match found, but persistence was skipped by config (skip_stages includes primary).";
       } else if (stageBeacon === "primary_early_exit") {
         reasonText = "No save performed due to early exit.";
@@ -1601,6 +1667,64 @@ export default function AdminImport() {
               )}
             </div>
 
+            <details className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
+              <summary className="cursor-pointer select-none text-sm font-medium text-slate-800">Advanced import config</summary>
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={importSkipPrimary}
+                    onChange={(e) => setImportSkipPrimary(e.target.checked)}
+                  />
+                  Skip primary fetch
+                </label>
+
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={importDryRunEnabled}
+                    onChange={(e) => setImportDryRunEnabled(e.target.checked)}
+                  />
+                  Dry run (no save)
+                </label>
+
+                <div className="space-y-1">
+                  <label className="text-sm text-slate-700">Max stage</label>
+                  <select
+                    className="h-10 w-full rounded border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                    value={importMaxStage}
+                    onChange={(e) => setImportMaxStage(e.target.value)}
+                  >
+                    <option value="expand">expand (full + save)</option>
+                    <option value="location">location (stops before save)</option>
+                    <option value="reviews">reviews</option>
+                    <option value="keywords">keywords</option>
+                    <option value="primary">primary</option>
+                  </select>
+                </div>
+              </div>
+
+              {effectiveImportConfig.persistBlocked ? (
+                <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  This configuration will not save any companies unless you enable Dry run (no save) or change Max stage / Skip settings.
+                </div>
+              ) : null}
+            </details>
+
+            <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 space-y-1">
+              <div>
+                <span className="font-semibold">Pipeline:</span> {effectiveImportConfig.pipeline}
+              </div>
+              <div>
+                <span className="font-semibold">Overrides:</span> {effectiveImportConfig.overridesLabel}
+              </div>
+              <div>
+                <span className="font-semibold">Effective request:</span> max_stage={effectiveImportConfig.maxStage}; skip_stages=
+                {effectiveImportConfig.skipStages.length > 0 ? effectiveImportConfig.skipStages.join(",") : "(none)"}; dry_run=
+                {effectiveImportConfig.dryRun ? "true" : "false"}
+              </div>
+            </div>
+
             {skipEnrichmentWarning ? (
               <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 mt-0.5" />
@@ -1622,10 +1746,10 @@ export default function AdminImport() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => beginImport({ mode: "best_effort" })}
+                onClick={() => beginImport({ mode: "dry_run" })}
                 disabled={startImportDisabled}
               >
-                Run all stages (best effort)
+                Dry run (no save)
               </Button>
 
               <Button
