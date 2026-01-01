@@ -48,9 +48,6 @@ async function safeHandler(req, context) {
     const result = await adminRefreshReviewsHandler(req, context);
 
     // Ensure body is JSON even if handler accidentally returns a non-JSON response.
-    const rawBody = result && typeof result === "object" && "body" in result ? result.body : null;
-    const isJsonString = typeof rawBody === "string" && rawBody.trim().startsWith("{");
-
     if (!result || typeof result !== "object") {
       return jsonBody(
         {
@@ -65,23 +62,43 @@ async function safeHandler(req, context) {
       );
     }
 
-    if (!isJsonString) {
-      return jsonBody(
-        {
-          ok: false,
-          stage: "reviews_refresh",
-          root_cause: "non_json_response",
-          message: "Handler returned a non-JSON response body",
-          build_id: BUILD_INFO.build_id || null,
-          version_tag: VERSION_TAG,
-          original_status: Number(result.status) || null,
-          original_body_preview: typeof rawBody === "string" ? rawBody.slice(0, 500) : null,
+    const rawBody = "body" in result ? result.body : null;
+
+    // If a handler returns an object/array body, normalize it to a JSON string.
+    if (rawBody && typeof rawBody === "object") {
+      return {
+        ...result,
+        headers: {
+          ...(result.headers && typeof result.headers === "object" ? result.headers : {}),
+          "Content-Type": "application/json",
         },
-        500
-      );
+        body: JSON.stringify(rawBody),
+      };
     }
 
-    return result;
+    const rawText = typeof rawBody === "string" ? rawBody : rawBody == null ? "" : String(rawBody);
+
+    try {
+      const parsed = rawText.trim() ? JSON.parse(rawText) : null;
+      const okJson = parsed !== null && (typeof parsed === "object" || Array.isArray(parsed));
+      if (okJson) return result;
+    } catch {
+      // fall through
+    }
+
+    return jsonBody(
+      {
+        ok: false,
+        stage: "reviews_refresh",
+        root_cause: "non_json_response",
+        message: "Handler returned a non-JSON response body",
+        build_id: BUILD_INFO.build_id || null,
+        version_tag: VERSION_TAG,
+        original_status: Number(result.status) || null,
+        original_body_preview: rawText ? rawText.slice(0, 500) : null,
+      },
+      500
+    );
   } catch (e) {
     const message = e?.message ? String(e.message) : "Unhandled error";
 
