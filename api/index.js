@@ -332,7 +332,7 @@ try {
 
 try {
   console.log("[api] Registering: admin-controlled-keywords");
-  require("./admin-controlled-keywords/index.js");
+  require("./admin/keywords/index.js");
   console.log("[api] ✓ admin-controlled-keywords registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-controlled-keywords:", e?.message || e);
