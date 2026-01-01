@@ -598,6 +598,12 @@ async function handler(req, context) {
   if (mem) {
     stageBeaconValues.status_seen_session_memory = nowIso();
 
+    const saved = Number.isFinite(Number(mem.saved))
+      ? Number(mem.saved)
+      : Number.isFinite(Number(mem.companies_count))
+        ? Number(mem.companies_count)
+        : 0;
+
     return jsonWithSessionId(
       {
         ok: true,
@@ -618,6 +624,8 @@ async function handler(req, context) {
         attempts: 0,
         last_error: null,
         companies_count: Number.isFinite(Number(mem.companies_count)) ? Number(mem.companies_count) : 0,
+        saved,
+        saved_companies: [],
       },
       200,
       req
