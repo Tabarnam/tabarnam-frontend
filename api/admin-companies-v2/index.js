@@ -556,7 +556,11 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         const take = Math.min(500, Math.max(1, parseInt((req.query?.take || "200").toString())));
 
         const parameters = [{ name: "@take", value: take }];
-        const whereClauses = ["(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)"];
+        const whereClauses = [
+          "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)",
+          "NOT STARTSWITH(c.id, '_import_')",
+          "(NOT IS_DEFINED(c.type) OR c.type != 'import_control')",
+        ];
 
         if (search) {
           parameters.push({ name: "@q", value: search });
