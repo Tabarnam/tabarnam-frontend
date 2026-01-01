@@ -58,6 +58,59 @@ function normalizeLocationEntries(entries) {
     .filter(Boolean);
 }
 
+function normalizeIncludeOnSaveFlag(value, fallback = undefined) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (!v) return fallback;
+    if (["true", "1", "yes", "y", "on"].includes(v)) return true;
+    if (["false", "0", "no", "n", "off"].includes(v)) return false;
+  }
+  return fallback;
+}
+
+function normalizeCuratedReviewsForSave(company) {
+  const curated = Array.isArray(company?.curated_reviews) ? company.curated_reviews : [];
+  const legacy = Array.isArray(company?.reviews) ? company.reviews : [];
+
+  const incoming = curated.length > 0 && legacy.length > 0 ? curated.concat(legacy) : curated.length > 0 ? curated : legacy;
+
+  const out = [];
+  const seen = new Set();
+
+  for (const r of incoming) {
+    if (!r || typeof r !== "object") continue;
+
+    const includeFlag = normalizeIncludeOnSaveFlag(r?.include_on_save ?? r?.includeOnSave ?? r?.include, undefined);
+    if (includeFlag === false) continue;
+
+    const id = typeof r?.id === "string" ? r.id.trim() : "";
+    const urlRaw = typeof r?.source_url === "string" ? r.source_url : typeof r?.url === "string" ? r.url : "";
+    const key = id || String(urlRaw || "").trim().toLowerCase();
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+
+    const showToUsers = normalizeIncludeOnSaveFlag(
+      r?.show_to_users ?? r?.showToUsers ?? r?.is_public ?? r?.visible_to_users ?? r?.visible,
+      true
+    );
+
+    const rating = typeof r?.rating === "number" ? r.rating : typeof r?.rating === "string" && r.rating.trim() ? Number(r.rating) : null;
+
+    out.push({
+      ...(r || {}),
+      include_on_save: true,
+      visibility: typeof r?.visibility === "string" && r.visibility.trim() ? r.visibility.trim() : "public",
+      rating: typeof rating === "number" && Number.isFinite(rating) ? rating : null,
+      show_to_users: showToUsers,
+      is_public: showToUsers,
+    });
+  }
+
+  return out;
+}
+
 function toNormalizedDomain(s = "") {
   try {
     const raw = String(s || "").trim();
