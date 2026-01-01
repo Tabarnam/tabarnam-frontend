@@ -1057,6 +1057,28 @@ export default function AdminImport() {
         const stageCompanies = updateRunCompanies(asyncCompanies, { async_primary_active: false });
         if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
 
+        if (companiesForNextStage.length === 0) {
+          const { body: latestBody } = await pollProgress({ session_id: canonicalSessionId });
+          const latestCompanies = normalizeItems(latestBody?.items || latestBody?.companies);
+          const latestStageCompanies = updateRunCompanies(latestCompanies, { async_primary_active: false });
+          if (latestStageCompanies.length > 0) companiesForNextStage = latestStageCompanies;
+        }
+
+        if (companiesForNextStage.length === 0) {
+          recordStatusFailureAndToast(
+            {
+              ok: false,
+              status: "error",
+              state: "failed",
+              stage_beacon: "primary_early_exit",
+              error: "Primary completed but no company candidates were returned.",
+              reason: "primary_missing_companies",
+            },
+            { stage: "primary", mode: "full" }
+          );
+          return;
+        }
+
         const resumeSkipStages = Array.from(new Set(["primary", ...baseSkipStages]));
 
         const resumeResult = await callImportStage({
