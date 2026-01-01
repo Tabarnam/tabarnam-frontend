@@ -782,8 +782,11 @@ export default function AdminImport() {
             `Import failed (${res.status})`
         );
 
+        const buildId = getResponseBuildId(res) || getCachedBuildId() || "";
+
         const detailsForCopy = {
           status: res.status,
+          build_id: buildId || null,
           session_id: canonicalSessionId,
           request_id: requestId,
           request_payload: requestPayload,
