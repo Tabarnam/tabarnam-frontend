@@ -144,12 +144,9 @@ export default function AdminEditHistory({ companyId }) {
     setNextCursor(null);
 
     try {
-      const { primary, fallback } = buildUrls(null);
+      const url = buildHistoryUrl(null);
 
-      let res = await apiFetch(primary);
-      if (res.status === 404) {
-        res = await apiFetch(fallback);
-      }
+      const res = await apiFetch(url);
       const body = await res.json().catch(() => ({}));
 
       if (!res.ok || body?.ok !== true) {
@@ -165,7 +162,7 @@ export default function AdminEditHistory({ companyId }) {
     } finally {
       setLoading(false);
     }
-  }, [buildUrls, id]);
+  }, [buildHistoryUrl, id]);
 
   const loadMore = useCallback(async () => {
     if (!id || !nextCursor || loadingMore) return;
@@ -173,12 +170,9 @@ export default function AdminEditHistory({ companyId }) {
     setError("");
 
     try {
-      const { primary, fallback } = buildUrls(nextCursor);
+      const url = buildHistoryUrl(nextCursor);
 
-      let res = await apiFetch(primary);
-      if (res.status === 404) {
-        res = await apiFetch(fallback);
-      }
+      const res = await apiFetch(url);
       const body = await res.json().catch(() => ({}));
 
       if (!res.ok || body?.ok !== true) {
@@ -195,7 +189,7 @@ export default function AdminEditHistory({ companyId }) {
     } finally {
       setLoadingMore(false);
     }
-  }, [buildUrls, id, loadingMore, nextCursor]);
+  }, [buildHistoryUrl, id, loadingMore, nextCursor]);
 
   useEffect(() => {
     if (!id) return;
