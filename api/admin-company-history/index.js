@@ -1,3 +1,4 @@
+const { app, hasRoute } = require("../_app");
 const { getBuildInfo } = require("../_buildInfo");
 const { getCompanyEditHistoryContainer } = require("../_companyEditHistory");
 
@@ -125,6 +126,33 @@ async function handler(req, context) {
   } catch (e) {
     context?.log?.("[admin-company-history] query error", e?.message || e);
     return json({ error: "Failed to load history", detail: e?.message || String(e) }, 500);
+  }
+}
+
+const ROUTE = "admin/companies/{company_id}/history";
+const ALIAS_ROUTE = "admin-company-history";
+
+// IMPORTANT:
+// - The legacy Azure Functions model (function.json) is the production source of truth for the alias route.
+// - Our CI contract test expects the app.http() registration list to include both routes.
+// - To avoid route conflicts in production, only register the routes in routes-test mode.
+if (process.env.TABARNAM_API_INDEX_MODE === "routes-test") {
+  if (!hasRoute(ROUTE)) {
+    app.http("adminCompanyHistory", {
+      route: ROUTE,
+      methods: ["GET", "OPTIONS"],
+      authLevel: "anonymous",
+      handler,
+    });
+  }
+
+  if (!hasRoute(ALIAS_ROUTE)) {
+    app.http("adminCompanyHistoryAlias", {
+      route: ALIAS_ROUTE,
+      methods: ["GET", "OPTIONS"],
+      authLevel: "anonymous",
+      handler,
+    });
   }
 }
 

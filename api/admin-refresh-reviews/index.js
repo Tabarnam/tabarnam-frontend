@@ -1,6 +1,4 @@
 const { app } = require("../_app");
-
-const { app } = require("../_app");
 const { getBuildInfo } = require("../_buildInfo");
 
 const { adminRefreshReviewsHandler } = require("../_adminRefreshReviews");
