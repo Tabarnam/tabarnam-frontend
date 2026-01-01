@@ -152,4 +152,5 @@ if (!hasRoute(ALIAS_ROUTE)) {
   });
 }
 
+module.exports.handler = handler;
 module.exports._test = { handler, decodeCursor, encodeCursor };
