@@ -21,7 +21,6 @@ import AdminHeader from "@/components/AdminHeader";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ScrollScrubber from "@/components/ScrollScrubber";
 import AdminEditHistory from "@/components/AdminEditHistory";
-import { DrawInSelectorDialog } from "@/components/DrawInSelectorDialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -281,7 +280,7 @@ function LocationSourcesEditor({ value, onChange }) {
   );
 }
 
-function StringListEditor({ label, value, onChange, placeholder = "", drawInLabel = "", onDrawIn }) {
+function StringListEditor({ label, value, onChange, placeholder = "" }) {
   const list = normalizeStringList(value);
   const [draft, setDraft] = useState("");
 
@@ -316,11 +315,6 @@ function StringListEditor({ label, value, onChange, placeholder = "", drawInLabe
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3">
         <div className="text-sm text-slate-700 font-medium">{label}</div>
-        {onDrawIn && drawInLabel ? (
-          <Button type="button" variant="outline" size="sm" onClick={onDrawIn}>
-            {drawInLabel}
-          </Button>
-        ) : null}
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white">
@@ -2266,9 +2260,6 @@ export default function CompanyDashboard() {
   const [editorOriginalId, setEditorOriginalId] = useState(null);
   const [editorShowAdvanced, setEditorShowAdvanced] = useState(false);
   const [editorDisplayNameOverride, setEditorDisplayNameOverride] = useState("");
-
-  const [industriesDrawInOpen, setIndustriesDrawInOpen] = useState(false);
-  const [keywordsDrawInOpen, setKeywordsDrawInOpen] = useState(false);
 
   const [refreshLoading, setRefreshLoading] = useState(false);
   const [refreshError, setRefreshError] = useState(null);
@@ -4405,8 +4396,6 @@ export default function CompanyDashboard() {
                             value={editorDraft.industries}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), industries: next }))}
                             placeholder="Add an industry…"
-                            drawInLabel="Draw In Industries"
-                            onDrawIn={() => setIndustriesDrawInOpen(true)}
                           />
 
                           <StringListEditor
@@ -4414,39 +4403,8 @@ export default function CompanyDashboard() {
                             value={editorDraft.keywords}
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), keywords: next }))}
                             placeholder="Add a keyword…"
-                            drawInLabel="Draw In Keywords"
-                            onDrawIn={() => setKeywordsDrawInOpen(true)}
                           />
 
-                          <DrawInSelectorDialog
-                            open={industriesDrawInOpen}
-                            onOpenChange={setIndustriesDrawInOpen}
-                            title="Draw In Industries"
-                            endpoint="/admin/industries"
-                            existingItems={editorDraft.industries}
-                            suggestedItems={normalizeStringList(refreshProposed?.industries)}
-                            onApply={(selected) =>
-                              setEditorDraft((prev) => ({
-                                ...(prev || {}),
-                                industries: mergeStringListsCaseInsensitive(prev?.industries, selected),
-                              }))
-                            }
-                          />
-
-                          <DrawInSelectorDialog
-                            open={keywordsDrawInOpen}
-                            onOpenChange={setKeywordsDrawInOpen}
-                            title="Draw In Keywords"
-                            endpoint="/admin/keywords"
-                            existingItems={editorDraft.keywords}
-                            suggestedItems={normalizeStringList(refreshProposed?.keywords || refreshProposed?.product_keywords)}
-                            onApply={(selected) =>
-                              setEditorDraft((prev) => ({
-                                ...(prev || {}),
-                                keywords: mergeStringListsCaseInsensitive(prev?.keywords, selected),
-                              }))
-                            }
-                          />
                         </div>
 
                         <div className="space-y-5">
