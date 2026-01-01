@@ -1,1 +1,2 @@
 npm warn exec The following package was not found and will be installed: azure-functions-core-tools@4.6.0
+Resolving worker runtime to 'node'.
