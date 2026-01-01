@@ -2775,12 +2775,31 @@ const importStartHandlerInner = async (req, context) => {
       const maxStageRaw = readQueryParam(req, "max_stage");
       const skipStagesRaw = readQueryParam(req, "skip_stages");
 
+      const dryRunRaw =
+        Object.prototype.hasOwnProperty.call(bodyObj, "dry_run")
+          ? bodyObj.dry_run
+          : Object.prototype.hasOwnProperty.call(bodyObj, "dryRun")
+            ? bodyObj.dryRun
+            : readQueryParam(req, "dry_run");
+
+      const dryRun =
+        dryRunRaw === true ||
+        dryRunRaw === 1 ||
+        dryRunRaw === "1" ||
+        String(dryRunRaw || "")
+          .trim()
+          .toLowerCase() === "true";
+
+      bodyObj.dry_run = dryRun;
+      bodyObj.dryRun = dryRun;
+
       try {
         console.log("[import-start] received_query_params", {
           deadline_ms: requested_deadline_ms_number,
           stage_ms_primary: requested_stage_ms_primary,
           max_stage: typeof maxStageRaw === "string" ? maxStageRaw : null,
           skip_stages: typeof skipStagesRaw === "string" ? skipStagesRaw : null,
+          dry_run: dryRun,
         });
       } catch {}
 
@@ -2822,6 +2841,45 @@ const importStartHandlerInner = async (req, context) => {
       }
 
       const maxStage = maxStageParsed;
+
+      try {
+        console.log("[import-start] normalized_effective_request", {
+          request_id: requestId,
+          session_id: sessionId,
+          query: normalizedQuery,
+          queryTypes: Array.isArray(bodyObj.queryTypes) ? bodyObj.queryTypes : [],
+          location: bodyObj.location,
+          limit: bodyObj.limit,
+          max_stage: maxStage,
+          skip_stages: Array.from(skipStages),
+          dry_run: dryRun,
+          companies_seeded: Array.isArray(bodyObj.companies) ? bodyObj.companies.length : 0,
+        });
+      } catch {}
+
+      const providedCompanies = Array.isArray(bodyObj.companies) ? bodyObj.companies : [];
+      const stopsBeforeSave = Boolean(maxStage && maxStage !== "expand");
+      const skipsPrimaryWithoutSeed = skipStages.has("primary") && providedCompanies.length === 0;
+
+      if (!dryRun && (stopsBeforeSave || skipsPrimaryWithoutSeed)) {
+        return jsonWithRequestId(
+          {
+            ok: false,
+            session_id: sessionId,
+            request_id: requestId,
+            stage_beacon,
+            error_message:
+              "This config cannot persist. Set dry_run=true or remove stage overrides (max_stage/skip_stages) that prevent saving.",
+            details: {
+              dry_run: dryRun,
+              max_stage: maxStage,
+              skip_stages: Array.from(skipStages),
+              companies_seeded: providedCompanies.length,
+            },
+          },
+          400
+        );
+      }
 
       const shouldRunStage = (stageKey) => {
         if (!stageKey) return true;
@@ -3234,6 +3292,7 @@ const importStartHandlerInner = async (req, context) => {
                 limit: Number(bodyObj.limit) || 0,
                 max_stage: String(maxStage || ""),
                 skip_stages: Array.from(skipStages),
+                dry_run: dryRun,
               },
             };
             const result = await upsertItemWithPkCandidates(container, sessionDoc);
@@ -5324,7 +5383,7 @@ Return ONLY the JSON array, no other text.`,
 
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
 
-          if (enriched.length > 0 && cosmosEnabled) {
+          if (!dryRun && enriched.length > 0 && cosmosEnabled) {
             const deadlineBeforeCosmosWrite = checkDeadlineOrReturn("cosmos_write_start");
             if (deadlineBeforeCosmosWrite) return deadlineBeforeCosmosWrite;
 
