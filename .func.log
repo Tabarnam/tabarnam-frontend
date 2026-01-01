@@ -359,3 +359,360 @@ Function Runtime Version: 4.1045.200.25556
 [2026-01-01T02:22:42.942Z] The 'admin-industries' function is in error: The specified route conflicts with one or more built in routes.
 For detailed output, run func with --verbose flag.
 [2026-01-01T02:22:45.024Z] Host lock lease acquired by instance ID '000000000000000000000000A01110D9'.
+[2026-01-01T02:26:38.057Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2026-01-01T02:26:38.545Z] [api/index.js] Starting handler registration...
+[2026-01-01T02:26:38.545Z] [api] Registering: health
+[2026-01-01T02:26:38.545Z] [api] Failed to load health: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.545Z] Require stack:
+[2026-01-01T02:26:38.545Z] - /root/app/code/api/health/index.js
+[2026-01-01T02:26:38.545Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.545Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.546Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.546Z] [api] Registering: ping
+[2026-01-01T02:26:38.546Z] [api] Failed to load ping: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.546Z] Require stack:
+[2026-01-01T02:26:38.546Z] - /root/app/code/api/ping/index.js
+[2026-01-01T02:26:38.546Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.546Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.546Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.546Z] [api] Failed to load version: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.546Z] Require stack:
+[2026-01-01T02:26:38.546Z] - /root/app/code/api/version/index.js
+[2026-01-01T02:26:38.546Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.546Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.546Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.546Z] [api] Registering: version
+[2026-01-01T02:26:38.546Z] [api] Registering: diag
+[2026-01-01T02:26:38.546Z] [api] ✓ diag registered
+[2026-01-01T02:26:38.546Z] [api] Registering: hello
+[2026-01-01T02:26:38.546Z] [api] Registering: proxy-xai
+[2026-01-01T02:26:38.546Z] [api] Failed to load hello: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.547Z] Require stack:
+[2026-01-01T02:26:38.547Z] - /root/app/code/api/hello/index.js
+[2026-01-01T02:26:38.547Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.547Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.547Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.547Z] [api] Registering: v1-chat-completions
+[2026-01-01T02:26:38.547Z] [api] Failed to load proxy-xai: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.547Z] Require stack:
+[2026-01-01T02:26:38.547Z] - /root/app/code/api/proxy-xai/index.js
+[2026-01-01T02:26:38.547Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.547Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.547Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.547Z] [api] Registering: _debug-ingress-latest
+[2026-01-01T02:26:38.547Z] [api] Failed to load v1-chat-completions: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.547Z] Require stack:
+[2026-01-01T02:26:38.547Z] - /root/app/code/api/v1-chat-completions/index.js
+[2026-01-01T02:26:38.547Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.547Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.547Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.547Z] [api] Registering: _debug-egress-latest
+[2026-01-01T02:26:38.547Z] [api] Failed to load _debug-ingress-latest: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.548Z] Require stack:
+[2026-01-01T02:26:38.548Z] - /root/app/code/api/_debug-ingress-latest/index.js
+[2026-01-01T02:26:38.548Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.548Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.548Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.548Z] [api] Registering: submit-review
+[2026-01-01T02:26:38.548Z] [api] Failed to load _debug-egress-latest: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.548Z] Require stack:
+[2026-01-01T02:26:38.548Z] - /root/app/code/api/_debug-egress-latest/index.js
+[2026-01-01T02:26:38.548Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.548Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.548Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.548Z] [api] Registering: get-reviews
+[2026-01-01T02:26:38.548Z] [api] Failed to load submit-review: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.548Z] Require stack:
+[2026-01-01T02:26:38.548Z] - /root/app/code/api/submit-review/index.js
+[2026-01-01T02:26:38.548Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.548Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.548Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.548Z] [api] Registering: xadmin-api-recalc-review-counts
+[2026-01-01T02:26:38.548Z] [api] Registering: search-companies
+[2026-01-01T02:26:38.549Z] [api] Registering: suggest-refinements
+[2026-01-01T02:26:38.549Z] [api] Failed to load xadmin-api-recalc-review-counts: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.549Z] Require stack:
+[2026-01-01T02:26:38.549Z] - /root/app/code/api/admin-recalc-review-counts/index.js
+[2026-01-01T02:26:38.549Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.549Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.549Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.549Z] [api] ❌ Failed to load suggest-refinements: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.549Z] Require stack:
+[2026-01-01T02:26:38.549Z] - /root/app/code/api/suggest-refinements/index.js
+[2026-01-01T02:26:38.549Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.549Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.549Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.549Z] [api] Registering: suggest-cities
+[2026-01-01T02:26:38.549Z] [api] ❌ Failed to load suggest-cities: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.549Z] Require stack:
+[2026-01-01T02:26:38.549Z] - /root/app/code/api/suggest-cities/index.js
+[2026-01-01T02:26:38.549Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.549Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.549Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.549Z] [api] Registering: suggest-states
+[2026-01-01T02:26:38.550Z] [api] ❌ Failed to load suggest-states: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.550Z] Require stack:
+[2026-01-01T02:26:38.550Z] - /root/app/code/api/suggest-states/index.js
+[2026-01-01T02:26:38.550Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.550Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.550Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.550Z] [api] Registering: save-companies
+[2026-01-01T02:26:38.550Z] [api] Registering: logo-scrape
+[2026-01-01T02:26:38.550Z] [api] Failed to load logo-scrape: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.550Z] Require stack:
+[2026-01-01T02:26:38.550Z] - /root/app/code/api/logo-scrape/index.js
+[2026-01-01T02:26:38.550Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.550Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.550Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.550Z] [api] Registering: cosmos-smoke
+[2026-01-01T02:26:38.550Z] [api] Registering: import-start
+[2026-01-01T02:26:38.550Z] [import-start] module_loaded {
+[2026-01-01T02:26:38.550Z]   handler_version: 'ded-import-start-91d3d4a79eb3',
+[2026-01-01T02:26:38.550Z]   build_id: '91d3d4a79eb37596e4514e6dd44fffbf6d0de24a'
+[2026-01-01T02:26:38.550Z] }
+[2026-01-01T02:26:38.550Z] [api] Registering: import-backend-ping
+[2026-01-01T02:26:38.550Z] [api] Registering: import-status
+[2026-01-01T02:26:38.550Z] [api] Registering: import-progress
+[2026-01-01T02:26:38.550Z] [api] Failed to load import-progress: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.551Z] Require stack:
+[2026-01-01T02:26:38.551Z] - /root/app/code/api/import-progress/index.js
+[2026-01-01T02:26:38.551Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.551Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.551Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.551Z] [api] Registering: import-stop
+[2026-01-01T02:26:38.551Z] [api] Failed to load import-stop: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.551Z] Require stack:
+[2026-01-01T02:26:38.551Z] - /root/app/code/api/import-stop/index.js
+[2026-01-01T02:26:38.551Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.551Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.551Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.552Z] [api] Registering: import/primary-worker
+[2026-01-01T02:26:38.552Z] [api] Registering: google/geocode
+[2026-01-01T02:26:38.552Z] [api] Failed to load google/geocode: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.552Z] Require stack:
+[2026-01-01T02:26:38.552Z] - /root/app/code/api/google/geocode/index.js
+[2026-01-01T02:26:38.552Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.552Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.552Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.552Z] [api] Registering: google/translate
+[2026-01-01T02:26:38.553Z] [api] Failed to load google/translate: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.553Z] Require stack:
+[2026-01-01T02:26:38.553Z] - /root/app/code/api/google/translate/index.js
+[2026-01-01T02:26:38.553Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.553Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.553Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.553Z] [api] Registering: test-echo
+[2026-01-01T02:26:38.553Z] [api] ❌ Failed to load test-echo: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.553Z] Require stack:
+[2026-01-01T02:26:38.553Z] - /root/app/code/api/test-echo/index.js
+[2026-01-01T02:26:38.553Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.553Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.553Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.553Z] [api] ❌ Failed to load companies-list: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.553Z] Require stack:
+[2026-01-01T02:26:38.553Z] - /root/app/code/api/companies-list/index.js
+[2026-01-01T02:26:38.553Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.553Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.553Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.553Z] [api] ❌ Failed to load keywords-list: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.553Z] Require stack:
+[2026-01-01T02:26:38.553Z] - /root/app/code/api/keywords-list/index.js
+[2026-01-01T02:26:38.554Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.554Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.554Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.554Z] [api] ❌ Failed to load upload-logo-blob: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.554Z] Require stack:
+[2026-01-01T02:26:38.554Z] - /root/app/code/api/upload-logo-blob/index.js
+[2026-01-01T02:26:38.554Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.554Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.554Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.554Z] [api] ❌ Failed to load delete-logo-blob: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.554Z] Require stack:
+[2026-01-01T02:26:38.554Z] - /root/app/code/api/delete-logo-blob/index.js
+[2026-01-01T02:26:38.554Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.554Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.554Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.554Z] [api] ❌ Failed to load xadmin-api-logos: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.554Z] Require stack:
+[2026-01-01T02:26:38.554Z] - /root/app/code/api/xadmin-api-logos/index.js
+[2026-01-01T02:26:38.554Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.554Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.555Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.555Z] [api] ❌ Failed to load retry-logo-import: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.555Z] Require stack:
+[2026-01-01T02:26:38.555Z] - /root/app/code/api/retry-logo-import/index.js
+[2026-01-01T02:26:38.555Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.555Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.555Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.555Z] [api] Registering: companies-list
+[2026-01-01T02:26:38.555Z] [companies-list] Starting module load...
+[2026-01-01T02:26:38.555Z] [api] Registering: keywords-list
+[2026-01-01T02:26:38.555Z] [keywords-list] Module loading started
+[2026-01-01T02:26:38.555Z] [api] Registering: upload-logo-blob
+[2026-01-01T02:26:38.555Z] [api] Registering: delete-logo-blob
+[2026-01-01T02:26:38.555Z] [api] Registering: company-logo
+[2026-01-01T02:26:38.555Z] [api] ✓ company-logo registered
+[2026-01-01T02:26:38.555Z] [api] Registering: xadmin-api-logos
+[2026-01-01T02:26:38.555Z] [api] Registering: retry-logo-import
+[2026-01-01T02:26:38.555Z] [api] Registering: admin-keywords
+[2026-01-01T02:26:38.555Z] [api] ❌ Failed to load admin-keywords: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.555Z] Require stack:
+[2026-01-01T02:26:38.555Z] - /root/app/code/api/admin-keywords/index.js
+[2026-01-01T02:26:38.556Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.556Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.556Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.556Z] [api] Registering: admin-industries
+[2026-01-01T02:26:38.556Z] [api] ❌ Failed to load admin-industries: Cannot find module './admin-industries/index.js'
+[2026-01-01T02:26:38.556Z] Require stack:
+[2026-01-01T02:26:38.556Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.556Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.556Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.556Z] [api] Registering: admin-controlled-keywords
+[2026-01-01T02:26:38.556Z] [api] Registering: admin-analytics
+[2026-01-01T02:26:38.556Z] [api] ❌ Failed to load admin-controlled-keywords: Cannot find module './admin-controlled-keywords/index.js'
+[2026-01-01T02:26:38.556Z] Require stack:
+[2026-01-01T02:26:38.556Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.556Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.557Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.557Z] [api] ❌ Failed to load admin-analytics: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.557Z] Require stack:
+[2026-01-01T02:26:38.557Z] - /root/app/code/api/admin-analytics/index.js
+[2026-01-01T02:26:38.557Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.557Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.557Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.557Z] [api] Registering: admin-batch-update
+[2026-01-01T02:26:38.557Z] [api] ❌ Failed to load admin-batch-update: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.557Z] Require stack:
+[2026-01-01T02:26:38.557Z] - /root/app/code/api/admin-batch-update/index.js
+[2026-01-01T02:26:38.557Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.557Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.557Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.557Z] [api] Registering: admin-bulk-import-config
+[2026-01-01T02:26:38.557Z] [api] ❌ Failed to load admin-bulk-import-config: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.557Z] Require stack:
+[2026-01-01T02:26:38.557Z] - /root/app/code/api/admin-bulk-import-config/index.js
+[2026-01-01T02:26:38.557Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.557Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.557Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.557Z] [api] Registering: admin-companies-v2
+[2026-01-01T02:26:38.557Z] [api] ✓ admin-companies-v2 registered
+[2026-01-01T02:26:38.557Z] [api] Registering: admin-company-history
+[2026-01-01T02:26:38.558Z] [api] ✓ admin-company-history registered
+[2026-01-01T02:26:38.558Z] [api] Registering: xadmin-api-debug
+[2026-01-01T02:26:38.558Z] [api] Registering: admin-echo
+[2026-01-01T02:26:38.558Z] [api] ❌ Failed to load xadmin-api-debug: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.558Z] Require stack:
+[2026-01-01T02:26:38.558Z] - /root/app/code/api/admin-debug/index.js
+[2026-01-01T02:26:38.558Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.558Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.558Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.558Z] [api] ❌ Failed to load admin-echo: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.558Z] Require stack:
+[2026-01-01T02:26:38.558Z] - /root/app/code/api/admin-echo/index.js
+[2026-01-01T02:26:38.558Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.558Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.558Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.558Z] [api] Registering: admin-import-stats
+[2026-01-01T02:26:38.558Z] [api] ❌ Failed to load admin-import-stats: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.558Z] Require stack:
+[2026-01-01T02:26:38.558Z] - /root/app/code/api/admin-import-stats/index.js
+[2026-01-01T02:26:38.558Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.558Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.558Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.558Z] [api] Registering: admin-login
+[2026-01-01T02:26:38.559Z] [api] ❌ Failed to load admin-login: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.559Z] Require stack:
+[2026-01-01T02:26:38.559Z] - /root/app/code/api/admin-login/index.js
+[2026-01-01T02:26:38.559Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.559Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.559Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.559Z] [api] Registering: admin-notes
+[2026-01-01T02:26:38.559Z] [api] ❌ Failed to load admin-notes: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.559Z] Require stack:
+[2026-01-01T02:26:38.559Z] - /root/app/code/api/admin-notes/index.js
+[2026-01-01T02:26:38.559Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.559Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.559Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.559Z] [api] ❌ Failed to load admin-recalc-stars: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.559Z] Require stack:
+[2026-01-01T02:26:38.559Z] - /root/app/code/api/admin-recalc-stars/index.js
+[2026-01-01T02:26:38.559Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.559Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.560Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.560Z] [api] ❌ Failed to load admin-reviews: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.560Z] Require stack:
+[2026-01-01T02:26:38.560Z] - /root/app/code/api/admin-reviews/index.js
+[2026-01-01T02:26:38.560Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.560Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.560Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.560Z] [api] ❌ Failed to load admin-save-diagnostic: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.560Z] Require stack:
+[2026-01-01T02:26:38.560Z] - /root/app/code/api/admin-save-diagnostic/index.js
+[2026-01-01T02:26:38.560Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.560Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.560Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.560Z] [api] ❌ Failed to load admin-star-config: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.560Z] Require stack:
+[2026-01-01T02:26:38.560Z] - /root/app/code/api/admin-star-config/index.js
+[2026-01-01T02:26:38.560Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.560Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.560Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.560Z] [api] ❌ Failed to load admin-undo: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.560Z] Require stack:
+[2026-01-01T02:26:38.560Z] - /root/app/code/api/admin-undo/index.js
+[2026-01-01T02:26:38.560Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.561Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.561Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.561Z] [api] Registering: admin-recalc-stars
+[2026-01-01T02:26:38.561Z] [api] Registering: admin-reviews
+[2026-01-01T02:26:38.561Z] [api] Registering: admin-save-diagnostic
+[2026-01-01T02:26:38.561Z] [api] Registering: admin-star-config
+[2026-01-01T02:26:38.561Z] [api] Registering: admin-undo
+[2026-01-01T02:26:38.561Z] [api] Registering: admin-undo-history
+[2026-01-01T02:26:38.561Z] [api] Registering: admin-update-logos
+[2026-01-01T02:26:38.561Z] [api] ❌ Failed to load admin-undo-history: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.561Z] Require stack:
+[2026-01-01T02:26:38.561Z] - /root/app/code/api/admin-undo-history/index.js
+[2026-01-01T02:26:38.561Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.561Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.561Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.561Z] [api] Registering: admin-recent-imports
+[2026-01-01T02:26:38.561Z] [api] ❌ Failed to load admin-update-logos: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.561Z] Require stack:
+[2026-01-01T02:26:38.561Z] - /root/app/code/api/admin-update-logos/index.js
+[2026-01-01T02:26:38.561Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.561Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.561Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.561Z] [api] ❌ Failed to load admin-recent-imports: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.561Z] Require stack:
+[2026-01-01T02:26:38.561Z] - /root/app/code/api/admin-recent-imports/index.js
+[2026-01-01T02:26:38.562Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.562Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.562Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.562Z] [api] Registering: admin-refresh-import
+[2026-01-01T02:26:38.562Z] [api] ❌ Failed to load admin-refresh-import: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.562Z] Require stack:
+[2026-01-01T02:26:38.562Z] - /root/app/code/api/admin-refresh-import/index.js
+[2026-01-01T02:26:38.562Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.562Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.562Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.562Z] [api] Registering: admin-refresh-company
+[2026-01-01T02:26:38.562Z] [api] ✓ admin-refresh-company registered
+[2026-01-01T02:26:38.562Z] [api] Registering: xadmin-api-refresh-company
+[2026-01-01T02:26:38.562Z] [api] ✓ xadmin-api-refresh-company registered
+[2026-01-01T02:26:38.562Z] [api] Registering: admin-refresh-reviews
+[2026-01-01T02:26:38.562Z] [api] ✓ admin-refresh-reviews registered
+[2026-01-01T02:26:38.562Z] [api] Registering: xadmin-api-refresh-reviews
+[2026-01-01T02:26:38.562Z] [api] ✓ xadmin-api-refresh-reviews registered
+[2026-01-01T02:26:38.562Z] [api] Registering: admin-geocode-location
+[2026-01-01T02:26:38.562Z] [api] ❌ Failed to load admin-geocode-location: Cannot find module '@azure/functions'
+[2026-01-01T02:26:38.562Z] Require stack:
+[2026-01-01T02:26:38.562Z] - /root/app/code/api/admin-geocode-location/index.js
+[2026-01-01T02:26:38.563Z] - /root/app/code/api/index.js
+[2026-01-01T02:26:38.563Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-01T02:26:38.563Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-01T02:26:38.563Z] [api/index.js] ✅ All handler registration complete! Exporting app.
+[2026-01-01T02:26:38.578Z] No job functions found. Try making your job classes and methods public. If you're using binding extensions (e.g. Azure Storage, ServiceBus, Timers, etc.) make sure you've called the registration method for the extension(s) in your startup code (e.g. builder.AddAzureStorage(), builder.AddServiceBus(), builder.AddTimers(), etc.).
+[2026-01-01T02:26:38.581Z] The 'admin-companies-history' function is in error: The specified route conflicts with one or more built in routes.
+[2026-01-01T02:26:38.581Z] The 'admin-company-history' function is in error: The specified route conflicts with one or more built in routes.
+[2026-01-01T02:26:43.559Z] Host lock lease acquired by instance ID '000000000000000000000000A01110D9'.
