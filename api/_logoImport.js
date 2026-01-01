@@ -566,7 +566,7 @@ async function fetchAndEvaluateCandidate(candidate, logger = console) {
     return { ok: false, reason: "offsite_head_redirect" };
   }
   if (!isAllowedLogoContentType(probedType)) return { ok: false, reason: `unsupported_content_type_${probedType || "unknown"}` };
-  if (head.contentLength != null && head.contentLength <= 5 * 1024) return { ok: false, reason: `too_small_${head.contentLength}_bytes` };
+  if (head.contentLength != null && head.contentLength <= 1024) return { ok: false, reason: `too_small_${head.contentLength}_bytes` };
 
   try {
     const { buf, contentType, finalUrl } = await fetchImageBufferWithRetries(sourceUrl, {
@@ -575,7 +575,7 @@ async function fetchAndEvaluateCandidate(candidate, logger = console) {
       maxBytes: 6 * 1024 * 1024,
     });
 
-    if (!Buffer.isBuffer(buf) || buf.length <= 5 * 1024) {
+    if (!Buffer.isBuffer(buf) || buf.length <= 1024) {
       return { ok: false, reason: `too_small_${buf?.length || 0}_bytes` };
     }
 
