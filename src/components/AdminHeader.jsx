@@ -126,6 +126,10 @@ function ApiStatusIndicator() {
 export default function AdminHeader() {
   const navigate = useNavigate();
 
+  useEffect(() => {
+    ensureBuildId();
+  }, []);
+
   const handleLogout = () => {
     const postLogout = encodeURIComponent("/login");
     window.location.href = `/.auth/logout?post_logout_redirect_uri=${postLogout}`;
