@@ -102,6 +102,23 @@ function normalizeHeaderValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
 }
 
+function normalizeBuildIdString(value: unknown): string {
+  const s = String(value || "").trim();
+  if (!s) return "";
+  const m = s.match(/[0-9a-f]{7,40}/i);
+  return m ? m[0] : s;
+}
+
+export function getResponseBuildId(res: Response): string {
+  const headers = res?.headers;
+  const bid =
+    normalizeHeaderValue(headers?.get?.("x-api-build-id")) ||
+    normalizeHeaderValue(headers?.get?.("X-Api-Build-Id")) ||
+    normalizeHeaderValue(headers?.get?.("x-build-id")) ||
+    normalizeHeaderValue(headers?.get?.("X-Build-Id"));
+  return normalizeBuildIdString(bid);
+}
+
 export function getResponseRequestId(res: Response): string {
   const headers = res?.headers;
   const rid =
@@ -362,11 +379,20 @@ export async function apiFetch(path: string, init?: RequestInit) {
 
     if (!response.ok) {
       const responseText = await response.clone().text().catch(() => "");
+      const parsedBody = responseText ? safeJsonParse(responseText) : null;
+
+      const responseTextMax = 20_000;
+      const responseTextTruncated = responseText.length > responseTextMax;
+      const responseTextPreview = responseTextTruncated ? responseText.slice(0, responseTextMax) : responseText;
+
       const err = {
         status: response.status,
         url,
         method,
-        response_text_preview: responseText.length > 2000 ? responseText.slice(0, 2000) : responseText,
+        build_id: getResponseBuildId(response) || null,
+        response_body: parsedBody,
+        response_text: responseTextPreview,
+        response_text_truncated: responseTextTruncated,
         response_headers: getResponseHeadersSubset(response),
       };
 
@@ -424,11 +450,20 @@ export async function apiFetch(path: string, init?: RequestInit) {
 
         if (!response.ok) {
           const responseText = await response.clone().text().catch(() => "");
+          const parsedBody = responseText ? safeJsonParse(responseText) : null;
+
+          const responseTextMax = 20_000;
+          const responseTextTruncated = responseText.length > responseTextMax;
+          const responseTextPreview = responseTextTruncated ? responseText.slice(0, responseTextMax) : responseText;
+
           const err = {
             status: response.status,
             url: fallbackUrl,
             method,
-            response_text_preview: responseText.length > 2000 ? responseText.slice(0, 2000) : responseText,
+            build_id: getResponseBuildId(response) || null,
+            response_body: parsedBody,
+            response_text: responseTextPreview,
+            response_text_truncated: responseTextTruncated,
             response_headers: getResponseHeadersSubset(response),
             fallback_from: url,
           };
