@@ -127,3 +127,5 @@ app.http("adminIndustries", {
   authLevel: "anonymous",
   handler: adminIndustriesHandler,
 });
+
+module.exports.handler = adminIndustriesHandler;
