@@ -809,8 +809,8 @@ export default function AdminImport() {
         setActiveStatus("error");
         toast.error(
           errorObj?.code
-            ? `${msg} (code: ${errorObj.code}${errorObj.step ? `, step: ${errorObj.step}` : ""}${requestId ? `, request_id: ${requestId}` : ""})`
-            : msg
+            ? `${msg} (code: ${errorObj.code}${errorObj.step ? `, step: ${errorObj.step}` : ""}${requestId ? `, request_id: ${requestId}` : ""}${buildId ? `, build ${buildId}` : ""})`
+            : `${msg}${buildId ? ` (build ${buildId})` : ""}`
         );
       };
 
