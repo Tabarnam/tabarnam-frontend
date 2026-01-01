@@ -229,6 +229,10 @@ export default function AdminImport() {
   const [location, setLocation] = useState("");
   const [limitInput, setLimitInput] = useState(String(IMPORT_LIMIT_DEFAULT));
 
+  const [importMaxStage, setImportMaxStage] = useState("expand");
+  const [importSkipPrimary, setImportSkipPrimary] = useState(false);
+  const [importDryRunEnabled, setImportDryRunEnabled] = useState(false);
+
   const importConfigured = Boolean(API_BASE);
 
   const [runs, setRuns] = useState([]);
@@ -1413,7 +1417,11 @@ export default function AdminImport() {
         ? request.skip_stages.map((s) => asString(s).trim()).filter(Boolean)
         : [];
 
-      if (skipStages.includes("primary")) {
+      const dryRunEnabled = Boolean(request?.dry_run);
+
+      if (dryRunEnabled) {
+        reasonText = "Dry run: saving was skipped by config (dry_run=true).";
+      } else if (skipStages.includes("primary")) {
         reasonText = "Match found, but persistence was skipped by config (skip_stages includes primary).";
       } else if (stageBeacon === "primary_early_exit") {
         reasonText = "No save performed due to early exit.";
@@ -1622,10 +1630,10 @@ export default function AdminImport() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => beginImport({ mode: "best_effort" })}
+                onClick={() => beginImport({ mode: "dry_run" })}
                 disabled={startImportDisabled}
               >
-                Run all stages (best effort)
+                Dry run (no save)
               </Button>
 
               <Button
