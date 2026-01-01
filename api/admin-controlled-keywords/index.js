@@ -127,3 +127,5 @@ app.http("adminControlledKeywords", {
   authLevel: "anonymous",
   handler: adminKeywordsHandler,
 });
+
+module.exports.handler = adminKeywordsHandler;
