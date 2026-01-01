@@ -65,6 +65,26 @@ function extractMetaImage(html, baseUrl, kind) {
   return "";
 }
 
+function extractMetaProperty(html, baseUrl, key) {
+  const property = String(key || "").trim();
+  if (!property) return "";
+
+  const patterns = [
+    new RegExp(`<meta\\b[^>]*property=["']${property}["'][^>]*content=["']([^"']+)["'][^>]*>`, "i"),
+    new RegExp(`<meta\\b[^>]*content=["']([^"']+)["'][^>]*property=["']${property}["'][^>]*>`, "i"),
+    new RegExp(`<meta\\b[^>]*name=["']${property}["'][^>]*content=["']([^"']+)["'][^>]*>`, "i"),
+    new RegExp(`<meta\\b[^>]*content=["']([^"']+)["'][^>]*name=["']${property}["'][^>]*>`, "i"),
+  ];
+
+  for (const re of patterns) {
+    const found = extractFirstMatch(html, re);
+    const abs = absolutizeUrl(found, baseUrl);
+    if (abs) return abs;
+  }
+
+  return "";
+}
+
 function safeJsonParse(text) {
   try {
     return JSON.parse(text);
@@ -579,7 +599,7 @@ async function fetchAndEvaluateCandidate(candidate, logger = console) {
       if (!Number.isFinite(width) || !Number.isFinite(height)) {
         return { ok: false, reason: "unknown_svg_dimensions" };
       }
-      if (width < 128 || height < 128) {
+      if (width < 64 || height < 64) {
         return { ok: false, reason: `too_small_dimensions_${width}x${height}` };
       }
       if (!isReasonableLogoAspectRatio({ width, height }) && !candidate?.strong_signal) {
@@ -595,7 +615,7 @@ async function fetchAndEvaluateCandidate(candidate, logger = console) {
 
     const { width, height } = await getImageMetadata(buf, isSvg);
 
-    if (!Number.isFinite(width) || !Number.isFinite(height) || width < 128 || height < 128) {
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width < 64 || height < 64) {
       return { ok: false, reason: `too_small_dimensions_${width || "?"}x${height || "?"}` };
     }
 
@@ -890,11 +910,77 @@ function collectLogoCandidatesFromHtml(html, baseUrl, options = {}) {
   const allowedFromBase = deriveAllowedHostRootFromUrl(baseUrl);
   const allowedHostRoot = reconcileAllowedHostRoot(allowedFromOptions, allowedFromBase);
 
+  const metaCandidates = [];
+
+  const schemaLogo = extractSchemaOrgLogo(html, baseUrl);
+  if (schemaLogo) {
+    metaCandidates.push(
+      addLocationMeta(
+        {
+          url: schemaLogo,
+          source: "jsonld",
+          page_url: baseUrl,
+          score: 240 + extScore(getFileExt(schemaLogo)) + (hasAnyToken(schemaLogo, LOGO_POSITIVE_TOKENS) ? 40 : 0),
+          strong_signal: true,
+        },
+        { location: "jsonld", source: "jsonld", allowedHostRoot }
+      )
+    );
+  }
+
+  const ogLogo = extractMetaProperty(html, baseUrl, "og:logo");
+  if (ogLogo) {
+    metaCandidates.push(
+      addLocationMeta(
+        {
+          url: ogLogo,
+          source: "og_logo",
+          page_url: baseUrl,
+          score: 220 + extScore(getFileExt(ogLogo)) + (hasAnyToken(ogLogo, LOGO_POSITIVE_TOKENS) ? 30 : 0),
+          strong_signal: hasAnyToken(ogLogo, LOGO_POSITIVE_TOKENS),
+        },
+        { location: "meta", source: "og_logo", allowedHostRoot }
+      )
+    );
+  }
+
+  const ogImage = extractMetaProperty(html, baseUrl, "og:image") || extractMetaImage(html, baseUrl, "og");
+  if (ogImage) {
+    metaCandidates.push(
+      addLocationMeta(
+        {
+          url: ogImage,
+          source: "og_image",
+          page_url: baseUrl,
+          score: 140 + extScore(getFileExt(ogImage)) + (hasAnyToken(ogImage, LOGO_POSITIVE_TOKENS) ? 20 : 0),
+          strong_signal: hasAnyToken(ogImage, LOGO_POSITIVE_TOKENS),
+        },
+        { location: "meta", source: "og_image", allowedHostRoot }
+      )
+    );
+  }
+
+  const twitterImage = extractMetaProperty(html, baseUrl, "twitter:image") || extractMetaImage(html, baseUrl, "twitter");
+  if (twitterImage) {
+    metaCandidates.push(
+      addLocationMeta(
+        {
+          url: twitterImage,
+          source: "twitter_image",
+          page_url: baseUrl,
+          score: 120 + extScore(getFileExt(twitterImage)) + (hasAnyToken(twitterImage, LOGO_POSITIVE_TOKENS) ? 20 : 0),
+          strong_signal: hasAnyToken(twitterImage, LOGO_POSITIVE_TOKENS),
+        },
+        { location: "meta", source: "twitter_image", allowedHostRoot }
+      )
+    );
+  }
+
   const headerCandidates = collectHeaderNavImgCandidates(html, baseUrl, { companyNameTokens, allowedHostRoot });
   const iconCandidates = collectIconLinkCandidates(html, baseUrl, { allowedHostRoot });
   const footerCandidates = collectFooterImgCandidates(html, baseUrl, { companyNameTokens, allowedHostRoot });
 
-  const all = [...headerCandidates, ...iconCandidates, ...footerCandidates];
+  const all = [...metaCandidates, ...headerCandidates, ...iconCandidates, ...footerCandidates];
   const onSite = filterOnSiteCandidates(all, allowedHostRoot);
   return dedupeAndSortCandidates(onSite);
 }
@@ -1015,7 +1101,7 @@ async function uploadBufferToBlob({ companyId, buffer, ext, contentType }, logge
     logger?.warn?.(`[logoImport] container create/exists failed: ${e?.message || e}`);
   }
 
-  const blobName = `${companyId}/${uuidv4()}.${safeExt}`;
+  const blobName = `${companyId}/logo.${safeExt}`;
   const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
   await blockBlobClient.upload(buffer, buffer.length, {
@@ -1041,8 +1127,16 @@ async function uploadSvgToBlob({ companyId, svgBuffer }, logger = console) {
 
 function candidateSourceRank(source) {
   switch (String(source || "").toLowerCase()) {
+    case "jsonld":
+      return 8;
     case "header":
       return 10;
+    case "og_logo":
+      return 12;
+    case "og_image":
+      return 14;
+    case "twitter_image":
+      return 16;
     case "icon":
     case "favicon":
       return 20;
@@ -1119,11 +1213,51 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
 
   for (let i = 0; i < Math.min(maxToTry, sorted.length); i += 1) {
     const candidate = sorted[i];
+
+    try {
+      logger?.log?.("logo_candidate_found", {
+        company_id: companyId,
+        candidate_url: candidate?.url || "",
+        candidate_source: candidate?.source || "",
+        candidate_score: Number(candidate?.score) || 0,
+        attempt: i + 1,
+      });
+    } catch {
+      // ignore
+    }
+
     const evalResult = await fetchAndEvaluateCandidate(candidate, logger);
 
     if (!evalResult.ok) {
       lastReason = evalResult.reason || lastReason;
+
+      const reason = String(evalResult.reason || "");
+      if (reason.includes("too_small")) {
+        try {
+          logger?.log?.("logo_rejected_small", {
+            company_id: companyId,
+            candidate_url: candidate?.url || "",
+            reason,
+          });
+        } catch {
+          // ignore
+        }
+      }
+
       continue;
+    }
+
+    try {
+      logger?.log?.("logo_download_ok", {
+        company_id: companyId,
+        source_url: evalResult.finalUrl || candidate?.url || "",
+        content_type: evalResult.contentType || "",
+        width: evalResult.width || null,
+        height: evalResult.height || null,
+        is_svg: Boolean(evalResult.isSvg),
+      });
+    } catch {
+      // ignore
     }
 
     try {
@@ -1134,6 +1268,15 @@ async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, l
       } else {
         const pngBuffer = await rasterizeToPng(evalResult.buf, { maxSize: 500, isSvg: false });
         logoUrl = await uploadPngToBlob({ companyId, pngBuffer }, logger);
+      }
+
+      try {
+        logger?.log?.("logo_uploaded_ok", {
+          company_id: companyId,
+          logo_url: logoUrl,
+        });
+      } catch {
+        // ignore
       }
 
       return {
