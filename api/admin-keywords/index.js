@@ -1,5 +1,8 @@
 const { app } = require('@azure/functions');
-const { CosmosClient } = require('@azure/cosmos');
+const { CosmosClient } = require("@azure/cosmos");
+
+const { app } = require("../_app");
+const { handler: adminKeywordsHandler } = require("../admin/keywords/index.js");
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -138,3 +141,7 @@ app.http('adminKeywords', {
     }
   }
 });
+
+module.exports.handler = async function adminKeywordsTopLevelHandler(req, context) {
+  return adminKeywordsHandler(req, context);
+};
