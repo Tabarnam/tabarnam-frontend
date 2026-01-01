@@ -949,6 +949,11 @@ function looksLikeCompanyUrlQuery(raw) {
   return true;
 }
 
+function isAzureWebsitesUrl(rawUrl) {
+  const u = tryParseUrl(rawUrl);
+  if (!u) return false;
+  return /\.azurewebsites\.net$/i.test(String(u.hostname || ""));
+}
 
 function joinUrlPath(basePath, suffixPath) {
   const a = String(basePath || "").trim();
@@ -1729,10 +1734,19 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
             stageCapMsOverride: timeout,
           })
         : await postJsonWithTimeout(xaiUrl, {
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${xaiKey}`,
-            },
+            headers: (() => {
+              const headers = {
+                "Content-Type": "application/json",
+              };
+
+              if (isAzureWebsitesUrl(xaiUrl)) {
+                headers["x-functions-key"] = xaiKey;
+              } else {
+                headers["Authorization"] = `Bearer ${xaiKey}`;
+              }
+
+              return headers;
+            })(),
             body: JSON.stringify(reviewPayload),
             timeoutMs: timeout,
           });
@@ -2377,6 +2391,10 @@ const importStartHandlerInner = async (req, context) => {
     let enrichedForCounts = [];
     let primaryXaiOutboundBody = "";
 
+    // If we successfully write at least one company but a later stage fails,
+    // we return 200 with warnings instead of a hard 500.
+    let saveReport = null;
+
     let stage_beacon = "init";
     let stage_reached = null;
 
@@ -2925,6 +2943,117 @@ const importStartHandlerInner = async (req, context) => {
         }
 
         const errorStage = stage_beacon || stage;
+
+        const shouldReturnWarnings =
+          status >= 500 &&
+          saveReport &&
+          typeof saveReport === "object" &&
+          Number.isFinite(Number(saveReport.saved)) &&
+          Number(saveReport.saved) > 0;
+
+        if (shouldReturnWarnings) {
+          const upstreamStatus =
+            Number.isFinite(Number(detailsObj?.upstream_status))
+              ? Number(detailsObj.upstream_status)
+              : Number.isFinite(Number(detailsObj?.xai_status))
+                ? Number(detailsObj.xai_status)
+                : null;
+
+          const upstreamUrlRaw =
+            (typeof detailsObj?.upstream_url === "string" && detailsObj.upstream_url.trim())
+              ? detailsObj.upstream_url.trim()
+              : (typeof detailsObj?.xai_url === "string" && detailsObj.xai_url.trim())
+                ? detailsObj.xai_url.trim()
+                : "";
+
+          const upstreamUrlRedacted = upstreamUrlRaw ? redactUrlQueryAndHash(upstreamUrlRaw) : null;
+
+          const root_cause = (() => {
+            if (status === 504) return "timeout";
+            const code = String(detailsObj?.code || "").toLowerCase();
+            if (code.includes("timeout")) return "timeout";
+            if (Number.isFinite(Number(upstreamStatus))) {
+              if (upstreamStatus >= 400 && upstreamStatus < 500) return "upstream_4xx";
+              if (upstreamStatus >= 500) return "upstream_5xx";
+            }
+            if (String(errorStage || "").toLowerCase().includes("cosmos")) return "cosmos_write_error";
+            return "parse_error";
+          })();
+
+          const warningKey = (() => {
+            const s = String(errorStage || "").toLowerCase();
+            if (s.includes("reviews")) return "reviews_failed";
+            if (s.includes("expand")) return "expand_failed";
+            if (s.includes("keywords")) return "keywords_failed";
+            if (s.includes("location")) return "location_failed";
+            return "saved_with_warnings";
+          })();
+
+          const partialMessage =
+            (typeof detailsObj?.message === "string" && detailsObj.message.trim())
+              ? detailsObj.message.trim()
+              : (typeof detailsObj?.error_message === "string" && detailsObj.error_message.trim())
+                ? detailsObj.error_message.trim()
+                : toErrorString(err) || "Saved with warnings";
+
+          const warningDetail = {
+            stage: "import_start",
+            root_cause,
+            upstream_status: upstreamStatus,
+            upstream_url: upstreamUrlRedacted,
+            message: partialMessage,
+            build_id: buildInfo?.build_id || null,
+          };
+
+          try {
+            upsertImportSession({
+              session_id: sessionId,
+              request_id: requestId,
+              status: "complete",
+              stage_beacon: errorStage,
+              companies_count: Array.isArray(enrichedForCounts) ? enrichedForCounts.length : 0,
+            });
+          } catch {}
+
+          if (!noUpstreamMode && cosmosEnabled) {
+            try {
+              await upsertCosmosImportSessionDoc({
+                sessionId,
+                requestId,
+                patch: {
+                  status: "complete",
+                  stage_beacon: errorStage,
+                  saved: Number(saveReport.saved) || 0,
+                  skipped: Number(saveReport.skipped) || 0,
+                  failed: Number(saveReport.failed) || 0,
+                  warnings: [warningKey],
+                  warnings_detail: { [warningKey]: warningDetail },
+                  completed_at: new Date().toISOString(),
+                },
+              });
+            } catch {}
+          }
+
+          return jsonWithRequestId(
+            {
+              ok: true,
+              session_id: sessionId,
+              request_id: requestId,
+              stage_beacon: errorStage,
+              company_name: contextInfo.company_name,
+              website_url: contextInfo.website_url,
+              companies: Array.isArray(enrichedForCounts) ? enrichedForCounts : [],
+              saved: Number(saveReport.saved) || 0,
+              skipped: Number(saveReport.skipped) || 0,
+              failed: Number(saveReport.failed) || 0,
+              save_report: saveReport,
+              warnings: [warningKey],
+              warnings_detail: { [warningKey]: warningDetail },
+              build_id: buildInfo?.build_id || null,
+            },
+            200
+          );
+        }
 
         try {
           upsertImportSession({
@@ -3610,10 +3739,19 @@ const importStartHandlerInner = async (req, context) => {
 
           try {
             const res = await postJsonWithTimeout(xaiUrl, {
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${xaiKey}`,
-              },
+              headers: (() => {
+                const headers = {
+                  "Content-Type": "application/json",
+                };
+
+                if (isAzureWebsitesUrl(xaiUrl)) {
+                  headers["x-functions-key"] = xaiKey;
+                } else {
+                  headers["Authorization"] = `Bearer ${xaiKey}`;
+                }
+
+                return headers;
+              })(),
               body: typeof body === "string" ? body : "",
               timeoutMs: timeoutForThisStage,
             });
@@ -5391,6 +5529,7 @@ Return ONLY the JSON array, no other text.`,
             setStage("saveCompaniesToCosmos");
             console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos start count=${enriched.length}`);
             saveResult = await saveCompaniesToCosmos(enriched, sessionId, timeout);
+            saveReport = saveResult;
             console.log(
               `[import-start] session=${sessionId} saveCompaniesToCosmos done saved=${saveResult.saved} skipped=${saveResult.skipped} duplicates=${saveResult.skipped}`
             );
@@ -5550,6 +5689,7 @@ Return ONLY the JSON array, no other text.`,
                     saveResult.saved += expansionResult.saved;
                     saveResult.skipped += expansionResult.skipped;
                     saveResult.failed += expansionResult.failed;
+                    saveReport = saveResult;
                     console.log(
                       `[import-start] Expansion: saved ${expansionResult.saved}, skipped ${expansionResult.skipped}, failed ${expansionResult.failed}`
                     );

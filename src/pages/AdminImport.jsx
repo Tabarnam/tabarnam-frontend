@@ -986,6 +986,8 @@ export default function AdminImport() {
       const startResult = await callImportStage({ stage: pipelineMaxStage, skipStages: baseSkipStages, companies: [] });
       syncCanonicalSessionId({ res: startResult.res, body: startResult.body });
 
+      let lastStageBody = startResult.body;
+
       if (!startResult.res.ok || startResult.body?.ok === false) {
         await recordStartErrorAndToast(startResult.res, startResult.body, {
           usedPath: startResult.usedPath,
@@ -1101,6 +1103,8 @@ export default function AdminImport() {
           return;
         }
 
+        lastStageBody = resumeResult.body;
+
         const resumeCompanies = updateRunCompanies(resumeResult.body?.companies, { async_primary_active: false });
         if (resumeCompanies.length > 0) companiesForNextStage = resumeCompanies;
       } else {
@@ -1108,13 +1112,32 @@ export default function AdminImport() {
         if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
       }
 
+      const warnings = Array.isArray(lastStageBody?.warnings)
+        ? lastStageBody.warnings.map((w) => asString(w).trim()).filter(Boolean)
+        : [];
+      const warningsDetail =
+        lastStageBody?.warnings_detail && typeof lastStageBody.warnings_detail === "object" ? lastStageBody.warnings_detail : null;
+
       setRuns((prev) =>
         prev.map((r) =>
           r.session_id === canonicalSessionId ? { ...r, completed: true, updatedAt: new Date().toISOString() } : r
         )
       );
       setActiveStatus("done");
-      toast.success(`Import finished (${companiesForNextStage.length} companies)`);
+
+      if (warnings.length > 0) {
+        const firstKey = warnings[0];
+        const detailMsg =
+          firstKey && warningsDetail && typeof warningsDetail[firstKey]?.message === "string" ? warningsDetail[firstKey].message : "";
+
+        toast.warning(
+          detailMsg
+            ? `Saved with warnings (${firstKey}): ${detailMsg}`
+            : `Saved with warnings (${warnings.join(", ")})`
+        );
+      } else {
+        toast.success(`Import finished (${companiesForNextStage.length} companies)`);
+      }
     } catch (e) {
       const msg = e?.name === "AbortError" ? "Import aborted" : toErrorString(e) || "Import failed";
       setRuns((prev) => prev.map((r) => (r.session_id === canonicalSessionId ? { ...r, start_error: msg } : r)));

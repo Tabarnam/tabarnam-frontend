@@ -1283,12 +1283,28 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       const body = jsonBody && typeof jsonBody === "object" ? jsonBody : {};
 
       if (!res.ok || body?.ok !== true) {
-        const msg =
+        const rootCause = asString(body?.root_cause).trim();
+        const upstreamStatusRaw = body?.upstream_status;
+        const upstreamStatus =
+          typeof upstreamStatusRaw === "number"
+            ? upstreamStatusRaw
+            : typeof upstreamStatusRaw === "string" && upstreamStatusRaw.trim()
+              ? Number(upstreamStatusRaw)
+              : null;
+
+        const baseMsg =
           (await getUserFacingConfigMessage(res)) ||
+          body?.message ||
           body?.error ||
           (typeof textBody === "string" && textBody.trim() ? textBody.trim().slice(0, 500) : "") ||
           res.statusText ||
           `Reviews fetch failed (${res.status})`;
+
+        const suffixParts = [];
+        if (rootCause) suffixParts.push(`reason: ${rootCause}`);
+        if (Number.isFinite(Number(upstreamStatus))) suffixParts.push(`upstream: HTTP ${Number(upstreamStatus)}`);
+
+        const msg = suffixParts.length ? `${asString(baseMsg).trim()} (${suffixParts.join(", ")})` : baseMsg;
 
         setError({
           status: res.status,

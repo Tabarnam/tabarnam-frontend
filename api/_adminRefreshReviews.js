@@ -22,6 +22,87 @@ const { normalizeUrl, validateCuratedReviewCandidate } = require("./_reviewQuali
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "refresh-reviews";
 
+const API_STAGE = "reviews_refresh";
+
+function logOneLineError({
+  company_id,
+  company_domain,
+  attempt,
+  timeout_ms,
+  upstream_status,
+  upstream_url,
+  root_cause,
+  err,
+}) {
+  try {
+    const out = {
+      stage: API_STAGE,
+      company_id: company_id || null,
+      company_domain: company_domain || null,
+      attempt: Number.isFinite(Number(attempt)) ? Number(attempt) : null,
+      timeout_ms: Number.isFinite(Number(timeout_ms)) ? Number(timeout_ms) : null,
+      upstream_status: Number.isFinite(Number(upstream_status)) ? Number(upstream_status) : null,
+      upstream_url: upstream_url || null,
+      root_cause: root_cause || null,
+      err: {
+        name: asString(err?.name).trim() || "Error",
+        message: asString(err?.message).trim() || asString(err).trim() || "Unknown error",
+      },
+    };
+
+    console.error(JSON.stringify(out));
+  } catch {
+    // ignore
+  }
+}
+
+function errorResponse(
+  {
+    httpStatus,
+    root_cause,
+    message,
+    upstream_status,
+    upstream_url,
+    step,
+    company_id,
+    company_domain,
+    attempt,
+    timeout_ms,
+    extra,
+    err,
+  },
+  jsonFn
+) {
+  const redactedUrl = upstream_url ? redactUrlQueryAndHash(upstream_url) : "";
+
+  logOneLineError({
+    company_id,
+    company_domain,
+    attempt,
+    timeout_ms,
+    upstream_status,
+    upstream_url: redactedUrl,
+    root_cause,
+    err: err || new Error(message || "Request failed"),
+  });
+
+  return jsonFn(
+    {
+      ok: false,
+      stage: API_STAGE,
+      step: step || null,
+      root_cause: root_cause || null,
+      upstream_status: upstream_status ?? null,
+      upstream_url: redactedUrl || null,
+      message: asString(message).trim() || "Request failed",
+      error: asString(message).trim() || "Request failed",
+      build_id: BUILD_INFO?.build_id || null,
+      ...(extra && typeof extra === "object" ? extra : {}),
+    },
+    httpStatus
+  );
+}
+
 function json(obj, status = 200) {
   return {
     status,
@@ -360,6 +441,11 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
   const startedAt = Date.now();
   let stage = "start";
 
+  const logCtx = {
+    company_id: "",
+    company_domain: "",
+  };
+
   const xaiTimeoutMs = readTimeoutMs(
     deps.xaiTimeoutMs ?? process.env.XAI_TIMEOUT_MS ?? process.env.XAI_REQUEST_TIMEOUT_MS,
     60000
@@ -411,31 +497,43 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
         : Boolean(body.include_existing_in_context ?? body.include_existing ?? body.includeExistingInContext);
 
     if (!companyId) {
-      return json(
+      return errorResponse(
         {
-          ok: false,
-          stage,
-          error: "company_id required",
-          config,
-          elapsed_ms: Date.now() - startedAt,
+          httpStatus: 400,
+          root_cause: "parse_error",
+          message: "company_id required",
+          step: stage,
+          extra: {
+            config,
+            elapsed_ms: Date.now() - startedAt,
+          },
+          err: new Error("company_id required"),
         },
-        400
+        json
       );
     }
+
+    logCtx.company_id = companyId;
 
     stage = "init_cosmos";
     const container = deps.companiesContainer || getCompaniesContainer();
     if (!container) {
-      return json(
+      return errorResponse(
         {
-          ok: false,
-          stage,
-          error: "Cosmos not configured",
-          details: { message: "Set COSMOS_DB_ENDPOINT and COSMOS_DB_KEY" },
-          config,
-          elapsed_ms: Date.now() - startedAt,
+          httpStatus: 500,
+          root_cause: "missing_env",
+          message: "Cosmos not configured",
+          step: stage,
+          company_id: logCtx.company_id,
+          company_domain: logCtx.company_domain,
+          extra: {
+            details: { message: "Set COSMOS_DB_ENDPOINT and COSMOS_DB_KEY" },
+            config,
+            elapsed_ms: Date.now() - startedAt,
+          },
+          err: new Error("Cosmos not configured"),
         },
-        500
+        json
       );
     }
 
@@ -443,19 +541,27 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
     const loadFn = deps.loadCompanyById || loadCompanyById;
     const company = await loadFn(container, companyId);
     if (!company) {
-      return json(
+      return errorResponse(
         {
-          ok: false,
-          stage,
-          error: "Company not found",
-          company_id: companyId,
-          elapsed_ms: Date.now() - startedAt,
+          httpStatus: 404,
+          root_cause: "parse_error",
+          message: "Company not found",
+          step: stage,
+          company_id: logCtx.company_id,
+          company_domain: logCtx.company_domain,
+          extra: {
+            company_id: companyId,
+            elapsed_ms: Date.now() - startedAt,
+          },
+          err: new Error("Company not found"),
         },
-        404
+        json
       );
     }
 
     const existingCurated = Array.isArray(company.curated_reviews) ? company.curated_reviews : [];
+
+    logCtx.company_domain = asString(company.normalized_domain).trim() || toNormalizedDomain(asString(company.website_url || company.canonical_url || company.url).trim());
     const existingUrlSet = new Set(
       existingCurated
         .map((r) => normalizeUrlForCompare(r?.source_url || r?.url))
@@ -496,16 +602,22 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
     const xaiKey = useFunctionsKey ? functionKey || externalKey || defaultKey : defaultKey;
 
     if (!xaiUrl || !xaiKey) {
-      return json(
+      return errorResponse(
         {
-          ok: false,
-          stage,
-          error: "XAI not configured",
-          details: { message: "Set XAI_EXTERNAL_BASE and XAI_EXTERNAL_KEY" },
-          config,
-          elapsed_ms: Date.now() - startedAt,
+          httpStatus: 500,
+          root_cause: "missing_env",
+          message: "XAI not configured",
+          step: stage,
+          company_id: logCtx.company_id,
+          company_domain: logCtx.company_domain,
+          extra: {
+            details: { message: "Set XAI_EXTERNAL_BASE and XAI_EXTERNAL_KEY" },
+            config,
+            elapsed_ms: Date.now() - startedAt,
+          },
+          err: new Error("XAI not configured"),
         },
-        500
+        json
       );
     }
 
@@ -528,34 +640,47 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
     stage = "call_xai";
     const axiosPost = deps.axiosPost || (axios ? axios.post.bind(axios) : null);
     if (!axiosPost) {
-      return json(
+      return errorResponse(
         {
-          ok: false,
-          stage,
-          error: "Axios not available",
-          config,
-          elapsed_ms: elapsedMs(),
+          httpStatus: 500,
+          root_cause: "missing_env",
+          message: "Axios not available",
+          step: stage,
+          company_id: logCtx.company_id,
+          company_domain: logCtx.company_domain,
+          extra: {
+            config,
+            elapsed_ms: elapsedMs(),
+          },
+          err: new Error("Axios not available"),
         },
-        500
+        json
       );
     }
 
     const timeBudgetBeforeXai = timeRemainingMs();
     if (timeBudgetBeforeXai < 6500) {
-      return json(
+      return errorResponse(
         {
-          ok: false,
-          stage,
-          error: "Deadline exceeded before upstream call",
-          code: "DEADLINE_EXCEEDED",
-          details: {
-            deadline_ms: requestDeadlineMs,
+          httpStatus: 504,
+          root_cause: "timeout",
+          message: "Deadline exceeded before upstream call",
+          step: stage,
+          company_id: logCtx.company_id,
+          company_domain: logCtx.company_domain,
+          timeout_ms: requestDeadlineMs,
+          extra: {
+            code: "DEADLINE_EXCEEDED",
+            details: {
+              deadline_ms: requestDeadlineMs,
+              elapsed_ms: elapsedMs(),
+            },
+            config,
             elapsed_ms: elapsedMs(),
           },
-          config,
-          elapsed_ms: elapsedMs(),
+          err: new Error("Deadline exceeded before upstream call"),
         },
-        504
+        json
       );
     }
 
@@ -593,38 +718,58 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       }
     } catch (e) {
       if (isUpstreamTimeoutError(e)) {
-        return json(
+        return errorResponse(
           {
-            ok: false,
-            stage,
-            error: "Upstream timeout",
-            code: "UPSTREAM_TIMEOUT",
+            httpStatus: 504,
+            root_cause: "timeout",
+            message: "Upstream timeout",
+            step: stage,
+            company_id: logCtx.company_id,
+            company_domain: logCtx.company_domain,
+            attempt: 1,
+            timeout_ms: xaiRequestTimeoutMs,
+            upstream_status: null,
+            upstream_url: xaiUrl,
+            extra: {
+              code: "UPSTREAM_TIMEOUT",
+              details: {
+                message: "The reviews provider did not respond before the timeout.",
+                timeout_ms: xaiRequestTimeoutMs,
+                resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
+              },
+              config,
+              elapsed_ms: Date.now() - startedAt,
+            },
+            err: e,
+          },
+          json
+        );
+      }
+
+      return errorResponse(
+        {
+          httpStatus: 502,
+          root_cause: "upstream_5xx",
+          message: "Upstream request failed",
+          step: stage,
+          company_id: logCtx.company_id,
+          company_domain: logCtx.company_domain,
+          attempt: 1,
+          timeout_ms: xaiRequestTimeoutMs,
+          upstream_status: null,
+          upstream_url: xaiUrl,
+          extra: {
+            code: "UPSTREAM_REQUEST_FAILED",
             details: {
-              message: "The reviews provider did not respond before the timeout.",
-              timeout_ms: xaiRequestTimeoutMs,
+              message: asString(e?.message).trim() || "Request failed",
               resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
             },
             config,
             elapsed_ms: Date.now() - startedAt,
           },
-          504
-        );
-      }
-
-      return json(
-        {
-          ok: false,
-          stage,
-          error: "Upstream request failed",
-          code: "UPSTREAM_REQUEST_FAILED",
-          details: {
-            message: asString(e?.message).trim() || "Request failed",
-            resolved_upstream_url_redacted: redactUrlQueryAndHash(xaiUrl) || null,
-          },
-          config,
-          elapsed_ms: Date.now() - startedAt,
+          err: e,
         },
-        502
+        json
       );
     }
 
@@ -634,22 +779,35 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       (typeof resp?.data === "string" ? resp.data : JSON.stringify(resp.data || {}));
 
     if (resp.status < 200 || resp.status >= 300) {
-      return json(
+      const upstreamStatus = Number(resp.status) || 0;
+      const rootCause = upstreamStatus >= 400 && upstreamStatus < 500 ? "upstream_4xx" : "upstream_5xx";
+
+      return errorResponse(
         {
-          ok: false,
-          stage,
-          error: "Upstream reviews fetch failed",
-          status: resp.status,
-          details: {
-            upstream_preview: asString(responseText).slice(0, 8000),
-            xai_model: xaiModel,
-            resolved_upstream_url: redactUrlQueryAndHash(xaiUrl),
-            endpoint_source: xaiEndpointRaw ? "configured" : "missing",
+          httpStatus: 502,
+          root_cause: rootCause,
+          message: `Upstream reviews fetch failed (HTTP ${upstreamStatus || "?"})`,
+          step: stage,
+          company_id: logCtx.company_id,
+          company_domain: logCtx.company_domain,
+          attempt: 1,
+          timeout_ms: xaiRequestTimeoutMs,
+          upstream_status: upstreamStatus,
+          upstream_url: xaiUrl,
+          extra: {
+            status: upstreamStatus,
+            details: {
+              upstream_preview: asString(responseText).slice(0, 8000),
+              xai_model: xaiModel,
+              resolved_upstream_url: redactUrlQueryAndHash(xaiUrl),
+              endpoint_source: xaiEndpointRaw ? "configured" : "missing",
+            },
+            config,
+            elapsed_ms: Date.now() - startedAt,
           },
-          config,
-          elapsed_ms: Date.now() - startedAt,
+          err: new Error(`Upstream returned ${upstreamStatus}`),
         },
-        502
+        json
       );
     }
 
@@ -880,9 +1038,14 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
     stage = "done";
     return json({
       ok: true,
+      stage: API_STAGE,
+      build_id: BUILD_INFO?.build_id || null,
       company_id: companyId,
       requested_take: take,
+      fetched_count: proposed_reviews.length,
+      saved_count: 0,
       returned_count: proposed_reviews.length,
+      reviews: proposed_reviews,
       proposed_reviews,
       attempts: attemptsOut,
       ...(parse_error ? { parse_error } : {}),
@@ -901,15 +1064,21 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       stack: e?.stack,
     });
 
-    return json(
+    return errorResponse(
       {
-        ok: false,
-        stage,
-        error: e?.message || "Internal error",
-        config,
-        elapsed_ms: Date.now() - startedAt,
+        httpStatus: 500,
+        root_cause: "parse_error",
+        message: asString(e?.message).trim() || "Internal error",
+        step: stage,
+        company_id: logCtx.company_id,
+        company_domain: logCtx.company_domain,
+        extra: {
+          config,
+          elapsed_ms: Date.now() - startedAt,
+        },
+        err: e,
       },
-      500
+      json
     );
   }
 }
