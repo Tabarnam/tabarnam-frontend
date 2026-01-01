@@ -2277,6 +2277,18 @@ export default function CompanyDashboard() {
   const [logoPreviewFailed, setLogoPreviewFailed] = useState(false);
 
   useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search || "");
+      const companyId = asString(params.get("company_id")).trim();
+      if (!companyId) return;
+      setEditorOriginalId(companyId);
+      setEditorOpen(true);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
     setLogoPreviewFailed(false);
   }, [asString(editorDraft?.logo_url).trim()]);
 
