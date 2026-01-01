@@ -62,10 +62,10 @@ export default function AdminPanel() {
 
       if (!res.ok) {
         const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Diagnostic failed (${res.status})`);
-        toast.error(msg);
+        toastError(msg);
       }
     } catch (e) {
-      toast.error(toErrorString(e) || "Failed to load diagnostics");
+      toastError(toErrorString(e) || "Failed to load diagnostics");
     } finally {
       setDiagnosticLoading(false);
     }
@@ -103,6 +103,14 @@ export default function AdminPanel() {
   const buildId = apiBuildId && apiBuildId !== "unknown" ? apiBuildId : staticBuildId;
   const buildSource = apiBuildId && apiBuildId !== "unknown" ? apiBuildSource : staticBuildId ? "STATIC_BUILD_ID_FILE" : apiBuildSource;
 
+  const toastError = useCallback(
+    (message) => {
+      const msg = toErrorString(message) || "Request failed";
+      toast.error(`${msg}${buildId ? ` (build ${buildId})` : ""}`);
+    },
+    [buildId]
+  );
+
   const configBanner = useMemo(() => {
     if (diagnosticLoading && !diagnostic) return null;
     if (cosmosConfigured) return null;
@@ -131,12 +139,12 @@ export default function AdminPanel() {
       setDebugBody(body);
       if (!res.ok) {
         const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Debug failed (${res.status})`);
-        toast.error(msg);
+        toastError(msg);
       } else {
         toast.success("Debug endpoint OK");
       }
     } catch (e) {
-      toast.error(toErrorString(e) || "Debug failed");
+      toastError(toErrorString(e) || "Debug failed");
     } finally {
       setDebugLoading(false);
     }
@@ -153,14 +161,14 @@ export default function AdminPanel() {
 
       if (!res.ok) {
         const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Companies API failed (${res.status})`);
-        toast.error(msg);
+        toastError(msg);
       } else {
         toast.success("Companies API OK");
       }
     } catch (e) {
       const msg = toErrorString(e) || "Companies API failed";
       setCompaniesTest({ status: 0, ok: false, body: { error: msg } });
-      toast.error(msg);
+      toastError(msg);
     } finally {
       setCompaniesTestLoading(false);
     }
@@ -169,7 +177,7 @@ export default function AdminPanel() {
   const probeRefreshReviews = useCallback(async () => {
     const company_id = String(reviewsProbeCompanyId || "").trim();
     if (!company_id) {
-      toast.error("Enter a company_id.");
+      toastError("Enter a company_id.");
       return;
     }
 
@@ -206,14 +214,14 @@ export default function AdminPanel() {
       });
 
       if (!res.ok) {
-        toast.error(`Refresh reviews failed (HTTP ${res.status})`);
+        toastError(`Refresh reviews failed (HTTP ${res.status})`);
       } else {
         toast.success("Refresh reviews OK");
       }
     } catch (e) {
       const msg = toErrorString(e) || "Refresh reviews failed";
       setReviewsProbeResult({ status: 0, ok: false, build_id: null, raw: msg, json: null, api_fetch_error: null });
-      toast.error(msg);
+      toastError(msg);
     } finally {
       setReviewsProbeLoading(false);
     }
@@ -224,7 +232,7 @@ export default function AdminPanel() {
     const company_name = String(recalcCompanyName || "").trim();
 
     if (!company_id && !company_name) {
-      toast.error("Enter a company_id or company_name.");
+      toastError("Enter a company_id or company_name.");
       return;
     }
 
@@ -242,12 +250,12 @@ export default function AdminPanel() {
 
       if (!res.ok || body?.ok !== true) {
         const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Recalc failed (${res.status})`);
-        toast.error(msg);
+        toastError(msg);
       } else {
         toast.success("Review counts recalculated");
       }
     } catch (e) {
-      toast.error(toErrorString(e) || "Recalc failed");
+      toastError(toErrorString(e) || "Recalc failed");
     } finally {
       setRecalcLoading(false);
     }
