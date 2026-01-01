@@ -697,3 +697,4 @@ For detailed output, run func with --verbose flag.
 [2026-01-01T00:56:52.122Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
 [2026-01-01T00:56:52.122Z] [api/index.js] ✅ All handler registration complete! Exporting app.
 [2026-01-01T00:56:52.130Z] No job functions found. Try making your job classes and methods public. If you're using binding extensions (e.g. Azure Storage, ServiceBus, Timers, etc.) make sure you've called the registration method for the extension(s) in your startup code (e.g. builder.AddAzureStorage(), builder.AddServiceBus(), builder.AddTimers(), etc.).
+[2026-01-01T00:56:57.118Z] Host lock lease acquired by instance ID '0000000000000000000000009A053AFF'.
