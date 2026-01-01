@@ -731,7 +731,7 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
             company_domain: logCtx.company_domain,
             attempt: 1,
             timeout_ms: xaiRequestTimeoutMs,
-            upstream_status: null,
+            upstream_status: 0,
             upstream_url: xaiUrl,
             extra: {
               code: "UPSTREAM_TIMEOUT",
@@ -759,7 +759,7 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
           company_domain: logCtx.company_domain,
           attempt: 1,
           timeout_ms: xaiRequestTimeoutMs,
-          upstream_status: null,
+          upstream_status: 0,
           upstream_url: xaiUrl,
           extra: {
             code: "UPSTREAM_REQUEST_FAILED",

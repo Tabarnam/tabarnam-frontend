@@ -364,11 +364,38 @@ export default function AdminImport() {
               ? lastErrorCode || asString(r.final_last_error_code)
               : asString(r.final_last_error_code);
 
+            const savedCount = Number.isFinite(saved) ? saved : Number(r.saved ?? 0) || 0;
+            const hasSaved = savedCount > 0;
+
+            const shouldDemoteStartErrorToWarning = Boolean(isTerminalComplete && hasSaved);
+
+            let nextStartError = r.start_error;
+            let nextStartErrorDetails = r.start_error_details;
+            let nextProgressError = isTerminalError ? userFacingError : r.progress_error;
+
+            if (shouldDemoteStartErrorToWarning) {
+              const existingStartError = asString(r.start_error).trim();
+              const responseBody = r.start_error_details?.response_body;
+
+              const detailText = asString(
+                responseBody && typeof responseBody === "object"
+                  ? responseBody.message || responseBody.error || responseBody.text
+                  : responseBody
+              ).trim();
+
+              const warningReason = detailText || existingStartError;
+
+              nextStartError = null;
+              nextStartErrorDetails = null;
+
+              nextProgressError = warningReason ? `Saved successfully, but a follow-up step failed: ${warningReason}` : null;
+            }
+
             return {
               ...r,
               items: mergeById(r.items, items),
               lastCreatedAt: asString(body?.lastCreatedAt || r.lastCreatedAt),
-              saved: Number.isFinite(saved) ? saved : Number(r.saved ?? 0) || 0,
+              saved: savedCount,
               saved_companies: savedCompanies.length > 0 ? savedCompanies : Array.isArray(r.saved_companies) ? r.saved_companies : [],
               completed: isTerminalComplete,
               timedOut,
@@ -393,7 +420,9 @@ export default function AdminImport() {
                 typeof body?.early_exit_triggered === "boolean" ? body.early_exit_triggered : Boolean(r.early_exit_triggered),
               last_error: lastError || r.last_error || null,
               report: report || r.report || null,
-              progress_error: isTerminalError ? userFacingError : r.progress_error,
+              start_error: nextStartError,
+              start_error_details: nextStartErrorDetails,
+              progress_error: nextProgressError,
               updatedAt: new Date().toISOString(),
             };
           })
@@ -1366,6 +1395,17 @@ export default function AdminImport() {
   const activeSavedCount = activeSavedCompanies.length > 0 ? activeSavedCompanies.length : Number(activeRun?.saved ?? 0) || 0;
 
   const activeIsTerminal = Boolean(activeRun && (activeRun.completed || activeRun.timedOut || activeRun.stopped));
+
+  // If the start request errored (e.g. post-save review refresh failure) but status polling
+  // later confirms that companies were saved, treat it as a warning instead of a fatal import failure.
+  useEffect(() => {
+    if (!activeRun) return;
+    if (activeStatus !== "error") return;
+    if (!activeRun.completed) return;
+    if (activeSavedCount <= 0) return;
+
+    setActiveStatus("done");
+  }, [activeRun, activeSavedCount, activeStatus]);
   const showSavedResults = Boolean(activeIsTerminal && activeSavedCount > 0);
   const activeResults = showSavedResults ? activeSavedCompanies : activeItems;
 
