@@ -395,6 +395,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: admin-cleanup-import-placeholders");
+  require("./admin-cleanup-import-placeholders/index.js");
+  console.log("[api] ✓ admin-cleanup-import-placeholders registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-cleanup-import-placeholders:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: admin-login");
   require("./admin-login/index.js");
   console.log("[api] ✓ admin-login registered");
