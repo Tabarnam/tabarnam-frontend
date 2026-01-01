@@ -2782,7 +2782,7 @@ const importStartHandlerInner = async (req, context) => {
             ? bodyObj.dryRun
             : readQueryParam(req, "dry_run");
 
-      const dryRun =
+      const dryRunRequested =
         dryRunRaw === true ||
         dryRunRaw === 1 ||
         dryRunRaw === "1" ||
@@ -2790,8 +2790,8 @@ const importStartHandlerInner = async (req, context) => {
           .trim()
           .toLowerCase() === "true";
 
-      bodyObj.dry_run = dryRun;
-      bodyObj.dryRun = dryRun;
+      bodyObj.dry_run = dryRunRequested;
+      bodyObj.dryRun = dryRunRequested;
 
       try {
         console.log("[import-start] received_query_params", {
@@ -2799,7 +2799,7 @@ const importStartHandlerInner = async (req, context) => {
           stage_ms_primary: requested_stage_ms_primary,
           max_stage: typeof maxStageRaw === "string" ? maxStageRaw : null,
           skip_stages: typeof skipStagesRaw === "string" ? skipStagesRaw : null,
-          dry_run: dryRun,
+          dry_run: dryRunRequested,
         });
       } catch {}
 
@@ -2852,7 +2852,7 @@ const importStartHandlerInner = async (req, context) => {
           limit: bodyObj.limit,
           max_stage: maxStage,
           skip_stages: Array.from(skipStages),
-          dry_run: dryRun,
+          dry_run: dryRunRequested,
           companies_seeded: Array.isArray(bodyObj.companies) ? bodyObj.companies.length : 0,
         });
       } catch {}
@@ -2861,7 +2861,7 @@ const importStartHandlerInner = async (req, context) => {
       const stopsBeforeSave = Boolean(maxStage && maxStage !== "expand");
       const skipsPrimaryWithoutSeed = skipStages.has("primary") && providedCompanies.length === 0;
 
-      if (!dryRun && (stopsBeforeSave || skipsPrimaryWithoutSeed)) {
+      if (!dryRunRequested && (stopsBeforeSave || skipsPrimaryWithoutSeed)) {
         return jsonWithRequestId(
           {
             ok: false,
@@ -2871,7 +2871,7 @@ const importStartHandlerInner = async (req, context) => {
             error_message:
               "This config cannot persist. Set dry_run=true or remove stage overrides (max_stage/skip_stages) that prevent saving.",
             details: {
-              dry_run: dryRun,
+              dry_run: dryRunRequested,
               max_stage: maxStage,
               skip_stages: Array.from(skipStages),
               companies_seeded: providedCompanies.length,
@@ -3292,7 +3292,7 @@ const importStartHandlerInner = async (req, context) => {
                 limit: Number(bodyObj.limit) || 0,
                 max_stage: String(maxStage || ""),
                 skip_stages: Array.from(skipStages),
-                dry_run: dryRun,
+                dry_run: dryRunRequested,
               },
             };
             const result = await upsertItemWithPkCandidates(container, sessionDoc);
@@ -5383,7 +5383,7 @@ Return ONLY the JSON array, no other text.`,
 
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
 
-          if (!dryRun && enriched.length > 0 && cosmosEnabled) {
+          if (!dryRunRequested && enriched.length > 0 && cosmosEnabled) {
             const deadlineBeforeCosmosWrite = checkDeadlineOrReturn("cosmos_write_start");
             if (deadlineBeforeCosmosWrite) return deadlineBeforeCosmosWrite;
 
