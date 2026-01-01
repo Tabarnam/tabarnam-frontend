@@ -87,6 +87,7 @@ export default function AdminEditHistory({ companyId }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [nextCursor, setNextCursor] = useState(null);
+  const [historyUnavailable, setHistoryUnavailable] = useState(false);
 
   const [fieldFilter, setFieldFilter] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -137,7 +138,7 @@ export default function AdminEditHistory({ companyId }) {
   );
 
   const loadFirstPage = useCallback(async () => {
-    if (!id) return;
+    if (!id || historyUnavailable) return;
     setLoading(true);
     setError("");
     setItems([]);
@@ -147,6 +148,14 @@ export default function AdminEditHistory({ companyId }) {
       const url = buildHistoryUrl(null);
 
       const res = await apiFetch(url);
+      if (res.status === 404) {
+        setHistoryUnavailable(true);
+        setError("");
+        setItems([]);
+        setNextCursor(null);
+        return;
+      }
+
       const body = await res.json().catch(() => ({}));
 
       if (!res.ok || body?.ok !== true) {
@@ -162,10 +171,10 @@ export default function AdminEditHistory({ companyId }) {
     } finally {
       setLoading(false);
     }
-  }, [buildHistoryUrl, id]);
+  }, [buildHistoryUrl, historyUnavailable, id]);
 
   const loadMore = useCallback(async () => {
-    if (!id || !nextCursor || loadingMore) return;
+    if (!id || !nextCursor || loadingMore || historyUnavailable) return;
     setLoadingMore(true);
     setError("");
 
@@ -173,6 +182,12 @@ export default function AdminEditHistory({ companyId }) {
       const url = buildHistoryUrl(nextCursor);
 
       const res = await apiFetch(url);
+      if (res.status === 404) {
+        setHistoryUnavailable(true);
+        setError("");
+        return;
+      }
+
       const body = await res.json().catch(() => ({}));
 
       if (!res.ok || body?.ok !== true) {
@@ -189,12 +204,12 @@ export default function AdminEditHistory({ companyId }) {
     } finally {
       setLoadingMore(false);
     }
-  }, [buildHistoryUrl, id, loadingMore, nextCursor]);
+  }, [buildHistoryUrl, historyUnavailable, id, loadingMore, nextCursor]);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || historyUnavailable) return;
     loadFirstPage();
-  }, [id, fieldFilter, searchQuery, loadFirstPage]);
+  }, [historyUnavailable, id, fieldFilter, searchQuery, loadFirstPage]);
 
   const headerRight = (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
@@ -227,6 +242,19 @@ export default function AdminEditHistory({ companyId }) {
       </div>
     </div>
   );
+
+  if (historyUnavailable) {
+    return (
+      <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+        <div>
+          <div className="text-sm font-semibold text-slate-900">Edit History</div>
+          <div className="mt-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+            History unavailable in this environment.
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">

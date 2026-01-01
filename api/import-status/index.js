@@ -252,6 +252,45 @@ async function fetchRecentCompanies(container, sessionId, take) {
   return Array.isArray(resources) ? resources.slice(0, n) : [];
 }
 
+async function fetchCompaniesByIds(container, ids) {
+  if (!container) return [];
+  const list = Array.isArray(ids) ? ids.map((id) => String(id || "").trim()).filter(Boolean) : [];
+  if (list.length === 0) return [];
+
+  const q = {
+    query: `
+      SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at
+      FROM c
+      WHERE ARRAY_CONTAINS(@ids, c.id)
+    `,
+    parameters: [{ name: "@ids", value: list }],
+  };
+
+  const { resources } = await container.items
+    .query(q, { enableCrossPartitionQuery: true })
+    .fetchAll();
+
+  const out = Array.isArray(resources) ? resources : [];
+  const byId = new Map(out.map((doc) => [String(doc?.id || ""), doc]));
+  return list.map((id) => byId.get(id)).filter(Boolean);
+}
+
+function toSavedCompanies(docs) {
+  const list = Array.isArray(docs) ? docs : [];
+  return list
+    .map((doc) => {
+      const companyId = String(doc?.id || doc?.company_id || "").trim();
+      if (!companyId) return null;
+
+      return {
+        company_id: companyId,
+        company_name: String(doc?.company_name || doc?.name || "").trim() || "Unknown company",
+        website_url: String(doc?.website_url || doc?.url || "").trim() || "",
+      };
+    })
+    .filter(Boolean);
+}
+
 function normalizeErrorPayload(value) {
   if (!value) return null;
   if (typeof value === "string") return { message: value };
@@ -389,6 +428,8 @@ async function handler(req, context) {
     const state = status === "error" ? "failed" : status === "complete" ? "complete" : "running";
 
     let report = null;
+    let saved = 0;
+    let savedCompanies = [];
 
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
@@ -405,6 +446,18 @@ async function handler(req, context) {
           readControlDoc(container, `_import_complete_${sessionId}`, sessionId),
           readControlDoc(container, `_import_accept_${sessionId}`, sessionId),
         ]);
+
+        const completionSavedIds = Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [];
+        const completionSaved = typeof completionDoc?.saved === "number" ? completionDoc.saved : null;
+        const sessionSaved = typeof sessionDoc?.saved === "number" ? sessionDoc.saved : null;
+        saved = completionSaved ?? sessionSaved ?? 0;
+
+        if (completionSavedIds.length > 0) {
+          stageBeaconValues.status_fetching_saved_companies = nowIso();
+          const savedDocs = await fetchCompaniesByIds(container, completionSavedIds).catch(() => []);
+          savedCompanies = toSavedCompanies(savedDocs);
+          stageBeaconValues.status_fetched_saved_companies = nowIso();
+        }
 
         report = {
           session: sessionDoc
@@ -429,10 +482,10 @@ async function handler(req, context) {
             ? {
                 completed_at: completionDoc?.completed_at || completionDoc?.created_at || null,
                 reason: completionDoc?.reason || null,
-                saved: typeof completionDoc?.saved === "number" ? completionDoc.saved : null,
+                saved: completionSaved,
                 skipped: typeof completionDoc?.skipped === "number" ? completionDoc.skipped : null,
                 failed: typeof completionDoc?.failed === "number" ? completionDoc.failed : null,
-                saved_ids: Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [],
+                saved_ids: completionSavedIds,
                 skipped_ids: Array.isArray(completionDoc?.skipped_ids) ? completionDoc.skipped_ids : [],
                 skipped_duplicates: Array.isArray(completionDoc?.skipped_duplicates) ? completionDoc.skipped_duplicates : [],
                 failed_items: Array.isArray(completionDoc?.failed_items) ? completionDoc.failed_items : [],
@@ -442,6 +495,8 @@ async function handler(req, context) {
       }
     } catch {
       report = null;
+      saved = 0;
+      savedCompanies = [];
     }
 
     if (!report) {
@@ -496,6 +551,8 @@ async function handler(req, context) {
         early_exit_triggered: Boolean(progress?.early_exit_triggered),
         companies_count: Number.isFinite(Number(primaryJob?.companies_count)) ? Number(primaryJob.companies_count) : 0,
         items: status === "error" ? [] : Array.isArray(primaryJob?.companies) ? primaryJob.companies : [],
+        saved,
+        saved_companies: Array.isArray(savedCompanies) && savedCompanies.length > 0 ? savedCompanies : toSavedCompanies(Array.isArray(primaryJob?.companies) ? primaryJob.companies : []),
         primary_job: {
           id: primaryJob?.id || null,
           job_state: finalJobState,
@@ -541,6 +598,12 @@ async function handler(req, context) {
   if (mem) {
     stageBeaconValues.status_seen_session_memory = nowIso();
 
+    const saved = Number.isFinite(Number(mem.saved))
+      ? Number(mem.saved)
+      : Number.isFinite(Number(mem.companies_count))
+        ? Number(mem.companies_count)
+        : 0;
+
     return jsonWithSessionId(
       {
         ok: true,
@@ -561,6 +624,8 @@ async function handler(req, context) {
         attempts: 0,
         last_error: null,
         companies_count: Number.isFinite(Number(mem.companies_count)) ? Number(mem.companies_count) : 0,
+        saved,
+        saved_companies: [],
       },
       200,
       req
@@ -710,6 +775,10 @@ async function handler(req, context) {
       (typeof sessionDoc?.saved === "number" ? sessionDoc.saved : null) ??
       (Array.isArray(items) ? items.length : 0);
 
+    const savedIds = Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [];
+    const savedDocs = savedIds.length > 0 ? await fetchCompaniesByIds(container, savedIds).catch(() => []) : [];
+    const saved_companies = savedDocs.length > 0 ? toSavedCompanies(savedDocs) : toSavedCompanies(items);
+
     const lastCreatedAt = Array.isArray(items) && items.length > 0 ? String(items[0]?.created_at || "") : "";
 
     const stage_beacon =
@@ -783,6 +852,7 @@ async function handler(req, context) {
           error: errorOut,
           items,
           saved,
+          saved_companies,
           lastCreatedAt,
           timedOut,
           stopped,
@@ -826,6 +896,7 @@ async function handler(req, context) {
           },
           items,
           saved,
+          saved_companies,
           lastCreatedAt,
           report,
         },
@@ -856,6 +927,7 @@ async function handler(req, context) {
         companies_count: saved,
         items,
         saved,
+        saved_companies,
         lastCreatedAt,
         report,
       },

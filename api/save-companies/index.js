@@ -22,6 +22,14 @@ const {
   getValueAtPath,
 } = require("../_cosmosPartitionKey");
 
+function requireImportCompanyLogo() {
+  const mod = require("../_logoImport");
+  if (!mod || typeof mod.importCompanyLogo !== "function") {
+    throw new Error("importCompanyLogo is not available");
+  }
+  return mod.importCompanyLogo;
+}
+
 function json(obj, status = 200) {
   return {
     status,
@@ -405,6 +413,21 @@ app.http("save-companies", {
       const failed_items = [];
       const errors = [];
 
+      let importCompanyLogo = null;
+      try {
+        importCompanyLogo = requireImportCompanyLogo();
+      } catch (e) {
+        importCompanyLogo = null;
+        try {
+          console.warn(`[save-companies] Logo importer unavailable: ${e?.message || String(e)}`);
+        } catch {}
+      }
+
+      const looksLikeCompanyLogoBlobUrl = (u) => {
+        const s = String(u || "");
+        return s.includes(".blob.core.windows.net") && s.includes("/company-logos/");
+      };
+
       for (const company of companies) {
         const companyName = String(company?.company_name || company?.name || "").trim();
 
@@ -493,6 +516,40 @@ app.http("save-companies", {
           const nowIso = new Date().toISOString();
           const companyId = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
+          const existingLogoUrl = String(company?.logo_url || "").trim();
+          const providedLogoSourceUrl = String(company?.logo_source_url || "").trim();
+
+          let logoImport = null;
+          const shouldTryLogo = Boolean(importCompanyLogo && normalizedDomain && normalizedDomain !== "unknown" && cleanUrl);
+
+          if (shouldTryLogo && !looksLikeCompanyLogoBlobUrl(existingLogoUrl)) {
+            try {
+              logoImport = await importCompanyLogo(
+                {
+                  companyId,
+                  domain: normalizedDomain,
+                  websiteUrl: cleanUrl,
+                  companyName,
+                  logoSourceUrl: providedLogoSourceUrl || existingLogoUrl || undefined,
+                },
+                console
+              );
+            } catch (e) {
+              logoImport = {
+                ok: false,
+                logo_status: "error",
+                logo_import_status: "failed",
+                logo_error: e?.message || String(e),
+                logo_source_url: providedLogoSourceUrl || null,
+                logo_source_type: providedLogoSourceUrl ? "provided" : null,
+                logo_url: null,
+              };
+            }
+          }
+
+          const resolvedLogoUrl =
+            String(logoImport?.logo_url || "").trim() || (looksLikeCompanyLogoBlobUrl(existingLogoUrl) ? existingLogoUrl : "");
+
           const doc = {
             id: companyId,
             company_name: companyName,
@@ -504,14 +561,16 @@ app.http("save-companies", {
             keywords: Array.isArray(company?.keywords) ? company.keywords : [],
             normalized_domain: normalizedDomain,
 
-            logo_url: company?.logo_url || null,
-            logo_source_url: company?.logo_source_url || null,
-            logo_source_location: company?.logo_source_location || null,
-            logo_source_domain: company?.logo_source_domain || null,
-            logo_source_type: company?.logo_source_type || null,
-            logo_status: company?.logo_status || (company?.logo_url ? "imported" : "missing"),
-            logo_import_status: company?.logo_import_status || (company?.logo_url ? "present" : "missing"),
-            logo_error: String(company?.logo_error || ""),
+            logo_url: resolvedLogoUrl ? resolvedLogoUrl : null,
+            logo_source_url: logoImport?.logo_source_url || (looksLikeCompanyLogoBlobUrl(existingLogoUrl) ? company?.logo_source_url || null : null),
+            logo_source_location: logoImport?.logo_source_location || null,
+            logo_source_domain: logoImport?.logo_source_domain || null,
+            logo_source_type: logoImport?.logo_source_type || (looksLikeCompanyLogoBlobUrl(existingLogoUrl) ? company?.logo_source_type || null : null),
+            logo_status: logoImport?.logo_status || (resolvedLogoUrl ? "imported" : "not_found_on_site"),
+            logo_import_status: logoImport?.logo_import_status || (resolvedLogoUrl ? "imported" : "missing"),
+            logo_error: String(logoImport?.logo_error || ""),
+            logo_discovery_strategy: String(logoImport?.logo_discovery_strategy || ""),
+            logo_discovery_page_url: String(logoImport?.logo_discovery_page_url || ""),
 
             tagline: String(company?.tagline || ""),
             location_sources: Array.isArray(company?.location_sources) ? company.location_sources : [],

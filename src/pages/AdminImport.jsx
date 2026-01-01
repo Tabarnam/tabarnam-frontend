@@ -306,7 +306,8 @@ export default function AdminImport() {
         }
 
         const items = normalizeItems(body?.items || body?.companies);
-        const saved = Number(body?.saved ?? body?.count ?? items.length ?? 0);
+        const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
+        const saved = savedCompanies.length > 0 ? savedCompanies.length : Number(body?.saved ?? 0) || 0;
 
         const status = asString(body?.status).trim();
         const jobState = asString(body?.job_state || body?.primary_job_state || body?.primary_job?.job_state).trim();
@@ -362,6 +363,7 @@ export default function AdminImport() {
               items: mergeById(r.items, items),
               lastCreatedAt: asString(body?.lastCreatedAt || r.lastCreatedAt),
               saved: Number.isFinite(saved) ? saved : Number(r.saved ?? 0) || 0,
+              saved_companies: savedCompanies.length > 0 ? savedCompanies : Array.isArray(r.saved_companies) ? r.saved_companies : [],
               completed: isTerminalComplete,
               timedOut,
               stopped: isTerminalError ? true : stopped,
@@ -608,6 +610,7 @@ export default function AdminImport() {
       updatedAt: new Date().toISOString(),
       items: [],
       saved: 0,
+      saved_companies: [],
       completed: false,
       timedOut: false,
       stopped: false,
@@ -2018,35 +2021,109 @@ export default function AdminImport() {
                 {runs.length === 0 ? (
                   <div className="text-sm text-slate-600">No runs yet.</div>
                 ) : (
-                  runs.map((r) => (
-                    <button
-                      key={r.session_id}
-                      className={`w-full text-left rounded border p-3 transition ${
-                        r.session_id === activeSessionId
-                          ? "border-slate-900 bg-slate-50"
-                          : "border-slate-200 bg-white hover:bg-slate-50"
-                      }`}
-                      onClick={() => setActiveSessionId(r.session_id)}
-                      type="button"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="font-semibold text-slate-900 truncate">{r.query}</div>
-                        <div className="flex items-center gap-2 text-xs text-slate-600">
-                          <span>{r.items.length} items</span>
-                          {r.save_result?.ok === true ? (
-                            <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">
-                              saved {Number(r.save_result.saved ?? 0) || 0}
-                            </span>
-                          ) : null}
+                  runs.map((r) => {
+                    const savedCompanies = Array.isArray(r.saved_companies) ? r.saved_companies : [];
+                    const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
+
+                    const companyName = asString(primarySaved?.company_name).trim() || "Unknown company";
+                    const websiteUrl = asString(primarySaved?.website_url || primarySaved?.url).trim();
+
+                    const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(r.saved ?? 0) || 0;
+
+                    return (
+                      <button
+                        key={r.session_id}
+                        className={`w-full text-left rounded border p-3 transition ${
+                          r.session_id === activeSessionId
+                            ? "border-slate-900 bg-slate-50"
+                            : "border-slate-200 bg-white hover:bg-slate-50"
+                        }`}
+                        onClick={() => setActiveSessionId(r.session_id)}
+                        type="button"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-900 truncate">{companyName}</div>
+                            {websiteUrl ? (
+                              <a
+                                className="mt-1 block text-xs text-blue-700 underline break-all"
+                                href={websiteUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {websiteUrl}
+                              </a>
+                            ) : (
+                              <div className="mt-1 text-xs text-slate-500">No URL</div>
+                            )}
+                            <div className="mt-1 text-xs text-slate-600 truncate">Query: {r.query}</div>
+                          </div>
+
+                          <div className="flex flex-col items-end gap-2 text-xs text-slate-600">
+                            <span>Saved: {savedCount}</span>
+                            {r.save_result?.ok === true ? (
+                              <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">
+                                saved {Number(r.save_result.saved ?? 0) || 0}
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
-                      </div>
-                      <div className="mt-1 text-xs text-slate-600">
-                        <code className="rounded bg-slate-100 px-1 py-0.5">{r.session_id}</code>
-                      </div>
-                      <div className="mt-1 text-xs text-slate-500">{new Date(r.startedAt).toLocaleString()}</div>
-                    </button>
-                  ))
+
+                        <div className="mt-2 text-xs text-slate-600">
+                          <code className="rounded bg-slate-100 px-1 py-0.5">{r.session_id}</code>
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">{new Date(r.startedAt).toLocaleString()}</div>
+                      </button>
+                    );
+                  })
                 )}
+
+                {activeRun ? (
+                  <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800 space-y-2">
+                    {(() => {
+                      const savedCompanies = Array.isArray(activeRun.saved_companies) ? activeRun.saved_companies : [];
+                      const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
+
+                      const companyId = asString(primarySaved?.company_id).trim();
+                      const companyName = asString(primarySaved?.company_name).trim() || "Unknown company";
+                      const websiteUrl = asString(primarySaved?.website_url || primarySaved?.url).trim();
+
+                      const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(activeRun.saved ?? 0) || 0;
+
+                      return (
+                        <>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="font-semibold text-slate-900">{companyName}</div>
+                              {websiteUrl ? (
+                                <a
+                                  className="mt-1 block text-sm text-blue-700 underline break-all"
+                                  href={websiteUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  {websiteUrl}
+                                </a>
+                              ) : (
+                                <div className="mt-1 text-sm text-slate-600">No URL</div>
+                              )}
+                            </div>
+                            <div className="text-sm text-slate-700">Saved: {savedCount}</div>
+                          </div>
+
+                          {companyId ? (
+                            <div>
+                              <a className="text-sm text-blue-700 underline" href={`/admin?company_id=${encodeURIComponent(companyId)}`}>
+                                Open company in admin
+                              </a>
+                            </div>
+                          ) : null}
+                        </>
+                      );
+                    })()}
+                  </div>
+                ) : null}
               </div>
             </div>
           </section>
