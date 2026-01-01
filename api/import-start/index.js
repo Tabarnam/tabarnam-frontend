@@ -949,6 +949,11 @@ function looksLikeCompanyUrlQuery(raw) {
   return true;
 }
 
+function isAzureWebsitesUrl(rawUrl) {
+  const u = tryParseUrl(rawUrl);
+  if (!u) return false;
+  return /\.azurewebsites\.net$/i.test(String(u.hostname || ""));
+}
 
 function joinUrlPath(basePath, suffixPath) {
   const a = String(basePath || "").trim();
@@ -1729,10 +1734,19 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
             stageCapMsOverride: timeout,
           })
         : await postJsonWithTimeout(xaiUrl, {
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${xaiKey}`,
-            },
+            headers: (() => {
+              const headers = {
+                "Content-Type": "application/json",
+              };
+
+              if (isAzureWebsitesUrl(xaiUrl)) {
+                headers["x-functions-key"] = xaiKey;
+              } else {
+                headers["Authorization"] = `Bearer ${xaiKey}`;
+              }
+
+              return headers;
+            })(),
             body: JSON.stringify(reviewPayload),
             timeoutMs: timeout,
           });
@@ -3725,10 +3739,19 @@ const importStartHandlerInner = async (req, context) => {
 
           try {
             const res = await postJsonWithTimeout(xaiUrl, {
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${xaiKey}`,
-              },
+              headers: (() => {
+                const headers = {
+                  "Content-Type": "application/json",
+                };
+
+                if (isAzureWebsitesUrl(xaiUrl)) {
+                  headers["x-functions-key"] = xaiKey;
+                } else {
+                  headers["Authorization"] = `Bearer ${xaiKey}`;
+                }
+
+                return headers;
+              })(),
               body: typeof body === "string" ? body : "",
               timeoutMs: timeoutForThisStage,
             });
