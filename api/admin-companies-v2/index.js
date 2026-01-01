@@ -534,7 +534,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         if (routeId) {
           const querySpec = {
             query:
-              "SELECT TOP 1 * FROM c WHERE c.id = @id AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) ORDER BY c._ts DESC",
+              "SELECT TOP 1 * FROM c WHERE c.id = @id AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true) AND NOT STARTSWITH(c.id, '_import_') AND (NOT IS_DEFINED(c.type) OR c.type != 'import_control') ORDER BY c._ts DESC",
             parameters: [{ name: "@id", value: routeId }],
           };
 
