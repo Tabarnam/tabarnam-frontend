@@ -1,5 +1,7 @@
 const { CosmosClient } = require("@azure/cosmos");
 
+const { CosmosClient } = require("@azure/cosmos");
+
 const { app } = require("../../_app");
 
 function env(k, d = "") {
