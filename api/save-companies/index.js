@@ -526,7 +526,7 @@ app.http("save-companies", {
             manufacturing_locations: Array.isArray(manufacturing_geocodes) ? manufacturing_geocodes : [],
             manufacturing_geocodes,
 
-            curated_reviews: Array.isArray(company?.curated_reviews) ? company.curated_reviews : [],
+            curated_reviews: normalizeCuratedReviewsForSave(company),
             red_flag: Boolean(company?.red_flag),
             red_flag_reason: String(company?.red_flag_reason || ""),
             location_confidence: String(company?.location_confidence || "medium"),
