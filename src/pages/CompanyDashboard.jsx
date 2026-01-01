@@ -1292,11 +1292,6 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
                 ? Number(r.match_confidence)
                 : null;
 
-          const isPublishable =
-            link_status.toLowerCase() === "ok" &&
-            (typeof match_confidence !== "number" || !Number.isFinite(match_confidence) || match_confidence >= 0.7);
-
-          const hasValidUrl = Boolean(normalizeExternalUrl(source_url));
 
           return {
             id: asString(r?.id).trim() || `${Date.now()}_${idx}_${Math.random().toString(36).slice(2)}`,
