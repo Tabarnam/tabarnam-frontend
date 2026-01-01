@@ -1108,17 +1108,32 @@ function mergeCuratedReviews(existingCurated, proposedReviews) {
 
     const excerpt = asString(p?.excerpt ?? p?.abstract ?? p?.text).trim();
 
+    const linkStatus = asString(p?.link_status).trim();
+    const matchConfidenceRaw = p?.match_confidence;
+    const matchConfidence =
+      typeof matchConfidenceRaw === "number"
+        ? matchConfidenceRaw
+        : typeof matchConfidenceRaw === "string" && matchConfidenceRaw.trim()
+          ? Number(matchConfidenceRaw)
+          : null;
+
     appended.push({
       id: `admin_reviews_import_${Date.now()}_${Math.random().toString(36).slice(2)}`,
       source: asString(p?.source).trim() || "professional_review",
+      source_name: asString(p?.source_name || p?.source).trim(),
       source_url: asString(p?.source_url || p?.url).trim(),
       url: asString(p?.source_url || p?.url).trim(),
       title: asString(p?.title).trim(),
+      content: excerpt,
       excerpt,
       abstract: excerpt,
-      rating: getReviewRating(p),
+      rating: getReviewRating(p) ?? null,
       author: asString(p?.author).trim(),
       date: asString(p?.date).trim() || null,
+      include_on_save: true,
+      visibility: "public",
+      link_status: linkStatus || null,
+      match_confidence: typeof matchConfidence === "number" && Number.isFinite(matchConfidence) ? matchConfidence : null,
       created_at: nowIso,
       last_updated_at: nowIso,
       imported_via: "admin_reviews_import",
