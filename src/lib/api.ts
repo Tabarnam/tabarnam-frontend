@@ -392,6 +392,7 @@ export async function apiFetch(path: string, init?: RequestInit) {
         build_id: getResponseBuildId(response) || null,
         response_body: parsedBody,
         response_text: responseTextPreview,
+        response_text_preview: responseTextPreview,
         response_text_truncated: responseTextTruncated,
         response_headers: getResponseHeadersSubset(response),
       };
@@ -463,6 +464,7 @@ export async function apiFetch(path: string, init?: RequestInit) {
             build_id: getResponseBuildId(response) || null,
             response_body: parsedBody,
             response_text: responseTextPreview,
+            response_text_preview: responseTextPreview,
             response_text_truncated: responseTextTruncated,
             response_headers: getResponseHeadersSubset(response),
             fallback_from: url,
