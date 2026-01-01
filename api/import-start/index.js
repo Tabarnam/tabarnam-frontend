@@ -2975,12 +2975,19 @@ const importStartHandlerInner = async (req, context) => {
             return "saved_with_warnings";
           })();
 
+          const partialMessage =
+            (typeof detailsObj?.message === "string" && detailsObj.message.trim())
+              ? detailsObj.message.trim()
+              : (typeof detailsObj?.error_message === "string" && detailsObj.error_message.trim())
+                ? detailsObj.error_message.trim()
+                : toErrorString(err) || "Saved with warnings";
+
           const warningDetail = {
             stage: "import_start",
             root_cause,
             upstream_status: upstreamStatus,
             upstream_url: upstreamUrlRedacted,
-            message,
+            message: partialMessage,
             build_id: buildInfo?.build_id || null,
           };
 
