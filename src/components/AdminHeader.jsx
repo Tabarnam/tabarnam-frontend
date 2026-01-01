@@ -3,7 +3,7 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { LogOut } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { API_BASE, FUNCTIONS_BASE, apiFetch, join, readJsonOrText } from "@/lib/api";
+import { API_BASE, FUNCTIONS_BASE, apiFetch, ensureBuildId, join, readJsonOrText } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const navLinkClass = ({ isActive }) =>
@@ -125,6 +125,10 @@ function ApiStatusIndicator() {
 
 export default function AdminHeader() {
   const navigate = useNavigate();
+
+  useEffect(() => {
+    ensureBuildId();
+  }, []);
 
   const handleLogout = () => {
     const postLogout = encodeURIComponent("/login");

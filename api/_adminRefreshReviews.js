@@ -21,6 +21,7 @@ const { normalizeUrl, validateCuratedReviewCandidate } = require("./_reviewQuali
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "refresh-reviews";
+const VERSION_TAG = `ded-${HANDLER_ID}-${String(BUILD_INFO.build_id || "unknown").slice(0, 12)}`;
 
 const API_STAGE = "reviews_refresh";
 
@@ -90,6 +91,8 @@ function errorResponse(
     {
       ok: false,
       stage: API_STAGE,
+      handler_id: HANDLER_ID,
+      version_tag: VERSION_TAG,
       step: step || null,
       root_cause: root_cause || null,
       upstream_status: upstream_status ?? null,
@@ -1039,6 +1042,8 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
     return json({
       ok: true,
       stage: API_STAGE,
+      handler_id: HANDLER_ID,
+      version_tag: VERSION_TAG,
       build_id: BUILD_INFO?.build_id || null,
       company_id: companyId,
       requested_take: take,

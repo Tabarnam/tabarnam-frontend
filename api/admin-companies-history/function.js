@@ -1,8 +1,9 @@
-const { handler } = require("../admin-company-history/index.js");
+const endpoint = require("../admin-company-history/index.js");
 
 module.exports = async function adminCompanyHistoryParamLegacy(context, req) {
   try {
-    const result = await handler(req, context);
+    const handler = typeof endpoint?.handler === "function" ? endpoint.handler : null;
+    const result = handler ? await handler(req, context) : { status: 500, body: JSON.stringify({ error: "Handler not found" }) };
 
     context.res = {
       status: result?.status || 200,

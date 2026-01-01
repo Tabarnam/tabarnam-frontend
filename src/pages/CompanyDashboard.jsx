@@ -26,7 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
-import { apiFetch, getUserFacingConfigMessage, toErrorString } from "@/lib/api";
+import { apiFetch, getCachedBuildId, getUserFacingConfigMessage, toErrorString } from "@/lib/api";
 import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
 import { getAdminUser } from "@/lib/azureAuth";
@@ -1249,10 +1249,11 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       if (!res) throw new Error("Request failed: no response");
 
       const apiBuildId = normalizeBuildIdString(res.headers.get("x-api-build-id"));
+      const cachedBuildId = getCachedBuildId();
 
       if (attempts.length && attempts.every((a) => a.status === 404)) {
-        const staticBuildId = await fetchStaticBuildId();
-        const buildId = apiBuildId || staticBuildId;
+        const staticBuildId = apiBuildId || cachedBuildId ? "" : await fetchStaticBuildId();
+        const buildId = apiBuildId || cachedBuildId || staticBuildId;
         const msg = `Reviews API missing in prod build${buildId ? ` (build ${buildId})` : ""}`;
 
         setError({
@@ -1280,7 +1281,17 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
               .catch(() => "")
           : null;
 
-      const body = jsonBody && typeof jsonBody === "object" ? jsonBody : {};
+      const apiFetchError = res && typeof res === "object" ? res.__api_fetch_error : null;
+      const apiFetchErrorBody = apiFetchError && typeof apiFetchError === "object" ? apiFetchError.response_body : null;
+      const apiFetchErrorText = apiFetchError && typeof apiFetchError === "object" ? apiFetchError.response_text : null;
+
+      const body =
+        (jsonBody && typeof jsonBody === "object" ? jsonBody : null) ||
+        (apiFetchErrorBody && typeof apiFetchErrorBody === "object" ? apiFetchErrorBody : null) ||
+        {};
+
+      const rawText =
+        typeof textBody === "string" && textBody.trim() ? textBody : typeof apiFetchErrorText === "string" ? apiFetchErrorText : "";
 
       if (!res.ok || body?.ok !== true) {
         const rootCause = asString(body?.root_cause).trim();
@@ -1296,7 +1307,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           (await getUserFacingConfigMessage(res)) ||
           body?.message ||
           body?.error ||
-          (typeof textBody === "string" && textBody.trim() ? textBody.trim().slice(0, 500) : "") ||
+          (rawText ? rawText.trim().slice(0, 500) : "") ||
           res.statusText ||
           `Reviews fetch failed (${res.status})`;
 
@@ -1306,16 +1317,20 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
 
         const msg = suffixParts.length ? `${asString(baseMsg).trim()} (${suffixParts.join(", ")})` : baseMsg;
 
+        const responseBuildId = normalizeBuildIdString(body?.build_id) || apiBuildId || cachedBuildId;
+
         setError({
           status: res.status,
           message: asString(msg).trim() || `Reviews fetch failed (${res.status})`,
           url: `/api${usedPath}`,
           attempts,
-          build_id: apiBuildId,
-          response: body && Object.keys(body).length ? body : textBody,
+          build_id: responseBuildId,
+          response: body && Object.keys(body).length ? body : rawText,
         });
 
-        toast.error(`${asString(msg).trim() || "Reviews fetch failed"} (${usedPath} → HTTP ${res.status})`);
+        toast.error(
+          `${asString(msg).trim() || "Reviews fetch failed"} (${usedPath} → HTTP ${res.status}${responseBuildId ? `, build ${responseBuildId}` : ""})`
+        );
         return;
       }
 
@@ -1372,8 +1387,10 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       }
     } catch (e) {
       const msg = asString(e?.message).trim() || "Reviews fetch failed";
-      setError({ status: 0, message: msg, url: "(request failed)", response: { error: msg } });
-      toast.error(msg);
+      const buildIdForToast = getCachedBuildId();
+
+      setError({ status: 0, message: msg, url: "(request failed)", build_id: buildIdForToast || null, response: { error: msg } });
+      toast.error(`${msg}${buildIdForToast ? ` (build ${buildIdForToast})` : ""}`);
     } finally {
       setLoading(false);
     }

@@ -44,6 +44,10 @@ export default function AdminPanel() {
   const [companiesTestLoading, setCompaniesTestLoading] = useState(false);
   const [companiesTest, setCompaniesTest] = useState(null);
 
+  const [reviewsProbeCompanyId, setReviewsProbeCompanyId] = useState("");
+  const [reviewsProbeLoading, setReviewsProbeLoading] = useState(false);
+  const [reviewsProbeResult, setReviewsProbeResult] = useState(null);
+
   const [recalcLoading, setRecalcLoading] = useState(false);
   const [recalcResult, setRecalcResult] = useState(null);
   const [recalcCompanyId, setRecalcCompanyId] = useState("");
@@ -58,10 +62,10 @@ export default function AdminPanel() {
 
       if (!res.ok) {
         const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Diagnostic failed (${res.status})`);
-        toast.error(msg);
+        toastError(msg);
       }
     } catch (e) {
-      toast.error(toErrorString(e) || "Failed to load diagnostics");
+      toastError(toErrorString(e) || "Failed to load diagnostics");
     } finally {
       setDiagnosticLoading(false);
     }
@@ -99,6 +103,14 @@ export default function AdminPanel() {
   const buildId = apiBuildId && apiBuildId !== "unknown" ? apiBuildId : staticBuildId;
   const buildSource = apiBuildId && apiBuildId !== "unknown" ? apiBuildSource : staticBuildId ? "STATIC_BUILD_ID_FILE" : apiBuildSource;
 
+  const toastError = useCallback(
+    (message) => {
+      const msg = toErrorString(message) || "Request failed";
+      toast.error(`${msg}${buildId ? ` (build ${buildId})` : ""}`);
+    },
+    [buildId]
+  );
+
   const configBanner = useMemo(() => {
     if (diagnosticLoading && !diagnostic) return null;
     if (cosmosConfigured) return null;
@@ -127,12 +139,12 @@ export default function AdminPanel() {
       setDebugBody(body);
       if (!res.ok) {
         const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Debug failed (${res.status})`);
-        toast.error(msg);
+        toastError(msg);
       } else {
         toast.success("Debug endpoint OK");
       }
     } catch (e) {
-      toast.error(toErrorString(e) || "Debug failed");
+      toastError(toErrorString(e) || "Debug failed");
     } finally {
       setDebugLoading(false);
     }
@@ -149,25 +161,78 @@ export default function AdminPanel() {
 
       if (!res.ok) {
         const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Companies API failed (${res.status})`);
-        toast.error(msg);
+        toastError(msg);
       } else {
         toast.success("Companies API OK");
       }
     } catch (e) {
       const msg = toErrorString(e) || "Companies API failed";
       setCompaniesTest({ status: 0, ok: false, body: { error: msg } });
-      toast.error(msg);
+      toastError(msg);
     } finally {
       setCompaniesTestLoading(false);
     }
   }, []);
+
+  const probeRefreshReviews = useCallback(async () => {
+    const company_id = String(reviewsProbeCompanyId || "").trim();
+    if (!company_id) {
+      toastError("Enter a company_id.");
+      return;
+    }
+
+    setReviewsProbeLoading(true);
+    setReviewsProbeResult(null);
+
+    try {
+      const res = await apiFetch("/xadmin-api-refresh-reviews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: { company_id },
+      });
+
+      const raw = await res.clone().text().catch(() => "");
+      let json = null;
+      try {
+        json = raw ? JSON.parse(raw) : null;
+      } catch {
+        json = null;
+      }
+
+      const apiFetchError = res && typeof res === "object" ? res.__api_fetch_error : null;
+      const apiBuildId = normalizeBuildIdString(res.headers.get("x-api-build-id"));
+      const bodyBuildId = normalizeBuildIdString(json?.build_id);
+      const buildId = bodyBuildId || apiBuildId || normalizeBuildIdString(apiFetchError?.build_id);
+
+      setReviewsProbeResult({
+        status: res.status,
+        ok: res.ok,
+        build_id: buildId || null,
+        raw,
+        json,
+        api_fetch_error: apiFetchError || null,
+      });
+
+      if (!res.ok) {
+        toastError(`Refresh reviews failed (HTTP ${res.status})`);
+      } else {
+        toast.success("Refresh reviews OK");
+      }
+    } catch (e) {
+      const msg = toErrorString(e) || "Refresh reviews failed";
+      setReviewsProbeResult({ status: 0, ok: false, build_id: null, raw: msg, json: null, api_fetch_error: null });
+      toastError(msg);
+    } finally {
+      setReviewsProbeLoading(false);
+    }
+  }, [reviewsProbeCompanyId]);
 
   const runRecalc = useCallback(async () => {
     const company_id = String(recalcCompanyId || "").trim();
     const company_name = String(recalcCompanyName || "").trim();
 
     if (!company_id && !company_name) {
-      toast.error("Enter a company_id or company_name.");
+      toastError("Enter a company_id or company_name.");
       return;
     }
 
@@ -185,12 +250,12 @@ export default function AdminPanel() {
 
       if (!res.ok || body?.ok !== true) {
         const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Recalc failed (${res.status})`);
-        toast.error(msg);
+        toastError(msg);
       } else {
         toast.success("Review counts recalculated");
       }
     } catch (e) {
-      toast.error(toErrorString(e) || "Recalc failed");
+      toastError(toErrorString(e) || "Recalc failed");
     } finally {
       setRecalcLoading(false);
     }
@@ -273,6 +338,44 @@ export default function AdminPanel() {
 
               <pre className="mt-4 max-h-[420px] overflow-auto rounded bg-slate-950 text-slate-100 p-3 text-xs">
                 {prettyJson(companiesTest?.body)}
+              </pre>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-white p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-slate-900">Refresh reviews probe (raw)</h2>
+                <Button onClick={probeRefreshReviews} disabled={reviewsProbeLoading || !reviewsProbeCompanyId.trim()}>
+                  {reviewsProbeLoading ? "Calling…" : "POST /xadmin-api-refresh-reviews"}
+                </Button>
+              </div>
+              <p className="mt-2 text-sm text-slate-600">
+                Calls <code>/api/xadmin-api-refresh-reviews</code> and prints the raw response body + parsed JSON.
+              </p>
+
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-700">company_id</label>
+                  <Input value={reviewsProbeCompanyId} onChange={(e) => setReviewsProbeCompanyId(e.target.value)} placeholder="company_..." />
+                </div>
+                <div className="flex flex-col justify-end">
+                  <div className="text-xs text-slate-600">
+                    Status:{" "}
+                    <code className="rounded bg-slate-100 px-2 py-1 text-[11px]">
+                      {reviewsProbeResult ? `${reviewsProbeResult.status}${reviewsProbeResult.ok ? " OK" : ""}` : "(not run)"}
+                    </code>
+                    {reviewsProbeResult?.build_id ? (
+                      <>
+                        <span className="mx-2">•</span>
+                        Build:{" "}
+                        <code className="rounded bg-slate-100 px-2 py-1 text-[11px]">{String(reviewsProbeResult.build_id).slice(0, 12)}</code>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <pre className="mt-4 max-h-[320px] overflow-auto rounded bg-slate-950 text-slate-100 p-3 text-xs">
+                {prettyJson(reviewsProbeResult)}
               </pre>
             </div>
 

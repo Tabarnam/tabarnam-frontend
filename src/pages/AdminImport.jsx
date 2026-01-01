@@ -10,7 +10,9 @@ import {
   API_BASE,
   FUNCTIONS_BASE,
   apiFetch,
+  getCachedBuildId,
   getLastApiRequestExplain,
+  getResponseBuildId,
   getResponseRequestId,
   getUserFacingConfigMessage,
   join,
@@ -780,8 +782,11 @@ export default function AdminImport() {
             `Import failed (${res.status})`
         );
 
+        const buildId = getResponseBuildId(res) || getCachedBuildId() || "";
+
         const detailsForCopy = {
           status: res.status,
+          build_id: buildId || null,
           session_id: canonicalSessionId,
           request_id: requestId,
           request_payload: requestPayload,
@@ -804,8 +809,8 @@ export default function AdminImport() {
         setActiveStatus("error");
         toast.error(
           errorObj?.code
-            ? `${msg} (code: ${errorObj.code}${errorObj.step ? `, step: ${errorObj.step}` : ""}${requestId ? `, request_id: ${requestId}` : ""})`
-            : msg
+            ? `${msg} (code: ${errorObj.code}${errorObj.step ? `, step: ${errorObj.step}` : ""}${requestId ? `, request_id: ${requestId}` : ""}${buildId ? `, build ${buildId}` : ""})`
+            : `${msg}${buildId ? ` (build ${buildId})` : ""}`
         );
       };
 
