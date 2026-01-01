@@ -2858,7 +2858,7 @@ const importStartHandlerInner = async (req, context) => {
       } catch {}
 
       const providedCompanies = Array.isArray(bodyObj.companies) ? bodyObj.companies : [];
-      const stopsBeforeSave = Boolean(maxStage && maxStage !== "expand");
+      const stopsBeforeSave = Boolean(maxStage && maxStage !== "expand" && maxStage !== "primary");
       const skipsPrimaryWithoutSeed = skipStages.has("primary") && providedCompanies.length === 0;
 
       if (!dryRunRequested && (stopsBeforeSave || skipsPrimaryWithoutSeed)) {
