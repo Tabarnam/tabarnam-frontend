@@ -324,7 +324,7 @@ try {
 
 try {
   console.log("[api] Registering: admin-industries");
-  require("./admin-industries/index.js");
+  require("./admin/industries/index.js");
   console.log("[api] ✓ admin-industries registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-industries:", e?.message || e);
