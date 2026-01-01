@@ -460,6 +460,28 @@ export default function AdminImport() {
       : "Query looks like a URL. Switch query type to Company URL/domain.";
   }, [isUrlLikeQuery, queryTypes]);
 
+  const effectiveImportConfig = useMemo(() => {
+    const maxStage = asString(importMaxStage).trim() || "expand";
+    const skipStages = importSkipPrimary ? ["primary"] : [];
+    const dryRun = Boolean(importDryRunEnabled);
+
+    const pipeline = maxStage === "expand" ? "primary → keywords → reviews → location → save → expand" : "primary → keywords → reviews → location → save";
+
+    const overrides = [];
+    if (skipStages.length > 0) overrides.push(`Skip: ${skipStages.join(", ")}`);
+    if (maxStage && maxStage !== "expand") overrides.push(`Max stage: ${maxStage}`);
+    if (dryRun) overrides.push("Dry run");
+
+    return {
+      pipeline,
+      overridesLabel: overrides.length > 0 ? overrides.join(" · ") : "None",
+      maxStage,
+      skipStages,
+      dryRun,
+      persistBlocked: !dryRun && (skipStages.includes("primary") || (maxStage && maxStage !== "expand")),
+    };
+  }, [importDryRunEnabled, importMaxStage, importSkipPrimary]);
+
   const startDebugImport = useCallback(async () => {
     const q = debugQuery.trim();
     if (!q) {
@@ -1083,7 +1105,20 @@ export default function AdminImport() {
     } finally {
       // Keep polling alive long enough to capture saved counts/report from /import/status.
     }
-  }, [importConfigured, limitInput, location, query, queryTypes, resetPollAttempts, schedulePoll, stopPolling, urlTypeValidationError]);
+  }, [
+    importConfigured,
+    importDryRunEnabled,
+    importMaxStage,
+    importSkipPrimary,
+    limitInput,
+    location,
+    query,
+    queryTypes,
+    resetPollAttempts,
+    schedulePoll,
+    stopPolling,
+    urlTypeValidationError,
+  ]);
 
   const explainImportPayload = useCallback(async () => {
     const q = query.trim();
@@ -1607,6 +1642,64 @@ export default function AdminImport() {
               ) : (
                 <div className="text-xs text-slate-600">If you provide a location, results that match it are ranked higher.</div>
               )}
+            </div>
+
+            <details className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
+              <summary className="cursor-pointer select-none text-sm font-medium text-slate-800">Advanced import config</summary>
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={importSkipPrimary}
+                    onChange={(e) => setImportSkipPrimary(e.target.checked)}
+                  />
+                  Skip primary fetch
+                </label>
+
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={importDryRunEnabled}
+                    onChange={(e) => setImportDryRunEnabled(e.target.checked)}
+                  />
+                  Dry run (no save)
+                </label>
+
+                <div className="space-y-1">
+                  <label className="text-sm text-slate-700">Max stage</label>
+                  <select
+                    className="h-10 w-full rounded border border-slate-200 bg-white px-3 text-sm text-slate-900"
+                    value={importMaxStage}
+                    onChange={(e) => setImportMaxStage(e.target.value)}
+                  >
+                    <option value="expand">expand (full + save)</option>
+                    <option value="location">location (stops before save)</option>
+                    <option value="reviews">reviews</option>
+                    <option value="keywords">keywords</option>
+                    <option value="primary">primary</option>
+                  </select>
+                </div>
+              </div>
+
+              {effectiveImportConfig.persistBlocked ? (
+                <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  This configuration will not save any companies unless you enable Dry run (no save) or change Max stage / Skip settings.
+                </div>
+              ) : null}
+            </details>
+
+            <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 space-y-1">
+              <div>
+                <span className="font-semibold">Pipeline:</span> {effectiveImportConfig.pipeline}
+              </div>
+              <div>
+                <span className="font-semibold">Overrides:</span> {effectiveImportConfig.overridesLabel}
+              </div>
+              <div>
+                <span className="font-semibold">Effective request:</span> max_stage={effectiveImportConfig.maxStage}; skip_stages=
+                {effectiveImportConfig.skipStages.length > 0 ? effectiveImportConfig.skipStages.join(",") : "(none)"}; dry_run=
+                {effectiveImportConfig.dryRun ? "true" : "false"}
+              </div>
             </div>
 
             {skipEnrichmentWarning ? (
