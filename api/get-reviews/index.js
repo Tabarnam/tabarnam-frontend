@@ -448,20 +448,16 @@ async function getReviewsHandler(req, context, deps = {}) {
             const flag = r?.show_to_users ?? r?.showToUsers ?? r?.is_public ?? r?.visible_to_users ?? r?.visible;
             if (normalizeIsPublicFlag(flag, true) === false) return false;
 
-            // Reliability rules for public-facing reviews:
+            // Public-facing rules for curated reviews:
+            // - Must be explicitly allowed to show (show_to_users/is_public/etc)
             // - Must have a valid http(s) URL
-            // - Must have been validated and marked ok
+            //
+            // Note: link_status/match_confidence are useful reliability signals, but they are not
+            // allowed to silently hide admin-curated reviews.
             const sourceUrlRaw = r?.source_url || r?.url || "";
             const normalizedUrl = normalizeHttpUrlOrNull(sourceUrlRaw);
-            if (!normalizedUrl) return false;
-
-            const linkStatusRaw = r?.link_status ?? r?.linkStatus;
-            if (typeof linkStatusRaw !== "string" || !linkStatusRaw.trim()) return false;
-            if (linkStatusRaw.trim().toLowerCase() !== "ok") return false;
-
-            const mcRaw = r?.match_confidence ?? r?.matchConfidence;
-            const mc = typeof mcRaw === "number" ? mcRaw : typeof mcRaw === "string" && mcRaw.trim() ? Number(mcRaw) : null;
-            if (typeof mc === "number" && Number.isFinite(mc) && mc < 0.7) return false;
+            const hasUrlRaw = typeof sourceUrlRaw === "string" && sourceUrlRaw.trim();
+            if (hasUrlRaw && !normalizedUrl) return false;
 
             return true;
           });

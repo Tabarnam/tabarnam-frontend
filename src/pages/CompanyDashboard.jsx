@@ -1108,17 +1108,32 @@ function mergeCuratedReviews(existingCurated, proposedReviews) {
 
     const excerpt = asString(p?.excerpt ?? p?.abstract ?? p?.text).trim();
 
+    const linkStatus = asString(p?.link_status).trim();
+    const matchConfidenceRaw = p?.match_confidence;
+    const matchConfidence =
+      typeof matchConfidenceRaw === "number"
+        ? matchConfidenceRaw
+        : typeof matchConfidenceRaw === "string" && matchConfidenceRaw.trim()
+          ? Number(matchConfidenceRaw)
+          : null;
+
     appended.push({
       id: `admin_reviews_import_${Date.now()}_${Math.random().toString(36).slice(2)}`,
       source: asString(p?.source).trim() || "professional_review",
+      source_name: asString(p?.source_name || p?.source).trim(),
       source_url: asString(p?.source_url || p?.url).trim(),
       url: asString(p?.source_url || p?.url).trim(),
       title: asString(p?.title).trim(),
+      content: excerpt,
       excerpt,
       abstract: excerpt,
-      rating: getReviewRating(p),
+      rating: getReviewRating(p) ?? null,
       author: asString(p?.author).trim(),
       date: asString(p?.date).trim() || null,
+      include_on_save: true,
+      visibility: "public",
+      link_status: linkStatus || null,
+      match_confidence: typeof matchConfidence === "number" && Number.isFinite(matchConfidence) ? matchConfidence : null,
       created_at: nowIso,
       last_updated_at: nowIso,
       imported_via: "admin_reviews_import",
@@ -1166,7 +1181,9 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   useImperativeHandle(
     ref,
     () => ({
-      getSelectedReviews: () => itemsRef.current.filter((r) => r?.include),
+      getSelectedReviews: () =>
+        itemsRef.current.filter((r) => Boolean(r?.include_on_save ?? r?.include)),
+      getProposedReviewCount: () => itemsRef.current.length,
     }),
     []
   );
@@ -1174,7 +1191,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   const existingList = Array.isArray(existingCuratedReviews) ? existingCuratedReviews : [];
   const existingCount = existingList.length;
   const existingVisibleCount = existingList.filter(isCuratedReviewPubliclyVisible).length;
-  const selectedCount = items.reduce((sum, r) => sum + (r?.include ? 1 : 0), 0);
+  const selectedCount = items.reduce((sum, r) => sum + (Boolean(r?.include_on_save ?? r?.include) ? 1 : 0), 0);
 
   const fetchReviews = useCallback(async () => {
     const id = asString(stableId).trim();
@@ -1290,11 +1307,6 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
                 ? Number(r.match_confidence)
                 : null;
 
-          const isPublishable =
-            link_status.toLowerCase() === "ok" &&
-            (typeof match_confidence !== "number" || !Number.isFinite(match_confidence) || match_confidence >= 0.7);
-
-          const hasValidUrl = Boolean(normalizeExternalUrl(source_url));
 
           return {
             id: asString(r?.id).trim() || `${Date.now()}_${idx}_${Math.random().toString(36).slice(2)}`,
@@ -1308,7 +1320,9 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
             duplicate,
             link_status: link_status || null,
             match_confidence: typeof match_confidence === "number" && Number.isFinite(match_confidence) ? match_confidence : null,
-            include: !duplicate && (isPublishable || (!link_status && hasValidUrl)),
+            visibility: "public",
+            include_on_save: true,
+            include: true,
           };
         })
         .filter(Boolean);
@@ -1341,7 +1355,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   }, [items]);
 
   const applySelected = useCallback(() => {
-    const selected = items.filter((r) => r?.include);
+    const selected = items.filter((r) => Boolean(r?.include_on_save ?? r?.include));
     if (selected.length === 0) {
       toast.error("No reviews selected.");
       return;
@@ -1355,7 +1369,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       `Applied ${added} review${added === 1 ? "" : "s"}${skipped ? ` (skipped ${skipped} duplicate${skipped === 1 ? "" : "s"})` : ""}`
     );
 
-    setItems((prev) => prev.map((r) => ({ ...(r || {}), include: false, duplicate: true })));
+    setItems((prev) => prev.map((r) => ({ ...(r || {}), include_on_save: false, include: false, duplicate: true })));
   }, [items, onApply]);
 
   return (
@@ -1467,9 +1481,19 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="flex items-start gap-2">
                     <Checkbox
-                      checked={Boolean(review.include)}
+                      checked={Boolean(review.include_on_save ?? review.include)}
                       onCheckedChange={(v) =>
-                        setItems((prev) => prev.map((r) => (r.id === review.id ? { ...(r || {}), include: Boolean(v) } : r)))
+                        setItems((prev) =>
+                          prev.map((r) =>
+                            r.id === review.id
+                              ? {
+                                  ...(r || {}),
+                                  include_on_save: Boolean(v),
+                                  include: Boolean(v),
+                                }
+                              : r
+                          )
+                        )
                       }
                       disabled={disabled}
                       aria-label="Include on save"
@@ -3076,6 +3100,12 @@ export default function CompanyDashboard() {
     })();
 
     const selectedProposedReviews = reviewsImportRef.current?.getSelectedReviews?.() || [];
+    const proposedReviewCount = Number(reviewsImportRef.current?.getProposedReviewCount?.() || 0) || 0;
+
+    if (proposedReviewCount > 0 && selectedProposedReviews.length === 0) {
+      toast.warning("No reviews were marked 'Include on save', nothing was persisted");
+    }
+
     let autoAddedReviews = 0;
     let autoSkippedReviews = 0;
 
@@ -3210,11 +3240,13 @@ export default function CompanyDashboard() {
       });
 
       const label = isNew ? "Company created" : "Company saved";
-      const reviewSuffix = autoAddedReviews
-        ? ` (+${autoAddedReviews} review${autoAddedReviews === 1 ? "" : "s"}${autoSkippedReviews ? `, skipped ${autoSkippedReviews} duplicate${autoSkippedReviews === 1 ? "" : "s"}` : ""})`
+      const reviewDetail = autoAddedReviews
+        ? `${autoAddedReviews} review${autoAddedReviews === 1 ? "" : "s"} saved and visible on public profile${
+            autoSkippedReviews ? ` (skipped ${autoSkippedReviews} duplicate${autoSkippedReviews === 1 ? "" : "s"})` : ""
+          }`
         : "";
 
-      toast.success(`${label}${reviewSuffix}`);
+      toast.success(reviewDetail ? `${label} — ${reviewDetail}` : label);
       closeEditor();
     } catch (e) {
       toast.error(e?.message || "Save failed");
