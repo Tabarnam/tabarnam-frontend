@@ -594,7 +594,7 @@ export default function AdminImport() {
     }
 
     const runMode = options && typeof options === "object" ? asString(options.mode).trim() : "";
-    const bestEffort = runMode === "best_effort";
+    const forceDryRun = runMode === "dry_run";
 
     const uiSessionIdBefore = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
@@ -649,6 +649,10 @@ export default function AdminImport() {
     startFetchAbortRef.current = abort;
 
     try {
+      const pipelineMaxStage = asString(importMaxStage).trim() || "expand";
+      const baseSkipStages = importSkipPrimary ? ["primary"] : [];
+      const dryRun = forceDryRun || importDryRunEnabled;
+
       const requestPayload = {
         session_id: uiSessionIdBefore,
         query: q,
@@ -656,6 +660,7 @@ export default function AdminImport() {
         location: asString(location).trim() || undefined,
         limit: normalizedLimit,
         expand_if_few: true,
+        dry_run: dryRun,
       };
 
       let canonicalSessionId = uiSessionIdBefore;
@@ -811,6 +816,17 @@ export default function AdminImport() {
           ...(Array.isArray(companies) && companies.length > 0 ? { companies } : {}),
         };
 
+        try {
+          console.log("[admin-import] import/start payload", {
+            query: payload.query,
+            queryTypes: payload.queryTypes,
+            limit: payload.limit,
+            max_stage: stage || null,
+            skip_stages: Array.isArray(skipStages) ? skipStages : [],
+            dry_run: payload.dry_run === true,
+          });
+        } catch {}
+
         const { res, usedPath } = await apiFetchWithFallback(paths, {
           method: "POST",
           body: payload,
@@ -821,23 +837,6 @@ export default function AdminImport() {
         return { res, body, usedPath, payload };
       };
 
-      if (bestEffort) {
-        const { res, body, usedPath, payload } = await callImportStage({ stage: "", skipStages: [], companies: [] });
-
-        syncCanonicalSessionId({ res, body });
-
-        if (!res.ok || body?.ok === false) {
-          await recordStartErrorAndToast(res, body, { usedPath, mode: "best_effort" });
-          return;
-        }
-
-        const finalCompanies = updateRunCompanies(body?.companies, { completed: true });
-        setActiveStatus("done");
-        toast.success(`Import finished (${finalCompanies.length} companies)`);
-        return;
-      }
-
-      const stageSequence = ["primary", "keywords", "reviews", "location", "expand"];
       let companiesForNextStage = [];
 
       const recordStatusFailureAndToast = (body, extra) => {
@@ -959,108 +958,109 @@ export default function AdminImport() {
         };
       };
 
-      for (let stageIndex = 0; stageIndex < stageSequence.length; stageIndex += 1) {
-        const stage = stageSequence[stageIndex];
-        const skipStages = stageSequence.slice(0, stageIndex);
+      resetPollAttempts(canonicalSessionId);
+      schedulePoll({ session_id: canonicalSessionId });
 
-        if (abort.signal.aborted) {
-          const aborted = new Error("Aborted");
-          aborted.name = "AbortError";
-          throw aborted;
-        }
+      const startResult = await callImportStage({ stage: pipelineMaxStage, skipStages: baseSkipStages, companies: [] });
+      syncCanonicalSessionId({ res: startResult.res, body: startResult.body });
 
-        const { res, body, usedPath, payload } = await callImportStage({
-          stage,
-          skipStages,
-          companies: companiesForNextStage,
+      if (!startResult.res.ok || startResult.body?.ok === false) {
+        await recordStartErrorAndToast(startResult.res, startResult.body, {
+          usedPath: startResult.usedPath,
+          mode: "full",
+          max_stage: pipelineMaxStage,
+          skip_stages: baseSkipStages,
+          dry_run: dryRun,
+          stage_payload: startResult.payload,
         });
+        return;
+      }
 
-        syncCanonicalSessionId({ res, body });
+      if (startResult.res.status === 202 || startResult.body?.accepted === true) {
+        const stageBeacon = asString(startResult.body?.stage_beacon).trim();
+        const isAsyncPrimary =
+          startResult.body?.reason === "primary_async_enqueued" ||
+          stageBeacon.startsWith("primary_") ||
+          stageBeacon.startsWith("xai_primary_fetch_");
 
-        if (stageIndex === 0) {
-          resetPollAttempts(canonicalSessionId);
-          schedulePoll({ session_id: canonicalSessionId });
-        }
-
-        if (res.status === 202 || body?.accepted === true) {
-          const stageBeacon = asString(body?.stage_beacon).trim();
-          const isAsyncPrimary =
-            body?.reason === "primary_async_enqueued" ||
-            stageBeacon.startsWith("primary_") ||
-            stageBeacon.startsWith("xai_primary_fetch_");
-
-          // Only the primary stage is expected to return 202 (async worker).
-          // If another stage returns 202, we treat it as an error because the staged pipeline cannot continue.
-          if (!(stage === "primary" && isAsyncPrimary)) {
-            await recordStartErrorAndToast(res, body, {
-              usedPath,
-              stage,
-              mode: "staged",
-              stage_index: stageIndex,
-              stage_payload: payload,
-            });
-            return;
-          }
-
-          const timeoutMsUsed = Number(body?.timeout_ms_used);
-          const timeoutMsForUi = Number.isFinite(timeoutMsUsed) && timeoutMsUsed > 0 ? timeoutMsUsed : null;
-
-          setRuns((prev) =>
-            prev.map((r) =>
-              r.session_id === canonicalSessionId
-                ? {
-                    ...r,
-                    updatedAt: new Date().toISOString(),
-                    start_error: null,
-                    async_primary_active: stage === "primary" && isAsyncPrimary,
-                    async_primary_timeout_ms:
-                      stage === "primary" && isAsyncPrimary ? timeoutMsForUi : r.async_primary_timeout_ms ?? null,
-                  }
-                : r
-            )
-          );
-
-          // IMPORTANT: actually kick off the primary worker from the browser.
-          // The server-side fire-and-forget trigger is not reliable in serverless environments.
-          if (stage === "primary" && isAsyncPrimary) {
-            try {
-              const workerUrl = join(API_BASE, "import/primary-worker");
-              fetch(`${workerUrl}?session_id=${encodeURIComponent(canonicalSessionId)}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ session_id: canonicalSessionId }),
-                keepalive: true,
-              }).catch(() => {});
-            } catch {}
-          }
-
-          const waitResult = await waitForAsyncStatus({ stage });
-          resetPollAttempts(canonicalSessionId);
-          schedulePoll({ session_id: canonicalSessionId });
-
-          if (waitResult.kind === "failed") {
-            recordStatusFailureAndToast(waitResult.body, { stage, mode: "staged", stage_index: stageIndex });
-            return;
-          }
-
-          const asyncCompanies = normalizeItems(waitResult.body?.items || waitResult.body?.companies);
-          const stageCompanies = updateRunCompanies(asyncCompanies, { async_primary_active: false });
-          if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
-          continue;
-        }
-
-        if (!res.ok || body?.ok === false) {
-          await recordStartErrorAndToast(res, body, {
-            usedPath,
-            stage,
-            mode: "staged",
-            stage_index: stageIndex,
-            stage_payload: payload,
+        if (!isAsyncPrimary) {
+          await recordStartErrorAndToast(startResult.res, startResult.body, {
+            usedPath: startResult.usedPath,
+            mode: "full",
+            max_stage: pipelineMaxStage,
+            skip_stages: baseSkipStages,
+            dry_run: dryRun,
+            stage_payload: startResult.payload,
           });
           return;
         }
 
-        const stageCompanies = updateRunCompanies(body?.companies, { async_primary_active: false });
+        const timeoutMsUsed = Number(startResult.body?.timeout_ms_used);
+        const timeoutMsForUi = Number.isFinite(timeoutMsUsed) && timeoutMsUsed > 0 ? timeoutMsUsed : null;
+
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === canonicalSessionId
+              ? {
+                  ...r,
+                  updatedAt: new Date().toISOString(),
+                  start_error: null,
+                  async_primary_active: true,
+                  async_primary_timeout_ms: timeoutMsForUi,
+                }
+              : r
+          )
+        );
+
+        try {
+          const workerUrl = join(API_BASE, "import/primary-worker");
+          fetch(`${workerUrl}?session_id=${encodeURIComponent(canonicalSessionId)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: canonicalSessionId }),
+            keepalive: true,
+          }).catch(() => {});
+        } catch {}
+
+        const waitResult = await waitForAsyncStatus({ stage: "primary" });
+        resetPollAttempts(canonicalSessionId);
+        schedulePoll({ session_id: canonicalSessionId });
+
+        if (waitResult.kind === "failed") {
+          recordStatusFailureAndToast(waitResult.body, { stage: "primary", mode: "full" });
+          return;
+        }
+
+        const asyncCompanies = normalizeItems(waitResult.body?.items || waitResult.body?.companies);
+        const stageCompanies = updateRunCompanies(asyncCompanies, { async_primary_active: false });
+        if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
+
+        const resumeSkipStages = Array.from(new Set(["primary", ...baseSkipStages]));
+
+        const resumeResult = await callImportStage({
+          stage: pipelineMaxStage,
+          skipStages: resumeSkipStages,
+          companies: companiesForNextStage,
+        });
+
+        syncCanonicalSessionId({ res: resumeResult.res, body: resumeResult.body });
+
+        if (!resumeResult.res.ok || resumeResult.body?.ok === false) {
+          await recordStartErrorAndToast(resumeResult.res, resumeResult.body, {
+            usedPath: resumeResult.usedPath,
+            mode: "full_resume",
+            max_stage: pipelineMaxStage,
+            skip_stages: resumeSkipStages,
+            dry_run: dryRun,
+            stage_payload: resumeResult.payload,
+          });
+          return;
+        }
+
+        const resumeCompanies = updateRunCompanies(resumeResult.body?.companies, { async_primary_active: false });
+        if (resumeCompanies.length > 0) companiesForNextStage = resumeCompanies;
+      } else {
+        const stageCompanies = updateRunCompanies(startResult.body?.companies, { async_primary_active: false });
         if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
       }
 
@@ -1070,7 +1070,7 @@ export default function AdminImport() {
         )
       );
       setActiveStatus("done");
-      toast.success(`Import finished (staged, ${companiesForNextStage.length} companies)`);
+      toast.success(`Import finished (${companiesForNextStage.length} companies)`);
     } catch (e) {
       const msg = e?.name === "AbortError" ? "Import aborted" : toErrorString(e) || "Import failed";
       setRuns((prev) => prev.map((r) => (r.session_id === canonicalSessionId ? { ...r, start_error: msg } : r)));
@@ -1081,7 +1081,7 @@ export default function AdminImport() {
         toast.error(msg);
       }
     } finally {
-      stopPolling();
+      // Keep polling alive long enough to capture saved counts/report from /import/status.
     }
   }, [importConfigured, limitInput, location, query, queryTypes, resetPollAttempts, schedulePoll, stopPolling, urlTypeValidationError]);
 
