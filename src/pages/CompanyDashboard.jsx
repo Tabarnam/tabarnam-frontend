@@ -1281,7 +1281,17 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
               .catch(() => "")
           : null;
 
-      const body = jsonBody && typeof jsonBody === "object" ? jsonBody : {};
+      const apiFetchError = res && typeof res === "object" ? res.__api_fetch_error : null;
+      const apiFetchErrorBody = apiFetchError && typeof apiFetchError === "object" ? apiFetchError.response_body : null;
+      const apiFetchErrorText = apiFetchError && typeof apiFetchError === "object" ? apiFetchError.response_text : null;
+
+      const body =
+        (jsonBody && typeof jsonBody === "object" ? jsonBody : null) ||
+        (apiFetchErrorBody && typeof apiFetchErrorBody === "object" ? apiFetchErrorBody : null) ||
+        {};
+
+      const rawText =
+        typeof textBody === "string" && textBody.trim() ? textBody : typeof apiFetchErrorText === "string" ? apiFetchErrorText : "";
 
       if (!res.ok || body?.ok !== true) {
         const rootCause = asString(body?.root_cause).trim();
@@ -1297,7 +1307,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           (await getUserFacingConfigMessage(res)) ||
           body?.message ||
           body?.error ||
-          (typeof textBody === "string" && textBody.trim() ? textBody.trim().slice(0, 500) : "") ||
+          (rawText ? rawText.trim().slice(0, 500) : "") ||
           res.statusText ||
           `Reviews fetch failed (${res.status})`;
 
@@ -1307,19 +1317,19 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
 
         const msg = suffixParts.length ? `${asString(baseMsg).trim()} (${suffixParts.join(", ")})` : baseMsg;
 
-        const buildIdForToast = apiBuildId || cachedBuildId;
+        const responseBuildId = normalizeBuildIdString(body?.build_id) || apiBuildId || cachedBuildId;
 
         setError({
           status: res.status,
           message: asString(msg).trim() || `Reviews fetch failed (${res.status})`,
           url: `/api${usedPath}`,
           attempts,
-          build_id: buildIdForToast,
-          response: body && Object.keys(body).length ? body : textBody,
+          build_id: responseBuildId,
+          response: body && Object.keys(body).length ? body : rawText,
         });
 
         toast.error(
-          `${asString(msg).trim() || "Reviews fetch failed"} (${usedPath} → HTTP ${res.status}${buildIdForToast ? `, build ${buildIdForToast}` : ""})`
+          `${asString(msg).trim() || "Reviews fetch failed"} (${usedPath} → HTTP ${res.status}${responseBuildId ? `, build ${responseBuildId}` : ""})`
         );
         return;
       }
