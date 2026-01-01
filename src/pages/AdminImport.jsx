@@ -1271,13 +1271,16 @@ export default function AdminImport() {
     };
   }, [stopPolling]);
 
-  const activeItemsCount = activeRun?.items?.length || 0;
-  const canSaveActive = Boolean(
-    activeRun &&
-      (activeRun.completed || activeRun.timedOut || activeRun.stopped) &&
-      Array.isArray(activeRun.items) &&
-      activeRun.items.length > 0
-  );
+  const activeItems = Array.isArray(activeRun?.items) ? activeRun.items : [];
+  const activeSavedCompanies = Array.isArray(activeRun?.saved_companies) ? activeRun.saved_companies : [];
+  const activeSavedCount = activeSavedCompanies.length > 0 ? activeSavedCompanies.length : Number(activeRun?.saved ?? 0) || 0;
+
+  const activeIsTerminal = Boolean(activeRun && (activeRun.completed || activeRun.timedOut || activeRun.stopped));
+  const showSavedResults = Boolean(activeIsTerminal && activeSavedCount > 0);
+  const activeResults = showSavedResults ? activeSavedCompanies : activeItems;
+
+  const activeItemsCount = activeResults.length;
+  const canSaveActive = Boolean(activeRun && activeIsTerminal && activeItems.length > 0);
 
   const lastRequestExplain = getLastApiRequestExplain();
   const lastRequestWindowsCurlScript = buildWindowsSafeCurlOutFileScript({
@@ -1378,7 +1381,16 @@ export default function AdminImport() {
       (inferredTerminal ? activeRun.final_stage_beacon : "") || activeRun.stage_beacon || activeRun.last_stage_beacon
     ).trim();
 
-    const stepText = stageBeacon ? toEnglishImportStage(stageBeacon) : "";
+    const savedCompanies = Array.isArray(activeRun.saved_companies) ? activeRun.saved_companies : [];
+    const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(activeRun.saved ?? 0) || 0;
+
+    let stepText = stageBeacon ? toEnglishImportStage(stageBeacon) : "";
+
+    if (inferredTerminal && savedCount === 0) {
+      if (stageBeacon === "primary_early_exit") {
+        stepText = "Single match found, but no save was performed";
+      }
+    }
 
     const terminalKind =
       rawJobState === "error" || activeRun.start_error || activeRun.progress_error
@@ -1391,7 +1403,26 @@ export default function AdminImport() {
       (inferredTerminal ? activeRun.final_last_error_code : "") || activeRun?.last_error?.code
     ).trim();
 
-    const reasonText = terminalKind === "error" ? toEnglishImportStopReason(lastErrorCode) : "";
+    let reasonText = terminalKind === "error" ? toEnglishImportStopReason(lastErrorCode) : "";
+
+    if (terminalKind === "complete" && savedCount === 0) {
+      const report = activeRun.report && typeof activeRun.report === "object" ? activeRun.report : null;
+      const session = report?.session && typeof report.session === "object" ? report.session : null;
+      const request = session?.request && typeof session.request === "object" ? session.request : null;
+      const skipStages = Array.isArray(request?.skip_stages)
+        ? request.skip_stages.map((s) => asString(s).trim()).filter(Boolean)
+        : [];
+
+      if (skipStages.includes("primary")) {
+        reasonText = "Match found, but persistence was skipped by config (skip_stages includes primary).";
+      } else if (stageBeacon === "primary_early_exit") {
+        reasonText = "No save performed due to early exit.";
+      } else if (stageBeacon === "no_candidates_found") {
+        reasonText = "No matching companies found.";
+      } else {
+        reasonText = "No company saved.";
+      }
+    }
 
     return {
       hasRun: true,
@@ -1947,10 +1978,14 @@ export default function AdminImport() {
 
               {!activeSessionId ? (
                 <div className="mt-4 text-sm text-slate-600">Start an import to see results.</div>
+              ) : activeIsTerminal && activeSavedCount === 0 ? (
+                <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                  No company was saved for this run.
+                </div>
               ) : (
                 <div className="mt-4 space-y-2 max-h-[520px] overflow-auto">
                   {(() => {
-                    const items = Array.isArray(activeRun?.items) ? activeRun.items.slice() : [];
+                    const items = Array.isArray(activeResults) ? activeResults.slice() : [];
                     const loc = asString(activeRun?.location).trim().toLowerCase();
                     if (!loc) return items;
 
@@ -2025,10 +2060,10 @@ export default function AdminImport() {
                     const savedCompanies = Array.isArray(r.saved_companies) ? r.saved_companies : [];
                     const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
-                    const companyName = asString(primarySaved?.company_name).trim() || "Unknown company";
-                    const websiteUrl = asString(primarySaved?.website_url || primarySaved?.url).trim();
-
                     const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(r.saved ?? 0) || 0;
+                    const companyName =
+                      savedCount > 0 ? asString(primarySaved?.company_name).trim() || "Saved company" : "No company saved";
+                    const websiteUrl = savedCount > 0 ? asString(primarySaved?.website_url || primarySaved?.url).trim() : "";
 
                     return (
                       <button
@@ -2086,10 +2121,10 @@ export default function AdminImport() {
                       const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
                       const companyId = asString(primarySaved?.company_id).trim();
-                      const companyName = asString(primarySaved?.company_name).trim() || "Unknown company";
-                      const websiteUrl = asString(primarySaved?.website_url || primarySaved?.url).trim();
-
                       const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(activeRun.saved ?? 0) || 0;
+                      const companyName =
+                        savedCount > 0 ? asString(primarySaved?.company_name).trim() || "Saved company" : "No company saved";
+                      const websiteUrl = savedCount > 0 ? asString(primarySaved?.website_url || primarySaved?.url).trim() : "";
 
                       return (
                         <>
@@ -2198,9 +2233,15 @@ export default function AdminImport() {
                         </div>
                       ) : (
                         <div className="text-sm text-slate-900">
-                          <span className="font-medium">Result:</span> Import completed.
+                          <span className="font-medium">Result:</span> {activeSavedCount > 0 ? "Import completed." : "No company saved."}
                         </div>
                       )}
+
+                      {plainEnglishProgress.terminalKind !== "error" && activeSavedCount === 0 ? (
+                        <div className="text-sm text-slate-900">
+                          <span className="font-medium">Reason:</span> {plainEnglishProgress.reasonText || "No company saved."}
+                        </div>
+                      ) : null}
                     </>
                   ) : null}
                 </>
