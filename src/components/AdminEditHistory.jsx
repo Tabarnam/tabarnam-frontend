@@ -122,7 +122,7 @@ export default function AdminEditHistory({ companyId }) {
     return Array.from(set).sort();
   }, [items]);
 
-  const buildUrls = useCallback(
+  const buildHistoryUrl = useCallback(
     (cursor = null) => {
       const params = new URLSearchParams();
       params.set("limit", "25");
@@ -131,11 +131,7 @@ export default function AdminEditHistory({ companyId }) {
       if (searchQuery) params.set("q", searchQuery);
 
       const qs = params.toString();
-
-      return {
-        primary: `/admin/companies/${encodeURIComponent(id)}/history?${qs}`,
-        fallback: `/admin-company-history?company_id=${encodeURIComponent(id)}&${qs}`,
-      };
+      return `/admin-company-history?company_id=${encodeURIComponent(id)}&${qs}`;
     },
     [fieldFilter, id, searchQuery]
   );
