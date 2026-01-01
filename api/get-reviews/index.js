@@ -456,7 +456,8 @@ async function getReviewsHandler(req, context, deps = {}) {
             // allowed to silently hide admin-curated reviews.
             const sourceUrlRaw = r?.source_url || r?.url || "";
             const normalizedUrl = normalizeHttpUrlOrNull(sourceUrlRaw);
-            if (!normalizedUrl) return false;
+            const hasUrlRaw = typeof sourceUrlRaw === "string" && sourceUrlRaw.trim();
+            if (hasUrlRaw && !normalizedUrl) return false;
 
             return true;
           });
