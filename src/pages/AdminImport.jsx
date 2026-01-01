@@ -1279,7 +1279,7 @@ export default function AdminImport() {
   const showSavedResults = Boolean(activeIsTerminal && activeSavedCount > 0);
   const activeResults = showSavedResults ? activeSavedCompanies : activeItems;
 
-  const activeItemsCount = activeResults.length;
+  const activeItemsCount = activeIsTerminal && activeSavedCount === 0 ? 0 : activeResults.length;
   const canSaveActive = Boolean(activeRun && activeIsTerminal && activeItems.length > 0);
 
   const lastRequestExplain = getLastApiRequestExplain();
