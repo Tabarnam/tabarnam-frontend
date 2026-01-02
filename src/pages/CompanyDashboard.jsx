@@ -713,7 +713,7 @@ function toIssueTags(company) {
     0;
 
   const reviewTotal = Math.max(0, curatedCount, reviewsCount, reviewCountNumeric);
-  if (reviewTotal === 0) issues.push("missing");
+  if (reviewTotal === 0) issues.push("reviews");
 
   return issues;
 }
