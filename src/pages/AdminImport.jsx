@@ -388,7 +388,12 @@ export default function AdminImport() {
               const stageLabel = asString(responseObj?.stage || responseObj?.stage_beacon || responseObj?.stageBeacon).trim();
               const rootCauseLabel = asString(responseObj?.root_cause || responseObj?.rootCause).trim();
               const upstreamRaw = responseObj?.upstream_status ?? responseObj?.upstreamStatus ?? responseObj?.status;
-              const upstreamStatus = Number.isFinite(Number(upstreamRaw)) ? Number(upstreamRaw) : null;
+              const upstreamStatus =
+                typeof upstreamRaw === "number" && Number.isFinite(upstreamRaw)
+                  ? upstreamRaw
+                  : typeof upstreamRaw === "string" && /^\d+$/.test(upstreamRaw.trim())
+                    ? Number(upstreamRaw)
+                    : null;
 
               const meta = [];
               if (rootCauseLabel) meta.push(rootCauseLabel);
