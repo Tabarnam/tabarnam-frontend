@@ -377,18 +377,31 @@ export default function AdminImport() {
               const existingStartError = asString(r.start_error).trim();
               const responseBody = r.start_error_details?.response_body;
 
-              const detailText = asString(
+              const responseMsg = asString(
                 responseBody && typeof responseBody === "object"
                   ? responseBody.message || responseBody.error || responseBody.text
                   : responseBody
               ).trim();
 
-              const warningReason = detailText || existingStartError;
+              const responseObj = responseBody && typeof responseBody === "object" ? responseBody : null;
+
+              const stageLabel = asString(responseObj?.stage || responseObj?.stage_beacon || responseObj?.stageBeacon).trim();
+              const rootCauseLabel = asString(responseObj?.root_cause || responseObj?.rootCause).trim();
+              const upstreamRaw = responseObj?.upstream_status ?? responseObj?.upstreamStatus ?? responseObj?.status;
+              const upstreamStatus = Number.isFinite(Number(upstreamRaw)) ? Number(upstreamRaw) : null;
+
+              const meta = [];
+              if (rootCauseLabel) meta.push(rootCauseLabel);
+              if (upstreamStatus != null) meta.push(`HTTP ${upstreamStatus}`);
+
+              const safeMsg = responseMsg.toLowerCase() === "backend call failure" ? "" : responseMsg;
+              const base = stageLabel || "follow_up_failed";
+              const warningReason = `${base}${meta.length ? ` (${meta.join(", ")})` : ""}${safeMsg ? `: ${safeMsg}` : ""}`.trim() || existingStartError;
 
               nextStartError = null;
               nextStartErrorDetails = null;
 
-              nextProgressError = warningReason ? `Saved successfully, but a follow-up step failed: ${warningReason}` : null;
+              nextProgressError = warningReason ? `Saved with warnings: ${warningReason}` : null;
             }
 
             return {
@@ -1207,14 +1220,22 @@ export default function AdminImport() {
 
       if (warnings.length > 0) {
         const firstKey = warnings[0];
-        const detailMsg =
-          firstKey && warningsDetail && typeof warningsDetail[firstKey]?.message === "string" ? warningsDetail[firstKey].message : "";
+        const detail =
+          firstKey && warningsDetail && typeof warningsDetail[firstKey] === "object" ? warningsDetail[firstKey] : null;
 
-        toast.warning(
-          detailMsg
-            ? `Saved with warnings (${firstKey}): ${detailMsg}`
-            : `Saved with warnings (${warnings.join(", ")})`
-        );
+        const stage = asString(detail?.stage).trim() || asString(firstKey).trim();
+        const rootCause = asString(detail?.root_cause).trim();
+        const upstreamStatusRaw = detail?.upstream_status;
+        const upstreamStatus = Number.isFinite(Number(upstreamStatusRaw)) ? Number(upstreamStatusRaw) : null;
+
+        const meta = [];
+        if (rootCause) meta.push(rootCause);
+        if (upstreamStatus != null) meta.push(`HTTP ${upstreamStatus}`);
+
+        const suffix = meta.length ? ` (${meta.join(", ")})` : "";
+        const extraCount = warnings.length > 1 ? ` (+${warnings.length - 1} more)` : "";
+
+        toast.warning(`Saved with warnings: ${stage}${suffix}${extraCount}`);
       } else {
         toast.success(`Import finished (${companiesForNextStage.length} companies)`);
       }

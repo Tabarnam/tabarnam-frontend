@@ -67,8 +67,12 @@ function getParam(req, name) {
 
 async function handler(req, context) {
   const method = String(req?.method || "GET").toUpperCase();
-  if (method === "OPTIONS") return json({ ok: true }, 200);
-  if (method !== "GET") return json({ error: "Method not allowed" }, 405);
+  if (method === "OPTIONS") {
+    return json({ ok: true, items: [], company_id: "", build_id: String(BUILD_INFO.build_id || "") }, 200);
+  }
+  if (method !== "GET") {
+    return json({ ok: false, items: [], company_id: "", build_id: String(BUILD_INFO.build_id || ""), error: "Method not allowed" }, 405);
+  }
 
   const company_id = String(
     (context && context.bindingData && (context.bindingData.company_id || context.bindingData.companyId)) ||
@@ -79,10 +83,23 @@ async function handler(req, context) {
       ""
   ).trim();
 
-  if (!company_id) return json({ error: "company_id required" }, 400);
+  if (!company_id) {
+    return json({ ok: false, items: [], company_id: "", build_id: String(BUILD_INFO.build_id || ""), error: "company_id required" }, 400);
+  }
 
   const container = await getCompanyEditHistoryContainer();
-  if (!container) return json({ error: "Cosmos DB not configured" }, 503);
+  if (!container) {
+    return json(
+      {
+        ok: false,
+        items: [],
+        company_id,
+        build_id: String(BUILD_INFO.build_id || ""),
+        error: "Cosmos DB not configured",
+      },
+      503
+    );
+  }
 
   const limit = clampLimit(getParam(req, "limit") || 50);
   const cursor = decodeCursor(getParam(req, "cursor"));
@@ -122,38 +139,56 @@ async function handler(req, context) {
     const last = items.length > 0 ? items[items.length - 1] : null;
     const next_cursor = items.length === limit && last ? encodeCursor({ created_at: last.created_at, id: last.id }) : "";
 
-    return json({ ok: true, items, next_cursor: next_cursor || null }, 200);
+    return json(
+      {
+        ok: true,
+        items,
+        company_id,
+        build_id: String(BUILD_INFO.build_id || ""),
+        next_cursor: next_cursor || null,
+      },
+      200
+    );
   } catch (e) {
     context?.log?.("[admin-company-history] query error", e?.message || e);
-    return json({ error: "Failed to load history", detail: e?.message || String(e) }, 500);
+    return json(
+      {
+        ok: false,
+        items: [],
+        company_id,
+        build_id: String(BUILD_INFO.build_id || ""),
+        error: "Failed to load history",
+        detail: e?.message || String(e),
+      },
+      500
+    );
   }
 }
 
 const ROUTE = "admin/companies/{company_id}/history";
 const ALIAS_ROUTE = "admin-company-history";
 
-// IMPORTANT:
-// - The legacy Azure Functions model (function.json) is the production source of truth for the alias route.
-// - Our CI contract test expects the app.http() registration list to include both routes.
-// - To avoid route conflicts in production, only register the routes in routes-test mode.
-if (process.env.TABARNAM_API_INDEX_MODE === "routes-test") {
-  if (!hasRoute(ROUTE)) {
-    app.http("adminCompanyHistory", {
-      route: ROUTE,
-      methods: ["GET", "OPTIONS"],
-      authLevel: "anonymous",
-      handler,
-    });
-  }
+// Register both the canonical route and the alias route for the v4 app model.
+//
+// Some deployments still include a legacy function.json wrapper for the alias route.
+// In v4 (app.http) deployments, function.json is ignored, so these registrations
+// are required for the endpoint to exist.
+if (!hasRoute(ROUTE)) {
+  app.http("adminCompanyHistory", {
+    route: ROUTE,
+    methods: ["GET", "OPTIONS"],
+    authLevel: "anonymous",
+    handler,
+  });
+}
 
-  if (!hasRoute(ALIAS_ROUTE)) {
-    app.http("adminCompanyHistoryAlias", {
-      route: ALIAS_ROUTE,
-      methods: ["GET", "OPTIONS"],
-      authLevel: "anonymous",
-      handler,
-    });
-  }
+if (!hasRoute(ALIAS_ROUTE)) {
+  app.http("adminCompanyHistoryAlias", {
+    route: ALIAS_ROUTE,
+    methods: ["GET", "OPTIONS"],
+    authLevel: "anonymous",
+    handler,
+  });
 }
 
 module.exports.handler = handler;
