@@ -1533,22 +1533,28 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       }
 
       const responseBuildId = normalizeBuildIdString(body?.build_id) || apiBuildId || cachedBuildId;
+
+      const isBackendInconsistent = savedCount === 0 && normalized.length === 0;
+      const clientNote = isBackendInconsistent ? "No results returned (possible backend inconsistency)" : "";
+
       const doneLog = {
         ok: true,
-        retryable: false,
+        retryable: isBackendInconsistent,
         saved_count: savedCount,
         fetched_count: normalized.length,
         warnings,
-        root_cause: "",
+        root_cause: isBackendInconsistent ? "backend_inconsistent_no_results" : "",
         upstream_status: null,
         build_id: responseBuildId,
+        ...(clientNote ? { client_note: clientNote } : {}),
       };
       console.log("[reviews-refresh] done", doneLog);
       setLastRefreshAttempt((prev) => ({
         ...(prev && typeof prev === "object" ? prev : {}),
         ok: true,
-        retryable: false,
-        root_cause: "",
+        retryable: isBackendInconsistent,
+        root_cause: isBackendInconsistent ? "backend_inconsistent_no_results" : "",
+        client_note: clientNote,
         upstream_status: null,
         build_id: String(responseBuildId || ""),
         saved_count: savedCount,
@@ -1557,7 +1563,8 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       }));
 
       if (normalized.length === 0) {
-        toast.success("No reviews found");
+        if (isBackendInconsistent) toast.warning(clientNote);
+        else toast.success("No reviews found");
       } else if (savedCount >= 1) {
         if (warnings.length > 0) toast.warning(`Saved ${savedCount} review${savedCount === 1 ? "" : "s"} with warnings`);
         else toast.success(`Saved ${savedCount} review${savedCount === 1 ? "" : "s"}`);
@@ -1678,6 +1685,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
             </div>
             {asString(lastRefreshAttempt.build_id).trim() ? <div>Build: {asString(lastRefreshAttempt.build_id).trim()}</div> : null}
             {asString(lastRefreshAttempt.root_cause).trim() ? <div>root_cause: {asString(lastRefreshAttempt.root_cause).trim()}</div> : null}
+            {asString(lastRefreshAttempt.client_note).trim() ? <div>{asString(lastRefreshAttempt.client_note).trim()}</div> : null}
             {Number.isFinite(Number(lastRefreshAttempt.upstream_status)) ? <div>upstream_status: HTTP {Number(lastRefreshAttempt.upstream_status)}</div> : null}
           </div>
         </div>
