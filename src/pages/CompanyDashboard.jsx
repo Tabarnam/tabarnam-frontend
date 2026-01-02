@@ -1211,6 +1211,33 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   const existingVisibleCount = existingList.filter(isCuratedReviewPubliclyVisible).length;
   const selectedCount = items.reduce((sum, r) => sum + (Boolean(r?.include_on_save ?? r?.include) ? 1 : 0), 0);
 
+  const refreshOutcome = useMemo(() => {
+    if (!lastRefreshAttempt) return null;
+
+    const saved = Number(lastRefreshAttempt.saved_count ?? 0) || 0;
+    const fetched = Number(lastRefreshAttempt.fetched_count ?? 0) || 0;
+
+    const upstreamRaw = lastRefreshAttempt.upstream_status;
+    const upstreamStatus =
+      typeof upstreamRaw === "number"
+        ? upstreamRaw
+        : typeof upstreamRaw === "string" && upstreamRaw.trim()
+          ? Number(upstreamRaw)
+          : null;
+
+    const upstreamIsZero = Number.isFinite(Number(upstreamStatus)) && Number(upstreamStatus) === 0;
+
+    const okByContract = lastRefreshAttempt.ok === true && (saved > 0 || fetched > 0) && !upstreamIsZero;
+    if (okByContract) return { kind: "ok", label: "ok" };
+
+    if (lastRefreshAttempt.ok == null) return { kind: "pending", label: "" };
+
+    const retryable = Boolean(lastRefreshAttempt.retryable);
+    if (retryable || upstreamIsZero) return { kind: "warning", label: "warning" };
+
+    return { kind: "failed", label: "failed" };
+  }, [lastRefreshAttempt]);
+
   const fetchReviews = useCallback(async () => {
     const id = asString(stableId).trim();
     if (!id) {
