@@ -1668,7 +1668,13 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           <div className="mt-1 space-y-1">
             <div>
               Time: {lastRefreshAttempt.at ? new Date(lastRefreshAttempt.at).toLocaleString() : ""}
-              {lastRefreshAttempt.ok === true ? " • ok" : lastRefreshAttempt.ok === false ? " • failed" : ""}
+              {refreshOutcome && refreshOutcome.label ? ` • ${refreshOutcome.label}` : ""}
+            </div>
+            <div>
+              saved_count: {Number(lastRefreshAttempt.saved_count ?? 0) || 0}
+              <span className="mx-1">•</span>
+              fetched_count: {Number(lastRefreshAttempt.fetched_count ?? 0) || 0}
+              {lastRefreshAttempt.retryable ? <span className="ml-1">• retryable</span> : null}
             </div>
             {asString(lastRefreshAttempt.build_id).trim() ? <div>Build: {asString(lastRefreshAttempt.build_id).trim()}</div> : null}
             {asString(lastRefreshAttempt.root_cause).trim() ? <div>root_cause: {asString(lastRefreshAttempt.root_cause).trim()}</div> : null}
