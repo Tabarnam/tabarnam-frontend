@@ -824,6 +824,52 @@ export default function AdminImport() {
           ...(extra && typeof extra === "object" ? extra : {}),
         };
 
+        // Guard: if /import/start fails (often a late-stage 5xx), but the session still saved
+        // companies, don't show "Import failed".
+        if ((Number(res?.status) || 0) >= 500 && canonicalSessionId) {
+          try {
+            const encoded = encodeURIComponent(canonicalSessionId);
+            const { res: statusRes } = await apiFetchWithFallback([`/import/status?session_id=${encoded}`]);
+            const statusBody = await readJsonOrText(statusRes).catch(() => null);
+
+            const savedCompanies = Array.isArray(statusBody?.saved_companies) ? statusBody.saved_companies : [];
+            const savedCount =
+              savedCompanies.length > 0
+                ? savedCompanies.length
+                : Number(statusBody?.saved ?? statusBody?.result?.saved ?? 0) || 0;
+
+            if (savedCount >= 1) {
+              setRuns((prev) =>
+                prev.map((r) =>
+                  r.session_id === canonicalSessionId
+                    ? {
+                        ...r,
+                        saved: Math.max(Number(r.saved ?? 0) || 0, savedCount),
+                        saved_companies:
+                          savedCompanies.length > 0
+                            ? savedCompanies
+                            : Array.isArray(r.saved_companies)
+                              ? r.saved_companies
+                              : [],
+                        completed: true,
+                        start_error: null,
+                        start_error_details: detailsForCopy,
+                        progress_error: `Saved with warnings: ${msg || "post-save stage failed"}`,
+                        updatedAt: new Date().toISOString(),
+                      }
+                    : r
+                )
+              );
+
+              setActiveStatus("done");
+              toast.warning("Saved with warnings");
+              return;
+            }
+          } catch {
+            // fall through to normal error handling
+          }
+        }
+
         setRuns((prev) =>
           prev.map((r) =>
             r.session_id === canonicalSessionId
