@@ -35,6 +35,14 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function normalizeHttpStatus(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const code = Math.trunc(n);
+  if (code >= 100 && code <= 599) return code;
+  return null;
+}
+
 function jsonBody(obj) {
   return {
     status: 200,
@@ -409,18 +417,34 @@ async function handler(req, context) {
 
     out.warnings = Array.isArray(out.warnings) ? out.warnings : [];
 
-    if (out.fetched_count == null) out.fetched_count = 0;
-    if (out.saved_count == null) out.saved_count = 0;
+    out.fetched_count = Number(out.fetched_count ?? 0) || 0;
+    out.saved_count = Number(out.saved_count ?? 0) || 0;
+
+    out.upstream_status = normalizeHttpStatus(out.upstream_status);
 
     if (out.ok === true) {
       if (typeof out.retryable !== "boolean") out.retryable = false;
       if (out.root_cause == null) out.root_cause = "";
-      if (out.upstream_status == null) out.upstream_status = null;
     } else {
       out.ok = false;
       out.root_cause = asString(out.root_cause).trim() || "unknown";
-      out.upstream_status = Number.isFinite(Number(out.upstream_status)) ? Number(out.upstream_status) : 0;
       if (typeof out.retryable !== "boolean") out.retryable = true;
+
+      if (out.upstream_status == null && out.root_cause === "upstream_http_0") {
+        out.root_cause = "upstream_unreachable";
+      }
+    }
+
+    const noResults = out.saved_count === 0 && out.fetched_count === 0;
+    const noopSuccess = method === "OPTIONS" || out.exhausted === true;
+
+    // Critical rule: never claim ok:true when we produced no results and the upstream
+    // status is not a real HTTP code (e.g. the "HTTP 0"/network-failure case).
+    if (out.ok === true && !noopSuccess && noResults && out.upstream_status == null) {
+      out.ok = false;
+      out.root_cause = "upstream_unreachable";
+      out.retryable = true;
+      out.upstream_status = null;
     }
 
     try {
@@ -430,7 +454,7 @@ async function handler(req, context) {
           company_id: asString(out.company_id).trim(),
           ok: out.ok,
           root_cause: out.ok ? null : out.root_cause,
-          upstream_status: out.ok ? null : out.upstream_status,
+          upstream_status: out.upstream_status,
           saved_count: Number(out.saved_count ?? 0) || 0,
           fetched_count: Number(out.fetched_count ?? 0) || 0,
           build_id,
@@ -646,12 +670,13 @@ async function handler(req, context) {
         lastErr = err;
 
         const { xai_base_url, xai_key } = extractXaiConfig();
-        const upstream_status = err?.status || err?.response?.status || 0;
+        const upstream_status_raw = err?.status || err?.response?.status || 0;
+        const upstream_status = normalizeHttpStatus(upstream_status_raw);
         const root_cause = classifyError(err, { xai_base_url, xai_key });
 
         warnings.push({
           stage: "reviews_refresh",
-          root_cause,
+          root_cause: upstream_status == null && root_cause === "upstream_http_0" ? "upstream_unreachable" : root_cause,
           upstream_status,
           message: asString(err?.message || err),
         });
@@ -659,7 +684,11 @@ async function handler(req, context) {
         // Persist cursor last_error telemetry (best-effort)
         try {
           cursor.last_attempt_at = nowIso();
-          cursor.last_error = { root_cause, upstream_status, message: asString(err?.message || err) };
+          cursor.last_error = {
+            root_cause: upstream_status == null && root_cause === "upstream_http_0" ? "upstream_unreachable" : root_cause,
+            upstream_status,
+            message: asString(err?.message || err),
+          };
           await patchCompanyById(companiesContainer, company_id, company, { review_cursor: cursor });
         } catch {
           // ignore
@@ -696,12 +725,17 @@ async function handler(req, context) {
 
     const { xai_base_url, xai_key } = extractXaiConfig();
 
+    const upstream_status_raw = lastErr?.status || lastErr?.response?.status || 0;
+    const upstream_status = normalizeHttpStatus(upstream_status_raw);
+    const root_cause_raw = classifyError(lastErr, { xai_base_url, xai_key });
+    const root_cause = upstream_status == null && root_cause_raw === "upstream_http_0" ? "upstream_unreachable" : root_cause_raw;
+
     return respond({
       ok: false,
       stage: "reviews_refresh",
       company_id,
-      root_cause: classifyError(lastErr, { xai_base_url, xai_key }),
-      upstream_status: lastErr?.status || lastErr?.response?.status || 0,
+      root_cause,
+      upstream_status,
       retryable: true,
       message: asString(lastErr?.message || lastErr || "Backend call failure"),
       warnings,

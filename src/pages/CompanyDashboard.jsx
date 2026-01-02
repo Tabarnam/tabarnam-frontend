@@ -1211,6 +1211,33 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   const existingVisibleCount = existingList.filter(isCuratedReviewPubliclyVisible).length;
   const selectedCount = items.reduce((sum, r) => sum + (Boolean(r?.include_on_save ?? r?.include) ? 1 : 0), 0);
 
+  const refreshOutcome = useMemo(() => {
+    if (!lastRefreshAttempt) return null;
+
+    const saved = Number(lastRefreshAttempt.saved_count ?? 0) || 0;
+    const fetched = Number(lastRefreshAttempt.fetched_count ?? 0) || 0;
+
+    const upstreamRaw = lastRefreshAttempt.upstream_status;
+    const upstreamStatus =
+      typeof upstreamRaw === "number"
+        ? upstreamRaw
+        : typeof upstreamRaw === "string" && upstreamRaw.trim()
+          ? Number(upstreamRaw)
+          : null;
+
+    const upstreamIsZero = Number.isFinite(Number(upstreamStatus)) && Number(upstreamStatus) === 0;
+
+    const okByContract = lastRefreshAttempt.ok === true && (saved > 0 || fetched > 0) && !upstreamIsZero;
+    if (okByContract) return { kind: "ok", label: "ok" };
+
+    if (lastRefreshAttempt.ok == null) return { kind: "pending", label: "" };
+
+    const retryable = Boolean(lastRefreshAttempt.retryable);
+    if (retryable || upstreamIsZero) return { kind: "warning", label: "warning" };
+
+    return { kind: "failed", label: "failed" };
+  }, [lastRefreshAttempt]);
+
   const fetchReviews = useCallback(async () => {
     const id = asString(stableId).trim();
     if (!id) {
@@ -1227,6 +1254,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       at: startedAt,
       company_id: id,
       ok: null,
+      retryable: null,
       root_cause: "",
       upstream_status: null,
       build_id: "",
@@ -1283,6 +1311,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
 
         const doneLog = {
           ok: false,
+          retryable: false,
           saved_count: 0,
           fetched_count: 0,
           warnings: [],
@@ -1294,6 +1323,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
         setLastRefreshAttempt((prev) => ({
           ...(prev && typeof prev === "object" ? prev : {}),
           ok: false,
+          retryable: false,
           root_cause: doneLog.root_cause,
           upstream_status: doneLog.upstream_status,
           build_id: String(buildId || ""),
@@ -1348,6 +1378,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
 
         const doneLog = {
           ok: false,
+          retryable: false,
           saved_count: 0,
           fetched_count: 0,
           warnings: [],
@@ -1359,6 +1390,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
         setLastRefreshAttempt((prev) => ({
           ...(prev && typeof prev === "object" ? prev : {}),
           ok: false,
+          retryable: false,
           root_cause: doneLog.root_cause,
           upstream_status: res.status,
           build_id: String(responseBuildId || ""),
@@ -1412,6 +1444,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
 
         const doneLog = {
           ok: false,
+          retryable,
           saved_count: Number(body?.saved_count ?? 0) || 0,
           fetched_count: Array.isArray(body?.proposed_reviews) ? body.proposed_reviews.length : Array.isArray(body?.reviews) ? body.reviews.length : 0,
           warnings: Array.isArray(body?.warnings) ? body.warnings : [],
@@ -1423,6 +1456,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
         setLastRefreshAttempt((prev) => ({
           ...(prev && typeof prev === "object" ? prev : {}),
           ok: false,
+          retryable,
           root_cause: asString(rootCause).trim(),
           upstream_status: doneLog.upstream_status,
           build_id: String(responseBuildId || ""),
@@ -1501,6 +1535,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       const responseBuildId = normalizeBuildIdString(body?.build_id) || apiBuildId || cachedBuildId;
       const doneLog = {
         ok: true,
+        retryable: false,
         saved_count: savedCount,
         fetched_count: normalized.length,
         warnings,
@@ -1512,6 +1547,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       setLastRefreshAttempt((prev) => ({
         ...(prev && typeof prev === "object" ? prev : {}),
         ok: true,
+        retryable: false,
         root_cause: "",
         upstream_status: null,
         build_id: String(responseBuildId || ""),
@@ -1536,6 +1572,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       setLastRefreshAttempt((prev) => ({
         ...(prev && typeof prev === "object" ? prev : {}),
         ok: false,
+        retryable: true,
         root_cause: "client_exception",
         upstream_status: null,
         build_id: String(buildIdForToast || ""),
@@ -1631,7 +1668,13 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           <div className="mt-1 space-y-1">
             <div>
               Time: {lastRefreshAttempt.at ? new Date(lastRefreshAttempt.at).toLocaleString() : ""}
-              {lastRefreshAttempt.ok === true ? " • ok" : lastRefreshAttempt.ok === false ? " • failed" : ""}
+              {refreshOutcome && refreshOutcome.label ? ` • ${refreshOutcome.label}` : ""}
+            </div>
+            <div>
+              saved_count: {Number(lastRefreshAttempt.saved_count ?? 0) || 0}
+              <span className="mx-1">•</span>
+              fetched_count: {Number(lastRefreshAttempt.fetched_count ?? 0) || 0}
+              {lastRefreshAttempt.retryable ? <span className="ml-1">• retryable</span> : null}
             </div>
             {asString(lastRefreshAttempt.build_id).trim() ? <div>Build: {asString(lastRefreshAttempt.build_id).trim()}</div> : null}
             {asString(lastRefreshAttempt.root_cause).trim() ? <div>root_cause: {asString(lastRefreshAttempt.root_cause).trim()}</div> : null}
