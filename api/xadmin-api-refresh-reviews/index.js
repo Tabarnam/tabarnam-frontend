@@ -443,7 +443,7 @@ async function handler(req, context) {
 
     // Contract: it must be impossible to return ok:true with fetched_count=0 and saved_count=0.
     // (Exclude OPTIONS for CORS preflight.)
-    if (method !== "OPTIONS" && noResults) {
+    if (method !== "OPTIONS" && out.ok === true && noResults) {
       out.ok = false;
       out.retryable = true;
       out.root_cause = "upstream_unreachable";
