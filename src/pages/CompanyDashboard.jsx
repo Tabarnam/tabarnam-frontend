@@ -1189,6 +1189,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [items, setItems] = useState([]);
+  const [lastRefreshAttempt, setLastRefreshAttempt] = useState(null);
 
   const itemsRef = useRef([]);
   useEffect(() => {
@@ -1218,6 +1219,21 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
     }
 
     const requestedTake = Math.max(1, Math.min(200, Math.trunc(Number(take) || 1)));
+
+    const startedAt = new Date().toISOString();
+    console.log("[reviews-refresh] start", { company_id: id });
+
+    setLastRefreshAttempt({
+      at: startedAt,
+      company_id: id,
+      ok: null,
+      root_cause: "",
+      upstream_status: null,
+      build_id: "",
+      saved_count: null,
+      fetched_count: null,
+      warnings: [],
+    });
 
     setLoading(true);
     setError(null);
@@ -1265,6 +1281,27 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           response: { error: "both refresh endpoints returned 404" },
         });
 
+        const doneLog = {
+          ok: false,
+          saved_count: 0,
+          fetched_count: 0,
+          warnings: [],
+          root_cause: "endpoint_missing",
+          upstream_status: 404,
+          build_id: buildId,
+        };
+        console.log("[reviews-refresh] done", doneLog);
+        setLastRefreshAttempt((prev) => ({
+          ...(prev && typeof prev === "object" ? prev : {}),
+          ok: false,
+          root_cause: doneLog.root_cause,
+          upstream_status: doneLog.upstream_status,
+          build_id: String(buildId || ""),
+          saved_count: 0,
+          fetched_count: 0,
+          warnings: [],
+        }));
+
         toast.error(msg);
         return;
       }
@@ -1298,7 +1335,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       // Contract guard: if the API responds with non-JSON, surface a clear message.
       if (!isJsonObject && rawText) {
         const responseBuildId = apiBuildId || cachedBuildId;
-        const msg = `Bad response: not JSON${responseBuildId ? ` (build ${responseBuildId})` : ""}`;
+        const msg = `Bad response: not JSON (HTTP ${res.status})${responseBuildId ? `, build ${responseBuildId}` : ""}`;
 
         setError({
           status: res.status,
@@ -1308,6 +1345,27 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           build_id: responseBuildId,
           response: rawText.trim().slice(0, 500),
         });
+
+        const doneLog = {
+          ok: false,
+          saved_count: 0,
+          fetched_count: 0,
+          warnings: [],
+          root_cause: "bad_response_not_json",
+          upstream_status: res.status,
+          build_id: responseBuildId,
+        };
+        console.log("[reviews-refresh] done", doneLog);
+        setLastRefreshAttempt((prev) => ({
+          ...(prev && typeof prev === "object" ? prev : {}),
+          ok: false,
+          root_cause: doneLog.root_cause,
+          upstream_status: res.status,
+          build_id: String(responseBuildId || ""),
+          saved_count: 0,
+          fetched_count: 0,
+          warnings: [],
+        }));
 
         toast.error(msg);
         return;
@@ -1334,8 +1392,8 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           `Reviews fetch failed (${res.status})`;
 
         const suffixParts = [];
-        if (rootCause) suffixParts.push(`reason: ${rootCause}`);
-        if (Number.isFinite(Number(upstreamStatus))) suffixParts.push(`upstream: HTTP ${Number(upstreamStatus)}`);
+        if (rootCause) suffixParts.push(`root_cause: ${rootCause}`);
+        if (Number.isFinite(Number(upstreamStatus))) suffixParts.push(`upstream_status: HTTP ${Number(upstreamStatus)}`);
 
         const msg = suffixParts.length ? `${asString(baseMsg).trim()} (${suffixParts.join(", ")})` : baseMsg;
 
@@ -1351,6 +1409,28 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
         });
 
         const toastMsg = `${asString(msg).trim() || "Reviews fetch failed"} (${usedPath} → HTTP ${res.status}${responseBuildId ? `, build ${responseBuildId}` : ""})`;
+
+        const doneLog = {
+          ok: false,
+          saved_count: Number(body?.saved_count ?? 0) || 0,
+          fetched_count: Array.isArray(body?.proposed_reviews) ? body.proposed_reviews.length : Array.isArray(body?.reviews) ? body.reviews.length : 0,
+          warnings: Array.isArray(body?.warnings) ? body.warnings : [],
+          root_cause: rootCause,
+          upstream_status: Number.isFinite(Number(upstreamStatus)) ? Number(upstreamStatus) : null,
+          build_id: responseBuildId,
+        };
+        console.log("[reviews-refresh] done", doneLog);
+        setLastRefreshAttempt((prev) => ({
+          ...(prev && typeof prev === "object" ? prev : {}),
+          ok: false,
+          root_cause: asString(rootCause).trim(),
+          upstream_status: doneLog.upstream_status,
+          build_id: String(responseBuildId || ""),
+          saved_count: doneLog.saved_count,
+          fetched_count: doneLog.fetched_count,
+          warnings: Array.isArray(doneLog.warnings) ? doneLog.warnings : [],
+        }));
+
         if (retryable) toast.warning(toastMsg);
         else toast.error(toastMsg);
 
@@ -1418,6 +1498,28 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
         }
       }
 
+      const responseBuildId = normalizeBuildIdString(body?.build_id) || apiBuildId || cachedBuildId;
+      const doneLog = {
+        ok: true,
+        saved_count: savedCount,
+        fetched_count: normalized.length,
+        warnings,
+        root_cause: "",
+        upstream_status: null,
+        build_id: responseBuildId,
+      };
+      console.log("[reviews-refresh] done", doneLog);
+      setLastRefreshAttempt((prev) => ({
+        ...(prev && typeof prev === "object" ? prev : {}),
+        ok: true,
+        root_cause: "",
+        upstream_status: null,
+        build_id: String(responseBuildId || ""),
+        saved_count: savedCount,
+        fetched_count: normalized.length,
+        warnings: Array.isArray(warnings) ? warnings : [],
+      }));
+
       if (normalized.length === 0) {
         toast.success("No reviews found");
       } else if (savedCount >= 1) {
@@ -1429,6 +1531,18 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
     } catch (e) {
       const msg = asString(e?.message).trim() || "Reviews fetch failed";
       const buildIdForToast = getCachedBuildId();
+
+      console.log("[reviews-refresh] threw", { message: msg });
+      setLastRefreshAttempt((prev) => ({
+        ...(prev && typeof prev === "object" ? prev : {}),
+        ok: false,
+        root_cause: "client_exception",
+        upstream_status: null,
+        build_id: String(buildIdForToast || ""),
+        saved_count: 0,
+        fetched_count: 0,
+        warnings: [],
+      }));
 
       setError({ status: 0, message: msg, url: "(request failed)", build_id: buildIdForToast || null, response: { error: msg } });
       toast.error(`${msg}${buildIdForToast ? ` (build ${buildIdForToast})` : ""}`);
@@ -1510,6 +1624,21 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           Include existing imported reviews in context <span className="text-xs text-slate-500">(recommended)</span>
         </span>
       </label>
+
+      {lastRefreshAttempt ? (
+        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+          <div className="font-medium text-slate-900">Last refresh attempt</div>
+          <div className="mt-1 space-y-1">
+            <div>
+              Time: {lastRefreshAttempt.at ? new Date(lastRefreshAttempt.at).toLocaleString() : ""}
+              {lastRefreshAttempt.ok === true ? " • ok" : lastRefreshAttempt.ok === false ? " • failed" : ""}
+            </div>
+            {asString(lastRefreshAttempt.build_id).trim() ? <div>Build: {asString(lastRefreshAttempt.build_id).trim()}</div> : null}
+            {asString(lastRefreshAttempt.root_cause).trim() ? <div>root_cause: {asString(lastRefreshAttempt.root_cause).trim()}</div> : null}
+            {Number.isFinite(Number(lastRefreshAttempt.upstream_status)) ? <div>upstream_status: HTTP {Number(lastRefreshAttempt.upstream_status)}</div> : null}
+          </div>
+        </div>
+      ) : null}
 
       {!stableId ? (
         <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
