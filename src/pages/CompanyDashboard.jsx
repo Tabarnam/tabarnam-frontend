@@ -87,6 +87,18 @@ function normalizeBuildIdString(value) {
   return m ? m[0] : s;
 }
 
+function normalizeHttpStatusNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (!s) return null;
+    if (/^\d+$/.test(s)) return Number(s);
+  }
+
+  return null;
+}
+
 async function fetchStaticBuildId() {
   try {
     const res = await fetch("/__build_id.txt", { cache: "no-store" });
@@ -1217,15 +1229,9 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
     const saved = Number(lastRefreshAttempt.saved_count ?? 0) || 0;
     const fetched = Number(lastRefreshAttempt.fetched_count ?? 0) || 0;
 
-    const upstreamRaw = lastRefreshAttempt.upstream_status;
-    const upstreamStatus =
-      typeof upstreamRaw === "number"
-        ? upstreamRaw
-        : typeof upstreamRaw === "string" && upstreamRaw.trim()
-          ? Number(upstreamRaw)
-          : null;
+    const upstreamStatus = normalizeHttpStatusNumber(lastRefreshAttempt.upstream_status);
 
-    const upstreamIsZero = Number.isFinite(Number(upstreamStatus)) && Number(upstreamStatus) === 0;
+    const upstreamIsZero = upstreamStatus === 0;
 
     const okByContract = lastRefreshAttempt.ok === true && (saved > 0 || fetched > 0) && !upstreamIsZero;
     if (okByContract) return { kind: "ok", label: "ok" };
@@ -1237,6 +1243,11 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
 
     return { kind: "failed", label: "failed" };
   }, [lastRefreshAttempt]);
+
+  const upstreamStatusForDisplay = useMemo(
+    () => normalizeHttpStatusNumber(lastRefreshAttempt?.upstream_status),
+    [lastRefreshAttempt]
+  );
 
   const fetchReviews = useCallback(async () => {
     const id = asString(stableId).trim();
@@ -1405,13 +1416,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
 
       if (!res.ok || body?.ok !== true) {
         const rootCause = asString(body?.root_cause).trim();
-        const upstreamStatusRaw = body?.upstream_status;
-        const upstreamStatus =
-          typeof upstreamStatusRaw === "number"
-            ? upstreamStatusRaw
-            : typeof upstreamStatusRaw === "string" && upstreamStatusRaw.trim()
-              ? Number(upstreamStatusRaw)
-              : null;
+        const upstreamStatus = normalizeHttpStatusNumber(body?.upstream_status);
 
         const retryable = Boolean(body?.retryable);
 
@@ -1425,7 +1430,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
 
         const suffixParts = [];
         if (rootCause) suffixParts.push(`root_cause: ${rootCause}`);
-        if (Number.isFinite(Number(upstreamStatus))) suffixParts.push(`upstream_status: HTTP ${Number(upstreamStatus)}`);
+        if (upstreamStatus != null) suffixParts.push(`upstream_status: HTTP ${upstreamStatus}`);
 
         const msg = suffixParts.length ? `${asString(baseMsg).trim()} (${suffixParts.join(", ")})` : baseMsg;
 
@@ -1449,7 +1454,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           fetched_count: Array.isArray(body?.proposed_reviews) ? body.proposed_reviews.length : Array.isArray(body?.reviews) ? body.reviews.length : 0,
           warnings: Array.isArray(body?.warnings) ? body.warnings : [],
           root_cause: rootCause,
-          upstream_status: Number.isFinite(Number(upstreamStatus)) ? Number(upstreamStatus) : null,
+          upstream_status: upstreamStatus,
           build_id: responseBuildId,
         };
         console.log("[reviews-refresh] done", doneLog);
@@ -1687,7 +1692,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
             {asString(lastRefreshAttempt.build_id).trim() ? <div>Build: {asString(lastRefreshAttempt.build_id).trim()}</div> : null}
             {asString(lastRefreshAttempt.root_cause).trim() ? <div>root_cause: {asString(lastRefreshAttempt.root_cause).trim()}</div> : null}
             {asString(lastRefreshAttempt.client_note).trim() ? <div>{asString(lastRefreshAttempt.client_note).trim()}</div> : null}
-            {Number.isFinite(Number(lastRefreshAttempt.upstream_status)) ? <div>upstream_status: HTTP {Number(lastRefreshAttempt.upstream_status)}</div> : null}
+            {upstreamStatusForDisplay != null ? <div>upstream_status: HTTP {upstreamStatusForDisplay}</div> : null}
           </div>
         </div>
       ) : null}
