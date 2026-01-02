@@ -3837,7 +3837,7 @@ export default function CompanyDashboard() {
         wrap: true,
       },
       {
-        name: "Reviews",
+        name: "reviews",
         selector: (row) => Number(row?.review_count ?? row?.reviews_count ?? 0) || 0,
         sortable: true,
         right: true,
