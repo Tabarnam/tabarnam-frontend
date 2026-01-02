@@ -140,7 +140,7 @@ export default function AdminEditHistory({ companyId }) {
       if (searchQuery) params.set("q", searchQuery);
 
       const qs = params.toString();
-      return `/admin-company-history?company_id=${encodeURIComponent(id)}&${qs}`;
+      return `/admin/companies/${encodeURIComponent(id)}/history?${qs}`;
     },
     [fieldFilter, id, searchQuery]
   );
