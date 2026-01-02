@@ -1533,15 +1533,16 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       }
 
       const responseBuildId = normalizeBuildIdString(body?.build_id) || apiBuildId || cachedBuildId;
+      const fetchedCount = Number(body?.fetched_count ?? normalized.length) || 0;
 
-      const isBackendInconsistent = savedCount === 0 && normalized.length === 0;
+      const isBackendInconsistent = savedCount === 0 && fetchedCount === 0;
       const clientNote = isBackendInconsistent ? "No results returned (possible backend inconsistency)" : "";
 
       const doneLog = {
         ok: true,
         retryable: isBackendInconsistent,
         saved_count: savedCount,
-        fetched_count: normalized.length,
+        fetched_count: fetchedCount,
         warnings,
         root_cause: isBackendInconsistent ? "backend_inconsistent_no_results" : "",
         upstream_status: null,
@@ -1558,7 +1559,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
         upstream_status: null,
         build_id: String(responseBuildId || ""),
         saved_count: savedCount,
-        fetched_count: normalized.length,
+        fetched_count: fetchedCount,
         warnings: Array.isArray(warnings) ? warnings : [],
       }));
 
