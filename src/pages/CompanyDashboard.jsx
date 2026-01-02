@@ -1435,7 +1435,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
     } finally {
       setLoading(false);
     }
-  }, [includeExisting, stableId, take]);
+  }, [includeExisting, onApply, stableId, take]);
 
   const copyAll = useCallback(async () => {
     if (items.length === 0) return;
