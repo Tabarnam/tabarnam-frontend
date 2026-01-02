@@ -6,7 +6,6 @@ try {
 }
 const { CosmosClient } = require("@azure/cosmos");
 const { getBuildInfo } = require("../_buildInfo");
-const { hasRoute } = require("../_app");
 const { computeTopLevelDiff, writeCompanyEditHistoryEntry, getCompanyEditHistoryContainer } = require("../_companyEditHistory");
 const { geocodeLocationArray, pickPrimaryLatLng, extractLatLng } = require("../_geocode");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
@@ -1143,25 +1142,6 @@ async function adminCompanyHistoryFallbackHandler(req, context) {
   }
 }
 
-function registerCompanyHistoryRouteFallback() {
-  const route = "admin/companies/{company_id}/history";
-  try {
-    if (hasRoute(route)) return;
-  } catch {
-    // ignore
-  }
-
-  if (!app || typeof app.http !== "function") return;
-
-  app.http("adminCompanyHistory", {
-    route,
-    methods: ["GET", "OPTIONS"],
-    authLevel: "anonymous",
-    handler: adminCompanyHistoryFallbackHandler,
-  });
-}
-
-registerCompanyHistoryRouteFallback();
 
 app.http("adminCompanies", {
   route: "xadmin-api-companies/{id?}",

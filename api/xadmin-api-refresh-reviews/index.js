@@ -441,41 +441,35 @@ async function handler(req, context) {
 
     const isHttp0 = upstream_status_raw === 0 || upstream_status_raw === "0" || upstream_status_raw === "HTTP 0";
 
-    // Allow idempotent "exhausted" and OPTIONS to remain ok:true with 0 results.
-    const noopSuccess = method === "OPTIONS" || out.exhausted === true;
-
-    if (!noopSuccess) {
-      // Never claim ok:true when we produced no results and upstream_status isn't a real HTTP code.
-      if (out.ok === true && noResults && out.upstream_status == null) {
-        out.ok = false;
-        out.retryable = true;
-        out.root_cause = "upstream_unreachable";
-        out.upstream_status = null;
-      }
-
-      if (isHttp0 || (noResults && out.upstream_status == null && out.root_cause === "upstream_unreachable")) {
-        out.ok = false;
-        out.retryable = true;
-        out.root_cause = "upstream_unreachable";
-        out.upstream_status = null;
-      }
-
-      // Never allow retryable:false when root_cause is upstream_unreachable.
-      if (out.root_cause === "upstream_unreachable") {
-        out.retryable = true;
-      }
+    // Contract: it must be impossible to return ok:true with fetched_count=0 and saved_count=0.
+    // (Exclude OPTIONS for CORS preflight.)
+    if (method !== "OPTIONS" && out.ok === true && noResults) {
+      out.ok = false;
+      out.retryable = true;
+      out.root_cause = "upstream_unreachable";
+      out.upstream_status = null;
     }
 
+    if (method !== "OPTIONS" && (isHttp0 || out.root_cause === "upstream_http_0")) {
+      out.ok = false;
+      out.retryable = true;
+      out.root_cause = "upstream_unreachable";
+      out.upstream_status = null;
+    }
+
+    // Never allow retryable:false when root_cause is upstream_unreachable.
+    if (method !== "OPTIONS" && out.root_cause === "upstream_unreachable") {
+      out.retryable = true;
+    }
+
+    // TEMP: one-line log of the final payload after enforcement.
     try {
       console.log(
         JSON.stringify({
-          ok: out.ok,
-          root_cause: asString(out.root_cause).trim(),
-          retryable: Boolean(out.retryable),
-          upstream_status: out.upstream_status,
-          saved_count: Number(out.saved_count ?? 0) || 0,
-          fetched_count: Number(out.fetched_count ?? 0) || 0,
-          build_id,
+          stage: "reviews_refresh",
+          route: "xadmin-api-refresh-reviews",
+          kind: "final_payload",
+          payload: out,
         })
       );
     } catch {
