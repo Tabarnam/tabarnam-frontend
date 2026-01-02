@@ -394,8 +394,57 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
 async function handler(req, context) {
   const method = String(req?.method || "GET").toUpperCase();
 
+  const build_id = String(BUILD_INFO.build_id || "");
+
+  function respond(payload) {
+    const base = payload && typeof payload === "object" ? payload : {};
+
+    const out = {
+      stage: "reviews_refresh",
+      warnings: [],
+      build_id,
+      version_tag: VERSION_TAG,
+      ...base,
+    };
+
+    out.warnings = Array.isArray(out.warnings) ? out.warnings : [];
+
+    if (out.fetched_count == null) out.fetched_count = 0;
+    if (out.saved_count == null) out.saved_count = 0;
+
+    if (out.ok === true) {
+      if (typeof out.retryable !== "boolean") out.retryable = false;
+      if (out.root_cause == null) out.root_cause = "";
+      if (out.upstream_status == null) out.upstream_status = null;
+    } else {
+      out.ok = false;
+      out.root_cause = asString(out.root_cause).trim() || "unknown";
+      out.upstream_status = Number.isFinite(Number(out.upstream_status)) ? Number(out.upstream_status) : 0;
+      if (typeof out.retryable !== "boolean") out.retryable = true;
+    }
+
+    try {
+      console.log(
+        JSON.stringify({
+          stage: "reviews_refresh",
+          company_id: asString(out.company_id).trim(),
+          ok: out.ok,
+          root_cause: out.ok ? null : out.root_cause,
+          upstream_status: out.ok ? null : out.upstream_status,
+          saved_count: Number(out.saved_count ?? 0) || 0,
+          fetched_count: Number(out.fetched_count ?? 0) || 0,
+          build_id,
+        })
+      );
+    } catch {
+      // ignore
+    }
+
+    return jsonBody(out);
+  }
+
   if (method === "OPTIONS") {
-    return jsonBody({ ok: true, stage: "reviews_refresh", build_id: BUILD_INFO.build_id || null, version_tag: VERSION_TAG });
+    return respond({ ok: true, company_id: "" });
   }
 
   // One-line marker log for prod log search.
@@ -414,7 +463,6 @@ async function handler(req, context) {
     // ignore
   }
 
-  const build_id = BUILD_INFO.build_id || "";
 
   try {
     const body = await readJsonBody(req);
@@ -422,7 +470,7 @@ async function handler(req, context) {
     const requestedTake = Math.max(1, Math.min(200, Math.trunc(Number(body?.take ?? body?.limit ?? 3) || 3)));
 
     if (!company_id) {
-      return jsonBody({
+      return respond({
         ok: false,
         stage: "reviews_refresh",
         root_cause: "bad_request",
@@ -436,7 +484,7 @@ async function handler(req, context) {
 
     const companiesContainer = getCompaniesContainer();
     if (!companiesContainer) {
-      return jsonBody({
+      return respond({
         ok: false,
         stage: "reviews_refresh",
         root_cause: "missing_env",
@@ -452,7 +500,7 @@ async function handler(req, context) {
     try {
       company = await getCompanyById(companiesContainer, company_id);
     } catch (e) {
-      return jsonBody({
+      return respond({
         ok: false,
         stage: "reviews_refresh",
         root_cause: "cosmos_read_error",
@@ -476,7 +524,7 @@ async function handler(req, context) {
 
     // If exhausted, return fast success (idempotent)
     if (cursor.exhausted) {
-      return jsonBody({
+      return respond({
         ok: true,
         stage: "reviews_refresh",
         company_id,
@@ -493,7 +541,7 @@ async function handler(req, context) {
     const nowMs = Date.now();
     const lockUntilExisting = Number(company.reviews_fetch_lock_until || 0) || 0;
     if (lockUntilExisting > nowMs) {
-      return jsonBody({
+      return respond({
         ok: false,
         stage: "reviews_refresh",
         company_id,
@@ -582,7 +630,7 @@ async function handler(req, context) {
           reviews_fetch_lock_until: 0,
         };
 
-        return jsonBody({
+        return respond({
           ok: true,
           stage: "reviews_refresh",
           company_id,
@@ -633,7 +681,7 @@ async function handler(req, context) {
     }
 
     if (ok) {
-      return jsonBody({
+      return respond({
         ok: true,
         stage: "reviews_refresh",
         company_id,
@@ -648,7 +696,7 @@ async function handler(req, context) {
 
     const { xai_base_url, xai_key } = extractXaiConfig();
 
-    return jsonBody({
+    return respond({
       ok: false,
       stage: "reviews_refresh",
       company_id,
@@ -679,7 +727,7 @@ async function handler(req, context) {
     }
 
     // Critical requirement: still JSON and still 200
-    return jsonBody({
+    return respond({
       ok: false,
       stage: "reviews_refresh",
       root_cause: "unhandled_exception",
