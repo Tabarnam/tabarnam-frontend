@@ -94,6 +94,14 @@ export default function AdminEditHistory({ companyId }) {
   const [searchQuery, setSearchQuery] = useState("");
 
   const debounceRef = useRef(null);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (debounceRef.current) {
@@ -148,6 +156,8 @@ export default function AdminEditHistory({ companyId }) {
       const url = buildHistoryUrl(null);
 
       const res = await apiFetch(url);
+      if (!mountedRef.current) return;
+
       if (res.status === 404) {
         setHistoryUnavailable(true);
         setError("");
@@ -157,9 +167,12 @@ export default function AdminEditHistory({ companyId }) {
       }
 
       const body = await res.json().catch(() => ({}));
+      if (!mountedRef.current) return;
 
       if (!res.ok || body?.ok !== true) {
-        const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Failed to load history (${res.status})`);
+        const msg = toErrorString(
+          (await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Failed to load history (${res.status})`
+        );
         setError(msg);
         return;
       }
@@ -167,9 +180,10 @@ export default function AdminEditHistory({ companyId }) {
       setItems(Array.isArray(body?.items) ? body.items : []);
       setNextCursor(body?.next_cursor || null);
     } catch (e) {
+      if (!mountedRef.current) return;
       setError(toErrorString(e) || "Failed to load history");
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   }, [buildHistoryUrl, historyUnavailable, id]);
 
@@ -182,16 +196,23 @@ export default function AdminEditHistory({ companyId }) {
       const url = buildHistoryUrl(nextCursor);
 
       const res = await apiFetch(url);
+      if (!mountedRef.current) return;
+
       if (res.status === 404) {
         setHistoryUnavailable(true);
         setError("");
+        setItems([]);
+        setNextCursor(null);
         return;
       }
 
       const body = await res.json().catch(() => ({}));
+      if (!mountedRef.current) return;
 
       if (!res.ok || body?.ok !== true) {
-        const msg = toErrorString((await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Failed to load history (${res.status})`);
+        const msg = toErrorString(
+          (await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Failed to load history (${res.status})`
+        );
         setError(msg);
         return;
       }
@@ -200,9 +221,10 @@ export default function AdminEditHistory({ companyId }) {
       setItems((prev) => [...prev, ...more]);
       setNextCursor(body?.next_cursor || null);
     } catch (e) {
+      if (!mountedRef.current) return;
       setError(toErrorString(e) || "Failed to load history");
     } finally {
-      setLoadingMore(false);
+      if (mountedRef.current) setLoadingMore(false);
     }
   }, [buildHistoryUrl, historyUnavailable, id, loadingMore, nextCursor]);
 
@@ -249,7 +271,7 @@ export default function AdminEditHistory({ companyId }) {
         <div>
           <div className="text-sm font-semibold text-slate-900">Edit History</div>
           <div className="mt-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-            History unavailable in this environment.
+            History unavailable (endpoint missing).
           </div>
         </div>
       </section>
