@@ -1,15 +1,43 @@
 const { app, hasRoute } = require("../_app");
 const { getBuildInfo } = require("../_buildInfo");
+const {
+  getValueAtPath,
+  getContainerPartitionKeyPath,
+  buildPartitionKeyCandidates,
+} = require("../_cosmosPartitionKey");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../_shared");
 
-const { adminRefreshReviewsHandler } = require("../_adminRefreshReviews");
+let axios;
+try {
+  axios = require("axios");
+} catch {
+  axios = null;
+}
+
+let CosmosClient;
+try {
+  ({ CosmosClient } = require("@azure/cosmos"));
+} catch {
+  CosmosClient = null;
+}
+
+const crypto = require("crypto");
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "xadmin-api-refresh-reviews";
 const VERSION_TAG = `ded-${HANDLER_ID}-${String(BUILD_INFO.build_id || "unknown").slice(0, 12)}`;
 
-function jsonBody(obj, status = 200) {
+function asString(value) {
+  return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function jsonBody(obj) {
   return {
-    status,
+    status: 200,
     headers: {
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
@@ -25,8 +53,350 @@ function jsonBody(obj, status = 200) {
   };
 }
 
-async function safeHandler(req, context) {
+function safeJsonParse(text) {
+  const raw = typeof text === "string" ? text.trim() : "";
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function readJsonBody(req) {
+  if (!req) return {};
+
+  if (typeof req.json === "function") {
+    try {
+      const val = await req.json();
+      if (val && typeof val === "object") return val;
+    } catch {}
+  }
+
+  if (req.body && typeof req.body === "object") return req.body;
+
+  if (typeof req.body === "string" && req.body.trim()) {
+    const parsed = safeJsonParse(req.body);
+    if (parsed && typeof parsed === "object") return parsed;
+  }
+
+  const rawBody = req.rawBody;
+  if (typeof rawBody === "string" && rawBody.trim()) {
+    const parsed = safeJsonParse(rawBody);
+    if (parsed && typeof parsed === "object") return parsed;
+  }
+
+  if (rawBody && (Buffer.isBuffer(rawBody) || rawBody instanceof Uint8Array)) {
+    const parsed = safeJsonParse(Buffer.from(rawBody).toString("utf8"));
+    if (parsed && typeof parsed === "object") return parsed;
+  }
+
+  return {};
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isAzureWebsitesUrl(rawUrl) {
+  const raw = asString(rawUrl).trim();
+  if (!raw) return false;
+  try {
+    const u = new URL(raw);
+    return /\.azurewebsites\.net$/i.test(String(u.hostname || ""));
+  } catch {
+    return false;
+  }
+}
+
+function classifyError(err, { xai_base_url, xai_key } = {}) {
+  const msg = String(err?.message || err || "");
+  const status = err?.status || err?.response?.status || 0;
+
+  const base = asString(xai_base_url).trim();
+  const key = asString(xai_key).trim();
+
+  if (!base || !key) return "missing_env";
+  if (status === 429) return "rate_limited";
+  if (status >= 500) return "upstream_5xx";
+  if (status >= 400) return "upstream_4xx";
+
+  const lower = msg.toLowerCase();
+  if (lower.includes("timeout") || lower.includes("timed out") || asString(err?.code) === "ECONNABORTED") return "timeout";
+  if (lower.includes("parse")) return "parse_error";
+  if (status === 0) return "upstream_http_0";
+
+  return "unknown";
+}
+
+function reviewKey(r) {
+  const base = [
+    asString(r?.source_url || r?.url || ""),
+    asString(r?.author || r?.reviewer || ""),
+    r?.rating == null ? "" : String(r.rating),
+    asString(r?.date || r?.created_at || ""),
+    asString(r?.text || r?.body || r?.excerpt || r?.abstract || "").slice(0, 128),
+  ].join("|");
+
+  return crypto.createHash("sha1").update(base).digest("hex");
+}
+
+function dedupe(existing = [], incoming = []) {
+  const seen = new Set(
+    existing
+      .filter((x) => x && typeof x === "object")
+      .map((x) => asString(x._dedupe_key).trim() || reviewKey(x))
+  );
+
+  const out = [];
+  for (const r of incoming) {
+    if (!r || typeof r !== "object") continue;
+    const k = asString(r._dedupe_key).trim() || reviewKey(r);
+    if (seen.has(k)) continue;
+    seen.add(k);
+
+    const withIds = {
+      ...r,
+      id: asString(r.id).trim() || `xai_reviews_${Date.now()}_${crypto.randomBytes(6).toString("hex")}`,
+      _dedupe_key: k,
+    };
+
+    out.push(withIds);
+  }
+
+  return out;
+}
+
+function getCosmosEnv(k, fallback = "") {
+  const v = process.env[k];
+  return (v == null ? fallback : String(v)).trim();
+}
+
+function getCompaniesContainer() {
+  const endpoint = getCosmosEnv("COSMOS_DB_ENDPOINT") || getCosmosEnv("COSMOS_ENDPOINT");
+  const key = getCosmosEnv("COSMOS_DB_KEY") || getCosmosEnv("COSMOS_KEY");
+  const database = getCosmosEnv("COSMOS_DB_DATABASE") || getCosmosEnv("COSMOS_DB") || "tabarnam-db";
+  const containerName =
+    getCosmosEnv("COSMOS_DB_COMPANIES_CONTAINER") || getCosmosEnv("COSMOS_CONTAINER") || "companies";
+
+  if (!endpoint || !key) return null;
+  if (!CosmosClient) return null;
+
+  try {
+    const client = new CosmosClient({ endpoint, key });
+    return client.database(database).container(containerName);
+  } catch {
+    return null;
+  }
+}
+
+let companiesPkPathPromise;
+async function getCompaniesPartitionKeyPath(companiesContainer) {
+  if (!companiesContainer) return "/normalized_domain";
+  companiesPkPathPromise ||= getContainerPartitionKeyPath(companiesContainer, "/normalized_domain");
+  try {
+    return await companiesPkPathPromise;
+  } catch {
+    return "/normalized_domain";
+  }
+}
+
+async function getCompanyById(companiesContainer, id) {
+  const requestedId = asString(id).trim();
+  if (!requestedId) throw new Error("Missing company_id");
+  if (!companiesContainer) throw new Error("Cosmos not configured");
+
+  const sql = `SELECT TOP 1 * FROM c WHERE (c.id = @id OR c.company_id = @id OR c.companyId = @id)\n               AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)\n               ORDER BY c._ts DESC`;
+
+  const { resources } = await companiesContainer.items
+    .query({ query: sql, parameters: [{ name: "@id", value: requestedId }] }, { enableCrossPartitionQuery: true })
+    .fetchAll();
+
+  const doc = Array.isArray(resources) && resources.length ? resources[0] : null;
+  if (!doc) throw new Error(`Company not found (${requestedId})`);
+  return doc;
+}
+
+async function patchCompanyById(companiesContainer, companyId, docForCandidates, patch) {
+  const id = asString(companyId).trim();
+  if (!id) throw new Error("Missing company id");
+  if (!companiesContainer) throw new Error("Cosmos not configured");
+
+  const containerPkPath = await getCompaniesPartitionKeyPath(companiesContainer);
+
+  const candidates = buildPartitionKeyCandidates({
+    doc: docForCandidates,
+    containerPkPath,
+    requestedId: id,
+  });
+
+  const ops = Object.keys(patch || {}).map((key) => ({ op: "set", path: `/${key}`, value: patch[key] }));
+
+  let lastError;
+  for (const pk of candidates) {
+    try {
+      const itemRef = companiesContainer.item(id, pk);
+      await itemRef.patch(ops);
+      return { ok: true, pk };
+    } catch (e) {
+      lastError = e;
+    }
+  }
+
+  return { ok: false, error: asString(lastError?.message || lastError || "patch failed"), candidates };
+}
+
+function extractXaiConfig() {
+  const model = "grok-4-latest";
+
+  const rawBase = asString(process.env.XAI_BASE_URL).trim() || asString(getXAIEndpoint()).trim();
+  const xai_key = asString(process.env.XAI_KEY).trim() || asString(getXAIKey()).trim();
+
+  const xai_base_url = rawBase ? resolveXaiEndpointForModel(rawBase, model) : "";
+
+  return { model, xai_base_url, xai_key };
+}
+
+function normalizeUpstreamResult(result) {
+  const base = result && typeof result === "object" ? result : {};
+
+  const reviews = Array.isArray(base.reviews) ? base.reviews : Array.isArray(base.items) ? base.items : [];
+
+  const next_offset =
+    typeof base.next_offset === "number"
+      ? base.next_offset
+      : typeof base.nextOffset === "number"
+        ? base.nextOffset
+        : null;
+
+  const exhausted =
+    typeof base.exhausted === "boolean"
+      ? base.exhausted
+      : typeof base.done === "boolean"
+        ? base.done
+        : null;
+
+  return { reviews, next_offset, exhausted };
+}
+
+function extractJsonObjectFromText(text) {
+  const raw = asString(text);
+  const direct = safeJsonParse(raw);
+  if (direct && typeof direct === "object") return direct;
+
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    const slice = raw.slice(start, end + 1);
+    const parsed = safeJsonParse(slice);
+    if (parsed && typeof parsed === "object") return parsed;
+  }
+
+  return null;
+}
+
+async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) {
+  const { model, xai_base_url, xai_key } = extractXaiConfig();
+
+  if (!axios) {
+    const err = new Error("Missing axios dependency");
+    err.status = 0;
+    throw err;
+  }
+
+  if (!xai_base_url || !xai_key) {
+    const err = new Error("Missing XAI configuration");
+    err.status = 0;
+    throw err;
+  }
+
+  const companyName = asString(company?.company_name || company?.name).trim();
+  const websiteUrl = asString(company?.website_url || company?.url).trim();
+
+  const messages = [
+    {
+      role: "system",
+      content:
+        "You are a research assistant. Always respond with valid JSON only; no markdown, no prose. Do not wrap in backticks.",
+    },
+    {
+      role: "user",
+      content: `Find editorial/professional reviews about this company.\n\nCompany: ${companyName}\nWebsite: ${websiteUrl}\n\nReturn EXACTLY a single JSON object with this shape:\n{\n  \"reviews\": [ ... ],\n  \"next_offset\": number,\n  \"exhausted\": boolean\n}\n\nRules:\n- Return at most ${Math.max(1, Math.min(50, Math.trunc(Number(limit) || 3)))} review objects in \"reviews\".\n- Use \"offset\"=${Math.max(0, Math.trunc(Number(offset) || 0))} to skip that many results from your internal ranking list so subsequent calls can page forward.\n- If there are no more results, set exhausted=true and return reviews: [].\n- Each review must be an object with keys: source, source_url, title, excerpt, rating, author, date.\n- source_url must be a direct article/review link (no homepages, search pages, categories).\n- Do not return consumer reviews (Amazon/Google/Yelp/testimonials).\n- JSON only.`,
+    },
+  ];
+
+  const payload = {
+    model,
+    messages,
+    temperature: 0.2,
+    stream: false,
+  };
+
+  const controller = new AbortController();
+  const timeout = Math.max(5000, Math.min(120000, Math.trunc(Number(timeout_ms) || 65000)));
+  const timeoutHandle = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const headers = {
+      "Content-Type": "application/json",
+    };
+
+    if (isAzureWebsitesUrl(xai_base_url)) {
+      headers["x-functions-key"] = xai_key;
+    } else {
+      headers["Authorization"] = `Bearer ${xai_key}`;
+    }
+
+    const resp = await axios.post(xai_base_url, payload, {
+      headers,
+      timeout,
+      signal: controller.signal,
+      validateStatus: () => true,
+    });
+
+    const status = Number(resp?.status) || 0;
+
+    if (!(status >= 200 && status < 300)) {
+      const err = new Error(`Upstream HTTP ${status}`);
+      err.status = status;
+      err.response = resp;
+      throw err;
+    }
+
+    const responseText =
+      resp?.data?.choices?.[0]?.message?.content ||
+      (typeof resp?.data === "string" ? resp.data : resp?.data ? JSON.stringify(resp.data) : "");
+
+    const parsed = extractJsonObjectFromText(responseText);
+    if (!parsed) {
+      const err = new Error("Failed to parse upstream JSON");
+      err.status = status;
+      throw err;
+    }
+
+    const normalized = normalizeUpstreamResult(parsed);
+    if (!Array.isArray(normalized.reviews)) normalized.reviews = [];
+
+    return {
+      reviews: normalized.reviews,
+      next_offset:
+        typeof normalized.next_offset === "number" && Number.isFinite(normalized.next_offset)
+          ? normalized.next_offset
+          : Math.max(0, Math.trunc(Number(offset) || 0)) + normalized.reviews.length,
+      exhausted: typeof normalized.exhausted === "boolean" ? normalized.exhausted : normalized.reviews.length === 0,
+      _meta: { upstream_status: status },
+    };
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}
+
+async function handler(req, context) {
   const method = String(req?.method || "GET").toUpperCase();
+
+  if (method === "OPTIONS") {
+    return jsonBody({ ok: true, stage: "reviews_refresh", build_id: BUILD_INFO.build_id || null, version_tag: VERSION_TAG });
+  }
 
   // One-line marker log for prod log search.
   try {
@@ -44,63 +414,254 @@ async function safeHandler(req, context) {
     // ignore
   }
 
+  const build_id = BUILD_INFO.build_id || "";
+
   try {
-    const result = await adminRefreshReviewsHandler(req, context);
+    const body = await readJsonBody(req);
+    const company_id = asString(body?.company_id).trim();
+    const requestedTake = Math.max(1, Math.min(200, Math.trunc(Number(body?.take ?? body?.limit ?? 3) || 3)));
 
-    // Ensure body is JSON even if handler accidentally returns a non-JSON response.
-    if (!result || typeof result !== "object") {
-      return jsonBody(
-        {
-          ok: false,
-          stage: "reviews_refresh",
-          root_cause: "handler_contract",
-          message: "Handler returned an invalid response",
-          build_id: BUILD_INFO.build_id || null,
-          version_tag: VERSION_TAG,
-        },
-        500
-      );
-    }
-
-    const rawBody = "body" in result ? result.body : null;
-
-    // If a handler returns an object/array body, normalize it to a JSON string.
-    if (rawBody && typeof rawBody === "object") {
-      return {
-        ...result,
-        headers: {
-          ...(result.headers && typeof result.headers === "object" ? result.headers : {}),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(rawBody),
-      };
-    }
-
-    const rawText = typeof rawBody === "string" ? rawBody : rawBody == null ? "" : String(rawBody);
-
-    try {
-      const parsed = rawText.trim() ? JSON.parse(rawText) : null;
-      const okJson = parsed !== null && (typeof parsed === "object" || Array.isArray(parsed));
-      if (okJson) return result;
-    } catch {
-      // fall through
-    }
-
-    return jsonBody(
-      {
+    if (!company_id) {
+      return jsonBody({
         ok: false,
         stage: "reviews_refresh",
-        root_cause: "non_json_response",
-        message: "Handler returned a non-JSON response body",
-        build_id: BUILD_INFO.build_id || null,
+        root_cause: "bad_request",
+        upstream_status: 0,
+        retryable: false,
+        message: "Missing company_id",
+        build_id,
         version_tag: VERSION_TAG,
-        original_status: Number(result.status) || null,
-        original_body_preview: rawText ? rawText.slice(0, 500) : null,
-      },
-      500
-    );
+      });
+    }
+
+    const companiesContainer = getCompaniesContainer();
+    if (!companiesContainer) {
+      return jsonBody({
+        ok: false,
+        stage: "reviews_refresh",
+        root_cause: "missing_env",
+        upstream_status: 0,
+        retryable: true,
+        message: "Cosmos not configured",
+        build_id,
+        version_tag: VERSION_TAG,
+      });
+    }
+
+    let company;
+    try {
+      company = await getCompanyById(companiesContainer, company_id);
+    } catch (e) {
+      return jsonBody({
+        ok: false,
+        stage: "reviews_refresh",
+        root_cause: "cosmos_read_error",
+        upstream_status: 0,
+        retryable: true,
+        message: asString(e?.message || e),
+        build_id,
+        version_tag: VERSION_TAG,
+      });
+    }
+
+    const cursor =
+      company.review_cursor && typeof company.review_cursor === "object"
+        ? { ...company.review_cursor }
+        : {
+            source: "xai_reviews",
+            last_offset: 0,
+            total_fetched: 0,
+            exhausted: false,
+          };
+
+    // If exhausted, return fast success (idempotent)
+    if (cursor.exhausted) {
+      return jsonBody({
+        ok: true,
+        stage: "reviews_refresh",
+        company_id,
+        fetched_count: 0,
+        saved_count: 0,
+        exhausted: true,
+        warnings: [],
+        build_id,
+        version_tag: VERSION_TAG,
+      });
+    }
+
+    // Per-company serialized lock (best-effort)
+    const nowMs = Date.now();
+    const lockUntilExisting = Number(company.reviews_fetch_lock_until || 0) || 0;
+    if (lockUntilExisting > nowMs) {
+      return jsonBody({
+        ok: false,
+        stage: "reviews_refresh",
+        company_id,
+        root_cause: "locked",
+        upstream_status: 0,
+        retryable: true,
+        message: "Reviews refresh already in progress",
+        build_id,
+        version_tag: VERSION_TAG,
+      });
+    }
+
+    try {
+      const lockUntil = nowMs + 60000;
+      cursor.last_attempt_at = nowIso();
+
+      await patchCompanyById(companiesContainer, company_id, company, {
+        reviews_fetch_lock_key: `reviews_fetch_lock::${company_id}`,
+        reviews_fetch_lock_until: lockUntil,
+        review_cursor: cursor,
+      });
+    } catch {
+      // Do not fail; just proceed.
+    }
+
+    const backoffs = [0, 2000, 5000, 10000];
+
+    let saved_count_total = 0;
+    let fetched_count_total = 0;
+    const warnings = [];
+    let lastErr = null;
+
+    for (let i = 0; i < backoffs.length; i += 1) {
+      if (backoffs[i]) await sleep(backoffs[i]);
+
+      try {
+        const offset = Math.max(0, Math.trunc(Number(cursor.last_offset) || 0));
+
+        const upstream = await fetchReviewsFromUpstream({
+          company,
+          offset,
+          limit: requestedTake,
+          timeout_ms: 65000,
+        });
+
+        const incoming = Array.isArray(upstream?.reviews) ? upstream.reviews : [];
+        fetched_count_total += incoming.length;
+
+        const existing = Array.isArray(company.curated_reviews) ? company.curated_reviews : [];
+        const toAdd = dedupe(existing, incoming);
+
+        const updatedCurated = toAdd.length ? existing.concat(toAdd) : existing;
+
+        saved_count_total += toAdd.length;
+
+        const nextOffset =
+          typeof upstream?.next_offset === "number" && Number.isFinite(upstream.next_offset)
+            ? upstream.next_offset
+            : offset + incoming.length;
+
+        cursor.source = "xai_reviews";
+        cursor.last_offset = nextOffset;
+        cursor.total_fetched = Math.max(0, Math.trunc(Number(cursor.total_fetched) || 0)) + incoming.length;
+        cursor.last_success_at = nowIso();
+        cursor.last_attempt_at = nowIso();
+        cursor.last_error = null;
+        cursor.exhausted = Boolean(upstream?.exhausted) || incoming.length === 0;
+
+        const patchRes = await patchCompanyById(companiesContainer, company_id, company, {
+          curated_reviews: updatedCurated,
+          review_cursor: cursor,
+          reviews_fetch_lock_until: 0,
+        });
+
+        if (!patchRes.ok) {
+          const err = new Error(asString(patchRes.error) || "Cosmos patch failed");
+          err.status = 0;
+          throw err;
+        }
+
+        // Keep local model in sync for subsequent steps.
+        company = {
+          ...company,
+          curated_reviews: updatedCurated,
+          review_cursor: cursor,
+          reviews_fetch_lock_until: 0,
+        };
+
+        return jsonBody({
+          ok: true,
+          stage: "reviews_refresh",
+          company_id,
+          fetched_count: fetched_count_total,
+          saved_count: saved_count_total,
+          exhausted: Boolean(cursor.exhausted),
+          warnings,
+          reviews: toAdd,
+          build_id,
+          version_tag: VERSION_TAG,
+        });
+      } catch (err) {
+        lastErr = err;
+
+        const { xai_base_url, xai_key } = extractXaiConfig();
+        const upstream_status = err?.status || err?.response?.status || 0;
+        const root_cause = classifyError(err, { xai_base_url, xai_key });
+
+        warnings.push({
+          stage: "reviews_refresh",
+          root_cause,
+          upstream_status,
+          message: asString(err?.message || err),
+        });
+
+        // Persist cursor last_error telemetry (best-effort)
+        try {
+          cursor.last_attempt_at = nowIso();
+          cursor.last_error = { root_cause, upstream_status, message: asString(err?.message || err) };
+          await patchCompanyById(companiesContainer, company_id, company, { review_cursor: cursor });
+        } catch {
+          // ignore
+        }
+
+        continue;
+      }
+    }
+
+    // Final failure: still JSON, still 200
+    const ok = saved_count_total > 0;
+
+    try {
+      await patchCompanyById(companiesContainer, company_id, company, {
+        reviews_fetch_lock_until: 0,
+      });
+    } catch {
+      // ignore
+    }
+
+    if (ok) {
+      return jsonBody({
+        ok: true,
+        stage: "reviews_refresh",
+        company_id,
+        fetched_count: fetched_count_total,
+        saved_count: saved_count_total,
+        warnings,
+        message: "Saved with warnings",
+        build_id,
+        version_tag: VERSION_TAG,
+      });
+    }
+
+    const { xai_base_url, xai_key } = extractXaiConfig();
+
+    return jsonBody({
+      ok: false,
+      stage: "reviews_refresh",
+      company_id,
+      root_cause: classifyError(lastErr, { xai_base_url, xai_key }),
+      upstream_status: lastErr?.status || lastErr?.response?.status || 0,
+      retryable: true,
+      message: asString(lastErr?.message || lastErr || "Backend call failure"),
+      warnings,
+      build_id,
+      version_tag: VERSION_TAG,
+    });
   } catch (e) {
-    const message = e?.message ? String(e.message) : "Unhandled error";
+    const message = asString(e?.message || e) || "Unhandled error";
 
     try {
       console.error(
@@ -117,17 +678,17 @@ async function safeHandler(req, context) {
       // ignore
     }
 
-    return jsonBody(
-      {
-        ok: false,
-        stage: "reviews_refresh",
-        root_cause: "unhandled_exception",
-        message,
-        build_id: BUILD_INFO.build_id || null,
-        version_tag: VERSION_TAG,
-      },
-      500
-    );
+    // Critical requirement: still JSON and still 200
+    return jsonBody({
+      ok: false,
+      stage: "reviews_refresh",
+      root_cause: "unhandled_exception",
+      upstream_status: 0,
+      retryable: true,
+      message,
+      build_id,
+      version_tag: VERSION_TAG,
+    });
   }
 }
 
@@ -135,7 +696,7 @@ app.http("xadminApiRefreshReviews", {
   route: "xadmin-api-refresh-reviews",
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: safeHandler,
+  handler,
 });
 
 // Production safety: if a deployment accidentally omits admin-refresh-reviews,
@@ -145,12 +706,18 @@ if (!hasRoute("admin-refresh-reviews")) {
     route: "admin-refresh-reviews",
     methods: ["GET", "POST", "OPTIONS"],
     authLevel: "anonymous",
-    handler: async (req, context) => {
-      return adminRefreshReviewsHandler(req, context);
-    },
+    handler,
   });
 }
 
 module.exports._test = {
-  adminRefreshReviewsHandler,
+  handler,
+  _internals: {
+    dedupe,
+    reviewKey,
+    classifyError,
+    extractJsonObjectFromText,
+    normalizeUpstreamResult,
+    getValueAtPath,
+  },
 };

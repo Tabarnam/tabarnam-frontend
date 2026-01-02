@@ -1285,13 +1285,33 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       const apiFetchErrorBody = apiFetchError && typeof apiFetchError === "object" ? apiFetchError.response_body : null;
       const apiFetchErrorText = apiFetchError && typeof apiFetchError === "object" ? apiFetchError.response_text : null;
 
+      const isJsonObject = jsonBody && typeof jsonBody === "object";
+
       const body =
-        (jsonBody && typeof jsonBody === "object" ? jsonBody : null) ||
+        (isJsonObject ? jsonBody : null) ||
         (apiFetchErrorBody && typeof apiFetchErrorBody === "object" ? apiFetchErrorBody : null) ||
         {};
 
       const rawText =
         typeof textBody === "string" && textBody.trim() ? textBody : typeof apiFetchErrorText === "string" ? apiFetchErrorText : "";
+
+      // Contract guard: if the API responds with non-JSON, surface a clear message.
+      if (!isJsonObject && rawText) {
+        const responseBuildId = apiBuildId || cachedBuildId;
+        const msg = `Bad response: not JSON${responseBuildId ? ` (build ${responseBuildId})` : ""}`;
+
+        setError({
+          status: res.status,
+          message: msg,
+          url: `/api${usedPath}`,
+          attempts,
+          build_id: responseBuildId,
+          response: rawText.trim().slice(0, 500),
+        });
+
+        toast.error(msg);
+        return;
+      }
 
       if (!res.ok || body?.ok !== true) {
         const rootCause = asString(body?.root_cause).trim();
@@ -1302,6 +1322,8 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
             : typeof upstreamStatusRaw === "string" && upstreamStatusRaw.trim()
               ? Number(upstreamStatusRaw)
               : null;
+
+        const retryable = Boolean(body?.retryable);
 
         const baseMsg =
           (await getUserFacingConfigMessage(res)) ||
@@ -1328,13 +1350,23 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           response: body && Object.keys(body).length ? body : rawText,
         });
 
-        toast.error(
-          `${asString(msg).trim() || "Reviews fetch failed"} (${usedPath} → HTTP ${res.status}${responseBuildId ? `, build ${responseBuildId}` : ""})`
-        );
+        const toastMsg = `${asString(msg).trim() || "Reviews fetch failed"} (${usedPath} → HTTP ${res.status}${responseBuildId ? `, build ${responseBuildId}` : ""})`;
+        if (retryable) toast.warning(toastMsg);
+        else toast.error(toastMsg);
+
         return;
       }
 
-      const proposed = Array.isArray(body?.proposed_reviews) ? body.proposed_reviews : [];
+      const warnings = Array.isArray(body?.warnings) ? body.warnings : [];
+      const savedCount = Number(body?.saved_count ?? 0) || 0;
+
+      const proposed =
+        Array.isArray(body?.proposed_reviews)
+          ? body.proposed_reviews
+          : Array.isArray(body?.reviews)
+            ? body.reviews
+            : [];
+
       const normalized = proposed
         .map((r, idx) => {
           const source_url = asString(r?.source_url || r?.url).trim();
@@ -1354,7 +1386,6 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
               : typeof r?.match_confidence === "string" && r.match_confidence.trim()
                 ? Number(r.match_confidence)
                 : null;
-
 
           return {
             id: asString(r?.id).trim() || `${Date.now()}_${idx}_${Math.random().toString(36).slice(2)}`,
@@ -1377,13 +1408,23 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
 
       setItems(normalized);
 
-      const parseError = asString(body?.parse_error).trim();
+      // If the backend persisted reviews during this call, keep the editor draft in sync
+      // so subsequent saves don't overwrite the newly saved curated_reviews.
+      if (savedCount >= 1 && typeof onApply === "function" && normalized.length > 0) {
+        try {
+          onApply(normalized);
+        } catch {
+          // ignore
+        }
+      }
 
       if (normalized.length === 0) {
-        if (parseError) toast.error(`No reviews parsed (${parseError}). Try again.`);
-        else toast.success("No proposed reviews found");
+        toast.success("No reviews found");
+      } else if (savedCount >= 1) {
+        if (warnings.length > 0) toast.warning(`Saved ${savedCount} review${savedCount === 1 ? "" : "s"} with warnings`);
+        else toast.success(`Saved ${savedCount} review${savedCount === 1 ? "" : "s"}`);
       } else {
-        toast.success(`Fetched ${normalized.length} proposed review${normalized.length === 1 ? "" : "s"}`);
+        toast.success(`Fetched ${normalized.length} review${normalized.length === 1 ? "" : "s"}`);
       }
     } catch (e) {
       const msg = asString(e?.message).trim() || "Reviews fetch failed";
@@ -1394,7 +1435,7 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
     } finally {
       setLoading(false);
     }
-  }, [includeExisting, stableId, take]);
+  }, [includeExisting, onApply, stableId, take]);
 
   const copyAll = useCallback(async () => {
     if (items.length === 0) return;
