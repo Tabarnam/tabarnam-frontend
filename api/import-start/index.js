@@ -2989,15 +2989,28 @@ const importStartHandlerInner = async (req, context) => {
             return "saved_with_warnings";
           })();
 
-          const partialMessage =
+          const rawPartialMessage =
             (typeof detailsObj?.message === "string" && detailsObj.message.trim())
               ? detailsObj.message.trim()
               : (typeof detailsObj?.error_message === "string" && detailsObj.error_message.trim())
                 ? detailsObj.error_message.trim()
-                : toErrorString(err) || "Saved with warnings";
+                : toErrorString(err) || "";
+
+          const partialMessage = (() => {
+            const m = asString(rawPartialMessage).trim();
+            const lower = m.toLowerCase();
+            const statusLabel = Number.isFinite(Number(upstreamStatus)) ? `HTTP ${Number(upstreamStatus)}` : "";
+            const specifics = [warningKey, root_cause, statusLabel].filter(Boolean).join(", ");
+
+            if (!m) return specifics ? `Saved with warnings (${specifics})` : "Saved with warnings";
+            if (lower === "backend call failure" || lower === "saved with warnings") {
+              return specifics ? `Saved with warnings (${specifics})` : m;
+            }
+            return m;
+          })();
 
           const warningDetail = {
-            stage: "import_start",
+            stage: warningKey,
             root_cause,
             upstream_status: upstreamStatus,
             upstream_url: upstreamUrlRedacted,
