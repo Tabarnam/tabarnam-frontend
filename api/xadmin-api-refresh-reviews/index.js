@@ -420,6 +420,7 @@ async function handler(req, context) {
     out.fetched_count = Number(out.fetched_count ?? 0) || 0;
     out.saved_count = Number(out.saved_count ?? 0) || 0;
 
+    const upstream_status_raw = out.upstream_status;
     out.upstream_status = normalizeHttpStatus(out.upstream_status);
 
     if (out.ok === true) {
@@ -435,25 +436,42 @@ async function handler(req, context) {
       }
     }
 
-    const noResults = out.saved_count === 0 && out.fetched_count === 0;
+    // Final contract enforcement (must be last)
+    const noResults = Number(out.saved_count || 0) === 0 && Number(out.fetched_count || 0) === 0;
+
+    const isHttp0 = upstream_status_raw === 0 || upstream_status_raw === "0" || upstream_status_raw === "HTTP 0";
+
+    // Allow idempotent "exhausted" and OPTIONS to remain ok:true with 0 results.
     const noopSuccess = method === "OPTIONS" || out.exhausted === true;
 
-    // Critical rule: never claim ok:true when we produced no results and the upstream
-    // status is not a real HTTP code (e.g. the "HTTP 0"/network-failure case).
-    if (out.ok === true && !noopSuccess && noResults && out.upstream_status == null) {
-      out.ok = false;
-      out.root_cause = "upstream_unreachable";
-      out.retryable = true;
-      out.upstream_status = null;
+    if (!noopSuccess) {
+      // Never claim ok:true when we produced no results and upstream_status isn't a real HTTP code.
+      if (out.ok === true && noResults && out.upstream_status == null) {
+        out.ok = false;
+        out.retryable = true;
+        out.root_cause = "upstream_unreachable";
+        out.upstream_status = null;
+      }
+
+      if (isHttp0 || (noResults && out.upstream_status == null && out.root_cause === "upstream_unreachable")) {
+        out.ok = false;
+        out.retryable = true;
+        out.root_cause = "upstream_unreachable";
+        out.upstream_status = null;
+      }
+
+      // Never allow retryable:false when root_cause is upstream_unreachable.
+      if (out.root_cause === "upstream_unreachable") {
+        out.retryable = true;
+      }
     }
 
     try {
       console.log(
         JSON.stringify({
-          stage: "reviews_refresh",
-          company_id: asString(out.company_id).trim(),
           ok: out.ok,
-          root_cause: out.ok ? null : out.root_cause,
+          root_cause: asString(out.root_cause).trim(),
+          retryable: Boolean(out.retryable),
           upstream_status: out.upstream_status,
           saved_count: Number(out.saved_count ?? 0) || 0,
           fetched_count: Number(out.fetched_count ?? 0) || 0,
