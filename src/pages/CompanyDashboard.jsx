@@ -701,6 +701,20 @@ function toIssueTags(company) {
   const keywords = normalizeStringList(company?.keywords || company?.product_keywords);
   if (keywords.length === 0) issues.push("missing keywords");
 
+  const curatedCount = Array.isArray(company?.curated_reviews) ? company.curated_reviews.length : 0;
+  const reviewsCount = Array.isArray(company?.reviews) ? company.reviews.length : 0;
+
+  const reviewCountNumeric =
+    Number(company?.review_count ?? company?.reviews_count ?? company?.review_count_approved ?? 0) ||
+    Number(company?.editorial_review_count ?? 0) ||
+    Number(company?.amazon_review_count ?? 0) ||
+    Number(company?.public_review_count ?? 0) ||
+    Number(company?.private_review_count ?? 0) ||
+    0;
+
+  const reviewTotal = Math.max(0, curatedCount, reviewsCount, reviewCountNumeric);
+  if (reviewTotal === 0) issues.push("missing reviews");
+
   return issues;
 }
 
