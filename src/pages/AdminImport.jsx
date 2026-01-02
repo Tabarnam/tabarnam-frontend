@@ -1207,14 +1207,22 @@ export default function AdminImport() {
 
       if (warnings.length > 0) {
         const firstKey = warnings[0];
-        const detailMsg =
-          firstKey && warningsDetail && typeof warningsDetail[firstKey]?.message === "string" ? warningsDetail[firstKey].message : "";
+        const detail =
+          firstKey && warningsDetail && typeof warningsDetail[firstKey] === "object" ? warningsDetail[firstKey] : null;
 
-        toast.warning(
-          detailMsg
-            ? `Saved with warnings (${firstKey}): ${detailMsg}`
-            : `Saved with warnings (${warnings.join(", ")})`
-        );
+        const stage = asString(detail?.stage).trim() || asString(firstKey).trim();
+        const rootCause = asString(detail?.root_cause).trim();
+        const upstreamStatusRaw = detail?.upstream_status;
+        const upstreamStatus = Number.isFinite(Number(upstreamStatusRaw)) ? Number(upstreamStatusRaw) : null;
+
+        const meta = [];
+        if (rootCause) meta.push(rootCause);
+        if (upstreamStatus != null) meta.push(`HTTP ${upstreamStatus}`);
+
+        const suffix = meta.length ? ` (${meta.join(", ")})` : "";
+        const extraCount = warnings.length > 1 ? ` (+${warnings.length - 1} more)` : "";
+
+        toast.warning(`Saved with warnings: ${stage}${suffix}${extraCount}`);
       } else {
         toast.success(`Import finished (${companiesForNextStage.length} companies)`);
       }
