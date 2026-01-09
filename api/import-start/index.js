@@ -2340,6 +2340,22 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
               manufacturing_locations: company.manufacturing_locations || [],
               manufacturing_geocodes: Array.isArray(company.manufacturing_geocodes) ? company.manufacturing_geocodes : [],
               curated_reviews: Array.isArray(company.curated_reviews) ? company.curated_reviews : [],
+              review_count: Number.isFinite(Number(company.review_count))
+                ? Number(company.review_count)
+                : Array.isArray(company.curated_reviews)
+                  ? company.curated_reviews.length
+                  : 0,
+              reviews_last_updated_at:
+                typeof company.reviews_last_updated_at === "string" && company.reviews_last_updated_at.trim()
+                  ? company.reviews_last_updated_at.trim()
+                  : null,
+              review_cursor:
+                company.review_cursor && typeof company.review_cursor === "object"
+                  ? company.review_cursor
+                  : buildReviewCursor({
+                      nowIso: new Date().toISOString(),
+                      count: Array.isArray(company.curated_reviews) ? company.curated_reviews.length : 0,
+                    }),
               red_flag: Boolean(company.red_flag),
               red_flag_reason: company.red_flag_reason || "",
               location_confidence: company.location_confidence || "medium",
