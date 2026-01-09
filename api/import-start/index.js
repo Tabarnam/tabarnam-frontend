@@ -1818,6 +1818,27 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
     if (!(response.status >= 200 && response.status < 300)) {
       console.warn(`[import-start] Failed to fetch reviews for ${companyName}: status ${response.status}`);
       if (debugCollector) debugCollector.push({ ...debug, reason: `xai_status_${response.status}` });
+
+      if (typeof warn === "function") {
+        const upstream_status = Number.isFinite(Number(response.status)) ? Number(response.status) : null;
+        const root_cause =
+          upstream_status != null && upstream_status >= 500
+            ? "upstream_5xx"
+            : upstream_status != null && upstream_status >= 400
+              ? "upstream_4xx"
+              : "upstream_error";
+
+        warn({
+          stage: "reviews",
+          root_cause,
+          retryable: true,
+          upstream_status,
+          company_name: companyName,
+          website_url: websiteUrl,
+          message: `Upstream HTTP ${response.status}`,
+        });
+      }
+
       return [];
     }
 
