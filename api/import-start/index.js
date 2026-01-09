@@ -5840,19 +5840,35 @@ Return ONLY the JSON array, no other text.`,
                         xaiKey,
                         timeout,
                         debugOutput ? debugOutput.reviews_debug : null,
-                        { setStage, postXaiJsonWithBudget }
+                        { setStage, postXaiJsonWithBudget },
+                        warnReviews
                       );
 
-                      if (editorialReviews.length > 0) {
-                        enrichedExpansion[i] = { ...companyForReviews, curated_reviews: editorialReviews };
+                      const nowReviewsIso = new Date().toISOString();
+                      const curated = dedupeCuratedReviews(editorialReviews);
+
+                      enrichedExpansion[i] = {
+                        ...companyForReviews,
+                        curated_reviews: curated,
+                        review_count: curated.length,
+                        reviews_last_updated_at: nowReviewsIso,
+                        review_cursor: buildReviewCursor({ nowIso: nowReviewsIso, count: curated.length }),
+                      };
+
+                      if (curated.length > 0) {
                         console.log(
-                          `[import-start] Fetched ${editorialReviews.length} editorial reviews for expansion company ${companyForReviews.company_name}`
+                          `[import-start] Fetched ${curated.length} editorial reviews for expansion company ${companyForReviews.company_name}`
                         );
-                      } else {
-                        enrichedExpansion[i] = { ...companyForReviews, curated_reviews: [] };
                       }
                     } else {
-                      enrichedExpansion[i] = { ...company, curated_reviews: [] };
+                      const nowReviewsIso = new Date().toISOString();
+                      enrichedExpansion[i] = {
+                        ...company,
+                        curated_reviews: [],
+                        review_count: 0,
+                        reviews_last_updated_at: nowReviewsIso,
+                        review_cursor: buildReviewCursor({ nowIso: nowReviewsIso, count: 0 }),
+                      };
                     }
                   }
 
