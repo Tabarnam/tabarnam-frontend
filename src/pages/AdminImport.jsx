@@ -256,6 +256,7 @@ export default function AdminImport() {
   const [debugStatusLoading, setDebugStatusLoading] = useState(false);
 
   const [pollingSessionId, setPollingSessionId] = useState("");
+  const [statusRefreshSessionId, setStatusRefreshSessionId] = useState(null);
   const [sessionIdMismatchDebug, setSessionIdMismatchDebug] = useState(null);
 
   const [explainResponseText, setExplainResponseText] = useState("");
@@ -264,6 +265,8 @@ export default function AdminImport() {
   const pollTimerRef = useRef(null);
   const startFetchAbortRef = useRef(null);
   const pollAttemptsRef = useRef(new Map());
+  const terminalRefreshAttemptsRef = useRef(new Map());
+  const terminalRefreshTimersRef = useRef(new Map());
 
   const startImportRequestInFlightRef = useRef(false);
   const activeStatusRef = useRef(activeStatus);
@@ -313,7 +316,14 @@ export default function AdminImport() {
 
         const items = normalizeItems(body?.items || body?.companies);
         const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
-        const saved = savedCompanies.length > 0 ? savedCompanies.length : Number(body?.saved ?? 0) || 0;
+        const saved =
+          savedCompanies.length > 0
+            ? savedCompanies.length
+            : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
+
+        const reconciled = Boolean(body?.reconciled);
+        const reconcileStrategy = asString(body?.reconcile_strategy).trim();
+        const reconciledSavedIds = Array.isArray(body?.reconciled_saved_ids) ? body.reconciled_saved_ids : [];
 
         const status = asString(body?.status).trim();
         const jobState = asString(body?.job_state || body?.primary_job_state || body?.primary_job?.job_state).trim();
@@ -414,6 +424,9 @@ export default function AdminImport() {
               items: mergeById(r.items, items),
               lastCreatedAt: asString(body?.lastCreatedAt || r.lastCreatedAt),
               saved: savedCount,
+              reconciled,
+              reconcile_strategy: reconcileStrategy || null,
+              reconciled_saved_ids: reconciledSavedIds,
               saved_companies: savedCompanies.length > 0 ? savedCompanies : Array.isArray(r.saved_companies) ? r.saved_companies : [],
               completed: isTerminalComplete,
               timedOut,
@@ -465,6 +478,76 @@ export default function AdminImport() {
     pollAttemptsRef.current.set(session_id, 0);
   }, []);
 
+  const clearTerminalRefresh = useCallback(
+    (session_id) => {
+      const sid = asString(session_id).trim();
+      if (!sid) return;
+
+      const existing = terminalRefreshTimersRef.current.get(sid);
+      if (existing) {
+        clearTimeout(existing);
+        terminalRefreshTimersRef.current.delete(sid);
+      }
+
+      terminalRefreshAttemptsRef.current.delete(sid);
+    },
+    []
+  );
+
+  const scheduleTerminalRefresh = useCallback(
+    ({ session_id }) => {
+      const sid = asString(session_id).trim();
+      if (!sid) return;
+
+      const MAX_TERMINAL_REFRESH_ATTEMPTS = 6;
+
+      const runAttempt = async () => {
+        const attempt = terminalRefreshAttemptsRef.current.get(sid) || 0;
+        if (attempt >= MAX_TERMINAL_REFRESH_ATTEMPTS) {
+          clearTerminalRefresh(sid);
+          return;
+        }
+
+        terminalRefreshAttemptsRef.current.set(sid, attempt + 1);
+
+        const result = await pollProgress({ session_id: sid });
+        const body = result?.body;
+
+        const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
+        const savedCount =
+          savedCompanies.length > 0
+            ? savedCompanies.length
+            : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
+
+        const status = asString(body?.status).trim();
+        const state = asString(body?.state).trim();
+        const jobState = asString(body?.job_state || body?.primary_job_state || body?.primary_job?.job_state).trim();
+        const completed = state === "complete" ? true : Boolean(body?.completed);
+
+        const isTerminalComplete =
+          state === "complete" || status === "complete" || jobState === "complete" || completed;
+
+        if (!isTerminalComplete) {
+          clearTerminalRefresh(sid);
+          return;
+        }
+
+        if (savedCount > 0) {
+          clearTerminalRefresh(sid);
+          return;
+        }
+
+        const timerId = setTimeout(runAttempt, 3000);
+        terminalRefreshTimersRef.current.set(sid, timerId);
+      };
+
+      clearTerminalRefresh(sid);
+      const timerId = setTimeout(runAttempt, 2500);
+      terminalRefreshTimersRef.current.set(sid, timerId);
+    },
+    [clearTerminalRefresh, pollProgress]
+  );
+
   const schedulePoll = useCallback(
     ({ session_id }) => {
       stopPolling();
@@ -481,12 +564,35 @@ export default function AdminImport() {
           return;
         }
 
-        const { shouldStop } = await pollProgress({ session_id });
-        if (shouldStop) return;
+        const result = await pollProgress({ session_id });
+        if (result?.shouldStop) {
+          const body = result?.body;
+
+          const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
+          const savedCount =
+            savedCompanies.length > 0
+              ? savedCompanies.length
+              : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
+
+          const status = asString(body?.status).trim();
+          const state = asString(body?.state).trim();
+          const jobState = asString(body?.job_state || body?.primary_job_state || body?.primary_job?.job_state).trim();
+          const completed = state === "complete" ? true : Boolean(body?.completed);
+
+          const isTerminalComplete =
+            state === "complete" || status === "complete" || jobState === "complete" || completed;
+
+          if (isTerminalComplete && savedCount === 0) {
+            scheduleTerminalRefresh({ session_id });
+          }
+
+          return;
+        }
+
         schedulePoll({ session_id });
       }, 2500);
     },
-    [pollProgress, stopPolling]
+    [pollProgress, scheduleTerminalRefresh, stopPolling]
   );
 
   const isUrlLikeQuery = useMemo(() => looksLikeUrlOrDomain(query), [query]);
@@ -1459,6 +1565,12 @@ export default function AdminImport() {
     return () => {
       stopPolling();
       startFetchAbortRef.current?.abort?.();
+
+      for (const timer of terminalRefreshTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+      terminalRefreshTimersRef.current.clear();
+      terminalRefreshAttemptsRef.current.clear();
     };
   }, [stopPolling]);
 
@@ -2325,22 +2437,36 @@ export default function AdminImport() {
                     const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
                     const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(r.saved ?? 0) || 0;
-                    const companyName =
-                      savedCount > 0 ? asString(primarySaved?.company_name).trim() || "Saved company" : "No company saved";
-                    const websiteUrl = savedCount > 0 ? asString(primarySaved?.website_url || primarySaved?.url).trim() : "";
+                    const primaryCandidate =
+                      savedCount > 0
+                        ? primarySaved
+                        : Array.isArray(r.items) && r.items.length > 0
+                          ? r.items[0]
+                          : null;
+
+                    const companyName = primaryCandidate
+                      ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
+                      : "No company saved";
+
+                    const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
+                    const isRefreshing = statusRefreshSessionId === r.session_id;
 
                     return (
-                      <button
+                      <div
                         key={r.session_id}
-                        className={`w-full text-left rounded border p-3 transition ${
+                        role="button"
+                        tabIndex={0}
+                        className={`w-full text-left rounded border p-3 transition cursor-pointer ${
                           r.session_id === activeSessionId
                             ? "border-slate-900 bg-slate-50"
                             : "border-slate-200 bg-white hover:bg-slate-50"
                         }`}
                         onClick={() => setActiveSessionId(r.session_id)}
-                        type="button"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") setActiveSessionId(r.session_id);
+                        }}
                       >
-                        <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="font-semibold text-slate-900 truncate">{companyName}</div>
                             {websiteUrl ? (
@@ -2360,7 +2486,36 @@ export default function AdminImport() {
                           </div>
 
                           <div className="flex flex-col items-end gap-2 text-xs text-slate-600">
-                            <span>Saved: {savedCount}</span>
+                            <div className="flex items-center gap-2">
+                              <span>Saved: {savedCount}</span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  clearTerminalRefresh(r.session_id);
+                                  setStatusRefreshSessionId(r.session_id);
+                                  setRuns((prev) => prev.map((it) => (it.session_id === r.session_id ? { ...it, progress_error: null } : it)));
+                                  try {
+                                    await pollProgress({ session_id: r.session_id });
+                                  } finally {
+                                    setStatusRefreshSessionId(null);
+                                  }
+                                }}
+                                disabled={isRefreshing}
+                              >
+                                <RefreshCcw className={isRefreshing ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+                                <span className="ml-1">View status</span>
+                              </Button>
+                            </div>
+
+                            {Boolean(r.reconciled) ? (
+                              <span className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-900">
+                                reconciled{r.reconcile_strategy ? ` (${r.reconcile_strategy})` : ""}
+                              </span>
+                            ) : null}
+
                             {r.save_result?.ok === true ? (
                               <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">
                                 saved {Number(r.save_result.saved ?? 0) || 0}
@@ -2373,7 +2528,7 @@ export default function AdminImport() {
                           <code className="rounded bg-slate-100 px-1 py-0.5">{r.session_id}</code>
                         </div>
                         <div className="mt-1 text-xs text-slate-500">{new Date(r.startedAt).toLocaleString()}</div>
-                      </button>
+                      </div>
                     );
                   })
                 )}
@@ -2384,11 +2539,19 @@ export default function AdminImport() {
                       const savedCompanies = Array.isArray(activeRun.saved_companies) ? activeRun.saved_companies : [];
                       const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
-                      const companyId = asString(primarySaved?.company_id).trim();
                       const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(activeRun.saved ?? 0) || 0;
-                      const companyName =
-                        savedCount > 0 ? asString(primarySaved?.company_name).trim() || "Saved company" : "No company saved";
-                      const websiteUrl = savedCount > 0 ? asString(primarySaved?.website_url || primarySaved?.url).trim() : "";
+                      const primaryCandidate =
+                        savedCount > 0
+                          ? primarySaved
+                          : Array.isArray(activeRun.items) && activeRun.items.length > 0
+                            ? activeRun.items[0]
+                            : null;
+
+                      const companyId = asString(primarySaved?.company_id).trim();
+                      const companyName = primaryCandidate
+                        ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
+                        : "No company saved";
+                      const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
 
                       return (
                         <>

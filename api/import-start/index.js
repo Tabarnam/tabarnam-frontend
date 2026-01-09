@@ -1620,8 +1620,72 @@ async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingL
   return importCompanyLogo({ companyId, domain, websiteUrl, companyName }, console);
 }
 
+function normalizeUrlForCompare(s) {
+  const raw = typeof s === "string" ? s.trim() : s == null ? "" : String(s).trim();
+  if (!raw) return "";
+  try {
+    const u = new URL(raw);
+    u.hash = "";
+    const host = String(u.hostname || "").toLowerCase().replace(/^www\./, "");
+    const path = String(u.pathname || "").replace(/\/+$/, "");
+    const search = u.searchParams.toString();
+    return `${u.protocol}//${host}${path}${search ? `?${search}` : ""}`;
+  } catch {
+    return raw.toLowerCase();
+  }
+}
+
+function computeReviewDedupeKey(review) {
+  const r = review && typeof review === "object" ? review : {};
+  const normUrl = normalizeUrlForCompare(r.source_url || r.url || "");
+  const title = String(r.title || "").trim().toLowerCase();
+  const author = String(r.author || "").trim().toLowerCase();
+  const date = String(r.date || "").trim();
+  const rating = r.rating == null ? "" : String(r.rating);
+  const excerpt = String(r.excerpt || r.abstract || "").trim().toLowerCase().slice(0, 160);
+
+  const base = [normUrl, title, author, date, rating, excerpt].filter(Boolean).join("|");
+  if (!base) return "";
+
+  try {
+    return crypto.createHash("sha1").update(base).digest("hex");
+  } catch {
+    return base;
+  }
+}
+
+function dedupeCuratedReviews(reviews) {
+  const list = Array.isArray(reviews) ? reviews : [];
+  const out = [];
+  const seen = new Set();
+
+  for (const r of list) {
+    if (!r || typeof r !== "object") continue;
+    const k = String(r._dedupe_key || "").trim() || computeReviewDedupeKey(r);
+    if (!k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ ...r, _dedupe_key: k });
+  }
+
+  return out;
+}
+
+function buildReviewCursor({ nowIso, count }) {
+  const n = Math.max(0, Math.trunc(Number(count) || 0));
+  return {
+    source: "xai_reviews",
+    last_offset: n,
+    total_fetched: n,
+    exhausted: false,
+    last_attempt_at: nowIso,
+    last_success_at: nowIso,
+    last_error: null,
+  };
+}
+
 // Fetch editorial reviews for a company using XAI
-async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugCollector, stageCtx) {
+async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugCollector, stageCtx, warn) {
   const companyName = String(company?.company_name || company?.name || "").trim();
   const websiteUrl = String(company?.website_url || company?.url || "").trim();
 
@@ -1754,6 +1818,27 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
     if (!(response.status >= 200 && response.status < 300)) {
       console.warn(`[import-start] Failed to fetch reviews for ${companyName}: status ${response.status}`);
       if (debugCollector) debugCollector.push({ ...debug, reason: `xai_status_${response.status}` });
+
+      if (typeof warn === "function") {
+        const upstream_status = Number.isFinite(Number(response.status)) ? Number(response.status) : null;
+        const root_cause =
+          upstream_status != null && upstream_status >= 500
+            ? "upstream_5xx"
+            : upstream_status != null && upstream_status >= 400
+              ? "upstream_4xx"
+              : "upstream_error";
+
+        warn({
+          stage: "reviews",
+          root_cause,
+          retryable: true,
+          upstream_status,
+          company_name: companyName,
+          website_url: websiteUrl,
+          message: `Upstream HTTP ${response.status}`,
+        });
+      }
+
       return [];
     }
 
@@ -1775,6 +1860,18 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
 
     if (parseError) {
       console.warn(`[import-start] Failed to parse reviews for ${companyName}: ${parseError}`);
+
+      if (typeof warn === "function") {
+        warn({
+          stage: "reviews",
+          root_cause: "parse_error",
+          retryable: true,
+          upstream_status: null,
+          company_name: companyName,
+          website_url: websiteUrl,
+          message: `Parse error: ${parseError}`,
+        });
+      }
     }
 
     const candidates = (Array.isArray(reviews) ? reviews : [])
@@ -1932,6 +2029,19 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
     if (e instanceof AcceptedResponseError) throw e;
     console.warn(`[import-start] Error fetching reviews for ${companyName}: ${e.message}`);
     if (debugCollector) debugCollector.push({ ...debug, reason: e?.message || String(e) });
+
+    if (typeof warn === "function") {
+      warn({
+        stage: "reviews",
+        root_cause: "exception",
+        retryable: true,
+        upstream_status: null,
+        company_name: companyName,
+        website_url: websiteUrl,
+        message: e?.message || String(e),
+      });
+    }
+
     return [];
   }
 }
@@ -2089,8 +2199,14 @@ async function checkIfSessionStopped(sessionId) {
 }
 
 // Save companies to Cosmos DB (skip duplicates)
-async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
+async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionCreatedAt, axiosTimeout }) {
   try {
+    const list = Array.isArray(companies) ? companies : [];
+    const sid = String(sessionId || "").trim();
+
+    const importRequestId = typeof requestId === "string" && requestId.trim() ? requestId.trim() : null;
+    const importCreatedAt =
+      typeof sessionCreatedAt === "string" && sessionCreatedAt.trim() ? sessionCreatedAt.trim() : new Date().toISOString();
     const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
     const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
     const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
@@ -2121,17 +2237,17 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
 
     // Process companies in batches for better concurrency
     const BATCH_SIZE = 4;
-    for (let batchStart = 0; batchStart < companies.length; batchStart += BATCH_SIZE) {
+    for (let batchStart = 0; batchStart < list.length; batchStart += BATCH_SIZE) {
       // Check if import was stopped
       if (batchStart > 0) {
-        const stopped = await checkIfSessionStopped(sessionId);
+        const stopped = await checkIfSessionStopped(sid);
         if (stopped) {
           console.log(`[import-start] Import stopped by user after ${saved} companies`);
           break;
         }
       }
 
-      const batch = companies.slice(batchStart, Math.min(batchStart + BATCH_SIZE, companies.length));
+      const batch = list.slice(batchStart, Math.min(batchStart + BATCH_SIZE, list.length));
 
       // Process batch in parallel
       const batchResults = await Promise.all(
@@ -2230,6 +2346,22 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
               manufacturing_locations: company.manufacturing_locations || [],
               manufacturing_geocodes: Array.isArray(company.manufacturing_geocodes) ? company.manufacturing_geocodes : [],
               curated_reviews: Array.isArray(company.curated_reviews) ? company.curated_reviews : [],
+              review_count: Number.isFinite(Number(company.review_count))
+                ? Number(company.review_count)
+                : Array.isArray(company.curated_reviews)
+                  ? company.curated_reviews.length
+                  : 0,
+              reviews_last_updated_at:
+                typeof company.reviews_last_updated_at === "string" && company.reviews_last_updated_at.trim()
+                  ? company.reviews_last_updated_at.trim()
+                  : null,
+              review_cursor:
+                company.review_cursor && typeof company.review_cursor === "object"
+                  ? company.review_cursor
+                  : buildReviewCursor({
+                      nowIso: new Date().toISOString(),
+                      count: Array.isArray(company.curated_reviews) ? company.curated_reviews.length : 0,
+                    }),
               red_flag: Boolean(company.red_flag),
               red_flag_reason: company.red_flag_reason || "",
               location_confidence: company.location_confidence || "medium",
@@ -2238,7 +2370,10 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
               rating_icon_type: "star",
               rating: defaultRatingWithReviews,
               source: "xai_import",
-              session_id: sessionId,
+              session_id: sid,
+              import_session_id: sid,
+              import_request_id: importRequestId,
+              import_created_at: importCreatedAt,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             };
@@ -2330,7 +2465,7 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
     console.error("[import-start] Error in saveCompaniesToCosmos:", e.message);
     return {
       saved: 0,
-      failed: companies?.length || 0,
+      failed: Array.isArray(companies) ? companies.length : 0,
       skipped: 0,
       saved_ids: [],
       skipped_ids: [],
@@ -2391,9 +2526,47 @@ const importStartHandlerInner = async (req, context) => {
     let enrichedForCounts = [];
     let primaryXaiOutboundBody = "";
 
+    let sessionCreatedAtIso = null;
+
     // If we successfully write at least one company but a later stage fails,
     // we return 200 with warnings instead of a hard 500.
     let saveReport = null;
+
+    const warningKeys = new Set();
+    const warnings_detail = {};
+    const warnings_v2 = [];
+
+    const addWarning = (key, detail) => {
+      const warningKey = String(key || "").trim();
+      if (!warningKey) return;
+      warningKeys.add(warningKey);
+
+      const d = detail && typeof detail === "object" ? detail : { message: String(detail || "") };
+
+      if (!warnings_detail[warningKey]) {
+        warnings_detail[warningKey] = {
+          stage: String(d.stage || warningKey),
+          root_cause: String(d.root_cause || "unknown"),
+          retryable: typeof d.retryable === "boolean" ? d.retryable : true,
+          upstream_status: d.upstream_status ?? null,
+          message: String(d.message || "").trim(),
+          company_name: d.company_name ? String(d.company_name) : undefined,
+          website_url: d.website_url ? String(d.website_url) : undefined,
+        };
+      }
+
+      warnings_v2.push({
+        stage: String(d.stage || ""),
+        root_cause: String(d.root_cause || "unknown"),
+        retryable: typeof d.retryable === "boolean" ? d.retryable : true,
+        upstream_status: d.upstream_status ?? null,
+        message: String(d.message || "").trim(),
+        company_name: d.company_name ? String(d.company_name) : undefined,
+        website_url: d.website_url ? String(d.website_url) : undefined,
+      });
+    };
+
+    const warnReviews = (detail) => addWarning("reviews_failed", detail);
 
     let stage_beacon = "init";
     let stage_reached = null;
@@ -3415,6 +3588,7 @@ const importStartHandlerInner = async (req, context) => {
       }
 
       setStage("create_session");
+      sessionCreatedAtIso ||= new Date().toISOString();
       if (!noUpstreamMode && cosmosEnabled) {
         try {
           const container = getCompaniesCosmosContainer();
@@ -3422,7 +3596,7 @@ const importStartHandlerInner = async (req, context) => {
             const sessionDoc = {
               id: `_import_session_${sessionId}`,
               ...buildImportControlDocBase(sessionId),
-              created_at: new Date().toISOString(),
+              created_at: sessionCreatedAtIso,
               request_id: requestId,
               status: "running",
               stage_beacon: "create_session",
@@ -5253,19 +5427,35 @@ Output JSON only:
                   xaiKey,
                   timeout,
                   debugOutput ? debugOutput.reviews_debug : null,
-                  { setStage, postXaiJsonWithBudget }
+                  { setStage, postXaiJsonWithBudget },
+                  warnReviews
                 );
 
-                if (editorialReviews.length > 0) {
-                  enriched[i] = { ...companyForReviews, curated_reviews: editorialReviews };
+                const nowReviewsIso = new Date().toISOString();
+                const curated = dedupeCuratedReviews(editorialReviews);
+
+                enriched[i] = {
+                  ...companyForReviews,
+                  curated_reviews: curated,
+                  review_count: curated.length,
+                  reviews_last_updated_at: nowReviewsIso,
+                  review_cursor: buildReviewCursor({ nowIso: nowReviewsIso, count: curated.length }),
+                };
+
+                if (curated.length > 0) {
                   console.log(
-                    `[import-start] session=${sessionId} fetched ${editorialReviews.length} editorial reviews for ${companyForReviews.company_name}`
+                    `[import-start] session=${sessionId} fetched ${curated.length} editorial reviews for ${companyForReviews.company_name}`
                   );
-                } else {
-                  enriched[i] = { ...companyForReviews, curated_reviews: [] };
                 }
               } else {
-                enriched[i] = { ...company, curated_reviews: [] };
+                const nowReviewsIso = new Date().toISOString();
+                enriched[i] = {
+                  ...company,
+                  curated_reviews: [],
+                  review_count: 0,
+                  reviews_last_updated_at: nowReviewsIso,
+                  review_cursor: buildReviewCursor({ nowIso: nowReviewsIso, count: 0 }),
+                };
               }
             }
             console.log(`[import-start] session=${sessionId} editorial review enrichment done`);
@@ -5541,7 +5731,13 @@ Return ONLY the JSON array, no other text.`,
             mark("cosmos_write_start");
             setStage("saveCompaniesToCosmos");
             console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos start count=${enriched.length}`);
-            saveResult = await saveCompaniesToCosmos(enriched, sessionId, timeout);
+            saveResult = await saveCompaniesToCosmos({
+              companies: enriched,
+              sessionId,
+              requestId,
+              sessionCreatedAt: sessionCreatedAtIso,
+              axiosTimeout: timeout,
+            });
             saveReport = saveResult;
             console.log(
               `[import-start] session=${sessionId} saveCompaniesToCosmos done saved=${saveResult.saved} skipped=${saveResult.skipped} duplicates=${saveResult.skipped}`
@@ -5678,19 +5874,35 @@ Return ONLY the JSON array, no other text.`,
                         xaiKey,
                         timeout,
                         debugOutput ? debugOutput.reviews_debug : null,
-                        { setStage, postXaiJsonWithBudget }
+                        { setStage, postXaiJsonWithBudget },
+                        warnReviews
                       );
 
-                      if (editorialReviews.length > 0) {
-                        enrichedExpansion[i] = { ...companyForReviews, curated_reviews: editorialReviews };
+                      const nowReviewsIso = new Date().toISOString();
+                      const curated = dedupeCuratedReviews(editorialReviews);
+
+                      enrichedExpansion[i] = {
+                        ...companyForReviews,
+                        curated_reviews: curated,
+                        review_count: curated.length,
+                        reviews_last_updated_at: nowReviewsIso,
+                        review_cursor: buildReviewCursor({ nowIso: nowReviewsIso, count: curated.length }),
+                      };
+
+                      if (curated.length > 0) {
                         console.log(
-                          `[import-start] Fetched ${editorialReviews.length} editorial reviews for expansion company ${companyForReviews.company_name}`
+                          `[import-start] Fetched ${curated.length} editorial reviews for expansion company ${companyForReviews.company_name}`
                         );
-                      } else {
-                        enrichedExpansion[i] = { ...companyForReviews, curated_reviews: [] };
                       }
                     } else {
-                      enrichedExpansion[i] = { ...company, curated_reviews: [] };
+                      const nowReviewsIso = new Date().toISOString();
+                      enrichedExpansion[i] = {
+                        ...company,
+                        curated_reviews: [],
+                        review_count: 0,
+                        reviews_last_updated_at: nowReviewsIso,
+                        review_cursor: buildReviewCursor({ nowIso: nowReviewsIso, count: 0 }),
+                      };
                     }
                   }
 
@@ -5698,7 +5910,13 @@ Return ONLY the JSON array, no other text.`,
 
                   // Re-save with expansion results
                   if (cosmosEnabled) {
-                    const expansionResult = await saveCompaniesToCosmos(enrichedExpansion, sessionId, timeout);
+                    const expansionResult = await saveCompaniesToCosmos({
+                      companies: enrichedExpansion,
+                      sessionId,
+                      requestId,
+                      sessionCreatedAt: sessionCreatedAtIso,
+                      axiosTimeout: timeout,
+                    });
                     saveResult.saved += expansionResult.saved;
                     saveResult.skipped += expansionResult.skipped;
                     saveResult.failed += expansionResult.failed;
@@ -5761,6 +5979,8 @@ Return ONLY the JSON array, no other text.`,
             try {
               const container = getCompaniesCosmosContainer();
               if (container) {
+                const warningKeyList = Array.from(warningKeys);
+
                 const completionDoc = timedOut
                   ? {
                       id: `_import_timeout_${sessionId}`,
@@ -5768,6 +5988,13 @@ Return ONLY the JSON array, no other text.`,
                       completed_at: new Date().toISOString(),
                       elapsed_ms: elapsed,
                       reason: "max_processing_time_exceeded",
+                      ...(warningKeyList.length
+                        ? {
+                            warnings: warningKeyList,
+                            warnings_detail,
+                            warnings_v2,
+                          }
+                        : {}),
                     }
                   : {
                       id: `_import_complete_${sessionId}`,
@@ -5782,6 +6009,13 @@ Return ONLY the JSON array, no other text.`,
                       skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
                       skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
                       failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
+                      ...(warningKeyList.length
+                        ? {
+                            warnings: warningKeyList,
+                            warnings_detail,
+                            warnings_v2,
+                          }
+                        : {}),
                     };
 
                 const result = await upsertItemWithPkCandidates(container, completionDoc);
@@ -5807,6 +6041,13 @@ Return ONLY the JSON array, no other text.`,
                     skipped: saveResult.skipped,
                     failed: saveResult.failed,
                     completed_at: completionDoc.completed_at,
+                    ...(warningKeyList.length
+                      ? {
+                          warnings: warningKeyList,
+                          warnings_detail,
+                          warnings_v2,
+                        }
+                      : {}),
                   },
                 }).catch(() => null);
               }
@@ -5863,6 +6104,7 @@ Return ONLY the JSON array, no other text.`,
                 skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
                 failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
               },
+              ...(warningKeys.size ? { warnings: Array.from(warningKeys), warnings_detail, warnings_v2 } : {}),
               ...(debugOutput ? { debug: debugOutput } : {}),
             },
             200
