@@ -2437,22 +2437,36 @@ export default function AdminImport() {
                     const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
                     const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(r.saved ?? 0) || 0;
-                    const companyName =
-                      savedCount > 0 ? asString(primarySaved?.company_name).trim() || "Saved company" : "No company saved";
-                    const websiteUrl = savedCount > 0 ? asString(primarySaved?.website_url || primarySaved?.url).trim() : "";
+                    const primaryCandidate =
+                      savedCount > 0
+                        ? primarySaved
+                        : Array.isArray(r.items) && r.items.length > 0
+                          ? r.items[0]
+                          : null;
+
+                    const companyName = primaryCandidate
+                      ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
+                      : "No company saved";
+
+                    const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
+                    const isRefreshing = statusRefreshSessionId === r.session_id;
 
                     return (
-                      <button
+                      <div
                         key={r.session_id}
-                        className={`w-full text-left rounded border p-3 transition ${
+                        role="button"
+                        tabIndex={0}
+                        className={`w-full text-left rounded border p-3 transition cursor-pointer ${
                           r.session_id === activeSessionId
                             ? "border-slate-900 bg-slate-50"
                             : "border-slate-200 bg-white hover:bg-slate-50"
                         }`}
                         onClick={() => setActiveSessionId(r.session_id)}
-                        type="button"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") setActiveSessionId(r.session_id);
+                        }}
                       >
-                        <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="font-semibold text-slate-900 truncate">{companyName}</div>
                             {websiteUrl ? (
@@ -2472,7 +2486,36 @@ export default function AdminImport() {
                           </div>
 
                           <div className="flex flex-col items-end gap-2 text-xs text-slate-600">
-                            <span>Saved: {savedCount}</span>
+                            <div className="flex items-center gap-2">
+                              <span>Saved: {savedCount}</span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  clearTerminalRefresh(r.session_id);
+                                  setStatusRefreshSessionId(r.session_id);
+                                  setRuns((prev) => prev.map((it) => (it.session_id === r.session_id ? { ...it, progress_error: null } : it)));
+                                  try {
+                                    await pollProgress({ session_id: r.session_id });
+                                  } finally {
+                                    setStatusRefreshSessionId(null);
+                                  }
+                                }}
+                                disabled={isRefreshing}
+                              >
+                                <RefreshCcw className={isRefreshing ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+                                <span className="ml-1">View status</span>
+                              </Button>
+                            </div>
+
+                            {Boolean(r.reconciled) ? (
+                              <span className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-900">
+                                reconciled{r.reconcile_strategy ? ` (${r.reconcile_strategy})` : ""}
+                              </span>
+                            ) : null}
+
                             {r.save_result?.ok === true ? (
                               <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">
                                 saved {Number(r.save_result.saved ?? 0) || 0}
@@ -2485,7 +2528,7 @@ export default function AdminImport() {
                           <code className="rounded bg-slate-100 px-1 py-0.5">{r.session_id}</code>
                         </div>
                         <div className="mt-1 text-xs text-slate-500">{new Date(r.startedAt).toLocaleString()}</div>
-                      </button>
+                      </div>
                     );
                   })
                 )}
