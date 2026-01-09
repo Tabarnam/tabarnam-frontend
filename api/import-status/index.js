@@ -676,7 +676,12 @@ async function handler(req, context) {
         upstream_calls_made: Number(progress?.upstream_calls_made),
         companies_candidates_found: Number(progress?.companies_candidates_found),
         early_exit_triggered: Boolean(progress?.early_exit_triggered),
-        companies_count: Number.isFinite(Number(primaryJob?.companies_count)) ? Number(primaryJob.companies_count) : 0,
+        companies_count:
+          Number(saved || 0) > 0
+            ? Number(saved)
+            : Number.isFinite(Number(primaryJob?.companies_count))
+              ? Number(primaryJob.companies_count)
+              : 0,
         items: status === "error" ? [] : Array.isArray(primaryJob?.companies) ? primaryJob.companies : [],
         saved,
         saved_companies: Array.isArray(savedCompanies) && savedCompanies.length > 0 ? savedCompanies : toSavedCompanies(Array.isArray(primaryJob?.companies) ? primaryJob.companies : []),
@@ -905,6 +910,7 @@ async function handler(req, context) {
     let savedIds = Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [];
     let savedDocs = savedIds.length > 0 ? await fetchCompaniesByIds(container, savedIds).catch(() => []) : [];
     let saved_companies = savedDocs.length > 0 ? toSavedCompanies(savedDocs) : toSavedCompanies(items);
+    let completionReason = typeof completionDoc?.reason === "string" ? completionDoc.reason : null;
 
     // Authoritative reconciliation for control-plane vs data-plane mismatch (retroactive).
     if (Number(saved || 0) === 0) {
@@ -934,6 +940,7 @@ async function handler(req, context) {
         saved = authoritativeDocs.length;
         savedIds = authoritativeIds;
         saved_companies = toSavedCompanies(authoritativeDocs);
+        completionReason = reason;
 
         stageBeaconValues.status_reconciled_saved = nowIso();
         stageBeaconValues.status_reconciled_saved_count = saved;
@@ -997,11 +1004,11 @@ async function handler(req, context) {
       completion: completionDoc
         ? {
             completed_at: completionDoc?.completed_at || completionDoc?.created_at || null,
-            reason: completionDoc?.reason || null,
+            reason: completionReason || null,
             saved: typeof completionDoc?.saved === "number" ? completionDoc.saved : null,
             skipped: typeof completionDoc?.skipped === "number" ? completionDoc.skipped : null,
             failed: typeof completionDoc?.failed === "number" ? completionDoc.failed : null,
-            saved_ids: Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [],
+            saved_ids: savedIds,
             skipped_ids: Array.isArray(completionDoc?.skipped_ids) ? completionDoc.skipped_ids : [],
             failed_items: Array.isArray(completionDoc?.failed_items) ? completionDoc.failed_items : [],
           }
@@ -1077,8 +1084,8 @@ async function handler(req, context) {
             skipped: typeof completionDoc?.skipped === "number" ? completionDoc.skipped : null,
             failed: typeof completionDoc?.failed === "number" ? completionDoc.failed : null,
             completed_at: completionDoc?.completed_at || completionDoc?.created_at || null,
-            reason: completionDoc?.reason || null,
-            saved_ids: Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [],
+            reason: completionReason || null,
+            saved_ids: savedIds,
             skipped_ids: Array.isArray(completionDoc?.skipped_ids) ? completionDoc.skipped_ids : [],
             failed_items: Array.isArray(completionDoc?.failed_items) ? completionDoc.failed_items : [],
           },
