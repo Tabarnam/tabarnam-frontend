@@ -2240,7 +2240,7 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
     for (let batchStart = 0; batchStart < list.length; batchStart += BATCH_SIZE) {
       // Check if import was stopped
       if (batchStart > 0) {
-        const stopped = await checkIfSessionStopped(sessionId);
+        const stopped = await checkIfSessionStopped(sid);
         if (stopped) {
           console.log(`[import-start] Import stopped by user after ${saved} companies`);
           break;
