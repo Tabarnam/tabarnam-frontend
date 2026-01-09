@@ -923,8 +923,13 @@ async function handler(req, context) {
 
       if (authoritativeDocs.length > 0) {
         const authoritativeIds = authoritativeDocs.map((d) => String(d?.id || "").trim()).filter(Boolean);
+        const beaconForReason =
+          (typeof acceptDoc?.stage_beacon === "string" && acceptDoc.stage_beacon.trim() ? acceptDoc.stage_beacon.trim() : "") ||
+          (typeof sessionDoc?.stage_beacon === "string" && sessionDoc.stage_beacon.trim() ? sessionDoc.stage_beacon.trim() : "") ||
+          (typeof completionDoc?.reason === "string" && completionDoc.reason.trim() ? completionDoc.reason.trim() : "");
+
         const reason =
-          stage_beacon === "primary_early_exit" ? "saved_after_primary_async" : "post_primary_reconciliation";
+          beaconForReason === "primary_early_exit" ? "saved_after_primary_async" : "post_primary_reconciliation";
 
         saved = authoritativeDocs.length;
         savedIds = authoritativeIds;
