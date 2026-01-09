@@ -2505,6 +2505,42 @@ const importStartHandlerInner = async (req, context) => {
     // we return 200 with warnings instead of a hard 500.
     let saveReport = null;
 
+    const warningKeys = new Set();
+    const warnings_detail = {};
+    const warnings_v2 = [];
+
+    const addWarning = (key, detail) => {
+      const warningKey = String(key || "").trim();
+      if (!warningKey) return;
+      warningKeys.add(warningKey);
+
+      const d = detail && typeof detail === "object" ? detail : { message: String(detail || "") };
+
+      if (!warnings_detail[warningKey]) {
+        warnings_detail[warningKey] = {
+          stage: String(d.stage || warningKey),
+          root_cause: String(d.root_cause || "unknown"),
+          retryable: typeof d.retryable === "boolean" ? d.retryable : true,
+          upstream_status: d.upstream_status ?? null,
+          message: String(d.message || "").trim(),
+          company_name: d.company_name ? String(d.company_name) : undefined,
+          website_url: d.website_url ? String(d.website_url) : undefined,
+        };
+      }
+
+      warnings_v2.push({
+        stage: String(d.stage || ""),
+        root_cause: String(d.root_cause || "unknown"),
+        retryable: typeof d.retryable === "boolean" ? d.retryable : true,
+        upstream_status: d.upstream_status ?? null,
+        message: String(d.message || "").trim(),
+        company_name: d.company_name ? String(d.company_name) : undefined,
+        website_url: d.website_url ? String(d.website_url) : undefined,
+      });
+    };
+
+    const warnReviews = (detail) => addWarning("reviews_failed", detail);
+
     let stage_beacon = "init";
     let stage_reached = null;
 
