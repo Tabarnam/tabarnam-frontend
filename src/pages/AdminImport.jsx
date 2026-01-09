@@ -265,6 +265,8 @@ export default function AdminImport() {
   const pollTimerRef = useRef(null);
   const startFetchAbortRef = useRef(null);
   const pollAttemptsRef = useRef(new Map());
+  const terminalRefreshAttemptsRef = useRef(new Map());
+  const terminalRefreshTimersRef = useRef(new Map());
 
   const startImportRequestInFlightRef = useRef(false);
   const activeStatusRef = useRef(activeStatus);
