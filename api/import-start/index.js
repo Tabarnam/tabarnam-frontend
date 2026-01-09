@@ -6082,6 +6082,7 @@ Return ONLY the JSON array, no other text.`,
                 skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
                 failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
               },
+              ...(warningKeys.size ? { warnings: Array.from(warningKeys), warnings_detail, warnings_v2 } : {}),
               ...(debugOutput ? { debug: debugOutput } : {}),
             },
             200
