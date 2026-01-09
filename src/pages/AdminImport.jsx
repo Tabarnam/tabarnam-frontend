@@ -478,6 +478,76 @@ export default function AdminImport() {
     pollAttemptsRef.current.set(session_id, 0);
   }, []);
 
+  const clearTerminalRefresh = useCallback(
+    (session_id) => {
+      const sid = asString(session_id).trim();
+      if (!sid) return;
+
+      const existing = terminalRefreshTimersRef.current.get(sid);
+      if (existing) {
+        clearTimeout(existing);
+        terminalRefreshTimersRef.current.delete(sid);
+      }
+
+      terminalRefreshAttemptsRef.current.delete(sid);
+    },
+    []
+  );
+
+  const scheduleTerminalRefresh = useCallback(
+    ({ session_id }) => {
+      const sid = asString(session_id).trim();
+      if (!sid) return;
+
+      const MAX_TERMINAL_REFRESH_ATTEMPTS = 6;
+
+      const runAttempt = async () => {
+        const attempt = terminalRefreshAttemptsRef.current.get(sid) || 0;
+        if (attempt >= MAX_TERMINAL_REFRESH_ATTEMPTS) {
+          clearTerminalRefresh(sid);
+          return;
+        }
+
+        terminalRefreshAttemptsRef.current.set(sid, attempt + 1);
+
+        const result = await pollProgress({ session_id: sid });
+        const body = result?.body;
+
+        const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
+        const savedCount =
+          savedCompanies.length > 0
+            ? savedCompanies.length
+            : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
+
+        const status = asString(body?.status).trim();
+        const state = asString(body?.state).trim();
+        const jobState = asString(body?.job_state || body?.primary_job_state || body?.primary_job?.job_state).trim();
+        const completed = state === "complete" ? true : Boolean(body?.completed);
+
+        const isTerminalComplete =
+          state === "complete" || status === "complete" || jobState === "complete" || completed;
+
+        if (!isTerminalComplete) {
+          clearTerminalRefresh(sid);
+          return;
+        }
+
+        if (savedCount > 0) {
+          clearTerminalRefresh(sid);
+          return;
+        }
+
+        const timerId = setTimeout(runAttempt, 3000);
+        terminalRefreshTimersRef.current.set(sid, timerId);
+      };
+
+      clearTerminalRefresh(sid);
+      const timerId = setTimeout(runAttempt, 2500);
+      terminalRefreshTimersRef.current.set(sid, timerId);
+    },
+    [clearTerminalRefresh, pollProgress]
+  );
+
   const schedulePoll = useCallback(
     ({ session_id }) => {
       stopPolling();
@@ -494,12 +564,35 @@ export default function AdminImport() {
           return;
         }
 
-        const { shouldStop } = await pollProgress({ session_id });
-        if (shouldStop) return;
+        const result = await pollProgress({ session_id });
+        if (result?.shouldStop) {
+          const body = result?.body;
+
+          const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
+          const savedCount =
+            savedCompanies.length > 0
+              ? savedCompanies.length
+              : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
+
+          const status = asString(body?.status).trim();
+          const state = asString(body?.state).trim();
+          const jobState = asString(body?.job_state || body?.primary_job_state || body?.primary_job?.job_state).trim();
+          const completed = state === "complete" ? true : Boolean(body?.completed);
+
+          const isTerminalComplete =
+            state === "complete" || status === "complete" || jobState === "complete" || completed;
+
+          if (isTerminalComplete && savedCount === 0) {
+            scheduleTerminalRefresh({ session_id });
+          }
+
+          return;
+        }
+
         schedulePoll({ session_id });
       }, 2500);
     },
-    [pollProgress, stopPolling]
+    [pollProgress, scheduleTerminalRefresh, stopPolling]
   );
 
   const isUrlLikeQuery = useMemo(() => looksLikeUrlOrDomain(query), [query]);
