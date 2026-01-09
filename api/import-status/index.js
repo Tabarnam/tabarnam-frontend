@@ -213,7 +213,7 @@ async function hasAnyCompanyDocs(container, sessionId) {
   if (!container) return false;
   try {
     const q = {
-      query: `SELECT TOP 1 c.id FROM c WHERE c.session_id = @sid AND NOT STARTSWITH(c.id, '_import_')`,
+      query: `SELECT TOP 1 c.id FROM c WHERE (c.session_id = @sid OR c.import_session_id = @sid) AND NOT STARTSWITH(c.id, '_import_')`,
       parameters: [{ name: "@sid", value: sessionId }],
     };
 
@@ -239,7 +239,7 @@ async function fetchRecentCompanies(container, sessionId, take) {
     query: `
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.industries, c.product_keywords, c.created_at
       FROM c
-      WHERE c.session_id = @sid AND NOT STARTSWITH(c.id, '_import_')
+      WHERE (c.session_id = @sid OR c.import_session_id = @sid) AND NOT STARTSWITH(c.id, '_import_')
       ORDER BY c.created_at DESC
     `,
     parameters: [{ name: "@sid", value: sessionId }],
@@ -296,6 +296,79 @@ function normalizeErrorPayload(value) {
   if (typeof value === "string") return { message: value };
   if (typeof value === "object") return value;
   return { message: String(value) };
+}
+
+async function upsertDoc(container, doc) {
+  if (!container || !doc) return { ok: false, error: "no_container" };
+  const id = String(doc?.id || "").trim();
+  if (!id) return { ok: false, error: "missing_id" };
+
+  const containerPkPath = await getCompaniesPkPath(container);
+  const candidates = buildPartitionKeyCandidates({ doc, containerPkPath, requestedId: id });
+
+  let lastErr = null;
+  for (const partitionKeyValue of candidates) {
+    try {
+      if (partitionKeyValue !== undefined) {
+        await container.items.upsert(doc, { partitionKey: partitionKeyValue });
+      } else {
+        await container.items.upsert(doc);
+      }
+      return { ok: true };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  return { ok: false, error: lastErr?.message || String(lastErr || "upsert_failed") };
+}
+
+async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionCreatedAt, limit = 200 }) {
+  if (!container) return [];
+  const n = Math.max(0, Math.min(Number(limit) || 0, 200));
+  if (!n) return [];
+
+  const createdAtIso = typeof sessionCreatedAt === "string" && sessionCreatedAt.trim() ? sessionCreatedAt.trim() : "";
+
+  // Prefer explicit session linking fields; only fall back to created_at when the linking fields are missing.
+  const createdAtFallbackClause = createdAtIso
+    ? `
+        OR (
+          IS_DEFINED(c.created_at) AND c.created_at >= @createdAt
+          AND (NOT IS_DEFINED(c.session_id) OR c.session_id = "")
+          AND (NOT IS_DEFINED(c.import_session_id) OR c.import_session_id = "")
+          AND c.source = "xai_import"
+        )
+      `
+    : "";
+
+  const q = {
+    query: `
+      SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at
+      FROM c
+      WHERE NOT STARTSWITH(c.id, '_import_')
+        AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
+        AND (
+          (IS_DEFINED(c.session_id) AND c.session_id = @sid)
+          OR (IS_DEFINED(c.import_session_id) AND c.import_session_id = @sid)
+          ${createdAtFallbackClause}
+        )
+      ORDER BY c.created_at DESC
+    `,
+    parameters: createdAtIso
+      ? [
+          { name: "@sid", value: sessionId },
+          { name: "@createdAt", value: createdAtIso },
+        ]
+      : [{ name: "@sid", value: sessionId }],
+  };
+
+  const { resources } = await container.items
+    .query(q, { enableCrossPartitionQuery: true })
+    .fetchAll();
+
+  const out = Array.isArray(resources) ? resources : [];
+  return out.slice(0, n);
 }
 
 async function handler(req, context) {
@@ -457,6 +530,60 @@ async function handler(req, context) {
           const savedDocs = await fetchCompaniesByIds(container, completionSavedIds).catch(() => []);
           savedCompanies = toSavedCompanies(savedDocs);
           stageBeaconValues.status_fetched_saved_companies = nowIso();
+        }
+
+        // Authoritative reconciliation: async primary runs can persist companies even when the completion/session report is stale.
+        if (Number(saved || 0) === 0) {
+          stageBeaconValues.status_reconcile_saved_probe = nowIso();
+
+          const sessionCreatedAt =
+            (typeof sessionDoc?.created_at === "string" && sessionDoc.created_at.trim() ? sessionDoc.created_at.trim() : "") ||
+            (typeof acceptDoc?.created_at === "string" && acceptDoc.created_at.trim() ? acceptDoc.created_at.trim() : "") ||
+            "";
+
+          const authoritativeDocs = await fetchAuthoritativeSavedCompanies(container, {
+            sessionId,
+            sessionCreatedAt,
+            limit: 200,
+          }).catch(() => []);
+
+          if (authoritativeDocs.length > 0) {
+            const authoritativeIds = authoritativeDocs.map((d) => String(d?.id || "").trim()).filter(Boolean);
+            const reason =
+              String(primaryJob?.stage_beacon || "").trim() === "primary_early_exit" ? "saved_after_primary_async" : "post_primary_reconciliation";
+
+            saved = authoritativeDocs.length;
+            savedCompanies = toSavedCompanies(authoritativeDocs);
+            stageBeaconValues.status_reconciled_saved = nowIso();
+            stageBeaconValues.status_reconciled_saved_count = saved;
+
+            // Persist the corrected summary (best-effort). Never treat primary_early_exit as authoritative for saved=0.
+            const now = nowIso();
+
+            if (completionDoc) {
+              await upsertDoc(container, {
+                ...completionDoc,
+                saved,
+                saved_ids: authoritativeIds,
+                reason,
+                reconciled_at: now,
+                updated_at: now,
+              }).catch(() => null);
+            }
+
+            if (sessionDoc) {
+              await upsertDoc(container, {
+                ...sessionDoc,
+                saved,
+                companies_count: saved,
+                reconciliation_reason: reason,
+                reconciled_at: now,
+                updated_at: now,
+              }).catch(() => null);
+            }
+          } else {
+            stageBeaconValues.status_reconciled_saved_none = nowIso();
+          }
         }
 
         report = {
@@ -770,14 +897,70 @@ async function handler(req, context) {
     const completed = Boolean(completionDoc);
 
     const items = await fetchRecentCompanies(container, sessionId, take).catch(() => []);
-    const saved =
+    let saved =
       (typeof completionDoc?.saved === "number" ? completionDoc.saved : null) ??
       (typeof sessionDoc?.saved === "number" ? sessionDoc.saved : null) ??
       (Array.isArray(items) ? items.length : 0);
 
-    const savedIds = Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [];
-    const savedDocs = savedIds.length > 0 ? await fetchCompaniesByIds(container, savedIds).catch(() => []) : [];
-    const saved_companies = savedDocs.length > 0 ? toSavedCompanies(savedDocs) : toSavedCompanies(items);
+    let savedIds = Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [];
+    let savedDocs = savedIds.length > 0 ? await fetchCompaniesByIds(container, savedIds).catch(() => []) : [];
+    let saved_companies = savedDocs.length > 0 ? toSavedCompanies(savedDocs) : toSavedCompanies(items);
+
+    // Authoritative reconciliation for control-plane vs data-plane mismatch (retroactive).
+    if (Number(saved || 0) === 0) {
+      stageBeaconValues.status_reconcile_saved_probe = nowIso();
+
+      const sessionCreatedAt =
+        (typeof sessionDoc?.created_at === "string" && sessionDoc.created_at.trim() ? sessionDoc.created_at.trim() : "") ||
+        (typeof acceptDoc?.created_at === "string" && acceptDoc.created_at.trim() ? acceptDoc.created_at.trim() : "") ||
+        "";
+
+      const authoritativeDocs = await fetchAuthoritativeSavedCompanies(container, {
+        sessionId,
+        sessionCreatedAt,
+        limit: 200,
+      }).catch(() => []);
+
+      if (authoritativeDocs.length > 0) {
+        const authoritativeIds = authoritativeDocs.map((d) => String(d?.id || "").trim()).filter(Boolean);
+        const reason =
+          stage_beacon === "primary_early_exit" ? "saved_after_primary_async" : "post_primary_reconciliation";
+
+        saved = authoritativeDocs.length;
+        savedIds = authoritativeIds;
+        saved_companies = toSavedCompanies(authoritativeDocs);
+
+        stageBeaconValues.status_reconciled_saved = nowIso();
+        stageBeaconValues.status_reconciled_saved_count = saved;
+
+        // Persist the corrected summary (best-effort)
+        const now = nowIso();
+
+        if (completionDoc) {
+          await upsertDoc(container, {
+            ...completionDoc,
+            saved,
+            saved_ids: authoritativeIds,
+            reason,
+            reconciled_at: now,
+            updated_at: now,
+          }).catch(() => null);
+        }
+
+        if (sessionDoc) {
+          await upsertDoc(container, {
+            ...sessionDoc,
+            saved,
+            companies_count: saved,
+            reconciliation_reason: reason,
+            reconciled_at: now,
+            updated_at: now,
+          }).catch(() => null);
+        }
+      } else {
+        stageBeaconValues.status_reconciled_saved_none = nowIso();
+      }
+    }
 
     const lastCreatedAt = Array.isArray(items) && items.length > 0 ? String(items[0]?.created_at || "") : "";
 
