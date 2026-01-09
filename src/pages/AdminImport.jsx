@@ -2539,11 +2539,19 @@ export default function AdminImport() {
                       const savedCompanies = Array.isArray(activeRun.saved_companies) ? activeRun.saved_companies : [];
                       const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
-                      const companyId = asString(primarySaved?.company_id).trim();
                       const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(activeRun.saved ?? 0) || 0;
-                      const companyName =
-                        savedCount > 0 ? asString(primarySaved?.company_name).trim() || "Saved company" : "No company saved";
-                      const websiteUrl = savedCount > 0 ? asString(primarySaved?.website_url || primarySaved?.url).trim() : "";
+                      const primaryCandidate =
+                        savedCount > 0
+                          ? primarySaved
+                          : Array.isArray(activeRun.items) && activeRun.items.length > 0
+                            ? activeRun.items[0]
+                            : null;
+
+                      const companyId = asString(primarySaved?.company_id).trim();
+                      const companyName = primaryCandidate
+                        ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
+                        : "No company saved";
+                      const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
 
                       return (
                         <>
