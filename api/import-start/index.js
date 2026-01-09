@@ -2029,6 +2029,19 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
     if (e instanceof AcceptedResponseError) throw e;
     console.warn(`[import-start] Error fetching reviews for ${companyName}: ${e.message}`);
     if (debugCollector) debugCollector.push({ ...debug, reason: e?.message || String(e) });
+
+    if (typeof warn === "function") {
+      warn({
+        stage: "reviews",
+        root_cause: "exception",
+        retryable: true,
+        upstream_status: null,
+        company_name: companyName,
+        website_url: websiteUrl,
+        message: e?.message || String(e),
+      });
+    }
+
     return [];
   }
 }
