@@ -1620,8 +1620,72 @@ async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingL
   return importCompanyLogo({ companyId, domain, websiteUrl, companyName }, console);
 }
 
+function normalizeUrlForCompare(s) {
+  const raw = typeof s === "string" ? s.trim() : s == null ? "" : String(s).trim();
+  if (!raw) return "";
+  try {
+    const u = new URL(raw);
+    u.hash = "";
+    const host = String(u.hostname || "").toLowerCase().replace(/^www\./, "");
+    const path = String(u.pathname || "").replace(/\/+$/, "");
+    const search = u.searchParams.toString();
+    return `${u.protocol}//${host}${path}${search ? `?${search}` : ""}`;
+  } catch {
+    return raw.toLowerCase();
+  }
+}
+
+function computeReviewDedupeKey(review) {
+  const r = review && typeof review === "object" ? review : {};
+  const normUrl = normalizeUrlForCompare(r.source_url || r.url || "");
+  const title = String(r.title || "").trim().toLowerCase();
+  const author = String(r.author || "").trim().toLowerCase();
+  const date = String(r.date || "").trim();
+  const rating = r.rating == null ? "" : String(r.rating);
+  const excerpt = String(r.excerpt || r.abstract || "").trim().toLowerCase().slice(0, 160);
+
+  const base = [normUrl, title, author, date, rating, excerpt].filter(Boolean).join("|");
+  if (!base) return "";
+
+  try {
+    return crypto.createHash("sha1").update(base).digest("hex");
+  } catch {
+    return base;
+  }
+}
+
+function dedupeCuratedReviews(reviews) {
+  const list = Array.isArray(reviews) ? reviews : [];
+  const out = [];
+  const seen = new Set();
+
+  for (const r of list) {
+    if (!r || typeof r !== "object") continue;
+    const k = String(r._dedupe_key || "").trim() || computeReviewDedupeKey(r);
+    if (!k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ ...r, _dedupe_key: k });
+  }
+
+  return out;
+}
+
+function buildReviewCursor({ nowIso, count }) {
+  const n = Math.max(0, Math.trunc(Number(count) || 0));
+  return {
+    source: "xai_reviews",
+    last_offset: n,
+    total_fetched: n,
+    exhausted: false,
+    last_attempt_at: nowIso,
+    last_success_at: nowIso,
+    last_error: null,
+  };
+}
+
 // Fetch editorial reviews for a company using XAI
-async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugCollector, stageCtx) {
+async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugCollector, stageCtx, warn) {
   const companyName = String(company?.company_name || company?.name || "").trim();
   const websiteUrl = String(company?.website_url || company?.url || "").trim();
 
