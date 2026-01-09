@@ -2199,8 +2199,14 @@ async function checkIfSessionStopped(sessionId) {
 }
 
 // Save companies to Cosmos DB (skip duplicates)
-async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
+async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionCreatedAt, axiosTimeout }) {
   try {
+    const list = Array.isArray(companies) ? companies : [];
+    const sid = String(sessionId || "").trim();
+
+    const importRequestId = typeof requestId === "string" && requestId.trim() ? requestId.trim() : null;
+    const importCreatedAt =
+      typeof sessionCreatedAt === "string" && sessionCreatedAt.trim() ? sessionCreatedAt.trim() : new Date().toISOString();
     const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
     const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
     const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
@@ -2231,7 +2237,7 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
 
     // Process companies in batches for better concurrency
     const BATCH_SIZE = 4;
-    for (let batchStart = 0; batchStart < companies.length; batchStart += BATCH_SIZE) {
+    for (let batchStart = 0; batchStart < list.length; batchStart += BATCH_SIZE) {
       // Check if import was stopped
       if (batchStart > 0) {
         const stopped = await checkIfSessionStopped(sessionId);
@@ -2241,7 +2247,7 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
         }
       }
 
-      const batch = companies.slice(batchStart, Math.min(batchStart + BATCH_SIZE, companies.length));
+      const batch = list.slice(batchStart, Math.min(batchStart + BATCH_SIZE, list.length));
 
       // Process batch in parallel
       const batchResults = await Promise.all(
@@ -2364,7 +2370,10 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
               rating_icon_type: "star",
               rating: defaultRatingWithReviews,
               source: "xai_import",
-              session_id: sessionId,
+              session_id: sid,
+              import_session_id: sid,
+              import_request_id: importRequestId,
+              import_created_at: importCreatedAt,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             };
@@ -2456,7 +2465,7 @@ async function saveCompaniesToCosmos(companies, sessionId, axiosTimeout) {
     console.error("[import-start] Error in saveCompaniesToCosmos:", e.message);
     return {
       saved: 0,
-      failed: companies?.length || 0,
+      failed: Array.isArray(companies) ? companies.length : 0,
       skipped: 0,
       saved_ids: [],
       skipped_ids: [],
@@ -2516,6 +2525,8 @@ const importStartHandlerInner = async (req, context) => {
     let debugOutput = null;
     let enrichedForCounts = [];
     let primaryXaiOutboundBody = "";
+
+    let sessionCreatedAtIso = null;
 
     // If we successfully write at least one company but a later stage fails,
     // we return 200 with warnings instead of a hard 500.
@@ -3577,6 +3588,7 @@ const importStartHandlerInner = async (req, context) => {
       }
 
       setStage("create_session");
+      sessionCreatedAtIso ||= new Date().toISOString();
       if (!noUpstreamMode && cosmosEnabled) {
         try {
           const container = getCompaniesCosmosContainer();
@@ -3584,7 +3596,7 @@ const importStartHandlerInner = async (req, context) => {
             const sessionDoc = {
               id: `_import_session_${sessionId}`,
               ...buildImportControlDocBase(sessionId),
-              created_at: new Date().toISOString(),
+              created_at: sessionCreatedAtIso,
               request_id: requestId,
               status: "running",
               stage_beacon: "create_session",
@@ -5719,7 +5731,13 @@ Return ONLY the JSON array, no other text.`,
             mark("cosmos_write_start");
             setStage("saveCompaniesToCosmos");
             console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos start count=${enriched.length}`);
-            saveResult = await saveCompaniesToCosmos(enriched, sessionId, timeout);
+            saveResult = await saveCompaniesToCosmos({
+              companies: enriched,
+              sessionId,
+              requestId,
+              sessionCreatedAt: sessionCreatedAtIso,
+              axiosTimeout: timeout,
+            });
             saveReport = saveResult;
             console.log(
               `[import-start] session=${sessionId} saveCompaniesToCosmos done saved=${saveResult.saved} skipped=${saveResult.skipped} duplicates=${saveResult.skipped}`
@@ -5892,7 +5910,13 @@ Return ONLY the JSON array, no other text.`,
 
                   // Re-save with expansion results
                   if (cosmosEnabled) {
-                    const expansionResult = await saveCompaniesToCosmos(enrichedExpansion, sessionId, timeout);
+                    const expansionResult = await saveCompaniesToCosmos({
+                      companies: enrichedExpansion,
+                      sessionId,
+                      requestId,
+                      sessionCreatedAt: sessionCreatedAtIso,
+                      axiosTimeout: timeout,
+                    });
                     saveResult.saved += expansionResult.saved;
                     saveResult.skipped += expansionResult.skipped;
                     saveResult.failed += expansionResult.failed;
