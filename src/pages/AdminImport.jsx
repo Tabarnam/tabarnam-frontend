@@ -1565,6 +1565,12 @@ export default function AdminImport() {
     return () => {
       stopPolling();
       startFetchAbortRef.current?.abort?.();
+
+      for (const timer of terminalRefreshTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+      terminalRefreshTimersRef.current.clear();
+      terminalRefreshAttemptsRef.current.clear();
     };
   }, [stopPolling]);
 
