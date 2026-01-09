@@ -5399,19 +5399,35 @@ Output JSON only:
                   xaiKey,
                   timeout,
                   debugOutput ? debugOutput.reviews_debug : null,
-                  { setStage, postXaiJsonWithBudget }
+                  { setStage, postXaiJsonWithBudget },
+                  warnReviews
                 );
 
-                if (editorialReviews.length > 0) {
-                  enriched[i] = { ...companyForReviews, curated_reviews: editorialReviews };
+                const nowReviewsIso = new Date().toISOString();
+                const curated = dedupeCuratedReviews(editorialReviews);
+
+                enriched[i] = {
+                  ...companyForReviews,
+                  curated_reviews: curated,
+                  review_count: curated.length,
+                  reviews_last_updated_at: nowReviewsIso,
+                  review_cursor: buildReviewCursor({ nowIso: nowReviewsIso, count: curated.length }),
+                };
+
+                if (curated.length > 0) {
                   console.log(
-                    `[import-start] session=${sessionId} fetched ${editorialReviews.length} editorial reviews for ${companyForReviews.company_name}`
+                    `[import-start] session=${sessionId} fetched ${curated.length} editorial reviews for ${companyForReviews.company_name}`
                   );
-                } else {
-                  enriched[i] = { ...companyForReviews, curated_reviews: [] };
                 }
               } else {
-                enriched[i] = { ...company, curated_reviews: [] };
+                const nowReviewsIso = new Date().toISOString();
+                enriched[i] = {
+                  ...company,
+                  curated_reviews: [],
+                  review_count: 0,
+                  reviews_last_updated_at: nowReviewsIso,
+                  review_cursor: buildReviewCursor({ nowIso: nowReviewsIso, count: 0 }),
+                };
               }
             }
             console.log(`[import-start] session=${sessionId} editorial review enrichment done`);
