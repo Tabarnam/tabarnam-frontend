@@ -316,7 +316,14 @@ export default function AdminImport() {
 
         const items = normalizeItems(body?.items || body?.companies);
         const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
-        const saved = savedCompanies.length > 0 ? savedCompanies.length : Number(body?.saved ?? 0) || 0;
+        const saved =
+          savedCompanies.length > 0
+            ? savedCompanies.length
+            : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
+
+        const reconciled = Boolean(body?.reconciled);
+        const reconcileStrategy = asString(body?.reconcile_strategy).trim();
+        const reconciledSavedIds = Array.isArray(body?.reconciled_saved_ids) ? body.reconciled_saved_ids : [];
 
         const status = asString(body?.status).trim();
         const jobState = asString(body?.job_state || body?.primary_job_state || body?.primary_job?.job_state).trim();
