@@ -6007,8 +6007,6 @@ Return ONLY the JSON array, no other text.`,
                   );
                 }
 
-                const warningKeyList = Array.from(warningKeys);
-
                 await upsertCosmosImportSessionDoc({
                   sessionId,
                   requestId,
