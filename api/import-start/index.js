@@ -5955,6 +5955,8 @@ Return ONLY the JSON array, no other text.`,
             try {
               const container = getCompaniesCosmosContainer();
               if (container) {
+                const warningKeyList = Array.from(warningKeys);
+
                 const completionDoc = timedOut
                   ? {
                       id: `_import_timeout_${sessionId}`,
@@ -5962,6 +5964,13 @@ Return ONLY the JSON array, no other text.`,
                       completed_at: new Date().toISOString(),
                       elapsed_ms: elapsed,
                       reason: "max_processing_time_exceeded",
+                      ...(warningKeyList.length
+                        ? {
+                            warnings: warningKeyList,
+                            warnings_detail,
+                            warnings_v2,
+                          }
+                        : {}),
                     }
                   : {
                       id: `_import_complete_${sessionId}`,
@@ -5976,6 +5985,13 @@ Return ONLY the JSON array, no other text.`,
                       skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
                       skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
                       failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
+                      ...(warningKeyList.length
+                        ? {
+                            warnings: warningKeyList,
+                            warnings_detail,
+                            warnings_v2,
+                          }
+                        : {}),
                     };
 
                 const result = await upsertItemWithPkCandidates(container, completionDoc);
