@@ -6007,6 +6007,8 @@ Return ONLY the JSON array, no other text.`,
                   );
                 }
 
+                const warningKeyList = Array.from(warningKeys);
+
                 await upsertCosmosImportSessionDoc({
                   sessionId,
                   requestId,
@@ -6017,6 +6019,13 @@ Return ONLY the JSON array, no other text.`,
                     skipped: saveResult.skipped,
                     failed: saveResult.failed,
                     completed_at: completionDoc.completed_at,
+                    ...(warningKeyList.length
+                      ? {
+                          warnings: warningKeyList,
+                          warnings_detail,
+                          warnings_v2,
+                        }
+                      : {}),
                   },
                 }).catch(() => null);
               }
