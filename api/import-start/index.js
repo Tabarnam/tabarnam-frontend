@@ -1860,6 +1860,18 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
 
     if (parseError) {
       console.warn(`[import-start] Failed to parse reviews for ${companyName}: ${parseError}`);
+
+      if (typeof warn === "function") {
+        warn({
+          stage: "reviews",
+          root_cause: "parse_error",
+          retryable: true,
+          upstream_status: null,
+          company_name: companyName,
+          website_url: websiteUrl,
+          message: `Parse error: ${parseError}`,
+        });
+      }
     }
 
     const candidates = (Array.isArray(reviews) ? reviews : [])
