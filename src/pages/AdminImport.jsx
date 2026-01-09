@@ -256,6 +256,7 @@ export default function AdminImport() {
   const [debugStatusLoading, setDebugStatusLoading] = useState(false);
 
   const [pollingSessionId, setPollingSessionId] = useState("");
+  const [statusRefreshSessionId, setStatusRefreshSessionId] = useState(null);
   const [sessionIdMismatchDebug, setSessionIdMismatchDebug] = useState(null);
 
   const [explainResponseText, setExplainResponseText] = useState("");
