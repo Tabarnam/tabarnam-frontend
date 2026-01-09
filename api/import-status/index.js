@@ -291,6 +291,13 @@ function toSavedCompanies(docs) {
     .filter(Boolean);
 }
 
+function inferReconcileStrategy(docs, sessionId) {
+  const list = Array.isArray(docs) ? docs : [];
+  if (list.some((d) => String(d?.import_session_id || "").trim() === sessionId)) return "import_session_id";
+  if (list.some((d) => String(d?.session_id || "").trim() === sessionId)) return "session_id";
+  return "created_at_fallback";
+}
+
 function normalizeErrorPayload(value) {
   if (!value) return null;
   if (typeof value === "string") return { message: value };
@@ -504,6 +511,10 @@ async function handler(req, context) {
     let saved = 0;
     let savedCompanies = [];
 
+    let reconciled = false;
+    let reconcile_strategy = null;
+    let reconciled_saved_ids = [];
+
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
       const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
@@ -551,6 +562,10 @@ async function handler(req, context) {
             const authoritativeIds = authoritativeDocs.map((d) => String(d?.id || "").trim()).filter(Boolean);
             const reason =
               String(primaryJob?.stage_beacon || "").trim() === "primary_early_exit" ? "saved_after_primary_async" : "post_primary_reconciliation";
+
+            reconciled = true;
+            reconcile_strategy = inferReconcileStrategy(authoritativeDocs, sessionId);
+            reconciled_saved_ids = authoritativeIds;
 
             saved = authoritativeDocs.length;
             savedCompanies = toSavedCompanies(authoritativeDocs);
@@ -684,6 +699,9 @@ async function handler(req, context) {
               : 0,
         items: status === "error" ? [] : Array.isArray(primaryJob?.companies) ? primaryJob.companies : [],
         saved,
+        reconciled,
+        reconcile_strategy,
+        reconciled_saved_ids,
         saved_companies: Array.isArray(savedCompanies) && savedCompanies.length > 0 ? savedCompanies : toSavedCompanies(Array.isArray(primaryJob?.companies) ? primaryJob.companies : []),
         primary_job: {
           id: primaryJob?.id || null,
@@ -912,6 +930,10 @@ async function handler(req, context) {
     let saved_companies = savedDocs.length > 0 ? toSavedCompanies(savedDocs) : toSavedCompanies(items);
     let completionReason = typeof completionDoc?.reason === "string" ? completionDoc.reason : null;
 
+    let reconciled = false;
+    let reconcile_strategy = null;
+    let reconciled_saved_ids = [];
+
     // Authoritative reconciliation for control-plane vs data-plane mismatch (retroactive).
     if (Number(saved || 0) === 0) {
       stageBeaconValues.status_reconcile_saved_probe = nowIso();
@@ -936,6 +958,10 @@ async function handler(req, context) {
 
         const reason =
           beaconForReason === "primary_early_exit" ? "saved_after_primary_async" : "post_primary_reconciliation";
+
+        reconciled = true;
+        reconcile_strategy = inferReconcileStrategy(authoritativeDocs, sessionId);
+        reconciled_saved_ids = authoritativeIds;
 
         saved = authoritativeDocs.length;
         savedIds = authoritativeIds;
@@ -1047,6 +1073,9 @@ async function handler(req, context) {
           error: errorOut,
           items,
           saved,
+          reconciled,
+          reconcile_strategy,
+          reconciled_saved_ids,
           saved_companies,
           lastCreatedAt,
           timedOut,
@@ -1091,6 +1120,9 @@ async function handler(req, context) {
           },
           items,
           saved,
+          reconciled,
+          reconcile_strategy,
+          reconciled_saved_ids,
           saved_companies,
           lastCreatedAt,
           report,
@@ -1122,6 +1154,9 @@ async function handler(req, context) {
         companies_count: saved,
         items,
         saved,
+        reconciled,
+        reconcile_strategy,
+        reconciled_saved_ids,
         saved_companies,
         lastCreatedAt,
         report,
