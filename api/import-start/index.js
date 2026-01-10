@@ -2541,7 +2541,7 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
           continue;
         }
 
-        if (result.type === "saved") {
+        if (result.type === "saved" || result.type === "updated") {
           saved++;
           if (result.id) saved_ids.push(result.id);
           continue;
