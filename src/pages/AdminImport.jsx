@@ -48,6 +48,44 @@ function normalizeItems(items) {
   return items.filter((it) => it && typeof it === "object");
 }
 
+function isMeaningfulString(raw) {
+  const s = asString(raw).trim();
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  if (lower === "unknown" || lower === "n/a" || lower === "na" || lower === "none") return false;
+  return true;
+}
+
+function hasMeaningfulSeedEnrichment(item) {
+  if (!item || typeof item !== "object") return false;
+
+  const industries = Array.isArray(item.industries) ? item.industries.filter(Boolean) : [];
+  const keywordsRaw = item.keywords ?? item.product_keywords ?? item.keyword_list;
+  const keywords = typeof keywordsRaw === "string" ? keywordsRaw.split(/\s*,\s*/g).filter(Boolean) : Array.isArray(keywordsRaw) ? keywordsRaw.filter(Boolean) : [];
+
+  const manufacturingLocations = Array.isArray(item.manufacturing_locations)
+    ? item.manufacturing_locations
+        .map((loc) => {
+          if (typeof loc === "string") return loc.trim();
+          if (loc && typeof loc === "object") return asString(loc.formatted || loc.address || loc.location).trim();
+          return "";
+        })
+        .filter(Boolean)
+    : [];
+
+  const curatedReviews = Array.isArray(item.curated_reviews) ? item.curated_reviews.filter((r) => r && typeof r === "object") : [];
+  const reviewCount = Number.isFinite(Number(item.review_count)) ? Number(item.review_count) : curatedReviews.length;
+
+  return (
+    industries.length > 0 ||
+    keywords.length > 0 ||
+    isMeaningfulString(item.headquarters_location) ||
+    manufacturingLocations.length > 0 ||
+    curatedReviews.length > 0 ||
+    reviewCount > 0
+  );
+}
+
 function isValidSeedCompany(item) {
   if (!item || typeof item !== "object") return false;
 
@@ -57,10 +95,18 @@ function isValidSeedCompany(item) {
   if (!companyName || !websiteUrl) return false;
 
   const source = asString(item.source).trim();
-  if (source && source !== "company_url_shortcut") return true;
 
-  // Accept explicit markers that the seed is known-good for resume.
-  if (item.candidate === true) return true;
+  // Critical: company_url_shortcut is NEVER a valid resume seed unless it already contains meaningful enrichment
+  // (keywords/industries/HQ/MFG/reviews) or carries an explicit seed_ready marker.
+  if (source === "company_url_shortcut") {
+    if (item.seed_ready === true) return true;
+    return hasMeaningfulSeedEnrichment(item);
+  }
+
+  // For any other source, accept.
+  if (source) return true;
+
+  // Fallback: accept explicit markers that the seed is known-good for resume.
   if (item.primary_candidate === true) return true;
   if (item.seed === true) return true;
   if (asString(item.source_stage).trim() === "primary") return true;
