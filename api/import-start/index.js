@@ -7304,11 +7304,13 @@ app.http("xai-smoke", {
   handler: xaiSmokeHandler,
 });
 
+const importStartSwaWrapper = require("../_importStartWrapper");
+
 app.http("import-start", {
   route: "import/start",
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: importStartHandler,
+  handler: async (req, context) => importStartSwaWrapper(req, context),
 });
 
 // Legacy alias: some clients still call /api/import-start.
@@ -7316,7 +7318,7 @@ app.http("import-start-legacy", {
   route: "import-start",
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler: importStartHandler,
+  handler: async (req, context) => importStartSwaWrapper(req, context),
 });
 
 module.exports = {

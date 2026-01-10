@@ -723,7 +723,7 @@ export default function AdminImport() {
     setDebugSessionId("");
 
     try {
-      const { res } = await apiFetchWithFallback(["/import-start", "/import/start"], {
+      const { res } = await apiFetchWithFallback(["/import/start", "/import-start"], {
         method: "POST",
         body: { query: q, limit },
       });
@@ -771,7 +771,7 @@ export default function AdminImport() {
     setDebugSessionId("");
 
     try {
-      const { res } = await apiFetchWithFallback(["/import-start?explain=1", "/import/start?explain=1"], {
+      const { res } = await apiFetchWithFallback(["/import/start?explain=1", "/import-start?explain=1"], {
         method: "POST",
         body: { query: q, limit },
       });
@@ -1127,7 +1127,7 @@ export default function AdminImport() {
         if (skipStages && skipStages.length > 0) params.set("skip_stages", skipStages.join(","));
         const qs = params.toString();
 
-        const paths = [`/import-start${qs ? `?${qs}` : ""}`, `/import/start${qs ? `?${qs}` : ""}`];
+        const paths = [`/import/start${qs ? `?${qs}` : ""}`, `/import-start${qs ? `?${qs}` : ""}`];
 
         const payload = {
           ...requestPayload,
