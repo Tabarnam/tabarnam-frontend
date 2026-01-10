@@ -259,7 +259,9 @@ function normalizeYamlKey(keyRaw) {
 }
 
 function looksLikeYamlKeyLine(line) {
-  return /^\s*[^:]{1,80}:/.test(line);
+  // Only treat "Key: value" lines as keys when the key looks like a human label.
+  // This prevents URLs like "https://..." from being mistaken as a key.
+  return /^\s*[A-Za-z][A-Za-z0-9 _-]{0,60}:\s*/.test(String(line || ""));
 }
 
 function parseYamlBlocks(text) {
@@ -279,7 +281,7 @@ function parseYamlBlocks(text) {
 
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
-      const m = line.match(/^\s*([^:]{1,80}):\s*(.*)$/);
+      const m = line.match(/^\s*([A-Za-z][A-Za-z0-9 _-]{0,60}):\s*(.*)$/);
 
       if (m) {
         const rawKey = normalizeYamlKey(m[1]);
