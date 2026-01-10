@@ -457,6 +457,7 @@ export default function AdminImport() {
                 typeof body?.early_exit_triggered === "boolean" ? body.early_exit_triggered : Boolean(r.early_exit_triggered),
               last_error: lastError || r.last_error || null,
               report: report || r.report || null,
+              resume_needed: resumeNeeded,
               start_error: nextStartError,
               start_error_details: nextStartErrorDetails,
               progress_error: nextProgressError,
@@ -1716,11 +1717,14 @@ export default function AdminImport() {
 
     const rawJobState = asString(activeRun.final_job_state || activeRun.job_state).trim().toLowerCase();
 
+    const resumeNeeded = Boolean(activeRun.resume_needed || activeRun.report?.session?.resume_needed);
+
     const inferredTerminal =
-      rawJobState === "complete" ||
-      rawJobState === "error" ||
-      Boolean(activeRun.completed || activeRun.timedOut || activeRun.stopped) ||
-      Boolean(activeRun.start_error || activeRun.progress_error);
+      !resumeNeeded &&
+      (rawJobState === "complete" ||
+        rawJobState === "error" ||
+        Boolean(activeRun.completed || activeRun.timedOut || activeRun.stopped) ||
+        Boolean(activeRun.start_error || activeRun.progress_error));
 
     const stageBeacon = asString(
       (inferredTerminal ? activeRun.final_stage_beacon : "") || activeRun.stage_beacon || activeRun.last_stage_beacon
