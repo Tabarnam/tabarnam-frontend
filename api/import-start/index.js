@@ -7118,14 +7118,22 @@ const importStartHandler = async (req, context) => {
 
     const error_stack_preview = toTextPreview(stackRedacted || "", 2000);
 
+    const error_id = makeErrorId();
+    const stage_beacon = typeof anyErr?.stage_beacon === "string" && anyErr.stage_beacon.trim() ? anyErr.stage_beacon.trim() : stage;
+
+    logImportStartErrorLine({ error_id, stage_beacon, root_cause: "server_exception", err: e });
+
     console.error("[import-start] Top-level handler error:", error_message);
 
     return json(
       {
         ok: false,
         stage,
+        stage_beacon,
         root_cause: "server_exception",
         retryable: true,
+        http_status: 500,
+        error_id,
         request_id: requestId,
         handler_version: handlerVersion,
         build_id: buildInfoSafe?.build_id || null,
