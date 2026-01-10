@@ -5643,6 +5643,8 @@ Output JSON only:
           }
 
           // Fetch editorial reviews for companies
+          let reviewStageCompleted = !shouldRunStage("reviews");
+
           if (shouldRunStage("reviews") && !shouldAbort()) {
             ensureStageBudgetOrThrow("reviews", "xai_reviews_fetch_start");
 
@@ -5652,7 +5654,7 @@ Output JSON only:
             mark("xai_reviews_fetch_start");
             setStage("fetchEditorialReviews");
             console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
-            let reviewStageCompleted = true;
+            reviewStageCompleted = true;
             for (let i = 0; i < enriched.length; i++) {
               if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
                 reviewStageCompleted = false;
