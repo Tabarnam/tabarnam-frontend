@@ -5509,7 +5509,7 @@ Output JSON only:
                   xaiKey,
                   timeout,
                   debugOutput ? debugOutput.reviews_debug : null,
-                  { setStage, postXaiJsonWithBudget },
+                  { setStage, postXaiJsonWithBudget: postXaiJsonWithBudgetRetry },
                   warnReviews
                 );
 
@@ -5980,7 +5980,7 @@ Return ONLY the JSON array, no other text.`,
                         xaiKey,
                         timeout,
                         debugOutput ? debugOutput.reviews_debug : null,
-                        { setStage, postXaiJsonWithBudget },
+                        { setStage, postXaiJsonWithBudget: postXaiJsonWithBudgetRetry },
                         warnReviews
                       );
 
