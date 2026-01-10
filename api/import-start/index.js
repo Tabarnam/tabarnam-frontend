@@ -6321,6 +6321,131 @@ Return ONLY the JSON array, no other text.`,
             );
           }
 
+          const computeEnrichmentMissingFields = (company) => {
+            const c = company && typeof company === "object" ? company : {};
+
+            const industries = Array.isArray(c.industries) ? c.industries : normalizeIndustries(c.industries);
+            const hasIndustries = industries.length > 0;
+
+            const productKeywordsRaw = c.product_keywords;
+            const keywordString =
+              typeof productKeywordsRaw === "string"
+                ? productKeywordsRaw.trim()
+                : Array.isArray(productKeywordsRaw)
+                  ? productKeywordsRaw.join(", ").trim()
+                  : "";
+            const keywordList = Array.isArray(c.keywords) ? c.keywords : [];
+            const hasKeywords = keywordString.length > 0 || keywordList.length > 0;
+
+            const hq = String(c.headquarters_location || "").trim();
+            const hasHq = Boolean(hq) || Boolean(c.hq_unknown && String(c.hq_unknown_reason || c.red_flag_reason || "").trim());
+
+            const mfgList = Array.isArray(c.manufacturing_locations) ? c.manufacturing_locations : [];
+            const hasMfg = mfgList.length > 0 || Boolean(c.mfg_unknown && String(c.mfg_unknown_reason || c.red_flag_reason || "").trim());
+
+            const hasReviewCount = typeof c.review_count === "number" && Number.isFinite(c.review_count);
+            const hasCuratedReviewsField = Array.isArray(c.curated_reviews);
+            const hasReviewCursorField = Boolean(c.review_cursor && typeof c.review_cursor === "object");
+
+            const missing = [];
+            if (!hasIndustries) missing.push("industries");
+            if (!hasKeywords) missing.push("product_keywords");
+            if (!hasHq) missing.push("headquarters_location");
+            if (!hasMfg) missing.push("manufacturing_locations");
+            if (!hasReviewCount || !hasCuratedReviewsField || !hasReviewCursorField) missing.push("reviews");
+
+            return missing;
+          };
+
+          const enrichmentMissingByCompany = (Array.isArray(enriched) ? enriched : [])
+            .map((c) => {
+              const missing = computeEnrichmentMissingFields(c);
+              if (missing.length === 0) return null;
+              return {
+                company_name: String(c?.company_name || c?.name || "").trim(),
+                website_url: String(c?.website_url || c?.url || "").trim(),
+                normalized_domain: String(c?.normalized_domain || "").trim(),
+                missing_fields: missing,
+              };
+            })
+            .filter(Boolean);
+
+          const needsResume =
+            !dryRunRequested &&
+            cosmosEnabled &&
+            enrichmentMissingByCompany.length > 0 &&
+            // If any enrichment stage was partial, we must resume.
+            (!keywordStageCompleted || !reviewStageCompleted || !geocodeStageCompleted || true);
+
+          if (needsResume) {
+            mark("enrichment_incomplete");
+
+            if (cosmosEnabled) {
+              try {
+                const container = getCompaniesCosmosContainer();
+                if (container) {
+                  const resumeDocId = `_import_resume_${sessionId}`;
+                  const nowResumeIso = new Date().toISOString();
+
+                  const resumeDoc = {
+                    id: resumeDocId,
+                    ...buildImportControlDocBase(sessionId),
+                    created_at: nowResumeIso,
+                    updated_at: nowResumeIso,
+                    request_id: requestId,
+                    status: "queued",
+                    missing_by_company: enrichmentMissingByCompany,
+                    keywords_stage_completed: Boolean(keywordStageCompleted),
+                    reviews_stage_completed: Boolean(reviewStageCompleted),
+                    location_stage_completed: Boolean(geocodeStageCompleted),
+                  };
+
+                  await upsertItemWithPkCandidates(container, resumeDoc).catch(() => null);
+                }
+
+                await upsertCosmosImportSessionDoc({
+                  sessionId,
+                  requestId,
+                  patch: {
+                    status: "running",
+                    stage_beacon: stage_beacon,
+                    saved: saveResult.saved,
+                    skipped: saveResult.skipped,
+                    failed: saveResult.failed,
+                    resume_needed: true,
+                    resume_updated_at: new Date().toISOString(),
+                  },
+                }).catch(() => null);
+              } catch {}
+            }
+
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                stage_beacon,
+                status: "running",
+                resume_needed: true,
+                missing_by_company: enrichmentMissingByCompany,
+                companies: enriched,
+                saved: saveResult.saved,
+                skipped: saveResult.skipped,
+                failed: saveResult.failed,
+                save_report: {
+                  saved: saveResult.saved,
+                  skipped: saveResult.skipped,
+                  failed: saveResult.failed,
+                  saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                  skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                  skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
+                  failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
+                },
+              },
+              200
+            );
+          }
+
           // Write a completion marker so import-progress knows this session is done
           if (cosmosEnabled) {
             try {
