@@ -729,6 +729,8 @@ async function handler(req, context) {
           readControlDoc(container, `_import_resume_${sessionId}`, sessionId),
         ]);
 
+        const domainMeta = deriveDomainAndCreatedAfter({ sessionDoc, acceptDoc });
+
         const completionSavedIds = Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [];
         const completionSaved = typeof completionDoc?.saved === "number" ? completionDoc.saved : null;
         const sessionSaved = typeof sessionDoc?.saved === "number" ? sessionDoc.saved : null;
@@ -742,18 +744,33 @@ async function handler(req, context) {
           stageBeaconValues.status_fetched_saved_companies = nowIso();
         }
 
+        // If the control doc only knows "saved" but not the saved_ids (or they weren't persisted yet),
+        // still return the saved company doc(s) so the UI run history row isn't blank.
+        if (Number(saved || 0) > 0 && (!Array.isArray(savedCompanyDocs) || savedCompanyDocs.length === 0)) {
+          stageBeaconValues.status_fetching_saved_companies_fallback = nowIso();
+          const fallbackDocs = await fetchRecentCompanies(container, {
+            sessionId,
+            take: Math.max(1, Math.min(200, Math.max(Number(saved) || 0, Number(take) || 10))),
+            normalizedDomain: domainMeta.normalizedDomain,
+            createdAfter: domainMeta.createdAfter,
+          }).catch(() => []);
+
+          if (Array.isArray(fallbackDocs) && fallbackDocs.length > 0) {
+            savedCompanyDocs = fallbackDocs;
+            savedCompanies = toSavedCompanies(fallbackDocs);
+            stageBeaconValues.status_fetched_saved_companies_fallback = nowIso();
+          }
+        }
+
         // Authoritative reconciliation: async primary runs can persist companies even when the completion/session report is stale.
         if (Number(saved || 0) === 0) {
           stageBeaconValues.status_reconcile_saved_probe = nowIso();
 
-          const sessionCreatedAt =
-            (typeof sessionDoc?.created_at === "string" && sessionDoc.created_at.trim() ? sessionDoc.created_at.trim() : "") ||
-            (typeof acceptDoc?.created_at === "string" && acceptDoc.created_at.trim() ? acceptDoc.created_at.trim() : "") ||
-            "";
-
           const authoritativeDocs = await fetchAuthoritativeSavedCompanies(container, {
             sessionId,
-            sessionCreatedAt,
+            sessionCreatedAt: domainMeta.sessionCreatedAt,
+            normalizedDomain: domainMeta.normalizedDomain,
+            createdAfter: domainMeta.createdAfter,
             limit: 200,
           }).catch(() => []);
 
@@ -1233,7 +1250,14 @@ async function handler(req, context) {
     const stopped = Boolean(stopDoc);
     const completed = Boolean(completionDoc);
 
-    const items = await fetchRecentCompanies(container, sessionId, take).catch(() => []);
+    const domainMeta = deriveDomainAndCreatedAfter({ sessionDoc, acceptDoc });
+
+    const items = await fetchRecentCompanies(container, {
+      sessionId,
+      take,
+      normalizedDomain: domainMeta.normalizedDomain,
+      createdAfter: domainMeta.createdAfter,
+    }).catch(() => []);
     let saved =
       (typeof completionDoc?.saved === "number" ? completionDoc.saved : null) ??
       (typeof sessionDoc?.saved === "number" ? sessionDoc.saved : null) ??
@@ -1252,14 +1276,11 @@ async function handler(req, context) {
     if (Number(saved || 0) === 0) {
       stageBeaconValues.status_reconcile_saved_probe = nowIso();
 
-      const sessionCreatedAt =
-        (typeof sessionDoc?.created_at === "string" && sessionDoc.created_at.trim() ? sessionDoc.created_at.trim() : "") ||
-        (typeof acceptDoc?.created_at === "string" && acceptDoc.created_at.trim() ? acceptDoc.created_at.trim() : "") ||
-        "";
-
       const authoritativeDocs = await fetchAuthoritativeSavedCompanies(container, {
         sessionId,
-        sessionCreatedAt,
+        sessionCreatedAt: domainMeta.sessionCreatedAt,
+        normalizedDomain: domainMeta.normalizedDomain,
+        createdAfter: domainMeta.createdAfter,
         limit: 200,
       }).catch(() => []);
 
