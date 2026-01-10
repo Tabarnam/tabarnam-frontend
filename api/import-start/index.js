@@ -5918,7 +5918,7 @@ Return ONLY the JSON array, no other text.`,
               if (deadlineBeforeExpand) return deadlineBeforeExpand;
 
               mark("xai_expand_fetch_start");
-              const expansionResponse = await postXaiJsonWithBudget({
+              const expansionResponse = await postXaiJsonWithBudgetRetry({
                 stageKey: "expand",
                 stageBeacon: "xai_expand_fetch_start",
                 body: JSON.stringify(expansionPayload),
