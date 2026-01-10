@@ -1316,7 +1316,7 @@ export default function AdminImport() {
             )
           );
           setActiveStatus("done");
-          toast.success("No companies found");
+          toast.success("No candidates from primary");
           return;
         }
 
@@ -1363,7 +1363,7 @@ export default function AdminImport() {
             )
           );
           setActiveStatus("done");
-          toast.success("No companies found");
+          toast.success("No candidates from primary");
           return;
         }
 
