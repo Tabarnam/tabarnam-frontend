@@ -807,7 +807,7 @@ test("/api/import/start?max_stage=primary does not mark session complete in /api
   );
 });
 
-test("/api/import/start rejects skip_stages=primary without seed when dry_run=false", async () => {
+test("/api/import/start rejects skip_stages=primary without seed companies", async () => {
   await withTempEnv(NO_NETWORK_ENV, async () => {
     const session_id = "44444444-5555-6666-7777-888888888888";
 
@@ -829,9 +829,10 @@ test("/api/import/start rejects skip_stages=primary without seed when dry_run=fa
 
     assert.equal(res.status, 200);
     assert.equal(body.ok, false);
+    assert.equal(body.stage, "import_start");
     assert.equal(body.session_id, session_id);
     assert.equal(body.root_cause, "missing_seed_companies");
     assert.equal(body.retryable, true);
-    assert.equal(body.message, "skip_stages includes primary but no companies seed was provided");
+    assert.equal(body.message, "skip_stages includes primary but no companies were provided");
   });
 });
