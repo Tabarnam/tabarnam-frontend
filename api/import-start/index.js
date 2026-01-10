@@ -6166,14 +6166,30 @@ Return ONLY the JSON array, no other text.`,
                       );
 
                       const nowReviewsIso = new Date().toISOString();
+
+                      const fetchOk = editorialReviews?._fetch_ok !== false;
+                      const fetchErrorCode = typeof editorialReviews?._fetch_error_code === "string" ? editorialReviews._fetch_error_code : null;
+                      const fetchErrorMsg = typeof editorialReviews?._fetch_error === "string" ? editorialReviews._fetch_error : null;
+
                       const curated = dedupeCuratedReviews(editorialReviews);
+                      const cursorExhausted = fetchOk && curated.length === 0;
 
                       enrichedExpansion[i] = {
                         ...companyForReviews,
                         curated_reviews: curated,
                         review_count: curated.length,
                         reviews_last_updated_at: nowReviewsIso,
-                        review_cursor: buildReviewCursor({ nowIso: nowReviewsIso, count: curated.length }),
+                        review_cursor: buildReviewCursor({
+                          nowIso: nowReviewsIso,
+                          count: curated.length,
+                          exhausted: cursorExhausted,
+                          last_error: !fetchOk
+                            ? {
+                                code: fetchErrorCode || "REVIEWS_FAILED",
+                                message: fetchErrorMsg || "Reviews fetch failed",
+                              }
+                            : null,
+                        }),
                       };
 
                       if (curated.length > 0) {
