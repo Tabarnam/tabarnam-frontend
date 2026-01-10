@@ -162,6 +162,7 @@ const IMPORT_LIMIT_MAX = 25;
 const IMPORT_LIMIT_DEFAULT = 1;
 
 const IMPORT_STAGE_BEACON_TO_ENGLISH = Object.freeze({
+  primary_enqueued: "Queued primary search",
   primary_search_started: "Searching for matching companies",
   primary_candidate_found: "Company candidate found",
   primary_expanding_candidates: "Expanding search for better matches",
