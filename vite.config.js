@@ -144,7 +144,7 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       proxy: {
         "/api": {
-          target: "http://127.0.0.1:7080", // local func core tools
+          target: API_TARGET,
           changeOrigin: true,
           secure: false,
           ws: true,
@@ -153,7 +153,7 @@ export default defineConfig(({ mode }) => {
           rewrite: (p) => p, // keep /api prefix because host.json uses routePrefix "api"
         },
         "/xapi": {
-          target: "http://127.0.0.1:7080", // local func core tools
+          target: API_TARGET,
           changeOrigin: true,
           secure: false,
           ws: true,

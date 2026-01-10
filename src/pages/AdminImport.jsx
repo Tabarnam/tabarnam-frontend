@@ -331,12 +331,18 @@ export default function AdminImport() {
         const lastError = body?.last_error || null;
         const report = body?.report && typeof body.report === "object" ? body.report : null;
 
+        const resumeNeeded = Boolean(body?.resume_needed || body?.resume?.needed || report?.session?.resume_needed);
+
         const completed = state === "complete" ? true : Boolean(body?.completed);
         const timedOut = Boolean(body?.timedOut);
         const stopped = state === "failed" ? true : Boolean(body?.stopped);
 
         const isTerminalError = state === "failed" || status === "error" || jobState === "error";
-        const isTerminalComplete = state === "complete" || status === "complete" || jobState === "complete" || completed;
+        const isTerminalComplete =
+          state === "complete" ||
+          status === "complete" ||
+          (!resumeNeeded && jobState === "complete") ||
+          (completed && !resumeNeeded);
 
         const lastErrorCode = asString(lastError?.code).trim();
         const primaryTimeoutLabel = formatDurationShort(lastError?.hard_timeout_ms);
@@ -451,6 +457,7 @@ export default function AdminImport() {
                 typeof body?.early_exit_triggered === "boolean" ? body.early_exit_triggered : Boolean(r.early_exit_triggered),
               last_error: lastError || r.last_error || null,
               report: report || r.report || null,
+              resume_needed: resumeNeeded,
               start_error: nextStartError,
               start_error_details: nextStartErrorDetails,
               progress_error: nextProgressError,
@@ -1710,11 +1717,14 @@ export default function AdminImport() {
 
     const rawJobState = asString(activeRun.final_job_state || activeRun.job_state).trim().toLowerCase();
 
+    const resumeNeeded = Boolean(activeRun.resume_needed || activeRun.report?.session?.resume_needed);
+
     const inferredTerminal =
-      rawJobState === "complete" ||
-      rawJobState === "error" ||
-      Boolean(activeRun.completed || activeRun.timedOut || activeRun.stopped) ||
-      Boolean(activeRun.start_error || activeRun.progress_error);
+      !resumeNeeded &&
+      (rawJobState === "complete" ||
+        rawJobState === "error" ||
+        Boolean(activeRun.completed || activeRun.timedOut || activeRun.stopped) ||
+        Boolean(activeRun.start_error || activeRun.progress_error));
 
     const stageBeacon = asString(
       (inferredTerminal ? activeRun.final_stage_beacon : "") || activeRun.stage_beacon || activeRun.last_stage_beacon
@@ -2460,6 +2470,23 @@ export default function AdminImport() {
                     const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
                     const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(r.saved ?? 0) || 0;
+
+                    const enrichmentMissingFields = (() => {
+                      const missing = new Set();
+                      for (const c of savedCompanies) {
+                        const fields = Array.isArray(c?.enrichment_health?.missing_fields)
+                          ? c.enrichment_health.missing_fields
+                          : Array.isArray(c?.enrichment_health?.missing)
+                            ? c.enrichment_health.missing
+                            : [];
+                        for (const f of fields) {
+                          const key = asString(f).trim();
+                          if (key) missing.add(key);
+                        }
+                      }
+                      return Array.from(missing);
+                    })();
+
                     const primaryCandidate =
                       savedCount > 0
                         ? primarySaved
@@ -2539,6 +2566,13 @@ export default function AdminImport() {
                               </span>
                             ) : null}
 
+                            {enrichmentMissingFields.length > 0 ? (
+                              <span className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-900">
+                                incomplete enrichment: {enrichmentMissingFields.slice(0, 3).join(", ")}
+                                {enrichmentMissingFields.length > 3 ? ` (+${enrichmentMissingFields.length - 3})` : ""}
+                              </span>
+                            ) : null}
+
                             {r.save_result?.ok === true ? (
                               <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-800">
                                 saved {Number(r.save_result.saved ?? 0) || 0}
@@ -2576,6 +2610,22 @@ export default function AdminImport() {
                         : "No company saved";
                       const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
 
+                      const enrichmentMissingFields = (() => {
+                        const missing = new Set();
+                        for (const c of savedCompanies) {
+                          const fields = Array.isArray(c?.enrichment_health?.missing_fields)
+                            ? c.enrichment_health.missing_fields
+                            : Array.isArray(c?.enrichment_health?.missing)
+                              ? c.enrichment_health.missing
+                              : [];
+                          for (const f of fields) {
+                            const key = asString(f).trim();
+                            if (key) missing.add(key);
+                          }
+                        }
+                        return Array.from(missing);
+                      })();
+
                       return (
                         <>
                           <div className="flex items-start justify-between gap-3">
@@ -2596,6 +2646,13 @@ export default function AdminImport() {
                             </div>
                             <div className="text-sm text-slate-700">Saved: {savedCount}</div>
                           </div>
+
+                          {enrichmentMissingFields.length > 0 ? (
+                            <div className="mt-2 text-sm text-amber-900">
+                              Enrichment incomplete: {enrichmentMissingFields.slice(0, 4).join(", ")}
+                              {enrichmentMissingFields.length > 4 ? ` (+${enrichmentMissingFields.length - 4})` : ""}
+                            </div>
+                          ) : null}
 
                           {companyId ? (
                             <div>

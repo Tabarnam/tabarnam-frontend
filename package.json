@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@azure/cosmos": "^4.7.0",
+    "@azure/functions": "^4.11.0",
+    "@azure/storage-blob": "^12.29.1",
     "@emotion/is-prop-valid": "^1.2.1",
     "@radix-ui/react-alert-dialog": "^1.0.5",
     "@radix-ui/react-avatar": "^1.0.3",
@@ -55,10 +57,12 @@
     "react-spinners": "^0.13.8",
     "react-table": "^7.8.0",
     "resend": "^2.0.0",
+    "sharp": "^0.34.5",
     "sonner": "^2.0.6",
     "styled-components": "^6.1.1",
     "tailwind-merge": "^1.14.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@babel/generator": "^7.27.0",

@@ -1671,16 +1671,18 @@ function dedupeCuratedReviews(reviews) {
   return out;
 }
 
-function buildReviewCursor({ nowIso, count }) {
+function buildReviewCursor({ nowIso, count, exhausted, last_error }) {
   const n = Math.max(0, Math.trunc(Number(count) || 0));
+  const exhaustedBool = typeof exhausted === "boolean" ? exhausted : false;
+  const errObj = last_error && typeof last_error === "object" ? last_error : last_error ? { message: String(last_error) } : null;
   return {
     source: "xai_reviews",
     last_offset: n,
     total_fetched: n,
-    exhausted: false,
+    exhausted: exhaustedBool,
     last_attempt_at: nowIso,
     last_success_at: nowIso,
-    last_error: null,
+    last_error: errObj,
   };
 }
 
@@ -1699,7 +1701,12 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugColl
         reason: "missing company_name or website_url",
       });
     }
-    return [];
+
+    const out = [];
+    out._fetch_ok = false;
+    out._fetch_error = "missing company_name or website_url";
+    out._fetch_error_code = "MISSING_COMPANY_INPUT";
+    return out;
   }
 
   const debug = {
@@ -2024,6 +2031,9 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
       debugCollector.push(debug);
     }
 
+    curated._fetch_ok = true;
+    curated._fetch_error = null;
+    curated._fetch_error_code = null;
     return curated;
   } catch (e) {
     if (e instanceof AcceptedResponseError) throw e;
@@ -2042,7 +2052,11 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
       });
     }
 
-    return [];
+    const out = [];
+    out._fetch_ok = false;
+    out._fetch_error = e?.message || String(e);
+    out._fetch_error_code = typeof e?.code === "string" && e.code.trim() ? e.code.trim() : "REVIEWS_EXCEPTION";
+    return out;
   }
 }
 
@@ -2265,32 +2279,49 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
                 ""
             );
 
-            // Check if company already exists
-            const existing = await findExistingCompany(container, normalizedDomain, companyName);
-            if (existing) {
-              console.log(`[import-start] Skipping duplicate company: ${companyName} (${normalizedDomain})`);
-              return {
-                type: "skipped",
-                index: companyIndex,
-                company_name: companyName,
-                duplicate_of_id: existing?.id || null,
-                duplicate_match_key: existing?.duplicate_match_key || null,
-                duplicate_match_value: existing?.duplicate_match_value || null,
-              };
-            }
-
             const finalNormalizedDomain =
               normalizedDomain && normalizedDomain !== "unknown" ? normalizedDomain : "unknown";
 
-            // Fetch + upload logo for the company
-            const companyId = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+            // If a stub company was saved earlier in the same session, we must UPDATE it (not skip)
+            // so enrichment fields get persisted atomically.
+            const existing = await findExistingCompany(container, normalizedDomain, companyName);
+            let existingDoc = null;
+            let shouldUpdateExisting = false;
+
+            if (existing && existing.id) {
+              existingDoc = await readItemWithPkCandidates(container, existing.id, {
+                id: existing.id,
+                normalized_domain: finalNormalizedDomain,
+                partition_key: finalNormalizedDomain,
+              }).catch(() => null);
+
+              const existingSessionId = String(existingDoc?.import_session_id || existingDoc?.session_id || "").trim();
+              shouldUpdateExisting = Boolean(existingSessionId && existingSessionId === sid);
+
+              if (!shouldUpdateExisting) {
+                console.log(`[import-start] Skipping duplicate company: ${companyName} (${normalizedDomain})`);
+                return {
+                  type: "skipped",
+                  index: companyIndex,
+                  company_name: companyName,
+                  duplicate_of_id: existing?.id || null,
+                  duplicate_match_key: existing?.duplicate_match_key || null,
+                  duplicate_match_value: existing?.duplicate_match_value || null,
+                };
+              }
+            }
+
+            // Fetch + upload logo for the company (uses existing blob if present)
+            const companyId = shouldUpdateExisting && existingDoc?.id
+              ? String(existingDoc.id)
+              : `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
             const logoImport = await fetchLogo({
               companyId,
               companyName,
               domain: finalNormalizedDomain,
               websiteUrl: company.website_url || company.canonical_url || company.url || "",
-              existingLogoUrl: company.logo_url || null,
+              existingLogoUrl: company.logo_url || existingDoc?.logo_url || null,
             });
 
             // Calculate default rating based on company data
@@ -2313,15 +2344,67 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               star5: { value: 0.0, notes: [] },
             };
 
+            const nowIso = new Date().toISOString();
+
+            const industriesNormalized = normalizeIndustries(company.industries);
+
+            const keywordsNormalized = normalizeProductKeywords(company?.keywords || company?.product_keywords, {
+              companyName,
+              websiteUrl: company.website_url || company.canonical_url || company.url || "",
+            }).slice(0, 25);
+
+            const productKeywordsString = keywordListToString(keywordsNormalized);
+
+            const headquartersLocation = String(company.headquarters_location || "").trim();
+
+            const manufacturingLocationsNormalized = Array.isArray(company.manufacturing_locations)
+              ? company.manufacturing_locations
+                  .map((loc) => {
+                    if (typeof loc === "string") return loc.trim();
+                    if (loc && typeof loc === "object") {
+                      return String(loc.formatted || loc.address || loc.location || "").trim();
+                    }
+                    return "";
+                  })
+                  .filter(Boolean)
+              : [];
+
+            const curatedReviewsNormalized = Array.isArray(company.curated_reviews)
+              ? company.curated_reviews.filter((r) => r && typeof r === "object")
+              : [];
+
+            const reviewCountNormalized = Number.isFinite(Number(company.review_count))
+              ? Number(company.review_count)
+              : curatedReviewsNormalized.length;
+
+            const reviewsLastUpdatedAt =
+              typeof company.reviews_last_updated_at === "string" && company.reviews_last_updated_at.trim()
+                ? company.reviews_last_updated_at.trim()
+                : nowIso;
+
+            const incomingCursor = company.review_cursor && typeof company.review_cursor === "object" ? company.review_cursor : null;
+            const cursorHasError = Boolean(incomingCursor?.last_error);
+            const cursorExhausted =
+              typeof incomingCursor?.exhausted === "boolean" ? incomingCursor.exhausted : !cursorHasError && reviewCountNormalized === 0;
+
+            const reviewCursorNormalized = incomingCursor
+              ? { ...incomingCursor, exhausted: cursorExhausted }
+              : buildReviewCursor({
+                  nowIso,
+                  count: reviewCountNormalized,
+                  exhausted: cursorExhausted,
+                  last_error: null,
+                });
+
             const doc = {
               id: companyId,
               company_name: companyName,
               name: company.name || companyName,
               url: company.url || company.website_url || company.canonical_url || "",
               website_url: company.website_url || company.canonical_url || company.url || "",
-              industries: company.industries || [],
-              product_keywords: company.product_keywords || "",
-              keywords: Array.isArray(company.keywords) ? company.keywords : [],
+              industries: industriesNormalized,
+              product_keywords: productKeywordsString,
+              keywords: keywordsNormalized,
               normalized_domain: finalNormalizedDomain,
               logo_url: logoImport.logo_url || null,
               logo_source_url: logoImport.logo_source_url || null,
@@ -2336,32 +2419,23 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               show_location_sources_to_users: Boolean(company.show_location_sources_to_users),
               hq_lat: company.hq_lat,
               hq_lng: company.hq_lng,
-              headquarters_location: company.headquarters_location || "",
+              headquarters_location: headquartersLocation,
+              hq_unknown: Boolean(company.hq_unknown),
+              hq_unknown_reason: String(company.hq_unknown_reason || "").trim(),
               headquarters_locations: company.headquarters_locations || [],
               headquarters: Array.isArray(company.headquarters)
                 ? company.headquarters
                 : Array.isArray(company.headquarters_locations)
                   ? company.headquarters_locations
                   : [],
-              manufacturing_locations: company.manufacturing_locations || [],
+              manufacturing_locations: manufacturingLocationsNormalized,
+              mfg_unknown: Boolean(company.mfg_unknown),
+              mfg_unknown_reason: String(company.mfg_unknown_reason || "").trim(),
               manufacturing_geocodes: Array.isArray(company.manufacturing_geocodes) ? company.manufacturing_geocodes : [],
-              curated_reviews: Array.isArray(company.curated_reviews) ? company.curated_reviews : [],
-              review_count: Number.isFinite(Number(company.review_count))
-                ? Number(company.review_count)
-                : Array.isArray(company.curated_reviews)
-                  ? company.curated_reviews.length
-                  : 0,
-              reviews_last_updated_at:
-                typeof company.reviews_last_updated_at === "string" && company.reviews_last_updated_at.trim()
-                  ? company.reviews_last_updated_at.trim()
-                  : null,
-              review_cursor:
-                company.review_cursor && typeof company.review_cursor === "object"
-                  ? company.review_cursor
-                  : buildReviewCursor({
-                      nowIso: new Date().toISOString(),
-                      count: Array.isArray(company.curated_reviews) ? company.curated_reviews.length : 0,
-                    }),
+              curated_reviews: curatedReviewsNormalized,
+              review_count: reviewCountNormalized,
+              reviews_last_updated_at: reviewsLastUpdatedAt,
+              review_cursor: reviewCursorNormalized,
               red_flag: Boolean(company.red_flag),
               red_flag_reason: company.red_flag_reason || "",
               location_confidence: company.location_confidence || "medium",
@@ -2374,8 +2448,11 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               import_session_id: sid,
               import_request_id: importRequestId,
               import_created_at: importCreatedAt,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
+              created_at:
+                shouldUpdateExisting && existingDoc && typeof existingDoc.created_at === "string" && existingDoc.created_at.trim()
+                  ? existingDoc.created_at.trim()
+                  : nowIso,
+              updated_at: nowIso,
             };
 
             try {
@@ -2391,6 +2468,28 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
                 index: companyIndex,
                 company_name: companyName,
                 error: "Missing company_name and url",
+              };
+            }
+
+            if (shouldUpdateExisting && existingDoc) {
+              const mergedDoc = {
+                ...existingDoc,
+                ...doc,
+                id: String(existingDoc.id),
+                normalized_domain: String(existingDoc.normalized_domain || doc.normalized_domain || finalNormalizedDomain),
+              };
+
+              const upserted = await upsertItemWithPkCandidates(container, mergedDoc);
+              if (!upserted.ok) {
+                throw new Error(upserted.error || "upsert_failed");
+              }
+
+              return {
+                type: "updated",
+                index: companyIndex,
+                id: String(existingDoc.id),
+                company_name: companyName,
+                normalized_domain: finalNormalizedDomain,
               };
             }
 
@@ -2442,7 +2541,7 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
           continue;
         }
 
-        if (result.type === "saved") {
+        if (result.type === "saved" || result.type === "updated") {
           saved++;
           if (result.id) saved_ids.push(result.id);
           continue;
@@ -3053,17 +3152,19 @@ const importStartHandlerInner = async (req, context) => {
       const skipsPrimaryWithoutSeed = skipStages.has("primary") && providedCompanies.length === 0;
 
       if (!dryRunRequested && skipsPrimaryWithoutSeed) {
+        // Guardrail: never proceed past primary unless we have a seed companies list.
+        // Return HTTP 200 so callers treat this as a retryable state machine failure (not a hard crash).
         return jsonWithRequestId(
           {
             ok: false,
             session_id: sessionId,
             request_id: requestId,
             stage_beacon,
-            root_cause: "skip_primary_without_seed",
-            retryable: false,
+            root_cause: "missing_seed_companies",
+            retryable: true,
             message: "skip_stages includes primary but no companies seed was provided",
           },
-          400
+          200
         );
       }
 
@@ -3995,6 +4096,57 @@ const importStartHandlerInner = async (req, context) => {
 
             throw e;
           }
+        };
+
+        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+        const STAGE_RETRY_BACKOFF_MS = [0, 2000, 5000, 10000];
+
+        const shouldRetryUpstreamStatus = (status) => {
+          const s = Number(status);
+          if (!Number.isFinite(s)) return true;
+          if (s === 408 || s === 421 || s === 429) return true;
+          return s >= 500 && s <= 599;
+        };
+
+        const postXaiJsonWithBudgetRetry = async ({ stageKey, stageBeacon, body, stageCapMsOverride }) => {
+          const attempts = STAGE_RETRY_BACKOFF_MS.length;
+
+          for (let attempt = 0; attempt < attempts; attempt += 1) {
+            const delayMs = STAGE_RETRY_BACKOFF_MS[attempt] || 0;
+            if (delayMs > 0) {
+              const remaining = getRemainingMs();
+              if (remaining < delayMs + DEADLINE_SAFETY_BUFFER_MS) {
+                // Not enough budget to wait and retry.
+                break;
+              }
+              await sleep(delayMs);
+            }
+
+            try {
+              const res = await postXaiJsonWithBudget({ stageKey, stageBeacon, body, stageCapMsOverride });
+
+              if (res && typeof res.status === "number" && shouldRetryUpstreamStatus(res.status) && attempt < attempts - 1) {
+                continue;
+              }
+
+              return res;
+            } catch (e) {
+              if (e instanceof AcceptedResponseError) throw e;
+
+              const code = String(e?.code || "").toUpperCase();
+              const retryable = code === "UPSTREAM_TIMEOUT" || code === "INSUFFICIENT_TIME_FOR_FETCH";
+
+              if (retryable && attempt < attempts - 1) {
+                continue;
+              }
+
+              throw e;
+            }
+          }
+
+          // Fall back to a final attempt (will throw on failure).
+          return await postXaiJsonWithBudget({ stageKey, stageBeacon, body, stageCapMsOverride });
         };
 
         // Early check: if import was already stopped, return immediately
@@ -5130,7 +5282,7 @@ Output JSON only:
             };
 
             console.log(`[import-start] Calling XAI API (keywords) at: ${toHostPathOnlyForLog(xaiUrl)}`);
-            const res = await postXaiJsonWithBudget({
+            const res = await postXaiJsonWithBudgetRetry({
               stageKey: "keywords",
               stageBeacon: "xai_keywords_fetch_start",
               body: JSON.stringify(payload),
@@ -5156,6 +5308,62 @@ Output JSON only:
               prompt,
               raw_response: text.length > 20000 ? text.slice(0, 20000) : text,
               keywords,
+            };
+          }
+
+          async function generateIndustries(company, { timeoutMs }) {
+            const companyName = String(company?.company_name || company?.name || "").trim();
+            const websiteUrl = String(company?.website_url || company?.url || "").trim();
+
+            const keywordText = String(company?.product_keywords || "").trim();
+
+            const prompt = `SYSTEM (INDUSTRIES)
+You are classifying a company into a small set of industries for search filtering.
+Company:
+• Name: ${companyName}
+• Website: ${websiteUrl}
+• Products: ${keywordText}
+Rules:
+• Output ONLY valid JSON with a single field: "industries".
+• "industries" must be an array of 1 to 4 short industry names.
+• Use commonly understood industries (e.g., "Textiles", "Apparel", "Industrial Equipment", "Electronics", "Food & Beverage").
+• Do NOT include locations.
+Output JSON only:
+{ "industries": ["..."] }`;
+
+            const payload = {
+              model: "grok-4-latest",
+              messages: [
+                { role: "system", content: XAI_SYSTEM_PROMPT },
+                { role: "user", content: prompt },
+              ],
+              temperature: 0.1,
+              stream: false,
+            };
+
+            const res = await postXaiJsonWithBudgetRetry({
+              stageKey: "keywords",
+              stageBeacon: "xai_industries_fetch_start",
+              body: JSON.stringify(payload),
+              stageCapMsOverride: timeoutMs,
+            });
+
+            const text = res?.data?.choices?.[0]?.message?.content || "";
+
+            let obj = null;
+            try {
+              const match = text.match(/\{[\s\S]*\}/);
+              if (match) obj = JSON.parse(match[0]);
+            } catch {
+              obj = null;
+            }
+
+            const industries = normalizeIndustries(obj?.industries).slice(0, 6);
+
+            return {
+              prompt,
+              raw_response: text.length > 20000 ? text.slice(0, 20000) : text,
+              industries,
             };
           }
 
@@ -5201,6 +5409,46 @@ Output JSON only:
 
             company.keywords = finalList;
             company.product_keywords = keywordListToString(finalList);
+
+            // Industries are required for a "complete enough" profile. If missing, infer them.
+            const existingIndustries = normalizeIndustries(company?.industries);
+            let industriesFinal = existingIndustries;
+
+            if (industriesFinal.length === 0 && companyName && websiteUrl) {
+              try {
+                const inferred = await generateIndustries(company, { timeoutMs: Math.min(timeout, 15000) });
+                industriesFinal = normalizeIndustries(inferred.industries);
+
+                if (debugOutput) {
+                  debugOutput.keywords_debug.push({
+                    company_name: companyName,
+                    website_url: websiteUrl,
+                    industries_generated: true,
+                    industries: industriesFinal,
+                    industries_prompt: inferred.prompt,
+                    industries_raw_response: inferred.raw_response,
+                  });
+                }
+              } catch (e) {
+                if (e instanceof AcceptedResponseError) throw e;
+                if (debugOutput) {
+                  debugOutput.keywords_debug.push({
+                    company_name: companyName,
+                    website_url: websiteUrl,
+                    industries_generated: true,
+                    industries: [],
+                    industries_error: e?.message || String(e),
+                  });
+                }
+              }
+            }
+
+            if (industriesFinal.length === 0) {
+              industriesFinal = ["Unknown"];
+              company.industries_unknown = true;
+            }
+
+            company.industries = industriesFinal;
 
             debugEntry.final_keywords = finalList;
             debugEntry.final_count = finalList.length;
@@ -5256,13 +5504,15 @@ Output JSON only:
           const deadlineBeforeKeywords = checkDeadlineOrReturn("xai_keywords_fetch_start", "keywords");
           if (deadlineBeforeKeywords) return deadlineBeforeKeywords;
 
+          let keywordStageCompleted = !shouldRunStage("keywords");
+
           if (shouldRunStage("keywords")) {
             ensureStageBudgetOrThrow("keywords", "xai_keywords_fetch_start");
             mark("xai_keywords_fetch_start");
             setStage("generateKeywords");
 
             const keywordsConcurrency = 4;
-            let keywordStageCompleted = true;
+            keywordStageCompleted = true;
             for (let i = 0; i < enriched.length; i += keywordsConcurrency) {
               if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
                 keywordStageCompleted = false;
@@ -5344,6 +5594,8 @@ Output JSON only:
           }
 
           // Geocode and persist per-location coordinates (HQ + manufacturing)
+          let geocodeStageCompleted = !shouldRunStage("location");
+
           if (shouldRunStage("location")) {
             ensureStageBudgetOrThrow("location", "xai_location_geocode_start");
 
@@ -5354,7 +5606,7 @@ Output JSON only:
             setStage("geocodeLocations");
             console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
 
-            let geocodeStageCompleted = true;
+            geocodeStageCompleted = true;
             for (let i = 0; i < enriched.length; i++) {
               if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
                 geocodeStageCompleted = false;
@@ -5393,6 +5645,8 @@ Output JSON only:
           }
 
           // Fetch editorial reviews for companies
+          let reviewStageCompleted = !shouldRunStage("reviews");
+
           if (shouldRunStage("reviews") && !shouldAbort()) {
             ensureStageBudgetOrThrow("reviews", "xai_reviews_fetch_start");
 
@@ -5402,7 +5656,7 @@ Output JSON only:
             mark("xai_reviews_fetch_start");
             setStage("fetchEditorialReviews");
             console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
-            let reviewStageCompleted = true;
+            reviewStageCompleted = true;
             for (let i = 0; i < enriched.length; i++) {
               if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
                 reviewStageCompleted = false;
@@ -5442,19 +5696,35 @@ Output JSON only:
                   xaiKey,
                   timeout,
                   debugOutput ? debugOutput.reviews_debug : null,
-                  { setStage, postXaiJsonWithBudget },
+                  { setStage, postXaiJsonWithBudget: postXaiJsonWithBudgetRetry },
                   warnReviews
                 );
 
                 const nowReviewsIso = new Date().toISOString();
+
+                const fetchOk = editorialReviews?._fetch_ok !== false;
+                const fetchErrorCode = typeof editorialReviews?._fetch_error_code === "string" ? editorialReviews._fetch_error_code : null;
+                const fetchErrorMsg = typeof editorialReviews?._fetch_error === "string" ? editorialReviews._fetch_error : null;
+
                 const curated = dedupeCuratedReviews(editorialReviews);
+                const cursorExhausted = fetchOk && curated.length === 0;
 
                 enriched[i] = {
                   ...companyForReviews,
                   curated_reviews: curated,
                   review_count: curated.length,
                   reviews_last_updated_at: nowReviewsIso,
-                  review_cursor: buildReviewCursor({ nowIso: nowReviewsIso, count: curated.length }),
+                  review_cursor: buildReviewCursor({
+                    nowIso: nowReviewsIso,
+                    count: curated.length,
+                    exhausted: cursorExhausted,
+                    last_error: !fetchOk
+                      ? {
+                          code: fetchErrorCode || "REVIEWS_FAILED",
+                          message: fetchErrorMsg || "Reviews fetch failed",
+                        }
+                      : null,
+                  }),
                 };
 
                 if (curated.length > 0) {
@@ -5469,7 +5739,15 @@ Output JSON only:
                   curated_reviews: [],
                   review_count: 0,
                   reviews_last_updated_at: nowReviewsIso,
-                  review_cursor: buildReviewCursor({ nowIso: nowReviewsIso, count: 0 }),
+                  review_cursor: buildReviewCursor({
+                    nowIso: nowReviewsIso,
+                    count: 0,
+                    exhausted: false,
+                    last_error: {
+                      code: "MISSING_COMPANY_INPUT",
+                      message: "Missing company_name or website_url",
+                    },
+                  }),
                 };
               }
             }
@@ -5609,7 +5887,7 @@ Return ONLY the JSON array, no other text.`,
               if (deadlineBeforeLocationRefinement) return deadlineBeforeLocationRefinement;
 
               mark("xai_location_refinement_fetch_start");
-              const refinementResponse = await postXaiJsonWithBudget({
+              const refinementResponse = await postXaiJsonWithBudgetRetry({
                 stageKey: "location",
                 stageBeacon: "xai_location_refinement_fetch_start",
                 body: JSON.stringify(refinementPayload),
@@ -5737,6 +6015,36 @@ Return ONLY the JSON array, no other text.`,
             );
           }
 
+          if (shouldRunStage("location") && geocodeStageCompleted) {
+            for (let i = 0; i < enriched.length; i += 1) {
+              const c = enriched[i];
+
+              const hq = String(c?.headquarters_location || "").trim();
+              const mfgList = Array.isArray(c?.manufacturing_locations) ? c.manufacturing_locations : [];
+              const hasMfg = mfgList.length > 0;
+
+              if (!hq && !c?.hq_unknown) {
+                enriched[i] = {
+                  ...c,
+                  hq_unknown: true,
+                  hq_unknown_reason: String(c?.hq_unknown_reason || "not_found_after_location_enrichment"),
+                  red_flag_reason: String(c?.red_flag_reason || "HQ not found after location enrichment").trim(),
+                };
+              }
+
+              if (!hasMfg && !c?.mfg_unknown) {
+                enriched[i] = {
+                  ...(enriched[i] || c),
+                  mfg_unknown: true,
+                  mfg_unknown_reason: String(c?.mfg_unknown_reason || "not_found_after_location_enrichment"),
+                  red_flag_reason: String((enriched[i] || c)?.red_flag_reason || "Manufacturing location not found after location enrichment").trim(),
+                };
+              }
+            }
+
+            enrichedForCounts = enriched;
+          }
+
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
 
           if (!dryRunRequested && enriched.length > 0 && cosmosEnabled) {
@@ -5827,7 +6135,7 @@ Return ONLY the JSON array, no other text.`,
               if (deadlineBeforeExpand) return deadlineBeforeExpand;
 
               mark("xai_expand_fetch_start");
-              const expansionResponse = await postXaiJsonWithBudget({
+              const expansionResponse = await postXaiJsonWithBudgetRetry({
                 stageKey: "expand",
                 stageBeacon: "xai_expand_fetch_start",
                 body: JSON.stringify(expansionPayload),
@@ -5889,19 +6197,35 @@ Return ONLY the JSON array, no other text.`,
                         xaiKey,
                         timeout,
                         debugOutput ? debugOutput.reviews_debug : null,
-                        { setStage, postXaiJsonWithBudget },
+                        { setStage, postXaiJsonWithBudget: postXaiJsonWithBudgetRetry },
                         warnReviews
                       );
 
                       const nowReviewsIso = new Date().toISOString();
+
+                      const fetchOk = editorialReviews?._fetch_ok !== false;
+                      const fetchErrorCode = typeof editorialReviews?._fetch_error_code === "string" ? editorialReviews._fetch_error_code : null;
+                      const fetchErrorMsg = typeof editorialReviews?._fetch_error === "string" ? editorialReviews._fetch_error : null;
+
                       const curated = dedupeCuratedReviews(editorialReviews);
+                      const cursorExhausted = fetchOk && curated.length === 0;
 
                       enrichedExpansion[i] = {
                         ...companyForReviews,
                         curated_reviews: curated,
                         review_count: curated.length,
                         reviews_last_updated_at: nowReviewsIso,
-                        review_cursor: buildReviewCursor({ nowIso: nowReviewsIso, count: curated.length }),
+                        review_cursor: buildReviewCursor({
+                          nowIso: nowReviewsIso,
+                          count: curated.length,
+                          exhausted: cursorExhausted,
+                          last_error: !fetchOk
+                            ? {
+                                code: fetchErrorCode || "REVIEWS_FAILED",
+                                message: fetchErrorMsg || "Reviews fetch failed",
+                              }
+                            : null,
+                        }),
                       };
 
                       if (curated.length > 0) {
@@ -5916,7 +6240,15 @@ Return ONLY the JSON array, no other text.`,
                         curated_reviews: [],
                         review_count: 0,
                         reviews_last_updated_at: nowReviewsIso,
-                        review_cursor: buildReviewCursor({ nowIso: nowReviewsIso, count: 0 }),
+                        review_cursor: buildReviewCursor({
+                          nowIso: nowReviewsIso,
+                          count: 0,
+                          exhausted: false,
+                          last_error: {
+                            code: "MISSING_COMPANY_INPUT",
+                            message: "Missing company_name or website_url",
+                          },
+                        }),
                       };
                     }
                   }
@@ -5983,6 +6315,126 @@ Return ONLY the JSON array, no other text.`,
                   timedOut: timedOut,
                   elapsedMs: elapsed,
                   cosmos_skipped: true,
+                },
+              },
+              200
+            );
+          }
+
+          const computeEnrichmentMissingFields = (company) => {
+            const c = company && typeof company === "object" ? company : {};
+
+            const industries = Array.isArray(c.industries) ? c.industries : normalizeIndustries(c.industries);
+            const hasIndustries = industries.length > 0;
+
+            const productKeywordsRaw = c.product_keywords;
+            const keywordString =
+              typeof productKeywordsRaw === "string"
+                ? productKeywordsRaw.trim()
+                : Array.isArray(productKeywordsRaw)
+                  ? productKeywordsRaw.join(", ").trim()
+                  : "";
+            const keywordList = Array.isArray(c.keywords) ? c.keywords : [];
+            const hasKeywords = keywordString.length > 0 || keywordList.length > 0;
+
+            const hq = String(c.headquarters_location || "").trim();
+            const hasHq = Boolean(hq) || Boolean(c.hq_unknown && String(c.hq_unknown_reason || c.red_flag_reason || "").trim());
+
+            const mfgList = Array.isArray(c.manufacturing_locations) ? c.manufacturing_locations : [];
+            const hasMfg = mfgList.length > 0 || Boolean(c.mfg_unknown && String(c.mfg_unknown_reason || c.red_flag_reason || "").trim());
+
+            const hasReviewCount = typeof c.review_count === "number" && Number.isFinite(c.review_count);
+            const hasCuratedReviewsField = Array.isArray(c.curated_reviews);
+            const hasReviewCursorField = Boolean(c.review_cursor && typeof c.review_cursor === "object");
+
+            const missing = [];
+            if (!hasIndustries) missing.push("industries");
+            if (!hasKeywords) missing.push("product_keywords");
+            if (!hasHq) missing.push("headquarters_location");
+            if (!hasMfg) missing.push("manufacturing_locations");
+            if (!hasReviewCount || !hasCuratedReviewsField || !hasReviewCursorField) missing.push("reviews");
+
+            return missing;
+          };
+
+          const enrichmentMissingByCompany = (Array.isArray(enriched) ? enriched : [])
+            .map((c) => {
+              const missing = computeEnrichmentMissingFields(c);
+              if (missing.length === 0) return null;
+              return {
+                company_name: String(c?.company_name || c?.name || "").trim(),
+                website_url: String(c?.website_url || c?.url || "").trim(),
+                normalized_domain: String(c?.normalized_domain || "").trim(),
+                missing_fields: missing,
+              };
+            })
+            .filter(Boolean);
+
+          const needsResume = !dryRunRequested && cosmosEnabled && enrichmentMissingByCompany.length > 0;
+
+          if (needsResume) {
+            mark("enrichment_incomplete");
+
+            if (cosmosEnabled) {
+              try {
+                const container = getCompaniesCosmosContainer();
+                if (container) {
+                  const resumeDocId = `_import_resume_${sessionId}`;
+                  const nowResumeIso = new Date().toISOString();
+
+                  const resumeDoc = {
+                    id: resumeDocId,
+                    ...buildImportControlDocBase(sessionId),
+                    created_at: nowResumeIso,
+                    updated_at: nowResumeIso,
+                    request_id: requestId,
+                    status: "queued",
+                    missing_by_company: enrichmentMissingByCompany,
+                    keywords_stage_completed: Boolean(keywordStageCompleted),
+                    reviews_stage_completed: Boolean(reviewStageCompleted),
+                    location_stage_completed: Boolean(geocodeStageCompleted),
+                  };
+
+                  await upsertItemWithPkCandidates(container, resumeDoc).catch(() => null);
+                }
+
+                await upsertCosmosImportSessionDoc({
+                  sessionId,
+                  requestId,
+                  patch: {
+                    status: "running",
+                    stage_beacon: stage_beacon,
+                    saved: saveResult.saved,
+                    skipped: saveResult.skipped,
+                    failed: saveResult.failed,
+                    resume_needed: true,
+                    resume_updated_at: new Date().toISOString(),
+                  },
+                }).catch(() => null);
+              } catch {}
+            }
+
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                stage_beacon,
+                status: "running",
+                resume_needed: true,
+                missing_by_company: enrichmentMissingByCompany,
+                companies: enriched,
+                saved: saveResult.saved,
+                skipped: saveResult.skipped,
+                failed: saveResult.failed,
+                save_report: {
+                  saved: saveResult.saved,
+                  skipped: saveResult.skipped,
+                  failed: saveResult.failed,
+                  saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                  skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                  skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
+                  failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
                 },
               },
               200
