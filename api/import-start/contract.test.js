@@ -1,5 +1,24 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+
+// These contract tests exercise very chatty handlers. Keep output readable unless explicitly requested.
+const __originalConsole = {
+  log: console.log,
+  warn: console.warn,
+  error: console.error,
+};
+
+if (process.env.TEST_VERBOSE !== "1") {
+  console.log = () => {};
+  console.warn = () => {};
+  console.error = () => {};
+
+  process.on("exit", () => {
+    console.log = __originalConsole.log;
+    console.warn = __originalConsole.warn;
+    console.error = __originalConsole.error;
+  });
+}
 const path = require("node:path");
 const { test } = require("node:test");
 
