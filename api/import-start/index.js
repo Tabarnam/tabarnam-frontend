@@ -2321,7 +2321,7 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               companyName,
               domain: finalNormalizedDomain,
               websiteUrl: company.website_url || company.canonical_url || company.url || "",
-              existingLogoUrl: company.logo_url || null,
+              existingLogoUrl: company.logo_url || existingDoc?.logo_url || null,
             });
 
             // Calculate default rating based on company data
