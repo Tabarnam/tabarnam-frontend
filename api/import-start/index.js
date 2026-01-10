@@ -5325,6 +5325,46 @@ Output JSON only:
             company.keywords = finalList;
             company.product_keywords = keywordListToString(finalList);
 
+            // Industries are required for a "complete enough" profile. If missing, infer them.
+            const existingIndustries = normalizeIndustries(company?.industries);
+            let industriesFinal = existingIndustries;
+
+            if (industriesFinal.length === 0 && companyName && websiteUrl) {
+              try {
+                const inferred = await generateIndustries(company, { timeoutMs: Math.min(timeout, 15000) });
+                industriesFinal = normalizeIndustries(inferred.industries);
+
+                if (debugOutput) {
+                  debugOutput.keywords_debug.push({
+                    company_name: companyName,
+                    website_url: websiteUrl,
+                    industries_generated: true,
+                    industries: industriesFinal,
+                    industries_prompt: inferred.prompt,
+                    industries_raw_response: inferred.raw_response,
+                  });
+                }
+              } catch (e) {
+                if (e instanceof AcceptedResponseError) throw e;
+                if (debugOutput) {
+                  debugOutput.keywords_debug.push({
+                    company_name: companyName,
+                    website_url: websiteUrl,
+                    industries_generated: true,
+                    industries: [],
+                    industries_error: e?.message || String(e),
+                  });
+                }
+              }
+            }
+
+            if (industriesFinal.length === 0) {
+              industriesFinal = ["Unknown"];
+              company.industries_unknown = true;
+            }
+
+            company.industries = industriesFinal;
+
             debugEntry.final_keywords = finalList;
             debugEntry.final_count = finalList.length;
 
