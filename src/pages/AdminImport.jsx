@@ -232,8 +232,6 @@ export default function AdminImport() {
   const [location, setLocation] = useState("");
   const [limitInput, setLimitInput] = useState(String(IMPORT_LIMIT_DEFAULT));
 
-  const [importMaxStage, setImportMaxStage] = useState("expand");
-  const [importDryRunEnabled, setImportDryRunEnabled] = useState(false);
 
   const importConfigured = Boolean(API_BASE);
 
@@ -623,33 +621,21 @@ export default function AdminImport() {
   }, [isUrlLikeQuery, queryTypes]);
 
   const effectiveImportConfig = useMemo(() => {
-    const maxStage = asString(importMaxStage).trim() || "expand";
-    // Guardrail: never request skip_stages=primary unless we are resuming with an explicit companies seed.
-    // (The resume call is driven by /api/import/status once candidates exist.)
+    // P0 safety guard: the *initial* start import request must never skip primary, and must always be a full "expand" run.
+    // The app will only send skip_stages=primary on the resume call, and only when it includes seeded companies.
+    const maxStage = "expand";
     const skipStages = [];
-    const dryRun = Boolean(importDryRunEnabled);
-
-    const pipeline =
-      maxStage === "expand"
-        ? "primary → keywords → reviews → location → save → expand"
-        : maxStage === "primary"
-          ? "primary (candidate fetch only)"
-          : "primary → keywords → reviews → location → save";
-
-    const overrides = [];
-    if (skipStages.length > 0) overrides.push(`Skip: ${skipStages.join(", ")}`);
-    if (maxStage && maxStage !== "expand") overrides.push(`Max stage: ${maxStage}`);
-    if (dryRun) overrides.push("Dry run");
+    const dryRun = false;
 
     return {
-      pipeline,
-      overridesLabel: overrides.length > 0 ? overrides.join(" · ") : "None",
+      pipeline: "primary → keywords → reviews → location → save → expand",
+      overridesLabel: "None",
       maxStage,
       skipStages,
       dryRun,
-      persistBlocked: !dryRun && Boolean(maxStage && maxStage !== "expand"),
+      persistBlocked: false,
     };
-  }, [importDryRunEnabled, importMaxStage]);
+  }, []);
 
   const startDebugImport = useCallback(async () => {
     const q = debugQuery.trim();
@@ -840,9 +826,9 @@ export default function AdminImport() {
     startFetchAbortRef.current = abort;
 
     try {
-      const pipelineMaxStage = asString(importMaxStage).trim() || "expand";
+      const pipelineMaxStage = "expand";
       const baseSkipStages = [];
-      const dryRun = forceDryRun || importDryRunEnabled;
+      const dryRun = Boolean(forceDryRun);
 
       const requestPayload = {
         session_id: uiSessionIdBefore,
@@ -1168,30 +1154,25 @@ export default function AdminImport() {
 
           if (isFailure) return { kind: "failed", body };
 
-          const hasCandidates = items.length > 0 || companiesCount > 0;
+          const hasSeedCompanies = items.length > 0;
           const terminalComplete = completed || jobState === "complete" || primaryJobState === "complete";
 
-          if (hasCandidates) return { kind: "ready", body };
+          if (hasSeedCompanies) return { kind: "ready", body };
 
-          // Important: never resume the pipeline with skip_stages=["primary"] unless we have a seed.
-          // If primary is terminal but still empty, surface a clear failure.
+          // Important: never resume the pipeline with skip_stages=["primary"] unless we have a seed list.
+          // If primary finishes with 0 candidates, treat it as a clean terminal success (saved: 0), not an error.
           if (terminalComplete) {
             return {
-              kind: "failed",
+              kind: "no_candidates",
               body: {
-                ...(body && typeof body === "object" ? body : {}),
-                ok: false,
-                status: "error",
-                state: "failed",
+                ok: true,
+                status: "complete",
+                state: "complete",
                 stage_beacon: stage === "primary" ? "no_candidates_found" : `stage_${stage}_no_candidates`,
-                reason: stage === "primary" ? "primary_missing_companies" : "stage_missing_companies",
-                last_error: {
-                  code: stage === "primary" ? "no_candidates_found" : "stage_no_candidates",
-                  message:
-                    stage === "primary"
-                      ? "Primary completed but returned no candidates."
-                      : `Stage \"${stage}\" completed but returned no candidates.`,
-                },
+                companies_count: 0,
+                items: [],
+                saved: 0,
+                message: stage === "primary" ? "No companies found." : `Stage \"${stage}\" returned no companies.`,
               },
             };
           }
@@ -1287,6 +1268,32 @@ export default function AdminImport() {
         resetPollAttempts(canonicalSessionId);
         schedulePoll({ session_id: canonicalSessionId });
 
+        if (waitResult.kind === "no_candidates") {
+          updateRunCompanies([], { async_primary_active: false });
+          setRuns((prev) =>
+            prev.map((r) =>
+              r.session_id === canonicalSessionId
+                ? {
+                    ...r,
+                    completed: true,
+                    updatedAt: new Date().toISOString(),
+                    stage_beacon: "no_candidates_found",
+                    last_stage_beacon: "no_candidates_found",
+                    final_stage_beacon: "no_candidates_found",
+                    job_state: "complete",
+                    final_job_state: "complete",
+                    saved: 0,
+                    start_error: null,
+                    progress_error: null,
+                  }
+                : r
+            )
+          );
+          setActiveStatus("done");
+          toast.success("No companies found");
+          return;
+        }
+
         if (waitResult.kind === "failed") {
           recordStatusFailureAndToast(waitResult.body, { stage: "primary", mode: "full" });
           return;
@@ -1304,17 +1311,27 @@ export default function AdminImport() {
         }
 
         if (companiesForNextStage.length === 0) {
-          recordStatusFailureAndToast(
-            {
-              ok: false,
-              status: "error",
-              state: "failed",
-              stage_beacon: "primary_early_exit",
-              error: "Primary completed but no company candidates were returned.",
-              reason: "primary_missing_companies",
-            },
-            { stage: "primary", mode: "full" }
+          setRuns((prev) =>
+            prev.map((r) =>
+              r.session_id === canonicalSessionId
+                ? {
+                    ...r,
+                    completed: true,
+                    updatedAt: new Date().toISOString(),
+                    stage_beacon: "no_candidates_found",
+                    last_stage_beacon: "no_candidates_found",
+                    final_stage_beacon: "no_candidates_found",
+                    job_state: "complete",
+                    final_job_state: "complete",
+                    saved: 0,
+                    start_error: null,
+                    progress_error: null,
+                  }
+                : r
+            )
           );
+          setActiveStatus("done");
+          toast.success("No companies found");
           return;
         }
 
@@ -1397,8 +1414,6 @@ export default function AdminImport() {
     }
   }, [
     importConfigured,
-    importDryRunEnabled,
-    importMaxStage,
     limitInput,
     location,
     query,
@@ -1957,40 +1972,17 @@ export default function AdminImport() {
             <details className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
               <summary className="cursor-pointer select-none text-sm font-medium text-slate-800">Advanced import config</summary>
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-3 text-xs text-slate-600">
-                  Primary is always run first. The app only resumes with skip_stages=primary after candidates exist (seeded_companies_count &gt; 0).
-                </div>
-
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={importDryRunEnabled}
-                    onChange={(e) => setImportDryRunEnabled(e.target.checked)}
-                  />
-                  Dry run (no save)
-                </label>
-
-                <div className="space-y-1">
-                  <label className="text-sm text-slate-700">Max stage</label>
-                  <select
-                    className="h-10 w-full rounded border border-slate-200 bg-white px-3 text-sm text-slate-900"
-                    value={importMaxStage}
-                    onChange={(e) => setImportMaxStage(e.target.value)}
-                  >
-                    <option value="expand">expand (full + save)</option>
-                    <option value="location">location (stops before save)</option>
-                    <option value="reviews">reviews</option>
-                    <option value="keywords">keywords</option>
-                    <option value="primary">primary</option>
-                  </select>
+                <div className="sm:col-span-3 text-xs text-slate-600 space-y-1">
+                  <div>
+                    <span className="font-semibold">Safety rule:</span> the initial “Start import” call always sends max_stage=expand, skip_stages=(none),
+                    dry_run=false.
+                  </div>
+                  <div>
+                    If the first call returns 202 (async primary), the UI will poll /api/import/status until it receives a non-empty seed company list,
+                    then resume with skip_stages=primary <span className="font-semibold">and</span> companies=[...].
+                  </div>
                 </div>
               </div>
-
-              {effectiveImportConfig.persistBlocked ? (
-                <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                  This configuration will not auto-save any companies. Set Max stage to expand to auto-save, or run and then click “Save results”.
-                </div>
-              ) : null}
             </details>
 
             <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 space-y-1">
