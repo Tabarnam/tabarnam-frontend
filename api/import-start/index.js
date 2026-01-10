@@ -5226,6 +5226,62 @@ Output JSON only:
             };
           }
 
+          async function generateIndustries(company, { timeoutMs }) {
+            const companyName = String(company?.company_name || company?.name || "").trim();
+            const websiteUrl = String(company?.website_url || company?.url || "").trim();
+
+            const keywordText = String(company?.product_keywords || "").trim();
+
+            const prompt = `SYSTEM (INDUSTRIES)
+You are classifying a company into a small set of industries for search filtering.
+Company:
+• Name: ${companyName}
+• Website: ${websiteUrl}
+• Products: ${keywordText}
+Rules:
+• Output ONLY valid JSON with a single field: "industries".
+• "industries" must be an array of 1 to 4 short industry names.
+• Use commonly understood industries (e.g., "Textiles", "Apparel", "Industrial Equipment", "Electronics", "Food & Beverage").
+• Do NOT include locations.
+Output JSON only:
+{ "industries": ["..."] }`;
+
+            const payload = {
+              model: "grok-4-latest",
+              messages: [
+                { role: "system", content: XAI_SYSTEM_PROMPT },
+                { role: "user", content: prompt },
+              ],
+              temperature: 0.1,
+              stream: false,
+            };
+
+            const res = await postXaiJsonWithBudgetRetry({
+              stageKey: "keywords",
+              stageBeacon: "xai_industries_fetch_start",
+              body: JSON.stringify(payload),
+              stageCapMsOverride: timeoutMs,
+            });
+
+            const text = res?.data?.choices?.[0]?.message?.content || "";
+
+            let obj = null;
+            try {
+              const match = text.match(/\{[\s\S]*\}/);
+              if (match) obj = JSON.parse(match[0]);
+            } catch {
+              obj = null;
+            }
+
+            const industries = normalizeIndustries(obj?.industries).slice(0, 6);
+
+            return {
+              prompt,
+              raw_response: text.length > 20000 ? text.slice(0, 20000) : text,
+              industries,
+            };
+          }
+
           async function ensureCompanyKeywords(company) {
             const companyName = String(company?.company_name || company?.name || "").trim();
             const websiteUrl = String(company?.website_url || company?.url || "").trim();
