@@ -601,6 +601,7 @@ async function handler(req, context) {
     let report = null;
     let saved = 0;
     let savedCompanies = [];
+    let savedCompanyDocs = [];
 
     let reconciled = false;
     let reconcile_strategy = null;
@@ -616,10 +617,11 @@ async function handler(req, context) {
         const client = new CosmosClient({ endpoint, key });
         const container = client.database(databaseId).container(containerId);
 
-        const [sessionDoc, completionDoc, acceptDoc] = await Promise.all([
+        const [sessionDoc, completionDoc, acceptDoc, resumeDoc] = await Promise.all([
           readControlDoc(container, `_import_session_${sessionId}`, sessionId),
           readControlDoc(container, `_import_complete_${sessionId}`, sessionId),
           readControlDoc(container, `_import_accept_${sessionId}`, sessionId),
+          readControlDoc(container, `_import_resume_${sessionId}`, sessionId),
         ]);
 
         const completionSavedIds = Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [];
@@ -630,6 +632,7 @@ async function handler(req, context) {
         if (completionSavedIds.length > 0) {
           stageBeaconValues.status_fetching_saved_companies = nowIso();
           const savedDocs = await fetchCompaniesByIds(container, completionSavedIds).catch(() => []);
+          savedCompanyDocs = savedDocs;
           savedCompanies = toSavedCompanies(savedDocs);
           stageBeaconValues.status_fetched_saved_companies = nowIso();
         }
@@ -659,6 +662,7 @@ async function handler(req, context) {
             reconciled_saved_ids = authoritativeIds;
 
             saved = authoritativeDocs.length;
+            savedCompanyDocs = authoritativeDocs;
             savedCompanies = toSavedCompanies(authoritativeDocs);
             stageBeaconValues.status_reconciled_saved = nowIso();
             stageBeaconValues.status_reconciled_saved_count = saved;
@@ -724,6 +728,14 @@ async function handler(req, context) {
                 failed_items: Array.isArray(completionDoc?.failed_items) ? completionDoc.failed_items : [],
               }
             : null,
+          resume: resumeDoc
+            ? {
+                status: resumeDoc?.status || null,
+                attempt: Number.isFinite(Number(resumeDoc?.attempt)) ? Number(resumeDoc.attempt) : 0,
+                lock_expires_at: resumeDoc?.lock_expires_at || null,
+                updated_at: resumeDoc?.updated_at || null,
+              }
+            : null,
         };
       }
     } catch {
@@ -753,23 +765,118 @@ async function handler(req, context) {
         }
       : null;
 
+    const savedDocsForHealth =
+      Array.isArray(savedCompanyDocs) && savedCompanyDocs.length > 0
+        ? savedCompanyDocs
+        : Array.isArray(primaryJob?.companies)
+          ? primaryJob.companies
+          : [];
+
+    const saved_companies = toSavedCompanies(savedDocsForHealth);
+    const enrichment_health_summary = summarizeEnrichmentHealth(saved_companies);
+
+    const resumeNeededFromSession = Boolean(report?.session && report.session.resume_needed);
+    const resumeNeededFromHealth = enrichment_health_summary.incomplete > 0;
+
+    const missing_by_company = saved_companies
+      .filter((c) => Array.isArray(c?.enrichment_health?.missing_fields) && c.enrichment_health.missing_fields.length > 0)
+      .map((c) => ({
+        company_id: c.company_id,
+        company_name: c.company_name,
+        website_url: c.website_url,
+        missing_fields: c.enrichment_health.missing_fields,
+      }));
+
+    const resumeDocExists = Boolean(report?.resume);
+    const resume_needed = Boolean(resumeNeededFromSession || resumeNeededFromHealth || resumeDocExists);
+
+    let resume_doc_created = false;
+    let resume_triggered = false;
+    let resume_trigger_error = null;
+
+    try {
+      const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+      const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+      const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+      const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+
+      if (resume_needed && endpoint && key && CosmosClient) {
+        const client = new CosmosClient({ endpoint, key });
+        const container = client.database(databaseId).container(containerId);
+        const resumeDocId = `_import_resume_${sessionId}`;
+
+        const currentResume = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+
+        if (!currentResume) {
+          const now = nowIso();
+          await upsertDoc(container, {
+            id: resumeDocId,
+            session_id: sessionId,
+            normalized_domain: "import",
+            partition_key: "import",
+            type: "import_control",
+            created_at: now,
+            updated_at: now,
+            status: "queued",
+            missing_by_company,
+          }).catch(() => null);
+          resume_doc_created = true;
+        }
+
+        const resumeDoc = currentResume || (await readControlDoc(container, resumeDocId, sessionId).catch(() => null));
+        const resumeStatus = String(resumeDoc?.status || "").trim();
+        const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
+        const canTrigger = !lockUntil || Date.now() >= lockUntil;
+
+        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "error")) {
+          stageBeaconValues.status_trigger_resume_worker = nowIso();
+
+          const base = new URL(req.url);
+          const workerUrl = new URL("/api/import/resume-worker", base.origin);
+
+          const workerRes = await fetch(workerUrl.toString(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: sessionId }),
+          }).catch((e) => ({ ok: false, status: 0, _error: e }));
+
+          resume_triggered = Boolean(workerRes?.ok);
+          if (!resume_triggered) {
+            resume_trigger_error = workerRes?._error?.message || `resume_worker_http_${Number(workerRes?.status || 0)}`;
+          }
+        }
+      }
+    } catch (e) {
+      resume_trigger_error = e?.message || String(e);
+    }
+
+    const effectiveStatus = status === "error" ? "error" : resume_needed ? "running" : status;
+    const effectiveState = status === "error" ? "failed" : resume_needed ? "running" : state;
+
+    const stageBeaconFromPrimary =
+      typeof primaryJob?.stage_beacon === "string" && primaryJob.stage_beacon.trim()
+        ? primaryJob.stage_beacon.trim()
+        : status === "complete"
+          ? "primary_complete"
+          : status === "queued"
+            ? "primary_search_started"
+            : status === "running"
+              ? "primary_search_started"
+              : "primary_search_started";
+
+    const effectiveStageBeacon = resume_needed && effectiveStatus === "running" ? "enrichment_resume_pending" : stageBeaconFromPrimary;
+
+    stageBeaconValues.status_enrichment_health_summary = nowIso();
+    stageBeaconValues.status_enrichment_incomplete = enrichment_health_summary.incomplete;
+
     return jsonWithSessionId(
       {
         ok: true,
         session_id: sessionId,
-        status,
-        state,
+        status: effectiveStatus,
+        state: effectiveState,
         job_state: finalJobState,
-        stage_beacon:
-          typeof primaryJob?.stage_beacon === "string" && primaryJob.stage_beacon.trim()
-            ? primaryJob.stage_beacon.trim()
-            : status === "complete"
-              ? "primary_complete"
-              : status === "queued"
-                ? "primary_search_started"
-                : status === "running"
-                  ? "primary_search_started"
-                  : "primary_search_started",
+        stage_beacon: effectiveStageBeacon,
         stage_beacon_values: stageBeaconValues,
         primary_job_state: finalJobState,
         last_heartbeat_at: primaryJob?.last_heartbeat_at || null,
@@ -788,12 +895,21 @@ async function handler(req, context) {
             : Number.isFinite(Number(primaryJob?.companies_count))
               ? Number(primaryJob.companies_count)
               : 0,
-        items: status === "error" ? [] : Array.isArray(primaryJob?.companies) ? primaryJob.companies : [],
+        items: effectiveStatus === "error" ? [] : Array.isArray(primaryJob?.companies) ? primaryJob.companies : [],
         saved,
         reconciled,
         reconcile_strategy,
         reconciled_saved_ids,
-        saved_companies: Array.isArray(savedCompanies) && savedCompanies.length > 0 ? savedCompanies : toSavedCompanies(Array.isArray(primaryJob?.companies) ? primaryJob.companies : []),
+        saved_companies,
+        resume_needed,
+        resume: {
+          needed: resume_needed,
+          doc_created: resume_doc_created,
+          triggered: resume_triggered,
+          trigger_error: resume_trigger_error,
+          missing_by_company,
+        },
+        enrichment_health_summary,
         primary_job: {
           id: primaryJob?.id || null,
           job_state: finalJobState,
