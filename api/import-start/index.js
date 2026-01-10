@@ -2344,6 +2344,58 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               star5: { value: 0.0, notes: [] },
             };
 
+            const nowIso = new Date().toISOString();
+
+            const industriesNormalized = normalizeIndustries(company.industries);
+
+            const keywordsNormalized = normalizeProductKeywords(company?.keywords || company?.product_keywords, {
+              companyName,
+              websiteUrl: company.website_url || company.canonical_url || company.url || "",
+            }).slice(0, 25);
+
+            const productKeywordsString = keywordListToString(keywordsNormalized);
+
+            const headquartersLocation = String(company.headquarters_location || "").trim();
+
+            const manufacturingLocationsNormalized = Array.isArray(company.manufacturing_locations)
+              ? company.manufacturing_locations
+                  .map((loc) => {
+                    if (typeof loc === "string") return loc.trim();
+                    if (loc && typeof loc === "object") {
+                      return String(loc.formatted || loc.address || loc.location || "").trim();
+                    }
+                    return "";
+                  })
+                  .filter(Boolean)
+              : [];
+
+            const curatedReviewsNormalized = Array.isArray(company.curated_reviews)
+              ? company.curated_reviews.filter((r) => r && typeof r === "object")
+              : [];
+
+            const reviewCountNormalized = Number.isFinite(Number(company.review_count))
+              ? Number(company.review_count)
+              : curatedReviewsNormalized.length;
+
+            const reviewsLastUpdatedAt =
+              typeof company.reviews_last_updated_at === "string" && company.reviews_last_updated_at.trim()
+                ? company.reviews_last_updated_at.trim()
+                : nowIso;
+
+            const incomingCursor = company.review_cursor && typeof company.review_cursor === "object" ? company.review_cursor : null;
+            const cursorHasError = Boolean(incomingCursor?.last_error);
+            const cursorExhausted =
+              typeof incomingCursor?.exhausted === "boolean" ? incomingCursor.exhausted : !cursorHasError && reviewCountNormalized === 0;
+
+            const reviewCursorNormalized = incomingCursor
+              ? { ...incomingCursor, exhausted: cursorExhausted }
+              : buildReviewCursor({
+                  nowIso,
+                  count: reviewCountNormalized,
+                  exhausted: cursorExhausted,
+                  last_error: null,
+                });
+
             const doc = {
               id: companyId,
               company_name: companyName,
