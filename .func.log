@@ -300,3 +300,96 @@ For detailed output, run func with --verbose flag.
 [2026-01-10T05:33:40.077Z] [import-start] request_id=959a42f6-0450-4d1b-903e-465e2c1d147d session=sess_1768023220073_exku8lyp0oq stage=dry_run
 [2026-01-10T05:33:40.079Z] Executed 'Functions.import-start' (Succeeded, Id=a6eebca6-c63e-416e-b690-34d8a2ae38db, Duration=33ms)
 [2026-01-10T05:33:40.309Z] Host lock lease acquired by instance ID '0000000000000000000000000B8DC44F'.
+[2026-01-10T05:33:47.255Z] Executing 'Functions.import-start' (Reason='This function was programmatically called via the host APIs.', Id=c3f89e2d-d5d1-4ff1-be2a-493e2fc371fe)
+[2026-01-10T05:33:47.260Z] [import-start] request_id=bd5fcce2-a785-411e-b99d-e67a134ba7f9 Function handler invoked
+[2026-01-10T05:33:47.264Z] [import-start] body_sources {
+[2026-01-10T05:33:47.264Z]   hasRawBody: false,
+[2026-01-10T05:33:47.264Z]   rawBodyType: 'undefined',
+[2026-01-10T05:33:47.264Z]   rawBodyLen: 0,
+[2026-01-10T05:33:47.264Z]   bodyType: 'ReadableStream',
+[2026-01-10T05:33:47.264Z]   bodyLen: 0,
+[2026-01-10T05:33:47.264Z]   hasBufferBody: false,
+[2026-01-10T05:33:47.264Z]   bufferBodyLen: 0,
+[2026-01-10T05:33:47.264Z]   isStreamBody: true
+[2026-01-10T05:33:47.264Z] }
+[2026-01-10T05:33:47.264Z] [import-start] request_id=bd5fcce2-a785-411e-b99d-e67a134ba7f9 session=sess_1768023227261_bjzcjqvt4ln normalized_request={"session_id":"sess_1768023227261_bjzcjqvt4ln","query_len":13,"queryType":"company_url","queryTypes":["company_url"],"location_len":0,"limit":1}
+[2026-01-10T05:33:47.264Z] [import-start] received_query_params {
+[2026-01-10T05:33:47.264Z]   deadline_ms: null,
+[2026-01-10T05:33:47.264Z]   stage_ms_primary: null,
+[2026-01-10T05:33:47.264Z]   max_stage: 'expand',
+[2026-01-10T05:33:47.264Z]   skip_stages: null,
+[2026-01-10T05:33:47.264Z]   dry_run: false
+[2026-01-10T05:33:47.264Z] }
+[2026-01-10T05:33:47.264Z] [import-start] normalized_effective_request {
+[2026-01-10T05:33:47.264Z]   request_id: 'bd5fcce2-a785-411e-b99d-e67a134ba7f9',
+[2026-01-10T05:33:47.264Z]   session_id: 'sess_1768023227261_bjzcjqvt4ln',
+[2026-01-10T05:33:47.264Z]   query: 'friendtex.com',
+[2026-01-10T05:33:47.264Z]   queryTypes: [ 'company_url' ],
+[2026-01-10T05:33:47.264Z]   location: '',
+[2026-01-10T05:33:47.264Z]   limit: 1,
+[2026-01-10T05:33:47.264Z]   max_stage: 'expand',
+[2026-01-10T05:33:47.264Z]   skip_stages: [],
+[2026-01-10T05:33:47.264Z]   dry_run: false,
+[2026-01-10T05:33:47.264Z]   companies_seeded: 0
+[2026-01-10T05:33:47.264Z] }
+[2026-01-10T05:33:47.264Z] [import-start] request_id=bd5fcce2-a785-411e-b99d-e67a134ba7f9 session=sess_1768023227261_bjzcjqvt4ln stage=validate_request extra={"queryTypes":["company_url"],"query_len":13,"limit":1}
+[2026-01-10T05:33:47.265Z] {"handler_version":"ded-import-start-7074986f9d4b","stage":"validate_request","queryTypes":["company_url"],"query_len":13,"prompt_len":0,"messages_len":0,"has_system_message":false,"has_user_message":false,"user_message_len":0,"elapsedMs":1,"upstream_status":null,"request_id":"bd5fcce2-a785-411e-b99d-e67a134ba7f9","session_id":"sess_1768023227261_bjzcjqvt4ln"}
+[2026-01-10T05:33:47.265Z] [import-start] stage {
+[2026-01-10T05:33:47.265Z]   stage: 'validate_request_done',
+[2026-01-10T05:33:47.265Z]   request_id: 'bd5fcce2-a785-411e-b99d-e67a134ba7f9',
+[2026-01-10T05:33:47.265Z]   session_id: 'sess_1768023227261_bjzcjqvt4ln'
+[2026-01-10T05:33:47.265Z] }
+[2026-01-10T05:33:47.265Z] [import-start] request_id=bd5fcce2-a785-411e-b99d-e67a134ba7f9 session=sess_1768023227261_bjzcjqvt4ln stage=create_session
+[2026-01-10T05:33:49.421Z] [import-start] Request timeout: 300000ms (requested: 600000ms)
+[2026-01-10T05:33:49.424Z] [import-start] XAI Endpoint: configured
+[2026-01-10T05:33:49.424Z] [import-start] XAI Key: configured
+[2026-01-10T05:33:49.424Z] [import-start] env_check { has_xai_key: true, xai_key_length: 56 }
+[2026-01-10T05:33:49.424Z] [import-start] Config source: XAI_EXTERNAL_BASE
+[2026-01-10T05:33:49.424Z] [import-start] XAI Request URL: tabarnam-xai-dedicated-awe3h9bvcxckeja9.westus2-01.azurewebsites.net/api/v1/chat/completions
+[2026-01-10T05:33:49.656Z] [import-start] request_id=bd5fcce2-a785-411e-b99d-e67a134ba7f9 session=sess_1768023227261_bjzcjqvt4ln stage=build_prompt extra={"queryTypes":["company_url"]}
+[2026-01-10T05:33:49.665Z] {"handler_version":"ded-import-start-7074986f9d4b","stage":"build_prompt","queryTypes":["company_url"],"query_len":13,"prompt_len":996,"messages_len":0,"has_system_message":false,"has_user_message":false,"user_message_len":0,"elapsedMs":2399,"upstream_status":null,"request_id":"bd5fcce2-a785-411e-b99d-e67a134ba7f9","session_id":"sess_1768023227261_bjzcjqvt4ln"}
+[2026-01-10T05:33:49.665Z] [import-start] request_id=bd5fcce2-a785-411e-b99d-e67a134ba7f9 session=sess_1768023227261_bjzcjqvt4ln stage=build_messages
+[2026-01-10T05:33:49.665Z] [import-start] request_id=bd5fcce2-a785-411e-b99d-e67a134ba7f9 session=sess_1768023227261_bjzcjqvt4ln stage=searchCompanies extra={"queryType":"company_url","limit":1}
+[2026-01-10T05:33:49.665Z] {"handler_version":"ded-import-start-7074986f9d4b","stage":"xai_call","queryTypes":["company_url"],"query_len":13,"prompt_len":996,"messages_len":2,"has_system_message":true,"has_user_message":true,"user_message_len":996,"elapsedMs":2399,"upstream_status":null,"request_id":"bd5fcce2-a785-411e-b99d-e67a134ba7f9","session_id":"sess_1768023227261_bjzcjqvt4ln"}
+[2026-01-10T05:33:49.665Z] [import-start] Calling XAI API at: tabarnam-xai-dedicated-awe3h9bvcxckeja9.westus2-01.azurewebsites.net/api/v1/chat/completions
+[2026-01-10T05:33:49.665Z] [import-start] stage {
+[2026-01-10T05:33:49.665Z]   stage: 'xai_primary_fetch_start',
+[2026-01-10T05:33:49.665Z]   request_id: 'bd5fcce2-a785-411e-b99d-e67a134ba7f9',
+[2026-01-10T05:33:49.665Z]   session_id: 'sess_1768023227261_bjzcjqvt4ln'
+[2026-01-10T05:33:49.665Z] }
+[2026-01-10T05:33:49.665Z] [import-start] fetch_begin {
+[2026-01-10T05:33:49.665Z]   stage: 'primary',
+[2026-01-10T05:33:49.665Z]   remainingMs: 297601,
+[2026-01-10T05:33:49.665Z]   timeoutForThisStage: 20000,
+[2026-01-10T05:33:49.665Z]   request_id: 'bd5fcce2-a785-411e-b99d-e67a134ba7f9',
+[2026-01-10T05:33:49.665Z]   session_id: 'sess_1768023227261_bjzcjqvt4ln'
+[2026-01-10T05:33:49.665Z] }
+[2026-01-10T05:33:50.579Z] Executed 'Functions.import-start' (Succeeded, Id=c3f89e2d-d5d1-4ff1-be2a-493e2fc371fe, Duration=3323ms)
+[2026-01-10T05:33:50.580Z] [import-start] fetch_end {
+[2026-01-10T05:33:50.580Z] [import-start] XAI error status: 404
+[2026-01-10T05:33:50.580Z]   stage: 'primary',
+[2026-01-10T05:33:50.580Z]   elapsedMs: 913,
+[2026-01-10T05:33:50.580Z]   request_id: 'bd5fcce2-a785-411e-b99d-e67a134ba7f9',
+[2026-01-10T05:33:50.580Z]   session_id: 'sess_1768023227261_bjzcjqvt4ln',
+[2026-01-10T05:33:50.580Z]   status: 404
+[2026-01-10T05:33:50.580Z] }
+[2026-01-10T05:33:50.580Z] [import-start] session=sess_1768023227261_bjzcjqvt4ln xai response status=404
+[2026-01-10T05:33:50.580Z] [import-start] stage {
+[2026-01-10T05:33:50.580Z]   stage: 'xai_primary_fetch_done',
+[2026-01-10T05:33:50.580Z]   request_id: 'bd5fcce2-a785-411e-b99d-e67a134ba7f9',
+[2026-01-10T05:33:50.580Z]   session_id: 'sess_1768023227261_bjzcjqvt4ln'
+[2026-01-10T05:33:50.580Z] }
+[2026-01-10T05:33:50.580Z] {"handler_version":"ded-import-start-7074986f9d4b","stage":"xai_error","queryTypes":["company_url"],"query_len":13,"prompt_len":996,"messages_len":2,"has_system_message":true,"has_user_message":true,"user_message_len":996,"elapsedMs":3314,"upstream_status":404,"request_id":"bd5fcce2-a785-411e-b99d-e67a134ba7f9","session_id":"sess_1768023227261_bjzcjqvt4ln"}
+[2026-01-10T05:33:50.580Z] [import-start] session=sess_1768023227261_bjzcjqvt4ln upstream XAI non-2xx (404) url=tabarnam-xai-dedicated-awe3h9bvcxckeja9.westus2-01.azurewebsites.net/api/v1/chat/completions
+[2026-01-10T05:33:53.097Z] Executing 'Functions.import-status' (Reason='This function was programmatically called via the host APIs.', Id=9d2113ff-b5ba-4e7c-94cc-8a191b6d256a)
+[2026-01-10T05:33:53.772Z] Executed 'Functions.import-status' (Succeeded, Id=9d2113ff-b5ba-4e7c-94cc-8a191b6d256a, Duration=675ms)
+[2026-01-10T05:33:56.279Z] Executing 'Functions.import-status' (Reason='This function was programmatically called via the host APIs.', Id=4fa296ee-0a53-4674-8153-2bc888d0f6d3)
+[2026-01-10T05:33:56.514Z] Executed 'Functions.import-status' (Succeeded, Id=4fa296ee-0a53-4674-8153-2bc888d0f6d3, Duration=235ms)
+[2026-01-10T05:33:59.019Z] Executing 'Functions.import-status' (Reason='This function was programmatically called via the host APIs.', Id=72edd0bb-6eb4-4132-965e-6b7085fef811)
+[2026-01-10T05:33:59.252Z] Executed 'Functions.import-status' (Succeeded, Id=72edd0bb-6eb4-4132-965e-6b7085fef811, Duration=232ms)
+[2026-01-10T05:34:01.756Z] Executing 'Functions.import-status' (Reason='This function was programmatically called via the host APIs.', Id=fcd23a24-10c7-49eb-bd07-1ad90e7b4f4c)
+[2026-01-10T05:34:01.993Z] Executed 'Functions.import-status' (Succeeded, Id=fcd23a24-10c7-49eb-bd07-1ad90e7b4f4c, Duration=237ms)
+[2026-01-10T05:34:04.500Z] Executing 'Functions.import-status' (Reason='This function was programmatically called via the host APIs.', Id=b77e3bb8-908b-4279-97c2-b51c17201a54)
+[2026-01-10T05:34:04.737Z] Executed 'Functions.import-status' (Succeeded, Id=b77e3bb8-908b-4279-97c2-b51c17201a54, Duration=237ms)
+[2026-01-10T05:34:07.242Z] Executing 'Functions.import-status' (Reason='This function was programmatically called via the host APIs.', Id=4a752649-e021-4883-8a63-531a8d315ffa)
+[2026-01-10T05:34:07.476Z] Executed 'Functions.import-status' (Succeeded, Id=4a752649-e021-4883-8a63-531a8d315ffa, Duration=233ms)
