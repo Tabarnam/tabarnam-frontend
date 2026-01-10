@@ -48,6 +48,31 @@ function normalizeItems(items) {
   return items.filter((it) => it && typeof it === "object");
 }
 
+function isValidSeedCompany(item) {
+  if (!item || typeof item !== "object") return false;
+
+  const companyName = asString(item.company_name || item.name).trim();
+  const websiteUrl = asString(item.website_url || item.url || item.canonical_url).trim();
+
+  if (!companyName || !websiteUrl) return false;
+
+  const source = asString(item.source).trim();
+  if (source && source !== "company_url_shortcut") return true;
+
+  // Accept explicit markers that the seed is known-good for resume.
+  if (item.candidate === true) return true;
+  if (item.primary_candidate === true) return true;
+  if (item.seed === true) return true;
+  if (asString(item.source_stage).trim() === "primary") return true;
+
+  return false;
+}
+
+function filterValidSeedCompanies(items) {
+  const list = normalizeItems(items);
+  return list.filter(isValidSeedCompany);
+}
+
 function mergeById(prev, next) {
   const map = new Map();
   for (const item of prev) {
@@ -1138,6 +1163,7 @@ export default function AdminImport() {
           const stopped = Boolean(body?.stopped);
 
           const items = normalizeItems(body?.items || body?.companies);
+          const seedCompanies = filterValidSeedCompanies(items);
           const companiesCountRaw = body?.companies_count ?? body?.count ?? items.length ?? 0;
           const companiesCount = Number.isFinite(Number(companiesCountRaw)) ? Number(companiesCountRaw) : items.length;
 
@@ -1154,10 +1180,10 @@ export default function AdminImport() {
 
           if (isFailure) return { kind: "failed", body };
 
-          const hasSeedCompanies = items.length > 0;
+          const hasSeedCompanies = seedCompanies.length > 0;
           const terminalComplete = completed || jobState === "complete" || primaryJobState === "complete";
 
-          if (hasSeedCompanies) return { kind: "ready", body };
+          if (hasSeedCompanies) return { kind: "ready", body, seedCompanies };
 
           // Important: never resume the pipeline with skip_stages=["primary"] unless we have a seed list.
           // If primary finishes with 0 candidates, treat it as a clean terminal success (saved: 0), not an error.
@@ -1290,7 +1316,7 @@ export default function AdminImport() {
             )
           );
           setActiveStatus("done");
-          toast.success("No companies found");
+          toast.success("No candidates from primary");
           return;
         }
 
@@ -1301,13 +1327,19 @@ export default function AdminImport() {
 
         const asyncCompanies = normalizeItems(waitResult.body?.items || waitResult.body?.companies);
         const stageCompanies = updateRunCompanies(asyncCompanies, { async_primary_active: false });
-        if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
+
+        const seedCompanies = Array.isArray(waitResult.seedCompanies)
+          ? waitResult.seedCompanies
+          : filterValidSeedCompanies(stageCompanies);
+
+        if (seedCompanies.length > 0) companiesForNextStage = seedCompanies;
 
         if (companiesForNextStage.length === 0) {
           const { body: latestBody } = await pollProgress({ session_id: canonicalSessionId });
           const latestCompanies = normalizeItems(latestBody?.items || latestBody?.companies);
           const latestStageCompanies = updateRunCompanies(latestCompanies, { async_primary_active: false });
-          if (latestStageCompanies.length > 0) companiesForNextStage = latestStageCompanies;
+          const latestSeedCompanies = filterValidSeedCompanies(latestStageCompanies);
+          if (latestSeedCompanies.length > 0) companiesForNextStage = latestSeedCompanies;
         }
 
         if (companiesForNextStage.length === 0) {
@@ -1331,7 +1363,7 @@ export default function AdminImport() {
             )
           );
           setActiveStatus("done");
-          toast.success("No companies found");
+          toast.success("No candidates from primary");
           return;
         }
 

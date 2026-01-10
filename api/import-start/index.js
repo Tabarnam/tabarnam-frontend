@@ -2213,7 +2213,7 @@ async function checkIfSessionStopped(sessionId) {
 }
 
 // Save companies to Cosmos DB (skip duplicates)
-async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionCreatedAt, axiosTimeout }) {
+async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionCreatedAt, axiosTimeout, saveStub = false }) {
   try {
     const list = Array.isArray(companies) ? companies : [];
     const sid = String(sessionId || "").trim();
@@ -2311,6 +2311,54 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               }
             }
 
+            // Normalize first so we can decide whether this is worth persisting.
+            const industriesNormalized = normalizeIndustries(company.industries);
+
+            const keywordsNormalized = normalizeProductKeywords(company?.keywords || company?.product_keywords, {
+              companyName,
+              websiteUrl: company.website_url || company.canonical_url || company.url || "",
+            }).slice(0, 25);
+
+            const headquartersLocation = String(company.headquarters_location || "").trim();
+
+            const manufacturingLocationsNormalized = Array.isArray(company.manufacturing_locations)
+              ? company.manufacturing_locations
+                  .map((loc) => {
+                    if (typeof loc === "string") return loc.trim();
+                    if (loc && typeof loc === "object") {
+                      return String(loc.formatted || loc.address || loc.location || "").trim();
+                    }
+                    return "";
+                  })
+                  .filter(Boolean)
+              : [];
+
+            const curatedReviewsNormalized = Array.isArray(company.curated_reviews)
+              ? company.curated_reviews.filter((r) => r && typeof r === "object")
+              : [];
+
+            const reviewCountNormalized = Number.isFinite(Number(company.review_count))
+              ? Number(company.review_count)
+              : curatedReviewsNormalized.length;
+
+            const hasMeaningfulEnrichment =
+              industriesNormalized.length > 0 ||
+              keywordsNormalized.length > 0 ||
+              Boolean(headquartersLocation) ||
+              manufacturingLocationsNormalized.length > 0 ||
+              curatedReviewsNormalized.length > 0 ||
+              reviewCountNormalized > 0;
+
+            if (!saveStub && !hasMeaningfulEnrichment) {
+              return {
+                type: "skipped_stub",
+                index: companyIndex,
+                company_name: companyName,
+                normalized_domain: finalNormalizedDomain,
+                reason: "missing_enrichment",
+              };
+            }
+
             // Fetch + upload logo for the company (uses existing blob if present)
             const companyId = shouldUpdateExisting && existingDoc?.id
               ? String(existingDoc.id)
@@ -2346,36 +2394,7 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
 
             const nowIso = new Date().toISOString();
 
-            const industriesNormalized = normalizeIndustries(company.industries);
-
-            const keywordsNormalized = normalizeProductKeywords(company?.keywords || company?.product_keywords, {
-              companyName,
-              websiteUrl: company.website_url || company.canonical_url || company.url || "",
-            }).slice(0, 25);
-
             const productKeywordsString = keywordListToString(keywordsNormalized);
-
-            const headquartersLocation = String(company.headquarters_location || "").trim();
-
-            const manufacturingLocationsNormalized = Array.isArray(company.manufacturing_locations)
-              ? company.manufacturing_locations
-                  .map((loc) => {
-                    if (typeof loc === "string") return loc.trim();
-                    if (loc && typeof loc === "object") {
-                      return String(loc.formatted || loc.address || loc.location || "").trim();
-                    }
-                    return "";
-                  })
-                  .filter(Boolean)
-              : [];
-
-            const curatedReviewsNormalized = Array.isArray(company.curated_reviews)
-              ? company.curated_reviews.filter((r) => r && typeof r === "object")
-              : [];
-
-            const reviewCountNormalized = Number.isFinite(Number(company.review_count))
-              ? Number(company.review_count)
-              : curatedReviewsNormalized.length;
 
             const reviewsLastUpdatedAt =
               typeof company.reviews_last_updated_at === "string" && company.reviews_last_updated_at.trim()
@@ -2527,6 +2546,18 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
       // Process batch results
       for (const result of batchResults) {
         if (!result || typeof result !== "object") continue;
+
+        if (result.type === "skipped_stub") {
+          skipped++;
+          skipped_duplicates.push({
+            index: Number.isFinite(Number(result.index)) ? Number(result.index) : null,
+            company_name: String(result.company_name || ""),
+            duplicate_of_id: null,
+            duplicate_match_key: "skipped_stub",
+            duplicate_match_value: result.reason || "missing_enrichment",
+          });
+          continue;
+        }
 
         if (result.type === "skipped") {
           skipped++;
@@ -3147,11 +3178,35 @@ const importStartHandlerInner = async (req, context) => {
         });
       } catch {}
 
-      const providedCompanies = Array.isArray(bodyObj.companies) ? bodyObj.companies : [];
-      const stopsBeforeSave = Boolean(maxStage && maxStage !== "expand" && maxStage !== "primary");
-      const skipsPrimaryWithoutSeed = skipStages.has("primary") && providedCompanies.length === 0;
+      const providedCompaniesRaw = Array.isArray(bodyObj.companies) ? bodyObj.companies : [];
+      const providedCompanies = providedCompaniesRaw.filter((c) => c && typeof c === "object");
 
-      if (skipsPrimaryWithoutSeed) {
+      const isValidSeedCompany = (c) => {
+        if (!c || typeof c !== "object") return false;
+
+        const companyName = String(c.company_name || c.name || "").trim();
+        const websiteUrl = String(c.website_url || c.url || c.canonical_url || "").trim();
+        if (!companyName || !websiteUrl) return false;
+
+        const source = String(c.source || "").trim();
+        if (source && source !== "company_url_shortcut") return true;
+
+        // Allow explicit markers that the seed came from primary.
+        if (c.candidate === true) return true;
+        if (c.primary_candidate === true) return true;
+        if (c.seed === true) return true;
+        if (String(c.source_stage || "").trim() === "primary") return true;
+
+        return false;
+      };
+
+      const validSeedCompanies = providedCompanies.filter(isValidSeedCompany);
+
+      // If we're skipping primary, we must have at least one VALID seed company.
+      const skipsPrimaryWithoutAnyCompanies = skipStages.has("primary") && providedCompanies.length === 0;
+      const skipsPrimaryWithoutValidSeed = skipStages.has("primary") && providedCompanies.length > 0 && validSeedCompanies.length === 0;
+
+      if (skipsPrimaryWithoutAnyCompanies) {
         // Guardrail: never proceed past primary unless we have a seeded companies list.
         // Return HTTP 200 so callers treat this as a retryable state machine failure (not a hard crash).
         return jsonWithRequestId(
@@ -3167,6 +3222,32 @@ const importStartHandlerInner = async (req, context) => {
           200
         );
       }
+
+      if (skipsPrimaryWithoutValidSeed) {
+        return jsonWithRequestId(
+          {
+            ok: false,
+            stage: "import_start",
+            root_cause: "invalid_seed_companies",
+            retryable: true,
+            message: "resume requested but seed companies are not valid; wait for primary candidates",
+            session_id: sessionId,
+            request_id: requestId,
+            seed_counts: {
+              provided: providedCompanies.length,
+              valid: validSeedCompanies.length,
+            },
+          },
+          200
+        );
+      }
+
+      // If we have seeded companies, prefer a cleaned list when resuming.
+      if (skipStages.has("primary") && validSeedCompanies.length > 0) {
+        bodyObj.companies = validSeedCompanies;
+      }
+
+      const stopsBeforeSave = Boolean(maxStage && maxStage !== "expand" && maxStage !== "primary");
 
       if (!dryRunRequested && stopsBeforeSave) {
         return jsonWithRequestId(
@@ -3533,6 +3614,9 @@ const importStartHandlerInner = async (req, context) => {
           stage: errorStage,
           session_id: sessionId,
           request_id: requestId,
+          retryable: true,
+          root_cause: status >= 500 ? "server_exception" : "invalid_request",
+          http_status: Number.isFinite(Number(status)) ? Number(status) : null,
           env_present,
           upstream: upstream || {},
           meta,
@@ -3562,7 +3646,10 @@ const importStartHandlerInner = async (req, context) => {
           ...(detailsObj && typeof detailsObj === "object" && Object.keys(detailsObj).length ? { details: detailsObj } : {}),
         };
 
-        return jsonWithRequestId(errorPayload, status);
+        // Azure Static Web Apps can mask 5xx into raw-text "Backend call failure".
+        // Keep the JSON envelope but avoid returning 5xx status codes.
+        const httpStatus = status >= 500 ? 200 : status;
+        return jsonWithRequestId(errorPayload, httpStatus);
       };
 
       if (queryTypesProvided && !Array.isArray(rawQueryTypes)) {
@@ -6060,6 +6147,7 @@ Return ONLY the JSON array, no other text.`,
               requestId,
               sessionCreatedAt: sessionCreatedAtIso,
               axiosTimeout: timeout,
+              saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
             });
             saveReport = saveResult;
             console.log(
@@ -6263,6 +6351,7 @@ Return ONLY the JSON array, no other text.`,
                       requestId,
                       sessionCreatedAt: sessionCreatedAtIso,
                       axiosTimeout: timeout,
+                      saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
                     });
                     saveResult.saved += expansionResult.saved;
                     saveResult.skipped += expansionResult.skipped;
@@ -6623,7 +6712,7 @@ Return ONLY the JSON array, no other text.`,
             upstream_text_preview: toTextPreview(xaiResponse.data, 1000),
           };
 
-          return jsonWithRequestId(failurePayload, mappedStatus);
+          return jsonWithRequestId({ ...failurePayload, http_status: mappedStatus }, 200);
         }
       } catch (xaiError) {
         if (xaiError instanceof AcceptedResponseError) throw xaiError;
@@ -6744,7 +6833,7 @@ Return ONLY the JSON array, no other text.`,
           ),
         };
 
-        return jsonWithRequestId(failurePayload, mappedStatus);
+        return jsonWithRequestId({ ...failurePayload, http_status: mappedStatus }, 200);
       }
       } catch (e) {
         if (e instanceof AcceptedResponseError && e.response) return e.response;
@@ -6775,30 +6864,21 @@ Return ONLY the JSON array, no other text.`,
 
       console.error("[import-start] Unhandled error:", error_message);
 
-      return {
-        status: 500,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-          "Access-Control-Allow-Headers":
-            "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id",
-          "Access-Control-Expose-Headers": "x-request-id,x-correlation-id,x-session-id",
-          ...responseHeaders,
+      // Avoid returning 5xx (SWA can mask it as raw text). Always return JSON.
+      return jsonWithRequestId(
+        {
+          ok: false,
+          stage: "import_start",
+          stage_beacon: lastStage,
+          root_cause: "server_exception",
+          retryable: true,
+          request_id: requestId,
+          session_id: sessionId,
+          error_message,
+          error_stack_preview,
         },
-        body: JSON.stringify(
-          {
-            ok: false,
-            stage_beacon: lastStage,
-            request_id: requestId,
-            session_id: sessionId,
-            error_message,
-            error_stack_preview,
-          },
-          null,
-          2
-        ),
-      };
+        200
+      );
     }
   };
 
@@ -6869,6 +6949,8 @@ const importStartHandler = async (req, context) => {
       {
         ok: false,
         stage,
+        root_cause: "server_exception",
+        retryable: true,
         request_id: requestId,
         handler_version: handlerVersion,
         build_id: buildInfoSafe?.build_id || null,
@@ -6879,7 +6961,7 @@ const importStartHandler = async (req, context) => {
         error_stack_preview,
         env_present,
       },
-      500,
+      200,
       responseHeaders
     );
   }
