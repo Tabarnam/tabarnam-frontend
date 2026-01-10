@@ -49,12 +49,39 @@ function truncateText(value, max = 2000) {
   return `${text.slice(0, max)}…`;
 }
 
-module.exports = async function importStartSwaWrapper(context, req) {
+function splitArgs(arg1, arg2) {
+  const a = arg1 && typeof arg1 === "object" ? arg1 : null;
+  const b = arg2 && typeof arg2 === "object" ? arg2 : null;
+
+  // Old model: (context, req)
+  const looksLikeContext = (x) => Boolean(x && typeof x === "object" && (typeof x.log === "function" || typeof x.log === "object"));
+  const looksLikeReq = (x) => Boolean(x && typeof x === "object" && (typeof x.method === "string" || typeof x.url === "string"));
+
+  if (looksLikeContext(a) && looksLikeReq(b)) return { context: a, req: b, model: "old" };
+  if (looksLikeReq(a) && looksLikeContext(b)) return { context: b, req: a, model: "new" };
+
+  // Best effort: default to new model signature.
+  return { context: b, req: a, model: "new" };
+}
+
+module.exports = async function importStartSwaWrapper(arg1, arg2) {
+  const { context, req, model } = splitArgs(arg1, arg2);
+  const isOldModel = model === "old";
+
+  const send = (response) => {
+    if (isOldModel) {
+      if (context) context.res = response;
+      return;
+    }
+    return response;
+  };
+
   const build_id = process.env.BUILD_ID || process.env.WEBSITE_COMMIT_HASH || null;
 
   safeLog(context, {
     stage: "import_start_wrapper",
     kind: "entry",
+    model,
     method: String(req?.method || "").toUpperCase(),
     url: req?.url || null,
     build_id,
@@ -77,21 +104,22 @@ module.exports = async function importStartSwaWrapper(context, req) {
       stack_first_line,
     });
 
-    context.res = json(
-      {
-        ok: false,
-        stage: "import_start_wrapper",
-        stage_beacon: "require_failed",
-        root_cause: "server_exception",
-        retryable: true,
-        http_status: 500,
-        error_id,
-        build_id,
-        error_message: "Import start module load failed",
-      },
-      200
+    return send(
+      json(
+        {
+          ok: false,
+          stage: "import_start_wrapper",
+          stage_beacon: "require_failed",
+          root_cause: "server_exception",
+          retryable: true,
+          http_status: 500,
+          error_id,
+          build_id,
+          error_message: "Import start module load failed",
+        },
+        200
+      )
     );
-    return;
   }
 
   try {
@@ -105,24 +133,60 @@ module.exports = async function importStartSwaWrapper(context, req) {
         error_id,
       });
 
-      context.res = json(
-        {
-          ok: false,
-          stage: "import_start_wrapper",
-          stage_beacon: "missing_handler",
-          root_cause: "server_exception",
-          retryable: true,
-          http_status: 500,
-          error_id,
-          build_id,
-          error_message: "Import start handler not found",
-        },
-        200
+      return send(
+        json(
+          {
+            ok: false,
+            stage: "import_start_wrapper",
+            stage_beacon: "missing_handler",
+            root_cause: "server_exception",
+            retryable: true,
+            http_status: 500,
+            error_id,
+            build_id,
+            error_message: "Import start handler not found",
+          },
+          200
+        )
       );
-      return;
     }
 
     const result = await handler(req, context);
+
+    // Some handlers might write context.res and return nothing.
+    if (result == null) {
+      if (isOldModel && context?.res && typeof context.res === "object") {
+        safeLog(context, {
+          stage: "import_start_wrapper",
+          kind: "delegate_set_context_res",
+        });
+        return;
+      }
+
+      const error_id = makeErrorId();
+      safeLog(context, {
+        stage: "import_start_wrapper",
+        kind: "empty_delegate_response",
+        error_id,
+      });
+
+      return send(
+        json(
+          {
+            ok: false,
+            stage: "import_start_wrapper",
+            stage_beacon: "empty_delegate_response",
+            root_cause: "server_exception",
+            retryable: true,
+            http_status: 500,
+            error_id,
+            build_id,
+            error_message: "Import start handler returned no response",
+          },
+          200
+        )
+      );
+    }
 
     // Safety: never return 5xx from the wrapper itself (SWA can mask).
     const delegatedStatus = Number(result?.status || 200) || 200;
@@ -187,28 +251,29 @@ module.exports = async function importStartSwaWrapper(context, req) {
         delegated_stage_beacon: delegatedStageBeacon || null,
       });
 
-      context.res = json(
-        {
-          ok: false,
-          stage: "import_start_wrapper",
-          stage_beacon: delegatedStageBeacon || "normalized_delegate_5xx",
-          root_cause: "server_exception",
-          retryable: true,
-          http_status: delegatedStatus,
-          error_id,
-          build_id,
-          session_id: session_id || undefined,
-          request_id: request_id || undefined,
-          error_message: "Import start returned a 5xx response (normalized)",
-          delegated_text_preview: truncateText(rawText),
-        },
-        200,
-        extraHeaders
+      return send(
+        json(
+          {
+            ok: false,
+            stage: "import_start_wrapper",
+            stage_beacon: delegatedStageBeacon || "normalized_delegate_5xx",
+            root_cause: "server_exception",
+            retryable: true,
+            http_status: delegatedStatus,
+            error_id,
+            build_id,
+            session_id: session_id || undefined,
+            request_id: request_id || undefined,
+            error_message: "Import start returned a 5xx response (normalized)",
+            delegated_text_preview: truncateText(rawText),
+          },
+          200,
+          extraHeaders
+        )
       );
-      return;
     }
 
-    context.res = {
+    const response = {
       status: delegatedStatus,
       headers: result?.headers || { "Content-Type": "application/json" },
       body: result?.body,
@@ -217,8 +282,10 @@ module.exports = async function importStartSwaWrapper(context, req) {
     safeLog(context, {
       stage: "import_start_wrapper",
       kind: "delegate_return",
-      status: context.res.status,
+      status: response.status,
     });
+
+    return send(response);
   } catch (e) {
     const error_id = makeErrorId();
     const message = e?.message || String(e);
@@ -232,19 +299,21 @@ module.exports = async function importStartSwaWrapper(context, req) {
       stack_first_line,
     });
 
-    context.res = json(
-      {
-        ok: false,
-        stage: "import_start_wrapper",
-        stage_beacon: "wrapper_error",
-        root_cause: "server_exception",
-        retryable: true,
-        http_status: 500,
-        error_id,
-        build_id,
-        error_message: "Import start wrapper error",
-      },
-      200
+    return send(
+      json(
+        {
+          ok: false,
+          stage: "import_start_wrapper",
+          stage_beacon: "wrapper_error",
+          root_cause: "server_exception",
+          retryable: true,
+          http_status: 500,
+          error_id,
+          build_id,
+          error_message: "Import start wrapper error",
+        },
+        200
+      )
     );
   }
 };
