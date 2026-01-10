@@ -1327,13 +1327,19 @@ export default function AdminImport() {
 
         const asyncCompanies = normalizeItems(waitResult.body?.items || waitResult.body?.companies);
         const stageCompanies = updateRunCompanies(asyncCompanies, { async_primary_active: false });
-        if (stageCompanies.length > 0) companiesForNextStage = stageCompanies;
+
+        const seedCompanies = Array.isArray(waitResult.seedCompanies)
+          ? waitResult.seedCompanies
+          : filterValidSeedCompanies(stageCompanies);
+
+        if (seedCompanies.length > 0) companiesForNextStage = seedCompanies;
 
         if (companiesForNextStage.length === 0) {
           const { body: latestBody } = await pollProgress({ session_id: canonicalSessionId });
           const latestCompanies = normalizeItems(latestBody?.items || latestBody?.companies);
           const latestStageCompanies = updateRunCompanies(latestCompanies, { async_primary_active: false });
-          if (latestStageCompanies.length > 0) companiesForNextStage = latestStageCompanies;
+          const latestSeedCompanies = filterValidSeedCompanies(latestStageCompanies);
+          if (latestSeedCompanies.length > 0) companiesForNextStage = latestSeedCompanies;
         }
 
         if (companiesForNextStage.length === 0) {
