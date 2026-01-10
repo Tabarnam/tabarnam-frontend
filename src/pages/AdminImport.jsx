@@ -1034,6 +1034,7 @@ export default function AdminImport() {
             const statusBody = await readJsonOrText(statusRes).catch(() => null);
 
             const savedCompanies = Array.isArray(statusBody?.saved_companies) ? statusBody.saved_companies : [];
+            const statusStageBeacon = asString(statusBody?.stage_beacon).trim();
             const savedCount =
               savedCompanies.length > 0
                 ? savedCompanies.length
@@ -1055,7 +1056,10 @@ export default function AdminImport() {
                         completed: true,
                         start_error: null,
                         start_error_details: detailsForCopy,
-                        progress_error: `Saved with warnings: ${msg || "post-save stage failed"}`,
+                        stage_beacon: statusStageBeacon || r.stage_beacon,
+                        last_stage_beacon: statusStageBeacon || r.last_stage_beacon,
+                        final_stage_beacon: statusStageBeacon || r.final_stage_beacon,
+                        progress_error: `Saved with warnings${statusStageBeacon ? ` (${statusStageBeacon})` : ""}: ${msg || "post-save stage failed"}`,
                         updatedAt: new Date().toISOString(),
                       }
                     : r
