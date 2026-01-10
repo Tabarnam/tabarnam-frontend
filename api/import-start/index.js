@@ -6370,12 +6370,7 @@ Return ONLY the JSON array, no other text.`,
             })
             .filter(Boolean);
 
-          const needsResume =
-            !dryRunRequested &&
-            cosmosEnabled &&
-            enrichmentMissingByCompany.length > 0 &&
-            // If any enrichment stage was partial, we must resume.
-            (!keywordStageCompleted || !reviewStageCompleted || !geocodeStageCompleted || true);
+          const needsResume = !dryRunRequested && cosmosEnabled && enrichmentMissingByCompany.length > 0;
 
           if (needsResume) {
             mark("enrichment_incomplete");
