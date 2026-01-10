@@ -6204,7 +6204,15 @@ Return ONLY the JSON array, no other text.`,
                         curated_reviews: [],
                         review_count: 0,
                         reviews_last_updated_at: nowReviewsIso,
-                        review_cursor: buildReviewCursor({ nowIso: nowReviewsIso, count: 0 }),
+                        review_cursor: buildReviewCursor({
+                          nowIso: nowReviewsIso,
+                          count: 0,
+                          exhausted: false,
+                          last_error: {
+                            code: "MISSING_COMPANY_INPUT",
+                            message: "Missing company_name or website_url",
+                          },
+                        }),
                       };
                     }
                   }
