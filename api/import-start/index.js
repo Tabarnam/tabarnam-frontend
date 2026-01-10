@@ -3747,14 +3747,21 @@ const importStartHandlerInner = async (req, context) => {
             null,
         };
 
+        const error_id = makeErrorId();
+        const root_cause = status >= 500 ? "server_exception" : "invalid_request";
+
+        logImportStartErrorLine({ error_id, stage_beacon: errorStage, root_cause, err });
+
         const errorPayload = {
           ok: false,
           stage: errorStage,
+          stage_beacon: errorStage,
           session_id: sessionId,
           request_id: requestId,
           retryable: true,
-          root_cause: status >= 500 ? "server_exception" : "invalid_request",
+          root_cause,
           http_status: Number.isFinite(Number(status)) ? Number(status) : null,
+          error_id,
           env_present,
           upstream: upstream || {},
           meta,
