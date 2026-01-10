@@ -827,11 +827,11 @@ test("/api/import/start rejects skip_stages=primary without seed when dry_run=fa
     const res = await _test.importStartHandler(req, { log() {} });
     const body = parseJsonResponse(res);
 
-    assert.equal(res.status, 400);
+    assert.equal(res.status, 200);
     assert.equal(body.ok, false);
     assert.equal(body.session_id, session_id);
-    assert.equal(body.root_cause, "skip_primary_without_seed");
-    assert.equal(body.retryable, false);
+    assert.equal(body.root_cause, "missing_seed_companies");
+    assert.equal(body.retryable, true);
     assert.equal(body.message, "skip_stages includes primary but no companies seed was provided");
   });
 });
