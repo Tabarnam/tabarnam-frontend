@@ -2550,6 +2550,12 @@ export default function CompanyDashboard() {
   const [logoDeleting, setLogoDeleting] = useState(false);
   const [logoPreviewFailed, setLogoPreviewFailed] = useState(false);
 
+  const [notesToReviewsMode, setNotesToReviewsMode] = useState("append");
+  const [notesToReviewsDryRun, setNotesToReviewsDryRun] = useState(false);
+  const [notesToReviewsLoading, setNotesToReviewsLoading] = useState(false);
+  const [notesToReviewsPreview, setNotesToReviewsPreview] = useState([]);
+  const [notesToReviewsPreviewMeta, setNotesToReviewsPreviewMeta] = useState(null);
+
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search || "");
@@ -3568,6 +3574,105 @@ export default function CompanyDashboard() {
       })
     );
   }, []);
+
+  const applyReviewsFromNotes = useCallback(async () => {
+    const companyId = asString(editorDraft?.company_id).trim() || asString(editorOriginalId).trim();
+    if (!companyId) {
+      toast.error("Save the company first to generate a company_id.");
+      return;
+    }
+
+    const notes = asString(editorDraft?.notes).trim();
+    if (!notes) {
+      toast.error("Notes field is empty.");
+      return;
+    }
+
+    const mode = notesToReviewsMode === "replace" ? "replace" : "append";
+    const dryRun = Boolean(notesToReviewsDryRun);
+
+    if (mode === "replace" && !dryRun) {
+      const ok = window.confirm("Replace will overwrite curated reviews for this company. Continue?");
+      if (!ok) return;
+    }
+
+    setNotesToReviewsLoading(true);
+    try {
+      const res = await apiFetch(`/admin/companies/${encodeURIComponent(companyId)}/apply-reviews-from-notes`, {
+        method: "POST",
+        body: {
+          mode,
+          dry_run: dryRun,
+        },
+      });
+
+      const body = await res.json().catch(() => ({}));
+      if (body?.ok !== true) {
+        const msg =
+          asString(body?.message).trim() ||
+          asString(body?.error).trim() ||
+          (await getUserFacingConfigMessage(res)) ||
+          "Apply reviews failed";
+        toast.error(msg);
+        return;
+      }
+
+      const parsedCount = Number(body?.parsed_count ?? 0) || 0;
+      const savedCount = Number(body?.saved_count ?? 0) || 0;
+      const total = Number(body?.review_count ?? 0) || 0;
+      const warnings = Array.isArray(body?.warnings) ? body.warnings : [];
+      const preview = Array.isArray(body?.preview) ? body.preview : [];
+
+      if (dryRun) {
+        setNotesToReviewsPreview(preview);
+        setNotesToReviewsPreviewMeta({ parsedCount, savedCount, total, mode, warnings });
+        toast.success(`Preview ready: ${parsedCount} parsed (would save ${savedCount})`);
+        return;
+      }
+
+      // Refresh editor draft from the backend so the next normal Save doesn't overwrite curated_reviews.
+      try {
+        const companyRes = await apiFetch(`/xadmin-api-companies/${encodeURIComponent(companyId)}`);
+        const companyBody = await companyRes.json().catch(() => ({}));
+        const company = companyBody?.company && typeof companyBody.company === "object" ? companyBody.company : null;
+        if (company && typeof company === "object") {
+          setEditorDraft(buildCompanyDraft(company));
+          updateCompanyInState(companyId, {
+            curated_reviews: Array.isArray(company.curated_reviews) ? company.curated_reviews : [],
+            review_count: company.review_count,
+            reviews_last_updated_at: company.reviews_last_updated_at,
+          });
+        } else {
+          setEditorDraft((prev) => ({ ...(prev || {}), review_count: total }));
+          updateCompanyInState(companyId, { review_count: total });
+        }
+      } catch {
+        // If refresh fails, at least update the counts locally.
+        setEditorDraft((prev) => ({ ...(prev || {}), review_count: total }));
+        updateCompanyInState(companyId, { review_count: total });
+      }
+
+      if (mode === "replace") {
+        toast.success(`Replaced reviews (total ${total})`);
+      } else {
+        toast.success(`Added ${savedCount} review${savedCount === 1 ? "" : "s"} (total ${total})`);
+      }
+
+      if (warnings.length) {
+        console.log("[apply-reviews-from-notes] warnings", warnings);
+      }
+    } catch (e) {
+      toast.error(asString(e?.message).trim() || "Apply reviews failed");
+    } finally {
+      setNotesToReviewsLoading(false);
+    }
+  }, [
+    editorDraft,
+    editorOriginalId,
+    notesToReviewsDryRun,
+    notesToReviewsMode,
+    updateCompanyInState,
+  ]);
 
   const isAllowedLogoType = useCallback((type) => {
     return type === "image/png" || type === "image/jpeg" || type === "image/webp";
@@ -4787,14 +4892,110 @@ export default function CompanyDashboard() {
                             onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), notes_entries: next }))}
                           />
 
-                          <div className="space-y-1">
-                            <label className="text-sm text-slate-700">Internal notes (legacy)</label>
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <label className="text-sm text-slate-700">Internal notes (legacy)</label>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex items-center gap-2 text-xs text-slate-700">
+                                  <span className="font-medium">Notes → Reviews</span>
+                                  <select
+                                    value={notesToReviewsMode}
+                                    onChange={(e) => setNotesToReviewsMode(e.target.value)}
+                                    className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs"
+                                    disabled={notesToReviewsLoading}
+                                    aria-label="Apply mode"
+                                  >
+                                    <option value="append">Append</option>
+                                    <option value="replace">Replace</option>
+                                  </select>
+                                  <label className="flex items-center gap-2">
+                                    <Checkbox
+                                      checked={notesToReviewsDryRun}
+                                      onCheckedChange={(v) => setNotesToReviewsDryRun(Boolean(v))}
+                                      disabled={notesToReviewsLoading}
+                                    />
+                                    <span>Dry run</span>
+                                  </label>
+                                </div>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={applyReviewsFromNotes}
+                                  disabled={
+                                    notesToReviewsLoading ||
+                                    !asString(editorOriginalId).trim() ||
+                                    !asString(editorDraft?.notes).trim()
+                                  }
+                                  title="Parse reviews out of the Notes field and save into curated_reviews"
+                                >
+                                  {notesToReviewsLoading ? "Applying…" : "Apply reviews from Notes"}
+                                </Button>
+                              </div>
+                            </div>
+
                             <textarea
                               value={asString(editorDraft.notes)}
                               onChange={(e) => setEditorDraft((d) => ({ ...d, notes: e.target.value }))}
                               className="min-h-[200px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
                               placeholder="Internal notes…"
                             />
+
+                            {notesToReviewsPreviewMeta ? (
+                              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                  <div className="text-xs text-slate-700">
+                                    <div className="font-medium">Dry run preview</div>
+                                    <div className="mt-1">
+                                      Parsed: <span className="font-medium">{notesToReviewsPreviewMeta.parsedCount}</span>
+                                      <span className="mx-1">•</span>
+                                      Would save: <span className="font-medium">{notesToReviewsPreviewMeta.savedCount}</span>
+                                      <span className="mx-1">•</span>
+                                      Result total: <span className="font-medium">{notesToReviewsPreviewMeta.total}</span>
+                                      <span className="mx-1">•</span>
+                                      Mode: <span className="font-medium">{notesToReviewsPreviewMeta.mode}</span>
+                                    </div>
+                                    {Array.isArray(notesToReviewsPreviewMeta.warnings) && notesToReviewsPreviewMeta.warnings.length ? (
+                                      <div className="mt-1 text-[11px] text-slate-500">
+                                        Warnings: {notesToReviewsPreviewMeta.warnings.join(", ")}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setNotesToReviewsPreview([]);
+                                      setNotesToReviewsPreviewMeta(null);
+                                    }}
+                                  >
+                                    Clear preview
+                                  </Button>
+                                </div>
+
+                                {Array.isArray(notesToReviewsPreview) && notesToReviewsPreview.length ? (
+                                  <div className="space-y-2">
+                                    {notesToReviewsPreview.map((r, idx) => (
+                                      <div key={asString(r?.id).trim() || `preview-${idx}`} className="rounded border border-slate-200 bg-white p-2">
+                                        <div className="text-xs text-slate-800">
+                                          <span className="font-medium">{asString(r?.title).trim() || "(no title)"}</span>
+                                          {asString(r?.author).trim() ? <span className="text-slate-500"> · {asString(r?.author).trim()}</span> : null}
+                                          {asString(r?.date).trim() ? <span className="text-slate-500"> · {asString(r?.date).trim()}</span> : null}
+                                          {r?.rating != null ? <span className="text-slate-500"> · {String(r.rating)}/5</span> : null}
+                                        </div>
+                                        <div className="mt-1 whitespace-pre-wrap text-[11px] text-slate-700">{asString(r?.text).trim()}</div>
+                                        {asString(r?.url).trim() ? (
+                                          <div className="mt-1 text-[11px] text-slate-500">URL: {asString(r?.url).trim()}</div>
+                                        ) : null}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-slate-600">No preview items returned.</div>
+                                )}
+                              </div>
+                            ) : null}
                           </div>
 
                           {editorOriginalId ? <AdminEditHistory companyId={editorOriginalId} /> : null}
