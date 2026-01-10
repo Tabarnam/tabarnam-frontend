@@ -3052,7 +3052,22 @@ const importStartHandlerInner = async (req, context) => {
       const stopsBeforeSave = Boolean(maxStage && maxStage !== "expand" && maxStage !== "primary");
       const skipsPrimaryWithoutSeed = skipStages.has("primary") && providedCompanies.length === 0;
 
-      if (!dryRunRequested && (stopsBeforeSave || skipsPrimaryWithoutSeed)) {
+      if (!dryRunRequested && skipsPrimaryWithoutSeed) {
+        return jsonWithRequestId(
+          {
+            ok: false,
+            session_id: sessionId,
+            request_id: requestId,
+            stage_beacon,
+            root_cause: "skip_primary_without_seed",
+            retryable: false,
+            message: "skip_stages includes primary but no companies seed was provided",
+          },
+          400
+        );
+      }
+
+      if (!dryRunRequested && stopsBeforeSave) {
         return jsonWithRequestId(
           {
             ok: false,
