@@ -2877,10 +2877,23 @@ const importStartHandlerInner = async (req, context) => {
             console.error("[import-start] INVALID_JSON_BODY");
           }
 
+          const error_id = makeErrorId();
+          logImportStartErrorLine({
+            error_id,
+            stage_beacon: "validate_request",
+            root_cause: "invalid_request",
+            err,
+          });
+
           return jsonWithRequestId(
             {
               ok: false,
               stage: "validate_request",
+              stage_beacon: "validate_request",
+              root_cause: "invalid_request",
+              retryable: false,
+              http_status: 400,
+              error_id,
               session_id: sessionId,
               request_id: requestId,
               error: {
@@ -2932,7 +2945,7 @@ const importStartHandlerInner = async (req, context) => {
                   }
                 : {}),
             },
-            400
+            200
           );
         }
         throw err;
