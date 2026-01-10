@@ -2448,8 +2448,11 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               import_session_id: sid,
               import_request_id: importRequestId,
               import_created_at: importCreatedAt,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
+              created_at:
+                shouldUpdateExisting && existingDoc && typeof existingDoc.created_at === "string" && existingDoc.created_at.trim()
+                  ? existingDoc.created_at.trim()
+                  : nowIso,
+              updated_at: nowIso,
             };
 
             try {
