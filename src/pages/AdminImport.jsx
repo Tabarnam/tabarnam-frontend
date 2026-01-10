@@ -1977,7 +1977,7 @@ export default function AdminImport() {
 
               {effectiveImportConfig.persistBlocked ? (
                 <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                  This configuration will not save any companies unless you enable Dry run (no save) or change Max stage / Skip settings.
+                  This configuration will not auto-save any companies. Set Max stage to expand to auto-save, or run and then click “Save results”.
                 </div>
               ) : null}
             </details>
