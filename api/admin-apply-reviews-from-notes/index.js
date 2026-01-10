@@ -412,7 +412,11 @@ function parseNotesToCandidates(notesText) {
   }
 
   const yamlCandidates = parseYamlBlocks(raw);
-  if (yamlCandidates.length > 0) return { candidates: yamlCandidates, format: "yaml" };
+  // Only treat the input as YAML-ish if at least one block contains a Text/body/content field.
+  // This prevents delimited blocks (---) that happen to contain "URL:" lines from being
+  // misclassified as YAML.
+  const yamlHasText = Array.isArray(yamlCandidates) && yamlCandidates.some((c) => asString(c?.text).trim());
+  if (yamlCandidates.length > 0 && yamlHasText) return { candidates: yamlCandidates, format: "yaml" };
 
   const delimitedCandidates = parseDelimitedBlocks(raw);
   if (delimitedCandidates.length > 0) return { candidates: delimitedCandidates, format: "delimited" };
