@@ -2420,6 +2420,8 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               hq_lat: company.hq_lat,
               hq_lng: company.hq_lng,
               headquarters_location: headquartersLocation,
+              hq_unknown: Boolean(company.hq_unknown),
+              hq_unknown_reason: String(company.hq_unknown_reason || "").trim(),
               headquarters_locations: company.headquarters_locations || [],
               headquarters: Array.isArray(company.headquarters)
                 ? company.headquarters
