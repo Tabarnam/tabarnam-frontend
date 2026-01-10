@@ -723,7 +723,7 @@ export default function AdminImport() {
     setDebugSessionId("");
 
     try {
-      const { res } = await apiFetchWithFallback(["/import/start", "/import-start"], {
+      const { res } = await apiFetchWithFallback(["/import-start", "/import/start"], {
         method: "POST",
         body: { query: q, limit },
       });
@@ -771,7 +771,7 @@ export default function AdminImport() {
     setDebugSessionId("");
 
     try {
-      const { res } = await apiFetchWithFallback(["/import/start?explain=1", "/import-start?explain=1"], {
+      const { res } = await apiFetchWithFallback(["/import-start?explain=1", "/import/start?explain=1"], {
         method: "POST",
         body: { query: q, limit },
       });
@@ -1021,7 +1021,15 @@ export default function AdminImport() {
 
         // Guard: if /import/start fails (often a late-stage 5xx), but the session still saved
         // companies, don't show "Import failed".
-        if ((Number(res?.status) || 0) >= 500 && canonicalSessionId) {
+        const isNonJsonMasked =
+          body &&
+          typeof body === "object" &&
+          typeof body?.text === "string" &&
+          Object.keys(body).length === 1;
+
+        // Guard: if import-start fails with a SWA-masked raw-text response (or any 5xx),
+        // status polling is the only reliable source of truth about whether anything was saved.
+        if (((Number(res?.status) || 0) >= 500 || isNonJsonMasked) && canonicalSessionId) {
           try {
             const encoded = encodeURIComponent(canonicalSessionId);
             const { res: statusRes } = await apiFetchWithFallback([`/import/status?session_id=${encoded}`]);
@@ -1106,7 +1114,7 @@ export default function AdminImport() {
         if (skipStages && skipStages.length > 0) params.set("skip_stages", skipStages.join(","));
         const qs = params.toString();
 
-        const paths = [`/import/start${qs ? `?${qs}` : ""}`, `/import-start${qs ? `?${qs}` : ""}`];
+        const paths = [`/import-start${qs ? `?${qs}` : ""}`, `/import/start${qs ? `?${qs}` : ""}`];
 
         const payload = {
           ...requestPayload,
@@ -1539,7 +1547,7 @@ export default function AdminImport() {
     setExplainResponseText("");
 
     try {
-      const { res } = await apiFetchWithFallback(["/import/start?explain=1", "/import-start?explain=1"], {
+      const { res } = await apiFetchWithFallback(["/import-start?explain=1", "/import/start?explain=1"], {
         method: "POST",
         body: requestPayload,
       });
