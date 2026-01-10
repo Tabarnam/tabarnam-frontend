@@ -7320,6 +7320,7 @@ app.http("import-start-legacy", {
 });
 
 module.exports = {
+  handler: importStartHandler,
   _test: {
     readJsonBody,
     readQueryParam,
