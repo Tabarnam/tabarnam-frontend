@@ -1,5 +1,24 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+
+// These contract tests exercise very chatty handlers. Keep output readable unless explicitly requested.
+const __originalConsole = {
+  log: console.log,
+  warn: console.warn,
+  error: console.error,
+};
+
+if (process.env.TEST_VERBOSE !== "1") {
+  console.log = () => {};
+  console.warn = () => {};
+  console.error = () => {};
+
+  process.on("exit", () => {
+    console.log = __originalConsole.log;
+    console.warn = __originalConsole.warn;
+    console.error = __originalConsole.error;
+  });
+}
 const path = require("node:path");
 const { test } = require("node:test");
 
@@ -786,4 +805,33 @@ test("/api/import/start?max_stage=primary does not mark session complete in /api
       assert.equal(statusBody.state, "running");
     }
   );
+});
+
+test("/api/import/start rejects skip_stages=primary without seed when dry_run=false", async () => {
+  await withTempEnv(NO_NETWORK_ENV, async () => {
+    const session_id = "44444444-5555-6666-7777-888888888888";
+
+    const req = makeReq({
+      url: "https://example.test/api/import/start?skip_stages=primary",
+      body: JSON.stringify({
+        session_id,
+        query: "test",
+        queryTypes: ["product_keyword"],
+        limit: 1,
+      }),
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+
+    const res = await _test.importStartHandler(req, { log() {} });
+    const body = parseJsonResponse(res);
+
+    assert.equal(res.status, 400);
+    assert.equal(body.ok, false);
+    assert.equal(body.session_id, session_id);
+    assert.equal(body.root_cause, "skip_primary_without_seed");
+    assert.equal(body.retryable, false);
+    assert.equal(body.message, "skip_stages includes primary but no companies seed was provided");
+  });
 });

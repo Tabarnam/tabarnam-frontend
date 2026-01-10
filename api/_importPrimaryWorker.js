@@ -379,10 +379,6 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
     10_000,
     toPositiveInt(process.env.IMPORT_PRIMARY_HARD_TIMEOUT_MS, 300_000)
   );
-  const NO_CANDIDATES_AFTER_MS = Math.max(
-    5_000,
-    toPositiveInt(process.env.IMPORT_PRIMARY_NO_CANDIDATES_MS, 300_000)
-  );
   const UPSTREAM_TIMEOUT_CAP_MS = Math.max(
     5_000,
     toPositiveInt(process.env.IMPORT_PRIMARY_UPSTREAM_TIMEOUT_CAP_MS, 300_000)
@@ -490,38 +486,6 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
       };
     }
 
-    if (runtime.elapsed_ms > NO_CANDIDATES_AFTER_MS && runtime.companies_candidates_found === 0) {
-      await markPrimaryError({
-        sessionId,
-        cosmosEnabled,
-        code: "no_candidates_found",
-        message: "Primary search produced no candidates within progress threshold",
-        stageBeacon: "primary_expanding_candidates",
-        details: {
-          elapsed_ms: runtime.elapsed_ms,
-          no_candidates_threshold_ms: NO_CANDIDATES_AFTER_MS,
-          upstream_calls_made: runtime.upstream_calls_made,
-        },
-      });
-
-      const after = await getJob({ sessionId, cosmosEnabled }).catch(() => null);
-      return {
-        httpStatus: 200,
-        body: {
-          ok: false,
-          session_id: sessionId,
-          status: "error",
-          stage_beacon: "primary_expanding_candidates",
-          error:
-            after?.last_error ||
-            ({
-              code: "no_candidates_found",
-              message: "Primary search produced no candidates within progress threshold",
-            }),
-          meta: buildMeta({ invocationSource, workerId, workerClaimed: false }),
-        },
-      };
-    }
   }
 
   const LOCK_TTL_MS = Number.isFinite(Number(process.env.IMPORT_LOCK_TTL_MS))
@@ -801,32 +765,6 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
       };
     }
 
-    if (runtime.elapsed_ms > NO_CANDIDATES_AFTER_MS && runtime.companies_candidates_found === 0) {
-      await markPrimaryError({
-        sessionId,
-        cosmosEnabled,
-        code: "no_candidates_found",
-        message: "Primary search produced no candidates within progress threshold",
-        stageBeacon: "primary_expanding_candidates",
-        details: {
-          elapsed_ms: runtime.elapsed_ms,
-          no_candidates_threshold_ms: NO_CANDIDATES_AFTER_MS,
-          upstream_calls_made: runtime.upstream_calls_made,
-        },
-      });
-
-      return {
-        httpStatus: 200,
-        body: {
-          ok: false,
-          session_id: sessionId,
-          status: "error",
-          stage_beacon: "primary_expanding_candidates",
-          error: { code: "no_candidates_found", message: "Primary search produced no candidates within progress threshold" },
-          meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
-        },
-      };
-    }
 
     const stageBeacon = attempt === 1 ? "primary_search_started" : "primary_expanding_candidates";
 
@@ -846,6 +784,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
       lockTtlMs: LOCK_TTL_MS,
       extraPatch: {
         attempt,
+        last_attempt_at: nowIso(),
         stage_beacon: stageBeacon,
         elapsed_ms: runtime.elapsed_ms,
         remaining_budget_ms: runtime.remaining_budget_ms,
@@ -963,6 +902,92 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
         };
       }
 
+      const requestedTarget = requestedLimit > 0 ? requestedLimit : 0;
+
+      if (
+        !isSingleCompany &&
+        requestedTarget > 0 &&
+        candidatesFound < requestedTarget &&
+        attempt < maxAttempts &&
+        runtimeAfterParse.remaining_budget_ms > 0
+      ) {
+        const retryError = {
+          code: "insufficient_candidates",
+          message: `Found ${candidatesFound} candidate${candidatesFound === 1 ? "" : "s"} but requested ${requestedTarget}. Retrying...`,
+          requested_limit: requestedTarget,
+          candidates_found: candidatesFound,
+        };
+
+        await patchJob({
+          sessionId,
+          cosmosEnabled,
+          patch: {
+            job_state: "running",
+            stage_beacon: "primary_expanding_candidates",
+            attempt,
+            last_attempt_at: nowIso(),
+            updated_at: nowIso(),
+            last_heartbeat_at: nowIso(),
+            last_error: retryError,
+            companies_candidates_found: candidatesFound,
+            elapsed_ms: runtimeAfterParse.elapsed_ms,
+            remaining_budget_ms: runtimeAfterParse.remaining_budget_ms,
+            upstream_calls_made: upstreamCallsMade,
+            early_exit_triggered: earlyExitTriggered,
+            ...(invocationSource === "status" ? { lock_expires_at: null, locked_by: null } : {}),
+          },
+        }).catch(() => null);
+
+        if (invocationSource === "status") {
+          return {
+            httpStatus: 202,
+            body: {
+              ok: true,
+              session_id: sessionId,
+              status: "running",
+              stage_beacon: "primary_expanding_candidates",
+              meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
+              note: "Retry scheduled; need more candidates",
+              error: retryError,
+            },
+          };
+        }
+
+        const baseBackoffMs = Math.min(30_000, 1000 * 2 ** (attempt - 1));
+        const jitterMs = Math.floor(Math.random() * 500);
+        const backoffMs = baseBackoffMs + jitterMs;
+        await sleep(Math.min(backoffMs, Math.max(0, HARD_MAX_RUNTIME_MS - getRuntime(Date.now()).elapsed_ms)));
+        continue;
+      }
+
+      if (!isSingleCompany && candidatesFound === 0) {
+        await markPrimaryError({
+          sessionId,
+          cosmosEnabled,
+          code: "no_candidates_found",
+          message: "Primary completed but returned no candidates",
+          stageBeacon: "no_candidates_found",
+          details: {
+            requested_limit: requestedTarget,
+            attempts: attempt,
+            max_attempts: maxAttempts,
+            upstream_calls_made: upstreamCallsMade,
+          },
+        });
+
+        return {
+          httpStatus: 200,
+          body: {
+            ok: false,
+            session_id: sessionId,
+            status: "error",
+            stage_beacon: "no_candidates_found",
+            error: { code: "no_candidates_found", message: "Primary completed but returned no candidates" },
+            meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
+          },
+        };
+      }
+
       await patchJob({
         sessionId,
         cosmosEnabled,
@@ -970,6 +995,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
           job_state: "complete",
           stage_beacon: "primary_complete",
           completed_at: nowIso(),
+          last_attempt_at: nowIso(),
           updated_at: nowIso(),
           last_heartbeat_at: nowIso(),
           companies_count: parsedCompanies.length,
@@ -1012,6 +1038,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
         cosmosEnabled,
         patch: {
           attempt,
+          last_attempt_at: nowIso(),
           updated_at: nowIso(),
           last_heartbeat_at: nowIso(),
           last_error: redacted,

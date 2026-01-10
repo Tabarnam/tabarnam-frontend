@@ -162,6 +162,7 @@ const IMPORT_LIMIT_MAX = 25;
 const IMPORT_LIMIT_DEFAULT = 1;
 
 const IMPORT_STAGE_BEACON_TO_ENGLISH = Object.freeze({
+  primary_enqueued: "Queued primary search",
   primary_search_started: "Searching for matching companies",
   primary_candidate_found: "Company candidate found",
   primary_expanding_candidates: "Expanding search for better matches",
@@ -232,7 +233,6 @@ export default function AdminImport() {
   const [limitInput, setLimitInput] = useState(String(IMPORT_LIMIT_DEFAULT));
 
   const [importMaxStage, setImportMaxStage] = useState("expand");
-  const [importSkipPrimary, setImportSkipPrimary] = useState(false);
   const [importDryRunEnabled, setImportDryRunEnabled] = useState(false);
 
   const importConfigured = Boolean(API_BASE);
@@ -617,10 +617,17 @@ export default function AdminImport() {
 
   const effectiveImportConfig = useMemo(() => {
     const maxStage = asString(importMaxStage).trim() || "expand";
-    const skipStages = importSkipPrimary ? ["primary"] : [];
+    // Guardrail: never request skip_stages=primary unless we are resuming with an explicit companies seed.
+    // (The resume call is driven by /api/import/status once candidates exist.)
+    const skipStages = [];
     const dryRun = Boolean(importDryRunEnabled);
 
-    const pipeline = maxStage === "expand" ? "primary → keywords → reviews → location → save → expand" : "primary → keywords → reviews → location → save";
+    const pipeline =
+      maxStage === "expand"
+        ? "primary → keywords → reviews → location → save → expand"
+        : maxStage === "primary"
+          ? "primary (candidate fetch only)"
+          : "primary → keywords → reviews → location → save";
 
     const overrides = [];
     if (skipStages.length > 0) overrides.push(`Skip: ${skipStages.join(", ")}`);
@@ -633,9 +640,9 @@ export default function AdminImport() {
       maxStage,
       skipStages,
       dryRun,
-      persistBlocked: !dryRun && (skipStages.includes("primary") || (maxStage && maxStage !== "expand")),
+      persistBlocked: !dryRun && Boolean(maxStage && maxStage !== "expand"),
     };
-  }, [importDryRunEnabled, importMaxStage, importSkipPrimary]);
+  }, [importDryRunEnabled, importMaxStage]);
 
   const startDebugImport = useCallback(async () => {
     const q = debugQuery.trim();
@@ -827,7 +834,7 @@ export default function AdminImport() {
 
     try {
       const pipelineMaxStage = asString(importMaxStage).trim() || "expand";
-      const baseSkipStages = importSkipPrimary ? ["primary"] : [];
+      const baseSkipStages = [];
       const dryRun = forceDryRun || importDryRunEnabled;
 
       const requestPayload = {
@@ -1154,14 +1161,33 @@ export default function AdminImport() {
 
           if (isFailure) return { kind: "failed", body };
 
-          const stageReady =
-            completed ||
-            jobState === "complete" ||
-            primaryJobState === "complete" ||
-            items.length > 0 ||
-            companiesCount > 0;
+          const hasCandidates = items.length > 0 || companiesCount > 0;
+          const terminalComplete = completed || jobState === "complete" || primaryJobState === "complete";
 
-          if (stageReady) return { kind: "ready", body };
+          if (hasCandidates) return { kind: "ready", body };
+
+          // Important: never resume the pipeline with skip_stages=["primary"] unless we have a seed.
+          // If primary is terminal but still empty, surface a clear failure.
+          if (terminalComplete) {
+            return {
+              kind: "failed",
+              body: {
+                ...(body && typeof body === "object" ? body : {}),
+                ok: false,
+                status: "error",
+                state: "failed",
+                stage_beacon: stage === "primary" ? "no_candidates_found" : `stage_${stage}_no_candidates`,
+                reason: stage === "primary" ? "primary_missing_companies" : "stage_missing_companies",
+                last_error: {
+                  code: stage === "primary" ? "no_candidates_found" : "stage_no_candidates",
+                  message:
+                    stage === "primary"
+                      ? "Primary completed but returned no candidates."
+                      : `Stage \"${stage}\" completed but returned no candidates.`,
+                },
+              },
+            };
+          }
 
           await sleep(2500);
         }
@@ -1366,7 +1392,6 @@ export default function AdminImport() {
     importConfigured,
     importDryRunEnabled,
     importMaxStage,
-    importSkipPrimary,
     limitInput,
     location,
     query,
@@ -1922,14 +1947,9 @@ export default function AdminImport() {
             <details className="rounded border border-slate-200 bg-slate-50 px-4 py-3">
               <summary className="cursor-pointer select-none text-sm font-medium text-slate-800">Advanced import config</summary>
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={importSkipPrimary}
-                    onChange={(e) => setImportSkipPrimary(e.target.checked)}
-                  />
-                  Skip primary fetch
-                </label>
+                <div className="sm:col-span-3 text-xs text-slate-600">
+                  Primary is always run first. The app only resumes with skip_stages=primary after candidates exist (seeded_companies_count &gt; 0).
+                </div>
 
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input
@@ -1958,7 +1978,7 @@ export default function AdminImport() {
 
               {effectiveImportConfig.persistBlocked ? (
                 <div className="mt-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                  This configuration will not save any companies unless you enable Dry run (no save) or change Max stage / Skip settings.
+                  This configuration will not auto-save any companies. Set Max stage to expand to auto-save, or run and then click “Save results”.
                 </div>
               ) : null}
             </details>
@@ -1974,6 +1994,9 @@ export default function AdminImport() {
                 <span className="font-semibold">Effective request:</span> max_stage={effectiveImportConfig.maxStage}; skip_stages=
                 {effectiveImportConfig.skipStages.length > 0 ? effectiveImportConfig.skipStages.join(",") : "(none)"}; dry_run=
                 {effectiveImportConfig.dryRun ? "true" : "false"}
+              </div>
+              <div>
+                <span className="font-semibold">Resume debug:</span> resume_allowed: {activeRun && Array.isArray(activeRun.items) && activeRun.items.length > 0 ? "true" : "false"} (seeded_companies_count={activeRun && Array.isArray(activeRun.items) ? activeRun.items.length : 0})
               </div>
             </div>
 
