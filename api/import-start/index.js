@@ -2471,6 +2471,28 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               };
             }
 
+            if (shouldUpdateExisting && existingDoc) {
+              const mergedDoc = {
+                ...existingDoc,
+                ...doc,
+                id: String(existingDoc.id),
+                normalized_domain: String(existingDoc.normalized_domain || doc.normalized_domain || finalNormalizedDomain),
+              };
+
+              const upserted = await upsertItemWithPkCandidates(container, mergedDoc);
+              if (!upserted.ok) {
+                throw new Error(upserted.error || "upsert_failed");
+              }
+
+              return {
+                type: "updated",
+                index: companyIndex,
+                id: String(existingDoc.id),
+                company_name: companyName,
+                normalized_domain: finalNormalizedDomain,
+              };
+            }
+
             await container.items.create(doc);
             return {
               type: "saved",
