@@ -3053,17 +3053,19 @@ const importStartHandlerInner = async (req, context) => {
       const skipsPrimaryWithoutSeed = skipStages.has("primary") && providedCompanies.length === 0;
 
       if (!dryRunRequested && skipsPrimaryWithoutSeed) {
+        // Guardrail: never proceed past primary unless we have a seed companies list.
+        // Return HTTP 200 so callers treat this as a retryable state machine failure (not a hard crash).
         return jsonWithRequestId(
           {
             ok: false,
             session_id: sessionId,
             request_id: requestId,
             stage_beacon,
-            root_cause: "skip_primary_without_seed",
-            retryable: false,
+            root_cause: "missing_seed_companies",
+            retryable: true,
             message: "skip_stages includes primary but no companies seed was provided",
           },
-          400
+          200
         );
       }
 
