@@ -723,7 +723,7 @@ export default function AdminImport() {
     setDebugSessionId("");
 
     try {
-      const { res } = await apiFetchWithFallback(["/import/start", "/import-start"], {
+      const { res } = await apiFetchWithFallback(["/import-start", "/import/start"], {
         method: "POST",
         body: { query: q, limit },
       });
@@ -771,7 +771,7 @@ export default function AdminImport() {
     setDebugSessionId("");
 
     try {
-      const { res } = await apiFetchWithFallback(["/import/start?explain=1", "/import-start?explain=1"], {
+      const { res } = await apiFetchWithFallback(["/import-start?explain=1", "/import/start?explain=1"], {
         method: "POST",
         body: { query: q, limit },
       });
@@ -1019,15 +1019,22 @@ export default function AdminImport() {
           ...(extra && typeof extra === "object" ? extra : {}),
         };
 
-        // Guard: if /import/start fails (often a late-stage 5xx), but the session still saved
-        // companies, don't show "Import failed".
-        if ((Number(res?.status) || 0) >= 500 && canonicalSessionId) {
+        const isNonJsonMasked =
+          body &&
+          typeof body === "object" &&
+          typeof body?.text === "string" &&
+          Object.keys(body).length === 1;
+
+        // Guard: if import-start fails with a SWA-masked raw-text response (or any 5xx),
+        // status polling is the only reliable source of truth about whether anything was saved.
+        if (((Number(res?.status) || 0) >= 500 || isNonJsonMasked) && canonicalSessionId) {
           try {
             const encoded = encodeURIComponent(canonicalSessionId);
             const { res: statusRes } = await apiFetchWithFallback([`/import/status?session_id=${encoded}`]);
             const statusBody = await readJsonOrText(statusRes).catch(() => null);
 
             const savedCompanies = Array.isArray(statusBody?.saved_companies) ? statusBody.saved_companies : [];
+            const statusStageBeacon = asString(statusBody?.stage_beacon).trim();
             const savedCount =
               savedCompanies.length > 0
                 ? savedCompanies.length
@@ -1049,7 +1056,10 @@ export default function AdminImport() {
                         completed: true,
                         start_error: null,
                         start_error_details: detailsForCopy,
-                        progress_error: `Saved with warnings: ${msg || "post-save stage failed"}`,
+                        stage_beacon: statusStageBeacon || r.stage_beacon,
+                        last_stage_beacon: statusStageBeacon || r.last_stage_beacon,
+                        final_stage_beacon: statusStageBeacon || r.final_stage_beacon,
+                        progress_error: `Saved with warnings${statusStageBeacon ? ` (${statusStageBeacon})` : ""}: ${msg || "post-save stage failed"}`,
                         updatedAt: new Date().toISOString(),
                       }
                     : r
@@ -1106,7 +1116,7 @@ export default function AdminImport() {
         if (skipStages && skipStages.length > 0) params.set("skip_stages", skipStages.join(","));
         const qs = params.toString();
 
-        const paths = [`/import/start${qs ? `?${qs}` : ""}`, `/import-start${qs ? `?${qs}` : ""}`];
+        const paths = [`/import-start${qs ? `?${qs}` : ""}`, `/import/start${qs ? `?${qs}` : ""}`];
 
         const payload = {
           ...requestPayload,
@@ -1539,7 +1549,7 @@ export default function AdminImport() {
     setExplainResponseText("");
 
     try {
-      const { res } = await apiFetchWithFallback(["/import/start?explain=1", "/import-start?explain=1"], {
+      const { res } = await apiFetchWithFallback(["/import-start?explain=1", "/import/start?explain=1"], {
         method: "POST",
         body: requestPayload,
       });

@@ -294,7 +294,7 @@ async function handler(req, context) {
   };
 
   const base = new URL(req.url);
-  const startUrl = new URL("/api/import/start", base.origin);
+  const startUrl = new URL("/api/import-start", base.origin);
   startUrl.searchParams.set("skip_stages", "primary");
   startUrl.searchParams.set("max_stage", "expand");
 

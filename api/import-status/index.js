@@ -45,6 +45,49 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function normalizeDomain(raw) {
+  const host = String(raw || "").trim().toLowerCase();
+  if (!host) return "";
+  return host.replace(/^www\./, "");
+}
+
+function extractNormalizedDomainFromQuery(rawQuery) {
+  const q = String(rawQuery || "").trim();
+  if (!q) return "";
+
+  try {
+    const url = q.includes("://") ? new URL(q) : new URL(`https://${q}`);
+    return normalizeDomain(url.hostname || "");
+  } catch {
+    return "";
+  }
+}
+
+function computeCreatedAfterIso(createdAtIso, minutes) {
+  const raw = String(createdAtIso || "").trim();
+  const ms = Date.parse(raw) || 0;
+  if (!ms) return "";
+  const delta = Math.max(0, Number(minutes) || 0) * 60 * 1000;
+  return new Date(ms - delta).toISOString();
+}
+
+function deriveDomainAndCreatedAfter({ sessionDoc, acceptDoc }) {
+  const sessionCreatedAt =
+    (typeof sessionDoc?.created_at === "string" && sessionDoc.created_at.trim() ? sessionDoc.created_at.trim() : "") ||
+    (typeof acceptDoc?.created_at === "string" && acceptDoc.created_at.trim() ? acceptDoc.created_at.trim() : "") ||
+    "";
+
+  const request = sessionDoc?.request && typeof sessionDoc.request === "object" ? sessionDoc.request : null;
+  const query = request && typeof request.query === "string" ? request.query : "";
+
+  const normalizedDomain = extractNormalizedDomainFromQuery(query);
+
+  // If we have to fall back by domain, keep the window tight.
+  const createdAfter = computeCreatedAfterIso(sessionCreatedAt, 10);
+
+  return { normalizedDomain, createdAfter, sessionCreatedAt };
+}
+
 function toPositiveInt(value, fallback) {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) return fallback;
@@ -213,7 +256,16 @@ async function hasAnyCompanyDocs(container, sessionId) {
   if (!container) return false;
   try {
     const q = {
-      query: `SELECT TOP 1 c.id FROM c WHERE (c.session_id = @sid OR c.import_session_id = @sid) AND NOT STARTSWITH(c.id, '_import_')`,
+      query: `
+        SELECT TOP 1 c.id FROM c
+        WHERE (
+          (IS_DEFINED(c.session_id) AND c.session_id = @sid)
+          OR (IS_DEFINED(c.import_session_id) AND c.import_session_id = @sid)
+          OR (IS_DEFINED(c.import_session) AND c.import_session = @sid)
+          OR (IS_DEFINED(c.source_session_id) AND c.source_session_id = @sid)
+          OR (IS_DEFINED(c.source_session) AND c.source_session = @sid)
+        ) AND NOT STARTSWITH(c.id, '_import_')
+      `,
       parameters: [{ name: "@sid", value: sessionId }],
     };
 
@@ -230,10 +282,23 @@ async function hasAnyCompanyDocs(container, sessionId) {
   }
 }
 
-async function fetchRecentCompanies(container, sessionId, take) {
+async function fetchRecentCompanies(container, { sessionId, take, normalizedDomain, createdAfter }) {
   if (!container) return [];
   const n = Math.max(0, Math.min(Number(take) || 10, 200));
   if (!n) return [];
+
+  const domain = typeof normalizedDomain === "string" ? normalizedDomain.trim().toLowerCase() : "";
+  const createdAfterIso = typeof createdAfter === "string" ? createdAfter.trim() : "";
+
+  const domainFallbackClause =
+    domain && createdAfterIso
+      ? `
+          OR (
+            IS_DEFINED(c.normalized_domain) AND c.normalized_domain = @domain
+            AND IS_DEFINED(c.created_at) AND c.created_at >= @createdAfter
+          )
+        `
+      : "";
 
   const q = {
     query: `
@@ -245,10 +310,27 @@ async function fetchRecentCompanies(container, sessionId, take) {
         c.mfg_unknown, c.mfg_unknown_reason,
         c.red_flag, c.red_flag_reason
       FROM c
-      WHERE (c.session_id = @sid OR c.import_session_id = @sid) AND NOT STARTSWITH(c.id, '_import_')
+      WHERE NOT STARTSWITH(c.id, '_import_')
+        AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
+        AND (
+          (IS_DEFINED(c.session_id) AND c.session_id = @sid)
+          OR (IS_DEFINED(c.import_session_id) AND c.import_session_id = @sid)
+          OR (IS_DEFINED(c.import_session) AND c.import_session = @sid)
+          OR (IS_DEFINED(c.source_session_id) AND c.source_session_id = @sid)
+          OR (IS_DEFINED(c.source_session) AND c.source_session = @sid)
+          ${domainFallbackClause}
+        )
       ORDER BY c.created_at DESC
     `,
-    parameters: [{ name: "@sid", value: sessionId }],
+    parameters: [
+      { name: "@sid", value: sessionId },
+      ...(domain && createdAfterIso
+        ? [
+            { name: "@domain", value: domain },
+            { name: "@createdAfter", value: createdAfterIso },
+          ]
+        : []),
+    ],
   };
 
   const { resources } = await container.items
@@ -415,24 +497,39 @@ async function upsertDoc(container, doc) {
   return { ok: false, error: lastErr?.message || String(lastErr || "upsert_failed") };
 }
 
-async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionCreatedAt, limit = 200 }) {
+async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionCreatedAt, normalizedDomain, createdAfter, limit = 200 }) {
   if (!container) return [];
   const n = Math.max(0, Math.min(Number(limit) || 0, 200));
   if (!n) return [];
 
   const createdAtIso = typeof sessionCreatedAt === "string" && sessionCreatedAt.trim() ? sessionCreatedAt.trim() : "";
+  const domain = typeof normalizedDomain === "string" ? normalizedDomain.trim().toLowerCase() : "";
+  const createdAfterIso = typeof createdAfter === "string" && createdAfter.trim() ? createdAfter.trim() : "";
 
-  // Prefer explicit session linking fields; only fall back to created_at when the linking fields are missing.
+  // Prefer explicit session linking fields; only fall back to created_at/domain when the linking fields are missing.
   const createdAtFallbackClause = createdAtIso
     ? `
         OR (
           IS_DEFINED(c.created_at) AND c.created_at >= @createdAt
           AND (NOT IS_DEFINED(c.session_id) OR c.session_id = "")
           AND (NOT IS_DEFINED(c.import_session_id) OR c.import_session_id = "")
+          AND (NOT IS_DEFINED(c.import_session) OR c.import_session = "")
+          AND (NOT IS_DEFINED(c.source_session_id) OR c.source_session_id = "")
+          AND (NOT IS_DEFINED(c.source_session) OR c.source_session = "")
           AND c.source = "xai_import"
         )
       `
     : "";
+
+  const domainFallbackClause =
+    domain && createdAfterIso
+      ? `
+        OR (
+          IS_DEFINED(c.normalized_domain) AND c.normalized_domain = @domain
+          AND IS_DEFINED(c.created_at) AND c.created_at >= @createdAfter
+        )
+      `
+      : "";
 
   const q = {
     query: `
@@ -449,16 +546,24 @@ async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionC
         AND (
           (IS_DEFINED(c.session_id) AND c.session_id = @sid)
           OR (IS_DEFINED(c.import_session_id) AND c.import_session_id = @sid)
+          OR (IS_DEFINED(c.import_session) AND c.import_session = @sid)
+          OR (IS_DEFINED(c.source_session_id) AND c.source_session_id = @sid)
+          OR (IS_DEFINED(c.source_session) AND c.source_session = @sid)
           ${createdAtFallbackClause}
+          ${domainFallbackClause}
         )
       ORDER BY c.created_at DESC
     `,
-    parameters: createdAtIso
-      ? [
-          { name: "@sid", value: sessionId },
-          { name: "@createdAt", value: createdAtIso },
-        ]
-      : [{ name: "@sid", value: sessionId }],
+    parameters: [
+      { name: "@sid", value: sessionId },
+      ...(createdAtIso ? [{ name: "@createdAt", value: createdAtIso }] : []),
+      ...(domain && createdAfterIso
+        ? [
+            { name: "@domain", value: domain },
+            { name: "@createdAfter", value: createdAfterIso },
+          ]
+        : []),
+    ],
   };
 
   const { resources } = await container.items
@@ -624,6 +729,8 @@ async function handler(req, context) {
           readControlDoc(container, `_import_resume_${sessionId}`, sessionId),
         ]);
 
+        const domainMeta = deriveDomainAndCreatedAfter({ sessionDoc, acceptDoc });
+
         const completionSavedIds = Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [];
         const completionSaved = typeof completionDoc?.saved === "number" ? completionDoc.saved : null;
         const sessionSaved = typeof sessionDoc?.saved === "number" ? sessionDoc.saved : null;
@@ -637,18 +744,33 @@ async function handler(req, context) {
           stageBeaconValues.status_fetched_saved_companies = nowIso();
         }
 
+        // If the control doc only knows "saved" but not the saved_ids (or they weren't persisted yet),
+        // still return the saved company doc(s) so the UI run history row isn't blank.
+        if (Number(saved || 0) > 0 && (!Array.isArray(savedCompanyDocs) || savedCompanyDocs.length === 0)) {
+          stageBeaconValues.status_fetching_saved_companies_fallback = nowIso();
+          const fallbackDocs = await fetchRecentCompanies(container, {
+            sessionId,
+            take: Math.max(1, Math.min(200, Math.max(Number(saved) || 0, Number(take) || 10))),
+            normalizedDomain: domainMeta.normalizedDomain,
+            createdAfter: domainMeta.createdAfter,
+          }).catch(() => []);
+
+          if (Array.isArray(fallbackDocs) && fallbackDocs.length > 0) {
+            savedCompanyDocs = fallbackDocs;
+            savedCompanies = toSavedCompanies(fallbackDocs);
+            stageBeaconValues.status_fetched_saved_companies_fallback = nowIso();
+          }
+        }
+
         // Authoritative reconciliation: async primary runs can persist companies even when the completion/session report is stale.
         if (Number(saved || 0) === 0) {
           stageBeaconValues.status_reconcile_saved_probe = nowIso();
 
-          const sessionCreatedAt =
-            (typeof sessionDoc?.created_at === "string" && sessionDoc.created_at.trim() ? sessionDoc.created_at.trim() : "") ||
-            (typeof acceptDoc?.created_at === "string" && acceptDoc.created_at.trim() ? acceptDoc.created_at.trim() : "") ||
-            "";
-
           const authoritativeDocs = await fetchAuthoritativeSavedCompanies(container, {
             sessionId,
-            sessionCreatedAt,
+            sessionCreatedAt: domainMeta.sessionCreatedAt,
+            normalizedDomain: domainMeta.normalizedDomain,
+            createdAfter: domainMeta.createdAfter,
             limit: 200,
           }).catch(() => []);
 
@@ -1128,7 +1250,14 @@ async function handler(req, context) {
     const stopped = Boolean(stopDoc);
     const completed = Boolean(completionDoc);
 
-    const items = await fetchRecentCompanies(container, sessionId, take).catch(() => []);
+    const domainMeta = deriveDomainAndCreatedAfter({ sessionDoc, acceptDoc });
+
+    const items = await fetchRecentCompanies(container, {
+      sessionId,
+      take,
+      normalizedDomain: domainMeta.normalizedDomain,
+      createdAfter: domainMeta.createdAfter,
+    }).catch(() => []);
     let saved =
       (typeof completionDoc?.saved === "number" ? completionDoc.saved : null) ??
       (typeof sessionDoc?.saved === "number" ? sessionDoc.saved : null) ??
@@ -1147,14 +1276,11 @@ async function handler(req, context) {
     if (Number(saved || 0) === 0) {
       stageBeaconValues.status_reconcile_saved_probe = nowIso();
 
-      const sessionCreatedAt =
-        (typeof sessionDoc?.created_at === "string" && sessionDoc.created_at.trim() ? sessionDoc.created_at.trim() : "") ||
-        (typeof acceptDoc?.created_at === "string" && acceptDoc.created_at.trim() ? acceptDoc.created_at.trim() : "") ||
-        "";
-
       const authoritativeDocs = await fetchAuthoritativeSavedCompanies(container, {
         sessionId,
-        sessionCreatedAt,
+        sessionCreatedAt: domainMeta.sessionCreatedAt,
+        normalizedDomain: domainMeta.normalizedDomain,
+        createdAfter: domainMeta.createdAfter,
         limit: 200,
       }).catch(() => []);
 
