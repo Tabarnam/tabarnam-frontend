@@ -133,3 +133,128 @@ Function Runtime Version: 4.1045.200.25556
 [2026-01-10T10:03:59.073Z] [api] ✓ admin-geocode-location registered
 [2026-01-10T10:03:59.073Z] [api/index.js] ✅ All handler registration complete! Exporting app.
 [2026-01-10T10:03:59.952Z] Worker process started and initialized.
+[2026-01-10T10:04:02.433Z] The '_debug-ingress-latest' function is in error: '_debug-ingress-latest' is not a valid function name.
+[2026-01-10T10:04:02.593Z] The '_diagHello' function is in error: '_diagHello' is not a valid function name.
+[2026-01-10T10:04:02.593Z] The '_debug-egress-latest' function is in error: '_debug-egress-latest' is not a valid function name.
+[2026-01-10T10:04:02.593Z] The 'admin-cleanup-import-placeholders' function is in error: The specified route conflicts with one or more built in routes.
+[2026-01-10T10:04:02.593Z] The 'adminCompanyHistory' function is in error: The specified route conflicts with one or more built in routes.
+[2026-01-10T10:04:02.593Z] The 'adminCompanyHistoryAlias' function is in error: The specified route conflicts with one or more built in routes.
+[2026-01-10T10:04:02.593Z] The 'adminRefreshCompany' function is in error: The specified route conflicts with one or more built in routes.
+[2026-01-10T10:04:02.593Z] The 'adminRefreshReviews' function is in error: The specified route conflicts with one or more built in routes.
+
+Functions:
+
+	adminAnalytics: [GET,OPTIONS] http://localhost:7076/api/xadmin-api-analytics
+
+	adminBatchUpdate: [POST,OPTIONS] http://localhost:7076/api/xadmin-api-batch-update
+
+	adminBulkImportConfig: [GET,OPTIONS] http://localhost:7076/api/xadmin-api-bulk-import-config
+
+	adminCompanies: [GET,POST,PUT,DELETE,OPTIONS] http://localhost:7076/api/xadmin-api-companies/{id?}
+
+	adminDebug: [GET] http://localhost:7076/api/xadmin-api-debug
+
+	adminEcho: [GET,OPTIONS] http://localhost:7076/api/xadmin-api-echo
+
+	adminGeocodeLocation: [POST,OPTIONS] http://localhost:7076/api/xadmin-api-geocode-location
+
+	adminImportStats: [GET,OPTIONS] http://localhost:7076/api/xadmin-api-import-stats
+
+	adminNotes: [GET,POST,PUT,DELETE,OPTIONS] http://localhost:7076/api/xadmin-api-notes
+
+	adminRecalcStars: [POST,OPTIONS] http://localhost:7076/api/xadmin-api-recalc-stars
+
+	adminRecentImports: [GET,OPTIONS] http://localhost:7076/api/xadmin-api-recent-imports
+
+	adminRefreshImport: [POST,OPTIONS] http://localhost:7076/api/xadmin-api-refresh-import
+
+	adminReviews: [GET,POST,PUT,DELETE,OPTIONS] http://localhost:7076/api/xadmin-api-reviews
+
+	adminSaveDiagnostic: [GET,POST,OPTIONS] http://localhost:7076/api/xadmin-api-save-diagnostic
+
+	adminStarConfig: [GET,PUT,OPTIONS] http://localhost:7076/api/xadmin-api-star-config
+
+	adminUndo: [POST,OPTIONS] http://localhost:7076/api/xadmin-api-undo
+
+	adminUndoHistory: [GET,DELETE,OPTIONS] http://localhost:7076/api/xadmin-api-undo-history
+
+	adminUpdateLogos: [POST,OPTIONS] http://localhost:7076/api/xadmin-api-update-logos
+
+	companies-list: [GET,POST,PUT,DELETE,OPTIONS] http://localhost:7076/api/companies-list
+
+	company-logo: [GET,OPTIONS] http://localhost:7076/api/company-logo
+
+	cosmos-smoke: [GET,OPTIONS] http://localhost:7076/api/cosmos/smoke
+
+	delete-logo-blob: [POST,OPTIONS] http://localhost:7076/api/delete-logo-blob
+
+	diag: [GET,OPTIONS] http://localhost:7076/api/diag
+
+	get-reviews: [GET,OPTIONS] http://localhost:7076/api/get-reviews
+
+	googleGeocode: [POST,OPTIONS] http://localhost:7076/api/google/geocode
+
+	googleTranslate: [POST,OPTIONS] http://localhost:7076/api/google/translate
+
+	health: [GET,OPTIONS] http://localhost:7076/api/health
+
+	hello: [GET,OPTIONS] http://localhost:7076/api/hello
+
+	import-backend-ping: [GET,OPTIONS] http://localhost:7076/api/import/backend-ping
+
+	import-primary-worker: [POST,OPTIONS] http://localhost:7076/api/import/primary-worker
+
+	import-progress: [GET,OPTIONS] http://localhost:7076/api/import/progress
+
+	import-start: [GET,POST,OPTIONS] http://localhost:7076/api/import/start
+
+	import-start-legacy: [GET,POST,OPTIONS] http://localhost:7076/api/import-start
+
+	import-status: [GET,OPTIONS] http://localhost:7076/api/import/status
+
+	import-status-alt: [GET,OPTIONS] http://localhost:7076/api/import-status
+
+	import-stop: [POST,OPTIONS] http://localhost:7076/api/import/stop
+
+	keywords-list: [GET,POST,PUT,DELETE,OPTIONS] http://localhost:7076/api/keywords-list
+
+	logo-scrape: [POST,OPTIONS] http://localhost:7076/api/logo-scrape
+
+	ping: [GET,OPTIONS] http://localhost:7076/api/ping
+
+	proxy-xai: [GET,POST,OPTIONS] http://localhost:7076/api/proxy-xai
+
+	retry-logo-import: [POST,OPTIONS] http://localhost:7076/api/retry-logo-import
+
+	save-companies: [POST,OPTIONS] http://localhost:7076/api/save-companies
+
+	search-companies: [GET,OPTIONS] http://localhost:7076/api/search-companies
+
+	submit-review: [POST,OPTIONS] http://localhost:7076/api/submit-review
+
+	suggest-cities: [GET,OPTIONS] http://localhost:7076/api/suggest-cities
+
+	suggest-refinements: [GET,OPTIONS] http://localhost:7076/api/suggest-refinements
+
+	suggest-states: [GET,OPTIONS] http://localhost:7076/api/suggest-states
+
+	test-echo: [GET,POST,PUT,DELETE,OPTIONS] http://localhost:7076/api/test-echo
+
+	upload-logo-blob: [POST,OPTIONS] http://localhost:7076/api/upload-logo-blob
+
+	v1-chat-completions: [POST,OPTIONS] http://localhost:7076/api/v1/chat/completions
+
+	version: [GET,OPTIONS] http://localhost:7076/api/version
+
+	xadmin-api-logos: [PUT,OPTIONS] http://localhost:7076/api/xadmin-api-logos/{companyId}
+
+	xadminApiRecalcReviewCounts: [POST,OPTIONS] http://localhost:7076/api/xadmin-api-recalc-review-counts
+
+	xadminApiRefreshCompany: [GET,POST,OPTIONS] http://localhost:7076/api/xadmin-api-refresh-company
+
+	xadminApiRefreshReviews: [GET,POST,OPTIONS] http://localhost:7076/api/xadmin-api-refresh-reviews
+
+	xai-smoke: [GET,OPTIONS] http://localhost:7076/api/xai/smoke
+
+For detailed output, run func with --verbose flag.
+[2026-01-10T10:04:04.194Z] Host lock lease acquired by instance ID '000000000000000000000000C9361FC1'.
