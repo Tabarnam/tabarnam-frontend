@@ -13,13 +13,8 @@ function normalizeXaiBaseUrl(raw) {
   const hostLower = String(u.hostname || "").toLowerCase();
   const pathLower = String(u.pathname || "").toLowerCase().replace(/\/+$/, "");
 
-  // Common production setup: a dedicated Azure Function host with a proxy route at /api/xai.
-  // If the base is configured as just /api, normalize it to /api/xai so callers don't
-  // mistakenly append /v1/chat/completions (which won't exist on the function host).
-  if (hostLower.endsWith(".azurewebsites.net") && pathLower === "/api") {
-    u.pathname = "/api/xai";
-    return u.toString();
-  }
+  // Note: some deployments expose OpenAI-compatible routes under /api/v1/chat/completions.
+  // Do not automatically rewrite "/api" to "/api/xai"; that breaks those deployments.
 
   return s;
 }
