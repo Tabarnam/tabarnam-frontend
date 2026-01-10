@@ -5700,7 +5700,7 @@ Return ONLY the JSON array, no other text.`,
               if (deadlineBeforeLocationRefinement) return deadlineBeforeLocationRefinement;
 
               mark("xai_location_refinement_fetch_start");
-              const refinementResponse = await postXaiJsonWithBudget({
+              const refinementResponse = await postXaiJsonWithBudgetRetry({
                 stageKey: "location",
                 stageBeacon: "xai_location_refinement_fetch_start",
                 body: JSON.stringify(refinementPayload),
