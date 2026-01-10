@@ -48,6 +48,31 @@ function normalizeItems(items) {
   return items.filter((it) => it && typeof it === "object");
 }
 
+function isValidSeedCompany(item) {
+  if (!item || typeof item !== "object") return false;
+
+  const companyName = asString(item.company_name || item.name).trim();
+  const websiteUrl = asString(item.website_url || item.url || item.canonical_url).trim();
+
+  if (!companyName || !websiteUrl) return false;
+
+  const source = asString(item.source).trim();
+  if (source && source !== "company_url_shortcut") return true;
+
+  // Accept explicit markers that the seed is known-good for resume.
+  if (item.candidate === true) return true;
+  if (item.primary_candidate === true) return true;
+  if (item.seed === true) return true;
+  if (asString(item.source_stage).trim() === "primary") return true;
+
+  return false;
+}
+
+function filterValidSeedCompanies(items) {
+  const list = normalizeItems(items);
+  return list.filter(isValidSeedCompany);
+}
+
 function mergeById(prev, next) {
   const map = new Map();
   for (const item of prev) {
