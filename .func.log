@@ -271,3 +271,10 @@ Functions:
 	xai-smoke: [GET,OPTIONS] http://localhost:7074/api/xai/smoke
 
 For detailed output, run func with --verbose flag.
+[2026-01-10T05:32:09.549Z] Executing 'Functions.ping' (Reason='This function was programmatically called via the host APIs.', Id=8140fc21-5521-4376-bdf7-eba8544643e6)
+[2026-01-10T05:32:09.630Z] Executed 'Functions.ping' (Succeeded, Id=8140fc21-5521-4376-bdf7-eba8544643e6, Duration=101ms)
+[2026-01-10T05:32:09.667Z] Executing 'Functions.version' (Reason='This function was programmatically called via the host APIs.', Id=46ed320b-1fe8-411d-af70-878e9e1c3b12)
+[2026-01-10T05:32:09.672Z] Executed 'Functions.version' (Succeeded, Id=46ed320b-1fe8-411d-af70-878e9e1c3b12, Duration=6ms)
+[2026-01-10T05:32:09.682Z] Executing 'Functions.import-status' (Reason='This function was programmatically called via the host APIs.', Id=be7fd45f-b8f8-4749-9bd7-abdce0dcb6bf)
+[2026-01-10T05:32:10.814Z] Host lock lease acquired by instance ID '0000000000000000000000000B8DC44F'.
+[2026-01-10T05:32:13.930Z] Executed 'Functions.import-status' (Succeeded, Id=be7fd45f-b8f8-4749-9bd7-abdce0dcb6bf, Duration=4249ms)
