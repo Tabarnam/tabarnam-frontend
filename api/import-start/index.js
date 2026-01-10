@@ -4013,6 +4013,57 @@ const importStartHandlerInner = async (req, context) => {
           }
         };
 
+        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+        const STAGE_RETRY_BACKOFF_MS = [0, 2000, 5000, 10000];
+
+        const shouldRetryUpstreamStatus = (status) => {
+          const s = Number(status);
+          if (!Number.isFinite(s)) return true;
+          if (s === 408 || s === 421 || s === 429) return true;
+          return s >= 500 && s <= 599;
+        };
+
+        const postXaiJsonWithBudgetRetry = async ({ stageKey, stageBeacon, body, stageCapMsOverride }) => {
+          const attempts = STAGE_RETRY_BACKOFF_MS.length;
+
+          for (let attempt = 0; attempt < attempts; attempt += 1) {
+            const delayMs = STAGE_RETRY_BACKOFF_MS[attempt] || 0;
+            if (delayMs > 0) {
+              const remaining = getRemainingMs();
+              if (remaining < delayMs + DEADLINE_SAFETY_BUFFER_MS) {
+                // Not enough budget to wait and retry.
+                break;
+              }
+              await sleep(delayMs);
+            }
+
+            try {
+              const res = await postXaiJsonWithBudget({ stageKey, stageBeacon, body, stageCapMsOverride });
+
+              if (res && typeof res.status === "number" && shouldRetryUpstreamStatus(res.status) && attempt < attempts - 1) {
+                continue;
+              }
+
+              return res;
+            } catch (e) {
+              if (e instanceof AcceptedResponseError) throw e;
+
+              const code = String(e?.code || "").toUpperCase();
+              const retryable = code === "UPSTREAM_TIMEOUT" || code === "INSUFFICIENT_TIME_FOR_FETCH";
+
+              if (retryable && attempt < attempts - 1) {
+                continue;
+              }
+
+              throw e;
+            }
+          }
+
+          // Fall back to a final attempt (will throw on failure).
+          return await postXaiJsonWithBudget({ stageKey, stageBeacon, body, stageCapMsOverride });
+        };
+
         // Early check: if import was already stopped, return immediately
         if (!noUpstreamMode) {
           const wasAlreadyStopped = await safeCheckIfSessionStopped(sessionId);
