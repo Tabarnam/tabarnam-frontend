@@ -237,7 +237,13 @@ async function fetchRecentCompanies(container, sessionId, take) {
 
   const q = {
     query: `
-      SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.industries, c.product_keywords, c.created_at
+      SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
+        c.industries, c.product_keywords, c.keywords,
+        c.headquarters_location, c.manufacturing_locations,
+        c.curated_reviews, c.review_count, c.review_cursor,
+        c.hq_unknown, c.hq_unknown_reason,
+        c.mfg_unknown, c.mfg_unknown_reason,
+        c.red_flag, c.red_flag_reason
       FROM c
       WHERE (c.session_id = @sid OR c.import_session_id = @sid) AND NOT STARTSWITH(c.id, '_import_')
       ORDER BY c.created_at DESC
@@ -259,7 +265,13 @@ async function fetchCompaniesByIds(container, ids) {
 
   const q = {
     query: `
-      SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at
+      SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
+        c.industries, c.product_keywords, c.keywords,
+        c.headquarters_location, c.manufacturing_locations,
+        c.curated_reviews, c.review_count, c.review_cursor,
+        c.hq_unknown, c.hq_unknown_reason,
+        c.mfg_unknown, c.mfg_unknown_reason,
+        c.red_flag, c.red_flag_reason
       FROM c
       WHERE ARRAY_CONTAINS(@ids, c.id)
     `,
@@ -275,6 +287,78 @@ async function fetchCompaniesByIds(container, ids) {
   return list.map((id) => byId.get(id)).filter(Boolean);
 }
 
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((v) => (typeof v === "string" ? v.trim() : "")).filter(Boolean);
+}
+
+function computeEnrichmentHealth(company) {
+  const c = company && typeof company === "object" ? company : {};
+
+  const industries = normalizeStringArray(c.industries);
+  const hasIndustries = industries.length > 0;
+
+  const productKeywordsRaw = c.product_keywords;
+  const productKeywords =
+    typeof productKeywordsRaw === "string"
+      ? productKeywordsRaw.trim()
+      : Array.isArray(productKeywordsRaw)
+        ? productKeywordsRaw.map((v) => String(v || "").trim()).filter(Boolean).join(", ").trim()
+        : "";
+
+  const keywordList = normalizeStringArray(c.keywords);
+  const hasKeywords = productKeywords.length > 0 || keywordList.length > 0;
+
+  const hq = typeof c.headquarters_location === "string" ? c.headquarters_location.trim() : "";
+  const hqReason = String(c.hq_unknown_reason || c.red_flag_reason || "").trim();
+  const hasHq = Boolean(hq) || Boolean(c.hq_unknown && hqReason);
+
+  const manufacturingLocations = Array.isArray(c.manufacturing_locations) ? c.manufacturing_locations : [];
+  const mfgReason = String(c.mfg_unknown_reason || c.red_flag_reason || "").trim();
+  const hasMfg = manufacturingLocations.length > 0 || Boolean(c.mfg_unknown && mfgReason);
+
+  const hasReviewCount = typeof c.review_count === "number" && Number.isFinite(c.review_count);
+  const hasCuratedReviewsField = Array.isArray(c.curated_reviews);
+  const hasReviewCursorField = Boolean(c.review_cursor && typeof c.review_cursor === "object");
+  const hasReviewsField = hasReviewCount && hasCuratedReviewsField && hasReviewCursorField;
+
+  const missing_fields = [];
+  if (!hasIndustries) missing_fields.push("industries");
+  if (!hasKeywords) missing_fields.push("product_keywords");
+  if (!hasHq) missing_fields.push("headquarters_location");
+  if (!hasMfg) missing_fields.push("manufacturing_locations");
+  if (!hasReviewsField) missing_fields.push("reviews");
+
+  return {
+    has_industries: hasIndustries,
+    has_keywords: hasKeywords,
+    has_hq: hasHq,
+    has_mfg: hasMfg,
+    has_reviews_field: hasReviewsField,
+    missing_fields,
+  };
+}
+
+function summarizeEnrichmentHealth(savedCompanies) {
+  const list = Array.isArray(savedCompanies) ? savedCompanies : [];
+  const incomplete = list.filter((c) => Array.isArray(c?.enrichment_health?.missing_fields) && c.enrichment_health.missing_fields.length > 0);
+  const missingCounts = {};
+
+  for (const item of incomplete) {
+    const missing = Array.isArray(item?.enrichment_health?.missing_fields) ? item.enrichment_health.missing_fields : [];
+    for (const field of missing) {
+      missingCounts[field] = (missingCounts[field] || 0) + 1;
+    }
+  }
+
+  return {
+    total: list.length,
+    complete: Math.max(0, list.length - incomplete.length),
+    incomplete: incomplete.length,
+    missing_counts: missingCounts,
+  };
+}
+
 function toSavedCompanies(docs) {
   const list = Array.isArray(docs) ? docs : [];
   return list
@@ -286,6 +370,7 @@ function toSavedCompanies(docs) {
         company_id: companyId,
         company_name: String(doc?.company_name || doc?.name || "").trim() || "Unknown company",
         website_url: String(doc?.website_url || doc?.url || "").trim() || "",
+        enrichment_health: computeEnrichmentHealth(doc),
       };
     })
     .filter(Boolean);
@@ -351,7 +436,13 @@ async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionC
 
   const q = {
     query: `
-      SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at
+      SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
+        c.industries, c.product_keywords, c.keywords,
+        c.headquarters_location, c.manufacturing_locations,
+        c.curated_reviews, c.review_count, c.review_cursor,
+        c.hq_unknown, c.hq_unknown_reason,
+        c.mfg_unknown, c.mfg_unknown_reason,
+        c.red_flag, c.red_flag_reason
       FROM c
       WHERE NOT STARTSWITH(c.id, '_import_')
         AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
