@@ -934,6 +934,7 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
             remaining_budget_ms: runtimeAfterParse.remaining_budget_ms,
             upstream_calls_made: upstreamCallsMade,
             early_exit_triggered: earlyExitTriggered,
+            ...(invocationSource === "status" ? { lock_expires_at: null, locked_by: null } : {}),
           },
         }).catch(() => null);
 
