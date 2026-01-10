@@ -331,12 +331,18 @@ export default function AdminImport() {
         const lastError = body?.last_error || null;
         const report = body?.report && typeof body.report === "object" ? body.report : null;
 
+        const resumeNeeded = Boolean(body?.resume_needed || body?.resume?.needed || report?.session?.resume_needed);
+
         const completed = state === "complete" ? true : Boolean(body?.completed);
         const timedOut = Boolean(body?.timedOut);
         const stopped = state === "failed" ? true : Boolean(body?.stopped);
 
         const isTerminalError = state === "failed" || status === "error" || jobState === "error";
-        const isTerminalComplete = state === "complete" || status === "complete" || jobState === "complete" || completed;
+        const isTerminalComplete =
+          state === "complete" ||
+          status === "complete" ||
+          (!resumeNeeded && jobState === "complete") ||
+          (completed && !resumeNeeded);
 
         const lastErrorCode = asString(lastError?.code).trim();
         const primaryTimeoutLabel = formatDurationShort(lastError?.hard_timeout_ms);
