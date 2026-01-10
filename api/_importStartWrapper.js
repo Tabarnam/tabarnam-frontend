@@ -251,6 +251,9 @@ module.exports = async function importStartSwaWrapper(arg1, arg2) {
         delegated_stage_beacon: delegatedStageBeacon || null,
       });
 
+      const delegatedTextPreview = truncateText(rawText);
+      const delegatedTextTruncated = typeof rawText === "string" && rawText.length > 2000;
+
       return send(
         json(
           {
@@ -265,7 +268,9 @@ module.exports = async function importStartSwaWrapper(arg1, arg2) {
             session_id: session_id || undefined,
             request_id: request_id || undefined,
             error_message: "Import start returned a 5xx response (normalized)",
-            delegated_text_preview: truncateText(rawText),
+            delegated_stage_beacon: delegatedStageBeacon || undefined,
+            delegated_text_preview: delegatedTextPreview,
+            delegated_text_truncated: delegatedTextTruncated,
           },
           200,
           extraHeaders
