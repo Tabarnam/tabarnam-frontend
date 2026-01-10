@@ -3791,10 +3791,9 @@ const importStartHandlerInner = async (req, context) => {
           ...(detailsObj && typeof detailsObj === "object" && Object.keys(detailsObj).length ? { details: detailsObj } : {}),
         };
 
-        // Azure Static Web Apps can mask 5xx into raw-text "Backend call failure".
-        // Keep the JSON envelope but avoid returning 5xx status codes.
-        const httpStatus = status >= 500 ? 200 : status;
-        return jsonWithRequestId(errorPayload, httpStatus);
+        // Normalize error responses to HTTP 200 so Static Web Apps never masks the body.
+        // The real status is carried in errorPayload.http_status.
+        return jsonWithRequestId(errorPayload, 200);
       };
 
       if (queryTypesProvided && !Array.isArray(rawQueryTypes)) {
