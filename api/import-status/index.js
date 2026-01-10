@@ -1104,13 +1104,14 @@ async function handler(req, context) {
     const errorDocId = `_import_error_${sessionId}`;
     const acceptDocId = `_import_accept_${sessionId}`;
 
-    const [sessionDoc, completionDoc, timeoutDoc, stopDoc, errorDoc, acceptDoc] = await Promise.all([
+    const [sessionDoc, completionDoc, timeoutDoc, stopDoc, errorDoc, acceptDoc, resumeDoc] = await Promise.all([
       readControlDoc(container, sessionDocId, sessionId),
       readControlDoc(container, completionDocId, sessionId),
       readControlDoc(container, timeoutDocId, sessionId),
       readControlDoc(container, stopDocId, sessionId),
       readControlDoc(container, errorDocId, sessionId),
       readControlDoc(container, acceptDocId, sessionId),
+      readControlDoc(container, `_import_resume_${sessionId}`, sessionId),
     ]);
 
     let known = Boolean(sessionDoc || completionDoc || timeoutDoc || stopDoc || errorDoc || acceptDoc);
@@ -1248,7 +1249,82 @@ async function handler(req, context) {
             failed_items: Array.isArray(completionDoc?.failed_items) ? completionDoc.failed_items : [],
           }
         : null,
+      resume: resumeDoc
+        ? {
+            status: resumeDoc?.status || null,
+            attempt: Number.isFinite(Number(resumeDoc?.attempt)) ? Number(resumeDoc.attempt) : 0,
+            lock_expires_at: resumeDoc?.lock_expires_at || null,
+            updated_at: resumeDoc?.updated_at || null,
+          }
+        : null,
     };
+
+    const enrichment_health_summary = summarizeEnrichmentHealth(saved_companies);
+    const missing_by_company = saved_companies
+      .filter((c) => Array.isArray(c?.enrichment_health?.missing_fields) && c.enrichment_health.missing_fields.length > 0)
+      .map((c) => ({
+        company_id: c.company_id,
+        company_name: c.company_name,
+        website_url: c.website_url,
+        missing_fields: c.enrichment_health.missing_fields,
+      }));
+
+    const resume_needed = Boolean(sessionDoc?.resume_needed) || enrichment_health_summary.incomplete > 0 || Boolean(resumeDoc);
+
+    let resume_doc_created = false;
+    let resume_triggered = false;
+    let resume_trigger_error = null;
+
+    if (resume_needed) {
+      try {
+        const resumeDocId = `_import_resume_${sessionId}`;
+        let currentResume = resumeDoc;
+
+        if (!currentResume) {
+          const now = nowIso();
+          await upsertDoc(container, {
+            id: resumeDocId,
+            session_id: sessionId,
+            normalized_domain: "import",
+            partition_key: "import",
+            type: "import_control",
+            created_at: now,
+            updated_at: now,
+            status: "queued",
+            missing_by_company,
+          }).catch(() => null);
+          resume_doc_created = true;
+
+          currentResume = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+        }
+
+        const resumeStatus = String(currentResume?.status || "").trim();
+        const lockUntil = Date.parse(String(currentResume?.lock_expires_at || "")) || 0;
+        const canTrigger = !lockUntil || Date.now() >= lockUntil;
+
+        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "error")) {
+          stageBeaconValues.status_trigger_resume_worker = nowIso();
+
+          const base = new URL(req.url);
+          const workerUrl = new URL("/api/import/resume-worker", base.origin);
+
+          const workerRes = await fetch(workerUrl.toString(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ session_id: sessionId }),
+          }).catch((e) => ({ ok: false, status: 0, _error: e }));
+
+          resume_triggered = Boolean(workerRes?.ok);
+          if (!resume_triggered) {
+            resume_trigger_error = workerRes?._error?.message || `resume_worker_http_${Number(workerRes?.status || 0)}`;
+          }
+        }
+      } catch (e) {
+        resume_trigger_error = e?.message || String(e);
+      }
+    }
+
+    const effectiveCompleted = completed && !resume_needed;
 
     if (errorPayload || timedOut || stopped) {
       const errorOut =
@@ -1286,6 +1362,15 @@ async function handler(req, context) {
           reconcile_strategy,
           reconciled_saved_ids,
           saved_companies,
+          resume_needed,
+          resume: {
+            needed: resume_needed,
+            doc_created: resume_doc_created,
+            triggered: resume_triggered,
+            trigger_error: resume_trigger_error,
+            missing_by_company,
+          },
+          enrichment_health_summary,
           lastCreatedAt,
           timedOut,
           stopped,
@@ -1296,7 +1381,7 @@ async function handler(req, context) {
       );
     }
 
-    if (completed) {
+    if (effectiveCompleted) {
       return jsonWithSessionId(
         {
           ok: true,
@@ -1333,6 +1418,15 @@ async function handler(req, context) {
           reconcile_strategy,
           reconciled_saved_ids,
           saved_companies,
+          resume_needed,
+          resume: {
+            needed: resume_needed,
+            doc_created: resume_doc_created,
+            triggered: resume_triggered,
+            trigger_error: resume_trigger_error,
+            missing_by_company,
+          },
+          enrichment_health_summary,
           lastCreatedAt,
           report,
         },
@@ -1367,6 +1461,15 @@ async function handler(req, context) {
         reconcile_strategy,
         reconciled_saved_ids,
         saved_companies,
+        resume_needed,
+        resume: {
+          needed: resume_needed,
+          doc_created: resume_doc_created,
+          triggered: resume_triggered,
+          trigger_error: resume_trigger_error,
+          missing_by_company,
+        },
+        enrichment_health_summary,
         lastCreatedAt,
         report,
       },
