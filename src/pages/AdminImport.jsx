@@ -1019,8 +1019,6 @@ export default function AdminImport() {
           ...(extra && typeof extra === "object" ? extra : {}),
         };
 
-        // Guard: if /import/start fails (often a late-stage 5xx), but the session still saved
-        // companies, don't show "Import failed".
         const isNonJsonMasked =
           body &&
           typeof body === "object" &&
