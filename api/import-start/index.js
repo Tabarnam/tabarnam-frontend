@@ -2429,6 +2429,8 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
                   ? company.headquarters_locations
                   : [],
               manufacturing_locations: manufacturingLocationsNormalized,
+              mfg_unknown: Boolean(company.mfg_unknown),
+              mfg_unknown_reason: String(company.mfg_unknown_reason || "").trim(),
               manufacturing_geocodes: Array.isArray(company.manufacturing_geocodes) ? company.manufacturing_geocodes : [],
               curated_reviews: curatedReviewsNormalized,
               review_count: reviewCountNormalized,
