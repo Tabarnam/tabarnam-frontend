@@ -617,40 +617,24 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
     query && looksLikeUrlOrDomain(query) && (queryTypes.includes("company_url") || queryTypes.includes("company_domain"));
 
   if (isCompanyUrlQuery) {
-    let hostname = "";
-    try {
-      const u = query.includes("://") ? new URL(query) : new URL(`https://${query}`);
-      hostname = String(u.hostname || "").trim();
-    } catch {
-      hostname = query.replace(/^https?:\/\//i, "").split("/")[0].trim();
-    }
-
-    const websiteUrl = normalizeWebsiteUrl(query);
-    const companyName = deriveCompanyNameFromHostname(hostname) || hostname;
-
-    const companyCandidate = {
-      company_name: companyName,
-      website_url: websiteUrl,
-      url: websiteUrl,
-      normalized_domain: hostname ? hostname.toLowerCase().replace(/^www\./, "") : "",
-      source: "company_url_shortcut",
-      candidate: true,
-      source_stage: "primary",
-    };
-
+    // Critical: company_url imports must NOT produce a company_url_shortcut "candidate" from primary.
+    // That stub is not safe to resume downstream stages with.
+    //
+    // The deterministic URL pipeline is handled inline by /api/import/start; if this worker is invoked anyway,
+    // return a clean "complete with 0 candidates" signal.
     await patchJob({
       sessionId,
       cosmosEnabled,
       patch: {
         job_state: "complete",
-        stage_beacon: "primary_early_exit",
+        stage_beacon: "primary_skipped_company_url",
         completed_at: nowIso(),
         updated_at: nowIso(),
         last_heartbeat_at: nowIso(),
-        companies_count: 1,
-        companies: [companyCandidate],
-        companies_candidates_found: 1,
-        early_exit_triggered: true,
+        companies_count: 0,
+        companies: [],
+        companies_candidates_found: 0,
+        early_exit_triggered: false,
         last_error: null,
         lock_expires_at: null,
         locked_by: null,
@@ -663,8 +647,8 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
         ok: true,
         session_id: sessionId,
         status: "complete",
-        stage_beacon: "primary_early_exit",
-        companies_count: 1,
+        stage_beacon: "primary_skipped_company_url",
+        companies_count: 0,
         meta: buildMeta({ invocationSource, workerId, workerClaimed: true }),
       },
     };

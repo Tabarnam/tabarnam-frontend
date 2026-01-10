@@ -906,6 +906,35 @@ function generateRequestId(req) {
   return `rid_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
+function makeErrorId() {
+  if (typeof randomUUID === "function") return randomUUID();
+  return `err_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+function toStackFirstLine(err) {
+  try {
+    const stack = typeof err?.stack === "string" ? err.stack : "";
+    const line = stack.split("\n").map((s) => s.trim()).filter(Boolean)[0] || "";
+    return line.length > 300 ? line.slice(0, 300) : line;
+  } catch {
+    return "";
+  }
+}
+
+function logImportStartErrorLine({ error_id, stage_beacon, root_cause, err }) {
+  try {
+    const line = {
+      error_id: String(error_id || ""),
+      stage_beacon: String(stage_beacon || ""),
+      root_cause: String(root_cause || ""),
+      stack_first_line: toStackFirstLine(err),
+    };
+    console.error("[import-start] error", JSON.stringify(line));
+  } catch {
+    console.error("[import-start] error");
+  }
+}
+
 function extractXaiRequestId(headers) {
   const h = headers || {};
   const get = (k) => {
@@ -2320,6 +2349,12 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
             }).slice(0, 25);
 
             const headquartersLocation = String(company.headquarters_location || "").trim();
+            const headquartersMeaningful = (() => {
+              if (!headquartersLocation) return false;
+              const lower = headquartersLocation.toLowerCase();
+              if (lower === "unknown" || lower === "n/a" || lower === "na" || lower === "none") return false;
+              return true;
+            })();
 
             const manufacturingLocationsNormalized = Array.isArray(company.manufacturing_locations)
               ? company.manufacturing_locations
@@ -2344,12 +2379,17 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
             const hasMeaningfulEnrichment =
               industriesNormalized.length > 0 ||
               keywordsNormalized.length > 0 ||
-              Boolean(headquartersLocation) ||
+              headquartersMeaningful ||
               manufacturingLocationsNormalized.length > 0 ||
               curatedReviewsNormalized.length > 0 ||
               reviewCountNormalized > 0;
 
-            if (!saveStub && !hasMeaningfulEnrichment) {
+            const source = String(company?.source || "").trim();
+            const isUrlShortcut = source === "company_url_shortcut";
+
+            // Hard guarantee: never persist a URL shortcut stub unless it has meaningful enrichment.
+            // The save_stub flag must NOT override this.
+            if (!hasMeaningfulEnrichment && (isUrlShortcut || !saveStub)) {
               return {
                 type: "skipped_stub",
                 index: companyIndex,
@@ -2837,10 +2877,23 @@ const importStartHandlerInner = async (req, context) => {
             console.error("[import-start] INVALID_JSON_BODY");
           }
 
+          const error_id = makeErrorId();
+          logImportStartErrorLine({
+            error_id,
+            stage_beacon: "validate_request",
+            root_cause: "invalid_request",
+            err,
+          });
+
           return jsonWithRequestId(
             {
               ok: false,
               stage: "validate_request",
+              stage_beacon: "validate_request",
+              root_cause: "invalid_request",
+              retryable: false,
+              http_status: 400,
+              error_id,
               session_id: sessionId,
               request_id: requestId,
               error: {
@@ -2892,7 +2945,7 @@ const importStartHandlerInner = async (req, context) => {
                   }
                 : {}),
             },
-            400
+            200
           );
         }
         throw err;
@@ -3131,15 +3184,28 @@ const importStartHandlerInner = async (req, context) => {
         .filter(Boolean);
 
       if (maxStageParsed === "__invalid__") {
+        const error_id = makeErrorId();
+        logImportStartErrorLine({
+          error_id,
+          stage_beacon,
+          root_cause: "invalid_request",
+          err: new Error("Invalid max_stage"),
+        });
+
         return jsonWithRequestId(
           {
             ok: false,
+            stage: "import_start",
+            root_cause: "invalid_request",
+            retryable: false,
+            http_status: 400,
+            error_id,
             session_id: sessionId,
             request_id: requestId,
             stage_beacon,
             error_message: "Invalid max_stage. Expected one of: primary,keywords,reviews,location,expand",
           },
-          400
+          200
         );
       }
 
@@ -3147,15 +3213,28 @@ const importStartHandlerInner = async (req, context) => {
       for (const s of skipStagesList) {
         const parsed = parseStageParam(s);
         if (parsed === "__invalid__") {
+          const error_id = makeErrorId();
+          logImportStartErrorLine({
+            error_id,
+            stage_beacon,
+            root_cause: "invalid_request",
+            err: new Error("Invalid skip_stages"),
+          });
+
           return jsonWithRequestId(
             {
               ok: false,
+              stage: "import_start",
+              root_cause: "invalid_request",
+              retryable: false,
+              http_status: 400,
+              error_id,
               session_id: sessionId,
               request_id: requestId,
               stage_beacon,
               error_message: "Invalid skip_stages. Expected comma-separated list from: primary,keywords,reviews,location,expand",
             },
-            400
+            200
           );
         }
         if (parsed) skipStages.add(parsed);
@@ -3181,6 +3260,50 @@ const importStartHandlerInner = async (req, context) => {
       const providedCompaniesRaw = Array.isArray(bodyObj.companies) ? bodyObj.companies : [];
       const providedCompanies = providedCompaniesRaw.filter((c) => c && typeof c === "object");
 
+      const isMeaningfulString = (raw) => {
+        const s = String(raw ?? "").trim();
+        if (!s) return false;
+        const lower = s.toLowerCase();
+        if (lower === "unknown" || lower === "n/a" || lower === "na" || lower === "none") return false;
+        return true;
+      };
+
+      const hasMeaningfulSeedEnrichment = (c) => {
+        if (!c || typeof c !== "object") return false;
+
+        const industries = Array.isArray(c.industries) ? c.industries.filter(Boolean) : [];
+
+        const keywordsRaw = c.keywords ?? c.product_keywords ?? c.keyword_list;
+        const keywords =
+          typeof keywordsRaw === "string"
+            ? keywordsRaw.split(/\s*,\s*/g).filter(Boolean)
+            : Array.isArray(keywordsRaw)
+              ? keywordsRaw.filter(Boolean)
+              : [];
+
+        const manufacturingLocations = Array.isArray(c.manufacturing_locations)
+          ? c.manufacturing_locations
+              .map((loc) => {
+                if (typeof loc === "string") return loc.trim();
+                if (loc && typeof loc === "object") return String(loc.formatted || loc.address || loc.location || "").trim();
+                return "";
+              })
+              .filter(Boolean)
+          : [];
+
+        const curatedReviews = Array.isArray(c.curated_reviews) ? c.curated_reviews.filter((r) => r && typeof r === "object") : [];
+        const reviewCount = Number.isFinite(Number(c.review_count)) ? Number(c.review_count) : curatedReviews.length;
+
+        return (
+          industries.length > 0 ||
+          keywords.length > 0 ||
+          isMeaningfulString(c.headquarters_location) ||
+          manufacturingLocations.length > 0 ||
+          curatedReviews.length > 0 ||
+          reviewCount > 0
+        );
+      };
+
       const isValidSeedCompany = (c) => {
         if (!c || typeof c !== "object") return false;
 
@@ -3189,10 +3312,17 @@ const importStartHandlerInner = async (req, context) => {
         if (!companyName || !websiteUrl) return false;
 
         const source = String(c.source || "").trim();
-        if (source && source !== "company_url_shortcut") return true;
 
-        // Allow explicit markers that the seed came from primary.
-        if (c.candidate === true) return true;
+        // Critical: company_url_shortcut is NEVER a valid resume seed unless it already contains meaningful enrichment
+        // (keywords/industries/HQ/MFG/reviews) or carries an explicit seed_ready marker.
+        if (source === "company_url_shortcut") {
+          if (c.seed_ready === true) return true;
+          return hasMeaningfulSeedEnrichment(c);
+        }
+
+        if (source) return true;
+
+        // Fallback: allow explicit markers that the seed came from primary.
         if (c.primary_candidate === true) return true;
         if (c.seed === true) return true;
         if (String(c.source_stage || "").trim() === "primary") return true;
@@ -3207,14 +3337,24 @@ const importStartHandlerInner = async (req, context) => {
       const skipsPrimaryWithoutValidSeed = skipStages.has("primary") && providedCompanies.length > 0 && validSeedCompanies.length === 0;
 
       if (skipsPrimaryWithoutAnyCompanies) {
+        const error_id = makeErrorId();
+        logImportStartErrorLine({
+          error_id,
+          stage_beacon,
+          root_cause: "missing_seed_companies",
+          err: new Error("skip_stages includes primary but no companies were provided"),
+        });
+
         // Guardrail: never proceed past primary unless we have a seeded companies list.
-        // Return HTTP 200 so callers treat this as a retryable state machine failure (not a hard crash).
         return jsonWithRequestId(
           {
             ok: false,
             stage: "import_start",
+            stage_beacon,
             root_cause: "missing_seed_companies",
             retryable: true,
+            http_status: 409,
+            error_id,
             message: "skip_stages includes primary but no companies were provided",
             session_id: sessionId,
             request_id: requestId,
@@ -3224,12 +3364,23 @@ const importStartHandlerInner = async (req, context) => {
       }
 
       if (skipsPrimaryWithoutValidSeed) {
+        const error_id = makeErrorId();
+        logImportStartErrorLine({
+          error_id,
+          stage_beacon,
+          root_cause: "invalid_seed_companies",
+          err: new Error("resume requested but seed companies are not valid"),
+        });
+
         return jsonWithRequestId(
           {
             ok: false,
             stage: "import_start",
+            stage_beacon,
             root_cause: "invalid_seed_companies",
             retryable: true,
+            http_status: 409,
+            error_id,
             message: "resume requested but seed companies are not valid; wait for primary candidates",
             session_id: sessionId,
             request_id: requestId,
@@ -3609,14 +3760,21 @@ const importStartHandlerInner = async (req, context) => {
             null,
         };
 
+        const error_id = makeErrorId();
+        const root_cause = status >= 500 ? "server_exception" : "invalid_request";
+
+        logImportStartErrorLine({ error_id, stage_beacon: errorStage, root_cause, err });
+
         const errorPayload = {
           ok: false,
           stage: errorStage,
+          stage_beacon: errorStage,
           session_id: sessionId,
           request_id: requestId,
           retryable: true,
-          root_cause: status >= 500 ? "server_exception" : "invalid_request",
+          root_cause,
           http_status: Number.isFinite(Number(status)) ? Number(status) : null,
+          error_id,
           env_present,
           upstream: upstream || {},
           meta,
@@ -3646,10 +3804,9 @@ const importStartHandlerInner = async (req, context) => {
           ...(detailsObj && typeof detailsObj === "object" && Object.keys(detailsObj).length ? { details: detailsObj } : {}),
         };
 
-        // Azure Static Web Apps can mask 5xx into raw-text "Backend call failure".
-        // Keep the JSON envelope but avoid returning 5xx status codes.
-        const httpStatus = status >= 500 ? 200 : status;
-        return jsonWithRequestId(errorPayload, httpStatus);
+        // Normalize error responses to HTTP 200 so Static Web Apps never masks the body.
+        // The real status is carried in errorPayload.http_status.
+        return jsonWithRequestId(errorPayload, 200);
       };
 
       if (queryTypesProvided && !Array.isArray(rawQueryTypes)) {
@@ -4916,6 +5073,43 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           let inputCompanies = (Array.isArray(bodyObj.companies) ? bodyObj.companies : [])
             .filter((it) => it && typeof it === "object")
             .slice(0, 500);
+
+          // Deterministic URL imports: never gate on async primary / upstream primary for company_url.
+          // If the request is a company_url import, seed a single URL-shortcut candidate locally so we can
+          // run keywords/reviews/location inline without triggering the 202 + resume-on-stub flow.
+          if (inputCompanies.length === 0 && Array.isArray(queryTypes) && queryTypes.includes("company_url") && query) {
+            let hostname = "";
+            try {
+              const u = query.includes("://") ? new URL(query) : new URL(`https://${query}`);
+              hostname = String(u.hostname || "").trim();
+            } catch {
+              hostname = String(query).replace(/^https?:\/\//i, "").split("/")[0].trim();
+            }
+
+            const cleanHost = String(hostname || "").toLowerCase().replace(/^www\./, "");
+
+            const websiteUrl = cleanHost ? `https://${cleanHost}/` : String(query).trim();
+
+            const companyName = (() => {
+              const base = cleanHost ? cleanHost.split(".")[0] : "";
+              if (!base) return cleanHost || websiteUrl;
+              return base.charAt(0).toUpperCase() + base.slice(1);
+            })();
+
+            inputCompanies = [
+              {
+                company_name: companyName,
+                website_url: websiteUrl,
+                url: websiteUrl,
+                normalized_domain: hostname ? hostname.toLowerCase().replace(/^www\./, "") : "",
+                source: "company_url_shortcut",
+                candidate: false,
+                source_stage: "seed",
+              },
+            ];
+
+            bodyObj.companies = inputCompanies;
+          }
 
           const wantsAsyncPrimary =
             inputCompanies.length === 0 &&
@@ -6943,14 +7137,22 @@ const importStartHandler = async (req, context) => {
 
     const error_stack_preview = toTextPreview(stackRedacted || "", 2000);
 
+    const error_id = makeErrorId();
+    const stage_beacon = typeof anyErr?.stage_beacon === "string" && anyErr.stage_beacon.trim() ? anyErr.stage_beacon.trim() : stage;
+
+    logImportStartErrorLine({ error_id, stage_beacon, root_cause: "server_exception", err: e });
+
     console.error("[import-start] Top-level handler error:", error_message);
 
     return json(
       {
         ok: false,
         stage,
+        stage_beacon,
         root_cause: "server_exception",
         retryable: true,
+        http_status: 500,
+        error_id,
         request_id: requestId,
         handler_version: handlerVersion,
         build_id: buildInfoSafe?.build_id || null,
@@ -7118,6 +7320,7 @@ app.http("import-start-legacy", {
 });
 
 module.exports = {
+  handler: importStartHandler,
   _test: {
     readJsonBody,
     readQueryParam,
