@@ -144,7 +144,9 @@ test("/api/import/start returns INVALID_JSON_BODY for malformed JSON", async () 
     const res = await _test.importStartHandler(req, { log() {} });
     const body = parseJsonResponse(res);
 
-    assert.equal(res.status, 400);
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, false);
+    assert.equal(body.http_status, 400);
     assert.equal(body?.error?.code, "INVALID_JSON_BODY");
     assert.equal(body.stage, "validate_request");
     assert.equal(body?.details?.body_source, "req.text");
@@ -165,7 +167,9 @@ test("/api/import/start includes parse diagnostics for INVALID_JSON_BODY when x-
     const res = await _test.importStartHandler(req, { log() {} });
     const body = parseJsonResponse(res);
 
-    assert.equal(res.status, 400);
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, false);
+    assert.equal(body.http_status, 400);
     assert.equal(body?.error?.code, "INVALID_JSON_BODY");
     assert.equal(body?.details?.body_source, "req.text");
     assert.ok(body?.diagnostics?.parse_error);
@@ -290,7 +294,9 @@ test("/api/import/start includes diagnostics on 400 when x-debug header is prese
     const res = await _test.importStartHandler(req, { log() {} });
     const body = parseJsonResponse(res);
 
-    assert.equal(res.status, 400);
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, false);
+    assert.equal(body.http_status, 400);
     assert.equal(body?.error?.code, "IMPORT_START_VALIDATION_FAILED");
     assert.equal(body?.details?.body_source, "req.body");
     assert.ok(body?.diagnostics?.body_sources);
@@ -313,7 +319,9 @@ test("/api/import/start rejects ambiguous queryType + queryTypes", async () => {
     const res = await _test.importStartHandler(req, { log() {} });
     const body = parseJsonResponse(res);
 
-    assert.equal(res.status, 400);
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, false);
+    assert.equal(body.http_status, 400);
     assert.equal(body?.error?.code, "AMBIGUOUS_QUERY_TYPE_FIELDS");
   });
 });
@@ -331,7 +339,9 @@ test("/api/import/start rejects URL query without company_url", async () => {
     const res = await _test.importStartHandler(req, { log() {} });
     const body = parseJsonResponse(res);
 
-    assert.equal(res.status, 400);
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, false);
+    assert.equal(body.http_status, 400);
     assert.equal(body?.error?.code, "INVALID_QUERY_TYPE");
   });
 });
@@ -513,7 +523,9 @@ test("/api/import/start returns 400 when any message has empty/non-string conten
         const res = await _test.importStartHandler(req, { log() {} });
         const body = parseJsonResponse(res);
 
-        assert.equal(res.status, 400);
+        assert.equal(res.status, 200);
+        assert.equal(body.ok, false);
+        assert.equal(body.http_status, 400);
         assert.equal(body?.error?.code, "EMPTY_MESSAGE_CONTENT_BUILDER_BUG");
         assert.equal(called, 0);
 
