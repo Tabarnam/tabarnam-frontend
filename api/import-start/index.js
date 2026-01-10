@@ -5504,13 +5504,15 @@ Output JSON only:
           const deadlineBeforeKeywords = checkDeadlineOrReturn("xai_keywords_fetch_start", "keywords");
           if (deadlineBeforeKeywords) return deadlineBeforeKeywords;
 
+          let keywordStageCompleted = !shouldRunStage("keywords");
+
           if (shouldRunStage("keywords")) {
             ensureStageBudgetOrThrow("keywords", "xai_keywords_fetch_start");
             mark("xai_keywords_fetch_start");
             setStage("generateKeywords");
 
             const keywordsConcurrency = 4;
-            let keywordStageCompleted = true;
+            keywordStageCompleted = true;
             for (let i = 0; i < enriched.length; i += keywordsConcurrency) {
               if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
                 keywordStageCompleted = false;
