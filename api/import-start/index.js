@@ -5594,6 +5594,8 @@ Output JSON only:
           }
 
           // Geocode and persist per-location coordinates (HQ + manufacturing)
+          let geocodeStageCompleted = !shouldRunStage("location");
+
           if (shouldRunStage("location")) {
             ensureStageBudgetOrThrow("location", "xai_location_geocode_start");
 
@@ -5604,7 +5606,7 @@ Output JSON only:
             setStage("geocodeLocations");
             console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
 
-            let geocodeStageCompleted = true;
+            geocodeStageCompleted = true;
             for (let i = 0; i < enriched.length; i++) {
               if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
                 geocodeStageCompleted = false;
