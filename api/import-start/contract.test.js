@@ -836,3 +836,42 @@ test("/api/import/start rejects skip_stages=primary without seed companies", asy
     assert.equal(body.message, "skip_stages includes primary but no companies were provided");
   });
 });
+
+test("/api/import/start rejects skip_stages=primary with only invalid seed companies", async () => {
+  await withTempEnv(NO_NETWORK_ENV, async () => {
+    const session_id = "44444444-5555-6666-7777-999999999999";
+
+    const req = makeReq({
+      url: "https://example.test/api/import/start?skip_stages=primary",
+      body: JSON.stringify({
+        session_id,
+        query: "test",
+        queryTypes: ["product_keyword"],
+        limit: 1,
+        companies: [
+          {
+            company_name: "Example",
+            website_url: "https://example.com",
+            source: "company_url_shortcut",
+          },
+        ],
+      }),
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+
+    const res = await _test.importStartHandler(req, { log() {} });
+    const body = parseJsonResponse(res);
+
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, false);
+    assert.equal(body.stage, "import_start");
+    assert.equal(body.session_id, session_id);
+    assert.equal(body.root_cause, "invalid_seed_companies");
+    assert.equal(body.retryable, true);
+    assert.ok(typeof body.message === "string" && body.message.length > 0);
+    assert.equal(body.seed_counts?.provided, 1);
+    assert.equal(body.seed_counts?.valid, 0);
+  });
+});
