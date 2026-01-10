@@ -2600,6 +2600,22 @@ export default function AdminImport() {
                         : "No company saved";
                       const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
 
+                      const enrichmentMissingFields = (() => {
+                        const missing = new Set();
+                        for (const c of savedCompanies) {
+                          const fields = Array.isArray(c?.enrichment_health?.missing_fields)
+                            ? c.enrichment_health.missing_fields
+                            : Array.isArray(c?.enrichment_health?.missing)
+                              ? c.enrichment_health.missing
+                              : [];
+                          for (const f of fields) {
+                            const key = asString(f).trim();
+                            if (key) missing.add(key);
+                          }
+                        }
+                        return Array.from(missing);
+                      })();
+
                       return (
                         <>
                           <div className="flex items-start justify-between gap-3">
@@ -2620,6 +2636,13 @@ export default function AdminImport() {
                             </div>
                             <div className="text-sm text-slate-700">Saved: {savedCount}</div>
                           </div>
+
+                          {enrichmentMissingFields.length > 0 ? (
+                            <div className="mt-2 text-sm text-amber-900">
+                              Enrichment incomplete: {enrichmentMissingFields.slice(0, 4).join(", ")}
+                              {enrichmentMissingFields.length > 4 ? ` (+${enrichmentMissingFields.length - 4})` : ""}
+                            </div>
+                          ) : null}
 
                           {companyId ? (
                             <div>
