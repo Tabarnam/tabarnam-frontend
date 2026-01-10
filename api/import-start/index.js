@@ -4722,7 +4722,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 stage_beacon:
                   typeof existingJob?.stage_beacon === "string" && existingJob.stage_beacon.trim()
                     ? existingJob.stage_beacon.trim()
-                    : "primary_search_started",
+                    : "primary_enqueued",
                 request_payload: {
                   query: String(xaiPayload.query || ""),
                   queryTypes: Array.isArray(xaiPayload.queryTypes) ? xaiPayload.queryTypes : [],
