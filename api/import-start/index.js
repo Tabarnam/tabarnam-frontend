@@ -6015,6 +6015,36 @@ Return ONLY the JSON array, no other text.`,
             );
           }
 
+          if (shouldRunStage("location") && geocodeStageCompleted) {
+            for (let i = 0; i < enriched.length; i += 1) {
+              const c = enriched[i];
+
+              const hq = String(c?.headquarters_location || "").trim();
+              const mfgList = Array.isArray(c?.manufacturing_locations) ? c.manufacturing_locations : [];
+              const hasMfg = mfgList.length > 0;
+
+              if (!hq && !c?.hq_unknown) {
+                enriched[i] = {
+                  ...c,
+                  hq_unknown: true,
+                  hq_unknown_reason: String(c?.hq_unknown_reason || "not_found_after_location_enrichment"),
+                  red_flag_reason: String(c?.red_flag_reason || "HQ not found after location enrichment").trim(),
+                };
+              }
+
+              if (!hasMfg && !c?.mfg_unknown) {
+                enriched[i] = {
+                  ...(enriched[i] || c),
+                  mfg_unknown: true,
+                  mfg_unknown_reason: String(c?.mfg_unknown_reason || "not_found_after_location_enrichment"),
+                  red_flag_reason: String((enriched[i] || c)?.red_flag_reason || "Manufacturing location not found after location enrichment").trim(),
+                };
+              }
+            }
+
+            enrichedForCounts = enriched;
+          }
+
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
 
           if (!dryRunRequested && enriched.length > 0 && cosmosEnabled) {
