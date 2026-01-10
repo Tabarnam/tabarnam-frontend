@@ -5067,8 +5067,15 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               hostname = String(query).replace(/^https?:\/\//i, "").split("/")[0].trim();
             }
 
-            const websiteUrl = normalizeWebsiteUrl(query);
-            const companyName = deriveCompanyNameFromHostname(hostname) || hostname || websiteUrl;
+            const cleanHost = String(hostname || "").toLowerCase().replace(/^www\./, "");
+
+            const websiteUrl = cleanHost ? `https://${cleanHost}/` : String(query).trim();
+
+            const companyName = (() => {
+              const base = cleanHost ? cleanHost.split(".")[0] : "";
+              if (!base) return cleanHost || websiteUrl;
+              return base.charAt(0).toUpperCase() + base.slice(1);
+            })();
 
             inputCompanies = [
               {
