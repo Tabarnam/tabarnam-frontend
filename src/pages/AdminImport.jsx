@@ -2460,6 +2460,23 @@ export default function AdminImport() {
                     const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
                     const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(r.saved ?? 0) || 0;
+
+                    const enrichmentMissingFields = (() => {
+                      const missing = new Set();
+                      for (const c of savedCompanies) {
+                        const fields = Array.isArray(c?.enrichment_health?.missing_fields)
+                          ? c.enrichment_health.missing_fields
+                          : Array.isArray(c?.enrichment_health?.missing)
+                            ? c.enrichment_health.missing
+                            : [];
+                        for (const f of fields) {
+                          const key = asString(f).trim();
+                          if (key) missing.add(key);
+                        }
+                      }
+                      return Array.from(missing);
+                    })();
+
                     const primaryCandidate =
                       savedCount > 0
                         ? primarySaved
@@ -2536,6 +2553,13 @@ export default function AdminImport() {
                             {Boolean(r.reconciled) ? (
                               <span className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-900">
                                 reconciled{r.reconcile_strategy ? ` (${r.reconcile_strategy})` : ""}
+                              </span>
+                            ) : null}
+
+                            {enrichmentMissingFields.length > 0 ? (
+                              <span className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-900">
+                                incomplete enrichment: {enrichmentMissingFields.slice(0, 3).join(", ")}
+                                {enrichmentMissingFields.length > 3 ? ` (+${enrichmentMissingFields.length - 3})` : ""}
                               </span>
                             ) : null}
 
