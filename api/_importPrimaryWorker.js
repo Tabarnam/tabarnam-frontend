@@ -634,6 +634,8 @@ async function runPrimaryJob({ context, sessionId, cosmosEnabled, invocationSour
       url: websiteUrl,
       normalized_domain: hostname ? hostname.toLowerCase().replace(/^www\./, "") : "",
       source: "company_url_shortcut",
+      candidate: true,
+      source_stage: "primary",
     };
 
     await patchJob({
