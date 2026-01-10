@@ -1025,9 +1025,20 @@ export default function AdminImport() {
           typeof body?.text === "string" &&
           Object.keys(body).length === 1;
 
-        // Guard: if import-start fails with a SWA-masked raw-text response (or any 5xx),
-        // status polling is the only reliable source of truth about whether anything was saved.
-        if (((Number(res?.status) || 0) >= 500 || isNonJsonMasked) && canonicalSessionId) {
+        const reportedHttpStatusRaw = body?.http_status ?? errorObj?.http_status ?? null;
+        const reportedHttpStatus =
+          typeof reportedHttpStatusRaw === "number" && Number.isFinite(reportedHttpStatusRaw)
+            ? reportedHttpStatusRaw
+            : typeof reportedHttpStatusRaw === "string" && /^\d+$/.test(reportedHttpStatusRaw.trim())
+              ? Number(reportedHttpStatusRaw.trim())
+              : null;
+
+        const isReported5xx = reportedHttpStatus != null && reportedHttpStatus >= 500;
+
+        // Guard: if import-start fails with a SWA-masked raw-text response, any 5xx, or a
+        // wrapper-normalized delegate 5xx (http_status), status polling is the only reliable
+        // source of truth about whether anything was saved.
+        if (((Number(res?.status) || 0) >= 500 || isNonJsonMasked || isReported5xx) && canonicalSessionId) {
           try {
             const encoded = encodeURIComponent(canonicalSessionId);
             const { res: statusRes } = await apiFetchWithFallback([`/import/status?session_id=${encoded}`]);
