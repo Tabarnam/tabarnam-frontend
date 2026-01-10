@@ -1701,7 +1701,12 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugColl
         reason: "missing company_name or website_url",
       });
     }
-    return [];
+
+    const out = [];
+    out._fetch_ok = false;
+    out._fetch_error = "missing company_name or website_url";
+    out._fetch_error_code = "MISSING_COMPANY_INPUT";
+    return out;
   }
 
   const debug = {
@@ -2026,6 +2031,9 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
       debugCollector.push(debug);
     }
 
+    curated._fetch_ok = true;
+    curated._fetch_error = null;
+    curated._fetch_error_code = null;
     return curated;
   } catch (e) {
     if (e instanceof AcceptedResponseError) throw e;
@@ -2044,7 +2052,11 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
       });
     }
 
-    return [];
+    const out = [];
+    out._fetch_ok = false;
+    out._fetch_error = e?.message || String(e);
+    out._fetch_error_code = typeof e?.code === "string" && e.code.trim() ? e.code.trim() : "REVIEWS_EXCEPTION";
+    return out;
   }
 }
 
