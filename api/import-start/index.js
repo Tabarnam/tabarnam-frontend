@@ -1671,16 +1671,18 @@ function dedupeCuratedReviews(reviews) {
   return out;
 }
 
-function buildReviewCursor({ nowIso, count }) {
+function buildReviewCursor({ nowIso, count, exhausted, last_error }) {
   const n = Math.max(0, Math.trunc(Number(count) || 0));
+  const exhaustedBool = typeof exhausted === "boolean" ? exhausted : false;
+  const errObj = last_error && typeof last_error === "object" ? last_error : last_error ? { message: String(last_error) } : null;
   return {
     source: "xai_reviews",
     last_offset: n,
     total_fetched: n,
-    exhausted: false,
+    exhausted: exhaustedBool,
     last_attempt_at: nowIso,
     last_success_at: nowIso,
-    last_error: null,
+    last_error: errObj,
   };
 }
 
