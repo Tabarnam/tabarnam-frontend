@@ -2402,9 +2402,9 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               name: company.name || companyName,
               url: company.url || company.website_url || company.canonical_url || "",
               website_url: company.website_url || company.canonical_url || company.url || "",
-              industries: company.industries || [],
-              product_keywords: company.product_keywords || "",
-              keywords: Array.isArray(company.keywords) ? company.keywords : [],
+              industries: industriesNormalized,
+              product_keywords: productKeywordsString,
+              keywords: keywordsNormalized,
               normalized_domain: finalNormalizedDomain,
               logo_url: logoImport.logo_url || null,
               logo_source_url: logoImport.logo_source_url || null,
@@ -2419,32 +2419,19 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               show_location_sources_to_users: Boolean(company.show_location_sources_to_users),
               hq_lat: company.hq_lat,
               hq_lng: company.hq_lng,
-              headquarters_location: company.headquarters_location || "",
+              headquarters_location: headquartersLocation,
               headquarters_locations: company.headquarters_locations || [],
               headquarters: Array.isArray(company.headquarters)
                 ? company.headquarters
                 : Array.isArray(company.headquarters_locations)
                   ? company.headquarters_locations
                   : [],
-              manufacturing_locations: company.manufacturing_locations || [],
+              manufacturing_locations: manufacturingLocationsNormalized,
               manufacturing_geocodes: Array.isArray(company.manufacturing_geocodes) ? company.manufacturing_geocodes : [],
-              curated_reviews: Array.isArray(company.curated_reviews) ? company.curated_reviews : [],
-              review_count: Number.isFinite(Number(company.review_count))
-                ? Number(company.review_count)
-                : Array.isArray(company.curated_reviews)
-                  ? company.curated_reviews.length
-                  : 0,
-              reviews_last_updated_at:
-                typeof company.reviews_last_updated_at === "string" && company.reviews_last_updated_at.trim()
-                  ? company.reviews_last_updated_at.trim()
-                  : null,
-              review_cursor:
-                company.review_cursor && typeof company.review_cursor === "object"
-                  ? company.review_cursor
-                  : buildReviewCursor({
-                      nowIso: new Date().toISOString(),
-                      count: Array.isArray(company.curated_reviews) ? company.curated_reviews.length : 0,
-                    }),
+              curated_reviews: curatedReviewsNormalized,
+              review_count: reviewCountNormalized,
+              reviews_last_updated_at: reviewsLastUpdatedAt,
+              review_cursor: reviewCursorNormalized,
               red_flag: Boolean(company.red_flag),
               red_flag_reason: company.red_flag_reason || "",
               location_confidence: company.location_confidence || "medium",
