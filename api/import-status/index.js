@@ -1442,7 +1442,7 @@ async function handler(req, context) {
         status: "running",
         state: "running",
         job_state: null,
-        stage_beacon,
+        stage_beacon: resume_needed ? "enrichment_resume_pending" : stage_beacon,
         stage_beacon_values: stageBeaconValues,
         primary_job_state: null,
         elapsed_ms: null,
