@@ -1163,6 +1163,7 @@ export default function AdminImport() {
           const stopped = Boolean(body?.stopped);
 
           const items = normalizeItems(body?.items || body?.companies);
+          const seedCompanies = filterValidSeedCompanies(items);
           const companiesCountRaw = body?.companies_count ?? body?.count ?? items.length ?? 0;
           const companiesCount = Number.isFinite(Number(companiesCountRaw)) ? Number(companiesCountRaw) : items.length;
 
