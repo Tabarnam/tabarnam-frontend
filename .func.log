@@ -256,3 +256,47 @@ Functions:
 	xai-smoke: [GET,OPTIONS] http://localhost:7076/api/xai/smoke
 
 For detailed output, run func with --verbose flag.
+[2026-01-10T05:33:39.916Z] Executing 'Functions.ping' (Reason='This function was programmatically called via the host APIs.', Id=c80ff707-b185-4006-8ee3-ecc844a7bd7f)
+[2026-01-10T05:33:39.998Z] Executed 'Functions.ping' (Succeeded, Id=c80ff707-b185-4006-8ee3-ecc844a7bd7f, Duration=104ms)
+[2026-01-10T05:33:40.057Z] Executing 'Functions.import-start' (Reason='This function was programmatically called via the host APIs.', Id=a6eebca6-c63e-416e-b690-34d8a2ae38db)
+[2026-01-10T05:33:40.070Z] [import-start] request_id=959a42f6-0450-4d1b-903e-465e2c1d147d Function handler invoked
+[2026-01-10T05:33:40.071Z] [import-start] body_sources {
+[2026-01-10T05:33:40.072Z]   hasRawBody: false,
+[2026-01-10T05:33:40.072Z]   rawBodyType: 'undefined',
+[2026-01-10T05:33:40.072Z]   rawBodyLen: 0,
+[2026-01-10T05:33:40.072Z]   bodyType: 'ReadableStream',
+[2026-01-10T05:33:40.072Z]   bodyLen: 0,
+[2026-01-10T05:33:40.072Z]   hasBufferBody: false,
+[2026-01-10T05:33:40.072Z]   bufferBodyLen: 0,
+[2026-01-10T05:33:40.072Z]   isStreamBody: true
+[2026-01-10T05:33:40.072Z] }
+[2026-01-10T05:33:40.076Z] [import-start] request_id=959a42f6-0450-4d1b-903e-465e2c1d147d session=sess_1768023220073_exku8lyp0oq normalized_request={"session_id":"sess_1768023220073_exku8lyp0oq","query_len":4,"queryType":"product_keyword","queryTypes":["product_keyword"],"location_len":0,"limit":1}
+[2026-01-10T05:33:40.076Z] [import-start] received_query_params {
+[2026-01-10T05:33:40.076Z]   deadline_ms: null,
+[2026-01-10T05:33:40.076Z]   stage_ms_primary: null,
+[2026-01-10T05:33:40.076Z]   max_stage: null,
+[2026-01-10T05:33:40.076Z]   skip_stages: null,
+[2026-01-10T05:33:40.076Z]   dry_run: true
+[2026-01-10T05:33:40.076Z] }
+[2026-01-10T05:33:40.076Z] [import-start] normalized_effective_request {
+[2026-01-10T05:33:40.076Z]   request_id: '959a42f6-0450-4d1b-903e-465e2c1d147d',
+[2026-01-10T05:33:40.076Z]   session_id: 'sess_1768023220073_exku8lyp0oq',
+[2026-01-10T05:33:40.076Z]   query: 'test',
+[2026-01-10T05:33:40.076Z]   queryTypes: [ 'product_keyword' ],
+[2026-01-10T05:33:40.076Z]   location: '',
+[2026-01-10T05:33:40.076Z]   limit: 1,
+[2026-01-10T05:33:40.077Z]   max_stage: null,
+[2026-01-10T05:33:40.077Z]   skip_stages: [],
+[2026-01-10T05:33:40.077Z]   dry_run: true,
+[2026-01-10T05:33:40.077Z]   companies_seeded: 0
+[2026-01-10T05:33:40.077Z] }
+[2026-01-10T05:33:40.077Z] [import-start] request_id=959a42f6-0450-4d1b-903e-465e2c1d147d session=sess_1768023220073_exku8lyp0oq stage=validate_request extra={"queryTypes":["product_keyword"],"query_len":4,"limit":1}
+[2026-01-10T05:33:40.077Z] {"handler_version":"ded-import-start-81014d4cf778","stage":"validate_request","queryTypes":["product_keyword"],"query_len":4,"prompt_len":0,"messages_len":0,"has_system_message":false,"has_user_message":false,"user_message_len":0,"elapsedMs":1,"upstream_status":null,"request_id":"959a42f6-0450-4d1b-903e-465e2c1d147d","session_id":"sess_1768023220073_exku8lyp0oq"}
+[2026-01-10T05:33:40.077Z] [import-start] stage {
+[2026-01-10T05:33:40.077Z]   stage: 'validate_request_done',
+[2026-01-10T05:33:40.077Z]   request_id: '959a42f6-0450-4d1b-903e-465e2c1d147d',
+[2026-01-10T05:33:40.077Z]   session_id: 'sess_1768023220073_exku8lyp0oq'
+[2026-01-10T05:33:40.077Z] }
+[2026-01-10T05:33:40.077Z] [import-start] request_id=959a42f6-0450-4d1b-903e-465e2c1d147d session=sess_1768023220073_exku8lyp0oq stage=dry_run
+[2026-01-10T05:33:40.079Z] Executed 'Functions.import-start' (Succeeded, Id=a6eebca6-c63e-416e-b690-34d8a2ae38db, Duration=33ms)
+[2026-01-10T05:33:40.309Z] Host lock lease acquired by instance ID '0000000000000000000000000B8DC44F'.
