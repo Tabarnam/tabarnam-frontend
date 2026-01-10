@@ -5197,7 +5197,7 @@ Output JSON only:
             };
 
             console.log(`[import-start] Calling XAI API (keywords) at: ${toHostPathOnlyForLog(xaiUrl)}`);
-            const res = await postXaiJsonWithBudget({
+            const res = await postXaiJsonWithBudgetRetry({
               stageKey: "keywords",
               stageBeacon: "xai_keywords_fetch_start",
               body: JSON.stringify(payload),
