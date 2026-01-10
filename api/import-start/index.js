@@ -2279,25 +2279,42 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
                 ""
             );
 
-            // Check if company already exists
-            const existing = await findExistingCompany(container, normalizedDomain, companyName);
-            if (existing) {
-              console.log(`[import-start] Skipping duplicate company: ${companyName} (${normalizedDomain})`);
-              return {
-                type: "skipped",
-                index: companyIndex,
-                company_name: companyName,
-                duplicate_of_id: existing?.id || null,
-                duplicate_match_key: existing?.duplicate_match_key || null,
-                duplicate_match_value: existing?.duplicate_match_value || null,
-              };
-            }
-
             const finalNormalizedDomain =
               normalizedDomain && normalizedDomain !== "unknown" ? normalizedDomain : "unknown";
 
-            // Fetch + upload logo for the company
-            const companyId = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+            // If a stub company was saved earlier in the same session, we must UPDATE it (not skip)
+            // so enrichment fields get persisted atomically.
+            const existing = await findExistingCompany(container, normalizedDomain, companyName);
+            let existingDoc = null;
+            let shouldUpdateExisting = false;
+
+            if (existing && existing.id) {
+              existingDoc = await readItemWithPkCandidates(container, existing.id, {
+                id: existing.id,
+                normalized_domain: finalNormalizedDomain,
+                partition_key: finalNormalizedDomain,
+              }).catch(() => null);
+
+              const existingSessionId = String(existingDoc?.import_session_id || existingDoc?.session_id || "").trim();
+              shouldUpdateExisting = Boolean(existingSessionId && existingSessionId === sid);
+
+              if (!shouldUpdateExisting) {
+                console.log(`[import-start] Skipping duplicate company: ${companyName} (${normalizedDomain})`);
+                return {
+                  type: "skipped",
+                  index: companyIndex,
+                  company_name: companyName,
+                  duplicate_of_id: existing?.id || null,
+                  duplicate_match_key: existing?.duplicate_match_key || null,
+                  duplicate_match_value: existing?.duplicate_match_value || null,
+                };
+              }
+            }
+
+            // Fetch + upload logo for the company (uses existing blob if present)
+            const companyId = shouldUpdateExisting && existingDoc?.id
+              ? String(existingDoc.id)
+              : `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
             const logoImport = await fetchLogo({
               companyId,
