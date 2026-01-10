@@ -703,6 +703,7 @@ async function handler(req, context) {
                 request_id: sessionDoc?.request_id || null,
                 status: sessionDoc?.status || null,
                 stage_beacon: sessionDoc?.stage_beacon || null,
+                resume_needed: Boolean(sessionDoc?.resume_needed),
                 request: sessionDoc?.request && typeof sessionDoc.request === "object" ? sessionDoc.request : null,
               }
             : null,
@@ -1223,6 +1224,7 @@ async function handler(req, context) {
             request_id: sessionDoc?.request_id || null,
             status: sessionDoc?.status || null,
             stage_beacon: sessionDoc?.stage_beacon || null,
+            resume_needed: Boolean(sessionDoc?.resume_needed),
           }
         : null,
       accepted: Boolean(acceptDoc),
