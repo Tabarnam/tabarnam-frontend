@@ -1180,10 +1180,10 @@ export default function AdminImport() {
 
           if (isFailure) return { kind: "failed", body };
 
-          const hasSeedCompanies = items.length > 0;
+          const hasSeedCompanies = seedCompanies.length > 0;
           const terminalComplete = completed || jobState === "complete" || primaryJobState === "complete";
 
-          if (hasSeedCompanies) return { kind: "ready", body };
+          if (hasSeedCompanies) return { kind: "ready", body, seedCompanies };
 
           // Important: never resume the pipeline with skip_stages=["primary"] unless we have a seed list.
           // If primary finishes with 0 candidates, treat it as a clean terminal success (saved: 0), not an error.
