@@ -2797,6 +2797,33 @@ export default function AdminImport() {
                     const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
                     const isRefreshing = statusRefreshSessionId === r.session_id;
 
+                    const jobState = asString(r.final_job_state || r.job_state).trim().toLowerCase();
+                    const isTerminal = Boolean(
+                      r.completed || r.timedOut || r.stopped || jobState === "complete" || jobState === "error"
+                    );
+                    const isFailed = Boolean(r.start_error) || (isTerminal && jobState === "error");
+                    const isComplete = isTerminal && !isFailed;
+                    const isCompleteWithSave = isComplete && savedCount > 0;
+                    const isCompleteNoSave = isComplete && savedCount === 0;
+
+                    const statusLabel = isFailed
+                      ? "Failed"
+                      : isCompleteWithSave
+                        ? "Completed"
+                        : isCompleteNoSave
+                          ? "Completed: no save"
+                          : r.polling_exhausted
+                            ? "Processing async"
+                            : "Processing";
+
+                    const statusBadgeClass = isFailed
+                      ? "border-red-200 bg-red-50 text-red-800"
+                      : isCompleteWithSave
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        : isCompleteNoSave
+                          ? "border-slate-200 bg-slate-50 text-slate-700"
+                          : "border-sky-200 bg-sky-50 text-sky-800";
+
                     return (
                       <div
                         key={r.session_id}
@@ -2834,6 +2861,7 @@ export default function AdminImport() {
                           <div className="flex flex-col items-end gap-2 text-xs text-slate-600">
                             <div className="flex items-center gap-2">
                               <span>Saved: {savedCount}</span>
+                              <span className={`rounded border px-2 py-0.5 text-[11px] ${statusBadgeClass}`}>{statusLabel}</span>
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -3042,13 +3070,13 @@ export default function AdminImport() {
                         </div>
                       ) : (
                         <div className="text-sm text-slate-900">
-                          <span className="font-medium">Result:</span> {activeSavedCount > 0 ? "Import completed." : "No company saved."}
+                          <span className="font-medium">Result:</span> {activeSavedCount > 0 ? "Import completed." : "Completed: no company persisted."}
                         </div>
                       )}
 
                       {plainEnglishProgress.terminalKind !== "error" && activeSavedCount === 0 ? (
                         <div className="text-sm text-slate-900">
-                          <span className="font-medium">Reason:</span> {plainEnglishProgress.reasonText || "No company saved."}
+                          <span className="font-medium">Reason:</span> {plainEnglishProgress.reasonText || "Completed: no company persisted."}
                         </div>
                       ) : null}
                     </>
