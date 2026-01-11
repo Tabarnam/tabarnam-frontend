@@ -185,36 +185,48 @@ function compareCompanies(sortField, dir, a, b) {
   return dir === "desc" ? -cmp : cmp;
 }
 
+// Cosmos DB's IIF() does NOT short-circuit (it evaluates both branches).
+// We rely on short-circuiting (&& / ||) to avoid calling LOWER()/CONTAINS()/ARRAY_LENGTH()
+// on legacy documents where fields may have unexpected types.
 const SQL_TEXT_FILTER = `
-  (IS_STRING(c.company_name) AND CONTAINS(LOWER(c.company_name), @q)) OR
-  (IS_STRING(c.display_name) AND CONTAINS(LOWER(c.display_name), @q)) OR
-  (IS_STRING(c.name) AND CONTAINS(LOWER(c.name), @q)) OR
+  (IS_STRING(c.company_name) && CONTAINS(LOWER(c.company_name), @q)) ||
+  (IS_STRING(c.display_name) && CONTAINS(LOWER(c.display_name), @q)) ||
+  (IS_STRING(c.name) && CONTAINS(LOWER(c.name), @q)) ||
+  (IS_STRING(c.product_keywords) && CONTAINS(LOWER(c.product_keywords), @q)) ||
   (
-    IS_DEFINED(c.product_keywords) AND (
-      (IS_STRING(c.product_keywords) AND CONTAINS(LOWER(c.product_keywords), @q)) OR
-      (IS_ARRAY(c.product_keywords) AND ARRAY_LENGTH(
-        ARRAY(SELECT VALUE kw FROM kw IN c.product_keywords WHERE IS_STRING(kw) AND CONTAINS(LOWER(kw), @q))
-      ) > 0)
-    )
-  ) OR
+    IS_ARRAY(c.product_keywords) &&
+    ARRAY_LENGTH(
+      ARRAY(
+        SELECT VALUE kw
+        FROM kw IN c.product_keywords
+        WHERE IS_STRING(kw) && CONTAINS(LOWER(kw), @q)
+      )
+    ) > 0
+  ) ||
+  (IS_STRING(c.keywords) && CONTAINS(LOWER(c.keywords), @q)) ||
   (
-    IS_DEFINED(c.keywords) AND (
-      (IS_STRING(c.keywords) AND CONTAINS(LOWER(c.keywords), @q)) OR
-      (IS_ARRAY(c.keywords) AND ARRAY_LENGTH(
-        ARRAY(SELECT VALUE k FROM k IN c.keywords WHERE IS_STRING(k) AND CONTAINS(LOWER(k), @q))
-      ) > 0)
-    )
-  ) OR
+    IS_ARRAY(c.keywords) &&
+    ARRAY_LENGTH(
+      ARRAY(
+        SELECT VALUE k
+        FROM k IN c.keywords
+        WHERE IS_STRING(k) && CONTAINS(LOWER(k), @q)
+      )
+    ) > 0
+  ) ||
+  (IS_STRING(c.industries) && CONTAINS(LOWER(c.industries), @q)) ||
   (
-    IS_DEFINED(c.industries) AND (
-      (IS_STRING(c.industries) AND CONTAINS(LOWER(c.industries), @q)) OR
-      (IS_ARRAY(c.industries) AND ARRAY_LENGTH(
-        ARRAY(SELECT VALUE i FROM i IN c.industries WHERE IS_STRING(i) AND CONTAINS(LOWER(i), @q))
-      ) > 0)
-    )
-  ) OR
-  (IS_STRING(c.normalized_domain) AND CONTAINS(LOWER(c.normalized_domain), @q)) OR
-  (IS_STRING(c.amazon_url) AND CONTAINS(LOWER(c.amazon_url), @q))
+    IS_ARRAY(c.industries) &&
+    ARRAY_LENGTH(
+      ARRAY(
+        SELECT VALUE i
+        FROM i IN c.industries
+        WHERE IS_STRING(i) && CONTAINS(LOWER(i), @q)
+      )
+    ) > 0
+  ) ||
+  (IS_STRING(c.normalized_domain) && CONTAINS(LOWER(c.normalized_domain), @q)) ||
+  (IS_STRING(c.amazon_url) && CONTAINS(LOWER(c.amazon_url), @q))
 `;
 
 const SELECT_FIELDS = [
@@ -453,13 +465,17 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   const sort = (url.searchParams.get("sort") || "recent").toLowerCase();
   const sortField = (url.searchParams.get("sortField") || "").toLowerCase();
   const sortDir = (url.searchParams.get("sortDir") || "asc").toLowerCase() === "desc" ? "desc" : "asc";
-  const lat = Number(url.searchParams.get("lat"));
-  const lng = Number(url.searchParams.get("lng"));
-  const user_location = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
-  const take = Math.min(200, Math.max(1, Number(url.searchParams.get("take") || 50)));
-  const rawSkip = url.searchParams.get("skip");
-  const skip = Math.max(0, Number(rawSkip || 0) || 0);
-  const limit = Math.min(500, skip + take || take);
+  const lat = toFiniteNumber(url.searchParams.get("lat"));
+  const lng = toFiniteNumber(url.searchParams.get("lng"));
+  const user_location = lat != null && lng != null ? { lat, lng } : null;
+
+  const takeParam = toFiniteNumber(url.searchParams.get("take"));
+  const take = clamp(Math.floor(takeParam ?? 50), 1, 200);
+
+  const skipParam = toFiniteNumber(url.searchParams.get("skip"));
+  const skip = Math.max(0, Math.floor(skipParam ?? 0));
+
+  const limit = clamp(skip + take, 1, 500);
 
   const container = deps.companiesContainer ?? getCompaniesContainer();
   if (container) {
@@ -468,16 +484,16 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const params = [{ name: "@take", value: limit }];
       if (q) params.push({ name: "@q", value: q });
 
-      const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
+      const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) || c.is_deleted != true)";
 
       if (sort === "manu") {
-        const whereText = q ? `AND (${SQL_TEXT_FILTER})` : "";
+        const whereText = q ? `&& (${SQL_TEXT_FILTER})` : "";
 
         const sqlA = `
             SELECT TOP @take ${SELECT_FIELDS}
             FROM c
-            WHERE IIF(IS_ARRAY(c.manufacturing_locations), ARRAY_LENGTH(c.manufacturing_locations), 0) > 0
-            AND ${softDeleteFilter}
+            WHERE IS_ARRAY(c.manufacturing_locations) && ARRAY_LENGTH(c.manufacturing_locations) > 0
+            && ${softDeleteFilter}
             ${whereText}
             ORDER BY c._ts DESC
           `;
@@ -491,8 +507,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           const sqlB = `
               SELECT TOP @take2 ${SELECT_FIELDS}
               FROM c
-              WHERE IIF(IS_ARRAY(c.manufacturing_locations), ARRAY_LENGTH(c.manufacturing_locations), 0) = 0
-              AND ${softDeleteFilter}
+              WHERE (NOT IS_ARRAY(c.manufacturing_locations) || ARRAY_LENGTH(c.manufacturing_locations) = 0)
+              && ${softDeleteFilter}
               ${whereText}
               ORDER BY c._ts DESC
             `;
@@ -509,8 +525,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           ? `
               SELECT TOP @take ${SELECT_FIELDS}
               FROM c
-              WHERE ${SQL_TEXT_FILTER}
-              AND ${softDeleteFilter}
+              WHERE (${SQL_TEXT_FILTER})
+              && ${softDeleteFilter}
               ${orderBy}
             `
           : `
