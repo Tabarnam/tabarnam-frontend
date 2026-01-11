@@ -186,23 +186,35 @@ function compareCompanies(sortField, dir, a, b) {
 }
 
 const SQL_TEXT_FILTER = `
-  (IS_DEFINED(c.company_name) AND CONTAINS(LOWER(c.company_name), @q)) OR
-  (IS_DEFINED(c.display_name) AND CONTAINS(LOWER(c.display_name), @q)) OR
-  (IS_DEFINED(c.name) AND CONTAINS(LOWER(c.name), @q)) OR
-  (IS_DEFINED(c.product_keywords) AND CONTAINS(LOWER(c.product_keywords), @q)) OR
+  (IS_STRING(c.company_name) AND CONTAINS(LOWER(c.company_name), @q)) OR
+  (IS_STRING(c.display_name) AND CONTAINS(LOWER(c.display_name), @q)) OR
+  (IS_STRING(c.name) AND CONTAINS(LOWER(c.name), @q)) OR
+  (
+    IS_DEFINED(c.product_keywords) AND (
+      (IS_STRING(c.product_keywords) AND CONTAINS(LOWER(c.product_keywords), @q)) OR
+      (IS_ARRAY(c.product_keywords) AND ARRAY_LENGTH(
+        ARRAY(SELECT VALUE kw FROM kw IN c.product_keywords WHERE IS_STRING(kw) AND CONTAINS(LOWER(kw), @q))
+      ) > 0)
+    )
+  ) OR
   (
     IS_DEFINED(c.keywords) AND (
       (IS_STRING(c.keywords) AND CONTAINS(LOWER(c.keywords), @q)) OR
       (IS_ARRAY(c.keywords) AND ARRAY_LENGTH(
-        ARRAY(SELECT VALUE k FROM k IN c.keywords WHERE CONTAINS(LOWER(k), @q))
+        ARRAY(SELECT VALUE k FROM k IN c.keywords WHERE IS_STRING(k) AND CONTAINS(LOWER(k), @q))
       ) > 0)
     )
   ) OR
-  (IS_ARRAY(c.industries) AND ARRAY_LENGTH(
-      ARRAY(SELECT VALUE i FROM i IN c.industries WHERE CONTAINS(LOWER(i), @q))
-    ) > 0) OR
-  (IS_DEFINED(c.normalized_domain) AND CONTAINS(LOWER(c.normalized_domain), @q)) OR
-  (IS_DEFINED(c.amazon_url) AND CONTAINS(LOWER(c.amazon_url), @q))
+  (
+    IS_DEFINED(c.industries) AND (
+      (IS_STRING(c.industries) AND CONTAINS(LOWER(c.industries), @q)) OR
+      (IS_ARRAY(c.industries) AND ARRAY_LENGTH(
+        ARRAY(SELECT VALUE i FROM i IN c.industries WHERE IS_STRING(i) AND CONTAINS(LOWER(i), @q))
+      ) > 0)
+    )
+  ) OR
+  (IS_STRING(c.normalized_domain) AND CONTAINS(LOWER(c.normalized_domain), @q)) OR
+  (IS_STRING(c.amazon_url) AND CONTAINS(LOWER(c.amazon_url), @q))
 `;
 
 const SELECT_FIELDS = [
@@ -464,7 +476,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         const sqlA = `
             SELECT TOP @take ${SELECT_FIELDS}
             FROM c
-            WHERE IS_ARRAY(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
+            WHERE IIF(IS_ARRAY(c.manufacturing_locations), ARRAY_LENGTH(c.manufacturing_locations), 0) > 0
             AND ${softDeleteFilter}
             ${whereText}
             ORDER BY c._ts DESC
@@ -479,7 +491,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           const sqlB = `
               SELECT TOP @take2 ${SELECT_FIELDS}
               FROM c
-              WHERE (NOT IS_ARRAY(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
+              WHERE IIF(IS_ARRAY(c.manufacturing_locations), ARRAY_LENGTH(c.manufacturing_locations), 0) = 0
               AND ${softDeleteFilter}
               ${whereText}
               ORDER BY c._ts DESC
