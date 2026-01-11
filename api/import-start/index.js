@@ -5325,11 +5325,50 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               },
             };
           } else {
-            xaiResponse = await postXaiJsonWithBudget({
-              stageKey: "primary",
-              stageBeacon: "xai_primary_fetch_start",
-              body: outboundBody,
-            });
+            try {
+              xaiResponse = await postXaiJsonWithBudget({
+                stageKey: "primary",
+                stageBeacon: "xai_primary_fetch_start",
+                body: outboundBody,
+              });
+            } catch (e) {
+              const isCompanyUrlImport =
+                Array.isArray(queryTypes) && queryTypes.includes("company_url") && typeof query === "string" && query.trim();
+
+              // Critical: company_url imports must never return 202 + depend on the primary worker.
+              // The primary worker explicitly skips company_url queries.
+              if (isCompanyUrlImport && e instanceof AcceptedResponseError) {
+                const seed = buildCompanyUrlSeedFromQuery(query);
+
+                addWarning("primary_timeout_company_url", {
+                  stage: "primary",
+                  root_cause: "upstream_timeout_returning_202",
+                  retryable: true,
+                  message: "Primary upstream timed out for company_url. Continuing inline with URL seed.",
+                  upstream_status: 202,
+                  company_name: seed.company_name,
+                  website_url: seed.website_url,
+                });
+
+                mark("xai_primary_fallback_company_url_seed");
+
+                xaiResponse = {
+                  status: 200,
+                  headers: {},
+                  data: {
+                    choices: [
+                      {
+                        message: {
+                          content: JSON.stringify([seed]),
+                        },
+                      },
+                    ],
+                  },
+                };
+              } else {
+                throw e;
+              }
+            }
           }
 
           const elapsed = Date.now() - startTime;
