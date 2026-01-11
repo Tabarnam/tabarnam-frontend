@@ -258,3 +258,4 @@ Functions:
 
 For detailed output, run func with --verbose flag.
 [2026-01-11T07:46:04.661Z] Host lock lease acquired by instance ID '00000000000000000000000023403439'.
+[2026-01-11T07:46:58.287Z] Detected mixed function app. Some functions may not be indexed - /root/app/code/api/admin-companies-history, /root/app/code/api/admin-company-history, /root/app/code/api/_diag-hello, /root/app/code/api/import-start, /root/app/code/api/import-start-hyphen Refer to the documentation to filter warning - https://docs.microsoft.com/en-us/azure/azure-functions/configure-monitoring?tabs=v2
