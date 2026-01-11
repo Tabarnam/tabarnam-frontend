@@ -1485,11 +1485,21 @@ async function geocodeCompanyLocations(company, { timeoutMs = 5000 } = {}) {
   const hq_lat = primary ? primary.lat : toFiniteNumber(c.hq_lat);
   const hq_lng = primary ? primary.lng : toFiniteNumber(c.hq_lng);
 
+  const manufacturing_locations = manufacturing_geocodes
+    .map((loc) => {
+      if (typeof loc === "string") return loc.trim();
+      if (loc && typeof loc === "object") {
+        return String(loc.formatted || loc.full_address || loc.address || "").trim();
+      }
+      return "";
+    })
+    .filter((s) => s.length > 0);
+
   return {
     ...c,
     headquarters,
     headquarters_locations: headquarters,
-    manufacturing_locations: manufacturing_geocodes,
+    manufacturing_locations,
     manufacturing_geocodes,
     hq_lat,
     hq_lng,
