@@ -283,26 +283,17 @@ export default function AdminEditHistory({ companyId }) {
     }
   }, [buildHistoryUrl, companyBlocked, historySupported, id, loadingMore, markHistoryMissing, nextCursor]);
 
-  // Lazy-load: only fetch once the user explicitly opens the section.
+  // Lazy-load + refresh on filter/search changes: only after user explicitly requests load.
   useEffect(() => {
     if (!open || !userRequestedLoad) return;
     if (!id) return;
+    if (loading) return;
 
     // If the endpoint was already detected as missing, do not retry unless user clicks Retry.
     if (historySupported === false || companyBlocked || history404ByCompanyId.has(id)) return;
 
     loadFirstPage();
-  }, [companyBlocked, historySupported, id, loadFirstPage, open, userRequestedLoad]);
-
-  // While open, changing filters/search should refresh, but only after a user load request.
-  useEffect(() => {
-    if (!open || !userRequestedLoad) return;
-    if (!id) return;
-
-    if (historySupported === false || companyBlocked || history404ByCompanyId.has(id)) return;
-
-    loadFirstPage();
-  }, [buildHistoryUrl, companyBlocked, historySupported, id, loadFirstPage, open, userRequestedLoad]);
+  }, [buildHistoryUrl, companyBlocked, historySupported, id, loadFirstPage, loading, open, userRequestedLoad]);
 
   const fieldOptions = useMemo(() => {
     const set = new Set();
