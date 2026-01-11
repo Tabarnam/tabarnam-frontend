@@ -2792,7 +2792,7 @@ export default function AdminImport() {
 
                     const companyName = primaryCandidate
                       ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
-                      : "No company saved";
+                      : "No company persisted";
 
                     const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
                     const isRefreshing = statusRefreshSessionId === r.session_id;
@@ -2909,7 +2909,7 @@ export default function AdminImport() {
                       const companyId = asString(primarySaved?.company_id).trim();
                       const companyName = primaryCandidate
                         ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
-                        : "No company saved";
+                        : "No company persisted";
                       const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
 
                       const enrichmentMissingFields = (() => {
