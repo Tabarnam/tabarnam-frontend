@@ -92,6 +92,16 @@ export interface CompanyNote {
   created_by?: string;
 }
 
+export interface CompanyTaglineMeta {
+  confirmed_company_name?: string;
+  confirm_confidence?: number | null;
+  confirm_reason?: string;
+  tagline_confidence?: number | null;
+  tagline_reason?: string;
+  error?: string;
+  captured_at?: string;
+}
+
 export interface Company {
   id?: string;
   company_id?: string;
@@ -102,6 +112,7 @@ export interface Company {
   domain?: string;
   normalized_domain?: string;
   tagline?: string;
+  tagline_meta?: CompanyTaglineMeta;
   industries?: string[];
   keywords?: string[];
   product_keywords?: string[];
