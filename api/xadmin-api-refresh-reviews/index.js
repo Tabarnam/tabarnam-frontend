@@ -288,18 +288,9 @@ function normalizeUpstreamResult(result) {
 }
 
 function extractJsonObjectFromText(text) {
-  const raw = asString(text);
-  const direct = safeJsonParse(raw);
-  if (direct && typeof direct === "object") return direct;
-
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start !== -1 && end !== -1 && end > start) {
-    const slice = raw.slice(start, end + 1);
-    const parsed = safeJsonParse(slice);
-    if (parsed && typeof parsed === "object") return parsed;
-  }
-
+  const { extractJsonFromText } = require("../_curatedReviewsXai");
+  const parsed = extractJsonFromText(text);
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
   return null;
 }
 
@@ -375,23 +366,31 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
       resp?.data?.choices?.[0]?.message?.content ||
       (typeof resp?.data === "string" ? resp.data : resp?.data ? JSON.stringify(resp.data) : "");
 
+    const { normalizeUpstreamReviewsResult } = require("../_curatedReviewsXai");
+
     const parsed = extractJsonObjectFromText(responseText);
-    if (!parsed) {
+    const normalized = normalizeUpstreamReviewsResult(parsed, {
+      fallbackOffset: Math.max(0, Math.trunc(Number(offset) || 0)),
+    });
+
+    if (normalized.parse_error) {
       const err = new Error("Failed to parse upstream JSON");
       err.status = status;
       throw err;
     }
 
-    const normalized = normalizeUpstreamResult(parsed);
-    if (!Array.isArray(normalized.reviews)) normalized.reviews = [];
-
     return {
-      reviews: normalized.reviews,
+      reviews: Array.isArray(normalized.reviews) ? normalized.reviews : [],
       next_offset:
         typeof normalized.next_offset === "number" && Number.isFinite(normalized.next_offset)
           ? normalized.next_offset
-          : Math.max(0, Math.trunc(Number(offset) || 0)) + normalized.reviews.length,
-      exhausted: typeof normalized.exhausted === "boolean" ? normalized.exhausted : normalized.reviews.length === 0,
+          : Math.max(0, Math.trunc(Number(offset) || 0)) + (Array.isArray(normalized.reviews) ? normalized.reviews.length : 0),
+      exhausted:
+        typeof normalized.exhausted === "boolean"
+          ? normalized.exhausted
+          : Array.isArray(normalized.reviews)
+            ? normalized.reviews.length === 0
+            : true,
       _meta: { upstream_status: status },
     };
   } finally {
