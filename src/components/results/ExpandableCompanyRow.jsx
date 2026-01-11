@@ -251,28 +251,58 @@ export default function ExpandableCompanyRow({
     }));
   };
 
-  const manuLocations = getLocationsList(
-    company.manufacturing_locations,
-    company.manufacturing_geocodes,
-    company._manuDists || [],
-    true
-  );
+  const manuLocations = (() => {
+    const list = getLocationsList(
+      company.manufacturing_locations,
+      company.manufacturing_geocodes,
+      company._manuDists || [],
+      true
+    );
 
-  const hqLocations = Array.isArray(company._hqDists) && company._hqDists.length > 0
-    ? company._hqDists.slice(0, 5).map((hq) => ({
-        formatted: formatLocationDisplayName(hq),
-        distance: typeof hq.dist === "number" ? hq.dist : null,
-        geocode_status: typeof hq?.geocode_status === "string" ? hq.geocode_status : null,
-      }))
-    : Array.isArray(company.headquarters) && company.headquarters.length > 0
-      ? company.headquarters.slice(0, 5).map((hq) => ({
+    if (list.length > 0) return list;
+
+    if (company?.mfg_unknown) {
+      const reason =
+        (typeof company?.mfg_unknown_reason === "string" && company.mfg_unknown_reason.trim()) ||
+        (typeof company?.red_flag_reason === "string" && company.red_flag_reason.trim()) ||
+        "Not disclosed";
+
+      return [{ formatted: `Unknown (${reason})`, distance: null, geocode_status: null }];
+    }
+
+    return [];
+  })();
+
+  const hqLocations = (() => {
+    const list = Array.isArray(company._hqDists) && company._hqDists.length > 0
+      ? company._hqDists.slice(0, 5).map((hq) => ({
           formatted: formatLocationDisplayName(hq),
-          distance: null,
+          distance: typeof hq.dist === "number" ? hq.dist : null,
           geocode_status: typeof hq?.geocode_status === "string" ? hq.geocode_status : null,
         }))
-      : typeof company.headquarters_location === "string" && company.headquarters_location.trim()
-        ? [{ formatted: company.headquarters_location.trim(), distance: null, geocode_status: null }]
-        : [];
+      : Array.isArray(company.headquarters) && company.headquarters.length > 0
+        ? company.headquarters.slice(0, 5).map((hq) => ({
+            formatted: formatLocationDisplayName(hq),
+            distance: null,
+            geocode_status: typeof hq?.geocode_status === "string" ? hq.geocode_status : null,
+          }))
+        : typeof company.headquarters_location === "string" && company.headquarters_location.trim()
+          ? [{ formatted: company.headquarters_location.trim(), distance: null, geocode_status: null }]
+          : [];
+
+    if (list.length > 0) return list;
+
+    if (company?.hq_unknown) {
+      const reason =
+        (typeof company?.hq_unknown_reason === "string" && company.hq_unknown_reason.trim()) ||
+        (typeof company?.red_flag_reason === "string" && company.red_flag_reason.trim()) ||
+        "Not disclosed";
+
+      return [{ formatted: `Unknown (${reason})`, distance: null, geocode_status: null }];
+    }
+
+    return [];
+  })();
 
   const hqLocation = hqLocations;
 
