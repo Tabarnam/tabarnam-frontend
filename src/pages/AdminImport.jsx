@@ -413,6 +413,10 @@ export default function AdminImport() {
           (!resumeNeeded && jobState === "complete") ||
           (completed && !resumeNeeded);
 
+        // If at least one company is already saved, we can stop polling even when resume_needed is true.
+        // Resume-worker can continue enrichment in the background.
+        const shouldStopAfterSeedSave = resumeNeeded && saved > 0 && !isTerminalError && !isTerminalComplete;
+
         const lastErrorCode = asString(lastError?.code).trim();
         const primaryTimeoutLabel = formatDurationShort(lastError?.hard_timeout_ms);
         const noCandidatesLabel = formatDurationShort(lastError?.no_candidates_threshold_ms);
@@ -503,7 +507,7 @@ export default function AdminImport() {
               reconcile_strategy: reconcileStrategy || null,
               reconciled_saved_ids: reconciledSavedIds,
               saved_companies: savedCompanies.length > 0 ? savedCompanies : Array.isArray(r.saved_companies) ? r.saved_companies : [],
-              completed: isTerminalComplete,
+              completed: isTerminalComplete || shouldStopAfterSeedSave,
               timedOut,
               stopped: isTerminalError ? true : stopped,
               job_state: normalizedJobState,
@@ -537,6 +541,15 @@ export default function AdminImport() {
 
         if (isTerminalError) return { shouldStop: true, body };
         if (isTerminalComplete) return { shouldStop: true, body };
+
+        if (shouldStopAfterSeedSave) {
+          try {
+            setActiveStatus((prev) => (prev === "running" ? "done" : prev));
+          } catch {}
+          toast.success("Company saved. Enrichment will continue in the background.");
+          return { shouldStop: true, body };
+        }
+
         return { shouldStop: timedOut || stopped, body };
       } catch (e) {
         const msg = toErrorString(e) || "Progress failed";

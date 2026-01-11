@@ -5129,6 +5129,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               return base.charAt(0).toUpperCase() + base.slice(1);
             })();
 
+            const nowIso = new Date().toISOString();
+
+            // NOTE: saveCompaniesToCosmos refuses to persist URL shortcuts unless they show
+            // "meaningful enrichment". For a seed, we encode "attempted but unknown" markers so
+            // the record can be saved and later upgraded by resume-worker.
             return {
               company_name: companyName,
               website_url: websiteUrl,
@@ -5137,6 +5142,21 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               source: "company_url_shortcut",
               candidate: false,
               source_stage: "seed",
+              hq_unknown: true,
+              hq_unknown_reason: "seed_from_company_url",
+              mfg_unknown: true,
+              mfg_unknown_reason: "seed_from_company_url",
+              red_flag_reason: "Imported from URL; enrichment pending",
+              curated_reviews: [],
+              review_count: 0,
+              reviews_last_updated_at: nowIso,
+              review_cursor: {
+                exhausted: false,
+                last_error: {
+                  code: "SEED_FROM_COMPANY_URL",
+                  message: "Seed created from URL; enrichment pending",
+                },
+              },
             };
           };
 
@@ -5449,6 +5469,19 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           setStage("enrichCompany");
           const center = safeCenter(bodyObj.center);
           let enriched = companies.map((c) => enrichCompany(c, center));
+
+          // For company_url imports, XAI can legitimately return an empty array (or parsing can fail).
+          // In that case we still want to proceed with a deterministic URL seed so the session can
+          // persist and resume-worker has something to enrich.
+          if (enriched.length === 0 && queryTypes.includes("company_url")) {
+            try {
+              enriched = [buildCompanyUrlSeedFromQuery(query)];
+              mark("company_url_seed_created");
+            } catch {
+              enriched = [buildCompanyUrlSeedFromQuery(query)];
+            }
+          }
+
           enrichedForCounts = enriched;
 
           // Populate a baseline profile deterministically from the company's own website.
@@ -5491,7 +5524,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           }
 
           // Early exit if no companies found
-          if (enriched.length === 0) {
+          // (For company_url runs, we always fall back to a URL seed above instead of exiting.)
+          if (enriched.length === 0 && !queryTypes.includes("company_url")) {
             console.log(`[import-start] session=${sessionId} no companies found in XAI response, returning early`);
 
             // Write a completion marker so import-progress knows this session is done with 0 results
@@ -6756,7 +6790,9 @@ Return ONLY the JSON array, no other text.`,
             })
             .filter(Boolean);
 
-          const needsResume = !dryRunRequested && cosmosEnabled && enrichmentMissingByCompany.length > 0;
+          // Only mark the session as resume-needed if we successfully persisted at least one company.
+          // Otherwise we can get stuck in "running" forever because resume-worker has nothing to load.
+          const needsResume = !dryRunRequested && cosmosEnabled && enrichmentMissingByCompany.length > 0 && saveResult.saved > 0;
 
           if (needsResume) {
             mark("enrichment_incomplete");
