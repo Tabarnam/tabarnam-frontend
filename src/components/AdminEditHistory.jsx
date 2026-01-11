@@ -270,9 +270,7 @@ export default function AdminEditHistory({ companyId }) {
       <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
         <div>
           <div className="text-sm font-semibold text-slate-900">Edit History</div>
-          <div className="mt-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-            History unavailable (endpoint missing).
-          </div>
+          <div className="mt-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">No history yet.</div>
         </div>
       </section>
     );
