@@ -376,10 +376,23 @@ export type ApiFetchParsedError = {
   response?: Response;
 };
 
-function isKnownBenign404(url: string, status: number) {
-  if (status !== 404) return false;
-  // Known acceptable 404: company edit history endpoint (some deployments do not ship it yet).
-  return /\/admin\/companies\/[^/]+\/history\b/i.test(url);
+function shouldLogNon2xx({ url, status }: { url: string; status: number }) {
+  if (status === 404) {
+    const u = typeof url === "string" ? url : String(url || "");
+
+    // Known acceptable 404: company edit history endpoint (some deployments do not ship it yet).
+    // Robust matching: handle both absolute and relative URLs, with or without query strings.
+    const isAdminCompanyHistory =
+      (u.includes("/api/admin/companies/") || u.includes("/xapi/admin/companies/") || u.includes("/admin/companies/")) &&
+      (u.includes("/history?") || u.includes("/history"));
+
+    if (isAdminCompanyHistory) return false;
+
+    // Back-compat regex match (covers absolute URLs with different bases).
+    if (/\/admin\/companies\/[^/]+\/history\b/i.test(u)) return false;
+  }
+
+  return true;
 }
 
 async function readJsonIfLooksJson(res: Response): Promise<{ data: unknown | null; text: string }> {
@@ -500,8 +513,7 @@ export async function apiFetch(path: string, init?: RequestInit) {
       }
 
       const configMsg = await getUserFacingConfigMessage(response);
-      const suppressLog = isKnownBenign404(url, response.status);
-      if (!suppressLog) {
+      if (shouldLogNon2xx({ url, status: response.status })) {
         console.error("[apiFetch] Non-2xx response", {
           ...err,
           ...(configMsg ? { user_facing_config_message: configMsg } : {}),
@@ -577,8 +589,7 @@ export async function apiFetch(path: string, init?: RequestInit) {
           }
 
           const configMsg = await getUserFacingConfigMessage(response);
-          const suppressLog = isKnownBenign404(fallbackUrl, response.status);
-          if (!suppressLog) {
+          if (shouldLogNon2xx({ url: fallbackUrl, status: response.status })) {
             console.error("[apiFetch] Non-2xx response (fallback /xapi)", {
               ...err,
               ...(configMsg ? { user_facing_config_message: configMsg } : {}),

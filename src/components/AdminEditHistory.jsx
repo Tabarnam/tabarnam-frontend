@@ -6,6 +6,18 @@ import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+/**
+ * Session-level capability flags (in-memory).
+ *
+ * Why: if the /history endpoint isn't deployed, it returns 404 and the browser
+ * will log a network 404 line for every request. We avoid those requests entirely
+ * after the first observed 404.
+ */
+/** @type {boolean | null} */
+let sessionHistorySupported = null;
+/** @type {Set<string>} */
+const history404ByCompanyId = new Set();
+
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
@@ -82,12 +94,18 @@ function formatLocalTime(iso) {
 export default function AdminEditHistory({ companyId }) {
   const id = asString(companyId).trim();
 
+  const [open, setOpen] = useState(false);
+  const [userRequestedLoad, setUserRequestedLoad] = useState(false);
+
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [nextCursor, setNextCursor] = useState(null);
-  const [historyUnavailable, setHistoryUnavailable] = useState(false);
+
+  // Local view of the session-level capability flag (module-level value is not reactive).
+  const [historySupported, setHistorySupported] = useState(sessionHistorySupported);
+  const [companyBlocked, setCompanyBlocked] = useState(false);
 
   const [fieldFilter, setFieldFilter] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -102,6 +120,23 @@ export default function AdminEditHistory({ companyId }) {
       mountedRef.current = false;
     };
   }, []);
+
+  // Reset view when switching companies.
+  useEffect(() => {
+    setOpen(false);
+    setUserRequestedLoad(false);
+    setItems([]);
+    setLoading(false);
+    setLoadingMore(false);
+    setError("");
+    setNextCursor(null);
+
+    const blocked = id ? history404ByCompanyId.has(id) : false;
+    setCompanyBlocked(blocked);
+
+    // Keep the latest session value.
+    setHistorySupported(sessionHistorySupported);
+  }, [id]);
 
   useEffect(() => {
     if (debounceRef.current) {
@@ -119,18 +154,6 @@ export default function AdminEditHistory({ companyId }) {
     };
   }, [searchInput]);
 
-  const fieldOptions = useMemo(() => {
-    const set = new Set();
-    for (const it of items) {
-      const fields = Array.isArray(it?.changed_fields) ? it.changed_fields : [];
-      for (const f of fields) {
-        const s = asString(f).trim();
-        if (s) set.add(s);
-      }
-    }
-    return Array.from(set).sort();
-  }, [items]);
-
   const buildHistoryUrl = useCallback(
     (cursor = null) => {
       const params = new URLSearchParams();
@@ -145,50 +168,92 @@ export default function AdminEditHistory({ companyId }) {
     [fieldFilter, id, searchQuery]
   );
 
-  const loadFirstPage = useCallback(async () => {
-    if (!id || historyUnavailable) return;
-    setLoading(true);
-    setError("");
-    setItems([]);
-    setNextCursor(null);
+  const markHistoryMissing = useCallback(
+    (companyIdForFlag) => {
+      const cid = asString(companyIdForFlag).trim();
+      if (cid) history404ByCompanyId.add(cid);
+      setCompanyBlocked(true);
 
-    try {
-      const url = buildHistoryUrl(null);
+      // Capability detection (frontend-only): after the first observed 404,
+      // assume this build doesn't ship the endpoint and stop calling it.
+      sessionHistorySupported = false;
+      setHistorySupported(false);
+    },
+    [setCompanyBlocked]
+  );
 
-      const res = await apiFetch(url);
-      if (!mountedRef.current) return;
+  const canAttemptFetch = useCallback(
+    (force) => {
+      if (!id) return false;
+      if (force) return true;
 
-      if (res.status === 404) {
-        setHistoryUnavailable(true);
-        setError("");
-        setItems([]);
-        setNextCursor(null);
-        return;
+      if (historySupported === false) return false;
+      if (companyBlocked || history404ByCompanyId.has(id)) return false;
+
+      // If this session has already detected a missing /history endpoint, do not
+      // retry automatically. A user-triggered Retry can still override per-company.
+      if (sessionHistorySupported === false && historySupported !== true) return false;
+
+      return true;
+    },
+    [companyBlocked, historySupported, id]
+  );
+
+  const loadFirstPage = useCallback(
+    async ({ force = false } = {}) => {
+      if (!canAttemptFetch(force)) return;
+
+      setLoading(true);
+      setError("");
+      setItems([]);
+      setNextCursor(null);
+
+      try {
+        const url = buildHistoryUrl(null);
+
+        const res = await apiFetch(url);
+        if (!mountedRef.current) return;
+
+        if (res.status === 404) {
+          markHistoryMissing(id);
+          setError("");
+          setItems([]);
+          setNextCursor(null);
+          return;
+        }
+
+        // Endpoint responded (even if it later returns ok:false). Treat as supported
+        // for this company so a user-triggered Retry can show details.
+        if (mountedRef.current) setHistorySupported(true);
+
+        const body = await res.json().catch(() => ({}));
+        if (!mountedRef.current) return;
+
+        if (!res.ok || body?.ok !== true) {
+          const msg = toErrorString(
+            (await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Failed to load history (${res.status})`
+          );
+          setError(msg);
+          return;
+        }
+
+        setItems(Array.isArray(body?.items) ? body.items : []);
+        setNextCursor(body?.next_cursor || null);
+      } catch (e) {
+        if (!mountedRef.current) return;
+        setError(toErrorString(e) || "Failed to load history");
+      } finally {
+        if (mountedRef.current) setLoading(false);
       }
-
-      const body = await res.json().catch(() => ({}));
-      if (!mountedRef.current) return;
-
-      if (!res.ok || body?.ok !== true) {
-        const msg = toErrorString(
-          (await getUserFacingConfigMessage(res)) || body?.error || body?.message || body?.text || `Failed to load history (${res.status})`
-        );
-        setError(msg);
-        return;
-      }
-
-      setItems(Array.isArray(body?.items) ? body.items : []);
-      setNextCursor(body?.next_cursor || null);
-    } catch (e) {
-      if (!mountedRef.current) return;
-      setError(toErrorString(e) || "Failed to load history");
-    } finally {
-      if (mountedRef.current) setLoading(false);
-    }
-  }, [buildHistoryUrl, historyUnavailable, id]);
+    },
+    [buildHistoryUrl, canAttemptFetch, id, markHistoryMissing]
+  );
 
   const loadMore = useCallback(async () => {
-    if (!id || !nextCursor || loadingMore || historyUnavailable) return;
+    if (!id || !nextCursor || loadingMore) return;
+    if (historySupported === false) return;
+    if (companyBlocked || history404ByCompanyId.has(id)) return;
+
     setLoadingMore(true);
     setError("");
 
@@ -199,12 +264,14 @@ export default function AdminEditHistory({ companyId }) {
       if (!mountedRef.current) return;
 
       if (res.status === 404) {
-        setHistoryUnavailable(true);
+        markHistoryMissing(id);
         setError("");
         setItems([]);
         setNextCursor(null);
         return;
       }
+
+      if (mountedRef.current) setHistorySupported(true);
 
       const body = await res.json().catch(() => ({}));
       if (!mountedRef.current) return;
@@ -226,55 +293,56 @@ export default function AdminEditHistory({ companyId }) {
     } finally {
       if (mountedRef.current) setLoadingMore(false);
     }
-  }, [buildHistoryUrl, historyUnavailable, id, loadingMore, nextCursor]);
+  }, [buildHistoryUrl, companyBlocked, historySupported, id, loadingMore, markHistoryMissing, nextCursor]);
 
+  // Lazy-load + refresh on filter/search changes: only after user explicitly requests load.
   useEffect(() => {
-    if (!id || historyUnavailable) return;
+    if (!open || !userRequestedLoad) return;
+    if (!id) return;
+    if (loading) return;
+
+    // If the endpoint was already detected as missing, do not retry unless user clicks Retry.
+    if (historySupported === false || companyBlocked || history404ByCompanyId.has(id)) return;
+
     loadFirstPage();
-  }, [historyUnavailable, id, fieldFilter, searchQuery, loadFirstPage]);
+  }, [buildHistoryUrl, companyBlocked, historySupported, id, loadFirstPage, loading, open, userRequestedLoad]);
 
-  const headerRight = (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-      <div className="flex items-center gap-2">
-        <label className="text-xs text-slate-600">Filter field</label>
-        <select
-          className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
-          value={fieldFilter}
-          onChange={(e) => setFieldFilter(e.target.value)}
-        >
-          <option value="">All</option>
-          {fieldOptions.map((f) => (
-            <option key={f} value={f}>
-              {f}
-            </option>
-          ))}
-        </select>
-      </div>
+  const fieldOptions = useMemo(() => {
+    const set = new Set();
+    for (const it of items) {
+      const fields = Array.isArray(it?.changed_fields) ? it.changed_fields : [];
+      for (const f of fields) {
+        const s = asString(f).trim();
+        if (s) set.add(s);
+      }
+    }
+    return Array.from(set).sort();
+  }, [items]);
 
-      <div className="flex items-center gap-2">
-        <div className="relative">
-          <Search className="h-4 w-4 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
-          <Input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search history…"
-            className="h-9 pl-8 w-[240px]"
-          />
-        </div>
-      </div>
-    </div>
-  );
+  const openHistory = useCallback(() => {
+    setOpen(true);
+    setUserRequestedLoad(true);
+  }, []);
 
-  if (historyUnavailable) {
-    return (
-      <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
-        <div>
-          <div className="text-sm font-semibold text-slate-900">Edit History</div>
-          <div className="mt-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">No history yet.</div>
-        </div>
-      </section>
-    );
-  }
+  const closeHistory = useCallback(() => {
+    setOpen(false);
+  }, []);
+
+  const retryHistory = useCallback(async () => {
+    if (!id) return;
+
+    // Explicit retry: allow a new attempt even if we previously saw a 404.
+    history404ByCompanyId.delete(id);
+    setCompanyBlocked(false);
+
+    // Keep sessionHistorySupported=false (if it was detected) to avoid auto-fetch for other companies.
+    // This call is explicitly user-triggered.
+    setOpen(true);
+    setUserRequestedLoad(true);
+    await loadFirstPage({ force: true });
+  }, [id, loadFirstPage]);
+
+  const showUnavailable = historySupported === false || companyBlocked || (id && history404ByCompanyId.has(id));
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
@@ -283,119 +351,185 @@ export default function AdminEditHistory({ companyId }) {
           <div className="text-sm font-semibold text-slate-900">Edit History</div>
           <div className="text-xs text-slate-600">UTC stored • shown in your local time</div>
         </div>
-        {headerRight}
+
+        <div className="flex items-center gap-2 justify-end">
+          {open ? (
+            <Button type="button" size="sm" variant="outline" onClick={closeHistory}>
+              Collapse
+            </Button>
+          ) : (
+            <Button type="button" size="sm" variant="outline" onClick={openHistory}>
+              Load history
+            </Button>
+          )}
+        </div>
       </div>
 
-      {loading ? (
-        <div className="flex items-center gap-2 text-sm text-slate-700">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading history…
+      {!open ? (
+        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+          History is loaded on demand to avoid noisy 404 requests when the endpoint is unavailable.
         </div>
       ) : null}
 
-      {error ? <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">{error}</div> : null}
-
-      {!loading && !error && items.length === 0 ? (
-        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">No edits yet.</div>
-      ) : null}
-
-      <div className="space-y-3">
-        {items.map((entry) => {
-          const when = formatLocalTime(entry?.created_at);
-          const actor = asString(entry?.actor_email || entry?.actor_user_id).trim() || "unknown";
-          const action = asString(entry?.action).trim() || "update";
-          const source = asString(entry?.source).trim();
-          const changed = Array.isArray(entry?.changed_fields) ? entry.changed_fields.map((f) => asString(f).trim()).filter(Boolean) : [];
-          const diff = entry?.diff && typeof entry.diff === "object" ? entry.diff : {};
-
-          return (
-            <div key={asString(entry?.id) || `${entry?.created_at}-${actor}-${action}`} className="rounded-lg border border-slate-200">
-              <div className="p-3 bg-slate-50 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-sm font-semibold text-slate-900">{action}</div>
-                    {source ? (
-                      <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[11px] text-slate-700">
-                        {source}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="mt-1 text-xs text-slate-600">{when ? `${when}` : asString(entry?.created_at)}</div>
-                  <div className="mt-1 text-xs text-slate-600">By: {actor}</div>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {changed.length > 0 ? (
-                      changed.slice(0, 12).map((f) => (
-                        <span key={f} className="rounded bg-white border border-slate-200 px-2 py-0.5 text-[11px] text-slate-700">
-                          {f}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-xs text-slate-500">No changed fields recorded.</span>
-                    )}
-                    {changed.length > 12 ? (
-                      <span className="text-[11px] text-slate-500">+{changed.length - 12} more</span>
-                    ) : null}
-                  </div>
+      {open ? (
+        <div className="space-y-3">
+          {showUnavailable ? (
+            <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 flex flex-col gap-2">
+              <div>History unavailable on this build.</div>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" variant="outline" className="bg-white" onClick={retryHistory}>
+                  Retry
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-slate-600">Filter field</label>
+                  <select
+                    className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                    value={fieldFilter}
+                    onChange={(e) => setFieldFilter(e.target.value)}
+                  >
+                    <option value="">All</option>
+                    {fieldOptions.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={async () => {
-                      const ok = await copyToClipboard(pretty(entry));
-                      if (ok) toast.success("Copied entry JSON");
-                      else toast.error("Copy failed");
-                    }}
-                    title="Copy entry JSON"
-                  >
-                    <Copy className="h-4 w-4 mr-2" />
-                    Copy JSON
-                  </Button>
+                  <div className="relative">
+                    <Search className="h-4 w-4 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
+                    <Input
+                      value={searchInput}
+                      onChange={(e) => setSearchInput(e.target.value)}
+                      placeholder="Search history…"
+                      className="h-9 pl-8 w-[240px]"
+                    />
+                  </div>
                 </div>
               </div>
 
-              <div className="p-3">
-                <details>
-                  <summary className="cursor-pointer select-none text-sm text-slate-800">Details</summary>
-                  <div className="mt-3 space-y-3">
-                    {Object.keys(diff).length === 0 ? (
-                      <div className="text-sm text-slate-600">No detailed diff available.</div>
-                    ) : (
-                      Object.entries(diff).map(([field, change]) => (
-                        <div key={field} className="rounded border border-slate-200 bg-white p-3">
-                          <div className="text-sm font-medium text-slate-900">{field}</div>
-                          <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
-                            <div>
-                              <div className="text-xs font-medium text-slate-700">Before</div>
-                              <div className="mt-1">
-                                <ValueBlock value={change?.before} />
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-xs font-medium text-slate-700">After</div>
-                              <div className="mt-1">
-                                <ValueBlock value={change?.after} />
-                              </div>
-                            </div>
+              {loading ? (
+                <div className="flex items-center gap-2 text-sm text-slate-700">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading history…
+                </div>
+              ) : null}
+
+              {error ? <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">{error}</div> : null}
+
+              {!loading && !error && items.length === 0 ? (
+                <div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">No edits yet.</div>
+              ) : null}
+
+              <div className="space-y-3">
+                {items.map((entry) => {
+                  const when = formatLocalTime(entry?.created_at);
+                  const actor = asString(entry?.actor_email || entry?.actor_user_id).trim() || "unknown";
+                  const action = asString(entry?.action).trim() || "update";
+                  const source = asString(entry?.source).trim();
+                  const changed = Array.isArray(entry?.changed_fields)
+                    ? entry.changed_fields
+                        .map((f) => asString(f).trim())
+                        .filter(Boolean)
+                    : [];
+                  const diff = entry?.diff && typeof entry.diff === "object" ? entry.diff : {};
+
+                  return (
+                    <div key={asString(entry?.id) || `${entry?.created_at}-${actor}-${action}`} className="rounded-lg border border-slate-200">
+                      <div className="p-3 bg-slate-50 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="text-sm font-semibold text-slate-900">{action}</div>
+                            {source ? (
+                              <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[11px] text-slate-700">
+                                {source}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-600">{when ? `${when}` : asString(entry?.created_at)}</div>
+                          <div className="mt-1 text-xs text-slate-600">By: {actor}</div>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {changed.length > 0 ? (
+                              changed.slice(0, 12).map((f) => (
+                                <span key={f} className="rounded bg-white border border-slate-200 px-2 py-0.5 text-[11px] text-slate-700">
+                                  {f}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-xs text-slate-500">No changed fields recorded.</span>
+                            )}
+                            {changed.length > 12 ? <span className="text-[11px] text-slate-500">+{changed.length - 12} more</span> : null}
                           </div>
                         </div>
-                      ))
-                    )}
-                  </div>
-                </details>
-              </div>
-            </div>
-          );
-        })}
-      </div>
 
-      {nextCursor ? (
-        <div className="flex justify-center pt-2">
-          <Button type="button" variant="outline" onClick={loadMore} disabled={loadingMore}>
-            {loadingMore ? "Loading…" : "Load more"}
-          </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                              const ok = await copyToClipboard(pretty(entry));
+                              if (ok) toast.success("Copied entry JSON");
+                              else toast.error("Copy failed");
+                            }}
+                            title="Copy entry JSON"
+                          >
+                            <Copy className="h-4 w-4 mr-2" />
+                            Copy JSON
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="p-3">
+                        <details>
+                          <summary className="cursor-pointer select-none text-sm text-slate-800">Details</summary>
+                          <div className="mt-3 space-y-3">
+                            {Object.keys(diff).length === 0 ? (
+                              <div className="text-sm text-slate-600">No detailed diff available.</div>
+                            ) : (
+                              Object.entries(diff).map(([field, change]) => (
+                                <div key={field} className="rounded border border-slate-200 bg-white p-3">
+                                  <div className="text-sm font-medium text-slate-900">{field}</div>
+                                  <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                    <div>
+                                      <div className="text-xs font-medium text-slate-700">Before</div>
+                                      <div className="mt-1">
+                                        <ValueBlock value={change?.before} />
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="text-xs font-medium text-slate-700">After</div>
+                                      <div className="mt-1">
+                                        <ValueBlock value={change?.after} />
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </details>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {nextCursor ? (
+                <div className="flex justify-center pt-2">
+                  <Button type="button" variant="outline" onClick={loadMore} disabled={loadingMore}>
+                    {loadingMore ? "Loading…" : "Load more"}
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
       ) : null}
     </section>

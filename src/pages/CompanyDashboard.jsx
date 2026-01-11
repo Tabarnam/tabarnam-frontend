@@ -2544,6 +2544,8 @@ export default function CompanyDashboard() {
   const [refreshSelection, setRefreshSelection] = useState({});
   const [refreshApplied, setRefreshApplied] = useState(false);
 
+  const refreshInFlightRef = useRef(false);
+
   const [refreshMetaByCompany, setRefreshMetaByCompany] = useState({});
 
   const activeRefreshCompanyId = useMemo(() => {
@@ -3243,6 +3245,11 @@ export default function CompanyDashboard() {
       return;
     }
 
+    // Extra safety: prevent duplicate requests even if the button is double-clicked
+    // before the disabled state re-renders.
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+
     const startedAt = new Date().toISOString();
 
     setRefreshMetaByCompany((prev) => ({
@@ -3255,7 +3262,7 @@ export default function CompanyDashboard() {
     }));
 
     setRefreshLoading(true);
-    setRefreshError(null);
+    // Keep the last failure visible while the next attempt is running.
     setRefreshProposed(null);
     setRefreshTaglineMeta(null);
     setProposedDraft(null);
@@ -3453,6 +3460,7 @@ export default function CompanyDashboard() {
         },
       }));
 
+      setRefreshError(null);
       toast.success("Proposed updates loaded");
     } catch (e) {
       // Normalize diagnostics from API wrapper errors (preferred) and plain exceptions.
@@ -3513,6 +3521,7 @@ export default function CompanyDashboard() {
 
       toast.error(errObj.message);
     } finally {
+      refreshInFlightRef.current = false;
       setRefreshLoading(false);
     }
   }, [editorDraft, editorOriginalId, normalizeForDiff, proposedValueToInputText, refreshDiffFields]);
