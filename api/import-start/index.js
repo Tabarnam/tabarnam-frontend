@@ -1485,11 +1485,21 @@ async function geocodeCompanyLocations(company, { timeoutMs = 5000 } = {}) {
   const hq_lat = primary ? primary.lat : toFiniteNumber(c.hq_lat);
   const hq_lng = primary ? primary.lng : toFiniteNumber(c.hq_lng);
 
+  const manufacturing_locations = manufacturing_geocodes
+    .map((loc) => {
+      if (typeof loc === "string") return loc.trim();
+      if (loc && typeof loc === "object") {
+        return String(loc.formatted || loc.full_address || loc.address || "").trim();
+      }
+      return "";
+    })
+    .filter((s) => s.length > 0);
+
   return {
     ...c,
     headquarters,
     headquarters_locations: headquarters,
-    manufacturing_locations: manufacturing_geocodes,
+    manufacturing_locations,
     manufacturing_geocodes,
     hq_lat,
     hq_lng,
@@ -5441,14 +5451,20 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           let enriched = companies.map((c) => enrichCompany(c, center));
           enrichedForCounts = enriched;
 
-          // When enrichment stages are skipped (or max_stage prevents them), still populate a baseline profile
-          // deterministically from the company's own website. This is especially important for company_url shortcut runs.
+          // Populate a baseline profile deterministically from the company's own website.
+          // This is especially important for company_url shortcut runs, where the initial company_name
+          // (derived from the hostname) is often too weak to drive reviews/location enrichment.
           const downstreamStagesSkipped =
             !shouldRunStage("keywords") && !shouldRunStage("reviews") && !shouldRunStage("location");
 
           const baselineEligible = queryTypes.includes("company_url") || enriched.length <= 3;
+          const baselineNeeded =
+            baselineEligible &&
+            (downstreamStagesSkipped ||
+              (queryTypes.includes("company_url") &&
+                enriched.some((c) => !String(c?.tagline || "").trim())));
 
-          if (baselineEligible && downstreamStagesSkipped) {
+          if (baselineNeeded) {
             try {
               const remaining = getRemainingMs();
               if (remaining > 7000) {

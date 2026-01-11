@@ -24,6 +24,34 @@ function decodeHtmlEntities(s) {
     .trim();
 }
 
+function cleanNameCandidate(raw) {
+  const s = decodeHtmlEntities(raw);
+  if (!s) return "";
+
+  const parts = s
+    .split(/\s*[|\-–•:]\s*/g)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const first = parts[0] || s;
+  const cleaned = first.replace(/\s+/g, " ").trim();
+  if (cleaned.length < 2) return "";
+  if (cleaned.length > 80) return cleaned.slice(0, 80).trim();
+  return cleaned;
+}
+
+function getBrandTokenFromWebsiteUrl(websiteUrl) {
+  try {
+    const u = new URL(websiteUrl);
+    let h = String(u.hostname || "").toLowerCase();
+    h = h.replace(/^www\./i, "");
+    const token = h.split(".")[0] || "";
+    return token.trim();
+  } catch {
+    return "";
+  }
+}
+
 function stripHtmlToText(html) {
   const raw = asString(html);
   if (!raw) return "";
@@ -269,6 +297,7 @@ async function fillCompanyBaselineFromWebsite(company, { timeoutMs = 6000, extra
   const metaDescription = extractMetaContent(homeHtml, "name\\s*=\\s*(['\"]?)description\\1");
   const ogSiteName = extractMetaContent(homeHtml, "property\\s*=\\s*(['\"]?)og:site_name\\1");
   const ogDescription = extractMetaContent(homeHtml, "property\\s*=\\s*(['\"]?)og:description\\1");
+  const ogTitle = extractMetaContent(homeHtml, "property\\s*=\\s*(['\"]?)og:title\\1");
 
   const homeText = stripHtmlToText(homeHtml);
   const supplementalText = pages.slice(1).map((p) => stripHtmlToText(p.html)).join(" ");
@@ -296,7 +325,21 @@ async function fillCompanyBaselineFromWebsite(company, { timeoutMs = 6000, extra
 
   const taglineCandidate = truncate(ogDescription || metaDescription || "", 180);
 
+  const nameCandidate = cleanNameCandidate(ogSiteName || ogTitle || title);
+
   const patch = { ...base };
+
+  // Improve company_name for URL-shortcut runs (helps downstream enrichment like reviews).
+  // Only override when the existing name is empty or looks auto-generated from the hostname.
+  const existingName = asString(patch.company_name || patch.name).trim();
+  const token = getBrandTokenFromWebsiteUrl(websiteUrl);
+  const looksAuto =
+    !existingName ||
+    (token && existingName.toLowerCase().replace(/\s+/g, "") === token.toLowerCase().replace(/\s+/g, ""));
+
+  if (looksAuto && nameCandidate) {
+    patch.company_name = nameCandidate;
+  }
 
   if (shouldFillString(patch.tagline) && taglineCandidate) {
     patch.tagline = taglineCandidate;
