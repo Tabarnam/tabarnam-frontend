@@ -1728,6 +1728,8 @@ function buildReviewCursor({ nowIso, count, exhausted, last_error }) {
 
 // Fetch editorial reviews for a company using XAI
 async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugCollector, stageCtx, warn) {
+  const { extractJsonFromText, normalizeUpstreamReviewsResult } = require("../_curatedReviewsXai");
+
   const companyName = String(company?.company_name || company?.name || "").trim();
   const websiteUrl = String(company?.website_url || company?.url || "").trim();
 
@@ -1777,49 +1779,27 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugColl
   try {
     const reviewMessage = {
       role: "user",
-      content: `You are a research assistant finding editorial and professional reviews.
-For this company, find and summarize up to 3 editorial/professional reviews ONLY.
+      content: `Find editorial/professional reviews about this company.
 
 Company: ${companyName}
 Website: ${websiteUrl}
 Industries: ${Array.isArray(company.industries) ? company.industries.join(", ") : ""}
 
-CRITICAL REVIEW SOURCE REQUIREMENTS:
-You MUST ONLY include editorial and professional sources. Do NOT include:
-- Amazon customer reviews
-- Google/Yelp reviews
-- Customer testimonials or user-generated content
-- Social media comments
-
-ONLY accept reviews from:
-- Magazines and industry publications
-- News outlets and journalists
-- Professional review websites
-- Independent testing labs (ConsumerLab, Labdoor, etc.)
-- Health/product analysis sites
-- Major retailer editorial content (blogs, articles written in editorial voice)
-- Company blog articles written in editorial/educational voice
-
-Search for editorial commentary about this company and its products. If you find some, return up to 3 reviews. Include variety when possible (positive and critical/mixed). If you find fewer than 3, return only what you find (0-3).
-
-For each review found, return a JSON object with:
+Return EXACTLY a single JSON object with this shape:
 {
-  "source": "magazine|editorial_site|lab_test|news|professional_review",
-  "source_url": "https://example.com/article",
-  "title": "Article/review headline",
-  "excerpt": "1-2 sentence summary of the editorial analysis or findings",
-  "rating": null or number if the source uses a rating,
-  "author": "Publication name or author name",
-  "date": "YYYY-MM-DD or null if unknown"
+  "reviews": [ ... ],
+  "next_offset": number,
+  "exhausted": boolean
 }
 
-IMPORTANT LINK RULES:
-- "source_url" must be a DIRECT link to the specific article/review page.
-- Do NOT return homepages, category pages, search pages, or social media URLs.
-- If you are not confident the exact article URL is correct, omit that review.
-
-Return ONLY a valid JSON array of review objects (0-3 items), no other text.
-If you find NO editorial reviews after exhaustive search, return an empty array: []`,
+Rules:
+- Return at most 3 review objects in "reviews".
+- Use offset=0.
+- If there are no results, set exhausted=true and return reviews: [].
+- Each review must be an object with keys: source, source_url, title, excerpt, rating, author, date.
+- source_url must be a direct article/review link (no homepages, search pages, categories).
+- Do not return consumer reviews (Amazon/Google/Yelp/testimonials).
+- JSON only.`,
     };
 
     const reviewPayload = {
@@ -1898,58 +1878,11 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
 
     console.log(`[import-start] Review response preview for ${companyName}: ${String(responseText).substring(0, 80)}...`);
 
-    const parseReviewsFromText = (rawText) => {
-      const text = typeof rawText === "string" ? rawText.trim() : "";
-      if (!text) return { reviews: [], parse_error: "empty_response" };
+    const parsedAny = extractJsonFromText(responseText);
+    const normalized = normalizeUpstreamReviewsResult(parsedAny, { fallbackOffset: 0 });
 
-      // 1) Try parsing the full response as JSON.
-      const direct = safeJsonParse(text);
-      if (Array.isArray(direct)) return { reviews: direct, parse_error: null };
-      if (direct && typeof direct === "object") {
-        const fromObj = Array.isArray(direct.reviews)
-          ? direct.reviews
-          : Array.isArray(direct.items)
-            ? direct.items
-            : null;
-        if (Array.isArray(fromObj)) return { reviews: fromObj, parse_error: null };
-      }
-
-      // 2) Try extracting a JSON object, then look for { reviews: [...] }.
-      try {
-        const objStart = text.indexOf("{");
-        const objEnd = text.lastIndexOf("}");
-        if (objStart !== -1 && objEnd !== -1 && objEnd > objStart) {
-          const slice = text.slice(objStart, objEnd + 1);
-          const parsedObj = safeJsonParse(slice);
-          if (parsedObj && typeof parsedObj === "object") {
-            const fromObj = Array.isArray(parsedObj.reviews)
-              ? parsedObj.reviews
-              : Array.isArray(parsedObj.items)
-                ? parsedObj.items
-                : null;
-            if (Array.isArray(fromObj)) return { reviews: fromObj, parse_error: null };
-          }
-        }
-      } catch {
-        // ignore
-      }
-
-      // 3) Try extracting a JSON array.
-      try {
-        const jsonMatch = text.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (Array.isArray(parsed)) return { reviews: parsed, parse_error: null };
-        }
-      } catch (err) {
-        return { reviews: [], parse_error: err?.message || String(err) };
-      }
-
-      return { reviews: [], parse_error: "no_json_found" };
-    };
-
-    const parsed = parseReviewsFromText(responseText);
-    const parseError = parsed.parse_error;
+    const parseError = normalized.parse_error;
+    const upstreamReviews = Array.isArray(normalized.reviews) ? normalized.reviews : [];
 
     if (parseError) {
       console.warn(`[import-start] Failed to parse reviews for ${companyName}: ${parseError}`);
@@ -1967,12 +1900,15 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
       }
     }
 
-    const candidates = (Array.isArray(parsed.reviews) ? parsed.reviews : [])
-      .filter((r) => r && typeof r === "object")
-      .slice(0, 3);
+    const candidatesUpstream = upstreamReviews.filter((r) => r && typeof r === "object");
+    const candidates = candidatesUpstream.slice(0, 3);
+    const upstreamCandidateCount = candidatesUpstream.length;
 
     const nowIso = new Date().toISOString();
     const curated = [];
+
+    let rejectedCount = 0;
+    let manualKeptCount = 0;
 
     for (const r of candidates) {
       const url = String(r.source_url || r.url || "").trim();
@@ -2074,15 +2010,21 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
         }
       })();
 
+      const excerpt = String(r.excerpt || r.abstract || r.text || "").trim();
+      const companyLower = companyName.toLowerCase();
+      const brandMentionedInCandidate =
+        (title && title.toLowerCase().includes(companyLower)) || (excerpt && excerpt.toLowerCase().includes(companyLower));
+
       const shouldKeepForManual =
         Boolean(!v?.is_valid) &&
         Boolean(finalUrl) &&
         Boolean(host) &&
         Boolean(companyHost) &&
         !isSameDomain(host, companyHost) &&
-        (v?.link_status === "blocked" || looksLikeReviewUrl(finalUrl));
+        (v?.link_status === "blocked" || looksLikeReviewUrl(finalUrl) || brandMentionedInCandidate);
 
       if (shouldKeepForManual) {
+        manualKeptCount += 1;
         curated.push({
           id: `xai_manual_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.trunc(Math.random() * 1e6)}`,
           source: String(r.source || "editorial_site").trim() || "editorial_site",
@@ -2107,18 +2049,24 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
           match_confidence: typeof v?.match_confidence === "number" ? v.match_confidence : 0,
           validation_reason: v?.reason_if_rejected || "blocked",
         });
+      } else {
+        rejectedCount += 1;
       }
     }
 
     debug.kept = curated.length;
 
-    console.log(`[import-start] Found ${curated.length} curated reviews for ${companyName}`);
+    console.log(
+      `[import-start][reviews] company=${companyName} upstream_candidates=${upstreamCandidateCount} considered=${candidates.length} kept=${curated.length} manual_kept=${manualKeptCount} rejected=${rejectedCount} parse_error=${parseError || ""}`
+    );
 
     if (debugCollector) {
       debugCollector.push(debug);
     }
 
-    curated._candidate_count = candidates.length;
+    curated._candidate_count = upstreamCandidateCount;
+    curated._candidate_count_considered = candidates.length;
+    curated._rejected_count = rejectedCount;
 
     curated._fetch_ok = !parseError;
     curated._fetch_error = parseError ? String(parseError) : null;
@@ -2525,9 +2473,11 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
                 : nowIso;
 
             const incomingCursor = company.review_cursor && typeof company.review_cursor === "object" ? company.review_cursor : null;
-            const cursorHasError = Boolean(incomingCursor?.last_error);
+
+            // Default: NEVER mark the cursor exhausted just because review_count is 0.
+            // Exhaustion should be a deliberate signal from an upstream fetch attempt.
             const cursorExhausted =
-              typeof incomingCursor?.exhausted === "boolean" ? incomingCursor.exhausted : !cursorHasError && reviewCountNormalized === 0;
+              incomingCursor && typeof incomingCursor.exhausted === "boolean" ? incomingCursor.exhausted : false;
 
             const reviewCursorNormalized = incomingCursor
               ? { ...incomingCursor, exhausted: cursorExhausted }
@@ -6171,6 +6121,11 @@ Output JSON only:
                       ? editorialReviews.length
                       : 0;
 
+                const rejectedCount =
+                  typeof editorialReviews?._rejected_count === "number" && Number.isFinite(editorialReviews._rejected_count)
+                    ? editorialReviews._rejected_count
+                    : null;
+
                 // Only mark reviews "exhausted" when the upstream returned *no candidates*.
                 // If upstream returned candidates but validation rejected them all, leave the cursor open
                 // (and store a last_error) so admin refresh/resume can try again later.
@@ -6188,17 +6143,29 @@ Output JSON only:
                       }
                     : null;
 
+                const cursor = buildReviewCursor({
+                  nowIso: nowReviewsIso,
+                  count: curated.length,
+                  exhausted: cursorExhausted,
+                  last_error: cursorError,
+                });
+
+                // Persist candidate/rejection telemetry for retries.
+                cursor._candidate_count = candidateCount;
+                if (rejectedCount != null) cursor._rejected_count = rejectedCount;
+                cursor._saved_count = curated.length;
+                cursor.exhausted_reason = cursorExhausted ? "no_candidates" : "";
+
+                console.log(
+                  `[import-start][reviews] session=${sessionId} upstream_candidates=${candidateCount} saved=${curated.length} rejected=${rejectedCount != null ? rejectedCount : ""} exhausted=${cursorExhausted ? "true" : "false"} company=${companyForReviews.company_name}`
+                );
+
                 enriched[i] = {
                   ...companyForReviews,
                   curated_reviews: curated,
                   review_count: curated.length,
                   reviews_last_updated_at: nowReviewsIso,
-                  review_cursor: buildReviewCursor({
-                    nowIso: nowReviewsIso,
-                    count: curated.length,
-                    exhausted: cursorExhausted,
-                    last_error: cursorError,
-                  }),
+                  review_cursor: cursor,
                 };
 
                 if (curated.length > 0) {
