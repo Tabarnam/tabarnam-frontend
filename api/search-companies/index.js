@@ -198,7 +198,7 @@ const SQL_TEXT_FILTER = `
       ) > 0)
     )
   ) OR
-  (IS_DEFINED(c.industries) AND ARRAY_LENGTH(
+  (IS_ARRAY(c.industries) AND ARRAY_LENGTH(
       ARRAY(SELECT VALUE i FROM i IN c.industries WHERE CONTAINS(LOWER(i), @q))
     ) > 0) OR
   (IS_DEFINED(c.normalized_domain) AND CONTAINS(LOWER(c.normalized_domain), @q)) OR
@@ -464,7 +464,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         const sqlA = `
             SELECT TOP @take ${SELECT_FIELDS}
             FROM c
-            WHERE IS_DEFINED(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
+            WHERE IS_ARRAY(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
             AND ${softDeleteFilter}
             ${whereText}
             ORDER BY c._ts DESC
@@ -479,7 +479,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           const sqlB = `
               SELECT TOP @take2 ${SELECT_FIELDS}
               FROM c
-              WHERE (NOT IS_DEFINED(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
+              WHERE (NOT IS_ARRAY(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
               AND ${softDeleteFilter}
               ${whereText}
               ORDER BY c._ts DESC
