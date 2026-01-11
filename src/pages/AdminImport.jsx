@@ -687,6 +687,9 @@ export default function AdminImport() {
             `Import may still be processing or may have completed asynchronously. ` +
             `Use "View status" (or "Poll now") to refresh.`;
           toast.info(msg);
+          try {
+            setActiveStatus((prev) => (prev === "running" ? "done" : prev));
+          } catch {}
           setRuns((prev) =>
             prev.map((r) =>
               r.session_id === session_id
