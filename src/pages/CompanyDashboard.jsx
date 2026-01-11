@@ -26,7 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
-import { apiFetch, getCachedBuildId, getUserFacingConfigMessage, toErrorString } from "@/lib/api";
+import { apiFetch, apiFetchParsed, getCachedBuildId, getUserFacingConfigMessage, toErrorString } from "@/lib/api";
 import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
 import { getAdminUser } from "@/lib/azureAuth";
@@ -2544,6 +2544,18 @@ export default function CompanyDashboard() {
   const [refreshSelection, setRefreshSelection] = useState({});
   const [refreshApplied, setRefreshApplied] = useState(false);
 
+  const [refreshMetaByCompany, setRefreshMetaByCompany] = useState({});
+
+  const activeRefreshCompanyId = useMemo(() => {
+    return asString(editorOriginalId || editorDraft?.company_id).trim();
+  }, [editorDraft, editorOriginalId]);
+
+  const lastRefreshMeta = useMemo(() => {
+    if (!activeRefreshCompanyId) return null;
+    const meta = refreshMetaByCompany?.[activeRefreshCompanyId];
+    return meta && typeof meta === "object" ? meta : null;
+  }, [activeRefreshCompanyId, refreshMetaByCompany]);
+
   const [logoFile, setLogoFile] = useState(null);
   const [logoUploading, setLogoUploading] = useState(false);
   const [logoUpdating, setLogoUpdating] = useState(false);
@@ -3231,6 +3243,17 @@ export default function CompanyDashboard() {
       return;
     }
 
+    const startedAt = new Date().toISOString();
+
+    setRefreshMetaByCompany((prev) => ({
+      ...(prev || {}),
+      [companyId]: {
+        lastRefreshAt: startedAt,
+        lastRefreshStatus: { kind: "running", code: null },
+        lastRefreshDebug: null,
+      },
+    }));
+
     setRefreshLoading(true);
     setRefreshError(null);
     setRefreshProposed(null);
@@ -3244,96 +3267,133 @@ export default function CompanyDashboard() {
       const refreshPaths = ["/xadmin-api-refresh-company"];
       const attempts = [];
 
-      let res;
       let usedPath = refreshPaths[0];
+      let result = null;
 
       for (const path of refreshPaths) {
         usedPath = path;
-        res = await apiFetch(path, {
-          method: "POST",
-          body: { company_id: companyId },
-        });
 
-        attempts.push({ path, status: res.status });
+        try {
+          const r = await apiFetchParsed(path, {
+            method: "POST",
+            body: { company_id: companyId },
+          });
 
-        if (res.status !== 404) break;
+          attempts.push({ path, status: r.status });
+          result = r;
+          break;
+        } catch (err) {
+          const status = normalizeHttpStatusNumber(err?.status) ?? 0;
+          attempts.push({ path, status });
+          if (status === 404) continue;
+          throw { ...(err || {}), status, attempts, usedPath: path };
+        }
       }
 
-      if (!res) {
-        throw new Error("Refresh failed: no response");
-      }
-
-      const apiBuildId = normalizeBuildIdString(res.headers.get("x-api-build-id"));
-
-      if (attempts.length && attempts.every((a) => a.status === 404)) {
+      if (!result) {
         const staticBuildId = await fetchStaticBuildId();
-        const buildId = apiBuildId || staticBuildId;
+        const msg = `Refresh API missing in prod build${staticBuildId ? ` (build ${staticBuildId})` : ""}`;
 
-        const msg = `Refresh API missing in prod build${buildId ? ` (build ${buildId})` : ""}`;
         const errObj = {
           status: 404,
           message: msg,
           url: `/api${usedPath}`,
           attempts,
-          build_id: buildId,
-          response: { error: "both refresh endpoints returned 404" },
+          build_id: staticBuildId,
+          debug: { error: "both refresh endpoints returned 404" },
         };
 
         setRefreshError(errObj);
+        setRefreshMetaByCompany((prev) => ({
+          ...(prev || {}),
+          [companyId]: {
+            lastRefreshAt: startedAt,
+            lastRefreshStatus: { kind: "error", code: 404 },
+            lastRefreshDebug: errObj.debug,
+          },
+        }));
+
         toast.error(errObj.message);
         return;
       }
 
-      const jsonBody = await res
-        .clone()
-        .json()
-        .catch(() => null);
-      const textBody =
-        jsonBody == null
-          ? await res
-              .clone()
-              .text()
-              .catch(() => "")
-          : null;
+      const res = result.response;
+      const apiBuildId = normalizeBuildIdString(res.headers.get("x-api-build-id"));
 
-      const body = jsonBody && typeof jsonBody === "object" ? jsonBody : {};
-      if (!res.ok || body?.ok !== true) {
-        const stage = asString(body?.stage).trim();
-        const upstreamCode = body?.upstream_code ?? body?.upstream_status;
-        const upstreamMessage = asString(body?.upstream_message).trim();
+      const jsonBody = result.data && typeof result.data === "object" ? result.data : null;
+      const textBody = typeof result.text === "string" ? result.text : "";
 
-        const baseMsg =
-          asString(body?.error).trim() ||
-          asString(body?.details?.parse_error).trim() ||
-          upstreamMessage ||
-          (typeof textBody === "string" && textBody.trim() ? textBody.trim().slice(0, 500) : "") ||
+      if (!jsonBody || Array.isArray(jsonBody)) {
+        const preview = textBody.trim() ? textBody.trim().slice(0, 500) : "";
+        const msg = `Bad response: not JSON (HTTP ${res.status})${preview ? ` — ${preview}` : ""}`;
+
+        const errObj = {
+          status: res.status,
+          message: msg,
+          url: `/api${usedPath}`,
+          attempts,
+          build_id: apiBuildId,
+          debug: preview || textBody || null,
+        };
+
+        setRefreshError(errObj);
+        setRefreshMetaByCompany((prev) => ({
+          ...(prev || {}),
+          [companyId]: {
+            lastRefreshAt: startedAt,
+            lastRefreshStatus: { kind: "error", code: res.status },
+            lastRefreshDebug: errObj.debug,
+          },
+        }));
+
+        toast.error(errObj.message);
+        return;
+      }
+
+      // Some refresh responses return { ok:false, ... } with useful diagnostics.
+      if (jsonBody?.ok !== true) {
+        const debug =
+          jsonBody?.response && typeof jsonBody.response === "object"
+            ? jsonBody.response
+            : jsonBody;
+
+        const debugMessage =
+          asString(debug?.message).trim() ||
+          asString(debug?.error).trim() ||
+          asString(jsonBody?.message).trim() ||
+          asString(jsonBody?.error).trim();
+
+        const msg =
+          debugMessage ||
+          (textBody.trim() ? textBody.trim().slice(0, 500) : "") ||
           (await getUserFacingConfigMessage(res)) ||
           res.statusText ||
           `Refresh failed (${res.status})`;
 
-        const msg = stage ? `${stage}: ${baseMsg}` : baseMsg;
-
         const errObj = {
           status: res.status,
           message: asString(msg).trim() || `Refresh failed (${res.status})`,
-          url: `/api${usedPath}`,
+          url: asString(debug?.url).trim() || `/api${usedPath}`,
           attempts,
           build_id: apiBuildId,
-          response: body && Object.keys(body).length ? body : textBody,
-          stage: stage || undefined,
-          upstream: upstreamCode || upstreamMessage ? { code: upstreamCode ?? null, message: upstreamMessage || null } : undefined,
+          debug,
         };
 
         setRefreshError(errObj);
-        if (res.status && res.status !== 200) {
-          toast.error(`${errObj.message} (${usedPath} → HTTP ${res.status})`);
-        } else {
-          toast.error(errObj.message);
-        }
+        setRefreshMetaByCompany((prev) => ({
+          ...(prev || {}),
+          [companyId]: {
+            lastRefreshAt: startedAt,
+            lastRefreshStatus: { kind: "error", code: res.status },
+            lastRefreshDebug: debug,
+          },
+        }));
+
+        toast.error(`${errObj.message} (${usedPath} → HTTP ${res.status})`);
         return;
       }
 
-      const proposed = body?.proposed && typeof body.proposed === "object" ? body.proposed : null;
+      const proposed = jsonBody?.proposed && typeof jsonBody.proposed === "object" ? jsonBody.proposed : null;
       if (!proposed) {
         const errObj = {
           status: res.status,
@@ -3341,9 +3401,18 @@ export default function CompanyDashboard() {
           url: `/api${usedPath}`,
           attempts,
           build_id: apiBuildId,
-          response: body,
+          debug: jsonBody,
         };
         setRefreshError(errObj);
+        setRefreshMetaByCompany((prev) => ({
+          ...(prev || {}),
+          [companyId]: {
+            lastRefreshAt: startedAt,
+            lastRefreshStatus: { kind: "error", code: res.status },
+            lastRefreshDebug: errObj.debug,
+          },
+        }));
+
         toast.error(`${errObj.message} (${usedPath} → HTTP ${res.status})`);
         return;
       }
@@ -3352,7 +3421,7 @@ export default function CompanyDashboard() {
       setRefreshProposed(proposed);
       setProposedDraft(draft);
 
-      const nextTaglineMeta = body?.tagline_meta && typeof body.tagline_meta === "object" ? body.tagline_meta : null;
+      const nextTaglineMeta = jsonBody?.tagline_meta && typeof jsonBody.tagline_meta === "object" ? jsonBody.tagline_meta : null;
       setRefreshTaglineMeta(nextTaglineMeta);
 
       if (nextTaglineMeta?.error) {
@@ -3375,15 +3444,73 @@ export default function CompanyDashboard() {
       }
       setRefreshSelection(defaults);
 
+      setRefreshMetaByCompany((prev) => ({
+        ...(prev || {}),
+        [companyId]: {
+          lastRefreshAt: startedAt,
+          lastRefreshStatus: { kind: "success", code: res.status },
+          lastRefreshDebug: null,
+        },
+      }));
+
       toast.success("Proposed updates loaded");
     } catch (e) {
+      // Normalize diagnostics from API wrapper errors (preferred) and plain exceptions.
+      const errStatus =
+        normalizeHttpStatusNumber(e?.status) ??
+        normalizeHttpStatusNumber(e?.data?.status) ??
+        normalizeHttpStatusNumber(e?.data?.response?.status) ??
+        0;
+
+      let debugData = e?.data;
+      if (debugData && typeof debugData === "object" && debugData.response != null) {
+        debugData = debugData.response;
+      }
+
+      const debugText =
+        asString(e?.text).trim() ||
+        (typeof e?.message === "string" ? e.message : "");
+
+      const debugPayload =
+        debugData != null
+          ? debugData
+          : debugText
+            ? debugText
+            : null;
+
+      const debugMessage =
+        debugData && typeof debugData === "object"
+          ? asString(debugData.message || debugData.error).trim()
+          : "";
+
+      const msg =
+        debugMessage ||
+        debugText ||
+        toErrorString(e) ||
+        "Refresh failed";
+
+      const attemptsList = Array.isArray(e?.attempts) ? e.attempts : [];
+      const attemptsForDisplay = attemptsList.length ? attemptsList : [];
+
       const errObj = {
-        status: 0,
-        message: toErrorString(e) || "Refresh failed",
-        url: "(request failed)",
-        response: { error: toErrorString(e) || String(e) },
+        status: errStatus,
+        message: asString(msg).trim() || "Refresh failed",
+        url: asString(debugData?.url).trim() || asString(e?.url).trim() || asString(e?.usedPath).trim() || "(request failed)",
+        attempts: attemptsForDisplay,
+        build_id: normalizeBuildIdString(debugData?.build_id) || "",
+        debug: debugPayload,
       };
+
       setRefreshError(errObj);
+      setRefreshMetaByCompany((prev) => ({
+        ...(prev || {}),
+        [companyId]: {
+          lastRefreshAt: startedAt,
+          lastRefreshStatus: { kind: "error", code: errObj.status || null },
+          lastRefreshDebug: debugPayload,
+        },
+      }));
+
       toast.error(errObj.message);
     } finally {
       setRefreshLoading(false);
@@ -4389,8 +4516,19 @@ export default function CompanyDashboard() {
                               ) : null}
 
                               {editorOriginalId ? (
-                                <div className="min-w-0 flex-1 text-xs text-muted-foreground max-w-[520px] leading-snug">
-                                  Click “Refresh search” to fetch proposed updates. Protected fields (logo, notes, manual stars) are never overwritten.
+                                <div className="min-w-0 flex-1 max-w-[520px] leading-snug">
+                                  <div className="text-xs text-muted-foreground">
+                                    Click “Refresh search” to fetch proposed updates. Protected fields (logo, notes, manual stars) are never overwritten.
+                                  </div>
+                                  {lastRefreshMeta && !refreshLoading ? (
+                                    <div className="mt-1 text-[11px] text-slate-500">
+                                      Last refresh: {lastRefreshMeta?.lastRefreshStatus?.kind === "success" ? "succeeded" : "failed"}
+                                      {lastRefreshMeta?.lastRefreshStatus?.code != null ? ` (${lastRefreshMeta.lastRefreshStatus.code})` : ""}
+                                      {lastRefreshMeta?.lastRefreshAt ? ` • ${toDisplayDate(lastRefreshMeta.lastRefreshAt)}` : ""}
+                                    </div>
+                                  ) : refreshLoading ? (
+                                    <div className="mt-1 text-[11px] text-slate-500">Refreshing…</div>
+                                  ) : null}
                                 </div>
                               ) : null}
                             </div>
@@ -4480,66 +4618,50 @@ export default function CompanyDashboard() {
                           ) : null}
 
                           {refreshError ? (
-                            <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                            <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900 space-y-3">
                               {(() => {
-                                const debug =
-                                  refreshError?.response && typeof refreshError.response === "object" ? refreshError.response : null;
-                                const stage = asString(debug?.stage || refreshError?.stage).trim();
-                                const upstreamStatus = debug?.upstream_status;
-                                const upstreamCode = debug?.upstream_code;
-                                const upstreamMessage = asString(debug?.upstream_message).trim();
-                                const missingEnv = Array.isArray(debug?.missing_env) ? debug.missing_env : [];
-                                const hints = Array.isArray(debug?.details?.hints) ? debug.details.hints : [];
-                                const upstreamPreview = asString(debug?.upstream_preview || debug?.details?.upstream_preview).trim();
+                                const debug = refreshError?.debug ?? refreshError?.response ?? null;
 
-                                const titleBits = ["Refresh failed", stage ? `(${stage})` : ""].filter(Boolean).join(" ");
+                                const debugObj = debug && typeof debug === "object" ? debug : null;
+                                const debugText = typeof debug === "string" ? debug : "";
+
+                                const status = normalizeHttpStatusNumber(refreshError?.status) ?? normalizeHttpStatusNumber(debugObj?.status) ?? null;
+
+                                const message =
+                                  asString(debugObj?.message).trim() ||
+                                  asString(debugObj?.error).trim() ||
+                                  asString(refreshError?.message).trim() ||
+                                  (debugText.trim() ? debugText.trim() : "Refresh failed");
+
+                                const url = asString(debugObj?.url).trim() || asString(refreshError?.url).trim();
+
+                                const attemptsList = Array.isArray(debugObj?.attempts)
+                                  ? debugObj.attempts
+                                  : Array.isArray(refreshError?.attempts)
+                                    ? refreshError.attempts
+                                    : [];
+
+                                const attemptsCount = attemptsList.length;
+
+                                const rawDebugText = debugObj ? prettyJson(debugObj) : asString(debugText);
 
                                 return (
-                                  <div className="space-y-2">
+                                  <div className="space-y-3">
                                     <div className="flex flex-wrap items-start justify-between gap-2">
-                                      <div className="min-w-0">
-                                        <div className="font-semibold">{titleBits}</div>
-                                        <div className="mt-1 whitespace-pre-wrap break-words">{asString(refreshError?.message)}</div>
+                                      <div className="min-w-0 flex-1">
+                                        <div className="font-semibold">Refresh failed</div>
 
-                                        {upstreamStatus || upstreamCode || upstreamMessage ? (
-                                          <div className="mt-2 text-xs text-red-900/90 whitespace-pre-wrap break-words">
-                                            Upstream:
-                                            {upstreamStatus ? ` HTTP ${upstreamStatus}` : ""}
-                                            {upstreamCode != null ? ` • code ${upstreamCode}` : ""}
-                                            {upstreamMessage ? ` • ${upstreamMessage}` : ""}
-                                          </div>
-                                        ) : null}
+                                        <div className="mt-1 text-xs text-red-900/90 space-y-0.5">
+                                          <div>HTTP status: {status != null ? status : "—"}</div>
+                                          {url ? <div className="break-words">URL: {url}</div> : null}
+                                          {attemptsCount ? <div>Attempts: {attemptsCount}</div> : null}
+                                        </div>
 
-                                        {missingEnv.length ? (
-                                          <div className="mt-2 text-xs text-red-900/90">
-                                            <div className="font-semibold">Missing config</div>
-                                            <div className="mt-1">{missingEnv.join(", ")}</div>
-                                          </div>
-                                        ) : null}
+                                        <div className="mt-2 whitespace-pre-wrap break-words">{message}</div>
 
-                                        {hints.length ? (
-                                          <div className="mt-2 text-xs text-red-900/90">
-                                            <div className="font-semibold">What to check</div>
-                                            <ul className="mt-1 list-disc pl-5 space-y-1">
-                                              {hints.map((h) => (
-                                                <li key={h}>{h}</li>
-                                              ))}
-                                            </ul>
-                                          </div>
-                                        ) : null}
-
-                                        {upstreamPreview ? (
-                                          <details className="mt-2">
-                                            <summary className="cursor-pointer text-xs font-semibold text-red-900/90">Upstream preview</summary>
-                                            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-red-200 bg-white p-2 text-[11px] text-red-900">
-                                              {upstreamPreview.slice(0, 4000)}
-                                            </pre>
-                                          </details>
-                                        ) : null}
-
-                                        {Array.isArray(refreshError?.attempts) && refreshError.attempts.length ? (
+                                        {attemptsCount ? (
                                           <div className="mt-2 text-xs text-red-900/80 whitespace-pre-wrap break-words">
-                                            Tried: {refreshError.attempts.map((a) => `${a.path} → ${a.status}`).join(", ")}
+                                            Tried: {attemptsList.map((a) => `${a.path} → ${a.status}`).join(", ")}
                                             {refreshError?.build_id ? ` • build ${asString(refreshError.build_id)}` : ""}
                                           </div>
                                         ) : refreshError?.build_id ? (
@@ -4553,17 +4675,24 @@ export default function CompanyDashboard() {
                                         variant="outline"
                                         className="bg-white"
                                         onClick={async () => {
-                                          const payload = debug || refreshError;
-                                          const ok = await copyToClipboard(prettyJson(payload));
-                                          if (ok) toast.success("Copied debug JSON");
+                                          const payload = debugObj ? prettyJson(debugObj) : asString(debugText);
+                                          const ok = await copyToClipboard(payload);
+                                          if (ok) toast.success("Copied debug");
                                           else toast.error("Copy failed");
                                         }}
-                                        title="Copy debug JSON"
+                                        title="Copy debug"
                                       >
                                         <Copy className="h-4 w-4 mr-2" />
-                                        Copy debug JSON
+                                        Copy debug
                                       </Button>
                                     </div>
+
+                                    <details>
+                                      <summary className="cursor-pointer select-none text-xs font-semibold text-red-900/90">Raw debug</summary>
+                                      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-red-200 bg-white p-2 text-[11px] text-red-900">
+                                        {rawDebugText}
+                                      </pre>
+                                    </details>
                                   </div>
                                 );
                               })()}
