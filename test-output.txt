@@ -1,0 +1,314 @@
+
+> xai-upstream@1.0.4 test
+> node --test api/_companyDocMerge.test.js api/get-reviews/contract.test.js api/search-companies/contract.test.js api/import-start/contract.test.js api/admin-companies-v2/contract.test.js api/admin-refresh-company/contract.test.js api/xadmin-api-refresh-company/contract.test.js api/xadmin-api-refresh-reviews/contract.test.js api/admin-apply-reviews-from-notes/contract.test.js api/index.routes.contract.test.js
+
+TAP version 13
+# Subtest: mergeCompanyDocsForSession preserves existing HQ when incoming HQ is empty
+ok 1 - mergeCompanyDocsForSession preserves existing HQ when incoming HQ is empty
+  ---
+  duration_ms: 1.85356
+  ...
+# Subtest: mergeCompanyDocsForSession preserves existing curated_reviews when incoming reviews are empty
+ok 2 - mergeCompanyDocsForSession preserves existing curated_reviews when incoming reviews are empty
+  ---
+  duration_ms: 0.36937
+  ...
+# Subtest: mergeCompanyDocsForSession prefers incoming manufacturing_locations when provided
+ok 3 - mergeCompanyDocsForSession prefers incoming manufacturing_locations when provided
+  ---
+  duration_ms: 0.80895
+  ...
+# WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
+# WARNING: Skipping call to register function "adminApplyReviewsFromNotes" because the "@azure/functions" package is in test mode.
+# Subtest: /api/admin/companies/{id}/apply-reviews-from-notes parses JSON array of strings
+ok 4 - /api/admin/companies/{id}/apply-reviews-from-notes parses JSON array of strings
+  ---
+  duration_ms: 20.70801
+  ...
+# Subtest: /api/admin/companies/{id}/apply-reviews-from-notes parses YAML-ish blocks with multiline text
+ok 5 - /api/admin/companies/{id}/apply-reviews-from-notes parses YAML-ish blocks with multiline text
+  ---
+  duration_ms: 0.87451
+  ...
+# Subtest: /api/admin/companies/{id}/apply-reviews-from-notes parses delimited blocks
+ok 6 - /api/admin/companies/{id}/apply-reviews-from-notes parses delimited blocks
+  ---
+  duration_ms: 0.78008
+  ...
+# Subtest: append mode dedupes against existing curated_reviews
+ok 7 - append mode dedupes against existing curated_reviews
+  ---
+  duration_ms: 1.46331
+  ...
+# Subtest: replace mode overwrites curated_reviews
+ok 8 - replace mode overwrites curated_reviews
+  ---
+  duration_ms: 0.47952
+  ...
+# WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
+# WARNING: Skipping call to register function "adminCompanies" because the "@azure/functions" package is in test mode.
+# [admin-companies-v2-handler] Request received: {
+#   method: 'POST',
+#   url: 'https://example.test/api/xadmin-api-companies'
+# }
+# [admin-companies-v2-handler] Request received: {
+#   method: 'DELETE',
+#   url: 'https://example.test/api/xadmin-api-companies/company_contract_delete_marker'
+# }
+# [admin-companies-v2-handler] Request received: {
+#   method: 'GET',
+#   url: 'https://example.test/api/xadmin-api-companies/company_contract_delete_marker'
+# }
+# [admin-companies-v2-handler] Request received: {
+#   method: 'GET',
+#   url: 'https://example.test/api/xadmin-api-companies?q=contract_delete_marker'
+# }
+# [admin-companies-v2-handler] Request received: {
+#   method: 'POST',
+#   url: 'https://example.test/api/xadmin-api-companies'
+# }
+# Subtest: xadmin-api-companies: GET is 404 and search excludes after DELETE
+ok 9 - xadmin-api-companies: GET is 404 and search excludes after DELETE
+  ---
+  duration_ms: 1859.24253
+  ...
+# [admin-companies-v2-handler] Request received: {
+#   method: 'PUT',
+#   url: 'https://example.test/api/xadmin-api-companies/company_display_name_contract'
+# }
+# [admin-companies-v2-handler] Request received: {
+#   method: 'PUT',
+#   url: 'https://example.test/api/xadmin-api-companies/company_display_name_contract'
+# }
+# [admin-companies-v2-handler] Request received: {
+#   method: 'POST',
+#   url: 'https://example.test/api/xadmin-api-companies'
+# }
+# Subtest: xadmin-api-companies: PUT infers and persists display_name from name override
+ok 10 - xadmin-api-companies: PUT infers and persists display_name from name override
+  ---
+  duration_ms: 489.46137
+  ...
+# [admin-companies-v2-handler] Request received: {
+#   method: 'PUT',
+#   url: 'https://example.test/api/xadmin-api-companies/company_curated_reviews_contract'
+# }
+# Subtest: xadmin-api-companies: persists curated_reviews array
+ok 11 - xadmin-api-companies: persists curated_reviews array
+  ---
+  duration_ms: 325.88994
+  ...
+# WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
+# WARNING: Skipping call to register function "adminRefreshCompany" because the "@azure/functions" package is in test mode.
+# Subtest: /api/xadmin-api-refresh-company returns 400 if company_id missing
+ok 12 - /api/xadmin-api-refresh-company returns 400 if company_id missing
+  ---
+  duration_ms: 2.23176
+  ...
+# Subtest: /api/xadmin-api-refresh-company returns 200 with ok/proposed for stubbed upstream
+ok 13 - /api/xadmin-api-refresh-company returns 200 with ok/proposed for stubbed upstream
+  ---
+  duration_ms: 2.86487
+  ...
+# WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
+# WARNING: Skipping call to register function "get-reviews" because the "@azure/functions" package is in test mode.
+# Subtest: /api/get-reviews?company=... returns ok/items even when empty
+ok 14 - /api/get-reviews?company=... returns ok/items even when empty
+  ---
+  duration_ms: 1406.80003
+  ...
+# Subtest: /api/get-reviews?normalized_domain=... resolves company name and succeeds
+ok 15 - /api/get-reviews?normalized_domain=... resolves company name and succeeds
+  ---
+  duration_ms: 708.67
+  ...
+# Subtest: /api/get-reviews?company_id=... succeeds even when company name cannot be resolved
+ok 16 - /api/get-reviews?company_id=... succeeds even when company name cannot be resolved
+  ---
+  duration_ms: 190.05247
+  ...
+# Subtest: /api/get-reviews with no identifier returns 400
+ok 17 - /api/get-reviews with no identifier returns 400
+  ---
+  duration_ms: 1.33529
+  ...
+# Subtest: /api/import/start parses body with proxy=false boolean
+ok 18 - /api/import/start parses body with proxy=false boolean
+  ---
+  duration_ms: 13.59723
+  ...
+# Subtest: /api/import/start parses body with proxy='false' string
+ok 19 - /api/import/start parses body with proxy='false' string
+  ---
+  duration_ms: 1.21294
+  ...
+# Subtest: /api/import/start returns INVALID_JSON_BODY for malformed JSON
+ok 20 - /api/import/start returns INVALID_JSON_BODY for malformed JSON
+  ---
+  duration_ms: 3.60181
+  ...
+# Subtest: /api/import/start includes parse diagnostics for INVALID_JSON_BODY when x-debug header is present
+ok 21 - /api/import/start includes parse diagnostics for INVALID_JSON_BODY when x-debug header is present
+  ---
+  duration_ms: 1.83594
+  ...
+# Subtest: /api/import/start respects query proxy=false when body has no proxy
+ok 22 - /api/import/start respects query proxy=false when body has no proxy
+  ---
+  duration_ms: 1.4581
+  ...
+# Subtest: /api/import/start uses req.body object even when rawBody is present
+ok 23 - /api/import/start uses req.body object even when rawBody is present
+  ---
+  duration_ms: 1.0274
+  ...
+# Subtest: /api/import/start parses stream body when req.body is stream-like
+ok 24 - /api/import/start parses stream body when req.body is stream-like
+  ---
+  duration_ms: 4.98754
+  ...
+# Subtest: /api/import/start parses WHATWG ReadableStream body
+ok 25 - /api/import/start parses WHATWG ReadableStream body
+  ---
+  duration_ms: 2.72325
+  ...
+# Subtest: /api/import/start includes diagnostics on 400 when x-debug header is present
+ok 26 - /api/import/start includes diagnostics on 400 when x-debug header is present
+  ---
+  duration_ms: 2.32081
+  ...
+# Subtest: /api/import/start rejects ambiguous queryType + queryTypes
+ok 27 - /api/import/start rejects ambiguous queryType + queryTypes
+  ---
+  duration_ms: 1.15841
+  ...
+# Subtest: /api/import/start rejects URL query without company_url
+ok 28 - /api/import/start rejects URL query without company_url
+  ---
+  duration_ms: 1.06799
+  ...
+# Subtest: /api/import/start treats URL query as company_url when selected
+ok 29 - /api/import/start treats URL query as company_url when selected
+  ---
+  duration_ms: 1.47828
+  ...
+# Subtest: getBuildInfo uses WEBSITE_COMMIT_HASH when set
+ok 30 - getBuildInfo uses WEBSITE_COMMIT_HASH when set
+  ---
+  duration_ms: 0.37282
+  ...
+# Subtest: /api/import/start live mode builds >=2 messages and hits /v1/chat/completions (fetch payload)
+ok 31 - /api/import/start live mode builds >=2 messages and hits /v1/chat/completions (fetch payload)
+  ---
+  duration_ms: 5.19691
+  ...
+# Subtest: /api/import/start auto-generates messages when messages is [] and prompt is empty (fetch payload)
+ok 32 - /api/import/start auto-generates messages when messages is [] and prompt is empty (fetch payload)
+  ---
+  duration_ms: 4.89082
+  ...
+# Subtest: /api/import/start returns 400 when any message has empty/non-string content (EMPTY_MESSAGE_CONTENT_BUILDER_BUG)
+ok 33 - /api/import/start returns 400 when any message has empty/non-string content (EMPTY_MESSAGE_CONTENT_BUILDER_BUG)
+  ---
+  duration_ms: 1.62068
+  ...
+# Subtest: /api/import/start explain=1 returns outbound payload meta and does not call upstream
+ok 34 - /api/import/start explain=1 returns outbound payload meta and does not call upstream
+  ---
+  duration_ms: 1.76571
+  ...
+# Subtest: getBuildInfo uses __build_id.txt when env vars are absent
+ok 35 - getBuildInfo uses __build_id.txt when env vars are absent
+  ---
+  duration_ms: 1.49737
+  ...
+# Subtest: /api/import/start?explain=1 echoes client-provided session_id (and sets x-session-id)
+ok 36 - /api/import/start?explain=1 echoes client-provided session_id (and sets x-session-id)
+  ---
+  duration_ms: 3.33161
+  ...
+# Subtest: /api/import/start uses provided session_id for async primary job and import-status reaches terminal state
+ok 37 - /api/import/start uses provided session_id for async primary job and import-status reaches terminal state
+  ---
+  duration_ms: 8.34641
+  ...
+# Subtest: /api/import/start?max_stage=primary does not mark session complete in /api/import/status
+ok 38 - /api/import/start?max_stage=primary does not mark session complete in /api/import/status
+  ---
+  duration_ms: 1577.31905
+  ...
+# Subtest: /api/import/start rejects skip_stages=primary without seed companies
+ok 39 - /api/import/start rejects skip_stages=primary without seed companies
+  ---
+  duration_ms: 1.05362
+  ...
+# Subtest: /api/import/start rejects skip_stages=primary with only invalid seed companies
+ok 40 - /api/import/start rejects skip_stages=primary with only invalid seed companies
+  ---
+  duration_ms: 1.00962
+  ...
+# [api/index.js] Starting handler registration...
+# [api] Registering (routes-test): admin-refresh-company
+# WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
+# WARNING: Skipping call to register function "adminRefreshCompany" because the "@azure/functions" package is in test mode.
+# WARNING: Skipping call to register function "xadminApiRefreshCompany" because the "@azure/functions" package is in test mode.
+# [api] Registering (routes-test): xadmin-api-refresh-company
+# [api] Registering (routes-test): admin-refresh-reviews
+# WARNING: Skipping call to register function "adminRefreshReviews" because the "@azure/functions" package is in test mode.
+# [api] Registering (routes-test): xadmin-api-refresh-reviews
+# WARNING: Skipping call to register function "xadminApiRefreshReviews" because the "@azure/functions" package is in test mode.
+# [api] Registering (routes-test): admin-company-history
+# WARNING: Skipping call to register function "adminCompanyHistory" because the "@azure/functions" package is in test mode.
+# WARNING: Skipping call to register function "adminCompanyHistoryAlias" because the "@azure/functions" package is in test mode.
+# [api] Registering (routes-test): company-logo
+# WARNING: Skipping call to register function "company-logo" because the "@azure/functions" package is in test mode.
+# [api/index.js] ✅ All handler registration complete! Exporting app.
+# Subtest: api/index.js registers refresh-company routes
+ok 41 - api/index.js registers refresh-company routes
+  ---
+  duration_ms: 239.25022
+  ...
+# WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
+# WARNING: Skipping call to register function "search-companies" because the "@azure/functions" package is in test mode.
+# Subtest: /api/search-companies maps keywords to public payload
+ok 42 - /api/search-companies maps keywords to public payload
+  ---
+  duration_ms: 20.08841
+  ...
+# Subtest: /api/search-companies uses keywords in Cosmos filter when q is present
+ok 43 - /api/search-companies uses keywords in Cosmos filter when q is present
+  ---
+  duration_ms: 0.53688
+  ...
+# Subtest: /api/search-companies returns display_name and filters by it
+ok 44 - /api/search-companies returns display_name and filters by it
+  ---
+  duration_ms: 0.45478
+  ...
+# WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
+# WARNING: Skipping call to register function "xadminApiRefreshCompany" because the "@azure/functions" package is in test mode.
+# WARNING: Skipping call to register function "adminRefreshCompanyAlias" because the "@azure/functions" package is in test mode.
+# Subtest: /api/xadmin-api-refresh-company entrypoint returns 400 if company_id missing
+ok 45 - /api/xadmin-api-refresh-company entrypoint returns 400 if company_id missing
+  ---
+  duration_ms: 2.53393
+  ...
+# WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
+# WARNING: Skipping call to register function "xadminApiRefreshReviews" because the "@azure/functions" package is in test mode.
+# WARNING: Skipping call to register function "adminRefreshReviewsAlias" because the "@azure/functions" package is in test mode.
+# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"request_start","method":"POST","build_id":"1e922c0b30eb3129340949aabd05dc041e9c532f","version_tag":"ded-xadmin-api-refresh-reviews-1e922c0b30eb"}
+# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"final_payload","payload":{"stage":"reviews_refresh","warnings":[],"build_id":"1e922c0b30eb3129340949aabd05dc041e9c532f","version_tag":"ded-xadmin-api-refresh-reviews-1e922c0b30eb","ok":false,"root_cause":"bad_request","upstream_status":null,"retryable":false,"message":"Missing company_id","fetched_count":0,"saved_count":0}}
+# Subtest: /api/xadmin-api-refresh-reviews returns 200 JSON ok:false if company_id missing
+ok 46 - /api/xadmin-api-refresh-reviews returns 200 JSON ok:false if company_id missing
+  ---
+  duration_ms: 2.47212
+  ...
+1..46
+# tests 46
+# suites 0
+# pass 46
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 24176.46508
