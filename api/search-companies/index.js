@@ -185,48 +185,50 @@ function compareCompanies(sortField, dir, a, b) {
   return dir === "desc" ? -cmp : cmp;
 }
 
-// Cosmos DB's IIF() does NOT short-circuit (it evaluates both branches).
-// We rely on short-circuiting (&& / ||) to avoid calling LOWER()/CONTAINS()/ARRAY_LENGTH()
-// on legacy documents where fields may have unexpected types.
+// Cosmos SQL can error with "One of the input values is invalid" if LOWER/CONTAINS
+// are invoked on legacy documents where a field is not a string/array.
+// To avoid relying on short-circuit behavior, we coerce each candidate field into a
+// safe string (or safe array) before applying LOWER/CONTAINS.
+function sqlSafeLower(expr) {
+  return `LOWER(IIF(IS_STRING(${expr}), ${expr}, ""))`;
+}
+
 const SQL_TEXT_FILTER = `
-  (IS_STRING(c.company_name) && CONTAINS(LOWER(c.company_name), @q)) ||
-  (IS_STRING(c.display_name) && CONTAINS(LOWER(c.display_name), @q)) ||
-  (IS_STRING(c.name) && CONTAINS(LOWER(c.name), @q)) ||
-  (IS_STRING(c.product_keywords) && CONTAINS(LOWER(c.product_keywords), @q)) ||
+  CONTAINS(${sqlSafeLower("c.company_name")}, @q) OR
+  CONTAINS(${sqlSafeLower("c.display_name")}, @q) OR
+  CONTAINS(${sqlSafeLower("c.name")}, @q) OR
+  CONTAINS(${sqlSafeLower("c.product_keywords")}, @q) OR
   (
-    IS_ARRAY(c.product_keywords) &&
     ARRAY_LENGTH(
       ARRAY(
         SELECT VALUE kw
-        FROM kw IN c.product_keywords
-        WHERE IS_STRING(kw) && CONTAINS(LOWER(kw), @q)
+        FROM kw IN IIF(IS_ARRAY(c.product_keywords), c.product_keywords, [])
+        WHERE CONTAINS(${sqlSafeLower("kw")}, @q)
       )
     ) > 0
-  ) ||
-  (IS_STRING(c.keywords) && CONTAINS(LOWER(c.keywords), @q)) ||
+  ) OR
+  CONTAINS(${sqlSafeLower("c.keywords")}, @q) OR
   (
-    IS_ARRAY(c.keywords) &&
     ARRAY_LENGTH(
       ARRAY(
         SELECT VALUE k
-        FROM k IN c.keywords
-        WHERE IS_STRING(k) && CONTAINS(LOWER(k), @q)
+        FROM k IN IIF(IS_ARRAY(c.keywords), c.keywords, [])
+        WHERE CONTAINS(${sqlSafeLower("k")}, @q)
       )
     ) > 0
-  ) ||
-  (IS_STRING(c.industries) && CONTAINS(LOWER(c.industries), @q)) ||
+  ) OR
+  CONTAINS(${sqlSafeLower("c.industries")}, @q) OR
   (
-    IS_ARRAY(c.industries) &&
     ARRAY_LENGTH(
       ARRAY(
         SELECT VALUE i
-        FROM i IN c.industries
-        WHERE IS_STRING(i) && CONTAINS(LOWER(i), @q)
+        FROM i IN IIF(IS_ARRAY(c.industries), c.industries, [])
+        WHERE CONTAINS(${sqlSafeLower("i")}, @q)
       )
     ) > 0
-  ) ||
-  (IS_STRING(c.normalized_domain) && CONTAINS(LOWER(c.normalized_domain), @q)) ||
-  (IS_STRING(c.amazon_url) && CONTAINS(LOWER(c.amazon_url), @q))
+  ) OR
+  CONTAINS(${sqlSafeLower("c.normalized_domain")}, @q) OR
+  CONTAINS(${sqlSafeLower("c.amazon_url")}, @q)
 `;
 
 const SELECT_FIELDS = [
@@ -484,16 +486,16 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const params = [{ name: "@take", value: limit }];
       if (q) params.push({ name: "@q", value: q });
 
-      const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) || c.is_deleted != true)";
+      const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
 
       if (sort === "manu") {
-        const whereText = q ? `&& (${SQL_TEXT_FILTER})` : "";
+        const whereText = q ? `AND (${SQL_TEXT_FILTER})` : "";
 
         const sqlA = `
             SELECT TOP @take ${SELECT_FIELDS}
             FROM c
-            WHERE IS_ARRAY(c.manufacturing_locations) && ARRAY_LENGTH(c.manufacturing_locations) > 0
-            && ${softDeleteFilter}
+            WHERE IS_ARRAY(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
+            AND ${softDeleteFilter}
             ${whereText}
             ORDER BY c._ts DESC
           `;
@@ -507,8 +509,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           const sqlB = `
               SELECT TOP @take2 ${SELECT_FIELDS}
               FROM c
-              WHERE (NOT IS_ARRAY(c.manufacturing_locations) || ARRAY_LENGTH(c.manufacturing_locations) = 0)
-              && ${softDeleteFilter}
+              WHERE (NOT IS_ARRAY(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
+              AND ${softDeleteFilter}
               ${whereText}
               ORDER BY c._ts DESC
             `;
@@ -526,7 +528,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               SELECT TOP @take ${SELECT_FIELDS}
               FROM c
               WHERE (${SQL_TEXT_FILTER})
-              && ${softDeleteFilter}
+              AND ${softDeleteFilter}
               ${orderBy}
             `
           : `
