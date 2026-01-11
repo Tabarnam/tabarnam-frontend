@@ -35,8 +35,13 @@ test("/api/search-companies maps keywords to public payload", async () => {
 
   const companiesContainer = makeContainer(async (spec) => {
     const q = String(spec?.query || "");
-    if (q.includes("ARRAY_LENGTH(c.manufacturing_locations) > 0")) return [doc];
-    if (q.includes("ARRAY_LENGTH(c.manufacturing_locations) = 0")) return [];
+
+    const manuCountExpr =
+      "IIF(IS_ARRAY(c.manufacturing_locations), ARRAY_LENGTH(c.manufacturing_locations), 0)";
+
+    if (q.includes(`${manuCountExpr} > 0`)) return [doc];
+    if (q.includes(`${manuCountExpr} = 0`)) return [];
+
     return [doc];
   });
 
