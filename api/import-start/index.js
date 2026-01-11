@@ -37,6 +37,7 @@ const {
 } = require("../_reviewQuality");
 const { fillCompanyBaselineFromWebsite } = require("../_websiteBaseline");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
+const { mergeCompanyDocsForSession: mergeCompanyDocsForSessionExternal } = require("../_companyDocMerge");
 const { getBuildInfo } = require("../_buildInfo");
 const { getImportStartHandlerVersion } = require("../_handlerVersions");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
@@ -2724,7 +2725,7 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
             }
 
             if (shouldUpdateExisting && existingDoc) {
-              const mergedDoc = mergeCompanyDocsForSession({
+              const mergedDoc = mergeCompanyDocsForSessionExternal({
                 existingDoc,
                 incomingDoc: doc,
                 finalNormalizedDomain,
