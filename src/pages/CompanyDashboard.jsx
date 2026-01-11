@@ -3298,12 +3298,20 @@ export default function CompanyDashboard() {
 
       const body = jsonBody && typeof jsonBody === "object" ? jsonBody : {};
       if (!res.ok || body?.ok !== true) {
-        const msg =
-          (await getUserFacingConfigMessage(res)) ||
-          body?.error ||
+        const stage = asString(body?.stage).trim();
+        const upstreamCode = body?.upstream_code ?? body?.upstream_status;
+        const upstreamMessage = asString(body?.upstream_message).trim();
+
+        const baseMsg =
+          asString(body?.error).trim() ||
+          asString(body?.details?.parse_error).trim() ||
+          upstreamMessage ||
           (typeof textBody === "string" && textBody.trim() ? textBody.trim().slice(0, 500) : "") ||
+          (await getUserFacingConfigMessage(res)) ||
           res.statusText ||
           `Refresh failed (${res.status})`;
+
+        const msg = stage ? `${stage}: ${baseMsg}` : baseMsg;
 
         const errObj = {
           status: res.status,
@@ -3312,10 +3320,16 @@ export default function CompanyDashboard() {
           attempts,
           build_id: apiBuildId,
           response: body && Object.keys(body).length ? body : textBody,
+          stage: stage || undefined,
+          upstream: upstreamCode || upstreamMessage ? { code: upstreamCode ?? null, message: upstreamMessage || null } : undefined,
         };
 
         setRefreshError(errObj);
-        toast.error(`${errObj.message} (${usedPath} → HTTP ${res.status})`);
+        if (res.status && res.status !== 200) {
+          toast.error(`${errObj.message} (${usedPath} → HTTP ${res.status})`);
+        } else {
+          toast.error(errObj.message);
+        }
         return;
       }
 
@@ -4467,37 +4481,92 @@ export default function CompanyDashboard() {
 
                           {refreshError ? (
                             <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
-                              <div className="flex flex-wrap items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <div className="font-semibold">
-                                    Refresh failed{refreshError?.status ? ` (HTTP ${refreshError.status})` : ""}
-                                  </div>
-                                  <div className="mt-1 whitespace-pre-wrap break-words">{asString(refreshError?.message)}</div>
-                                  {Array.isArray(refreshError?.attempts) && refreshError.attempts.length ? (
-                                    <div className="mt-2 text-xs text-red-900/80 whitespace-pre-wrap break-words">
-                                      Tried: {refreshError.attempts.map((a) => `${a.path} → ${a.status}`).join(", ")}
-                                      {refreshError?.build_id ? ` • build ${asString(refreshError.build_id)}` : ""}
+                              {(() => {
+                                const debug =
+                                  refreshError?.response && typeof refreshError.response === "object" ? refreshError.response : null;
+                                const stage = asString(debug?.stage || refreshError?.stage).trim();
+                                const upstreamStatus = debug?.upstream_status;
+                                const upstreamCode = debug?.upstream_code;
+                                const upstreamMessage = asString(debug?.upstream_message).trim();
+                                const missingEnv = Array.isArray(debug?.missing_env) ? debug.missing_env : [];
+                                const hints = Array.isArray(debug?.details?.hints) ? debug.details.hints : [];
+                                const upstreamPreview = asString(debug?.upstream_preview || debug?.details?.upstream_preview).trim();
+
+                                const titleBits = ["Refresh failed", stage ? `(${stage})` : ""].filter(Boolean).join(" ");
+
+                                return (
+                                  <div className="space-y-2">
+                                    <div className="flex flex-wrap items-start justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <div className="font-semibold">{titleBits}</div>
+                                        <div className="mt-1 whitespace-pre-wrap break-words">{asString(refreshError?.message)}</div>
+
+                                        {upstreamStatus || upstreamCode || upstreamMessage ? (
+                                          <div className="mt-2 text-xs text-red-900/90 whitespace-pre-wrap break-words">
+                                            Upstream:
+                                            {upstreamStatus ? ` HTTP ${upstreamStatus}` : ""}
+                                            {upstreamCode != null ? ` • code ${upstreamCode}` : ""}
+                                            {upstreamMessage ? ` • ${upstreamMessage}` : ""}
+                                          </div>
+                                        ) : null}
+
+                                        {missingEnv.length ? (
+                                          <div className="mt-2 text-xs text-red-900/90">
+                                            <div className="font-semibold">Missing config</div>
+                                            <div className="mt-1">{missingEnv.join(", ")}</div>
+                                          </div>
+                                        ) : null}
+
+                                        {hints.length ? (
+                                          <div className="mt-2 text-xs text-red-900/90">
+                                            <div className="font-semibold">What to check</div>
+                                            <ul className="mt-1 list-disc pl-5 space-y-1">
+                                              {hints.map((h) => (
+                                                <li key={h}>{h}</li>
+                                              ))}
+                                            </ul>
+                                          </div>
+                                        ) : null}
+
+                                        {upstreamPreview ? (
+                                          <details className="mt-2">
+                                            <summary className="cursor-pointer text-xs font-semibold text-red-900/90">Upstream preview</summary>
+                                            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-red-200 bg-white p-2 text-[11px] text-red-900">
+                                              {upstreamPreview.slice(0, 4000)}
+                                            </pre>
+                                          </details>
+                                        ) : null}
+
+                                        {Array.isArray(refreshError?.attempts) && refreshError.attempts.length ? (
+                                          <div className="mt-2 text-xs text-red-900/80 whitespace-pre-wrap break-words">
+                                            Tried: {refreshError.attempts.map((a) => `${a.path} → ${a.status}`).join(", ")}
+                                            {refreshError?.build_id ? ` • build ${asString(refreshError.build_id)}` : ""}
+                                          </div>
+                                        ) : refreshError?.build_id ? (
+                                          <div className="mt-2 text-xs text-red-900/80">Build: {asString(refreshError.build_id)}</div>
+                                        ) : null}
+                                      </div>
+
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="bg-white"
+                                        onClick={async () => {
+                                          const payload = debug || refreshError;
+                                          const ok = await copyToClipboard(prettyJson(payload));
+                                          if (ok) toast.success("Copied debug JSON");
+                                          else toast.error("Copy failed");
+                                        }}
+                                        title="Copy debug JSON"
+                                      >
+                                        <Copy className="h-4 w-4 mr-2" />
+                                        Copy debug JSON
+                                      </Button>
                                     </div>
-                                  ) : refreshError?.build_id ? (
-                                    <div className="mt-2 text-xs text-red-900/80">Build: {asString(refreshError.build_id)}</div>
-                                  ) : null}
-                                </div>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="bg-white"
-                                  onClick={async () => {
-                                    const ok = await copyToClipboard(prettyJson(refreshError));
-                                    if (ok) toast.success("Copied error");
-                                    else toast.error("Copy failed");
-                                  }}
-                                  title="Copy error"
-                                >
-                                  <Copy className="h-4 w-4 mr-2" />
-                                  Copy error
-                                </Button>
-                              </div>
+                                  </div>
+                                );
+                              })()}
                             </div>
                           ) : null}
 
