@@ -186,8 +186,14 @@ export default function AdminEditHistory({ companyId }) {
     (force) => {
       if (!id) return false;
       if (force) return true;
-      if (historySupported === false || sessionHistorySupported === false) return false;
+
+      if (historySupported === false) return false;
       if (companyBlocked || history404ByCompanyId.has(id)) return false;
+
+      // If this session has already detected a missing /history endpoint, do not
+      // retry automatically. A user-triggered Retry can still override per-company.
+      if (sessionHistorySupported === false && historySupported !== true) return false;
+
       return true;
     },
     [companyBlocked, historySupported, id]
@@ -216,6 +222,10 @@ export default function AdminEditHistory({ companyId }) {
           return;
         }
 
+        // Endpoint responded (even if it later returns ok:false). Treat as supported
+        // for this company so a user-triggered Retry can show details.
+        if (mountedRef.current) setHistorySupported(true);
+
         const body = await res.json().catch(() => ({}));
         if (!mountedRef.current) return;
 
@@ -241,7 +251,7 @@ export default function AdminEditHistory({ companyId }) {
 
   const loadMore = useCallback(async () => {
     if (!id || !nextCursor || loadingMore) return;
-    if (historySupported === false || sessionHistorySupported === false) return;
+    if (historySupported === false) return;
     if (companyBlocked || history404ByCompanyId.has(id)) return;
 
     setLoadingMore(true);
@@ -260,6 +270,8 @@ export default function AdminEditHistory({ companyId }) {
         setNextCursor(null);
         return;
       }
+
+      if (mountedRef.current) setHistorySupported(true);
 
       const body = await res.json().catch(() => ({}));
       if (!mountedRef.current) return;
@@ -330,7 +342,7 @@ export default function AdminEditHistory({ companyId }) {
     await loadFirstPage({ force: true });
   }, [id, loadFirstPage]);
 
-  const showUnavailable = historySupported === false || sessionHistorySupported === false || companyBlocked || (id && history404ByCompanyId.has(id));
+  const showUnavailable = historySupported === false || companyBlocked || (id && history404ByCompanyId.has(id));
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
