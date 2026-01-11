@@ -13,6 +13,7 @@ try {
 }
 
 const { getXAIEndpoint, getXAIKey } = require("./_shared");
+const { fetchConfirmedCompanyTagline } = require("./_taglineXai");
 const { getBuildInfo } = require("./_buildInfo");
 
 const BUILD_INFO = getBuildInfo();
@@ -78,6 +79,26 @@ async function readJsonBody(req) {
 
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function isAzureWebsitesUrl(rawUrl) {
+  const raw = asString(rawUrl).trim().toLowerCase();
+  if (!raw) return false;
+  return raw.includes(".azurewebsites.net");
+}
+
+function buildXaiHeaders(xaiUrl, xaiKey) {
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
+  if (isAzureWebsitesUrl(xaiUrl)) {
+    headers["x-functions-key"] = asString(xaiKey).trim();
+  } else {
+    headers["Authorization"] = `Bearer ${asString(xaiKey).trim()}`;
+  }
+
+  return headers;
 }
 
 function readTimeoutMs(value, fallback) {
@@ -422,10 +443,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       );
     }
     const resp = await axiosPost(xaiUrl, payload, {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${xaiKey}`,
-      },
+      headers: buildXaiHeaders(xaiUrl, xaiKey),
       timeout: xaiTimeoutMs,
       validateStatus: () => true,
     });
@@ -467,6 +485,56 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     stage = "build_proposed";
     const proposed = buildProposedCompanyFromXaiResult(companies[0]);
 
+    // Tagline acquisition fix:
+    // 1) confirm company name, 2) fetch official tagline for that confirmed name.
+    // This is best-effort and must not break the refresh flow.
+    stage = "tagline_confirm";
+    let tagline_meta = null;
+    try {
+      const taglineTimeout = Math.min(30000, Math.max(7000, Math.trunc(xaiTimeoutMs / 2)));
+      const info = await fetchConfirmedCompanyTagline({
+        axiosPost,
+        xaiUrl,
+        xaiKey,
+        companyName,
+        websiteUrl,
+        timeoutMs: taglineTimeout,
+      });
+
+      tagline_meta = {
+        confirmed_company_name: info.confirmed_company_name,
+        confirm_confidence: info.confirm_confidence,
+        confirm_reason: info.confirm_reason,
+        tagline_confidence: info.tagline_confidence,
+        tagline_reason: info.tagline_reason,
+      };
+
+      if (info.tagline) {
+        proposed.tagline = info.tagline;
+      }
+
+      try {
+        console.log(
+          JSON.stringify({
+            stage: "refresh_company_tagline",
+            company_id: companyId,
+            website_url: websiteUrl,
+            input_company_name: companyName,
+            confirmed_company_name: info.confirmed_company_name,
+            tagline: info.tagline,
+            confirm_confidence: info.confirm_confidence,
+            tagline_confidence: info.tagline_confidence,
+          })
+        );
+      } catch {
+        // ignore
+      }
+    } catch (e) {
+      tagline_meta = {
+        error: asString(e?.message || e),
+      };
+    }
+
     stage = "done";
     return json({
       ok: true,
@@ -478,6 +546,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         website_url: websiteUrl,
         normalized_domain: normalizedDomain,
       },
+      ...(tagline_meta ? { tagline_meta } : {}),
     });
   } catch (e) {
     context?.log?.("[admin-refresh-company] error", {
