@@ -2544,6 +2544,8 @@ export default function CompanyDashboard() {
   const [refreshSelection, setRefreshSelection] = useState({});
   const [refreshApplied, setRefreshApplied] = useState(false);
 
+  const refreshInFlightRef = useRef(false);
+
   const [refreshMetaByCompany, setRefreshMetaByCompany] = useState({});
 
   const activeRefreshCompanyId = useMemo(() => {
