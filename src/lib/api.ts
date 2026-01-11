@@ -357,6 +357,99 @@ function getResponseHeadersSubset(res: Response): {
   };
 }
 
+export type ApiFetchParsedResult = {
+  ok: boolean;
+  status: number;
+  url: string;
+  method: string;
+  data: unknown | null;
+  text: string;
+  response: Response;
+};
+
+export type ApiFetchParsedError = {
+  status: number;
+  url: string;
+  method: string;
+  data: unknown | null;
+  text: string;
+  response?: Response;
+};
+
+function isKnownBenign404(url: string, status: number) {
+  if (status !== 404) return false;
+  // Known acceptable 404: company edit history endpoint (some deployments do not ship it yet).
+  return /\/admin\/companies\/[^/]+\/history\b/i.test(url);
+}
+
+async function readJsonIfLooksJson(res: Response): Promise<{ data: unknown | null; text: string }> {
+  let cloned: Response;
+  try {
+    cloned = res.clone();
+  } catch {
+    cloned = res;
+  }
+
+  const contentType = normalizeHeaderValue(cloned.headers?.get?.("content-type")).toLowerCase();
+  const looksJson = contentType.includes("application/json") || contentType.includes("+json");
+
+  if (looksJson) {
+    try {
+      const data = await cloned.json();
+      return { data, text: "" };
+    } catch {
+      // Fall back to text below.
+    }
+  }
+
+  try {
+    const text = await cloned.text();
+    return { data: null, text: typeof text === "string" ? text : "" };
+  } catch {
+    return { data: null, text: "" };
+  }
+}
+
+function truncateText(value: string, maxLen: number): { preview: string; truncated: boolean } {
+  const s = typeof value === "string" ? value : "";
+  if (s.length <= maxLen) return { preview: s, truncated: false };
+  return { preview: s.slice(0, maxLen), truncated: true };
+}
+
+export async function apiFetchParsed(path: string, init?: RequestInit): Promise<ApiFetchParsedResult> {
+  const url = join(API_BASE, path);
+
+  const { init: normalizedInit } = normalizeRequestInit(init);
+  const method = getMethodFromInit(normalizedInit);
+
+  const response = await apiFetch(path, init);
+  const { data, text } = await readJsonIfLooksJson(response);
+
+  const result: ApiFetchParsedResult = {
+    ok: response.ok,
+    status: response.status,
+    url,
+    method,
+    data,
+    text,
+    response,
+  };
+
+  if (!response.ok) {
+    const err: ApiFetchParsedError = {
+      status: response.status,
+      url,
+      method,
+      data,
+      text,
+      response,
+    };
+    throw err;
+  }
+
+  return result;
+}
+
 export async function apiFetch(path: string, init?: RequestInit) {
   const url = join(API_BASE, path);
 
@@ -378,22 +471,24 @@ export async function apiFetch(path: string, init?: RequestInit) {
     const response = await fetch(url, normalizedInit);
 
     if (!response.ok) {
-      const responseText = await response.clone().text().catch(() => "");
-      const parsedBody = responseText ? safeJsonParse(responseText) : null;
+      const { data, text } = await readJsonIfLooksJson(response);
 
       const responseTextMax = 20_000;
-      const responseTextTruncated = responseText.length > responseTextMax;
-      const responseTextPreview = responseTextTruncated ? responseText.slice(0, responseTextMax) : responseText;
+      const truncated = truncateText(text, responseTextMax);
 
       const err = {
         status: response.status,
         url,
         method,
         build_id: getResponseBuildId(response) || null,
-        response_body: parsedBody,
-        response_text: responseTextPreview,
-        response_text_preview: responseTextPreview,
-        response_text_truncated: responseTextTruncated,
+        // Back-compat fields (used by some admin UIs)
+        response_body: data,
+        response_text: truncated.preview,
+        response_text_preview: truncated.preview,
+        response_text_truncated: truncated.truncated,
+        // New normalized fields
+        data,
+        text: truncated.preview,
         response_headers: getResponseHeadersSubset(response),
       };
 
@@ -405,10 +500,13 @@ export async function apiFetch(path: string, init?: RequestInit) {
       }
 
       const configMsg = await getUserFacingConfigMessage(response);
-      console.error("[apiFetch] Non-2xx response", {
-        ...err,
-        ...(configMsg ? { user_facing_config_message: configMsg } : {}),
-      });
+      const suppressLog = isKnownBenign404(url, response.status);
+      if (!suppressLog) {
+        console.error("[apiFetch] Non-2xx response", {
+          ...err,
+          ...(configMsg ? { user_facing_config_message: configMsg } : {}),
+        });
+      }
     }
 
     return response;
@@ -450,22 +548,24 @@ export async function apiFetch(path: string, init?: RequestInit) {
         const response = await fetch(fallbackUrl, normalizedInit);
 
         if (!response.ok) {
-          const responseText = await response.clone().text().catch(() => "");
-          const parsedBody = responseText ? safeJsonParse(responseText) : null;
+          const { data, text } = await readJsonIfLooksJson(response);
 
           const responseTextMax = 20_000;
-          const responseTextTruncated = responseText.length > responseTextMax;
-          const responseTextPreview = responseTextTruncated ? responseText.slice(0, responseTextMax) : responseText;
+          const truncated = truncateText(text, responseTextMax);
 
           const err = {
             status: response.status,
             url: fallbackUrl,
             method,
             build_id: getResponseBuildId(response) || null,
-            response_body: parsedBody,
-            response_text: responseTextPreview,
-            response_text_preview: responseTextPreview,
-            response_text_truncated: responseTextTruncated,
+            // Back-compat fields
+            response_body: data,
+            response_text: truncated.preview,
+            response_text_preview: truncated.preview,
+            response_text_truncated: truncated.truncated,
+            // New normalized fields
+            data,
+            text: truncated.preview,
             response_headers: getResponseHeadersSubset(response),
             fallback_from: url,
           };
@@ -477,10 +577,13 @@ export async function apiFetch(path: string, init?: RequestInit) {
           }
 
           const configMsg = await getUserFacingConfigMessage(response);
-          console.error("[apiFetch] Non-2xx response (fallback /xapi)", {
-            ...err,
-            ...(configMsg ? { user_facing_config_message: configMsg } : {}),
-          });
+          const suppressLog = isKnownBenign404(fallbackUrl, response.status);
+          if (!suppressLog) {
+            console.error("[apiFetch] Non-2xx response (fallback /xapi)", {
+              ...err,
+              ...(configMsg ? { user_facing_config_message: configMsg } : {}),
+            });
+          }
         }
 
         return response;
