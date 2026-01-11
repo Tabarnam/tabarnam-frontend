@@ -240,6 +240,7 @@ const IMPORT_STAGE_BEACON_TO_ENGLISH = Object.freeze({
   primary_early_exit: "Single match found. Finalizing import",
   primary_complete: "Primary search complete",
   primary_timeout: "Primary search timed out",
+  primary_skipped_company_url: "URL import detected — primary search skipped",
   no_candidates_found: "No matching companies found",
 });
 
@@ -273,6 +274,40 @@ function toEnglishImportStopReason(lastErrorCode) {
   if (!key) return "Import stopped.";
   if (Object.prototype.hasOwnProperty.call(IMPORT_ERROR_CODE_TO_REASON, key)) return IMPORT_ERROR_CODE_TO_REASON[key];
   return humanizeImportCode(key);
+}
+
+function extractAcceptReason(body) {
+  const obj = body && typeof body === "object" ? body : null;
+  return asString(
+    obj?.accept?.reason ??
+      obj?.accept_reason ??
+      obj?.reason ??
+      obj?.root_cause ??
+      obj?.error?.root_cause ??
+      obj?.error?.reason
+  ).trim();
+}
+
+function isExpectedAsyncAcceptReason(reason) {
+  const r = asString(reason).trim();
+  if (!r) return false;
+  return r === "upstream_timeout_returning_202" || r === "deadline_exceeded_returning_202";
+}
+
+function isNonErrorAcceptedOutcome(body) {
+  const obj = body && typeof body === "object" ? body : null;
+  if (!obj) return false;
+
+  if (obj.accepted === true) return true;
+
+  const reason = extractAcceptReason(obj);
+  if (isExpectedAsyncAcceptReason(reason)) return true;
+
+  return false;
+}
+
+function isPrimarySkippedCompanyUrl(stageBeacon) {
+  return asString(stageBeacon).trim() === "primary_skipped_company_url";
 }
 
 function formatDurationShort(ms) {
@@ -647,9 +682,24 @@ export default function AdminImport() {
         pollAttemptsRef.current.set(session_id, nextAttempts);
 
         if (nextAttempts > POLL_MAX_ATTEMPTS) {
-          const msg = `Polling stopped after ${POLL_MAX_ATTEMPTS} attempts.`;
-          toast.error(msg);
-          setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
+          const msg =
+            `Polling paused after ${POLL_MAX_ATTEMPTS} attempts. ` +
+            `Import may still be processing or may have completed asynchronously. ` +
+            `Use "View status" (or "Poll now") to refresh.`;
+          toast.info(msg);
+          setRuns((prev) =>
+            prev.map((r) =>
+              r.session_id === session_id
+                ? {
+                    ...r,
+                    progress_error: null,
+                    progress_notice: msg,
+                    polling_exhausted: true,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : r
+            )
+          );
           return;
         }
 
@@ -896,6 +946,9 @@ export default function AdminImport() {
       start_error: null,
       start_error_details: null,
       progress_error: null,
+      progress_notice: null,
+      polling_exhausted: false,
+      accepted_reason: null,
       save_result: null,
       save_error: null,
     };
@@ -1016,7 +1069,7 @@ export default function AdminImport() {
             body?.legacy_error ||
             body?.message ||
             (typeof body?.error === "string" ? body.error : "") ||
-            `Import failed (${res.status})`
+            `Import request failed (HTTP ${res.status})`
         );
 
         const buildId = getResponseBuildId(res) || getCachedBuildId() || "";
@@ -1064,6 +1117,18 @@ export default function AdminImport() {
                 ? savedCompanies.length
                 : Number(statusBody?.saved ?? statusBody?.result?.saved ?? 0) || 0;
 
+            const statusState = asString(statusBody?.state).trim();
+            const statusStatus = asString(statusBody?.status).trim();
+            const statusJobState = asString(
+              statusBody?.job_state || statusBody?.primary_job_state || statusBody?.primary_job?.job_state
+            ).trim();
+            const statusCompleted = statusState === "complete" ? true : Boolean(statusBody?.completed);
+            const statusTerminalComplete =
+              statusState === "complete" || statusStatus === "complete" || statusJobState === "complete" || statusCompleted;
+
+            const acceptReason = extractAcceptReason(statusBody);
+            const acceptedNonError = isNonErrorAcceptedOutcome(statusBody);
+
             if (savedCount >= 1) {
               setRuns((prev) =>
                 prev.map((r) =>
@@ -1080,10 +1145,13 @@ export default function AdminImport() {
                         completed: true,
                         start_error: null,
                         start_error_details: detailsForCopy,
+                        accepted_reason: acceptReason || r.accepted_reason || null,
                         stage_beacon: statusStageBeacon || r.stage_beacon,
                         last_stage_beacon: statusStageBeacon || r.last_stage_beacon,
                         final_stage_beacon: statusStageBeacon || r.final_stage_beacon,
                         progress_error: `Saved with warnings${statusStageBeacon ? ` (${statusStageBeacon})` : ""}: ${msg || "post-save stage failed"}`,
+                        progress_notice: null,
+                        polling_exhausted: false,
                         updatedAt: new Date().toISOString(),
                       }
                     : r
@@ -1092,6 +1160,69 @@ export default function AdminImport() {
 
               setActiveStatus("done");
               toast.warning("Saved with warnings");
+              return;
+            }
+
+            if (statusTerminalComplete) {
+              const isSkipped = isPrimarySkippedCompanyUrl(statusStageBeacon);
+              const noCandidates =
+                statusStageBeacon === "no_candidates_found" || asString(statusBody?.last_error?.code).trim() === "no_candidates_found";
+
+              if (isSkipped || noCandidates) {
+                const notice = isSkipped
+                  ? "Completed: URL skipped by design (primary worker does not run for company_url queries)."
+                  : "Completed: no eligible companies found.";
+
+                setRuns((prev) =>
+                  prev.map((r) =>
+                    r.session_id === canonicalSessionId
+                      ? {
+                          ...r,
+                          saved: 0,
+                          saved_companies: [],
+                          items: Array.isArray(r.items) ? r.items : [],
+                          completed: true,
+                          job_state: "complete",
+                          final_job_state: "complete",
+                          start_error: null,
+                          start_error_details: detailsForCopy,
+                          accepted_reason: acceptReason || r.accepted_reason || null,
+                          stage_beacon: statusStageBeacon || r.stage_beacon,
+                          last_stage_beacon: statusStageBeacon || r.last_stage_beacon,
+                          final_stage_beacon: statusStageBeacon || r.final_stage_beacon,
+                          progress_error: null,
+                          progress_notice: notice,
+                          polling_exhausted: false,
+                          updatedAt: new Date().toISOString(),
+                        }
+                      : r
+                  )
+                );
+
+                setActiveStatus("done");
+                toast.info(isSkipped ? "Completed: URL skipped by design" : "Completed: no eligible companies found");
+                return;
+              }
+            }
+
+            if (acceptedNonError) {
+              const notice = "Import accepted, processing asynchronously. Use \"View status\" to refresh.";
+              setRuns((prev) =>
+                prev.map((r) =>
+                  r.session_id === canonicalSessionId
+                    ? {
+                        ...r,
+                        start_error: null,
+                        start_error_details: detailsForCopy,
+                        accepted_reason: acceptReason || r.accepted_reason || null,
+                        progress_notice: notice,
+                        polling_exhausted: false,
+                        updatedAt: new Date().toISOString(),
+                      }
+                    : r
+                )
+              );
+              toast.info("Import accepted, processing asynchronously");
               return;
             }
           } catch {
@@ -1287,19 +1418,14 @@ export default function AdminImport() {
         }
 
         return {
-          kind: "failed",
+          kind: "exhausted",
           body: {
             ok: true,
-            status: "error",
-            state: "failed",
-            job_state: "error",
-            stage_beacon: stage === "primary" ? "primary_timeout" : `stage_${stage}_timeout`,
-            last_error: {
-              code: stage === "primary" ? "primary_timeout" : "stage_timeout",
-              message:
-                stage === "primary" ? "Primary import timed out." : `Stage \"${stage}\" did not reach a terminal state.`,
-            },
-            error: stage === "primary" ? "Primary import timed out." : `Stage \"${stage}\" did not reach a terminal state.`,
+            accepted: true,
+            status: "accepted",
+            state: "accepted",
+            stage_beacon: stage === "primary" ? "primary_enqueued" : `stage_${stage}_enqueued`,
+            reason: "polling_exhausted",
           },
         };
       };
@@ -1312,7 +1438,39 @@ export default function AdminImport() {
 
       let lastStageBody = startResult.body;
 
-      if (!startResult.res.ok || startResult.body?.ok === false) {
+      const startStageBeacon = asString(startResult.body?.stage_beacon).trim();
+      const startAcceptReason = extractAcceptReason(startResult.body);
+
+      if (isPrimarySkippedCompanyUrl(startStageBeacon)) {
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === canonicalSessionId
+              ? {
+                  ...r,
+                  completed: true,
+                  job_state: "complete",
+                  final_job_state: "complete",
+                  saved: 0,
+                  start_error: null,
+                  progress_error: null,
+                  progress_notice: "Completed: URL skipped by design (primary worker does not run for company_url queries).",
+                  stage_beacon: startStageBeacon,
+                  last_stage_beacon: startStageBeacon,
+                  final_stage_beacon: startStageBeacon,
+                  accepted_reason: startAcceptReason || r.accepted_reason || null,
+                  updatedAt: new Date().toISOString(),
+                }
+              : r
+          )
+        );
+        setActiveStatus("done");
+        toast.info("Completed: URL skipped by design");
+        return;
+      }
+
+      const treatNonOkAsAccepted = (!startResult.res.ok || startResult.body?.ok === false) && isNonErrorAcceptedOutcome(startResult.body);
+
+      if ((!startResult.res.ok || startResult.body?.ok === false) && !treatNonOkAsAccepted) {
         await recordStartErrorAndToast(startResult.res, startResult.body, {
           usedPath: startResult.usedPath,
           mode: "full",
@@ -1324,10 +1482,13 @@ export default function AdminImport() {
         return;
       }
 
-      if (startResult.res.status === 202 || startResult.body?.accepted === true) {
+      if (startResult.res.status === 202 || startResult.body?.accepted === true || treatNonOkAsAccepted) {
         const stageBeacon = asString(startResult.body?.stage_beacon).trim();
+        const acceptReason = extractAcceptReason(startResult.body);
+
         const isAsyncPrimary =
           startResult.body?.reason === "primary_async_enqueued" ||
+          isExpectedAsyncAcceptReason(acceptReason) ||
           stageBeacon.startsWith("primary_") ||
           stageBeacon.startsWith("xai_primary_fetch_");
 
@@ -1353,6 +1514,11 @@ export default function AdminImport() {
                   ...r,
                   updatedAt: new Date().toISOString(),
                   start_error: null,
+                  progress_notice: isExpectedAsyncAcceptReason(acceptReason)
+                    ? "Import accepted, processing asynchronously (upstream timeout)."
+                    : "Import accepted, processing asynchronously.",
+                  polling_exhausted: false,
+                  accepted_reason: acceptReason || r.accepted_reason || null,
                   async_primary_active: true,
                   async_primary_timeout_ms: timeoutMsForUi,
                 }
@@ -1373,6 +1539,25 @@ export default function AdminImport() {
         const waitResult = await waitForAsyncStatus({ stage: "primary" });
         resetPollAttempts(canonicalSessionId);
         schedulePoll({ session_id: canonicalSessionId });
+
+        if (waitResult.kind === "exhausted") {
+          setRuns((prev) =>
+            prev.map((r) =>
+              r.session_id === canonicalSessionId
+                ? {
+                    ...r,
+                    async_primary_active: true,
+                    progress_notice:
+                      "Import is still processing or completed asynchronously. Use \"View status\" (or \"Poll now\") to refresh.",
+                    polling_exhausted: true,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : r
+            )
+          );
+          toast.info("Import still processing asynchronously");
+          return;
+        }
 
         if (waitResult.kind === "no_candidates") {
           updateRunCompanies([], { async_primary_active: false });
@@ -1896,11 +2081,13 @@ export default function AdminImport() {
       } else if (skipStages.includes("primary")) {
         reasonText = "Match found, but persistence was skipped by config (skip_stages includes primary).";
       } else if (stageBeacon === "primary_early_exit") {
-        reasonText = "No save performed due to early exit.";
-      } else if (stageBeacon === "no_candidates_found") {
-        reasonText = "No matching companies found.";
+        reasonText = "Completed with an early exit. No company was persisted.";
+      } else if (isPrimarySkippedCompanyUrl(stageBeacon)) {
+        reasonText = "Completed: URL skipped by design (primary worker does not run for company_url queries).";
+      } else if (stageBeacon === "no_candidates_found" || lastErrorCode === "no_candidates_found") {
+        reasonText = "Completed: no eligible companies found.";
       } else {
-        reasonText = "No company saved.";
+        reasonText = "Completed: no company persisted.";
       }
     }
 
@@ -2466,6 +2653,10 @@ export default function AdminImport() {
               </div>
             ) : null}
 
+            {activeRun?.progress_notice ? (
+              <div className="rounded border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">{toDisplayText(activeRun.progress_notice)}</div>
+            ) : null}
+
             {activeRun?.progress_error ? (
               <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{toDisplayText(activeRun.progress_error)}</div>
             ) : null}
@@ -2492,8 +2683,9 @@ export default function AdminImport() {
               {!activeSessionId ? (
                 <div className="mt-4 text-sm text-slate-600">Start an import to see results.</div>
               ) : activeIsTerminal && activeSavedCount === 0 ? (
-                <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                  No company was saved for this run.
+                <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 space-y-1">
+                  <div className="font-medium">Completed: no company persisted</div>
+                  <div className="text-slate-600">{plainEnglishProgress.reasonText || "No company was saved for this run."}</div>
                 </div>
               ) : (
                 <div className="mt-4 space-y-2 max-h-[520px] overflow-auto">
@@ -2650,7 +2842,13 @@ export default function AdminImport() {
                                   e.stopPropagation();
                                   clearTerminalRefresh(r.session_id);
                                   setStatusRefreshSessionId(r.session_id);
-                                  setRuns((prev) => prev.map((it) => (it.session_id === r.session_id ? { ...it, progress_error: null } : it)));
+                                  setRuns((prev) =>
+                                    prev.map((it) =>
+                                      it.session_id === r.session_id
+                                        ? { ...it, progress_error: null, progress_notice: null, polling_exhausted: false }
+                                        : it
+                                    )
+                                  );
                                   try {
                                     await pollProgress({ session_id: r.session_id });
                                   } finally {
