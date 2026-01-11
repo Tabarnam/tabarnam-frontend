@@ -39,8 +39,16 @@ export interface Company {
   industries?: string[];
   manufacturing_locations?: Array<string | { address?: string; formatted?: string; full_address?: string; lat?: number; lng?: number; geocode_status?: string }>;
   headquarters_location?: string;
-  product_keywords?: string[];
+  product_keywords?: string;
   keywords?: string[];
+  review_count?: number | null;
+  curated_reviews?: any[];
+  review_cursor?: any;
+  reviews_last_updated_at?: string;
+  hq_unknown?: boolean;
+  hq_unknown_reason?: string;
+  mfg_unknown?: boolean;
+  mfg_unknown_reason?: string;
   red_flag?: boolean;
   red_flag_reason?: string;
   location_confidence?: "high" | "medium" | "low";
@@ -92,11 +100,16 @@ export async function searchCompanies(opts: SearchOptions) {
           (it.logo && typeof it.logo === "object" ? asStr(it.logo.url).trim() : asStr(it.logo).trim()) ||
           "";
 
+        const reviewCount = typeof it.review_count === "number" ? it.review_count : typeof it.reviews_count === "number" ? it.reviews_count : null;
+
         return {
           ...it,
           logo_url,
           company_id: cid,
           id: asStr(it.id || cid).trim(),
+          review_count: reviewCount,
+          // Back-compat for older UI that expects reviews_count.
+          reviews_count: typeof it.reviews_count === "number" ? it.reviews_count : reviewCount,
         } as Company;
       });
 

@@ -405,8 +405,46 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
 
   const brandTerms = buildBrandTerms({ companyName, websiteUrl, normalizedDomain });
 
+  // Try to validate via a real fetch.
+  // NOTE: Many review sites block bots. When that happens, we still want to keep
+  // credible candidates rather than returning 0 reviews for well-known brands.
   const health = await checkUrlHealthAndFetchText(url, opts);
+
+  const candidateText = String(input?.text || input?.abstract || input?.excerpt || "").trim();
+  const titleText = title;
+
   if (!health.ok) {
+    const titleLower = titleText.toLowerCase();
+    const candidateLower = candidateText.toLowerCase();
+
+    const matched = [];
+    for (const term of brandTerms) {
+      const t = String(term || "").trim();
+      if (!t) continue;
+      const tl = t.toLowerCase();
+      if ((titleLower && titleLower.includes(tl)) || (candidateLower && candidateLower.includes(tl))) {
+        matched.push(term);
+      }
+    }
+
+    if (matched.length > 0) {
+      const evidence = [];
+      if (candidateText) evidence.push(candidateText.slice(0, 240));
+      if (!evidence.length && titleText) evidence.push(titleText);
+
+      return {
+        is_valid: true,
+        link_status: health.link_status || "unverified",
+        last_checked_at: new Date().toISOString(),
+        brand_mentions_found: true,
+        matched_brand_terms: matched,
+        evidence_snippets: evidence.slice(0, 2),
+        match_confidence: 0.25,
+        final_url: health.final_url,
+        reason_if_rejected: null,
+      };
+    }
+
     return {
       is_valid: false,
       link_status: health.link_status,

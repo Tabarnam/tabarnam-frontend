@@ -75,10 +75,10 @@ const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000;
 // Per-stage upstream hard caps (must stay under SWA gateway wall-clock).
 const STAGE_MAX_MS = {
   primary: 20_000,
-  keywords: 15_000,
-  reviews: 15_000,
-  location: 10_000,
-  expand: 10_000,
+  keywords: 20_000,
+  reviews: 20_000,
+  location: 20_000,
+  expand: 12_000,
 };
 
 // Safety buffer before the SWA gateway timeout where we stop doing work and return 202.
@@ -5074,21 +5074,21 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             .filter((it) => it && typeof it === "object")
             .slice(0, 500);
 
-          // Deterministic URL imports: never gate on async primary / upstream primary for company_url.
-          // If the request is a company_url import, seed a single URL-shortcut candidate locally so we can
-          // run keywords/reviews/location inline without triggering the 202 + resume-on-stub flow.
-          if (inputCompanies.length === 0 && Array.isArray(queryTypes) && queryTypes.includes("company_url") && query) {
+          // NOTE: company_url imports should still attempt the upstream primary call (it tends to be the
+          // best source for HQ + manufacturing), but we must NOT ever return 202 for company_url.
+          // If primary times out, we fall back to a local URL seed and continue downstream enrichment inline.
+          const buildCompanyUrlSeedFromQuery = (rawQuery) => {
+            const q = String(rawQuery || "").trim();
             let hostname = "";
             try {
-              const u = query.includes("://") ? new URL(query) : new URL(`https://${query}`);
+              const u = q.includes("://") ? new URL(q) : new URL(`https://${q}`);
               hostname = String(u.hostname || "").trim();
             } catch {
-              hostname = String(query).replace(/^https?:\/\//i, "").split("/")[0].trim();
+              hostname = q.replace(/^https?:\/\//i, "").split("/")[0].trim();
             }
 
             const cleanHost = String(hostname || "").toLowerCase().replace(/^www\./, "");
-
-            const websiteUrl = cleanHost ? `https://${cleanHost}/` : String(query).trim();
+            const websiteUrl = cleanHost ? `https://${cleanHost}/` : q;
 
             const companyName = (() => {
               const base = cleanHost ? cleanHost.split(".")[0] : "";
@@ -5096,20 +5096,16 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               return base.charAt(0).toUpperCase() + base.slice(1);
             })();
 
-            inputCompanies = [
-              {
-                company_name: companyName,
-                website_url: websiteUrl,
-                url: websiteUrl,
-                normalized_domain: hostname ? hostname.toLowerCase().replace(/^www\./, "") : "",
-                source: "company_url_shortcut",
-                candidate: false,
-                source_stage: "seed",
-              },
-            ];
-
-            bodyObj.companies = inputCompanies;
-          }
+            return {
+              company_name: companyName,
+              website_url: websiteUrl,
+              url: websiteUrl,
+              normalized_domain: cleanHost,
+              source: "company_url_shortcut",
+              candidate: false,
+              source_stage: "seed",
+            };
+          };
 
           const wantsAsyncPrimary =
             inputCompanies.length === 0 &&
@@ -5967,8 +5963,28 @@ Output JSON only:
               });
 
               const effectiveWebsiteUrl = String(company?.website_url || company?.canonical_url || company?.url || "").trim();
+              const nowReviewsIso = new Date().toISOString();
 
-              if (company.company_name && effectiveWebsiteUrl) {
+              if (!company.company_name || !effectiveWebsiteUrl) {
+                enriched[i] = {
+                  ...company,
+                  curated_reviews: [],
+                  review_count: 0,
+                  reviews_last_updated_at: nowReviewsIso,
+                  review_cursor: buildReviewCursor({
+                    nowIso: nowReviewsIso,
+                    count: 0,
+                    exhausted: false,
+                    last_error: {
+                      code: "MISSING_COMPANY_INPUT",
+                      message: "Missing company_name or website_url",
+                    },
+                  }),
+                };
+                continue;
+              }
+
+              try {
                 const companyForReviews = company.website_url ? company : { ...company, website_url: effectiveWebsiteUrl };
 
                 const editorialReviews = await fetchEditorialReviews(
@@ -5980,8 +5996,6 @@ Output JSON only:
                   { setStage, postXaiJsonWithBudget: postXaiJsonWithBudgetRetry },
                   warnReviews
                 );
-
-                const nowReviewsIso = new Date().toISOString();
 
                 const fetchOk = editorialReviews?._fetch_ok !== false;
                 const fetchErrorCode = typeof editorialReviews?._fetch_error_code === "string" ? editorialReviews._fetch_error_code : null;
@@ -6013,20 +6027,30 @@ Output JSON only:
                     `[import-start] session=${sessionId} fetched ${curated.length} editorial reviews for ${companyForReviews.company_name}`
                   );
                 }
-              } else {
-                const nowReviewsIso = new Date().toISOString();
+              } catch (e) {
+                // Never allow review enrichment failures to abort the import.
+                const msg = e?.message || String(e || "reviews_failed");
+                warnReviews({
+                  stage: "reviews",
+                  root_cause: "reviews_exception",
+                  retryable: true,
+                  message: msg,
+                  company_name: String(company?.company_name || company?.name || ""),
+                  website_url: effectiveWebsiteUrl,
+                });
+
                 enriched[i] = {
                   ...company,
-                  curated_reviews: [],
-                  review_count: 0,
+                  curated_reviews: Array.isArray(company.curated_reviews) ? company.curated_reviews : [],
+                  review_count: typeof company.review_count === "number" ? company.review_count : 0,
                   reviews_last_updated_at: nowReviewsIso,
                   review_cursor: buildReviewCursor({
                     nowIso: nowReviewsIso,
-                    count: 0,
+                    count: typeof company.review_count === "number" ? company.review_count : 0,
                     exhausted: false,
                     last_error: {
-                      code: "MISSING_COMPANY_INPUT",
-                      message: "Missing company_name or website_url",
+                      code: "REVIEWS_EXCEPTION",
+                      message: msg,
                     },
                   }),
                 };
