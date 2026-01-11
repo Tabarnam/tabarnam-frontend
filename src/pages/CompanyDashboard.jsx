@@ -2538,6 +2538,7 @@ export default function CompanyDashboard() {
   const [refreshLoading, setRefreshLoading] = useState(false);
   const [refreshError, setRefreshError] = useState(null);
   const [refreshProposed, setRefreshProposed] = useState(null);
+  const [refreshTaglineMeta, setRefreshTaglineMeta] = useState(null);
   const [proposedDraft, setProposedDraft] = useState(null);
   const [proposedDraftText, setProposedDraftText] = useState({});
   const [refreshSelection, setRefreshSelection] = useState({});
@@ -2786,6 +2787,7 @@ export default function CompanyDashboard() {
     setRefreshLoading(false);
     setRefreshError(null);
     setRefreshProposed(null);
+    setRefreshTaglineMeta(null);
     setProposedDraft(null);
     setProposedDraftText({});
     setRefreshSelection({});
@@ -2817,6 +2819,7 @@ export default function CompanyDashboard() {
     setRefreshLoading(false);
     setRefreshError(null);
     setRefreshProposed(null);
+    setRefreshTaglineMeta(null);
     setProposedDraft(null);
     setProposedDraftText({});
     setRefreshSelection({});
@@ -2857,6 +2860,7 @@ export default function CompanyDashboard() {
     setRefreshLoading(false);
     setRefreshError(null);
     setRefreshProposed(null);
+    setRefreshTaglineMeta(null);
     setProposedDraft(null);
     setProposedDraftText({});
     setRefreshSelection({});
@@ -3160,6 +3164,12 @@ export default function CompanyDashboard() {
     setRefreshSelection({});
   }, []);
 
+  const formatConfidencePct = useCallback((value) => {
+    const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+    if (!Number.isFinite(n)) return "—";
+    return `${Math.round(n * 100)}%`;
+  }, []);
+
   const applySelectedDiffs = useCallback(() => {
     const baseProposed = proposedDraft && typeof proposedDraft === "object" ? proposedDraft : null;
     if (!baseProposed) return;
@@ -3224,6 +3234,7 @@ export default function CompanyDashboard() {
     setRefreshLoading(true);
     setRefreshError(null);
     setRefreshProposed(null);
+    setRefreshTaglineMeta(null);
     setProposedDraft(null);
     setProposedDraftText({});
     setRefreshSelection({});
@@ -3326,6 +3337,13 @@ export default function CompanyDashboard() {
       const draft = deepClone(proposed);
       setRefreshProposed(proposed);
       setProposedDraft(draft);
+
+      const nextTaglineMeta = body?.tagline_meta && typeof body.tagline_meta === "object" ? body.tagline_meta : null;
+      setRefreshTaglineMeta(nextTaglineMeta);
+
+      if (nextTaglineMeta?.error) {
+        toast.warning(`Tagline verification issue: ${asString(nextTaglineMeta.error).trim().slice(0, 160)}`);
+      }
 
       const nextText = {};
       for (const f of refreshDiffFields) {
@@ -3496,6 +3514,15 @@ export default function CompanyDashboard() {
         location_sources,
       };
 
+      if (
+        refreshTaglineMeta &&
+        baseProposed &&
+        refreshSelection?.tagline &&
+        Object.prototype.hasOwnProperty.call(baseProposed, "tagline")
+      ) {
+        payload.tagline_meta = { ...(refreshTaglineMeta || {}), captured_at: new Date().toISOString() };
+      }
+
       if (!payload.company_id) {
         if (isNew) {
           payload.company_id = `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -3562,7 +3589,7 @@ export default function CompanyDashboard() {
     } finally {
       setEditorSaving(false);
     }
-  }, [closeEditor, editorDisplayNameOverride, editorDraft, editorOriginalId, proposedDraft, refreshDiffFields, refreshSelection]);
+  }, [closeEditor, editorDisplayNameOverride, editorDraft, editorOriginalId, proposedDraft, refreshDiffFields, refreshSelection, refreshTaglineMeta]);
 
   const updateCompanyInState = useCallback((companyId, patch) => {
     const id = asString(companyId).trim();
@@ -4405,6 +4432,38 @@ export default function CompanyDashboard() {
                               </div>
                             ) : null}
                           </div>
+
+                          {refreshTaglineMeta ? (
+                            <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 space-y-2">
+                              <div className="font-semibold text-slate-900">Tagline verification (xAI)</div>
+                              {asString(refreshTaglineMeta?.error).trim() ? (
+                                <div className="text-red-800">Error: {asString(refreshTaglineMeta.error).trim()}</div>
+                              ) : (
+                                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                                  <div>
+                                    <div className="font-medium text-slate-800">Confirmed company name</div>
+                                    <div className="mt-0.5 break-words text-slate-900">
+                                      {asString(refreshTaglineMeta?.confirmed_company_name).trim() || "—"}
+                                    </div>
+                                    {asString(refreshTaglineMeta?.confirm_reason).trim() ? (
+                                      <div className="mt-1 text-slate-600">{asString(refreshTaglineMeta.confirm_reason).trim()}</div>
+                                    ) : null}
+                                  </div>
+                                  <div>
+                                    <div className="font-medium text-slate-800">Confidence</div>
+                                    <div className="mt-0.5 text-slate-900">
+                                      Name: {formatConfidencePct(refreshTaglineMeta?.confirm_confidence)}
+                                      <span className="mx-2 text-slate-400">•</span>
+                                      Tagline: {formatConfidencePct(refreshTaglineMeta?.tagline_confidence)}
+                                    </div>
+                                    {asString(refreshTaglineMeta?.tagline_reason).trim() ? (
+                                      <div className="mt-1 text-slate-600">{asString(refreshTaglineMeta.tagline_reason).trim()}</div>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ) : null}
 
                           {refreshError ? (
                             <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-900">
