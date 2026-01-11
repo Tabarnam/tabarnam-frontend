@@ -5110,6 +5110,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           const wantsAsyncPrimary =
             inputCompanies.length === 0 &&
             shouldRunStage("primary") &&
+            !queryTypes.includes("company_url") &&
             ((Number.isFinite(Number(requested_stage_ms_primary)) &&
               Number(requested_stage_ms_primary) > inline_budget_ms) ||
               maxStage === "primary");
