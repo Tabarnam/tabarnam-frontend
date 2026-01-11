@@ -230,22 +230,32 @@ const SQL_TEXT_FILTER = `
 `;
 
 const SELECT_FIELDS = [
+  // Identity / names
   "c.id",
   "c.company_id",
   "c.company_name",
   "c.display_name",
   "c.name",
+
+  // Category + keywords
   "c.industries",
-  "c.url",
+  "c.product_keywords",
+  "c.keywords",
+
+  // Links
   "c.website_url",
+  "c.url",
   "c.canonical_url",
   "c.website",
   "c.amazon_url",
   "c.normalized_domain",
+
+  // Timestamps
   "c.created_at",
   "c.updated_at",
-  "c.session_id",
   "c._ts",
+
+  // Location (used for completeness + admin UX)
   "c.manufacturing_locations",
   "c.manufacturing_geocodes",
   "c.headquarters",
@@ -253,54 +263,36 @@ const SELECT_FIELDS = [
   "c.headquarters_location",
   "c.hq_lat",
   "c.hq_lng",
-  "c.product_keywords",
-  "c.keywords",
+
+  // Content
+  "c.tagline",
+  "c.curated_reviews",
+
+  // Ratings + stars
+  "c.rating",
+  "c.rating_icon_type",
+  "c.avg_rating",
   "c.star_rating",
   "c.star_score",
   "c.confidence_score",
-  "c.tagline",
-  "c.curated_reviews",
+  "c.star_overrides",
+  "c.admin_manual_extra",
+  "c.star_notes",
+  "c.star_explanation",
+
+  // Reviews
   "c.review_count",
-  "c.review_cursor",
-  "c.reviews_last_updated_at",
-  "c.hq_unknown",
-  "c.hq_unknown_reason",
-  "c.mfg_unknown",
-  "c.mfg_unknown_reason",
+  "c.public_review_count",
+  "c.private_review_count",
+  "c.review_count_approved",
+  "c.editorial_review_count",
+
+  // UI / misc
   "c.profile_completeness",
   "c.profile_completeness_version",
   "c.logo_url",
   "c.logoUrl",
   "c.logo",
-  "c.star_overrides",
-  "c.admin_manual_extra",
-  "c.star_notes",
-  "c.star_explanation",
-  "c.affiliate_links",
-  "c.affiliate_link_urls",
-  "c.affiliate_link_1",
-  "c.affiliate_link_2",
-  "c.affiliate_link_3",
-  "c.affiliate_link_4",
-  "c.affiliate_link_5",
-  "c.affiliate_link_1_url",
-  "c.affiliate_link_2_url",
-  "c.affiliate_link_3_url",
-  "c.affiliate_link_4_url",
-  "c.affiliate_link_5_url",
-  "c.affiliate1_url",
-  "c.affiliate2_url",
-  "c.affiliate3_url",
-  "c.affiliate4_url",
-  "c.affiliate5_url",
-  "c.rating",
-  "c.rating_icon_type",
-  "c.review_count",
-  "c.public_review_count",
-  "c.private_review_count",
-  "c.avg_rating",
-  "c.review_count_approved",
-  "c.editorial_review_count",
   "c.location_sources",
   "c.show_location_sources_to_users",
   "c.visibility",
