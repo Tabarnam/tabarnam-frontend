@@ -37,9 +37,9 @@ test("/api/search-companies maps keywords to public payload", async () => {
     const q = String(spec?.query || "");
 
     const hasManufacturingExpr =
-      "IS_ARRAY(c.manufacturing_locations) && ARRAY_LENGTH(c.manufacturing_locations) > 0";
+      "IS_ARRAY(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0";
     const noManufacturingExpr =
-      "(NOT IS_ARRAY(c.manufacturing_locations) || ARRAY_LENGTH(c.manufacturing_locations) = 0)";
+      "(NOT IS_ARRAY(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)";
 
     if (q.includes(hasManufacturingExpr)) return [doc];
     if (q.includes(noManufacturingExpr)) return [];
@@ -96,7 +96,8 @@ test("/api/search-companies returns display_name and filters by it", async () =>
 
   const companiesContainer = makeContainer(async (spec) => {
     const sql = String(spec?.query || "");
-    const hasDisplayFilter = sql.includes("LOWER(c.display_name)") || sql.includes("LOWER(c.name)");
+    // Filter now uses LOWER(IIF(IS_STRING(...), ..., "")) to avoid type errors on legacy docs.
+    const hasDisplayFilter = sql.includes("IS_STRING(c.display_name)") || sql.includes("IS_STRING(c.name)");
     if (!hasDisplayFilter) return [];
     return [doc];
   });

@@ -185,67 +185,77 @@ function compareCompanies(sortField, dir, a, b) {
   return dir === "desc" ? -cmp : cmp;
 }
 
-// Cosmos DB's IIF() does NOT short-circuit (it evaluates both branches).
-// We rely on short-circuiting (&& / ||) to avoid calling LOWER()/CONTAINS()/ARRAY_LENGTH()
-// on legacy documents where fields may have unexpected types.
+// Cosmos SQL: keep queries type-safe by guarding LOWER()/CONTAINS()/ARRAY ops
+// with IS_STRING / IS_ARRAY checks. (Cosmos SQL does not support [] array literals,
+// and will throw "One of the input values is invalid" for invalid expressions.)
 const SQL_TEXT_FILTER = `
-  (IS_STRING(c.company_name) && CONTAINS(LOWER(c.company_name), @q)) ||
-  (IS_STRING(c.display_name) && CONTAINS(LOWER(c.display_name), @q)) ||
-  (IS_STRING(c.name) && CONTAINS(LOWER(c.name), @q)) ||
-  (IS_STRING(c.product_keywords) && CONTAINS(LOWER(c.product_keywords), @q)) ||
+  (IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND CONTAINS(LOWER(c.company_name), @q)) OR
+  (IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND CONTAINS(LOWER(c.display_name), @q)) OR
+  (IS_DEFINED(c.name) AND IS_STRING(c.name) AND CONTAINS(LOWER(c.name), @q)) OR
+  (IS_DEFINED(c.product_keywords) AND IS_STRING(c.product_keywords) AND CONTAINS(LOWER(c.product_keywords), @q)) OR
   (
-    IS_ARRAY(c.product_keywords) &&
+    IS_ARRAY(c.product_keywords) AND
     ARRAY_LENGTH(
       ARRAY(
         SELECT VALUE kw
         FROM kw IN c.product_keywords
-        WHERE IS_STRING(kw) && CONTAINS(LOWER(kw), @q)
+        WHERE IS_STRING(kw) AND CONTAINS(LOWER(kw), @q)
       )
     ) > 0
-  ) ||
-  (IS_STRING(c.keywords) && CONTAINS(LOWER(c.keywords), @q)) ||
+  ) OR
+  (IS_DEFINED(c.keywords) AND IS_STRING(c.keywords) AND CONTAINS(LOWER(c.keywords), @q)) OR
   (
-    IS_ARRAY(c.keywords) &&
+    IS_ARRAY(c.keywords) AND
     ARRAY_LENGTH(
       ARRAY(
         SELECT VALUE k
         FROM k IN c.keywords
-        WHERE IS_STRING(k) && CONTAINS(LOWER(k), @q)
+        WHERE IS_STRING(k) AND CONTAINS(LOWER(k), @q)
       )
     ) > 0
-  ) ||
-  (IS_STRING(c.industries) && CONTAINS(LOWER(c.industries), @q)) ||
+  ) OR
+  (IS_DEFINED(c.industries) AND IS_STRING(c.industries) AND CONTAINS(LOWER(c.industries), @q)) OR
   (
-    IS_ARRAY(c.industries) &&
+    IS_ARRAY(c.industries) AND
     ARRAY_LENGTH(
       ARRAY(
         SELECT VALUE i
         FROM i IN c.industries
-        WHERE IS_STRING(i) && CONTAINS(LOWER(i), @q)
+        WHERE IS_STRING(i) AND CONTAINS(LOWER(i), @q)
       )
     ) > 0
-  ) ||
-  (IS_STRING(c.normalized_domain) && CONTAINS(LOWER(c.normalized_domain), @q)) ||
-  (IS_STRING(c.amazon_url) && CONTAINS(LOWER(c.amazon_url), @q))
+  ) OR
+  (IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND CONTAINS(LOWER(c.normalized_domain), @q)) OR
+  (IS_DEFINED(c.amazon_url) AND IS_STRING(c.amazon_url) AND CONTAINS(LOWER(c.amazon_url), @q))
 `;
 
 const SELECT_FIELDS = [
+  // Identity / names
   "c.id",
   "c.company_id",
   "c.company_name",
   "c.display_name",
   "c.name",
+
+  // Category + keywords
   "c.industries",
-  "c.url",
+  "c.product_keywords",
+  "c.keywords",
+
+  // Links
   "c.website_url",
+  "c.url",
   "c.canonical_url",
   "c.website",
   "c.amazon_url",
   "c.normalized_domain",
+
+  // Timestamps
   "c.created_at",
   "c.updated_at",
-  "c.session_id",
   "c._ts",
+
+  // Location (used for completeness + admin UX)
   "c.manufacturing_locations",
   "c.manufacturing_geocodes",
   "c.headquarters",
@@ -253,54 +263,36 @@ const SELECT_FIELDS = [
   "c.headquarters_location",
   "c.hq_lat",
   "c.hq_lng",
-  "c.product_keywords",
-  "c.keywords",
+
+  // Content
+  "c.tagline",
+  "c.curated_reviews",
+
+  // Ratings + stars
+  "c.rating",
+  "c.rating_icon_type",
+  "c.avg_rating",
   "c.star_rating",
   "c.star_score",
   "c.confidence_score",
-  "c.tagline",
-  "c.curated_reviews",
+  "c.star_overrides",
+  "c.admin_manual_extra",
+  "c.star_notes",
+  "c.star_explanation",
+
+  // Reviews
   "c.review_count",
-  "c.review_cursor",
-  "c.reviews_last_updated_at",
-  "c.hq_unknown",
-  "c.hq_unknown_reason",
-  "c.mfg_unknown",
-  "c.mfg_unknown_reason",
+  "c.public_review_count",
+  "c.private_review_count",
+  "c.review_count_approved",
+  "c.editorial_review_count",
+
+  // UI / misc
   "c.profile_completeness",
   "c.profile_completeness_version",
   "c.logo_url",
   "c.logoUrl",
   "c.logo",
-  "c.star_overrides",
-  "c.admin_manual_extra",
-  "c.star_notes",
-  "c.star_explanation",
-  "c.affiliate_links",
-  "c.affiliate_link_urls",
-  "c.affiliate_link_1",
-  "c.affiliate_link_2",
-  "c.affiliate_link_3",
-  "c.affiliate_link_4",
-  "c.affiliate_link_5",
-  "c.affiliate_link_1_url",
-  "c.affiliate_link_2_url",
-  "c.affiliate_link_3_url",
-  "c.affiliate_link_4_url",
-  "c.affiliate_link_5_url",
-  "c.affiliate1_url",
-  "c.affiliate2_url",
-  "c.affiliate3_url",
-  "c.affiliate4_url",
-  "c.affiliate5_url",
-  "c.rating",
-  "c.rating_icon_type",
-  "c.review_count",
-  "c.public_review_count",
-  "c.private_review_count",
-  "c.avg_rating",
-  "c.review_count_approved",
-  "c.editorial_review_count",
   "c.location_sources",
   "c.show_location_sources_to_users",
   "c.visibility",
@@ -484,16 +476,16 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const params = [{ name: "@take", value: limit }];
       if (q) params.push({ name: "@q", value: q });
 
-      const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) || c.is_deleted != true)";
+      const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
 
       if (sort === "manu") {
-        const whereText = q ? `&& (${SQL_TEXT_FILTER})` : "";
+        const whereText = q ? `AND (${SQL_TEXT_FILTER})` : "";
 
         const sqlA = `
             SELECT TOP @take ${SELECT_FIELDS}
             FROM c
-            WHERE IS_ARRAY(c.manufacturing_locations) && ARRAY_LENGTH(c.manufacturing_locations) > 0
-            && ${softDeleteFilter}
+            WHERE IS_ARRAY(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
+            AND ${softDeleteFilter}
             ${whereText}
             ORDER BY c._ts DESC
           `;
@@ -507,8 +499,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           const sqlB = `
               SELECT TOP @take2 ${SELECT_FIELDS}
               FROM c
-              WHERE (NOT IS_ARRAY(c.manufacturing_locations) || ARRAY_LENGTH(c.manufacturing_locations) = 0)
-              && ${softDeleteFilter}
+              WHERE (NOT IS_ARRAY(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
+              AND ${softDeleteFilter}
               ${whereText}
               ORDER BY c._ts DESC
             `;
@@ -526,7 +518,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               SELECT TOP @take ${SELECT_FIELDS}
               FROM c
               WHERE (${SQL_TEXT_FILTER})
-              && ${softDeleteFilter}
+              AND ${softDeleteFilter}
               ${orderBy}
             `
           : `
