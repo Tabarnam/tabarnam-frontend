@@ -1889,21 +1889,67 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
       return [];
     }
 
-    const responseText = response.data?.choices?.[0]?.message?.content || "";
-    console.log(`[import-start] Review response preview for ${companyName}: ${responseText.substring(0, 80)}...`);
+    const responseText =
+      response.data?.choices?.[0]?.message?.content ||
+      response.data?.choices?.[0]?.text ||
+      response.data?.output_text ||
+      response.data?.text ||
+      (typeof response.data === "string" ? response.data : response.data ? JSON.stringify(response.data) : "");
 
-    let reviews = [];
-    let parseError = null;
-    try {
-      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        reviews = JSON.parse(jsonMatch[0]);
-        if (!Array.isArray(reviews)) reviews = [];
+    console.log(`[import-start] Review response preview for ${companyName}: ${String(responseText).substring(0, 80)}...`);
+
+    const parseReviewsFromText = (rawText) => {
+      const text = typeof rawText === "string" ? rawText.trim() : "";
+      if (!text) return { reviews: [], parse_error: "empty_response" };
+
+      // 1) Try parsing the full response as JSON.
+      const direct = safeJsonParse(text);
+      if (Array.isArray(direct)) return { reviews: direct, parse_error: null };
+      if (direct && typeof direct === "object") {
+        const fromObj = Array.isArray(direct.reviews)
+          ? direct.reviews
+          : Array.isArray(direct.items)
+            ? direct.items
+            : null;
+        if (Array.isArray(fromObj)) return { reviews: fromObj, parse_error: null };
       }
-    } catch (err) {
-      parseError = err?.message || String(err);
-      reviews = [];
-    }
+
+      // 2) Try extracting a JSON object, then look for { reviews: [...] }.
+      try {
+        const objStart = text.indexOf("{");
+        const objEnd = text.lastIndexOf("}");
+        if (objStart !== -1 && objEnd !== -1 && objEnd > objStart) {
+          const slice = text.slice(objStart, objEnd + 1);
+          const parsedObj = safeJsonParse(slice);
+          if (parsedObj && typeof parsedObj === "object") {
+            const fromObj = Array.isArray(parsedObj.reviews)
+              ? parsedObj.reviews
+              : Array.isArray(parsedObj.items)
+                ? parsedObj.items
+                : null;
+            if (Array.isArray(fromObj)) return { reviews: fromObj, parse_error: null };
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      // 3) Try extracting a JSON array.
+      try {
+        const jsonMatch = text.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(parsed)) return { reviews: parsed, parse_error: null };
+        }
+      } catch (err) {
+        return { reviews: [], parse_error: err?.message || String(err) };
+      }
+
+      return { reviews: [], parse_error: "no_json_found" };
+    };
+
+    const parsed = parseReviewsFromText(responseText);
+    const parseError = parsed.parse_error;
 
     if (parseError) {
       console.warn(`[import-start] Failed to parse reviews for ${companyName}: ${parseError}`);
@@ -1921,7 +1967,7 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
       }
     }
 
-    const candidates = (Array.isArray(reviews) ? reviews : [])
+    const candidates = (Array.isArray(parsed.reviews) ? parsed.reviews : [])
       .filter((r) => r && typeof r === "object")
       .slice(0, 3);
 
@@ -2029,11 +2075,12 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
       })();
 
       const shouldKeepForManual =
-        v?.link_status === "blocked" &&
-        looksLikeReviewUrl(finalUrl) &&
-        host &&
-        companyHost &&
-        !isSameDomain(host, companyHost);
+        Boolean(!v?.is_valid) &&
+        Boolean(finalUrl) &&
+        Boolean(host) &&
+        Boolean(companyHost) &&
+        !isSameDomain(host, companyHost) &&
+        (v?.link_status === "blocked" || looksLikeReviewUrl(finalUrl));
 
       if (shouldKeepForManual) {
         curated.push({
@@ -2071,9 +2118,11 @@ If you find NO editorial reviews after exhaustive search, return an empty array:
       debugCollector.push(debug);
     }
 
-    curated._fetch_ok = true;
-    curated._fetch_error = null;
-    curated._fetch_error_code = null;
+    curated._candidate_count = candidates.length;
+
+    curated._fetch_ok = !parseError;
+    curated._fetch_error = parseError ? String(parseError) : null;
+    curated._fetch_error_code = parseError ? "REVIEWS_PARSE_ERROR" : null;
     return curated;
   } catch (e) {
     if (e instanceof AcceptedResponseError) throw e;
@@ -6115,7 +6164,29 @@ Output JSON only:
                 const fetchErrorMsg = typeof editorialReviews?._fetch_error === "string" ? editorialReviews._fetch_error : null;
 
                 const curated = dedupeCuratedReviews(editorialReviews);
-                const cursorExhausted = fetchOk && curated.length === 0;
+                const candidateCount =
+                  typeof editorialReviews?._candidate_count === "number" && Number.isFinite(editorialReviews._candidate_count)
+                    ? editorialReviews._candidate_count
+                    : Array.isArray(editorialReviews)
+                      ? editorialReviews.length
+                      : 0;
+
+                // Only mark reviews "exhausted" when the upstream returned *no candidates*.
+                // If upstream returned candidates but validation rejected them all, leave the cursor open
+                // (and store a last_error) so admin refresh/resume can try again later.
+                const cursorExhausted = fetchOk && candidateCount === 0;
+
+                const cursorError = !fetchOk
+                  ? {
+                      code: fetchErrorCode || "REVIEWS_FAILED",
+                      message: fetchErrorMsg || "Reviews fetch failed",
+                    }
+                  : curated.length === 0 && candidateCount > 0
+                    ? {
+                        code: "REVIEWS_VALIDATION_REJECTED",
+                        message: "Upstream returned review candidates but none passed validation",
+                      }
+                    : null;
 
                 enriched[i] = {
                   ...companyForReviews,
@@ -6126,12 +6197,7 @@ Output JSON only:
                     nowIso: nowReviewsIso,
                     count: curated.length,
                     exhausted: cursorExhausted,
-                    last_error: !fetchOk
-                      ? {
-                          code: fetchErrorCode || "REVIEWS_FAILED",
-                          message: fetchErrorMsg || "Reviews fetch failed",
-                        }
-                      : null,
+                    last_error: cursorError,
                   }),
                 };
 
