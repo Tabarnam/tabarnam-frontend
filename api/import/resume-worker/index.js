@@ -297,6 +297,7 @@ async function handler(req, context) {
   const startUrl = new URL("/api/import-start", base.origin);
   startUrl.searchParams.set("skip_stages", "primary");
   startUrl.searchParams.set("max_stage", "expand");
+  startUrl.searchParams.set("resume_worker", "1");
 
   const startRes = await fetch(startUrl.toString(), {
     method: "POST",
