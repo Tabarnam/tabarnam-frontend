@@ -258,3 +258,4 @@ Functions:
 	xai-smoke: [GET,OPTIONS] http://localhost:7076/api/xai/smoke
 
 For detailed output, run func with --verbose flag.
+[2026-01-11T04:18:26.224Z] Detected mixed function app. Some functions may not be indexed - /root/app/code/api/admin-companies-history, /root/app/code/api/_diag-hello, /root/app/code/api/import-start, /root/app/code/api/admin-company-history, /root/app/code/api/import-start-hyphen Refer to the documentation to filter warning - https://docs.microsoft.com/en-us/azure/azure-functions/configure-monitoring?tabs=v2

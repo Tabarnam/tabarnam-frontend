@@ -5451,14 +5451,20 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           let enriched = companies.map((c) => enrichCompany(c, center));
           enrichedForCounts = enriched;
 
-          // When enrichment stages are skipped (or max_stage prevents them), still populate a baseline profile
-          // deterministically from the company's own website. This is especially important for company_url shortcut runs.
+          // Populate a baseline profile deterministically from the company's own website.
+          // This is especially important for company_url shortcut runs, where the initial company_name
+          // (derived from the hostname) is often too weak to drive reviews/location enrichment.
           const downstreamStagesSkipped =
             !shouldRunStage("keywords") && !shouldRunStage("reviews") && !shouldRunStage("location");
 
           const baselineEligible = queryTypes.includes("company_url") || enriched.length <= 3;
+          const baselineNeeded =
+            baselineEligible &&
+            (downstreamStagesSkipped ||
+              (queryTypes.includes("company_url") &&
+                enriched.some((c) => !String(c?.tagline || "").trim())));
 
-          if (baselineEligible && downstreamStagesSkipped) {
+          if (baselineNeeded) {
             try {
               const remaining = getRemainingMs();
               if (remaining > 7000) {
