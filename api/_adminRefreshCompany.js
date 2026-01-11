@@ -12,7 +12,7 @@ try {
   CosmosClient = null;
 }
 
-const { getXAIEndpoint, getXAIKey } = require("./_shared");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
 const { fetchConfirmedCompanyTagline } = require("./_taglineXai");
 const { getBuildInfo } = require("./_buildInfo");
 
@@ -193,24 +193,143 @@ function normalizeHeadquartersLocations(hqString) {
   return [{ formatted: s, is_hq: true }];
 }
 
-function parseXaiCompaniesResponse(text) {
+function stripJsonCodeFences(text) {
   const raw = asString(text);
-  if (!raw.trim()) return { companies: [], parse_error: "Empty response" };
+  const match = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (match) return asString(match[1]).trim();
+  return raw.trim();
+}
 
-  try {
-    const parsed = safeJsonParse(raw);
-    if (Array.isArray(parsed)) return { companies: parsed, parse_error: null };
-  } catch {}
+function findBalancedJsonSubstring(raw, startIndex) {
+  const open = raw[startIndex];
+  if (open !== "{" && open !== "[") return "";
 
-  try {
-    const match = raw.match(/\[[\s\S]*\]/);
-    if (!match) return { companies: [], parse_error: "No JSON array found" };
-    const parsed = JSON.parse(match[0]);
-    if (!Array.isArray(parsed)) return { companies: [], parse_error: "Parsed value is not an array" };
-    return { companies: parsed, parse_error: null };
-  } catch (e) {
-    return { companies: [], parse_error: e?.message || String(e) };
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = startIndex; i < raw.length; i++) {
+    const ch = raw[i];
+
+    if (inString) {
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === "{" || ch === "[") depth += 1;
+    if (ch === "}" || ch === "]") depth -= 1;
+
+    if (depth === 0) {
+      return raw.slice(startIndex, i + 1);
+    }
   }
+
+  return "";
+}
+
+function extractJsonFromText(text) {
+  const raw0 = asString(text);
+  if (!raw0.trim()) return { value: null, parse_error: "Empty response", json_text: "" };
+
+  const raw = stripJsonCodeFences(raw0);
+  const direct = safeJsonParse(raw);
+  if (direct !== null && direct !== undefined) {
+    return { value: direct, parse_error: null, json_text: raw };
+  }
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (ch !== "{" && ch !== "[") continue;
+
+    const candidate = findBalancedJsonSubstring(raw, i);
+    if (!candidate) continue;
+
+    try {
+      const parsed = JSON.parse(candidate);
+      return { value: parsed, parse_error: null, json_text: candidate };
+    } catch {
+      // keep scanning
+    }
+  }
+
+  const match = raw.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+  if (!match) return { value: null, parse_error: "No JSON found", json_text: "" };
+
+  try {
+    return { value: JSON.parse(match[0]), parse_error: null, json_text: match[0] };
+  } catch (e) {
+    return { value: null, parse_error: e?.message || String(e), json_text: match[0] };
+  }
+}
+
+function normalizeXaiEnrichmentValue(value) {
+  const v = value && typeof value === "object" ? value : null;
+  if (!v) return { company: null, sources: [], confidence: null, error: null };
+
+  if (!Array.isArray(v) && v.error && typeof v.error === "object") {
+    return {
+      company: null,
+      sources: [],
+      confidence: null,
+      error: {
+        code: v.error.code ?? v.error.status ?? v.error.http_status ?? null,
+        message: asString(v.error.message || v.error.error || v.error.detail).trim(),
+      },
+    };
+  }
+
+  if (Array.isArray(v)) {
+    const firstObj = v.find((item) => item && typeof item === "object") || null;
+    return {
+      company: firstObj,
+      sources: normalizeLocationSources(firstObj?.location_sources),
+      confidence: firstObj?.location_confidence
+        ? { location_confidence: normalizeLocationConfidence(firstObj.location_confidence) }
+        : null,
+      error: null,
+    };
+  }
+
+  const company = v.company && typeof v.company === "object" ? v.company : v;
+  const sources = Array.isArray(v.sources)
+    ? normalizeLocationSources(v.sources)
+    : normalizeLocationSources(company?.location_sources);
+  const confidence = v.confidence && typeof v.confidence === "object" ? v.confidence : null;
+
+  return { company, sources, confidence, error: null };
+}
+
+function parseXaiCompaniesResponse(text) {
+  const { value, parse_error } = extractJsonFromText(text);
+  const normalized = normalizeXaiEnrichmentValue(value);
+
+  if (normalized.error) {
+    return { companies: [], parse_error: null, upstream_error: normalized.error };
+  }
+
+  if (normalized.company && typeof normalized.company === "object") {
+    return { companies: [normalized.company], parse_error: parse_error || null };
+  }
+
+  if (Array.isArray(value)) {
+    const list = value.filter((item) => item && typeof item === "object");
+    return { companies: list, parse_error: parse_error || null };
+  }
+
+  return { companies: [], parse_error: parse_error || "No company object found" };
 }
 
 function buildPrompt({ companyName, websiteUrl, normalizedDomain }) {
@@ -230,21 +349,31 @@ Do NOT return competitors or similarly named companies.
 TARGET COMPANY HINTS:
 ${hints || "(no hints provided)"}
 
-FORMAT YOUR RESPONSE AS A VALID JSON ARRAY with EXACTLY 1 object. The object MUST have:
-- company_name (string)
-- website_url (string)
-- industries (array)
-- product_keywords (string): Comma-separated list of up to 25 concrete product keywords (real products/product lines/categories; avoid vague marketing terms)
-- headquarters_location (string): "City, State/Region, Country" (or "" if truly unknown)
-- manufacturing_locations (array): Array of location strings. Country-only is acceptable (e.g. "United States")
-- location_sources (array): Array of objects { location, source_url, source_type, location_type }
-- red_flag (boolean)
-- red_flag_reason (string)
-- tagline (string, optional)
-- social (object, optional): {linkedin, instagram, x, twitter, facebook, tiktok, youtube}
-- location_confidence (string, optional): "high", "medium", or "low"
+Return a SINGLE JSON OBJECT with this shape (and ONLY this JSON, no extra text):
+{
+  "company": {
+    "company_name": "...",
+    "website_url": "...",
+    "industries": ["..."],
+    "product_keywords": "...",
+    "headquarters_location": "City, State/Region, Country",
+    "manufacturing_locations": ["..."],
+    "location_sources": [{"location":"...","source_url":"...","source_type":"...","location_type":"..."}],
+    "red_flag": false,
+    "red_flag_reason": "...",
+    "tagline": "...",
+    "social": {"linkedin":"","instagram":"","x":"","twitter":"","facebook":"","tiktok":"","youtube":""},
+    "location_confidence": "high"
+  },
+  "sources": [{"location":"...","source_url":"...","source_type":"...","location_type":"..."}],
+  "confidence": {"overall": "high", "locations": "high", "notes": "briefly explain why"}
+}
 
-Return ONLY the JSON array, with no additional text.`;
+Notes:
+- Always include "company".
+- "sources" may duplicate company.location_sources; include it anyway.
+- If truly unknown, use empty strings/arrays but keep the keys.
+- Return ONLY valid JSON (no markdown).`;
 }
 
 function getCompaniesContainer() {
@@ -344,7 +473,10 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       asString(process.env.COSMOS_DB_COMPANIES_CONTAINER || process.env.COSMOS_CONTAINER).trim()
     ),
     XAI_EXTERNAL_BASE_SET: Boolean(asString(process.env.XAI_EXTERNAL_BASE || process.env.FUNCTION_URL).trim()),
-    XAI_EXTERNAL_KEY_SET: Boolean(asString(process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || process.env.XAI_API_KEY).trim()),
+    XAI_EXTERNAL_KEY_SET: Boolean(
+      asString(process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || process.env.XAI_API_KEY).trim()
+    ),
+    XAI_MODEL: asString(process.env.XAI_MODEL || process.env.XAI_CHAT_MODEL || "grok-4-latest").trim(),
     XAI_TIMEOUT_MS: xaiTimeoutMs,
   };
 
@@ -403,27 +535,65 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     const normalizedDomain = asString(existing.normalized_domain).trim() || toNormalizedDomain(websiteUrl);
 
     stage = "init_xai";
-    const xaiUrl = asString(deps.xaiUrl || getXAIEndpoint()).trim();
+    const xaiEndpointRaw = asString(deps.xaiUrl || getXAIEndpoint()).trim();
     const xaiKey = asString(deps.xaiKey || getXAIKey()).trim();
+    const xaiModel = asString(deps.xaiModel || process.env.XAI_MODEL || process.env.XAI_CHAT_MODEL || "grok-4-latest").trim();
+    const xaiUrl = asString(deps.resolvedXaiUrl || resolveXaiEndpointForModel(xaiEndpointRaw, xaiModel)).trim();
 
-    if (!xaiUrl || !xaiKey) {
-      return json(
-        {
-          ok: false,
-          stage,
-          error: "XAI not configured",
-          details: { message: "Set XAI_EXTERNAL_BASE and XAI_EXTERNAL_KEY" },
-          config,
-          elapsed_ms: Date.now() - startedAt,
+    const missing_env = [];
+    if (!xaiEndpointRaw) missing_env.push("XAI_EXTERNAL_BASE");
+    if (!xaiKey) missing_env.push("XAI_API_KEY");
+
+    let bad_base_url = false;
+    let endpoint_kind = "unknown";
+
+    try {
+      const u = new URL(xaiUrl);
+      const path = asString(u.pathname).toLowerCase();
+
+      endpoint_kind = path.includes("/proxy-xai") || path.includes("/api/xai") ? "proxy" : "direct";
+
+      const looksLikeChat = /\/v1\/chat\/completions\/?$/i.test(u.pathname || "");
+      const looksLikeResponses = /\/v1\/responses\/?$/i.test(u.pathname || "");
+      const looksLikeProxy = path.includes("/proxy-xai") || path.includes("/api/xai");
+
+      bad_base_url = !(looksLikeChat || looksLikeResponses || looksLikeProxy);
+    } catch {
+      bad_base_url = true;
+    }
+
+    if (missing_env.length || bad_base_url) {
+      stage = "config_error";
+      const hints = [
+        missing_env.includes("XAI_EXTERNAL_BASE") ? "Set XAI_EXTERNAL_BASE (or FUNCTION_URL) to a chat/completions endpoint." : null,
+        missing_env.includes("XAI_API_KEY") ? "Set XAI_API_KEY (or XAI_EXTERNAL_KEY / FUNCTION_KEY) to a valid key." : null,
+        bad_base_url ? "Ensure the xAI URL points to /v1/chat/completions (or a compatible proxy endpoint)." : null,
+        !xaiModel ? "Set XAI_MODEL to a valid model name (example: grok-4-latest)." : null,
+      ].filter(Boolean);
+
+      return json({
+        ok: false,
+        stage,
+        error: "xAI configuration error",
+        missing_env: missing_env.length ? missing_env : undefined,
+        bad_base_url: bad_base_url || undefined,
+        details: {
+          hints,
+          xai_endpoint: xaiEndpointRaw || null,
+          resolved_xai_endpoint: xaiUrl || null,
+          xai_model: xaiModel || null,
+          endpoint_kind,
         },
-        500
-      );
+        config,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+      });
     }
 
     const prompt = buildPrompt({ companyName, websiteUrl, normalizedDomain });
     const payload = {
       messages: [{ role: "user", content: prompt }],
-      model: "grok-4-latest",
+      model: xaiModel,
       temperature: 0.1,
       stream: false,
     };
@@ -442,48 +612,110 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         500
       );
     }
-    const resp = await axiosPost(xaiUrl, payload, {
-      headers: buildXaiHeaders(xaiUrl, xaiKey),
-      timeout: xaiTimeoutMs,
-      validateStatus: () => true,
-    });
+    let resp;
+
+    try {
+      resp = await axiosPost(xaiUrl, payload, {
+        headers: buildXaiHeaders(xaiUrl, xaiKey),
+        timeout: xaiTimeoutMs,
+        validateStatus: () => true,
+      });
+    } catch (e) {
+      stage = "upstream_error";
+      return json({
+        ok: false,
+        stage,
+        error: "Upstream request failed",
+        upstream_status: 0,
+        details: {
+          message: asString(e?.message || e).trim() || "Request failed",
+          resolved_xai_endpoint: xaiUrl || null,
+        },
+        config,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+      });
+    }
+
+    const getAxiosHeader = (headers, name) => {
+      if (!headers || typeof headers !== "object") return "";
+      const target = asString(name).toLowerCase();
+      const key = Object.keys(headers).find((k) => asString(k).toLowerCase() === target);
+      return key ? asString(headers[key]).trim() : "";
+    };
+
+    const request_id =
+      getAxiosHeader(resp.headers, "x-request-id") ||
+      getAxiosHeader(resp.headers, "x-requestid") ||
+      getAxiosHeader(resp.headers, "request-id") ||
+      getAxiosHeader(resp.headers, "x-correlation-id") ||
+      "";
 
     stage = "parse_xai";
     const responseText =
       resp?.data?.choices?.[0]?.message?.content ||
       (typeof resp?.data === "string" ? resp.data : JSON.stringify(resp.data || {}));
 
-    const { companies, parse_error } = parseXaiCompaniesResponse(responseText);
+    const upstream_preview = asString(responseText).slice(0, 8000);
 
-    if (resp.status < 200 || resp.status >= 300) {
-      return json(
-        {
-          ok: false,
-          stage,
-          error: "Upstream enrichment failed",
-          status: resp.status,
-          details: { parse_error, upstream_preview: asString(responseText).slice(0, 8000) },
-          elapsed_ms: Date.now() - startedAt,
-        },
-        502
-      );
+    const { value: extractedValue, parse_error } = extractJsonFromText(responseText);
+    const normalized = normalizeXaiEnrichmentValue(extractedValue);
+
+    if (normalized.error) {
+      stage = "upstream_error";
+      return json({
+        ok: false,
+        stage,
+        error: "Upstream returned error",
+        upstream_status: Number(resp.status) || 0,
+        upstream_code: normalized.error.code ?? null,
+        upstream_message: normalized.error.message || null,
+        upstream_preview,
+        request_id: request_id || null,
+        config,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+      });
     }
 
-    if (!Array.isArray(companies) || companies.length === 0) {
-      return json(
-        {
-          ok: false,
-          stage,
-          error: "No proposed company returned",
-          details: { parse_error, upstream_preview: asString(responseText).slice(0, 8000) },
-          elapsed_ms: Date.now() - startedAt,
+    if (resp.status < 200 || resp.status >= 300) {
+      stage = "upstream_error";
+      return json({
+        ok: false,
+        stage,
+        error: `Upstream enrichment failed (HTTP ${Number(resp.status) || "?"})`,
+        upstream_status: Number(resp.status) || 0,
+        upstream_preview,
+        request_id: request_id || null,
+        details: {
+          parse_error: parse_error || null,
         },
-        502
-      );
+        config,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+      });
+    }
+
+    if (!normalized.company || typeof normalized.company !== "object") {
+      stage = "parse_xai";
+      return json({
+        ok: false,
+        stage,
+        error: "No proposed company returned",
+        upstream_status: Number(resp.status) || 0,
+        upstream_preview,
+        request_id: request_id || null,
+        details: {
+          parse_error: parse_error || "No company object found",
+        },
+        config,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+      });
     }
 
     stage = "build_proposed";
-    const proposed = buildProposedCompanyFromXaiResult(companies[0]);
+    const proposed = buildProposedCompanyFromXaiResult(normalized.company);
 
     // Tagline acquisition fix:
     // 1) confirm company name, 2) fetch official tagline for that confirmed name.
@@ -541,10 +773,17 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       company_id: companyId,
       elapsed_ms: Date.now() - startedAt,
       proposed,
+      upstream_status: Number(resp?.status) || 0,
+      request_id: request_id || null,
+      build_id: String(BUILD_INFO.build_id || ""),
       hints: {
         company_name: companyName,
         website_url: websiteUrl,
         normalized_domain: normalizedDomain,
+      },
+      enrichment: {
+        sources: Array.isArray(normalized.sources) ? normalized.sources : [],
+        confidence: normalized.confidence && typeof normalized.confidence === "object" ? normalized.confidence : null,
       },
       ...(tagline_meta ? { tagline_meta } : {}),
     });
@@ -555,16 +794,17 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       stack: e?.stack,
     });
 
-    return json(
-      {
-        ok: false,
-        stage,
-        error: e?.message || "Internal error",
-        config,
-        elapsed_ms: Date.now() - startedAt,
+    return json({
+      ok: false,
+      stage,
+      error: e?.message || "Internal error",
+      details: {
+        message: asString(e?.message || e).trim() || "Internal error",
       },
-      500
-    );
+      config,
+      build_id: String(BUILD_INFO.build_id || ""),
+      elapsed_ms: Date.now() - startedAt,
+    });
   }
 }
 
