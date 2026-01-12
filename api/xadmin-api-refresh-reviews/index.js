@@ -535,6 +535,7 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
       err.xai_request_id = request_id;
       err.upstream_error_body = upstream_error_body;
       err.payload_shape = payload_shape_for_log;
+      err.exclusion_telemetry = searchBuild.telemetry;
       throw err;
     }
 
