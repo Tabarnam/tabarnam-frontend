@@ -2343,10 +2343,18 @@ Rules:
       });
     }
 
+    const code = typeof e?.code === "string" && e.code.trim() ? e.code.trim() : "REVIEWS_EXCEPTION";
+
+    telemetry.upstream_error_code = code;
+    telemetry.upstream_error_message = e?.message || String(e);
+    telemetry.stage_status = String(code || "").toUpperCase().includes("TIMEOUT") ? "timed_out" : "upstream_unreachable";
+
     const out = [];
     out._fetch_ok = false;
-    out._fetch_error = e?.message || String(e);
-    out._fetch_error_code = typeof e?.code === "string" && e.code.trim() ? e.code.trim() : "REVIEWS_EXCEPTION";
+    out._fetch_error = telemetry.upstream_error_message;
+    out._fetch_error_code = code;
+    out._stage_status = telemetry.stage_status;
+    out._telemetry = telemetry;
     return out;
   }
 }
