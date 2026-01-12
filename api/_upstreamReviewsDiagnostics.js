@@ -39,6 +39,16 @@ function truncateText(s, maxLen) {
 function safeBodyPreview(data, { maxLen = 4000 } = {}) {
   if (data == null) return null;
 
+  const jsonPreviewOrTruncated = (obj) => {
+    try {
+      const json = JSON.stringify(obj);
+      if (json.length <= maxLen) return { kind: "json", preview: obj };
+      return { kind: "json_text", preview: truncateText(json, maxLen) };
+    } catch {
+      return { kind: "json", preview: obj };
+    }
+  };
+
   if (typeof data === "string") {
     const trimmed = data.trim();
     if (!trimmed) return null;
@@ -46,7 +56,7 @@ function safeBodyPreview(data, { maxLen = 4000 } = {}) {
     try {
       const parsed = JSON.parse(trimmed);
       if (parsed && typeof parsed === "object") {
-        return { kind: "json", preview: parsed };
+        return jsonPreviewOrTruncated(parsed);
       }
     } catch {
       // ignore
@@ -56,7 +66,7 @@ function safeBodyPreview(data, { maxLen = 4000 } = {}) {
   }
 
   if (data && typeof data === "object") {
-    return { kind: "json", preview: data };
+    return jsonPreviewOrTruncated(data);
   }
 
   return { kind: "text", preview: truncateText(String(data), maxLen) };
