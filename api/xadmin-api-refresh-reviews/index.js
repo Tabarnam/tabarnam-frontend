@@ -7,6 +7,12 @@ const {
 } = require("../_cosmosPartitionKey");
 const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../_shared");
 const { checkUrlHealthAndFetchText } = require("../_reviewQuality");
+const {
+  extractUpstreamRequestId,
+  safeBodyPreview,
+  redactReviewsUpstreamPayloadForLog,
+  classifyUpstreamFailure,
+} = require("../_upstreamReviewsDiagnostics");
 
 let axios;
 try {
@@ -118,24 +124,37 @@ function isAzureWebsitesUrl(rawUrl) {
   }
 }
 
+function retryableForRootCause(root_cause) {
+  const rc = asString(root_cause).trim();
+  if (!rc) return true;
+
+  // Per spec: upstream 4xx (except 429) should not be retryable by default.
+  if (rc === "upstream_4xx") return false;
+  if (rc === "client_bad_request") return false;
+
+  return true;
+}
+
 function classifyError(err, { xai_base_url, xai_key } = {}) {
+  if (err && typeof err === "object" && asString(err.root_cause).trim()) {
+    return asString(err.root_cause).trim();
+  }
+
   const msg = String(err?.message || err || "");
-  const status = err?.status || err?.response?.status || 0;
+  const statusRaw = err?.status || err?.response?.status || 0;
 
   const base = asString(xai_base_url).trim();
   const key = asString(xai_key).trim();
 
   if (!base || !key) return "missing_env";
-  if (status === 429) return "rate_limited";
-  if (status >= 500) return "upstream_5xx";
-  if (status >= 400) return "upstream_4xx";
+
+  const status = normalizeHttpStatus(statusRaw);
 
   const lower = msg.toLowerCase();
-  if (lower.includes("timeout") || lower.includes("timed out") || asString(err?.code) === "ECONNABORTED") return "timeout";
   if (lower.includes("parse")) return "parse_error";
-  if (status === 0) return "upstream_http_0";
 
-  return "unknown";
+  const failure = classifyUpstreamFailure({ upstream_status: status, err_code: err?.code });
+  return failure.stage_status;
 }
 
 function reviewKey(r) {
@@ -396,6 +415,29 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
   const companyName = asString(company?.company_name || company?.name).trim();
   const websiteUrl = asString(company?.website_url || company?.url).trim();
 
+  if (!companyName) {
+    const err = new Error("Missing company name");
+    err.status = 0;
+    err.root_cause = "client_bad_request";
+    throw err;
+  }
+
+  const websiteHost = (() => {
+    try {
+      const u = new URL(websiteUrl);
+      return asString(u.hostname).trim();
+    } catch {
+      return "";
+    }
+  })();
+
+  if (!websiteHost) {
+    const err = new Error("Invalid website_url (must be a valid URL with a hostname)");
+    err.status = 0;
+    err.root_cause = "client_bad_request";
+    throw err;
+  }
+
   const messages = [
     {
       role: "system",
@@ -445,6 +487,21 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
     stream: false,
   };
 
+  const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(payload);
+  try {
+    console.log(
+      JSON.stringify({
+        stage: "reviews_refresh",
+        route: "xadmin-api-refresh-reviews",
+        kind: "upstream_request",
+        upstream: xai_base_url,
+        payload_shape: payload_shape_for_log,
+      })
+    );
+  } catch {
+    // ignore
+  }
+
   const controller = new AbortController();
   const timeout = Math.max(5000, Math.min(120000, Math.trunc(Number(timeout_ms) || 65000)));
   const timeoutHandle = setTimeout(() => controller.abort(), timeout);
@@ -470,9 +527,20 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
     const status = Number(resp?.status) || 0;
 
     if (!(status >= 200 && status < 300)) {
+      const upstream_status = normalizeHttpStatus(status);
+      const request_id = extractUpstreamRequestId(resp?.headers);
+      const upstream_error_body = safeBodyPreview(resp?.data, { maxLen: 6000 });
+
+      const failure = classifyUpstreamFailure({ upstream_status });
+
       const err = new Error(`Upstream HTTP ${status}`);
       err.status = status;
       err.response = resp;
+      err.root_cause = failure.stage_status;
+      err.retryable = failure.retryable;
+      err.xai_request_id = request_id;
+      err.upstream_error_body = upstream_error_body;
+      err.payload_shape = payload_shape_for_log;
       throw err;
     }
 
@@ -542,7 +610,7 @@ async function handler(req, context) {
     } else {
       out.ok = false;
       out.root_cause = asString(out.root_cause).trim() || "unknown";
-      if (typeof out.retryable !== "boolean") out.retryable = true;
+      if (typeof out.retryable !== "boolean") out.retryable = retryableForRootCause(out.root_cause);
 
       if (out.upstream_status == null && out.root_cause === "upstream_http_0") {
         out.root_cause = "upstream_unreachable";
@@ -830,10 +898,40 @@ async function handler(req, context) {
         const upstream_status = normalizeHttpStatus(upstream_status_raw);
         const root_cause = classifyError(err, { xai_base_url, xai_key });
 
+        const normalized_root_cause = asString(root_cause).trim() || "unknown";
+        const retryable = typeof err?.retryable === "boolean" ? err.retryable : retryableForRootCause(normalized_root_cause);
+
+        const xai_request_id = asString(err?.xai_request_id).trim() || extractUpstreamRequestId(err?.response?.headers);
+        const upstream_error_body = err?.upstream_error_body || safeBodyPreview(err?.response?.data, { maxLen: 6000 });
+        const payload_shape = err?.payload_shape || null;
+
+        try {
+          console.error(
+            JSON.stringify({
+              stage: "reviews_refresh",
+              route: "xadmin-api-refresh-reviews",
+              kind: "upstream_error",
+              root_cause: normalized_root_cause,
+              retryable,
+              upstream_status,
+              xai_request_id,
+              upstream_error_body,
+              payload_shape,
+              message: asString(err?.message || err),
+            })
+          );
+        } catch {
+          // ignore
+        }
+
         warnings.push({
           stage: "reviews_refresh",
-          root_cause: upstream_status == null && root_cause === "upstream_http_0" ? "upstream_unreachable" : root_cause,
+          root_cause: normalized_root_cause,
           upstream_status,
+          retryable,
+          xai_request_id: xai_request_id || null,
+          upstream_error_body,
+          payload_shape,
           message: asString(err?.message || err),
         });
 
@@ -841,9 +939,24 @@ async function handler(req, context) {
         try {
           cursor.last_attempt_at = nowIso();
           cursor.last_error = {
-            root_cause: upstream_status == null && root_cause === "upstream_http_0" ? "upstream_unreachable" : root_cause,
+            root_cause: normalized_root_cause,
             upstream_status,
+            retryable,
+            xai_request_id: xai_request_id || null,
+            upstream_error_body,
+            payload_shape,
             message: asString(err?.message || err),
+          };
+          cursor.reviews_stage_status = normalized_root_cause;
+          cursor.reviews_telemetry = {
+            stage_status: normalized_root_cause,
+            upstream_status,
+            upstream_failure_buckets: {
+              upstream_4xx: normalized_root_cause === "upstream_4xx" ? 1 : 0,
+              upstream_5xx: normalized_root_cause === "upstream_5xx" ? 1 : 0,
+              upstream_rate_limited: normalized_root_cause === "upstream_rate_limited" ? 1 : 0,
+              upstream_unreachable: normalized_root_cause === "upstream_unreachable" ? 1 : 0,
+            },
           };
           await patchCompanyById(companiesContainer, company_id, company, { review_cursor: cursor });
         } catch {
