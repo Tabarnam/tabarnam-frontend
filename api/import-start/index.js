@@ -2279,12 +2279,40 @@ Rules:
 
     debug.kept = curated.length;
 
+    telemetry.review_saved_count = curated.length;
+
+    if (telemetry.stage_status === "unknown" || telemetry.stage_status === "ok") {
+      telemetry.stage_status =
+        curated.length === 0 && upstreamCandidateCount > 0 ? "no_valid_reviews_found" : "ok";
+    }
+
+    // Keep rejectedCount as the canonical, cheap-to-read number (telemetry holds the breakdown).
+    telemetry.review_candidates_rejected_count = rejectedCount;
+
+    console.log(
+      "[import-start][reviews_telemetry] " +
+        JSON.stringify({
+          company_name: companyName,
+          website_url: websiteUrl,
+          stage_status: telemetry.stage_status,
+          fetched: telemetry.review_candidates_fetched_count,
+          considered: telemetry.review_candidates_considered_count,
+          validated: telemetry.review_validated_count,
+          saved: telemetry.review_saved_count,
+          rejected: telemetry.review_candidates_rejected_count,
+          rejected_reasons: telemetry.review_candidates_rejected_reasons,
+          duplicate_host_used_as_fallback: telemetry.duplicate_host_used_as_fallback,
+          time_budget_exhausted: telemetry.time_budget_exhausted,
+          upstream_status: telemetry.upstream_status,
+        })
+    );
+
     console.log(
       `[import-start][reviews] company=${companyName} upstream_candidates=${upstreamCandidateCount} considered=${candidates.length} kept=${curated.length} rejected=${rejectedCount} parse_error=${parseError || ""}`
     );
 
     if (debugCollector) {
-      debugCollector.push(debug);
+      debugCollector.push({ ...debug, telemetry });
     }
 
     curated._candidate_count = upstreamCandidateCount;
@@ -2294,6 +2322,9 @@ Rules:
     curated._fetch_ok = !parseError;
     curated._fetch_error = parseError ? String(parseError) : null;
     curated._fetch_error_code = parseError ? "REVIEWS_PARSE_ERROR" : null;
+    curated._stage_status = telemetry.stage_status;
+    curated._telemetry = telemetry;
+
     return curated;
   } catch (e) {
     if (e instanceof AcceptedResponseError) throw e;
