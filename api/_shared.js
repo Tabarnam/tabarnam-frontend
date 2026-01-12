@@ -20,9 +20,18 @@ function normalizeXaiBaseUrl(raw) {
 }
 
 function getXAIEndpoint() {
-  const external = (process.env.XAI_EXTERNAL_BASE || "").trim();
-  const normalizedExternal = normalizeXaiBaseUrl(external);
-  if (normalizedExternal) return normalizedExternal;
+  const candidates = [
+    process.env.XAI_EXTERNAL_BASE,
+    process.env.XAI_INTERNAL_BASE, // alias
+    process.env.XAI_UPSTREAM_BASE,
+    process.env.XAI_BASE,
+  ];
+
+  for (const c of candidates) {
+    const raw = String(c || "").trim();
+    const normalized = normalizeXaiBaseUrl(raw);
+    if (normalized) return normalized;
+  }
 
   const fnUrl = (process.env.FUNCTION_URL || "").trim();
   if (fnUrl) {
@@ -124,8 +133,11 @@ function getProxyBase() {
   const primary = (process.env.XAI_PROXY_BASE || '').trim();
   if (primary) return primary;
 
-  const external = (process.env.XAI_EXTERNAL_BASE || '').trim();
-  if (external) return external;
+  const candidates = [process.env.XAI_EXTERNAL_BASE, process.env.XAI_INTERNAL_BASE, process.env.XAI_BASE];
+  for (const c of candidates) {
+    const raw = String(c || '').trim();
+    if (raw) return raw;
+  }
 
   return '';
 }
