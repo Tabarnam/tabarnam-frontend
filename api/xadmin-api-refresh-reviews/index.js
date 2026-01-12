@@ -398,6 +398,58 @@ function extractJsonObjectFromText(text) {
   return null;
 }
 
+function buildReviewsUpstreamPayload({ company, offset, limit, model } = {}) {
+  const companyName = asString(company?.company_name || company?.name).trim();
+  const websiteUrl = asString(company?.website_url || company?.url).trim();
+
+  const cappedLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit) || 3)));
+  const safeOffset = Math.max(0, Math.trunc(Number(offset) || 0));
+
+  const messages = [
+    {
+      role: "system",
+      content:
+        "You are a research assistant. Always respond with valid JSON only; no markdown, no prose. Do not wrap in backticks.",
+    },
+    {
+      role: "user",
+      content: `Find independent reviews about this company (or its products/services).\n\nCompany: ${companyName}\nWebsite: ${websiteUrl}\n\nReturn EXACTLY a single JSON object with this shape:\n{\n  \\\"reviews\\\": [ ... ],\n  \\\"next_offset\\\": number,\n  \\\"exhausted\\\": boolean\n}\n\nRules:\n- Return at most ${cappedLimit} review objects in \\\"reviews\\\".\n- Use \\\"offset\\\"=${safeOffset} to skip that many results from your internal ranking list so subsequent calls can page forward.\n- If there are no more results, set exhausted=true and return reviews: [].\n- Reviews MUST NOT be sourced from Amazon or Google.\n  - Exclude amazon.* domains, amzn.to\n  - Exclude google.* domains, g.co, goo.gl\n  - YouTube is allowed.\n- Prefer magazines, blogs, news sites, YouTube, X (Twitter), and Facebook posts/pages.\n- Each review must be an object with keys:\n  - source_name (string, optional)\n  - source_url (string, REQUIRED) — direct link to the specific article/video/post\n  - date (string, optional; prefer YYYY-MM-DD if known)\n  - excerpt (string, REQUIRED) — short excerpt/quote (1-2 sentences)\n- Output JSON only (no markdown).`,
+    },
+  ];
+
+  const companyHost = (() => {
+    try {
+      const u = new URL(websiteUrl);
+      return String(u.hostname || "").toLowerCase().replace(/^www\./, "");
+    } catch {
+      return "";
+    }
+  })();
+
+  const searchBuild = buildSearchParameters({
+    companyWebsiteHost: companyHost,
+    additionalExcludedHosts: [],
+  });
+
+  const messagesWithSpill = messages.map((m, idx) => {
+    if (idx !== 1) return m;
+    return {
+      ...m,
+      content: `${asString(m?.content).trim()}${searchBuild.prompt_exclusion_text || ""}`,
+    };
+  });
+
+  const payload = {
+    model: asString(model).trim() || null,
+    messages: messagesWithSpill,
+    search_parameters: searchBuild.search_parameters,
+    temperature: 0.2,
+    stream: false,
+  };
+
+  return { payload, searchBuild };
+}
+
 async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) {
   const { model, xai_base_url, xai_key } = extractXaiConfig();
 
