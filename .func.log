@@ -1,1 +1,9 @@
 npm warn exec The following package was not found and will be installed: azure-functions-core-tools@4.6.0
+Resolving worker runtime to 'node'.
+'local.settings.json' found in root directory (/root/app/code/api).
+
+
+Azure Functions Core Tools
+Core Tools Version:       4.6.0+ab90faafcab539d63cd3d0ce5faf1bca4395fccc (64-bit)
+Function Runtime Version: 4.1045.200.25556
+
