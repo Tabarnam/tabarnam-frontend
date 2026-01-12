@@ -2426,6 +2426,11 @@ Rules:
           duplicate_host_used_as_fallback: telemetry.duplicate_host_used_as_fallback,
           time_budget_exhausted: telemetry.time_budget_exhausted,
           upstream_status: telemetry.upstream_status,
+
+          excluded_websites_original_count: telemetry.excluded_websites_original_count,
+          excluded_websites_used_count: telemetry.excluded_websites_used_count,
+          excluded_websites_truncated: telemetry.excluded_websites_truncated,
+          excluded_hosts_spilled_to_prompt_count: telemetry.excluded_hosts_spilled_to_prompt_count,
         })
     );
 
