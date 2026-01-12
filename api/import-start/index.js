@@ -2325,6 +2325,9 @@ Rules:
     curated._stage_status = telemetry.stage_status;
     curated._telemetry = telemetry;
 
+    // Keep per-candidate debug lightweight; mostly useful when saved_count=0.
+    curated._candidates_debug = Array.isArray(debug.candidates) ? debug.candidates.slice(0, 10) : [];
+
     return curated;
   } catch (e) {
     if (e instanceof AcceptedResponseError) throw e;
