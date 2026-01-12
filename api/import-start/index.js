@@ -2072,7 +2072,7 @@ Rules:
     debug.kept = curated.length;
 
     console.log(
-      `[import-start][reviews] company=${companyName} upstream_candidates=${upstreamCandidateCount} considered=${candidates.length} kept=${curated.length} manual_kept=${manualKeptCount} rejected=${rejectedCount} parse_error=${parseError || ""}`
+      `[import-start][reviews] company=${companyName} upstream_candidates=${upstreamCandidateCount} considered=${candidates.length} kept=${curated.length} rejected=${rejectedCount} parse_error=${parseError || ""}`
     );
 
     if (debugCollector) {
