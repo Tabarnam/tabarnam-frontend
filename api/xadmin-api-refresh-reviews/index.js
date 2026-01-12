@@ -1015,7 +1015,7 @@ async function handler(req, context) {
     const upstream_status_raw = lastErr?.status || lastErr?.response?.status || 0;
     const upstream_status = normalizeHttpStatus(upstream_status_raw);
     const root_cause_raw = classifyError(lastErr, { xai_base_url, xai_key });
-    const root_cause = upstream_status == null && root_cause_raw === "upstream_http_0" ? "upstream_unreachable" : root_cause_raw;
+    const root_cause = asString(root_cause_raw).trim() || "unknown";
 
     return respond({
       ok: false,
@@ -1023,7 +1023,7 @@ async function handler(req, context) {
       company_id,
       root_cause,
       upstream_status,
-      retryable: true,
+      retryable: retryableForRootCause(root_cause),
       message: asString(lastErr?.message || lastErr || "Backend call failure"),
       warnings,
       build_id,
