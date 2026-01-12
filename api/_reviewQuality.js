@@ -496,17 +496,28 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
     };
   }
 
-  const evidence = extractEvidenceSnippets(text, matched, opts);
+  let evidence = extractEvidenceSnippets(text, matched, opts);
+
+  // Evidence extraction can fail on short/templated pages even when the brand is
+  // clearly mentioned. In that case, fall back to using the provided excerpt/title
+  // so we don't drop all reviews for a company.
   if (!evidence.length) {
+    const fallback = [];
+    if (candidateText) fallback.push(candidateText.slice(0, 240));
+    if (!fallback.length && titleText) fallback.push(titleText);
+
+    const match_confidence = computeMatchConfidence({ title, text, brandTerms: matched });
+
     return {
-      is_valid: false,
+      is_valid: true,
       link_status: health.link_status,
+      last_checked_at: new Date().toISOString(),
       brand_mentions_found: true,
       matched_brand_terms: matched,
-      evidence_snippets: [],
-      match_confidence: 0,
+      evidence_snippets: fallback,
+      match_confidence: Math.max(0.35, match_confidence || 0),
       final_url: health.final_url,
-      reason_if_rejected: "no evidence snippet could be extracted",
+      reason_if_rejected: null,
     };
   }
 
