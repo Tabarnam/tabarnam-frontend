@@ -919,6 +919,8 @@ async function handler(req, context) {
           timeout_ms: 65000,
         });
 
+        attempt_upstream_statuses.push(normalizeHttpStatus(upstream?._meta?.upstream_status));
+
         const incomingRaw = Array.isArray(upstream?.reviews) ? upstream.reviews : [];
         const incomingNormalized = incomingRaw.map(normalizeIncomingReview).filter(Boolean);
 
