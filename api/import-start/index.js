@@ -6367,7 +6367,12 @@ Output JSON only:
                   xaiKey,
                   timeout,
                   debugOutput ? debugOutput.reviews_debug : null,
-                  { setStage, postXaiJsonWithBudget: postXaiJsonWithBudgetRetry },
+                  {
+                    setStage,
+                    postXaiJsonWithBudget: postXaiJsonWithBudgetRetry,
+                    getRemainingMs,
+                    deadlineSafetyBufferMs: DEADLINE_SAFETY_BUFFER_MS,
+                  },
                   warnReviews
                 );
 
@@ -6911,7 +6916,12 @@ Return ONLY the JSON array, no other text.`,
                         xaiKey,
                         timeout,
                         debugOutput ? debugOutput.reviews_debug : null,
-                        { setStage, postXaiJsonWithBudget: postXaiJsonWithBudgetRetry },
+                        {
+                    setStage,
+                    postXaiJsonWithBudget: postXaiJsonWithBudgetRetry,
+                    getRemainingMs,
+                    deadlineSafetyBufferMs: DEADLINE_SAFETY_BUFFER_MS,
+                  },
                         warnReviews
                       );
 
