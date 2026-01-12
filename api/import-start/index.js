@@ -1782,6 +1782,12 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugColl
     }
   };
 
+  const getRemainingMs =
+    stageCtx && typeof stageCtx.getRemainingMs === "function" ? stageCtx.getRemainingMs : null;
+  const deadlineSafetyBufferMs =
+    stageCtx && Number.isFinite(Number(stageCtx.deadlineSafetyBufferMs)) ? Number(stageCtx.deadlineSafetyBufferMs) : 0;
+  const minValidationWindowMs = 9000;
+
   if (!companyName || !websiteUrl) {
     if (debugCollector) {
       debugCollector.push({
