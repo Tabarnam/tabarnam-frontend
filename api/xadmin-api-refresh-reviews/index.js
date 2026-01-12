@@ -460,35 +460,28 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
     }
   })();
 
-  const excludedWebsites = [
-    "amazon.com",
-    "www.amazon.com",
-    "amzn.to",
-    "google.com",
-    "www.google.com",
-    "g.co",
-    "goo.gl",
-    "yelp.com",
-    "www.yelp.com",
-    ...(companyHost ? [companyHost, `www.${companyHost}`] : []),
-  ];
+  const searchBuild = buildSearchParameters({
+    companyWebsiteHost: companyHost,
+    additionalExcludedHosts: [],
+  });
+
+  const messagesWithSpill = messages.map((m, idx) => {
+    if (idx !== 1) return m;
+    return {
+      ...m,
+      content: `${asString(m?.content).trim()}${searchBuild.prompt_exclusion_text || ""}`,
+    };
+  });
 
   const payload = {
     model,
-    messages,
-    search_parameters: {
-      mode: "on",
-      sources: [
-        { type: "web", excluded_websites: excludedWebsites },
-        { type: "news", excluded_websites: excludedWebsites },
-        { type: "x" },
-      ],
-    },
+    messages: messagesWithSpill,
+    search_parameters: searchBuild.search_parameters,
     temperature: 0.2,
     stream: false,
   };
 
-  const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(payload);
+  const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(payload, searchBuild.telemetry);
   try {
     console.log(
       JSON.stringify({
