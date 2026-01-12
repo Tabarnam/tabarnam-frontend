@@ -1733,6 +1733,55 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugColl
   const companyName = String(company?.company_name || company?.name || "").trim();
   const websiteUrl = String(company?.website_url || company?.url || "").trim();
 
+  const normalizeHttpUrlOrNull = (input) => {
+    const raw = typeof input === "string" ? input.trim() : input == null ? "" : String(input).trim();
+    if (!raw) return null;
+
+    try {
+      const u = raw.includes("://") ? new URL(raw) : new URL(`https://${raw}`);
+      if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+      u.hash = "";
+      return u.toString();
+    } catch {
+      return null;
+    }
+  };
+
+  const isDisallowedReviewSourceUrl = (url) => {
+    const raw = typeof url === "string" ? url.trim() : "";
+    if (!raw) return true;
+
+    try {
+      const u = new URL(raw);
+      const host = String(u.hostname || "").toLowerCase().replace(/^www\./, "");
+
+      // Amazon (disallowed)
+      if (host === "amzn.to" || host.endsWith(".amzn.to")) return true;
+      if (host === "amazon.com" || host.endsWith(".amazon.com")) return true;
+      if (host.endsWith(".amazon") || host.includes("amazon.")) return true;
+
+      // Google (disallowed) — but allow YouTube
+      if (host === "youtube.com" || host.endsWith(".youtube.com") || host === "youtu.be") return false;
+      if (host === "g.co" || host.endsWith(".g.co") || host === "goo.gl" || host.endsWith(".goo.gl")) return true;
+      if (host === "google.com" || host.endsWith(".google.com") || host.endsWith(".google")) return true;
+
+      return false;
+    } catch {
+      return true;
+    }
+  };
+
+  const inferSourceNameFromUrl = (url) => {
+    const raw = typeof url === "string" ? url.trim() : "";
+    if (!raw) return "";
+    try {
+      const u = new URL(raw);
+      return String(u.hostname || "").replace(/^www\./i, "");
+    } catch {
+      return "";
+    }
+  };
+
   if (!companyName || !websiteUrl) {
     if (debugCollector) {
       debugCollector.push({
@@ -1779,7 +1828,7 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugColl
   try {
     const reviewMessage = {
       role: "user",
-      content: `Find editorial/professional reviews about this company.
+      content: `Find independent reviews about this company (or its products/services).
 
 Company: ${companyName}
 Website: ${websiteUrl}
@@ -1793,13 +1842,20 @@ Return EXACTLY a single JSON object with this shape:
 }
 
 Rules:
-- Return at most 3 review objects in "reviews".
+- Return at most 2 review objects in "reviews".
 - Use offset=0.
 - If there are no results, set exhausted=true and return reviews: [].
-- Each review must be an object with keys: source, source_url, title, excerpt, rating, author, date.
-- source_url must be a direct article/review link (no homepages, search pages, categories).
-- Do not return consumer reviews (Amazon/Google/Yelp/testimonials).
-- JSON only.`,
+- Reviews MUST NOT be sourced from Amazon or Google.
+  - Exclude amazon.* domains, amzn.to
+  - Exclude google.* domains, g.co, goo.gl
+  - YouTube is allowed.
+- Prefer magazines, blogs, news sites, YouTube, X (Twitter), and Facebook posts/pages.
+- Each review must be an object with keys:
+  - source_name (string, optional)
+  - source_url (string, REQUIRED) — direct link to the specific article/video/post
+  - date (string, optional; prefer YYYY-MM-DD if known)
+  - excerpt (string, REQUIRED) — short excerpt/quote (1-2 sentences)
+- Output JSON only (no markdown).`,
     };
 
     const reviewPayload = {
@@ -1901,25 +1957,59 @@ Rules:
     }
 
     const candidatesUpstream = upstreamReviews.filter((r) => r && typeof r === "object");
-    const candidates = candidatesUpstream.slice(0, 3);
+    const candidates = candidatesUpstream.slice(0, 2);
     const upstreamCandidateCount = candidatesUpstream.length;
 
     const nowIso = new Date().toISOString();
     const curated = [];
 
     let rejectedCount = 0;
-    let manualKeptCount = 0;
 
     for (const r of candidates) {
-      const url = String(r.source_url || r.url || "").trim();
-      const title = String(r.title || "").trim();
+      const sourceUrlRaw = String(r?.source_url || r?.url || "").trim();
+      const excerptRaw = String(r?.excerpt || r?.text || r?.abstract || r?.summary || "").trim();
+      const sourceNameRaw = String(r?.source_name || r?.source || "").trim();
+      const dateRaw = String(r?.date || "").trim();
+
+      if (!sourceUrlRaw || !excerptRaw) {
+        rejectedCount += 1;
+        debug.candidates.push({
+          url: sourceUrlRaw,
+          title: "",
+          link_status: "missing_fields",
+          final_url: null,
+          is_valid: false,
+          matched_brand_terms: [],
+          match_confidence: 0,
+          evidence_snippets_count: 0,
+          reason_if_rejected: "Missing source_url or excerpt",
+        });
+        continue;
+      }
+
+      const normalizedCandidateUrl = normalizeHttpUrlOrNull(sourceUrlRaw);
+      if (!normalizedCandidateUrl || isDisallowedReviewSourceUrl(normalizedCandidateUrl)) {
+        rejectedCount += 1;
+        debug.candidates.push({
+          url: sourceUrlRaw,
+          title: "",
+          link_status: "disallowed_url",
+          final_url: null,
+          is_valid: false,
+          matched_brand_terms: [],
+          match_confidence: 0,
+          evidence_snippets_count: 0,
+          reason_if_rejected: "Disallowed or invalid source_url",
+        });
+        continue;
+      }
 
       if (stageCtx?.setStage) {
         stageCtx.setStage("validateReviews", {
           company_name: companyName,
           website_url: websiteUrl,
           normalized_domain: String(company?.normalized_domain || ""),
-          review_url: url,
+          review_url: normalizedCandidateUrl,
         });
       }
 
@@ -1928,10 +2018,10 @@ Rules:
           companyName,
           websiteUrl,
           normalizedDomain: company.normalized_domain || "",
-          url,
-          title,
+          url: normalizedCandidateUrl,
+          title: "",
         },
-        { timeoutMs: 8000, maxBytes: 60000, maxSnippets: 2, minWords: 10, maxWords: 25 }
+        { timeoutMs: 6000, maxBytes: 60000, maxSnippets: 2, minWords: 10, maxWords: 25 }
       ).catch((e) => ({
         is_valid: false,
         link_status: "blocked",
@@ -1945,8 +2035,8 @@ Rules:
 
       const evidenceCount = Array.isArray(v?.evidence_snippets) ? v.evidence_snippets.length : 0;
       debug.candidates.push({
-        url,
-        title,
+        url: normalizedCandidateUrl,
+        title: "",
         link_status: v?.link_status,
         final_url: v?.final_url,
         is_valid: Boolean(v?.is_valid),
@@ -1956,108 +2046,33 @@ Rules:
         reason_if_rejected: v?.reason_if_rejected,
       });
 
-      if (v?.is_valid === true) {
-        const show_to_users =
-          v.link_status === "ok" &&
-          (typeof v.match_confidence !== "number" || v.match_confidence >= 0.7);
-
-        const evidence = Array.isArray(v.evidence_snippets) ? v.evidence_snippets : [];
-        const evidenceSentence = evidence.length ? `Evidence: \"${evidence[0]}\".` : "";
-
-        const abstract = title
-          ? `The article \"${title}\" explicitly mentions ${companyName}. ${evidenceSentence}`.trim()
-          : `This article explicitly mentions ${companyName}. ${evidenceSentence}`.trim();
-
-        curated.push({
-          id: `xai_auto_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.trunc(Math.random() * 1e6)}`,
-          source: String(r.source || "editorial_site").trim() || "editorial_site",
-          source_url: v.final_url || url,
-          title,
-          excerpt: "",
-          abstract,
-          rating: r.rating || null,
-          author: String(r.author || "").trim(),
-          date: r.date || null,
-          created_at: nowIso,
-          last_updated_at: nowIso,
-          imported_via: "xai_import",
-
-          show_to_users,
-          is_public: show_to_users,
-          link_status: v.link_status,
-          last_checked_at: v.last_checked_at,
-          matched_brand_terms: v.matched_brand_terms,
-          evidence_snippets: v.evidence_snippets,
-          match_confidence: v.match_confidence,
-        });
+      const finalUrl = normalizeHttpUrlOrNull(v?.final_url || normalizedCandidateUrl) || normalizedCandidateUrl;
+      if (isDisallowedReviewSourceUrl(finalUrl)) {
+        rejectedCount += 1;
         continue;
       }
 
-      const finalUrl = String(v?.final_url || url || "").trim();
-      const host = (() => {
-        try {
-          return new URL(finalUrl).hostname;
-        } catch {
-          return "";
-        }
-      })();
+      const sourceName = sourceNameRaw || inferSourceNameFromUrl(finalUrl) || "Unknown Source";
 
-      const companyHost = (() => {
-        try {
-          return new URL(websiteUrl).hostname;
-        } catch {
-          return "";
-        }
-      })();
-
-      const excerpt = String(r.excerpt || r.abstract || r.text || "").trim();
-      const companyLower = companyName.toLowerCase();
-      const brandMentionedInCandidate =
-        (title && title.toLowerCase().includes(companyLower)) || (excerpt && excerpt.toLowerCase().includes(companyLower));
-
-      const shouldKeepForManual =
-        Boolean(!v?.is_valid) &&
-        Boolean(finalUrl) &&
-        Boolean(host) &&
-        Boolean(companyHost) &&
-        !isSameDomain(host, companyHost) &&
-        (v?.link_status === "blocked" || looksLikeReviewUrl(finalUrl) || brandMentionedInCandidate);
-
-      if (shouldKeepForManual) {
-        manualKeptCount += 1;
-        curated.push({
-          id: `xai_manual_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.trunc(Math.random() * 1e6)}`,
-          source: String(r.source || "editorial_site").trim() || "editorial_site",
-          source_url: finalUrl || url,
-          title,
-          excerpt: String(r.excerpt || "").trim(),
-          abstract: "",
-          rating: r.rating || null,
-          author: String(r.author || "").trim(),
-          date: r.date || null,
-          created_at: nowIso,
-          last_updated_at: nowIso,
-          imported_via: "xai_import",
-
-          show_to_users: false,
-          is_public: false,
-          needs_manual_review: true,
-          link_status: v?.link_status,
-          last_checked_at: v?.last_checked_at || nowIso,
-          matched_brand_terms: v?.matched_brand_terms || [],
-          evidence_snippets: v?.evidence_snippets || [],
-          match_confidence: typeof v?.match_confidence === "number" ? v.match_confidence : 0,
-          validation_reason: v?.reason_if_rejected || "blocked",
-        });
-      } else {
-        rejectedCount += 1;
-      }
+      curated.push({
+        id: `xai_auto_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.trunc(Math.random() * 1e6)}`,
+        source_name: sourceName,
+        source: sourceName,
+        source_url: finalUrl,
+        excerpt: excerptRaw,
+        date: dateRaw || null,
+        created_at: nowIso,
+        last_updated_at: nowIso,
+        imported_via: "xai_import",
+        show_to_users: true,
+        is_public: true,
+      });
     }
 
     debug.kept = curated.length;
 
     console.log(
-      `[import-start][reviews] company=${companyName} upstream_candidates=${upstreamCandidateCount} considered=${candidates.length} kept=${curated.length} manual_kept=${manualKeptCount} rejected=${rejectedCount} parse_error=${parseError || ""}`
+      `[import-start][reviews] company=${companyName} upstream_candidates=${upstreamCandidateCount} considered=${candidates.length} kept=${curated.length} rejected=${rejectedCount} parse_error=${parseError || ""}`
     );
 
     if (debugCollector) {

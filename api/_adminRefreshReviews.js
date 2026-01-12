@@ -307,30 +307,58 @@ function computeReviewHash(r) {
   return createHash("sha256").update(blob).digest("hex");
 }
 
+function isDisallowedReviewSourceUrl(url) {
+  const raw = asString(url).trim();
+  if (!raw) return true;
+
+  try {
+    const u = new URL(raw);
+    const host = asString(u.hostname).toLowerCase().replace(/^www\./, "");
+
+    // Amazon (disallowed)
+    if (host === "amzn.to" || host.endsWith(".amzn.to")) return true;
+    if (host === "amazon.com" || host.endsWith(".amazon.com")) return true;
+    if (host.endsWith(".amazon") || host.includes("amazon.")) return true;
+
+    // Google (disallowed) — but allow YouTube
+    if (host === "youtube.com" || host.endsWith(".youtube.com") || host === "youtu.be") return false;
+    if (host === "g.co" || host.endsWith(".g.co") || host === "goo.gl" || host.endsWith(".goo.gl")) return true;
+    if (host === "google.com" || host.endsWith(".google.com") || host.endsWith(".google")) return true;
+
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 function normalizeReviewCandidate(value) {
   const r = value && typeof value === "object" ? value : {};
 
   const source_url = normalizeWhitespace(r.source_url || r.url);
-  const title = normalizeWhitespace(r.title);
-  const excerpt = normalizeWhitespace(r.excerpt || r.abstract || r.text || r.summary);
-  const source = normalizeWhitespace(r.source || r.platform) || "professional_review";
-  const author = normalizeWhitespace(r.author || r.publication);
+  const excerpt = normalizeWhitespace(r.excerpt || r.text || r.abstract || r.summary);
+  const source_name = normalizeWhitespace(r.source_name || r.source || r.platform || r.site);
   const date = normalizeWhitespace(r.date);
 
-  const ratingRaw = r.rating;
-  const rating = typeof ratingRaw === "number" && Number.isFinite(ratingRaw) ? ratingRaw : null;
+  // New rules: url + excerpt are mandatory.
+  if (!source_url || !excerpt) return null;
 
-  if (!source_url && !title && !excerpt) return null;
+  const normalizedUrl = normalizeUrl(source_url);
+  if (!normalizedUrl || isDisallowedReviewSourceUrl(normalizedUrl)) return null;
 
   return {
     id: `proposed_${Date.now()}_${randomUUID()}`,
-    source,
-    source_url,
-    title,
+
+    // Canonical
+    source_name,
+    source_url: normalizedUrl,
     excerpt,
-    author,
     date: date || null,
-    rating,
+
+    // Back-compat fields used by parts of the UI/admin tools
+    source: source_name || "Unknown Source",
+    title: "",
+    author: "",
+    rating: null,
 
     // Filled after validation
     link_status: null,
@@ -354,42 +382,29 @@ function buildReviewsPrompt({ companyName, websiteUrl, industries, take, existin
     ? `\n\nALREADY IMPORTED REVIEWS (avoid duplicates):\n${existingContext}`
     : "";
 
-  return `You are a research assistant finding editorial and professional reviews.
-For this company, find and summarize up to ${take} editorial/professional reviews ONLY.
+  return `Find independent reviews about this company (or its products/services).
 
 ${hints || "(no company hints provided)"}
 
-CRITICAL REVIEW SOURCE REQUIREMENTS:
-You MUST ONLY include editorial and professional sources. Do NOT include:
-- Amazon customer reviews
-- Google/Yelp reviews
-- Customer testimonials or user-generated content
-- Social media comments
-
-ONLY accept reviews from:
-- Magazines and industry publications
-- News outlets and journalists
-- Professional review websites
-- Independent testing labs (ConsumerLab, Labdoor, etc.)
-- Health/product analysis sites
-- Major retailer editorial content (blogs, articles written in editorial voice)
-- Company blog articles written in editorial/educational voice
+SOURCE RULES:
+- Reviews MUST NOT be sourced from Amazon or Google.
+  - Exclude amazon.* domains, amzn.to
+  - Exclude google.* domains, g.co, goo.gl
+  - YouTube is allowed.
+- Magazines, blogs, news sites, YouTube, X (Twitter), and Facebook posts/pages are all acceptable.
 
 Return a JSON array of review objects. Each review object MUST be:
 {
-  "source": "magazine|editorial_site|lab_test|news|professional_review",
-  "source_url": "https://example.com/article",
-  "title": "Article/review headline",
-  "excerpt": "1-2 sentence summary of the editorial analysis or findings",
-  "rating": null,
-  "author": "Publication name or author name",
-  "date": "YYYY-MM-DD"
+  "source_name": "Name of publication/channel/account (optional)",
+  "source_url": "https://example.com/article-or-post" (REQUIRED),
+  "date": "YYYY-MM-DD" (optional; omit if unknown),
+  "excerpt": "Short excerpt/quote (1-2 sentences)" (REQUIRED)
 }
 
 IMPORTANT LINK RULES:
-- "source_url" must be a DIRECT link to the specific article/review page.
-- Do NOT return homepages, category pages, search pages, or social media URLs.
-- If you are not confident the exact article URL is correct, omit that review.
+- "source_url" must be a DIRECT link to the specific article/video/post.
+- Do NOT return homepages, category pages, or search pages.
+- If you are not confident the exact URL is correct, omit that item.
 
 Return ONLY the JSON array and no other text.${existingBlock}`;
 }
@@ -407,31 +422,29 @@ function buildReviewsPromptFallback({ companyName, websiteUrl, industries, take,
     ? `\n\nALREADY IMPORTED REVIEWS (avoid duplicates):\n${existingContext}`
     : "";
 
-  return `You are a research assistant finding professional and editorial commentary.
-For this company, find and summarize up to ${take} credible non-user reviews, articles, or product roundups.
+  return `Find independent reviews about this company (or its products/services).
 
 ${hints || "(no company hints provided)"}
 
 RULES:
-- Do NOT include Amazon customer reviews, Yelp/Google reviews, or social media comments.
-- Prefer reputable publications, labs, journalists, and retailer editorial content.
-- If the company has little coverage, include credible third-party articles that discuss the company/products.
+- Reviews MUST NOT be sourced from Amazon or Google.
+  - Exclude amazon.* domains, amzn.to
+  - Exclude google.* domains, g.co, goo.gl
+  - YouTube is allowed.
+- If the company has little coverage, include credible third-party mentions from blogs, news, YouTube, X (Twitter), and Facebook.
 
 Return a JSON array of objects:
 {
-  "source": "magazine|editorial_site|lab_test|news|professional_review",
-  "source_url": "https://example.com/article",
-  "title": "Article headline",
-  "excerpt": "1-2 sentence summary",
-  "rating": null,
-  "author": "Publication or author",
-  "date": "YYYY-MM-DD"
+  "source_name": "Name of publication/channel/account (optional)",
+  "source_url": "https://example.com/article-or-post" (REQUIRED),
+  "date": "YYYY-MM-DD" (optional; omit if unknown),
+  "excerpt": "Short excerpt/quote (1-2 sentences)" (REQUIRED)
 }
 
 IMPORTANT LINK RULES:
-- "source_url" must be a DIRECT link to the specific article page.
-- Do NOT return homepages, category pages, search pages, or social media URLs.
-- If you are not confident the exact article URL is correct, omit that item.
+- "source_url" must be a DIRECT link to the specific article/video/post.
+- Do NOT return homepages, category pages, or search pages.
+- If you are not confident the exact URL is correct, omit that item.
 
 Return ONLY the JSON array and no other text.${existingBlock}`;
 }

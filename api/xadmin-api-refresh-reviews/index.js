@@ -175,6 +175,89 @@ function dedupe(existing = [], incoming = []) {
   return out;
 }
 
+function normalizeHttpUrlOrNull(input) {
+  const raw = asString(input).trim();
+  if (!raw) return null;
+
+  try {
+    const u = raw.includes("://") ? new URL(raw) : new URL(`https://${raw}`);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    u.hash = "";
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+function isDisallowedReviewSourceUrl(url) {
+  const raw = asString(url).trim();
+  if (!raw) return true;
+
+  try {
+    const u = new URL(raw);
+    const host = asString(u.hostname).toLowerCase().replace(/^www\./, "");
+
+    // Amazon (disallowed)
+    if (host === "amzn.to" || host.endsWith(".amzn.to")) return true;
+    if (host === "amazon.com" || host.endsWith(".amazon.com")) return true;
+    if (host.endsWith(".amazon") || host.includes("amazon.")) return true;
+
+    // Google (disallowed) — but allow YouTube
+    if (host === "youtube.com" || host.endsWith(".youtube.com") || host === "youtu.be") return false;
+    if (host === "g.co" || host.endsWith(".g.co") || host === "goo.gl" || host.endsWith(".goo.gl")) return true;
+    if (host === "google.com" || host.endsWith(".google.com") || host.endsWith(".google")) return true;
+
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function inferSourceNameFromUrl(url) {
+  const raw = asString(url).trim();
+  if (!raw) return "";
+  try {
+    const u = new URL(raw);
+    return asString(u.hostname).replace(/^www\./i, "");
+  } catch {
+    return "";
+  }
+}
+
+function normalizeIncomingReview(r) {
+  const obj = r && typeof r === "object" ? r : {};
+
+  const urlRaw = asString(obj.source_url || obj.url).trim();
+  const excerptRaw = asString(obj.excerpt || obj.text || obj.abstract || obj.summary).trim();
+  const dateRaw = asString(obj.date).trim();
+  const sourceNameRaw = asString(obj.source_name || obj.source).trim();
+
+  // New rules: url + excerpt are mandatory.
+  if (!urlRaw || !excerptRaw) return null;
+
+  const source_url = normalizeHttpUrlOrNull(urlRaw);
+  if (!source_url || isDisallowedReviewSourceUrl(source_url)) return null;
+
+  const now = nowIso();
+  const source_name = sourceNameRaw || inferSourceNameFromUrl(source_url) || "Unknown Source";
+
+  return {
+    source_name,
+    source: source_name,
+    source_url,
+    url: source_url,
+    excerpt: excerptRaw,
+    abstract: excerptRaw,
+    text: excerptRaw,
+    date: dateRaw || null,
+    created_at: now,
+    last_updated_at: now,
+    imported_via: "xai_reviews_refresh",
+    show_to_users: true,
+    is_public: true,
+  };
+}
+
 function getCosmosEnv(k, fallback = "") {
   const v = process.env[k];
   return (v == null ? fallback : String(v)).trim();
@@ -320,7 +403,7 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
     },
     {
       role: "user",
-      content: `Find editorial/professional reviews about this company.\n\nCompany: ${companyName}\nWebsite: ${websiteUrl}\n\nReturn EXACTLY a single JSON object with this shape:\n{\n  \"reviews\": [ ... ],\n  \"next_offset\": number,\n  \"exhausted\": boolean\n}\n\nRules:\n- Return at most ${Math.max(1, Math.min(50, Math.trunc(Number(limit) || 3)))} review objects in \"reviews\".\n- Use \"offset\"=${Math.max(0, Math.trunc(Number(offset) || 0))} to skip that many results from your internal ranking list so subsequent calls can page forward.\n- If there are no more results, set exhausted=true and return reviews: [].\n- Each review must be an object with keys: source, source_url, title, excerpt, rating, author, date.\n- source_url must be a direct article/review link (no homepages, search pages, categories).\n- Do not return consumer reviews (Amazon/Google/Yelp/testimonials).\n- JSON only.`,
+      content: `Find independent reviews about this company (or its products/services).\n\nCompany: ${companyName}\nWebsite: ${websiteUrl}\n\nReturn EXACTLY a single JSON object with this shape:\n{\n  \"reviews\": [ ... ],\n  \"next_offset\": number,\n  \"exhausted\": boolean\n}\n\nRules:\n- Return at most ${Math.max(1, Math.min(50, Math.trunc(Number(limit) || 3)))} review objects in \"reviews\".\n- Use \"offset\"=${Math.max(0, Math.trunc(Number(offset) || 0))} to skip that many results from your internal ranking list so subsequent calls can page forward.\n- If there are no more results, set exhausted=true and return reviews: [].\n- Reviews MUST NOT be sourced from Amazon or Google.\n  - Exclude amazon.* domains, amzn.to\n  - Exclude google.* domains, g.co, goo.gl\n  - YouTube is allowed.\n- Prefer magazines, blogs, news sites, YouTube, X (Twitter), and Facebook posts/pages.\n- Each review must be an object with keys:\n  - source_name (string, optional)\n  - source_url (string, REQUIRED) — direct link to the specific article/video/post\n  - date (string, optional; prefer YYYY-MM-DD if known)\n  - excerpt (string, REQUIRED) — short excerpt/quote (1-2 sentences)\n- Output JSON only (no markdown).`,
     },
   ];
 
@@ -622,7 +705,8 @@ async function handler(req, context) {
           timeout_ms: 65000,
         });
 
-        const incoming = Array.isArray(upstream?.reviews) ? upstream.reviews : [];
+        const incomingRaw = Array.isArray(upstream?.reviews) ? upstream.reviews : [];
+        const incoming = incomingRaw.map(normalizeIncomingReview).filter(Boolean);
         fetched_count_total += incoming.length;
 
         const existing = Array.isArray(company.curated_reviews) ? company.curated_reviews : [];
