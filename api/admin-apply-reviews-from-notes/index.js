@@ -500,13 +500,14 @@ async function adminApplyReviewsFromNotesHandler(req, context, deps = {}) {
     );
   }
 
-  const notes = asString(company?.notes).trim();
+  const notesOverride = asString(body?.notes_text ?? body?.notesText ?? "").trim();
+  const notes = notesOverride || asString(company?.notes).trim();
   if (!notes) {
     return json(
       {
         ok: false,
         root_cause: "parse_error",
-        message: "Company notes are empty",
+        message: "Notes are empty",
         retryable: false,
         warnings: [],
       },
