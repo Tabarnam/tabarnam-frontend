@@ -1744,10 +1744,14 @@ function buildReviewsUpstreamPayloadForImportStart({ reviewMessage, companyWebsi
     additionalExcludedHosts: [],
   });
 
+  const role = typeof reviewMessage?.role === "string" ? reviewMessage.role.trim() : "";
+  const contentRaw =
+    typeof reviewMessage?.content === "string" ? reviewMessage.content : reviewMessage?.content == null ? "" : String(reviewMessage.content);
+
   const messageWithSpill = {
     ...(reviewMessage && typeof reviewMessage === "object" ? reviewMessage : { role: "user" }),
-    role: asString(reviewMessage?.role).trim() || "user",
-    content: `${asString(reviewMessage?.content).trim()}${searchBuild.prompt_exclusion_text || ""}`,
+    role: role || "user",
+    content: `${contentRaw.trim()}${searchBuild.prompt_exclusion_text || ""}`,
   };
 
   const reviewPayload = {
