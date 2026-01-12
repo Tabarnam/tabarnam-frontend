@@ -2029,6 +2029,21 @@ Rules:
       stream: false,
     };
 
+    const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(reviewPayload);
+    try {
+      console.log(
+        "[import-start][reviews_upstream_request] " +
+          JSON.stringify({
+            stage: "reviews",
+            route: "import-start",
+            upstream: toHostPathOnlyForLog(xaiUrl),
+            payload_shape: payload_shape_for_log,
+          })
+      );
+    } catch {
+      // ignore
+    }
+
     console.log(
       `[import-start] Fetching editorial reviews for ${companyName} (upstream=${toHostPathOnlyForLog(xaiUrl)})`
     );
