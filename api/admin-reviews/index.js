@@ -106,6 +106,7 @@ app.http('adminReviews', {
 
         const {
           company: companyName,
+          company_id,
           source,
           abstract,
           url,
@@ -116,7 +117,8 @@ app.http('adminReviews', {
           title,
         } = body;
 
-        if (!companyName) return json({ error: "company required" }, 400);
+        const requestedCompany = String(company_id || companyName || "").trim();
+        if (!requestedCompany) return json({ error: "company or company_id required" }, 400);
         if (!source) return json({ error: "source required" }, 400);
         if (!abstract) return json({ error: "abstract required" }, 400);
 
