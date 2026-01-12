@@ -568,7 +568,10 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
           : Array.isArray(normalized.reviews)
             ? normalized.reviews.length === 0
             : true,
-      _meta: { upstream_status: status },
+      _meta: {
+        upstream_status: status,
+        ...(searchBuild?.telemetry && typeof searchBuild.telemetry === "object" ? searchBuild.telemetry : {}),
+      },
     };
   } finally {
     clearTimeout(timeoutHandle);
