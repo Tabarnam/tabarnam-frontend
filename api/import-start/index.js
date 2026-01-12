@@ -2096,10 +2096,14 @@ Rules:
 
       if (!sourceUrlRaw || !excerptRaw) {
         rejectedCount += 1;
+        incReason("missing_fields");
         debug.candidates.push({
           url: sourceUrlRaw,
-          title: titleRaw,
+          title_raw: titleRaw,
+          excerpt_preview: excerptRaw ? excerptRaw.slice(0, 200) : "",
+          rejection_bucket: "missing_fields",
           link_status: "missing_fields",
+          fetch_status: null,
           final_url: null,
           is_valid: false,
           matched_brand_terms: [],
