@@ -6572,6 +6572,7 @@ Output JSON only:
                   count: curated.length,
                   exhausted: cursorExhausted,
                   last_error: cursorError,
+                  prev_cursor: companyForReviews.review_cursor,
                 });
 
                 // Persist candidate/rejection telemetry for retries and diagnostics.
@@ -7216,11 +7217,12 @@ Return ONLY the JSON array, no other text.`,
                         : null;
 
                       const cursor = buildReviewCursor({
-                        nowIso: nowReviewsIso,
-                        count: curated.length,
-                        exhausted: cursorExhausted,
-                        last_error: cursorError,
-                      });
+                  nowIso: nowReviewsIso,
+                  count: curated.length,
+                  exhausted: cursorExhausted,
+                  last_error: cursorError,
+                  prev_cursor: companyForReviews.review_cursor,
+                });
 
                       cursor._candidate_count = candidateCount;
                       if (rejectedCount != null) cursor._rejected_count = rejectedCount;
