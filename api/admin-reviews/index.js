@@ -69,24 +69,31 @@ app.http('adminReviews', {
 
     try {
       if (method === "GET") {
-        if (!company) return json({ error: "company parameter required" }, 400);
+        const requested = String(company_id || company || "").trim();
+        if (!requested) return json({ error: "company or company_id parameter required" }, 400);
 
-        const sql = `SELECT TOP 1 c.company_name, c.curated_reviews FROM c WHERE c.company_name = @company ORDER BY c._ts DESC`;
+        const sql = `SELECT TOP 1 c.company_name, c.curated_reviews FROM c WHERE c.id = @id OR c.company_id = @id OR c.companyId = @id OR c.company_name = @company ORDER BY c._ts DESC`;
         const { resources } = await container.items
           .query(
-            { query: sql, parameters: [{ name: "@company", value: company }] },
+            {
+              query: sql,
+              parameters: [
+                { name: "@id", value: requested },
+                { name: "@company", value: String(company || requested) },
+              ],
+            },
             { enableCrossPartitionQuery: true }
           )
           .fetchAll();
 
         if (!resources || !resources.length) {
-          return json({ company, reviews: [] }, 200);
+          return json({ company: requested, reviews: [] }, 200);
         }
 
         const companyRecord = resources[0];
         const reviews = Array.isArray(companyRecord.curated_reviews) ? companyRecord.curated_reviews : [];
 
-        return json({ company, reviews }, 200);
+        return json({ company: companyRecord.company_name || requested, reviews }, 200);
       }
 
       if (method === "POST") {
