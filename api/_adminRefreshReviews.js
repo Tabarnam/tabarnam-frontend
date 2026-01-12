@@ -664,35 +664,22 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       }
     })();
 
-    const excludedWebsites = [
-      "amazon.com",
-      "www.amazon.com",
-      "amzn.to",
-      "google.com",
-      "www.google.com",
-      "g.co",
-      "goo.gl",
-      "yelp.com",
-      "www.yelp.com",
-      ...(companyHost ? [companyHost, `www.${companyHost}`] : []),
-    ];
+    const searchBuild = buildSearchParameters({
+      companyWebsiteHost: companyHost,
+      additionalExcludedHosts: [],
+    });
+
+    const promptWithSpill = `${prompt}${searchBuild.prompt_exclusion_text || ""}`;
 
     const payload = {
-      messages: [{ role: "user", content: prompt }],
+      messages: [{ role: "user", content: promptWithSpill }],
       model: xaiModel,
-      search_parameters: {
-        mode: "on",
-        sources: [
-          { type: "web", excluded_websites: excludedWebsites },
-          { type: "news", excluded_websites: excludedWebsites },
-          { type: "x" },
-        ],
-      },
+      search_parameters: searchBuild.search_parameters,
       temperature: 0.2,
       stream: false,
     };
 
-    const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(payload);
+    const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(payload, searchBuild.telemetry);
     try {
       console.log(
         JSON.stringify({
