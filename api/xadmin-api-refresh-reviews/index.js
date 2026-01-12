@@ -9,6 +9,8 @@ const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../_s
 const { checkUrlHealthAndFetchText } = require("../_reviewQuality");
 const {
   extractUpstreamRequestId,
+  extractContentType,
+  buildUpstreamBodyDiagnostics,
   safeBodyPreview,
   redactReviewsUpstreamPayloadForLog,
   classifyUpstreamFailure,
