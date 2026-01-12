@@ -60,6 +60,7 @@ app.http('adminReviews', {
 
     const url = new URL(req.url);
     const company = url.searchParams.get("company") || "";
+    const company_id = url.searchParams.get("company_id") || url.searchParams.get("companyId") || "";
 
     const container = getCompaniesContainer();
     if (!container) {
@@ -68,24 +69,31 @@ app.http('adminReviews', {
 
     try {
       if (method === "GET") {
-        if (!company) return json({ error: "company parameter required" }, 400);
+        const requested = String(company_id || company || "").trim();
+        if (!requested) return json({ error: "company or company_id parameter required" }, 400);
 
-        const sql = `SELECT TOP 1 c.company_name, c.curated_reviews FROM c WHERE c.company_name = @company ORDER BY c._ts DESC`;
+        const sql = `SELECT TOP 1 c.company_name, c.curated_reviews FROM c WHERE c.id = @id OR c.company_id = @id OR c.companyId = @id OR c.company_name = @company ORDER BY c._ts DESC`;
         const { resources } = await container.items
           .query(
-            { query: sql, parameters: [{ name: "@company", value: company }] },
+            {
+              query: sql,
+              parameters: [
+                { name: "@id", value: requested },
+                { name: "@company", value: String(company || requested) },
+              ],
+            },
             { enableCrossPartitionQuery: true }
           )
           .fetchAll();
 
         if (!resources || !resources.length) {
-          return json({ company, reviews: [] }, 200);
+          return json({ company: requested, reviews: [] }, 200);
         }
 
         const companyRecord = resources[0];
         const reviews = Array.isArray(companyRecord.curated_reviews) ? companyRecord.curated_reviews : [];
 
-        return json({ company, reviews }, 200);
+        return json({ company: companyRecord.company_name || requested, reviews }, 200);
       }
 
       if (method === "POST") {
@@ -98,6 +106,7 @@ app.http('adminReviews', {
 
         const {
           company: companyName,
+          company_id,
           source,
           abstract,
           url,
@@ -108,7 +117,8 @@ app.http('adminReviews', {
           title,
         } = body;
 
-        if (!companyName) return json({ error: "company required" }, 400);
+        const requestedCompany = String(company_id || companyName || "").trim();
+        if (!requestedCompany) return json({ error: "company or company_id required" }, 400);
         if (!source) return json({ error: "source required" }, 400);
         if (!abstract) return json({ error: "abstract required" }, 400);
 
@@ -130,10 +140,16 @@ app.http('adminReviews', {
           return json({ error: `Source "${source}" is excluded (Amazon/Google/Facebook)` }, 400);
         }
 
-        const sql = `SELECT * FROM c WHERE c.company_name = @company`;
+        const sql = `SELECT TOP 1 * FROM c WHERE c.id = @id OR c.company_id = @id OR c.companyId = @id OR c.company_name = @company ORDER BY c._ts DESC`;
         const { resources } = await container.items
           .query(
-            { query: sql, parameters: [{ name: "@company", value: companyName }] },
+            {
+              query: sql,
+              parameters: [
+                { name: "@id", value: requestedCompany },
+                { name: "@company", value: String(companyName || requestedCompany) },
+              ],
+            },
             { enableCrossPartitionQuery: true }
           )
           .fetchAll();
@@ -210,6 +226,7 @@ app.http('adminReviews', {
 
         const {
           company: companyName,
+          company_id,
           review_id,
           source,
           abstract,
@@ -221,14 +238,21 @@ app.http('adminReviews', {
           title,
         } = body;
 
-        if (!companyName || !review_id) {
-          return json({ error: "company and review_id required" }, 400);
+        const requestedCompany = String(company_id || companyName || "").trim();
+        if (!requestedCompany || !review_id) {
+          return json({ error: "company/company_id and review_id required" }, 400);
         }
 
-        const sql = `SELECT * FROM c WHERE c.company_name = @company`;
+        const sql = `SELECT TOP 1 * FROM c WHERE c.id = @id OR c.company_id = @id OR c.companyId = @id OR c.company_name = @company ORDER BY c._ts DESC`;
         const { resources } = await container.items
           .query(
-            { query: sql, parameters: [{ name: "@company", value: companyName }] },
+            {
+              query: sql,
+              parameters: [
+                { name: "@id", value: requestedCompany },
+                { name: "@company", value: String(companyName || requestedCompany) },
+              ],
+            },
             { enableCrossPartitionQuery: true }
           )
           .fetchAll();
@@ -338,16 +362,23 @@ app.http('adminReviews', {
           return json({ error: "Invalid JSON" }, 400);
         }
 
-        const { company: companyName, review_id } = body;
+        const { company: companyName, company_id, review_id } = body;
 
-        if (!companyName || !review_id) {
-          return json({ error: "company and review_id required" }, 400);
+        const requestedCompany = String(company_id || companyName || "").trim();
+        if (!requestedCompany || !review_id) {
+          return json({ error: "company/company_id and review_id required" }, 400);
         }
 
-        const sql = `SELECT * FROM c WHERE c.company_name = @company`;
+        const sql = `SELECT TOP 1 * FROM c WHERE c.id = @id OR c.company_id = @id OR c.companyId = @id OR c.company_name = @company ORDER BY c._ts DESC`;
         const { resources } = await container.items
           .query(
-            { query: sql, parameters: [{ name: "@company", value: companyName }] },
+            {
+              query: sql,
+              parameters: [
+                { name: "@id", value: requestedCompany },
+                { name: "@company", value: String(companyName || requestedCompany) },
+              ],
+            },
             { enableCrossPartitionQuery: true }
           )
           .fetchAll();

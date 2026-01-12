@@ -1928,10 +1928,20 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
   );
 });
 
-function ImportedReviewsPanel({ companyId, existingCuratedReviews, disabled, onDeleteSavedReview }) {
+function ImportedReviewsPanel({
+  companyId,
+  companyName,
+  existingCuratedReviews,
+  disabled,
+  onDeleteSavedReview,
+  onUpdateSavedReview,
+}) {
   const stableId = asString(companyId).trim();
+  const stableCompanyName = asString(companyName).trim();
   const savedItems = Array.isArray(existingCuratedReviews) ? existingCuratedReviews : [];
   const savedVisibleCount = savedItems.filter(isCuratedReviewPubliclyVisible).length;
+
+  const [visibilitySavingById, setVisibilitySavingById] = useState({});
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -1988,6 +1998,60 @@ function ImportedReviewsPanel({ companyId, existingCuratedReviews, disabled, onD
       setLoading(false);
     }
   }, [stableId]);
+
+  const toggleSavedReviewVisibility = useCallback(
+    async (review, nextVisible) => {
+      if (disabled) return;
+      const reviewId = asString(review?.id).trim();
+      if (!stableId || !reviewId) {
+        toast.error("Missing company_id or review id");
+        return;
+      }
+
+      setVisibilitySavingById((prev) => ({ ...(prev || {}), [reviewId]: true }));
+      try {
+        const res = await apiFetch("/xadmin-api-reviews", {
+          method: "PUT",
+          body: {
+            company_id: stableId,
+            ...(stableCompanyName ? { company: stableCompanyName } : {}),
+            review_id: reviewId,
+            show_to_users: Boolean(nextVisible),
+          },
+        });
+
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || body?.ok !== true) {
+          const msg =
+            asString(body?.error).trim() ||
+            asString(body?.message).trim() ||
+            (await getUserFacingConfigMessage(res)) ||
+            `Update failed (${res.status})`;
+          toast.error(msg);
+          return;
+        }
+
+        const updated = body?.review && typeof body.review === "object" ? body.review : null;
+        if (updated) {
+          onUpdateSavedReview?.(reviewId, updated);
+        } else {
+          onUpdateSavedReview?.(reviewId, { show_to_users: Boolean(nextVisible), is_public: Boolean(nextVisible) });
+        }
+
+        toast.success(Boolean(nextVisible) ? "Review is now visible" : "Review is now hidden");
+        await load();
+      } catch (e) {
+        toast.error(asString(e?.message).trim() || "Update failed");
+      } finally {
+        setVisibilitySavingById((prev) => {
+          const next = { ...(prev || {}) };
+          delete next[asString(review?.id).trim()];
+          return next;
+        });
+      }
+    },
+    [disabled, load, onUpdateSavedReview, stableCompanyName, stableId]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -2106,6 +2170,7 @@ function ImportedReviewsPanel({ companyId, existingCuratedReviews, disabled, onD
             ) : (
               <div className="space-y-3">
                 {savedItems.map((review, idx) => {
+                  const reviewId = asString(review?.id).trim();
                   const sourceName = getReviewSourceName(review) || "Unknown source";
                   const text = getReviewText(review);
                   const urlRaw = getReviewUrl(review);
@@ -2150,9 +2215,17 @@ function ImportedReviewsPanel({ companyId, existingCuratedReviews, disabled, onD
                             {publishable ? "Public" : "Not public"}
                           </span>
 
-                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
-                            {showToUsers ? "show_to_users" : "hidden"}
-                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 rounded-full px-2 py-0 text-[11px]"
+                            onClick={() => toggleSavedReviewVisibility(review, !showToUsers)}
+                            disabled={disabled || !reviewId || Boolean(visibilitySavingById?.[reviewId])}
+                            title="Toggle whether this review can appear on the public site"
+                          >
+                            {Boolean(visibilitySavingById?.[reviewId]) ? "Saving…" : showToUsers ? "show_to_users" : "hidden"}
+                          </Button>
 
                           {linkStatus ? (
                             <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700">
@@ -2407,6 +2480,265 @@ function StarNotesEditor({ star, onChange }) {
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function CuratedReviewsEditor({ value, onChange, disabled }) {
+  const list = Array.isArray(value) ? value : [];
+
+  const addReview = useCallback(() => {
+    const now = new Date().toISOString();
+    const id = `admin_manual_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    onChange([
+      {
+        id,
+        source: "admin_manual",
+        source_name: "",
+        author: "",
+        title: "",
+        source_url: "",
+        url: "",
+        excerpt: "",
+        abstract: "",
+        content: "",
+        date: "",
+        rating: null,
+        include_on_save: true,
+        show_to_users: true,
+        is_public: true,
+        created_at: now,
+        last_updated_at: now,
+      },
+      ...list,
+    ]);
+  }, [list, onChange]);
+
+  const removeReview = useCallback(
+    (idx) => {
+      onChange(list.filter((_, i) => i !== idx));
+    },
+    [list, onChange]
+  );
+
+  const moveReview = useCallback(
+    (idx, dir) => {
+      const next = [...list];
+      const to = idx + dir;
+      if (to < 0 || to >= next.length) return;
+      const tmp = next[idx];
+      next[idx] = next[to];
+      next[to] = tmp;
+      onChange(next);
+    },
+    [list, onChange]
+  );
+
+  const updateReview = useCallback(
+    (idx, patch) => {
+      const now = new Date().toISOString();
+      onChange(
+        list.map((r, i) => {
+          if (i !== idx) return r;
+          const base = r && typeof r === "object" ? r : {};
+          const merged = { ...base, ...(patch || {}), include_on_save: true, last_updated_at: now };
+
+          if (Object.prototype.hasOwnProperty.call(patch || {}, "show_to_users")) {
+            merged.is_public = Boolean(patch.show_to_users);
+          }
+          if (Object.prototype.hasOwnProperty.call(patch || {}, "is_public")) {
+            merged.show_to_users = Boolean(patch.is_public);
+          }
+
+          const urlRaw = asString(merged.source_url || merged.url).trim();
+          merged.source_url = urlRaw;
+          merged.url = urlRaw;
+
+          const text = asString(merged.excerpt || merged.abstract || merged.content).trim();
+          merged.excerpt = text;
+          merged.abstract = text;
+          merged.content = text;
+
+          return merged;
+        })
+      );
+    },
+    [list, onChange]
+  );
+
+  const hasAny = list.length > 0;
+
+  return (
+    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-slate-900">Admin reviews</div>
+          <div className="mt-1 text-xs text-slate-600">
+            Create/edit curated reviews. These can appear on the public company page when <code>show_to_users</code> is enabled.
+          </div>
+        </div>
+        <Button type="button" size="sm" onClick={addReview} disabled={disabled}>
+          <Plus className="h-4 w-4 mr-2" />
+          Add review
+        </Button>
+      </div>
+
+      {!hasAny ? (
+        <div className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+          No curated reviews yet.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {list.map((review, idx) => {
+            const showToUsers = normalizeIsPublicFlag(
+              review?.show_to_users ?? review?.showToUsers ?? review?.is_public ?? review?.visible_to_users ?? review?.visible,
+              true
+            );
+
+            const urlRaw = asString(review?.source_url || review?.url).trim();
+            const normalizedUrl = normalizeExternalUrl(urlRaw);
+            const urlIsInvalid = Boolean(urlRaw) && !normalizedUrl;
+
+            return (
+              <div key={asString(review?.id).trim() || `manual-${idx}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-slate-900 truncate">
+                      {asString(review?.source_name || review?.author || review?.source || "Review").trim() || "Review"}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-slate-500">
+                      {showToUsers ? "show_to_users" : "hidden"}
+                      {urlIsInvalid ? " • invalid URL" : ""}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => moveReview(idx, -1)}
+                      disabled={disabled || idx === 0}
+                      title="Move up"
+                    >
+                      ↑
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => moveReview(idx, 1)}
+                      disabled={disabled || idx === list.length - 1}
+                      title="Move down"
+                    >
+                      ↓
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="border-red-600 text-red-600 hover:bg-red-600 hover:text-white"
+                      onClick={() => removeReview(idx)}
+                      disabled={disabled}
+                      title="Delete review"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-slate-700">Source name</label>
+                    <Input
+                      value={asString(review?.source_name)}
+                      onChange={(e) => updateReview(idx, { source_name: e.target.value })}
+                      disabled={disabled}
+                      placeholder="Architectural Digest"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-slate-700">Author</label>
+                    <Input
+                      value={asString(review?.author)}
+                      onChange={(e) => updateReview(idx, { author: e.target.value })}
+                      disabled={disabled}
+                      placeholder="(optional)"
+                    />
+                  </div>
+
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-[11px] font-medium text-slate-700">Source URL</label>
+                    <Input
+                      value={asString(review?.source_url || review?.url)}
+                      onChange={(e) => updateReview(idx, { source_url: e.target.value, url: e.target.value })}
+                      disabled={disabled}
+                      placeholder="https://..."
+                    />
+                    {urlIsInvalid ? <div className="text-[11px] text-amber-800">URL is not a valid http(s) link.</div> : null}
+                  </div>
+
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-[11px] font-medium text-slate-700">Title</label>
+                    <Input
+                      value={asString(review?.title)}
+                      onChange={(e) => updateReview(idx, { title: e.target.value })}
+                      disabled={disabled}
+                      placeholder="(optional)"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-slate-700">Date</label>
+                    <Input
+                      value={asString(review?.date)}
+                      onChange={(e) => updateReview(idx, { date: e.target.value })}
+                      disabled={disabled}
+                      placeholder="YYYY-MM-DD"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-slate-700">Rating</label>
+                    <Input
+                      value={review?.rating == null ? "" : String(review.rating)}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const parsed = raw.trim() ? Number(raw) : null;
+                        updateReview(idx, { rating: parsed != null && Number.isFinite(parsed) ? parsed : null });
+                      }}
+                      disabled={disabled}
+                      placeholder="(optional)"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="flex items-start gap-2 text-sm text-slate-800">
+                      <Checkbox
+                        checked={Boolean(showToUsers)}
+                        onCheckedChange={(v) => updateReview(idx, { show_to_users: Boolean(v) })}
+                        disabled={disabled}
+                      />
+                      <span>Show to users</span>
+                    </label>
+                  </div>
+
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-[11px] font-medium text-slate-700">Excerpt</label>
+                    <Textarea
+                      value={asString(review?.excerpt || review?.abstract || review?.content)}
+                      onChange={(e) => updateReview(idx, { excerpt: e.target.value, abstract: e.target.value, content: e.target.value })}
+                      disabled={disabled}
+                      className="min-h-[110px]"
+                      placeholder="Write the review snippet..."
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -3576,6 +3908,46 @@ export default function CompanyDashboard() {
     });
   }, []);
 
+  const updateCuratedReviewInDraft = useCallback((reviewId, patchOrNext) => {
+    const id = asString(reviewId).trim();
+    if (!id) return;
+
+    setEditorDraft((prev) => {
+      if (!prev || typeof prev !== "object") return prev;
+
+      const list = Array.isArray(prev.curated_reviews) ? prev.curated_reviews : [];
+      const next = list.map((r) => {
+        if (asString(r?.id).trim() !== id) return r;
+
+        const patch =
+          typeof patchOrNext === "function" ? patchOrNext(r && typeof r === "object" ? r : {}) : patchOrNext || {};
+
+        const nextShow =
+          Object.prototype.hasOwnProperty.call(patch, "show_to_users") ||
+          Object.prototype.hasOwnProperty.call(patch, "is_public") ||
+          Object.prototype.hasOwnProperty.call(patch, "visible_to_users")
+            ? Boolean(patch.show_to_users ?? patch.is_public ?? patch.visible_to_users)
+            : undefined;
+
+        const merged = {
+          ...(r && typeof r === "object" ? r : {}),
+          ...(patch && typeof patch === "object" ? patch : {}),
+          last_updated_at: new Date().toISOString(),
+          include_on_save: true,
+        };
+
+        if (typeof nextShow === "boolean") {
+          merged.show_to_users = nextShow;
+          merged.is_public = nextShow;
+        }
+
+        return merged;
+      });
+
+      return { ...prev, curated_reviews: next };
+    });
+  }, []);
+
   const saveEditor = useCallback(async () => {
     if (!editorDraft) return;
 
@@ -3803,6 +4175,7 @@ export default function CompanyDashboard() {
         body: {
           mode,
           dry_run: dryRun,
+          notes_text: notes,
         },
       });
 
@@ -3830,15 +4203,21 @@ export default function CompanyDashboard() {
         return;
       }
 
-      // Refresh editor draft from the backend so the next normal Save doesn't overwrite curated_reviews.
+      // Refresh curated_reviews from the backend, but keep any other unsaved draft changes.
       try {
         const companyRes = await apiFetch(`/xadmin-api-companies/${encodeURIComponent(companyId)}`);
         const companyBody = await companyRes.json().catch(() => ({}));
         const company = companyBody?.company && typeof companyBody.company === "object" ? companyBody.company : null;
         if (company && typeof company === "object") {
-          setEditorDraft(buildCompanyDraft(company));
+          const curated = Array.isArray(company.curated_reviews) ? company.curated_reviews : [];
+          setEditorDraft((prev) => ({
+            ...(prev && typeof prev === "object" ? prev : {}),
+            curated_reviews: curated,
+            review_count: company.review_count ?? total,
+            reviews_last_updated_at: company.reviews_last_updated_at ?? new Date().toISOString(),
+          }));
           updateCompanyInState(companyId, {
-            curated_reviews: Array.isArray(company.curated_reviews) ? company.curated_reviews : [],
+            curated_reviews: curated,
             review_count: company.review_count,
             reviews_last_updated_at: company.reviews_last_updated_at,
           });
@@ -5086,6 +5465,12 @@ export default function CompanyDashboard() {
                             placeholder="Add a keyword…"
                           />
 
+                          <CuratedReviewsEditor
+                            value={Array.isArray(editorDraft.curated_reviews) ? editorDraft.curated_reviews : []}
+                            onChange={(next) => setEditorDraft((d) => ({ ...(d || {}), curated_reviews: next }))}
+                            disabled={editorSaving}
+                          />
+
                         </div>
 
                         <div className="space-y-5">
@@ -5172,9 +5557,11 @@ export default function CompanyDashboard() {
                               asString(editorOriginalId).trim() ||
                               asString(editorCompanyId).trim()
                             }
+                            companyName={asString(editorDraft.company_name).trim()}
                             existingCuratedReviews={Array.isArray(editorDraft.curated_reviews) ? editorDraft.curated_reviews : []}
                             disabled={editorSaving}
                             onDeleteSavedReview={deleteCuratedReviewFromDraft}
+                            onUpdateSavedReview={(reviewId, patch) => updateCuratedReviewInDraft(reviewId, patch)}
                           />
 
                           <CompanyNotesEditor
@@ -5214,7 +5601,7 @@ export default function CompanyDashboard() {
                                   onClick={applyReviewsFromNotes}
                                   disabled={
                                     notesToReviewsLoading ||
-                                    !asString(editorOriginalId).trim() ||
+                                    !(asString(editorDraft?.company_id).trim() || asString(editorOriginalId).trim()) ||
                                     !asString(editorDraft?.notes).trim()
                                   }
                                   title="Parse reviews out of the Notes field and save into curated_reviews"
