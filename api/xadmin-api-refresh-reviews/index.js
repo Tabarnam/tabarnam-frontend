@@ -616,7 +616,8 @@ async function handler(req, context) {
   try {
     const body = await readJsonBody(req);
     const company_id = asString(body?.company_id).trim();
-    const requestedTake = Math.max(1, Math.min(200, Math.trunc(Number(body?.take ?? body?.limit ?? 3) || 3)));
+    // New rule: we keep at most 2 curated reviews per company.
+    const requestedTake = Math.max(1, Math.min(2, Math.trunc(Number(body?.take ?? body?.limit ?? 2) || 2)));
 
     if (!company_id) {
       return respond({
