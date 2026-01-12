@@ -2186,8 +2186,11 @@ Rules:
       // Only persist validated reviews.
       if (v?.is_valid !== true) {
         rejectedCount += 1;
+        incReason(rejectionBucket || "validation_error_other");
         continue;
       }
+
+      telemetry.review_validated_count += 1;
 
       const finalUrl = normalizeHttpUrlOrNull(v?.final_url || normalizedCandidateUrl) || normalizedCandidateUrl;
       if (isDisallowedReviewSourceUrl(finalUrl)) {
