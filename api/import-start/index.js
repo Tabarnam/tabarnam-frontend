@@ -1748,6 +1748,8 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugColl
     bumpUpstreamFailureBucket,
   } = require("../_upstreamReviewsDiagnostics");
 
+  const { buildSearchParameters } = require("../_buildSearchParameters");
+
   const companyName = String(company?.company_name || company?.name || "").trim();
   const websiteUrl = String(company?.website_url || company?.url || "").trim();
 
@@ -2005,41 +2007,36 @@ Rules:
       return out;
     }
 
-    const excludedWebsites = [
-      // Hard blocks
-      "amazon.com",
-      "www.amazon.com",
-      "amzn.to",
-      "google.com",
-      "www.google.com",
-      "g.co",
-      "goo.gl",
-      "yelp.com",
-      "www.yelp.com",
-      // Also exclude the company's own site so results are independent.
-      ...(companyHostForSearch ? [companyHostForSearch, `www.${companyHostForSearch}`] : []),
-    ];
+    const searchBuild = buildSearchParameters({
+      companyWebsiteHost: companyHostForSearch,
+      additionalExcludedHosts: [],
+    });
+
+    if (searchBuild?.telemetry && typeof searchBuild.telemetry === "object") {
+      telemetry.excluded_websites_original_count = searchBuild.telemetry.excluded_websites_original_count;
+      telemetry.excluded_websites_used_count = searchBuild.telemetry.excluded_websites_used_count;
+      telemetry.excluded_websites_truncated = searchBuild.telemetry.excluded_websites_truncated;
+      telemetry.excluded_hosts_spilled_to_prompt_count = searchBuild.telemetry.excluded_hosts_spilled_to_prompt_count;
+    }
+
+    const messageWithSpill = {
+      ...reviewMessage,
+      content: `${String(reviewMessage?.content || "").trim()}${searchBuild.prompt_exclusion_text || ""}`,
+    };
 
     const reviewPayload = {
       model: "grok-4-latest",
       messages: [
         { role: "system", content: XAI_SYSTEM_PROMPT },
-        reviewMessage,
+        messageWithSpill,
       ],
       // Use xAI Live Search so the model returns *real* URLs instead of hallucinations.
-      search_parameters: {
-        mode: "on",
-        sources: [
-          { type: "web", excluded_websites: excludedWebsites },
-          { type: "news", excluded_websites: excludedWebsites },
-          { type: "x" },
-        ],
-      },
+      ...{ search_parameters: searchBuild.search_parameters },
       temperature: 0.2,
       stream: false,
     };
 
-    const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(reviewPayload);
+    const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(reviewPayload, searchBuild.telemetry);
     try {
       console.log(
         "[import-start][reviews_upstream_request] " +
@@ -2096,7 +2093,7 @@ Rules:
 
       const xai_request_id = extractUpstreamRequestId(response.headers);
       const upstream_error_body = safeBodyPreview(response.data, { maxLen: 6000 });
-      const payload_shape = redactReviewsUpstreamPayloadForLog(reviewPayload);
+      const payload_shape = redactReviewsUpstreamPayloadForLog(reviewPayload, searchBuild.telemetry);
 
       try {
         console.error(
