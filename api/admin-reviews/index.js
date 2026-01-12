@@ -226,6 +226,7 @@ app.http('adminReviews', {
 
         const {
           company: companyName,
+          company_id,
           review_id,
           source,
           abstract,
@@ -237,14 +238,21 @@ app.http('adminReviews', {
           title,
         } = body;
 
-        if (!companyName || !review_id) {
-          return json({ error: "company and review_id required" }, 400);
+        const requestedCompany = String(company_id || companyName || "").trim();
+        if (!requestedCompany || !review_id) {
+          return json({ error: "company/company_id and review_id required" }, 400);
         }
 
-        const sql = `SELECT * FROM c WHERE c.company_name = @company`;
+        const sql = `SELECT TOP 1 * FROM c WHERE c.id = @id OR c.company_id = @id OR c.companyId = @id OR c.company_name = @company ORDER BY c._ts DESC`;
         const { resources } = await container.items
           .query(
-            { query: sql, parameters: [{ name: "@company", value: companyName }] },
+            {
+              query: sql,
+              parameters: [
+                { name: "@id", value: requestedCompany },
+                { name: "@company", value: String(companyName || requestedCompany) },
+              ],
+            },
             { enableCrossPartitionQuery: true }
           )
           .fetchAll();
