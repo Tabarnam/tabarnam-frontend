@@ -2202,6 +2202,7 @@ Rules:
       const reviewHost = inferSourceNameFromUrl(finalUrl).toLowerCase().replace(/^www\./, "");
       if (companyHost && reviewHost && isSameDomain(reviewHost, companyHost)) {
         rejectedCount += 1;
+        incReason("self_domain");
         continue;
       }
 
