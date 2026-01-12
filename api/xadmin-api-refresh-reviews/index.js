@@ -986,6 +986,9 @@ async function handler(req, context) {
         cursor.reviews_telemetry = {
           stage_status: "ok",
           upstream_status: normalizeHttpStatus(upstreamMeta?.upstream_status),
+          attempts_count: i + 1,
+          recovered_on_attempt: i + 1 > 1,
+          attempt_upstream_statuses: attempt_upstream_statuses.slice(0, i + 1),
           upstream_failure_buckets: {
             upstream_4xx: 0,
             upstream_5xx: 0,
