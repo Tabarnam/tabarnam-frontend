@@ -1172,6 +1172,7 @@ async function handler(req, context) {
           // ignore
         }
 
+        if (!retryable) break;
         continue;
       }
     }
