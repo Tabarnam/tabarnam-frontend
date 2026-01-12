@@ -2031,7 +2031,7 @@ Rules:
         messageWithSpill,
       ],
       // Use xAI Live Search so the model returns *real* URLs instead of hallucinations.
-      ...{ search_parameters: searchBuild.search_parameters },
+      search_parameters: searchBuild.search_parameters,
       temperature: 0.2,
       stream: false,
     };
