@@ -308,7 +308,7 @@ export default function ExpandableCompanyRow({
 
   const getReviewsPreviews = () => {
     if (!company._reviews) return [];
-    return company._reviews.slice(0, 3);
+    return company._reviews.slice(0, 2);
   };
 
   const normalizeReview = (r) => {
