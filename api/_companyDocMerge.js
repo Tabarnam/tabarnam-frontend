@@ -117,9 +117,27 @@ function mergeCompanyDocsForSession({ existingDoc, incomingDoc, finalNormalizedD
 
   merged.manufacturing_geocodes = preferArray(incomingDoc.manufacturing_geocodes, existingDoc.manufacturing_geocodes);
 
-  merged.curated_reviews = preferArray(incomingDoc.curated_reviews, existingDoc.curated_reviews);
-  merged.review_count = preferNonZeroNumber(incomingDoc.review_count, existingDoc.review_count);
-  merged.reviews_last_updated_at = preferString(incomingDoc.reviews_last_updated_at, existingDoc.reviews_last_updated_at);
+  // Reviews should be treated as authoritative by recency.
+  // Previous behavior used preferArray(), which meant an import/refresh that found 0 valid reviews
+  // would *not* clear older, stale/broken reviews ("clog").
+  const incomingReviewsTs = Date.parse(String(incomingDoc.reviews_last_updated_at || "")) || 0;
+  const existingReviewsTs = Date.parse(String(existingDoc.reviews_last_updated_at || "")) || 0;
+  const incomingHasReviewsField = Object.prototype.hasOwnProperty.call(incomingDoc || {}, "curated_reviews");
+
+  if (incomingHasReviewsField && incomingReviewsTs >= existingReviewsTs) {
+    merged.curated_reviews = Array.isArray(incomingDoc.curated_reviews)
+      ? incomingDoc.curated_reviews
+      : [];
+
+    const incomingCount = Number(incomingDoc.review_count);
+    merged.review_count = Number.isFinite(incomingCount) ? incomingCount : merged.curated_reviews.length;
+    merged.reviews_last_updated_at = preferString(incomingDoc.reviews_last_updated_at, existingDoc.reviews_last_updated_at);
+  } else {
+    merged.curated_reviews = preferArray(incomingDoc.curated_reviews, existingDoc.curated_reviews);
+    merged.review_count = preferNonZeroNumber(incomingDoc.review_count, existingDoc.review_count);
+    merged.reviews_last_updated_at = preferString(incomingDoc.reviews_last_updated_at, existingDoc.reviews_last_updated_at);
+  }
+
   merged.review_cursor = preferObjectByRecency(incomingDoc.review_cursor, existingDoc.review_cursor);
 
   merged.red_flag = typeof incomingDoc.red_flag === "boolean" ? incomingDoc.red_flag : Boolean(existingDoc.red_flag);

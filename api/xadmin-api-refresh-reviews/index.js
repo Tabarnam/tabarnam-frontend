@@ -408,9 +408,39 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
     },
   ];
 
+  const companyHost = (() => {
+    try {
+      const u = new URL(websiteUrl);
+      return String(u.hostname || "").toLowerCase().replace(/^www\./, "");
+    } catch {
+      return "";
+    }
+  })();
+
+  const excludedWebsites = [
+    "amazon.com",
+    "www.amazon.com",
+    "amzn.to",
+    "google.com",
+    "www.google.com",
+    "g.co",
+    "goo.gl",
+    "yelp.com",
+    "www.yelp.com",
+    ...(companyHost ? [companyHost, `www.${companyHost}`] : []),
+  ];
+
   const payload = {
     model,
     messages,
+    search_parameters: {
+      mode: "on",
+      sources: [
+        { type: "web", excluded_websites: excludedWebsites },
+        { type: "news", excluded_websites: excludedWebsites },
+        { type: "x" },
+      ],
+    },
     temperature: 0.2,
     stream: false,
   };

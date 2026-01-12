@@ -1862,12 +1862,38 @@ Rules:
 - Output JSON only (no markdown).`,
     };
 
+    const companyHostForSearch = inferSourceNameFromUrl(websiteUrl).toLowerCase().replace(/^www\./, "");
+
+    const excludedWebsites = [
+      // Hard blocks
+      "amazon.com",
+      "www.amazon.com",
+      "amzn.to",
+      "google.com",
+      "www.google.com",
+      "g.co",
+      "goo.gl",
+      "yelp.com",
+      "www.yelp.com",
+      // Also exclude the company's own site so results are independent.
+      ...(companyHostForSearch ? [companyHostForSearch, `www.${companyHostForSearch}`] : []),
+    ];
+
     const reviewPayload = {
       model: "grok-4-latest",
       messages: [
         { role: "system", content: XAI_SYSTEM_PROMPT },
         reviewMessage,
       ],
+      // Use xAI Live Search so the model returns *real* URLs instead of hallucinations.
+      search_parameters: {
+        mode: "on",
+        sources: [
+          { type: "web", excluded_websites: excludedWebsites },
+          { type: "news", excluded_websites: excludedWebsites },
+          { type: "x" },
+        ],
+      },
       temperature: 0.2,
       stream: false,
     };
