@@ -4471,7 +4471,7 @@ export default function CompanyDashboard() {
               >
                 <div className="flex h-full min-h-0 flex-col">
                   <DialogHeader className="flex-none px-6 py-4 border-b bg-white">
-                    <DialogTitle>{editorOriginalId ? "Edit company v2" : "New company"}</DialogTitle>
+                    <DialogTitle>{editorOriginalId ? "Edit Company" : "New company"}</DialogTitle>
                     <DialogDescription className="sr-only">
                       Edit company details. Use Refresh search to fetch proposed updates.
                     </DialogDescription>
