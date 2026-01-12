@@ -6656,6 +6656,7 @@ Output JSON only:
                       code: "REVIEWS_EXCEPTION",
                       message: msg,
                     },
+                    prev_cursor: company.review_cursor,
                   }),
                 };
               }
