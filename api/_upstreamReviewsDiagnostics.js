@@ -72,8 +72,9 @@ function safeBodyPreview(data, { maxLen = 4000 } = {}) {
   return { kind: "text", preview: truncateText(String(data), maxLen) };
 }
 
-function redactReviewsUpstreamPayloadForLog(payload) {
+function redactReviewsUpstreamPayloadForLog(payload, meta) {
   const p = payload && typeof payload === "object" ? payload : {};
+  const m = meta && typeof meta === "object" ? meta : {};
 
   const messages = Array.isArray(p.messages) ? p.messages : [];
   const messages_redacted = messages
