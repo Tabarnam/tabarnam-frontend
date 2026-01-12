@@ -129,8 +129,8 @@ export default defineConfig(({ mode }) => {
   // If you're proxying to a protected Azure Functions backend during local dev,
   // this adds the function key at the dev-server layer (so it is NOT bundled to the client).
   const FUNCTIONS_KEY =
-    (process.env.XAI_EXTERNAL_KEY && String(process.env.XAI_EXTERNAL_KEY).trim()) ||
     (process.env.FUNCTION_KEY && String(process.env.FUNCTION_KEY).trim()) ||
+    (process.env.XAI_EXTERNAL_KEY && String(process.env.XAI_EXTERNAL_KEY).trim()) ||
     "";
 
   const proxyHeaders = isNonEmptyString(FUNCTIONS_KEY) ? { "x-functions-key": FUNCTIONS_KEY } : undefined;
