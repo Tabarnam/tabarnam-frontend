@@ -2039,9 +2039,9 @@ Rules:
       return out;
     }
 
-    const searchBuild = buildSearchParameters({
+    const { reviewPayload, searchBuild } = buildReviewsUpstreamPayloadForImportStart({
+      reviewMessage,
       companyWebsiteHost: companyHostForSearch,
-      additionalExcludedHosts: [],
     });
 
     if (searchBuild?.telemetry && typeof searchBuild.telemetry === "object") {
@@ -2050,23 +2050,6 @@ Rules:
       telemetry.excluded_websites_truncated = searchBuild.telemetry.excluded_websites_truncated;
       telemetry.excluded_hosts_spilled_to_prompt_count = searchBuild.telemetry.excluded_hosts_spilled_to_prompt_count;
     }
-
-    const messageWithSpill = {
-      ...reviewMessage,
-      content: `${String(reviewMessage?.content || "").trim()}${searchBuild.prompt_exclusion_text || ""}`,
-    };
-
-    const reviewPayload = {
-      model: "grok-4-latest",
-      messages: [
-        { role: "system", content: XAI_SYSTEM_PROMPT },
-        messageWithSpill,
-      ],
-      // Use xAI Live Search so the model returns *real* URLs instead of hallucinations.
-      search_parameters: searchBuild.search_parameters,
-      temperature: 0.2,
-      stream: false,
-    };
 
     const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(reviewPayload, searchBuild.telemetry);
     try {
