@@ -34,5 +34,5 @@ test("/api/xadmin-api-refresh-reviews returns 200 JSON ok:false if company_id mi
   const body = JSON.parse(res.body);
   assert.equal(body.ok, false);
   assert.equal(body.stage, "reviews_refresh");
-  assert.equal(body.root_cause, "bad_request");
+  assert.equal(body.root_cause, "client_bad_request");
 });
