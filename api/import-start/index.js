@@ -1736,6 +1736,34 @@ function buildReviewCursor({ nowIso, count, exhausted, last_error, prev_cursor }
   };
 }
 
+function buildReviewsUpstreamPayloadForImportStart({ reviewMessage, companyWebsiteHost } = {}) {
+  const { buildSearchParameters } = require("../_buildSearchParameters");
+
+  const searchBuild = buildSearchParameters({
+    companyWebsiteHost,
+    additionalExcludedHosts: [],
+  });
+
+  const messageWithSpill = {
+    ...(reviewMessage && typeof reviewMessage === "object" ? reviewMessage : { role: "user" }),
+    role: asString(reviewMessage?.role).trim() || "user",
+    content: `${asString(reviewMessage?.content).trim()}${searchBuild.prompt_exclusion_text || ""}`,
+  };
+
+  const reviewPayload = {
+    model: "grok-4-latest",
+    messages: [
+      { role: "system", content: XAI_SYSTEM_PROMPT },
+      messageWithSpill,
+    ],
+    search_parameters: searchBuild.search_parameters,
+    temperature: 0.2,
+    stream: false,
+  };
+
+  return { reviewPayload, searchBuild };
+}
+
 // Fetch editorial reviews for a company using XAI
 async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugCollector, stageCtx, warn) {
   const { extractJsonFromText, normalizeUpstreamReviewsResult } = require("../_curatedReviewsXai");
