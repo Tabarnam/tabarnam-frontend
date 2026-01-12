@@ -1842,10 +1842,10 @@ Return EXACTLY a single JSON object with this shape:
 }
 
 Rules:
-- Return up to 6 review objects in "reviews".
+- Return up to 10 review objects in "reviews".
   - We will validate and keep at most 2.
   - Provide extra candidates in case some links are broken (404/page not found) or disallowed.
-  - Try to use different source domains (avoid duplicates).
+  - Prefer different source domains (avoid duplicates when possible).
 - Use offset=0.
 - If there are no results, set exhausted=true and return reviews: [].
 - Reviews MUST be independent (do NOT use the company website domain).
@@ -1961,17 +1961,24 @@ Rules:
     }
 
     const candidatesUpstream = upstreamReviews.filter((r) => r && typeof r === "object");
-    const candidates = candidatesUpstream.slice(0, 6);
+    const candidates = candidatesUpstream.slice(0, 10);
     const upstreamCandidateCount = candidatesUpstream.length;
 
     const nowIso = new Date().toISOString();
     const curated = [];
     const keptHosts = new Set();
+    const deferredDuplicates = [];
     const companyHost = inferSourceNameFromUrl(websiteUrl).toLowerCase().replace(/^www\./, "");
 
     let rejectedCount = 0;
 
+    const loopStart = Date.now();
+
     for (const r of candidates) {
+      // Stay inside the stage budget; better to return 0–2 than time out.
+      if (Date.now() - loopStart > Math.max(5000, timeout - 2000)) {
+        break;
+      }
       const sourceUrlRaw = String(r?.source_url || r?.url || "").trim();
       const excerptRaw = String(r?.excerpt || r?.text || r?.abstract || r?.summary || "").trim();
       const sourceNameRaw = String(r?.source_name || r?.source || "").trim();
@@ -2026,8 +2033,9 @@ Rules:
           normalizedDomain: company.normalized_domain || "",
           url: normalizedCandidateUrl,
           title: "",
+          excerpt: excerptRaw,
         },
-        { timeoutMs: 6000, maxBytes: 60000, maxSnippets: 2, minWords: 10, maxWords: 25 }
+        { timeoutMs: 4500, maxBytes: 45000, maxSnippets: 2, minWords: 10, maxWords: 25 }
       ).catch((e) => ({
         is_valid: false,
         link_status: "blocked",
@@ -2071,8 +2079,26 @@ Rules:
       }
 
       if (reviewHost && keptHosts.has(reviewHost)) {
-        rejectedCount += 1;
-        continue;
+        // Prefer unique sources, but don't fail the import if a company only has
+        // one credible source with multiple relevant mentions.
+        if (curated.length >= 1) {
+          const sourceName = sourceNameRaw || inferSourceNameFromUrl(finalUrl) || "Unknown Source";
+          deferredDuplicates.push({
+            id: `xai_auto_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.trunc(Math.random() * 1e6)}`,
+            source_name: sourceName,
+            source: sourceName,
+            source_url: finalUrl,
+            excerpt: excerptRaw,
+            date: dateRaw || null,
+            created_at: nowIso,
+            last_updated_at: nowIso,
+            imported_via: "xai_import",
+            show_to_users: true,
+            is_public: true,
+          });
+          rejectedCount += 1;
+          continue;
+        }
       }
 
       const sourceName = sourceNameRaw || inferSourceNameFromUrl(finalUrl) || "Unknown Source";
@@ -2093,6 +2119,10 @@ Rules:
 
       if (reviewHost) keptHosts.add(reviewHost);
       if (curated.length >= 2) break;
+    }
+
+    if (curated.length < 2 && deferredDuplicates.length > 0) {
+      curated.push(deferredDuplicates[0]);
     }
 
     debug.kept = curated.length;
