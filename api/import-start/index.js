@@ -6499,6 +6499,7 @@ Output JSON only:
                       code: "MISSING_COMPANY_INPUT",
                       message: "Missing company_name or website_url",
                     },
+                    prev_cursor: company.review_cursor,
                   }),
                 };
                 continue;
@@ -7289,6 +7290,7 @@ Return ONLY the JSON array, no other text.`,
                             code: "MISSING_COMPANY_INPUT",
                             message: "Missing company_name or website_url",
                           },
+                          prev_cursor: company.review_cursor,
                         }),
                       };
                     }
