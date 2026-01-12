@@ -2075,8 +2075,17 @@ Rules:
     const loopStart = Date.now();
 
     for (const r of candidates) {
-      // Stay inside the stage budget; better to return 0–2 than time out.
-      if (Date.now() - loopStart > Math.max(5000, timeout - 2000)) {
+      // Stay inside the overall handler budget; better to return 0–2 than time out.
+      if (getRemainingMs && getRemainingMs() < deadlineSafetyBufferMs + minValidationWindowMs) {
+        telemetry.time_budget_exhausted = true;
+        telemetry.stage_status = "timed_out";
+        break;
+      }
+
+      // Secondary guard for cases where we don't have a shared remaining-time tracker.
+      if (!getRemainingMs && Date.now() - loopStart > Math.max(5000, timeout - 2000)) {
+        telemetry.time_budget_exhausted = true;
+        telemetry.stage_status = "timed_out";
         break;
       }
       const sourceUrlRaw = String(r?.source_url || r?.url || "").trim();
