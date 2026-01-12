@@ -1955,6 +1955,46 @@ Rules:
 
     const companyHostForSearch = inferSourceNameFromUrl(websiteUrl).toLowerCase().replace(/^www\./, "");
 
+    const websiteHostForValidation = (() => {
+      try {
+        const u = new URL(websiteUrl);
+        return String(u.hostname || "").trim();
+      } catch {
+        return "";
+      }
+    })();
+
+    if (!websiteHostForValidation) {
+      telemetry.upstream_error_code = "CLIENT_BAD_REQUEST";
+      telemetry.upstream_error_message = "Invalid website_url (must be a valid URL with a hostname)";
+      telemetry.stage_status = "client_bad_request";
+
+      if (typeof warn === "function") {
+        warn({
+          stage: "reviews",
+          root_cause: "client_bad_request",
+          retryable: false,
+          upstream_status: null,
+          company_name: companyName,
+          website_url: websiteUrl,
+          message: telemetry.upstream_error_message,
+        });
+      }
+
+      const out = [];
+      out._fetch_ok = false;
+      out._fetch_error = telemetry.upstream_error_message;
+      out._fetch_error_code = telemetry.upstream_error_code;
+      out._stage_status = telemetry.stage_status;
+      out._telemetry = telemetry;
+      out._fetch_error_detail = {
+        root_cause: telemetry.stage_status,
+        retryable: false,
+        upstream_status: null,
+      };
+      return out;
+    }
+
     const excludedWebsites = [
       // Hard blocks
       "amazon.com",
