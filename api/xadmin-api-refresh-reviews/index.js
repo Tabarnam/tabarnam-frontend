@@ -1059,6 +1059,9 @@ async function handler(req, context) {
               : safeBodyPreview(err?.response?.data, { maxLen: 6000 });
 
         const payload_shape = err?.payload_shape || null;
+        const upstream_url = asString(err?.upstream_url).trim() || redactUrlQueryAndHash(xai_base_url) || null;
+        const auth_header_present =
+          typeof err?.auth_header_present === "boolean" ? err.auth_header_present : Boolean(asString(xai_key).trim());
 
         try {
           console.error(
