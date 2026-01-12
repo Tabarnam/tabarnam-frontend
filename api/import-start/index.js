@@ -1982,11 +1982,16 @@ Rules:
           });
 
     if (!(response.status >= 200 && response.status < 300)) {
+      const upstream_status = Number.isFinite(Number(response.status)) ? Number(response.status) : null;
+      telemetry.upstream_status = upstream_status;
+      telemetry.upstream_error_code = "UPSTREAM_HTTP_ERROR";
+      telemetry.upstream_error_message = `Upstream HTTP ${response.status}`;
+      telemetry.stage_status = "upstream_unreachable";
+
       console.warn(`[import-start] Failed to fetch reviews for ${companyName}: status ${response.status}`);
       if (debugCollector) debugCollector.push({ ...debug, reason: `xai_status_${response.status}` });
 
       if (typeof warn === "function") {
-        const upstream_status = Number.isFinite(Number(response.status)) ? Number(response.status) : null;
         const root_cause =
           upstream_status != null && upstream_status >= 500
             ? "upstream_5xx"
@@ -2005,7 +2010,13 @@ Rules:
         });
       }
 
-      return [];
+      const out = [];
+      out._fetch_ok = false;
+      out._fetch_error = `Upstream HTTP ${response.status}`;
+      out._fetch_error_code = "REVIEWS_UPSTREAM_HTTP";
+      out._stage_status = telemetry.stage_status;
+      out._telemetry = telemetry;
+      return out;
     }
 
     const responseText =
