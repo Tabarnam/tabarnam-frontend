@@ -2212,6 +2212,7 @@ Rules:
         // one credible source with multiple relevant mentions.
         if (curated.length >= 1) {
           const sourceName = sourceNameRaw || inferSourceNameFromUrl(finalUrl) || "Unknown Source";
+          rejectedCount += 1;
           incReason("duplicate_host_deferred");
           deferredDuplicates.push({
             id: `xai_auto_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.trunc(Math.random() * 1e6)}`,
