@@ -126,6 +126,15 @@ export default defineConfig(({ mode }) => {
     (env.VITE_API_URL && env.VITE_API_URL.trim()) ||
     "http://127.0.0.1:7071"; // Azure Functions Core Tools default
 
+  // If you're proxying to a protected Azure Functions backend during local dev,
+  // this adds the function key at the dev-server layer (so it is NOT bundled to the client).
+  const FUNCTIONS_KEY =
+    (process.env.XAI_EXTERNAL_KEY && String(process.env.XAI_EXTERNAL_KEY).trim()) ||
+    (process.env.FUNCTION_KEY && String(process.env.FUNCTION_KEY).trim()) ||
+    "";
+
+  const proxyHeaders = isNonEmptyString(FUNCTIONS_KEY) ? { "x-functions-key": FUNCTIONS_KEY } : undefined;
+
   return {
     plugins: [react(), copyStaticWebAppConfig, emitBuildIdFile],
     resolve: {
@@ -150,6 +159,7 @@ export default defineConfig(({ mode }) => {
           ws: true,
           timeout: 600000,
           proxyTimeout: 600000,
+          ...(proxyHeaders ? { headers: proxyHeaders } : {}),
           rewrite: (p) => p, // keep /api prefix because host.json uses routePrefix "api"
         },
         "/xapi": {
@@ -159,6 +169,7 @@ export default defineConfig(({ mode }) => {
           ws: true,
           timeout: 600000,
           proxyTimeout: 600000,
+          ...(proxyHeaders ? { headers: proxyHeaders } : {}),
           rewrite: (p) => p.replace(/^\/xapi(\/|$)/, "/api$1"),
         },
       },
