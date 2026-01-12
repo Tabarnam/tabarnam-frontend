@@ -393,3 +393,4 @@ For detailed output, run func with --verbose flag.
 [2026-01-12T08:22:15.532Z] The 'adminCompanyHistoryAlias' function is in error: The specified route conflicts with one or more built in routes.
 [2026-01-12T08:22:15.532Z] The 'adminRefreshCompany' function is in error: The specified route conflicts with one or more built in routes.
 [2026-01-12T08:22:15.532Z] The 'adminRefreshReviews' function is in error: The specified route conflicts with one or more built in routes.
+[2026-01-12T08:22:20.445Z] Host lock lease acquired by instance ID '000000000000000000000000784F080D'.
