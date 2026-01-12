@@ -25,6 +25,8 @@ const {
   classifyUpstreamFailure,
 } = require("./_upstreamReviewsDiagnostics");
 
+const { buildSearchParameters } = require("./_buildSearchParameters");
+
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "refresh-reviews";
 const VERSION_TAG = `ded-${HANDLER_ID}-${String(BUILD_INFO.build_id || "unknown").slice(0, 12)}`;
