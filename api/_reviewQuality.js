@@ -383,6 +383,7 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
     return {
       is_valid: false,
       link_status: "blocked",
+      fetch_status: null,
       brand_mentions_found: false,
       matched_brand_terms: [],
       evidence_snippets: [],
@@ -396,6 +397,7 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
     return {
       is_valid: false,
       link_status: "blocked",
+      fetch_status: null,
       brand_mentions_found: false,
       matched_brand_terms: [],
       evidence_snippets: [],
@@ -431,6 +433,7 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
       return {
         is_valid: false,
         link_status: health.link_status,
+        fetch_status: typeof health.status === "number" ? health.status : null,
         brand_mentions_found: false,
         matched_brand_terms: [],
         evidence_snippets: [],
@@ -463,6 +466,7 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
       return {
         is_valid: true,
         link_status: health.link_status || "unverified",
+        fetch_status: typeof health.status === "number" ? health.status : null,
         last_checked_at: new Date().toISOString(),
         brand_mentions_found: true,
         matched_brand_terms: matched.length ? matched : [companyName],
@@ -476,6 +480,7 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
     return {
       is_valid: false,
       link_status: health.link_status,
+      fetch_status: typeof health.status === "number" ? health.status : null,
       brand_mentions_found: false,
       matched_brand_terms: [],
       evidence_snippets: [],
@@ -505,6 +510,7 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
       return {
         is_valid: true,
         link_status: health.link_status,
+        fetch_status: typeof health.status === "number" ? health.status : null,
         last_checked_at: new Date().toISOString(),
         brand_mentions_found: true,
         matched_brand_terms: [companyName],
@@ -518,6 +524,7 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
     return {
       is_valid: false,
       link_status: health.link_status,
+      fetch_status: typeof health.status === "number" ? health.status : null,
       brand_mentions_found: false,
       matched_brand_terms: [],
       evidence_snippets: [],
@@ -542,6 +549,7 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
     return {
       is_valid: true,
       link_status: health.link_status,
+      fetch_status: typeof health.status === "number" ? health.status : null,
       last_checked_at: new Date().toISOString(),
       brand_mentions_found: true,
       matched_brand_terms: matched,
@@ -557,6 +565,7 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
   return {
     is_valid: true,
     link_status: health.link_status,
+    fetch_status: typeof health.status === "number" ? health.status : null,
     last_checked_at: new Date().toISOString(),
     brand_mentions_found: true,
     matched_brand_terms: matched,
