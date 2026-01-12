@@ -852,10 +852,28 @@ async function handler(req, context) {
 
         cursor.source = "xai_reviews";
         cursor.last_offset = nextOffset;
-        cursor.total_fetched = Math.max(0, Math.trunc(Number(cursor.total_fetched) || 0)) + incoming.length;
-        cursor.last_success_at = nowIso();
+
+        // Keep cursor.total_fetched aligned with "saved reviews" (not just upstream candidates).
+        cursor.total_fetched = Math.max(0, Math.trunc(Number(cursor.total_fetched) || 0)) + toAdd.length;
+
+        // Only update last_success_at when we actually saved at least 1 new review.
+        if (toAdd.length > 0) {
+          cursor.last_success_at = nowIso();
+        }
+
         cursor.last_attempt_at = nowIso();
         cursor.last_error = null;
+        cursor.reviews_stage_status = "ok";
+        cursor.reviews_telemetry = {
+          stage_status: "ok",
+          upstream_status: normalizeHttpStatus(upstream?._meta?.upstream_status),
+          upstream_failure_buckets: {
+            upstream_4xx: 0,
+            upstream_5xx: 0,
+            upstream_rate_limited: 0,
+            upstream_unreachable: 0,
+          },
+        };
         cursor.exhausted = Boolean(upstream?.exhausted) || incoming.length === 0;
 
         const patchRes = await patchCompanyById(companiesContainer, company_id, company, {
