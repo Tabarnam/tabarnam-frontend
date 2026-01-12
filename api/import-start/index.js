@@ -1981,6 +1981,7 @@ Rules:
       }
       const sourceUrlRaw = String(r?.source_url || r?.url || "").trim();
       const excerptRaw = String(r?.excerpt || r?.text || r?.abstract || r?.summary || "").trim();
+      const titleRaw = String(r?.title || r?.headline || r?.headline_text || r?.name || "").trim();
       const sourceNameRaw = String(r?.source_name || r?.source || "").trim();
       const dateRaw = String(r?.date || "").trim();
 
@@ -1988,7 +1989,7 @@ Rules:
         rejectedCount += 1;
         debug.candidates.push({
           url: sourceUrlRaw,
-          title: "",
+          title: titleRaw,
           link_status: "missing_fields",
           final_url: null,
           is_valid: false,
@@ -2005,7 +2006,7 @@ Rules:
         rejectedCount += 1;
         debug.candidates.push({
           url: sourceUrlRaw,
-          title: "",
+          title: titleRaw,
           link_status: "disallowed_url",
           final_url: null,
           is_valid: false,
@@ -2032,10 +2033,10 @@ Rules:
           websiteUrl,
           normalizedDomain: company.normalized_domain || "",
           url: normalizedCandidateUrl,
-          title: "",
+          title: titleRaw,
           excerpt: excerptRaw,
         },
-        { timeoutMs: 4500, maxBytes: 45000, maxSnippets: 2, minWords: 10, maxWords: 25 }
+        { timeoutMs: 8000, maxBytes: 60000, maxSnippets: 2, minWords: 10, maxWords: 25 }
       ).catch((e) => ({
         is_valid: false,
         link_status: "blocked",
@@ -2050,7 +2051,7 @@ Rules:
       const evidenceCount = Array.isArray(v?.evidence_snippets) ? v.evidence_snippets.length : 0;
       debug.candidates.push({
         url: normalizedCandidateUrl,
-        title: "",
+        title: titleRaw,
         link_status: v?.link_status,
         final_url: v?.final_url,
         is_valid: Boolean(v?.is_valid),
