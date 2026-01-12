@@ -586,11 +586,15 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
     });
 
     const status = Number(resp?.status) || 0;
+    const upstream_url_redacted = redactUrlQueryAndHash(xai_base_url) || xai_base_url;
+    const xai_request_id = extractUpstreamRequestId(resp?.headers);
 
+    const diag = buildUpstreamBodyDiagnostics(resp?.data, resp?.headers, { maxLen: 4096 });
+    const content_type = diag.content_type || extractContentType(resp?.headers);
+
+    // When upstream is non-2xx, capture a safe preview of the body and surface it for diagnostics.
     if (!(status >= 200 && status < 300)) {
       const upstream_status = normalizeHttpStatus(status);
-      const request_id = extractUpstreamRequestId(resp?.headers);
-      const upstream_error_body = safeBodyPreview(resp?.data, { maxLen: 6000 });
 
       const failure = classifyUpstreamFailure({ upstream_status });
 
@@ -599,8 +603,17 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
       err.response = resp;
       err.root_cause = failure.stage_status;
       err.retryable = failure.retryable;
-      err.xai_request_id = request_id;
-      err.upstream_error_body = upstream_error_body;
+      err.xai_request_id = xai_request_id;
+      err.upstream_url = upstream_url_redacted;
+      err.auth_header_present = Boolean(xai_key);
+      err.content_type = content_type;
+      err.raw_body_kind = diag.raw_body_kind;
+      err.raw_body_preview = diag.raw_body_preview;
+      err.upstream_error_body = {
+        content_type,
+        raw_body_kind: diag.raw_body_kind,
+        preview: diag.raw_body_preview,
+      };
       err.payload_shape = payload_shape_for_log;
       err.exclusion_telemetry = searchBuild.telemetry;
       throw err;
@@ -618,8 +631,32 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
     });
 
     if (normalized.parse_error) {
-      const err = new Error("Failed to parse upstream JSON");
+      // This is *not* a validation issue; upstream returned something we couldn't parse.
+      // Capture a small raw preview so we can distinguish HTML error pages vs. JSON-ish junk.
+      const retryable =
+        status >= 500 ||
+        diag.raw_body_kind === "empty" ||
+        diag.raw_body_kind === "json_invalid" ||
+        (diag.raw_body_kind === "html" && status >= 500);
+
+      const err = new Error("Upstream returned non-JSON (or invalid JSON) response");
       err.status = status;
+      err.response = resp;
+      err.root_cause = "bad_response_not_json";
+      err.retryable = retryable;
+      err.xai_request_id = xai_request_id;
+      err.upstream_url = upstream_url_redacted;
+      err.auth_header_present = Boolean(xai_key);
+      err.content_type = content_type;
+      err.raw_body_kind = diag.raw_body_kind;
+      err.raw_body_preview = diag.raw_body_preview;
+      err.upstream_error_body = {
+        content_type,
+        raw_body_kind: diag.raw_body_kind,
+        preview: diag.raw_body_preview,
+      };
+      err.payload_shape = payload_shape_for_log;
+      err.exclusion_telemetry = searchBuild.telemetry;
       throw err;
     }
 
