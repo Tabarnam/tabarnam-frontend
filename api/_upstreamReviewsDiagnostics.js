@@ -96,10 +96,18 @@ function redactReviewsUpstreamPayloadForLog(payload, meta) {
     .filter((s) => s && typeof s === "object")
     .map((s) => {
       const type = asString(s.type).trim() || "unknown";
-      const excluded = Array.isArray(s.excluded_websites) ? s.excluded_websites : null;
+      const excludedRaw = Array.isArray(s.excluded_websites) ? s.excluded_websites : null;
+
+      const excluded = excludedRaw
+        ? excludedRaw
+            .filter((x) => typeof x === "string" && x.trim())
+            .map((x) => String(x).trim())
+        : [];
+
       return {
         type,
-        excluded_websites_count: excluded ? excluded.filter((x) => typeof x === "string" && x.trim()).length : 0,
+        excluded_websites_count: excluded.length,
+        excluded_websites_hosts_preview: excluded.slice(0, 5),
       };
     });
 
