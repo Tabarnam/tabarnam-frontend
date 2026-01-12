@@ -1254,6 +1254,7 @@ async function handler(req, context) {
       upstream_status,
       retryable: typeof lastErr?.retryable === "boolean" ? lastErr.retryable : retryableForRootCause(root_cause),
       attempts_count,
+      attempt_upstream_statuses: attempt_upstream_statuses.slice(0, attempts_count),
       retry_exhausted: true,
       upstream_url,
       auth_header_present,
