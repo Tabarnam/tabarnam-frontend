@@ -124,7 +124,7 @@ function mergeCompanyDocsForSession({ existingDoc, incomingDoc, finalNormalizedD
   const existingReviewsTs = Date.parse(String(existingDoc.reviews_last_updated_at || "")) || 0;
   const incomingHasReviewsField = Object.prototype.hasOwnProperty.call(incomingDoc || {}, "curated_reviews");
 
-  if (incomingHasReviewsField && incomingReviewsTs >= existingReviewsTs) {
+  if (incomingHasReviewsField && incomingReviewsTs > 0 && incomingReviewsTs >= existingReviewsTs) {
     merged.curated_reviews = Array.isArray(incomingDoc.curated_reviews)
       ? incomingDoc.curated_reviews
       : [];
