@@ -1782,6 +1782,12 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugColl
     }
   };
 
+  const getRemainingMs =
+    stageCtx && typeof stageCtx.getRemainingMs === "function" ? stageCtx.getRemainingMs : null;
+  const deadlineSafetyBufferMs =
+    stageCtx && Number.isFinite(Number(stageCtx.deadlineSafetyBufferMs)) ? Number(stageCtx.deadlineSafetyBufferMs) : 0;
+  const minValidationWindowMs = 9000;
+
   if (!companyName || !websiteUrl) {
     if (debugCollector) {
       debugCollector.push({
@@ -1805,6 +1811,60 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugColl
     website_url: websiteUrl,
     candidates: [],
     kept: 0,
+  };
+
+  const telemetry = {
+    stage_status: "unknown",
+    review_candidates_fetched_count: 0,
+    review_candidates_considered_count: 0,
+    review_candidates_rejected_count: 0,
+    review_candidates_rejected_reasons: {
+      disallowed_source: 0,
+      self_domain: 0,
+      duplicate_host_deferred: 0,
+      link_not_found: 0,
+      validation_timeout: 0,
+      validation_brand_mismatch: 0,
+      validation_fetch_blocked: 0,
+      validation_error_other: 0,
+      missing_fields: 0,
+    },
+    review_validated_count: 0,
+    review_saved_count: 0,
+    duplicate_host_used_as_fallback: false,
+    time_budget_exhausted: false,
+    upstream_status: null,
+    upstream_error_code: null,
+    upstream_error_message: null,
+  };
+
+  const incReason = (key) => {
+    const k = String(key || "").trim();
+    if (!k) return;
+    if (!telemetry.review_candidates_rejected_reasons[k]) {
+      telemetry.review_candidates_rejected_reasons[k] = 0;
+    }
+    telemetry.review_candidates_rejected_reasons[k] += 1;
+    telemetry.review_candidates_rejected_count += 1;
+  };
+
+  const classifyValidationRejection = (v, errMessage) => {
+    const linkStatus = String(v?.link_status || "").trim();
+    const fetchStatus = Number.isFinite(Number(v?.fetch_status)) ? Number(v.fetch_status) : null;
+    const reason = String(v?.reason_if_rejected || errMessage || "").toLowerCase();
+
+    if (linkStatus === "not_found") return "link_not_found";
+    if (fetchStatus === 403 || fetchStatus === 429) return "validation_fetch_blocked";
+
+    if (reason.includes("timeout") || reason.includes("timed out") || reason.includes("abort")) return "validation_timeout";
+    if (reason.includes("brand/company not mentioned") || reason.includes("not mentioned")) return "validation_brand_mismatch";
+
+    // Many blocked cases don't include a fetch status; keep these separate from brand mismatches.
+    if (linkStatus === "blocked" && (reason.includes("not accessible") || reason.includes("blocked"))) {
+      return "validation_fetch_blocked";
+    }
+
+    return "validation_error_other";
   };
 
   const looksLikeReviewUrl = (u) => {
@@ -1929,11 +1989,16 @@ Rules:
           });
 
     if (!(response.status >= 200 && response.status < 300)) {
+      const upstream_status = Number.isFinite(Number(response.status)) ? Number(response.status) : null;
+      telemetry.upstream_status = upstream_status;
+      telemetry.upstream_error_code = "UPSTREAM_HTTP_ERROR";
+      telemetry.upstream_error_message = `Upstream HTTP ${response.status}`;
+      telemetry.stage_status = "upstream_unreachable";
+
       console.warn(`[import-start] Failed to fetch reviews for ${companyName}: status ${response.status}`);
       if (debugCollector) debugCollector.push({ ...debug, reason: `xai_status_${response.status}` });
 
       if (typeof warn === "function") {
-        const upstream_status = Number.isFinite(Number(response.status)) ? Number(response.status) : null;
         const root_cause =
           upstream_status != null && upstream_status >= 500
             ? "upstream_5xx"
@@ -1952,7 +2017,13 @@ Rules:
         });
       }
 
-      return [];
+      const out = [];
+      out._fetch_ok = false;
+      out._fetch_error = `Upstream HTTP ${response.status}`;
+      out._fetch_error_code = "REVIEWS_UPSTREAM_HTTP";
+      out._stage_status = telemetry.stage_status;
+      out._telemetry = telemetry;
+      return out;
     }
 
     const responseText =
@@ -1990,6 +2061,10 @@ Rules:
     const candidates = candidatesUpstream.slice(0, 10);
     const upstreamCandidateCount = candidatesUpstream.length;
 
+    telemetry.review_candidates_fetched_count = upstreamCandidateCount;
+    telemetry.review_candidates_considered_count = candidates.length;
+    telemetry.stage_status = parseError ? "upstream_unreachable" : "ok";
+
     const nowIso = new Date().toISOString();
     const curated = [];
     const keptHosts = new Set();
@@ -2001,8 +2076,17 @@ Rules:
     const loopStart = Date.now();
 
     for (const r of candidates) {
-      // Stay inside the stage budget; better to return 0–2 than time out.
-      if (Date.now() - loopStart > Math.max(5000, timeout - 2000)) {
+      // Stay inside the overall handler budget; better to return 0–2 than time out.
+      if (getRemainingMs && getRemainingMs() < deadlineSafetyBufferMs + minValidationWindowMs) {
+        telemetry.time_budget_exhausted = true;
+        telemetry.stage_status = "timed_out";
+        break;
+      }
+
+      // Secondary guard for cases where we don't have a shared remaining-time tracker.
+      if (!getRemainingMs && Date.now() - loopStart > Math.max(5000, timeout - 2000)) {
+        telemetry.time_budget_exhausted = true;
+        telemetry.stage_status = "timed_out";
         break;
       }
       const sourceUrlRaw = String(r?.source_url || r?.url || "").trim();
@@ -2013,10 +2097,14 @@ Rules:
 
       if (!sourceUrlRaw || !excerptRaw) {
         rejectedCount += 1;
+        incReason("missing_fields");
         debug.candidates.push({
           url: sourceUrlRaw,
-          title: titleRaw,
+          title_raw: titleRaw,
+          excerpt_preview: excerptRaw ? excerptRaw.slice(0, 200) : "",
+          rejection_bucket: "missing_fields",
           link_status: "missing_fields",
+          fetch_status: null,
           final_url: null,
           is_valid: false,
           matched_brand_terms: [],
@@ -2030,10 +2118,14 @@ Rules:
       const normalizedCandidateUrl = normalizeHttpUrlOrNull(sourceUrlRaw);
       if (!normalizedCandidateUrl || isDisallowedReviewSourceUrl(normalizedCandidateUrl)) {
         rejectedCount += 1;
+        incReason("disallowed_source");
         debug.candidates.push({
           url: sourceUrlRaw,
-          title: titleRaw,
+          title_raw: titleRaw,
+          excerpt_preview: excerptRaw ? excerptRaw.slice(0, 200) : "",
+          rejection_bucket: "disallowed_source",
           link_status: "disallowed_url",
+          fetch_status: null,
           final_url: null,
           is_valid: false,
           matched_brand_terms: [],
@@ -2075,10 +2167,15 @@ Rules:
       }));
 
       const evidenceCount = Array.isArray(v?.evidence_snippets) ? v.evidence_snippets.length : 0;
+      const rejectionBucket = v?.is_valid === true ? null : classifyValidationRejection(v);
+
       debug.candidates.push({
         url: normalizedCandidateUrl,
-        title: titleRaw,
+        title_raw: titleRaw,
+        excerpt_preview: excerptRaw ? excerptRaw.slice(0, 200) : "",
+        rejection_bucket: rejectionBucket,
         link_status: v?.link_status,
+        fetch_status: Number.isFinite(Number(v?.fetch_status)) ? Number(v.fetch_status) : null,
         final_url: v?.final_url,
         is_valid: Boolean(v?.is_valid),
         matched_brand_terms: v?.matched_brand_terms || [],
@@ -2090,18 +2187,23 @@ Rules:
       // Only persist validated reviews.
       if (v?.is_valid !== true) {
         rejectedCount += 1;
+        incReason(rejectionBucket || "validation_error_other");
         continue;
       }
+
+      telemetry.review_validated_count += 1;
 
       const finalUrl = normalizeHttpUrlOrNull(v?.final_url || normalizedCandidateUrl) || normalizedCandidateUrl;
       if (isDisallowedReviewSourceUrl(finalUrl)) {
         rejectedCount += 1;
+        incReason("disallowed_source");
         continue;
       }
 
       const reviewHost = inferSourceNameFromUrl(finalUrl).toLowerCase().replace(/^www\./, "");
       if (companyHost && reviewHost && isSameDomain(reviewHost, companyHost)) {
         rejectedCount += 1;
+        incReason("self_domain");
         continue;
       }
 
@@ -2110,18 +2212,23 @@ Rules:
         // one credible source with multiple relevant mentions.
         if (curated.length >= 1) {
           const sourceName = sourceNameRaw || inferSourceNameFromUrl(finalUrl) || "Unknown Source";
+          rejectedCount += 1;
+          incReason("duplicate_host_deferred");
           deferredDuplicates.push({
             id: `xai_auto_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.trunc(Math.random() * 1e6)}`,
             source_name: sourceName,
             source: sourceName,
             source_url: finalUrl,
             excerpt: excerptRaw,
+            title_raw: titleRaw,
             date: dateRaw || null,
             created_at: nowIso,
             last_updated_at: nowIso,
             imported_via: "xai_import",
             show_to_users: true,
             is_public: true,
+            _match_confidence: typeof v?.match_confidence === "number" ? v.match_confidence : null,
+            _looks_like_review_url: looksLikeReviewUrl(finalUrl),
           });
           continue;
         }
@@ -2148,17 +2255,64 @@ Rules:
     }
 
     if (curated.length < 2 && deferredDuplicates.length > 0) {
-      curated.push(deferredDuplicates[0]);
+      const sorted = deferredDuplicates
+        .slice()
+        .sort((a, b) => {
+          const aReview = a?._looks_like_review_url ? 1 : 0;
+          const bReview = b?._looks_like_review_url ? 1 : 0;
+          if (aReview !== bReview) return bReview - aReview;
+
+          const aScore = typeof a?._match_confidence === "number" ? a._match_confidence : 0;
+          const bScore = typeof b?._match_confidence === "number" ? b._match_confidence : 0;
+          if (aScore !== bScore) return bScore - aScore;
+
+          return 0;
+        });
+
+      const best = sorted[0];
+      if (best) {
+        const { _match_confidence, _looks_like_review_url, ...clean } = best;
+        curated.push(clean);
+        telemetry.duplicate_host_used_as_fallback = true;
+      }
     }
 
     debug.kept = curated.length;
+
+    telemetry.review_saved_count = curated.length;
+
+    if (telemetry.stage_status === "unknown" || telemetry.stage_status === "ok") {
+      telemetry.stage_status =
+        curated.length === 0 && upstreamCandidateCount > 0 ? "no_valid_reviews_found" : "ok";
+    }
+
+    // Keep rejectedCount as the canonical, cheap-to-read number (telemetry holds the breakdown).
+    telemetry.review_candidates_rejected_count = rejectedCount;
+
+    console.log(
+      "[import-start][reviews_telemetry] " +
+        JSON.stringify({
+          company_name: companyName,
+          website_url: websiteUrl,
+          stage_status: telemetry.stage_status,
+          fetched: telemetry.review_candidates_fetched_count,
+          considered: telemetry.review_candidates_considered_count,
+          validated: telemetry.review_validated_count,
+          saved: telemetry.review_saved_count,
+          rejected: telemetry.review_candidates_rejected_count,
+          rejected_reasons: telemetry.review_candidates_rejected_reasons,
+          duplicate_host_used_as_fallback: telemetry.duplicate_host_used_as_fallback,
+          time_budget_exhausted: telemetry.time_budget_exhausted,
+          upstream_status: telemetry.upstream_status,
+        })
+    );
 
     console.log(
       `[import-start][reviews] company=${companyName} upstream_candidates=${upstreamCandidateCount} considered=${candidates.length} kept=${curated.length} rejected=${rejectedCount} parse_error=${parseError || ""}`
     );
 
     if (debugCollector) {
-      debugCollector.push(debug);
+      debugCollector.push({ ...debug, telemetry });
     }
 
     curated._candidate_count = upstreamCandidateCount;
@@ -2168,6 +2322,12 @@ Rules:
     curated._fetch_ok = !parseError;
     curated._fetch_error = parseError ? String(parseError) : null;
     curated._fetch_error_code = parseError ? "REVIEWS_PARSE_ERROR" : null;
+    curated._stage_status = telemetry.stage_status;
+    curated._telemetry = telemetry;
+
+    // Keep per-candidate debug lightweight; mostly useful when saved_count=0.
+    curated._candidates_debug = Array.isArray(debug.candidates) ? debug.candidates.slice(0, 10) : [];
+
     return curated;
   } catch (e) {
     if (e instanceof AcceptedResponseError) throw e;
@@ -2186,10 +2346,18 @@ Rules:
       });
     }
 
+    const code = typeof e?.code === "string" && e.code.trim() ? e.code.trim() : "REVIEWS_EXCEPTION";
+
+    telemetry.upstream_error_code = code;
+    telemetry.upstream_error_message = e?.message || String(e);
+    telemetry.stage_status = String(code || "").toUpperCase().includes("TIMEOUT") ? "timed_out" : "upstream_unreachable";
+
     const out = [];
     out._fetch_ok = false;
-    out._fetch_error = e?.message || String(e);
-    out._fetch_error_code = typeof e?.code === "string" && e.code.trim() ? e.code.trim() : "REVIEWS_EXCEPTION";
+    out._fetch_error = telemetry.upstream_error_message;
+    out._fetch_error_code = code;
+    out._stage_status = telemetry.stage_status;
+    out._telemetry = telemetry;
     return out;
   }
 }
@@ -6202,7 +6370,12 @@ Output JSON only:
                   xaiKey,
                   timeout,
                   debugOutput ? debugOutput.reviews_debug : null,
-                  { setStage, postXaiJsonWithBudget: postXaiJsonWithBudgetRetry },
+                  {
+                    setStage,
+                    postXaiJsonWithBudget: postXaiJsonWithBudgetRetry,
+                    getRemainingMs,
+                    deadlineSafetyBufferMs: DEADLINE_SAFETY_BUFFER_MS,
+                  },
                   warnReviews
                 );
 
@@ -6223,22 +6396,39 @@ Output JSON only:
                     ? editorialReviews._rejected_count
                     : null;
 
-                // Only mark reviews "exhausted" when the upstream returned *no candidates*.
-                // If upstream returned candidates but validation rejected them all, leave the cursor open
-                // (and store a last_error) so admin refresh/resume can try again later.
-                const cursorExhausted = fetchOk && candidateCount === 0;
+                const reviewsStageStatus =
+                  typeof editorialReviews?._stage_status === "string" && editorialReviews._stage_status.trim()
+                    ? editorialReviews._stage_status.trim()
+                    : fetchOk
+                      ? curated.length === 0 && candidateCount > 0
+                        ? "no_valid_reviews_found"
+                        : "ok"
+                      : "upstream_unreachable";
 
-                const cursorError = !fetchOk
-                  ? {
-                      code: fetchErrorCode || "REVIEWS_FAILED",
-                      message: fetchErrorMsg || "Reviews fetch failed",
-                    }
-                  : curated.length === 0 && candidateCount > 0
+                const reviewsTelemetry = editorialReviews?._telemetry && typeof editorialReviews._telemetry === "object" ? editorialReviews._telemetry : null;
+                const candidatesDebug = Array.isArray(editorialReviews?._candidates_debug) ? editorialReviews._candidates_debug : [];
+
+                // Only mark reviews "exhausted" when upstream returned *no candidates*.
+                // If we timed out or validation rejected candidates, leave the cursor open.
+                const cursorExhausted = fetchOk && reviewsStageStatus === "ok" && candidateCount === 0;
+
+                const cursorError =
+                  reviewsStageStatus === "timed_out"
                     ? {
-                        code: "REVIEWS_VALIDATION_REJECTED",
-                        message: "Upstream returned review candidates but none passed validation",
+                        code: "REVIEWS_TIMED_OUT",
+                        message: "Review validation stopped early due to time budget",
                       }
-                    : null;
+                    : !fetchOk
+                      ? {
+                          code: fetchErrorCode || "REVIEWS_FAILED",
+                          message: fetchErrorMsg || "Reviews fetch failed",
+                        }
+                      : curated.length === 0 && candidateCount > 0
+                        ? {
+                            code: "REVIEWS_VALIDATION_REJECTED",
+                            message: "Upstream returned review candidates but none passed validation",
+                          }
+                        : null;
 
                 const cursor = buildReviewCursor({
                   nowIso: nowReviewsIso,
@@ -6247,11 +6437,32 @@ Output JSON only:
                   last_error: cursorError,
                 });
 
-                // Persist candidate/rejection telemetry for retries.
+                // Persist candidate/rejection telemetry for retries and diagnostics.
                 cursor._candidate_count = candidateCount;
                 if (rejectedCount != null) cursor._rejected_count = rejectedCount;
                 cursor._saved_count = curated.length;
                 cursor.exhausted_reason = cursorExhausted ? "no_candidates" : "";
+
+                cursor.reviews_stage_status = reviewsStageStatus;
+                if (reviewsTelemetry) {
+                  cursor.reviews_telemetry = {
+                    stage_status: reviewsTelemetry.stage_status,
+                    review_candidates_fetched_count: reviewsTelemetry.review_candidates_fetched_count,
+                    review_candidates_considered_count: reviewsTelemetry.review_candidates_considered_count,
+                    review_candidates_rejected_count: reviewsTelemetry.review_candidates_rejected_count,
+                    review_candidates_rejected_reasons: reviewsTelemetry.review_candidates_rejected_reasons,
+                    review_validated_count: reviewsTelemetry.review_validated_count,
+                    review_saved_count: reviewsTelemetry.review_saved_count,
+                    duplicate_host_used_as_fallback: reviewsTelemetry.duplicate_host_used_as_fallback,
+                    time_budget_exhausted: reviewsTelemetry.time_budget_exhausted,
+                    upstream_status: reviewsTelemetry.upstream_status,
+                    upstream_error_code: reviewsTelemetry.upstream_error_code,
+                  };
+                }
+
+                if ((reviewsStageStatus !== "ok" || curated.length === 0) && candidatesDebug.length) {
+                  cursor.review_candidates_debug = candidatesDebug;
+                }
 
                 console.log(
                   `[import-start][reviews] session=${sessionId} upstream_candidates=${candidateCount} saved=${curated.length} rejected=${rejectedCount != null ? rejectedCount : ""} exhausted=${cursorExhausted ? "true" : "false"} company=${companyForReviews.company_name}`
@@ -6299,6 +6510,62 @@ Output JSON only:
                 };
               }
             }
+
+            try {
+              const summary = {
+                companies_total: Array.isArray(enriched) ? enriched.length : 0,
+                companies_with_saved_0: 0,
+                candidates_fetched_total: 0,
+                candidates_considered_total: 0,
+                validated_total: 0,
+                saved_total: 0,
+                rejected_total: 0,
+                stage_status_counts: {},
+                rejected_reasons_total: {},
+              };
+
+              for (const c of Array.isArray(enriched) ? enriched : []) {
+                const cursor = c?.review_cursor && typeof c.review_cursor === "object" ? c.review_cursor : null;
+                const stageStatus = String(cursor?.reviews_stage_status || "").trim() || "unknown";
+                summary.stage_status_counts[stageStatus] = (summary.stage_status_counts[stageStatus] || 0) + 1;
+
+                const saved = typeof c?.review_count === "number" ? c.review_count : Array.isArray(c?.curated_reviews) ? c.curated_reviews.length : 0;
+                if (saved === 0) summary.companies_with_saved_0 += 1;
+
+                const t = cursor?.reviews_telemetry && typeof cursor.reviews_telemetry === "object" ? cursor.reviews_telemetry : null;
+                if (t) {
+                  summary.candidates_fetched_total += Number(t.review_candidates_fetched_count) || 0;
+                  summary.candidates_considered_total += Number(t.review_candidates_considered_count) || 0;
+                  summary.validated_total += Number(t.review_validated_count) || 0;
+                  summary.saved_total += Number(t.review_saved_count) || 0;
+                  summary.rejected_total += Number(t.review_candidates_rejected_count) || 0;
+
+                  const reasons = t.review_candidates_rejected_reasons && typeof t.review_candidates_rejected_reasons === "object" ? t.review_candidates_rejected_reasons : null;
+                  if (reasons) {
+                    for (const [k, v] of Object.entries(reasons)) {
+                      if (!k) continue;
+                      summary.rejected_reasons_total[k] = (summary.rejected_reasons_total[k] || 0) + (Number(v) || 0);
+                    }
+                  }
+                } else {
+                  summary.saved_total += saved;
+                }
+              }
+
+              if (!noUpstreamMode && cosmosEnabled) {
+                await upsertCosmosImportSessionDoc({
+                  sessionId,
+                  requestId,
+                  patch: {
+                    reviews_summary: summary,
+                    reviews_summary_updated_at: new Date().toISOString(),
+                  },
+                });
+              }
+
+              console.log("[import-start][reviews_summary] " + JSON.stringify({ session_id: sessionId, request_id: requestId, ...summary }));
+            } catch {}
+
             console.log(`[import-start] session=${sessionId} editorial review enrichment done`);
             mark(reviewStageCompleted ? "xai_reviews_fetch_done" : "xai_reviews_fetch_partial");
           } else if (!shouldRunStage("reviews")) {
@@ -6746,7 +7013,12 @@ Return ONLY the JSON array, no other text.`,
                         xaiKey,
                         timeout,
                         debugOutput ? debugOutput.reviews_debug : null,
-                        { setStage, postXaiJsonWithBudget: postXaiJsonWithBudgetRetry },
+                        {
+                          setStage,
+                          postXaiJsonWithBudget: postXaiJsonWithBudgetRetry,
+                          getRemainingMs,
+                          deadlineSafetyBufferMs: DEADLINE_SAFETY_BUFFER_MS,
+                        },
                         warnReviews
                       );
 
@@ -6757,24 +7029,89 @@ Return ONLY the JSON array, no other text.`,
                       const fetchErrorMsg = typeof editorialReviews?._fetch_error === "string" ? editorialReviews._fetch_error : null;
 
                       const curated = dedupeCuratedReviews(editorialReviews);
-                      const cursorExhausted = fetchOk && curated.length === 0;
+                      const candidateCount =
+                        typeof editorialReviews?._candidate_count === "number" && Number.isFinite(editorialReviews._candidate_count)
+                          ? editorialReviews._candidate_count
+                          : Array.isArray(editorialReviews)
+                            ? editorialReviews.length
+                            : 0;
+
+                      const rejectedCount =
+                        typeof editorialReviews?._rejected_count === "number" && Number.isFinite(editorialReviews._rejected_count)
+                          ? editorialReviews._rejected_count
+                          : null;
+
+                      const reviewsStageStatus =
+                        typeof editorialReviews?._stage_status === "string" && editorialReviews._stage_status.trim()
+                          ? editorialReviews._stage_status.trim()
+                          : fetchOk
+                            ? curated.length === 0 && candidateCount > 0
+                              ? "no_valid_reviews_found"
+                              : "ok"
+                            : "upstream_unreachable";
+
+                      const reviewsTelemetry = editorialReviews?._telemetry && typeof editorialReviews._telemetry === "object" ? editorialReviews._telemetry : null;
+                      const candidatesDebug = Array.isArray(editorialReviews?._candidates_debug) ? editorialReviews._candidates_debug : [];
+
+                      const cursorExhausted = fetchOk && reviewsStageStatus === "ok" && candidateCount === 0;
+
+                      const cursorError =
+                        reviewsStageStatus === "timed_out"
+                          ? {
+                              code: "REVIEWS_TIMED_OUT",
+                              message: "Review validation stopped early due to time budget",
+                            }
+                          : !fetchOk
+                            ? {
+                                code: fetchErrorCode || "REVIEWS_FAILED",
+                                message: fetchErrorMsg || "Reviews fetch failed",
+                              }
+                            : curated.length === 0 && candidateCount > 0
+                              ? {
+                                  code: "REVIEWS_VALIDATION_REJECTED",
+                                  message: "Upstream returned review candidates but none passed validation",
+                                }
+                              : null;
+
+                      const cursor = buildReviewCursor({
+                        nowIso: nowReviewsIso,
+                        count: curated.length,
+                        exhausted: cursorExhausted,
+                        last_error: cursorError,
+                      });
+
+                      cursor._candidate_count = candidateCount;
+                      if (rejectedCount != null) cursor._rejected_count = rejectedCount;
+                      cursor._saved_count = curated.length;
+                      cursor.exhausted_reason = cursorExhausted ? "no_candidates" : "";
+
+                      cursor.reviews_stage_status = reviewsStageStatus;
+                      if (reviewsTelemetry) {
+                        cursor.reviews_telemetry = {
+                          stage_status: reviewsTelemetry.stage_status,
+                          review_candidates_fetched_count: reviewsTelemetry.review_candidates_fetched_count,
+                          review_candidates_considered_count: reviewsTelemetry.review_candidates_considered_count,
+                          review_candidates_rejected_count: reviewsTelemetry.review_candidates_rejected_count,
+                          review_candidates_rejected_reasons: reviewsTelemetry.review_candidates_rejected_reasons,
+                          review_validated_count: reviewsTelemetry.review_validated_count,
+                          review_saved_count: reviewsTelemetry.review_saved_count,
+                          duplicate_host_used_as_fallback: reviewsTelemetry.duplicate_host_used_as_fallback,
+                          time_budget_exhausted: reviewsTelemetry.time_budget_exhausted,
+                          upstream_status: reviewsTelemetry.upstream_status,
+                          upstream_error_code: reviewsTelemetry.upstream_error_code,
+                        };
+                      }
+
+                      if ((reviewsStageStatus !== "ok" || curated.length === 0) && candidatesDebug.length) {
+                        cursor.review_candidates_debug = candidatesDebug;
+                      }
 
                       enrichedExpansion[i] = {
                         ...companyForReviews,
                         curated_reviews: curated,
                         review_count: curated.length,
                         reviews_last_updated_at: nowReviewsIso,
-                        review_cursor: buildReviewCursor({
-                          nowIso: nowReviewsIso,
-                          count: curated.length,
-                          exhausted: cursorExhausted,
-                          last_error: !fetchOk
-                            ? {
-                                code: fetchErrorCode || "REVIEWS_FAILED",
-                                message: fetchErrorMsg || "Reviews fetch failed",
-                              }
-                            : null,
-                        }),
+                        review_cursor: cursor,
                       };
 
                       if (curated.length > 0) {
