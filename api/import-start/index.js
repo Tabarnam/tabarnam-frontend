@@ -6437,11 +6437,32 @@ Output JSON only:
                   last_error: cursorError,
                 });
 
-                // Persist candidate/rejection telemetry for retries.
+                // Persist candidate/rejection telemetry for retries and diagnostics.
                 cursor._candidate_count = candidateCount;
                 if (rejectedCount != null) cursor._rejected_count = rejectedCount;
                 cursor._saved_count = curated.length;
                 cursor.exhausted_reason = cursorExhausted ? "no_candidates" : "";
+
+                cursor.reviews_stage_status = reviewsStageStatus;
+                if (reviewsTelemetry) {
+                  cursor.reviews_telemetry = {
+                    stage_status: reviewsTelemetry.stage_status,
+                    review_candidates_fetched_count: reviewsTelemetry.review_candidates_fetched_count,
+                    review_candidates_considered_count: reviewsTelemetry.review_candidates_considered_count,
+                    review_candidates_rejected_count: reviewsTelemetry.review_candidates_rejected_count,
+                    review_candidates_rejected_reasons: reviewsTelemetry.review_candidates_rejected_reasons,
+                    review_validated_count: reviewsTelemetry.review_validated_count,
+                    review_saved_count: reviewsTelemetry.review_saved_count,
+                    duplicate_host_used_as_fallback: reviewsTelemetry.duplicate_host_used_as_fallback,
+                    time_budget_exhausted: reviewsTelemetry.time_budget_exhausted,
+                    upstream_status: reviewsTelemetry.upstream_status,
+                    upstream_error_code: reviewsTelemetry.upstream_error_code,
+                  };
+                }
+
+                if ((reviewsStageStatus !== "ok" || curated.length === 0) && candidatesDebug.length) {
+                  cursor.review_candidates_debug = candidatesDebug;
+                }
 
                 console.log(
                   `[import-start][reviews] session=${sessionId} upstream_candidates=${candidateCount} saved=${curated.length} rejected=${rejectedCount != null ? rejectedCount : ""} exhausted=${cursorExhausted ? "true" : "false"} company=${companyForReviews.company_name}`
