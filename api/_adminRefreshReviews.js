@@ -33,6 +33,25 @@ const VERSION_TAG = `ded-${HANDLER_ID}-${String(BUILD_INFO.build_id || "unknown"
 
 const API_STAGE = "reviews_refresh";
 
+function buildReviewsUpstreamPayload({ prompt, companyWebsiteHost, model } = {}) {
+  const searchBuild = buildSearchParameters({
+    companyWebsiteHost,
+    additionalExcludedHosts: [],
+  });
+
+  const promptWithSpill = `${asString(prompt)}${searchBuild.prompt_exclusion_text || ""}`;
+
+  const payload = {
+    messages: [{ role: "user", content: promptWithSpill }],
+    model: asString(model).trim() || "grok-4-latest",
+    search_parameters: searchBuild.search_parameters,
+    temperature: 0.2,
+    stream: false,
+  };
+
+  return { payload, searchBuild };
+}
+
 function logOneLineError({
   company_id,
   company_domain,
