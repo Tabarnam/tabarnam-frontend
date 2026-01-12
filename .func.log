@@ -394,3 +394,4 @@ For detailed output, run func with --verbose flag.
 [2026-01-12T07:45:23.648Z] The 'adminRefreshCompany' function is in error: The specified route conflicts with one or more built in routes.
 [2026-01-12T07:45:23.648Z] The 'adminRefreshReviews' function is in error: The specified route conflicts with one or more built in routes.
 [2026-01-12T07:45:28.543Z] Host lock lease acquired by instance ID '00000000000000000000000019708F0B'.
+[2026-01-12T07:46:23.456Z] Detected mixed function app. Some functions may not be indexed - /root/app/code/api/admin-company-history, /root/app/code/api/_diag-hello, /root/app/code/api/admin-companies-history, /root/app/code/api/import-start, /root/app/code/api/import-start-hyphen Refer to the documentation to filter warning - https://docs.microsoft.com/en-us/azure/azure-functions/configure-monitoring?tabs=v2
