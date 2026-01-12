@@ -2056,7 +2056,7 @@ Rules:
 
     telemetry.review_candidates_fetched_count = upstreamCandidateCount;
     telemetry.review_candidates_considered_count = candidates.length;
-    telemetry.stage_status = parseError ? "timed_out" : "ok";
+    telemetry.stage_status = parseError ? "upstream_unreachable" : "ok";
 
     const nowIso = new Date().toISOString();
     const curated = [];
