@@ -683,9 +683,9 @@ function toNonNegativeInt(value, fallback = 0) {
 }
 
 function getComputedReviewCount(company) {
-  // Prefer the canonical field if present.
-  const canonical = toNonNegativeInt(company?.review_count, -1);
-  if (canonical >= 0) return canonical;
+  // review_count is intended to be canonical, but older records may have it missing or stale.
+  // So we treat it as one input among several and pick the best available signal.
+  const canonical = toNonNegativeInt(company?.review_count, 0);
 
   const publicCount = toNonNegativeInt(company?.public_review_count, 0);
   const privateCount = toNonNegativeInt(company?.private_review_count, 0);
@@ -697,6 +697,7 @@ function getComputedReviewCount(company) {
 
   const bestNumericFallback = Math.max(
     0,
+    canonical,
     toNonNegativeInt(company?.reviews_count, 0),
     toNonNegativeInt(company?.review_count_approved, 0),
     toNonNegativeInt(company?.editorial_review_count, 0),
