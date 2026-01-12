@@ -1192,14 +1192,52 @@ async function handler(req, context) {
     const root_cause_raw = classifyError(lastErr, { xai_base_url, xai_key });
     const root_cause = asString(root_cause_raw).trim() || "unknown";
 
+    const attempts_count = Number(lastErr?.attempts_count) || backoffs.length;
+
+    const xai_request_id =
+      asString(lastErr?.xai_request_id).trim() || extractUpstreamRequestId(lastErr?.response?.headers) || null;
+
+    const upstream_url = asString(lastErr?.upstream_url).trim() || redactUrlQueryAndHash(xai_base_url) || null;
+    const auth_header_present =
+      typeof lastErr?.auth_header_present === "boolean" ? lastErr.auth_header_present : Boolean(asString(xai_key).trim());
+
+    const bodyDiag =
+      lastErr?.raw_body_preview != null || lastErr?.raw_body_kind != null || lastErr?.content_type != null
+        ? {
+            content_type: asString(lastErr?.content_type).trim() || null,
+            raw_body_kind: asString(lastErr?.raw_body_kind).trim() || null,
+            raw_body_preview: asString(lastErr?.raw_body_preview) || null,
+          }
+        : buildUpstreamBodyDiagnostics(lastErr?.response?.data, lastErr?.response?.headers, { maxLen: 4096 });
+
+    const upstream_error_body =
+      lastErr?.upstream_error_body && typeof lastErr.upstream_error_body === "object"
+        ? lastErr.upstream_error_body
+        : bodyDiag.raw_body_preview
+          ? {
+              content_type: bodyDiag.content_type,
+              raw_body_kind: bodyDiag.raw_body_kind,
+              preview: bodyDiag.raw_body_preview,
+            }
+          : null;
+
+    const payload_shape = lastErr?.payload_shape || null;
+
     return respond({
       ok: false,
       stage: "reviews_refresh",
       company_id,
       root_cause,
       upstream_status,
-      retryable: retryableForRootCause(root_cause),
-      message: asString(lastErr?.message || lastErr || "Backend call failure"),
+      retryable: typeof lastErr?.retryable === "boolean" ? lastErr.retryable : retryableForRootCause(root_cause),
+      attempts_count,
+      retry_exhausted: true,
+      upstream_url,
+      auth_header_present,
+      xai_request_id,
+      upstream_error_body,
+      payload_shape,
+      message: asString(lastErr?.message || lastErr) || "Upstream request failed",
       warnings,
       build_id,
       version_tag: VERSION_TAG,
