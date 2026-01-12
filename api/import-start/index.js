@@ -2096,7 +2096,6 @@ Rules:
             show_to_users: true,
             is_public: true,
           });
-          rejectedCount += 1;
           continue;
         }
       }
