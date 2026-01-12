@@ -1108,7 +1108,17 @@ async function handler(req, context) {
             root_cause: normalized_root_cause,
             upstream_status,
             retryable,
+            attempts_count,
+            retry_exhausted,
+            upstream_url,
+            auth_header_present,
             xai_request_id: xai_request_id || null,
+
+            // Keep explicit non-JSON diagnostics small and stable for storage.
+            content_type: bodyDiag.content_type || null,
+            raw_body_kind: bodyDiag.raw_body_kind || null,
+            raw_body_preview: bodyDiag.raw_body_preview || null,
+
             upstream_error_body,
             payload_shape,
             message: asString(err?.message || err),
