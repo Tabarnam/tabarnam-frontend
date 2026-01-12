@@ -1033,8 +1033,31 @@ async function handler(req, context) {
         const normalized_root_cause = asString(root_cause).trim() || "unknown";
         const retryable = typeof err?.retryable === "boolean" ? err.retryable : retryableForRootCause(normalized_root_cause);
 
+        const attempts_count = i + 1;
+        const retry_exhausted = attempts_count >= backoffs.length;
+
         const xai_request_id = asString(err?.xai_request_id).trim() || extractUpstreamRequestId(err?.response?.headers);
-        const upstream_error_body = err?.upstream_error_body || safeBodyPreview(err?.response?.data, { maxLen: 6000 });
+
+        const bodyDiag =
+          err?.raw_body_preview != null || err?.raw_body_kind != null || err?.content_type != null
+            ? {
+                content_type: asString(err?.content_type).trim() || null,
+                raw_body_kind: asString(err?.raw_body_kind).trim() || null,
+                raw_body_preview: asString(err?.raw_body_preview) || null,
+              }
+            : buildUpstreamBodyDiagnostics(err?.response?.data, err?.response?.headers, { maxLen: 4096 });
+
+        const upstream_error_body =
+          err?.upstream_error_body && typeof err.upstream_error_body === "object"
+            ? err.upstream_error_body
+            : bodyDiag.raw_body_preview
+              ? {
+                  content_type: bodyDiag.content_type,
+                  raw_body_kind: bodyDiag.raw_body_kind,
+                  preview: bodyDiag.raw_body_preview,
+                }
+              : safeBodyPreview(err?.response?.data, { maxLen: 6000 });
+
         const payload_shape = err?.payload_shape || null;
 
         try {
