@@ -136,3 +136,123 @@ Function Runtime Version: 4.1045.200.25556
 [2026-01-12T08:56:00.281Z] The 'adminCompanyHistoryAlias' function is in error: The specified route conflicts with one or more built in routes.
 [2026-01-12T08:56:00.281Z] The 'adminRefreshCompany' function is in error: The specified route conflicts with one or more built in routes.
 [2026-01-12T08:56:00.281Z] The 'adminRefreshReviews' function is in error: The specified route conflicts with one or more built in routes.
+
+Functions:
+
+	adminAnalytics: [GET,OPTIONS] http://localhost:7077/api/xadmin-api-analytics
+
+	adminBatchUpdate: [POST,OPTIONS] http://localhost:7077/api/xadmin-api-batch-update
+
+	adminBulkImportConfig: [GET,OPTIONS] http://localhost:7077/api/xadmin-api-bulk-import-config
+
+	adminCompanies: [GET,POST,PUT,DELETE,OPTIONS] http://localhost:7077/api/xadmin-api-companies/{id?}
+
+	adminDebug: [GET] http://localhost:7077/api/xadmin-api-debug
+
+	adminEcho: [GET,OPTIONS] http://localhost:7077/api/xadmin-api-echo
+
+	adminGeocodeLocation: [POST,OPTIONS] http://localhost:7077/api/xadmin-api-geocode-location
+
+	adminImportStats: [GET,OPTIONS] http://localhost:7077/api/xadmin-api-import-stats
+
+	adminKeywords: [GET,PUT,OPTIONS] http://localhost:7077/api/xadmin-api-keywords
+
+	adminLogin: [POST,OPTIONS] http://localhost:7077/api/xadmin-api-login
+
+	adminNotes: [GET,POST,PUT,DELETE,OPTIONS] http://localhost:7077/api/xadmin-api-notes
+
+	adminRecalcStars: [POST,OPTIONS] http://localhost:7077/api/xadmin-api-recalc-stars
+
+	adminRecentImports: [GET,OPTIONS] http://localhost:7077/api/xadmin-api-recent-imports
+
+	adminRefreshImport: [POST,OPTIONS] http://localhost:7077/api/xadmin-api-refresh-import
+
+	adminReviews: [GET,POST,PUT,DELETE,OPTIONS] http://localhost:7077/api/xadmin-api-reviews
+
+	adminSaveDiagnostic: [GET,POST,OPTIONS] http://localhost:7077/api/xadmin-api-save-diagnostic
+
+	adminStarConfig: [GET,PUT,OPTIONS] http://localhost:7077/api/xadmin-api-star-config
+
+	adminUndo: [POST,OPTIONS] http://localhost:7077/api/xadmin-api-undo
+
+	adminUndoHistory: [GET,DELETE,OPTIONS] http://localhost:7077/api/xadmin-api-undo-history
+
+	adminUpdateLogos: [POST,OPTIONS] http://localhost:7077/api/xadmin-api-update-logos
+
+	companies-list: [GET,POST,PUT,DELETE,OPTIONS] http://localhost:7077/api/companies-list
+
+	company-logo: [GET,OPTIONS] http://localhost:7077/api/company-logo
+
+	cosmos-smoke: [GET,OPTIONS] http://localhost:7077/api/cosmos/smoke
+
+	delete-logo-blob: [POST,OPTIONS] http://localhost:7077/api/delete-logo-blob
+
+	diag: [GET,OPTIONS] http://localhost:7077/api/diag
+
+	get-reviews: [GET,OPTIONS] http://localhost:7077/api/get-reviews
+
+	googleGeocode: [POST,OPTIONS] http://localhost:7077/api/google/geocode
+
+	googleTranslate: [POST,OPTIONS] http://localhost:7077/api/google/translate
+
+	health: [GET,OPTIONS] http://localhost:7077/api/health
+
+	hello: [GET,OPTIONS] http://localhost:7077/api/hello
+
+	import-backend-ping: [GET,OPTIONS] http://localhost:7077/api/import/backend-ping
+
+	import-primary-worker: [POST,OPTIONS] http://localhost:7077/api/import/primary-worker
+
+	import-progress: [GET,OPTIONS] http://localhost:7077/api/import/progress
+
+	import-start: [GET,POST,OPTIONS] http://localhost:7077/api/import/start
+
+	import-start-legacy: [GET,POST,OPTIONS] http://localhost:7077/api/import-start
+
+	import-status: [GET,OPTIONS] http://localhost:7077/api/import/status
+
+	import-status-alt: [GET,OPTIONS] http://localhost:7077/api/import-status
+
+	import-stop: [POST,OPTIONS] http://localhost:7077/api/import/stop
+
+	keywords-list: [GET,POST,PUT,DELETE,OPTIONS] http://localhost:7077/api/keywords-list
+
+	logo-scrape: [POST,OPTIONS] http://localhost:7077/api/logo-scrape
+
+	ping: [GET,OPTIONS] http://localhost:7077/api/ping
+
+	proxy-xai: [GET,POST,OPTIONS] http://localhost:7077/api/proxy-xai
+
+	retry-logo-import: [POST,OPTIONS] http://localhost:7077/api/retry-logo-import
+
+	save-companies: [POST,OPTIONS] http://localhost:7077/api/save-companies
+
+	search-companies: [GET,OPTIONS] http://localhost:7077/api/search-companies
+
+	submit-review: [POST,OPTIONS] http://localhost:7077/api/submit-review
+
+	suggest-cities: [GET,OPTIONS] http://localhost:7077/api/suggest-cities
+
+	suggest-refinements: [GET,OPTIONS] http://localhost:7077/api/suggest-refinements
+
+	suggest-states: [GET,OPTIONS] http://localhost:7077/api/suggest-states
+
+	test-echo: [GET,POST,PUT,DELETE,OPTIONS] http://localhost:7077/api/test-echo
+
+	upload-logo-blob: [POST,OPTIONS] http://localhost:7077/api/upload-logo-blob
+
+	v1-chat-completions: [POST,OPTIONS] http://localhost:7077/api/v1/chat/completions
+
+	version: [GET,OPTIONS] http://localhost:7077/api/version
+
+	xadmin-api-logos: [PUT,OPTIONS] http://localhost:7077/api/xadmin-api-logos/{companyId}
+
+	xadminApiRecalcReviewCounts: [POST,OPTIONS] http://localhost:7077/api/xadmin-api-recalc-review-counts
+
+	xadminApiRefreshCompany: [GET,POST,OPTIONS] http://localhost:7077/api/xadmin-api-refresh-company
+
+	xadminApiRefreshReviews: [GET,POST,OPTIONS] http://localhost:7077/api/xadmin-api-refresh-reviews
+
+	xai-smoke: [GET,OPTIONS] http://localhost:7077/api/xai/smoke
+
+For detailed output, run func with --verbose flag.
