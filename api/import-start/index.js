@@ -1807,6 +1807,59 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugColl
     kept: 0,
   };
 
+  const telemetry = {
+    stage_status: "unknown",
+    review_candidates_fetched_count: 0,
+    review_candidates_considered_count: 0,
+    review_candidates_rejected_count: 0,
+    review_candidates_rejected_reasons: {
+      disallowed_source: 0,
+      self_domain: 0,
+      duplicate_host_deferred: 0,
+      link_not_found: 0,
+      validation_timeout: 0,
+      validation_brand_mismatch: 0,
+      validation_fetch_blocked: 0,
+      validation_error_other: 0,
+      missing_fields: 0,
+    },
+    review_validated_count: 0,
+    review_saved_count: 0,
+    time_budget_exhausted: false,
+    upstream_status: null,
+    upstream_error_code: null,
+    upstream_error_message: null,
+  };
+
+  const incReason = (key) => {
+    const k = String(key || "").trim();
+    if (!k) return;
+    if (!telemetry.review_candidates_rejected_reasons[k]) {
+      telemetry.review_candidates_rejected_reasons[k] = 0;
+    }
+    telemetry.review_candidates_rejected_reasons[k] += 1;
+    telemetry.review_candidates_rejected_count += 1;
+  };
+
+  const classifyValidationRejection = (v, errMessage) => {
+    const linkStatus = String(v?.link_status || "").trim();
+    const fetchStatus = Number.isFinite(Number(v?.fetch_status)) ? Number(v.fetch_status) : null;
+    const reason = String(v?.reason_if_rejected || errMessage || "").toLowerCase();
+
+    if (linkStatus === "not_found") return "link_not_found";
+    if (fetchStatus === 403 || fetchStatus === 429) return "validation_fetch_blocked";
+
+    if (reason.includes("timeout") || reason.includes("timed out") || reason.includes("abort")) return "validation_timeout";
+    if (reason.includes("brand/company not mentioned") || reason.includes("not mentioned")) return "validation_brand_mismatch";
+
+    // Many blocked cases don't include a fetch status; keep these separate from brand mismatches.
+    if (linkStatus === "blocked" && (reason.includes("not accessible") || reason.includes("blocked"))) {
+      return "validation_fetch_blocked";
+    }
+
+    return "validation_error_other";
+  };
+
   const looksLikeReviewUrl = (u) => {
     const s = String(u || "").toLowerCase();
     return (
