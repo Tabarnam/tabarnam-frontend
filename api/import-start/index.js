@@ -2254,7 +2254,26 @@ Rules:
     }
 
     if (curated.length < 2 && deferredDuplicates.length > 0) {
-      curated.push(deferredDuplicates[0]);
+      const sorted = deferredDuplicates
+        .slice()
+        .sort((a, b) => {
+          const aReview = a?._looks_like_review_url ? 1 : 0;
+          const bReview = b?._looks_like_review_url ? 1 : 0;
+          if (aReview !== bReview) return bReview - aReview;
+
+          const aScore = typeof a?._match_confidence === "number" ? a._match_confidence : 0;
+          const bScore = typeof b?._match_confidence === "number" ? b._match_confidence : 0;
+          if (aScore !== bScore) return bScore - aScore;
+
+          return 0;
+        });
+
+      const best = sorted[0];
+      if (best) {
+        const { _match_confidence, _looks_like_review_url, ...clean } = best;
+        curated.push(clean);
+        telemetry.duplicate_host_used_as_fallback = true;
+      }
     }
 
     debug.kept = curated.length;
