@@ -439,6 +439,40 @@ test("/api/import/start live mode builds >=2 messages and hits /v1/chat/completi
   );
 });
 
+test("import-start reviews upstream payload caps excluded websites to 5 and spills to prompt", () => {
+  assert.equal(typeof _test?.buildReviewsUpstreamPayloadForImportStart, "function");
+
+  const reviewMessage = {
+    role: "user",
+    content: "Find independent reviews.",
+  };
+
+  const built = _test.buildReviewsUpstreamPayloadForImportStart({
+    reviewMessage,
+    companyWebsiteHost: "audiocontrol.com",
+  });
+
+  assert.ok(built && typeof built === "object");
+  assert.ok(built.reviewPayload && typeof built.reviewPayload === "object");
+
+  const payload = built.reviewPayload;
+
+  assert.equal(payload?.search_parameters?.mode, "on");
+  assert.ok(Array.isArray(payload?.search_parameters?.sources));
+
+  const web = payload.search_parameters.sources.find((s) => s?.type === "web");
+  const news = payload.search_parameters.sources.find((s) => s?.type === "news");
+
+  assert.ok(Array.isArray(web?.excluded_websites));
+  assert.ok(Array.isArray(news?.excluded_websites));
+  assert.ok(web.excluded_websites.length <= 5);
+  assert.ok(news.excluded_websites.length <= 5);
+
+  const user = Array.isArray(payload.messages) ? payload.messages.find((m) => m?.role === "user") : null;
+  assert.ok(typeof user?.content === "string");
+  assert.ok(user.content.includes("Also avoid these websites"));
+});
+
 test("/api/import/start auto-generates messages when messages is [] and prompt is empty (fetch payload)", async () => {
   await withTempEnv(
     {

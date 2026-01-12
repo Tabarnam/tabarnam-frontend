@@ -1736,6 +1736,38 @@ function buildReviewCursor({ nowIso, count, exhausted, last_error, prev_cursor }
   };
 }
 
+function buildReviewsUpstreamPayloadForImportStart({ reviewMessage, companyWebsiteHost } = {}) {
+  const { buildSearchParameters } = require("../_buildSearchParameters");
+
+  const searchBuild = buildSearchParameters({
+    companyWebsiteHost,
+    additionalExcludedHosts: [],
+  });
+
+  const role = typeof reviewMessage?.role === "string" ? reviewMessage.role.trim() : "";
+  const contentRaw =
+    typeof reviewMessage?.content === "string" ? reviewMessage.content : reviewMessage?.content == null ? "" : String(reviewMessage.content);
+
+  const messageWithSpill = {
+    ...(reviewMessage && typeof reviewMessage === "object" ? reviewMessage : { role: "user" }),
+    role: role || "user",
+    content: `${contentRaw.trim()}${searchBuild.prompt_exclusion_text || ""}`,
+  };
+
+  const reviewPayload = {
+    model: "grok-4-latest",
+    messages: [
+      { role: "system", content: XAI_SYSTEM_PROMPT },
+      messageWithSpill,
+    ],
+    search_parameters: searchBuild.search_parameters,
+    temperature: 0.2,
+    stream: false,
+  };
+
+  return { reviewPayload, searchBuild };
+}
+
 // Fetch editorial reviews for a company using XAI
 async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugCollector, stageCtx, warn) {
   const { extractJsonFromText, normalizeUpstreamReviewsResult } = require("../_curatedReviewsXai");
@@ -2005,41 +2037,19 @@ Rules:
       return out;
     }
 
-    const excludedWebsites = [
-      // Hard blocks
-      "amazon.com",
-      "www.amazon.com",
-      "amzn.to",
-      "google.com",
-      "www.google.com",
-      "g.co",
-      "goo.gl",
-      "yelp.com",
-      "www.yelp.com",
-      // Also exclude the company's own site so results are independent.
-      ...(companyHostForSearch ? [companyHostForSearch, `www.${companyHostForSearch}`] : []),
-    ];
+    const { reviewPayload, searchBuild } = buildReviewsUpstreamPayloadForImportStart({
+      reviewMessage,
+      companyWebsiteHost: companyHostForSearch,
+    });
 
-    const reviewPayload = {
-      model: "grok-4-latest",
-      messages: [
-        { role: "system", content: XAI_SYSTEM_PROMPT },
-        reviewMessage,
-      ],
-      // Use xAI Live Search so the model returns *real* URLs instead of hallucinations.
-      search_parameters: {
-        mode: "on",
-        sources: [
-          { type: "web", excluded_websites: excludedWebsites },
-          { type: "news", excluded_websites: excludedWebsites },
-          { type: "x" },
-        ],
-      },
-      temperature: 0.2,
-      stream: false,
-    };
+    if (searchBuild?.telemetry && typeof searchBuild.telemetry === "object") {
+      telemetry.excluded_websites_original_count = searchBuild.telemetry.excluded_websites_original_count;
+      telemetry.excluded_websites_used_count = searchBuild.telemetry.excluded_websites_used_count;
+      telemetry.excluded_websites_truncated = searchBuild.telemetry.excluded_websites_truncated;
+      telemetry.excluded_hosts_spilled_to_prompt_count = searchBuild.telemetry.excluded_hosts_spilled_to_prompt_count;
+    }
 
-    const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(reviewPayload);
+    const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(reviewPayload, searchBuild.telemetry);
     try {
       console.log(
         "[import-start][reviews_upstream_request] " +
@@ -2096,7 +2106,7 @@ Rules:
 
       const xai_request_id = extractUpstreamRequestId(response.headers);
       const upstream_error_body = safeBodyPreview(response.data, { maxLen: 6000 });
-      const payload_shape = redactReviewsUpstreamPayloadForLog(reviewPayload);
+      const payload_shape = redactReviewsUpstreamPayloadForLog(reviewPayload, searchBuild.telemetry);
 
       try {
         console.error(
@@ -2429,6 +2439,11 @@ Rules:
           duplicate_host_used_as_fallback: telemetry.duplicate_host_used_as_fallback,
           time_budget_exhausted: telemetry.time_budget_exhausted,
           upstream_status: telemetry.upstream_status,
+
+          excluded_websites_original_count: telemetry.excluded_websites_original_count,
+          excluded_websites_used_count: telemetry.excluded_websites_used_count,
+          excluded_websites_truncated: telemetry.excluded_websites_truncated,
+          excluded_hosts_spilled_to_prompt_count: telemetry.excluded_hosts_spilled_to_prompt_count,
         })
     );
 
@@ -6607,6 +6622,11 @@ Output JSON only:
                     upstream_status: reviewsTelemetry.upstream_status,
                     upstream_error_code: reviewsTelemetry.upstream_error_code,
                     upstream_failure_buckets: reviewsTelemetry.upstream_failure_buckets,
+
+                    excluded_websites_original_count: reviewsTelemetry.excluded_websites_original_count,
+                    excluded_websites_used_count: reviewsTelemetry.excluded_websites_used_count,
+                    excluded_websites_truncated: reviewsTelemetry.excluded_websites_truncated,
+                    excluded_hosts_spilled_to_prompt_count: reviewsTelemetry.excluded_hosts_spilled_to_prompt_count,
                   };
                 }
 
@@ -7255,8 +7275,13 @@ Return ONLY the JSON array, no other text.`,
                           time_budget_exhausted: reviewsTelemetry.time_budget_exhausted,
                           upstream_status: reviewsTelemetry.upstream_status,
                           upstream_error_code: reviewsTelemetry.upstream_error_code,
-                    upstream_failure_buckets: reviewsTelemetry.upstream_failure_buckets,
-                  };
+                          upstream_failure_buckets: reviewsTelemetry.upstream_failure_buckets,
+
+                          excluded_websites_original_count: reviewsTelemetry.excluded_websites_original_count,
+                          excluded_websites_used_count: reviewsTelemetry.excluded_websites_used_count,
+                          excluded_websites_truncated: reviewsTelemetry.excluded_websites_truncated,
+                          excluded_hosts_spilled_to_prompt_count: reviewsTelemetry.excluded_hosts_spilled_to_prompt_count,
+                        };
                       }
 
                       if ((reviewsStageStatus !== "ok" || curated.length === 0) && candidatesDebug.length) {
@@ -8113,5 +8138,6 @@ module.exports = {
     readJsonBody,
     readQueryParam,
     importStartHandler,
+    buildReviewsUpstreamPayloadForImportStart,
   },
 };

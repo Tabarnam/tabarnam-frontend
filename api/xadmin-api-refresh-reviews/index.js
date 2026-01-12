@@ -13,6 +13,7 @@ const {
   redactReviewsUpstreamPayloadForLog,
   classifyUpstreamFailure,
 } = require("../_upstreamReviewsDiagnostics");
+const { buildSearchParameters } = require("../_buildSearchParameters");
 
 let axios;
 try {
@@ -397,6 +398,58 @@ function extractJsonObjectFromText(text) {
   return null;
 }
 
+function buildReviewsUpstreamPayload({ company, offset, limit, model } = {}) {
+  const companyName = asString(company?.company_name || company?.name).trim();
+  const websiteUrl = asString(company?.website_url || company?.url).trim();
+
+  const cappedLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit) || 3)));
+  const safeOffset = Math.max(0, Math.trunc(Number(offset) || 0));
+
+  const messages = [
+    {
+      role: "system",
+      content:
+        "You are a research assistant. Always respond with valid JSON only; no markdown, no prose. Do not wrap in backticks.",
+    },
+    {
+      role: "user",
+      content: `Find independent reviews about this company (or its products/services).\n\nCompany: ${companyName}\nWebsite: ${websiteUrl}\n\nReturn EXACTLY a single JSON object with this shape:\n{\n  \\\"reviews\\\": [ ... ],\n  \\\"next_offset\\\": number,\n  \\\"exhausted\\\": boolean\n}\n\nRules:\n- Return at most ${cappedLimit} review objects in \\\"reviews\\\".\n- Use \\\"offset\\\"=${safeOffset} to skip that many results from your internal ranking list so subsequent calls can page forward.\n- If there are no more results, set exhausted=true and return reviews: [].\n- Reviews MUST NOT be sourced from Amazon or Google.\n  - Exclude amazon.* domains, amzn.to\n  - Exclude google.* domains, g.co, goo.gl\n  - YouTube is allowed.\n- Prefer magazines, blogs, news sites, YouTube, X (Twitter), and Facebook posts/pages.\n- Each review must be an object with keys:\n  - source_name (string, optional)\n  - source_url (string, REQUIRED) — direct link to the specific article/video/post\n  - date (string, optional; prefer YYYY-MM-DD if known)\n  - excerpt (string, REQUIRED) — short excerpt/quote (1-2 sentences)\n- Output JSON only (no markdown).`,
+    },
+  ];
+
+  const companyHost = (() => {
+    try {
+      const u = new URL(websiteUrl);
+      return String(u.hostname || "").toLowerCase().replace(/^www\./, "");
+    } catch {
+      return "";
+    }
+  })();
+
+  const searchBuild = buildSearchParameters({
+    companyWebsiteHost: companyHost,
+    additionalExcludedHosts: [],
+  });
+
+  const messagesWithSpill = messages.map((m, idx) => {
+    if (idx !== 1) return m;
+    return {
+      ...m,
+      content: `${asString(m?.content).trim()}${searchBuild.prompt_exclusion_text || ""}`,
+    };
+  });
+
+  const payload = {
+    model: asString(model).trim() || null,
+    messages: messagesWithSpill,
+    search_parameters: searchBuild.search_parameters,
+    temperature: 0.2,
+    stream: false,
+  };
+
+  return { payload, searchBuild };
+}
+
 async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) {
   const { model, xai_base_url, xai_key } = extractXaiConfig();
 
@@ -459,35 +512,28 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
     }
   })();
 
-  const excludedWebsites = [
-    "amazon.com",
-    "www.amazon.com",
-    "amzn.to",
-    "google.com",
-    "www.google.com",
-    "g.co",
-    "goo.gl",
-    "yelp.com",
-    "www.yelp.com",
-    ...(companyHost ? [companyHost, `www.${companyHost}`] : []),
-  ];
+  const searchBuild = buildSearchParameters({
+    companyWebsiteHost: companyHost,
+    additionalExcludedHosts: [],
+  });
+
+  const messagesWithSpill = messages.map((m, idx) => {
+    if (idx !== 1) return m;
+    return {
+      ...m,
+      content: `${asString(m?.content).trim()}${searchBuild.prompt_exclusion_text || ""}`,
+    };
+  });
 
   const payload = {
     model,
-    messages,
-    search_parameters: {
-      mode: "on",
-      sources: [
-        { type: "web", excluded_websites: excludedWebsites },
-        { type: "news", excluded_websites: excludedWebsites },
-        { type: "x" },
-      ],
-    },
+    messages: messagesWithSpill,
+    search_parameters: searchBuild.search_parameters,
     temperature: 0.2,
     stream: false,
   };
 
-  const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(payload);
+  const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(payload, searchBuild.telemetry);
   try {
     console.log(
       JSON.stringify({
@@ -541,6 +587,7 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
       err.xai_request_id = request_id;
       err.upstream_error_body = upstream_error_body;
       err.payload_shape = payload_shape_for_log;
+      err.exclusion_telemetry = searchBuild.telemetry;
       throw err;
     }
 
@@ -573,7 +620,10 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
           : Array.isArray(normalized.reviews)
             ? normalized.reviews.length === 0
             : true,
-      _meta: { upstream_status: status },
+      _meta: {
+        upstream_status: status,
+        ...(searchBuild?.telemetry && typeof searchBuild.telemetry === "object" ? searchBuild.telemetry : {}),
+      },
     };
   } finally {
     clearTimeout(timeoutHandle);
@@ -864,15 +914,27 @@ async function handler(req, context) {
         cursor.last_attempt_at = nowIso();
         cursor.last_error = null;
         cursor.reviews_stage_status = "ok";
+
+        const upstreamMeta = upstream?._meta && typeof upstream._meta === "object" ? upstream._meta : {};
+
         cursor.reviews_telemetry = {
           stage_status: "ok",
-          upstream_status: normalizeHttpStatus(upstream?._meta?.upstream_status),
+          upstream_status: normalizeHttpStatus(upstreamMeta?.upstream_status),
           upstream_failure_buckets: {
             upstream_4xx: 0,
             upstream_5xx: 0,
             upstream_rate_limited: 0,
             upstream_unreachable: 0,
           },
+
+          excluded_websites_original_count:
+            typeof upstreamMeta?.excluded_websites_original_count === "number" ? upstreamMeta.excluded_websites_original_count : null,
+          excluded_websites_used_count:
+            typeof upstreamMeta?.excluded_websites_used_count === "number" ? upstreamMeta.excluded_websites_used_count : null,
+          excluded_websites_truncated:
+            typeof upstreamMeta?.excluded_websites_truncated === "boolean" ? upstreamMeta.excluded_websites_truncated : null,
+          excluded_hosts_spilled_to_prompt_count:
+            typeof upstreamMeta?.excluded_hosts_spilled_to_prompt_count === "number" ? upstreamMeta.excluded_hosts_spilled_to_prompt_count : null,
         };
         cursor.exhausted = Boolean(upstream?.exhausted) || incoming.length === 0;
 
@@ -966,6 +1028,10 @@ async function handler(req, context) {
             message: asString(err?.message || err),
           };
           cursor.reviews_stage_status = normalized_root_cause;
+
+          const exclusionTelemetry =
+            err?.exclusion_telemetry && typeof err.exclusion_telemetry === "object" ? err.exclusion_telemetry : {};
+
           cursor.reviews_telemetry = {
             stage_status: normalized_root_cause,
             upstream_status,
@@ -975,6 +1041,19 @@ async function handler(req, context) {
               upstream_rate_limited: normalized_root_cause === "upstream_rate_limited" ? 1 : 0,
               upstream_unreachable: normalized_root_cause === "upstream_unreachable" ? 1 : 0,
             },
+
+            excluded_websites_original_count:
+              typeof exclusionTelemetry?.excluded_websites_original_count === "number"
+                ? exclusionTelemetry.excluded_websites_original_count
+                : null,
+            excluded_websites_used_count:
+              typeof exclusionTelemetry?.excluded_websites_used_count === "number" ? exclusionTelemetry.excluded_websites_used_count : null,
+            excluded_websites_truncated:
+              typeof exclusionTelemetry?.excluded_websites_truncated === "boolean" ? exclusionTelemetry.excluded_websites_truncated : null,
+            excluded_hosts_spilled_to_prompt_count:
+              typeof exclusionTelemetry?.excluded_hosts_spilled_to_prompt_count === "number"
+                ? exclusionTelemetry.excluded_hosts_spilled_to_prompt_count
+                : null,
           };
           await patchCompanyById(companiesContainer, company_id, company, { review_cursor: cursor });
         } catch {
@@ -1088,5 +1167,6 @@ module.exports._test = {
     extractJsonObjectFromText,
     normalizeUpstreamResult,
     getValueAtPath,
+    buildReviewsUpstreamPayload,
   },
 };

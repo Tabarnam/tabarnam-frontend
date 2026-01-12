@@ -25,11 +25,32 @@ const {
   classifyUpstreamFailure,
 } = require("./_upstreamReviewsDiagnostics");
 
+const { buildSearchParameters } = require("./_buildSearchParameters");
+
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "refresh-reviews";
 const VERSION_TAG = `ded-${HANDLER_ID}-${String(BUILD_INFO.build_id || "unknown").slice(0, 12)}`;
 
 const API_STAGE = "reviews_refresh";
+
+function buildReviewsUpstreamPayload({ prompt, companyWebsiteHost, model } = {}) {
+  const searchBuild = buildSearchParameters({
+    companyWebsiteHost,
+    additionalExcludedHosts: [],
+  });
+
+  const promptWithSpill = `${asString(prompt)}${searchBuild.prompt_exclusion_text || ""}`;
+
+  const payload = {
+    messages: [{ role: "user", content: promptWithSpill }],
+    model: asString(model).trim() || "grok-4-latest",
+    search_parameters: searchBuild.search_parameters,
+    temperature: 0.2,
+    stream: false,
+  };
+
+  return { payload, searchBuild };
+}
 
 function logOneLineError({
   company_id,
@@ -662,35 +683,13 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       }
     })();
 
-    const excludedWebsites = [
-      "amazon.com",
-      "www.amazon.com",
-      "amzn.to",
-      "google.com",
-      "www.google.com",
-      "g.co",
-      "goo.gl",
-      "yelp.com",
-      "www.yelp.com",
-      ...(companyHost ? [companyHost, `www.${companyHost}`] : []),
-    ];
-
-    const payload = {
-      messages: [{ role: "user", content: prompt }],
+    const { payload, searchBuild } = buildReviewsUpstreamPayload({
+      prompt,
+      companyWebsiteHost: companyHost,
       model: xaiModel,
-      search_parameters: {
-        mode: "on",
-        sources: [
-          { type: "web", excluded_websites: excludedWebsites },
-          { type: "news", excluded_websites: excludedWebsites },
-          { type: "x" },
-        ],
-      },
-      temperature: 0.2,
-      stream: false,
-    };
+    });
 
-    const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(payload);
+    const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(payload, searchBuild.telemetry);
     try {
       console.log(
         JSON.stringify({
@@ -1171,5 +1170,6 @@ module.exports = {
     normalizeReviewCandidate,
     computeReviewHash,
     normalizeUrlForCompare,
+    buildReviewsUpstreamPayload,
   },
 };
