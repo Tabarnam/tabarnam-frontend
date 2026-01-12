@@ -1,7 +1,5 @@
-const { app } = require('@azure/functions');
+const { app } = require("@azure/functions");
 const { CosmosClient } = require("@azure/cosmos");
-
-const { app } = require("../_app");
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -35,12 +33,8 @@ function getKeywordsContainer() {
   return client.database(databaseId).container(containerId);
 }
 
-app.http('adminKeywords', {
-  route: 'xadmin-api-keywords',
-  methods: ['GET', 'PUT', 'OPTIONS'],
-  authLevel: 'anonymous',
-  handler: async (request, context) => {
-    context.log("admin-keywords function invoked");
+async function adminKeywordsHandler(request, context) {
+  context.log("admin-keywords function invoked");
 
     const method = String(request.method || "").toUpperCase();
 
@@ -138,9 +132,13 @@ app.http('adminKeywords', {
         body: JSON.stringify({ error: e?.message || "Internal error" }),
       };
     }
-  }
+}
+
+app.http("adminKeywords", {
+  route: "xadmin-api-keywords",
+  methods: ["GET", "PUT", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: adminKeywordsHandler,
 });
 
-module.exports.handler = async function adminKeywordsTopLevelHandler(req, context) {
-  return adminKeywordsHandler(req, context);
-};
+module.exports = adminKeywordsHandler;

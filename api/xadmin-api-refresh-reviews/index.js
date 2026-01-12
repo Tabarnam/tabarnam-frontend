@@ -6,6 +6,7 @@ const {
   buildPartitionKeyCandidates,
 } = require("../_cosmosPartitionKey");
 const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../_shared");
+const { checkUrlHealthAndFetchText } = require("../_reviewQuality");
 
 let axios;
 try {
@@ -706,7 +707,36 @@ async function handler(req, context) {
         });
 
         const incomingRaw = Array.isArray(upstream?.reviews) ? upstream.reviews : [];
-        const incoming = incomingRaw.map(normalizeIncomingReview).filter(Boolean);
+        const incomingNormalized = incomingRaw.map(normalizeIncomingReview).filter(Boolean);
+
+        // Filter out review URLs that are clearly dead (404/page not found).
+        // Note: We allow "blocked" (403/429/etc) because those often work in a real browser.
+        const incoming = [];
+        for (const r of incomingNormalized) {
+          try {
+            const health = await checkUrlHealthAndFetchText(r.source_url, { timeoutMs: 4000, maxBytes: 30000 });
+            if (health?.link_status === "not_found") {
+              warnings.push({
+                stage: "reviews_refresh",
+                root_cause: "review_url_not_found",
+                upstream_status: null,
+                message: `Rejected review URL (page not found): ${asString(r.source_url).slice(0, 200)}`,
+              });
+              continue;
+            }
+
+            const finalUrl = normalizeHttpUrlOrNull(health?.final_url || r.source_url) || r.source_url;
+            incoming.push({
+              ...r,
+              source_url: finalUrl,
+              url: finalUrl,
+            });
+          } catch (e) {
+            // If validation fails unexpectedly, keep the review rather than failing the refresh.
+            incoming.push(r);
+          }
+        }
+
         fetched_count_total += incoming.length;
 
         const existing = Array.isArray(company.curated_reviews) ? company.curated_reviews : [];
@@ -719,7 +749,7 @@ async function handler(req, context) {
         const nextOffset =
           typeof upstream?.next_offset === "number" && Number.isFinite(upstream.next_offset)
             ? upstream.next_offset
-            : offset + incoming.length;
+            : offset + incomingNormalized.length;
 
         cursor.source = "xai_reviews";
         cursor.last_offset = nextOffset;

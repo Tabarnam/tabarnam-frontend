@@ -1842,9 +1842,13 @@ Return EXACTLY a single JSON object with this shape:
 }
 
 Rules:
-- Return at most 2 review objects in "reviews".
+- Return up to 6 review objects in "reviews".
+  - We will validate and keep at most 2.
+  - Provide extra candidates in case some links are broken (404/page not found) or disallowed.
+  - Try to use different source domains (avoid duplicates).
 - Use offset=0.
 - If there are no results, set exhausted=true and return reviews: [].
+- Reviews MUST be independent (do NOT use the company website domain).
 - Reviews MUST NOT be sourced from Amazon or Google.
   - Exclude amazon.* domains, amzn.to
   - Exclude google.* domains, g.co, goo.gl
@@ -1957,11 +1961,13 @@ Rules:
     }
 
     const candidatesUpstream = upstreamReviews.filter((r) => r && typeof r === "object");
-    const candidates = candidatesUpstream.slice(0, 2);
+    const candidates = candidatesUpstream.slice(0, 6);
     const upstreamCandidateCount = candidatesUpstream.length;
 
     const nowIso = new Date().toISOString();
     const curated = [];
+    const keptHosts = new Set();
+    const companyHost = inferSourceNameFromUrl(websiteUrl).toLowerCase().replace(/^www\./, "");
 
     let rejectedCount = 0;
 
@@ -2046,8 +2052,25 @@ Rules:
         reason_if_rejected: v?.reason_if_rejected,
       });
 
+      // Only persist validated reviews.
+      if (v?.is_valid !== true) {
+        rejectedCount += 1;
+        continue;
+      }
+
       const finalUrl = normalizeHttpUrlOrNull(v?.final_url || normalizedCandidateUrl) || normalizedCandidateUrl;
       if (isDisallowedReviewSourceUrl(finalUrl)) {
+        rejectedCount += 1;
+        continue;
+      }
+
+      const reviewHost = inferSourceNameFromUrl(finalUrl).toLowerCase().replace(/^www\./, "");
+      if (companyHost && reviewHost && isSameDomain(reviewHost, companyHost)) {
+        rejectedCount += 1;
+        continue;
+      }
+
+      if (reviewHost && keptHosts.has(reviewHost)) {
         rejectedCount += 1;
         continue;
       }
@@ -2067,6 +2090,9 @@ Rules:
         show_to_users: true,
         is_public: true,
       });
+
+      if (reviewHost) keptHosts.add(reviewHost);
+      if (curated.length >= 2) break;
     }
 
     debug.kept = curated.length;
