@@ -1042,6 +1042,8 @@ async function handler(req, context) {
         const { xai_base_url, xai_key } = extractXaiConfig();
         const upstream_status_raw = err?.status || err?.response?.status || 0;
         const upstream_status = normalizeHttpStatus(upstream_status_raw);
+        attempt_upstream_statuses.push(upstream_status);
+
         const root_cause = classifyError(err, { xai_base_url, xai_key });
 
         const normalized_root_cause = asString(root_cause).trim() || "unknown";
