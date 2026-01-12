@@ -514,10 +514,16 @@ export async function apiFetch(path: string, init?: RequestInit) {
 
       const configMsg = await getUserFacingConfigMessage(response);
       if (shouldLogNon2xx({ url, status: response.status })) {
-        console.error("[apiFetch] Non-2xx response", {
-          ...err,
-          ...(configMsg ? { user_facing_config_message: configMsg } : {}),
-        });
+        const messagePreview = truncated.preview ? truncated.preview.slice(0, 200) : "";
+        console.error(
+          `[apiFetch] Non-2xx response status=${err.status} method=${err.method} url=${err.url}${
+            messagePreview ? ` preview=${JSON.stringify(messagePreview)}` : ""
+          }`,
+          {
+            ...err,
+            ...(configMsg ? { user_facing_config_message: configMsg } : {}),
+          }
+        );
       }
     }
 
@@ -590,10 +596,16 @@ export async function apiFetch(path: string, init?: RequestInit) {
 
           const configMsg = await getUserFacingConfigMessage(response);
           if (shouldLogNon2xx({ url: fallbackUrl, status: response.status })) {
-            console.error("[apiFetch] Non-2xx response (fallback /xapi)", {
-              ...err,
-              ...(configMsg ? { user_facing_config_message: configMsg } : {}),
-            });
+            const messagePreview = truncated.preview ? truncated.preview.slice(0, 200) : "";
+            console.error(
+              `[apiFetch] Non-2xx response (fallback /xapi) status=${err.status} method=${err.method} url=${err.url}${
+                messagePreview ? ` preview=${JSON.stringify(messagePreview)}` : ""
+              }`,
+              {
+                ...err,
+                ...(configMsg ? { user_facing_config_message: configMsg } : {}),
+              }
+            );
           }
         }
 
