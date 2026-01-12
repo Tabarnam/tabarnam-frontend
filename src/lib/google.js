@@ -28,6 +28,25 @@ export async function geocode({ address, lat, lng, ipLookup = true } = {}) {
       method: "POST",
       body: { address, lat, lng, ipLookup },
     });
+
+    // Some deployments don't ship the optional google helpers. In dev, we provide
+    // a Vite-only server middleware fallback at /__dev/google/*.
+    if (r.status === 404) {
+      const devRes = await fetch("/__dev/google/geocode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, lat, lng, ipLookup }),
+      }).catch(() => null);
+
+      if (devRes && devRes.ok) {
+        const devData = await devRes.json().catch(() => null);
+        if (devData) {
+          _set(key, devData);
+          return devData;
+        }
+      }
+    }
+
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data?.error || r.statusText || "geocode failed");
     _set(key, data);
