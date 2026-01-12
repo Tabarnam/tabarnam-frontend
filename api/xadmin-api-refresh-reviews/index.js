@@ -127,6 +127,19 @@ function isAzureWebsitesUrl(rawUrl) {
   }
 }
 
+function redactUrlQueryAndHash(rawUrl) {
+  const s = asString(rawUrl).trim();
+  if (!s) return "";
+  try {
+    const u = new URL(s);
+    u.search = "";
+    u.hash = "";
+    return u.toString();
+  } catch {
+    return s.split("?")[0].split("#")[0];
+  }
+}
+
 function retryableForRootCause(root_cause) {
   const rc = asString(root_cause).trim();
   if (!rc) return true;
