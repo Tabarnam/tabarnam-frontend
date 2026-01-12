@@ -676,6 +676,38 @@ function slugifyCompanyId(name) {
   return base;
 }
 
+function toNonNegativeInt(value, fallback = 0) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.trunc(n));
+}
+
+function getComputedReviewCount(company) {
+  // Prefer the canonical field if present.
+  const canonical = toNonNegativeInt(company?.review_count, -1);
+  if (canonical >= 0) return canonical;
+
+  const publicCount = toNonNegativeInt(company?.public_review_count, 0);
+  const privateCount = toNonNegativeInt(company?.private_review_count, 0);
+  const publicPrivateTotal = publicCount + privateCount;
+
+  const curatedCount = Array.isArray(company?.curated_reviews) ? company.curated_reviews.length : 0;
+  const embeddedReviewsCount = Array.isArray(company?.reviews) ? company.reviews.length : 0;
+  const embeddedTotal = curatedCount + embeddedReviewsCount;
+
+  const bestNumericFallback = Math.max(
+    0,
+    toNonNegativeInt(company?.reviews_count, 0),
+    toNonNegativeInt(company?.review_count_approved, 0),
+    toNonNegativeInt(company?.editorial_review_count, 0),
+    toNonNegativeInt(company?.amazon_review_count, 0),
+    toNonNegativeInt(company?.public_review_count, 0),
+    toNonNegativeInt(company?.private_review_count, 0)
+  );
+
+  return Math.max(0, publicPrivateTotal, bestNumericFallback, embeddedTotal);
+}
+
 function toIssueTags(company) {
   const issues = [];
 
@@ -688,7 +720,9 @@ function toIssueTags(company) {
   const logo = asString(company?.logo_url).trim();
   if (!logo) issues.push("missing logo");
 
-  const hqList = normalizeStructuredLocationList(company?.headquarters_locations || company?.headquarters || company?.headquarters_location);
+  const hqList = normalizeStructuredLocationList(
+    company?.headquarters_locations || company?.headquarters || company?.headquarters_location
+  );
   if (hqList.length === 0) issues.push("missing HQ");
 
   const manuBase =
@@ -701,19 +735,7 @@ function toIssueTags(company) {
   const keywords = normalizeStringList(company?.keywords || company?.product_keywords);
   if (keywords.length === 0) issues.push("missing keywords");
 
-  const curatedCount = Array.isArray(company?.curated_reviews) ? company.curated_reviews.length : 0;
-  const reviewsCount = Array.isArray(company?.reviews) ? company.reviews.length : 0;
-
-  const reviewCountNumeric =
-    Number(company?.review_count ?? company?.reviews_count ?? company?.review_count_approved ?? 0) ||
-    Number(company?.editorial_review_count ?? 0) ||
-    Number(company?.amazon_review_count ?? 0) ||
-    Number(company?.public_review_count ?? 0) ||
-    Number(company?.private_review_count ?? 0) ||
-    0;
-
-  const reviewTotal = Math.max(0, curatedCount, reviewsCount, reviewCountNumeric);
-  if (reviewTotal === 0) issues.push("reviews");
+  if (getComputedReviewCount(company) === 0) issues.push("reviews");
 
   return issues;
 }
@@ -4115,12 +4137,12 @@ export default function CompanyDashboard() {
           const list = normalizeStructuredLocationList(manuBase);
           return list.map((l) => formatStructuredLocation(l)).filter(Boolean).join("; ");
         },
-        sortable: false,
+        sortable: true,
         wrap: true,
       },
       {
         name: "reviews",
-        selector: (row) => Number(row?.review_count ?? row?.reviews_count ?? 0) || 0,
+        selector: (row) => getComputedReviewCount(row),
         sortable: true,
         right: true,
         width: "110px",
@@ -4162,7 +4184,8 @@ export default function CompanyDashboard() {
       },
       {
         name: "Issues",
-        sortable: false,
+        selector: (row) => toIssueTags(row).length,
+        sortable: true,
         cell: (row) => {
           const tags = toIssueTags(row);
           if (tags.length === 0) return <span className="text-xs text-emerald-700">OK</span>;
