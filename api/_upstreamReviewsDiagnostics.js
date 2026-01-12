@@ -170,6 +170,88 @@ function classifyUpstreamFailure({ upstream_status, err_code } = {}) {
   };
 }
 
+function extractContentType(headers) {
+  const h = headers && typeof headers === "object" ? headers : {};
+  const v = h["content-type"] ?? h["Content-Type"] ?? h["CONTENT-TYPE"];
+
+  if (typeof v === "string") return v.trim() || null;
+  if (Array.isArray(v)) {
+    const first = v.find((x) => typeof x === "string" && x.trim());
+    return first ? first.trim() : null;
+  }
+
+  return null;
+}
+
+function safeRawBodyPreview(data, { maxLen = 4096 } = {}) {
+  if (data == null) return null;
+
+  let text = "";
+
+  if (typeof data === "string") {
+    text = data;
+  } else if (Buffer.isBuffer(data) || data instanceof Uint8Array) {
+    try {
+      text = Buffer.from(data).toString("utf8");
+    } catch {
+      text = String(data);
+    }
+  } else if (data && typeof data === "object") {
+    try {
+      text = JSON.stringify(data);
+    } catch {
+      text = String(data);
+    }
+  } else {
+    text = String(data);
+  }
+
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  return truncateText(trimmed, maxLen);
+}
+
+function classifyRawBodyKind({ content_type, raw_body_preview } = {}) {
+  const ct = asString(content_type).toLowerCase();
+  const body = asString(raw_body_preview).trim();
+
+  if (!body) return "empty";
+
+  const looksHtml =
+    ct.includes("text/html") ||
+    body.toLowerCase().startsWith("<!doctype") ||
+    body.toLowerCase().startsWith("<html") ||
+    body.toLowerCase().includes("<head") ||
+    body.toLowerCase().includes("<body");
+
+  if (looksHtml) return "html";
+
+  const looksJson = ct.includes("application/json") || body.startsWith("{") || body.startsWith("[");
+
+  if (looksJson) {
+    try {
+      JSON.parse(body);
+      return "text";
+    } catch {
+      return "json_invalid";
+    }
+  }
+
+  return "text";
+}
+
+function buildUpstreamBodyDiagnostics(data, headers, { maxLen = 4096 } = {}) {
+  const content_type = extractContentType(headers);
+  const raw_body_preview = safeRawBodyPreview(data, { maxLen });
+  const raw_body_kind = classifyRawBodyKind({ content_type, raw_body_preview });
+
+  return {
+    content_type,
+    raw_body_kind,
+    raw_body_preview,
+  };
+}
+
 function bumpUpstreamFailureBucket(telemetry, stage_status) {
   if (!telemetry || typeof telemetry !== "object") return;
 
