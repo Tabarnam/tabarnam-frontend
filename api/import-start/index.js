@@ -2117,10 +2117,14 @@ Rules:
       const normalizedCandidateUrl = normalizeHttpUrlOrNull(sourceUrlRaw);
       if (!normalizedCandidateUrl || isDisallowedReviewSourceUrl(normalizedCandidateUrl)) {
         rejectedCount += 1;
+        incReason("disallowed_source");
         debug.candidates.push({
           url: sourceUrlRaw,
-          title: titleRaw,
+          title_raw: titleRaw,
+          excerpt_preview: excerptRaw ? excerptRaw.slice(0, 200) : "",
+          rejection_bucket: "disallowed_source",
           link_status: "disallowed_url",
+          fetch_status: null,
           final_url: null,
           is_valid: false,
           matched_brand_terms: [],
