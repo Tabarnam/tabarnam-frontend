@@ -388,6 +388,14 @@ function shouldLogNon2xx({ url, status }: { url: string; status: number }) {
 
     if (isAdminCompanyHistory) return false;
 
+    // Optional Google helpers are not guaranteed to exist in every backend deployment.
+    const isGoogleOptionalEndpoint =
+      u.includes("/google/geocode") ||
+      u.includes("/google/places") ||
+      u.includes("/google/translate");
+
+    if (isGoogleOptionalEndpoint) return false;
+
     // Back-compat regex match (covers absolute URLs with different bases).
     if (/\/admin\/companies\/[^/]+\/history\b/i.test(u)) return false;
   }
@@ -427,6 +435,21 @@ function truncateText(value: string, maxLen: number): { preview: string; truncat
   const s = typeof value === "string" ? value : "";
   if (s.length <= maxLen) return { preview: s, truncated: false };
   return { preview: s.slice(0, maxLen), truncated: true };
+}
+
+function safeStringifyForLog(value: unknown, maxLen = 8_000): string {
+  try {
+    const json = JSON.stringify(value);
+    if (typeof json !== "string") return "";
+    if (json.length <= maxLen) return json;
+    return json.slice(0, maxLen) + "…<truncated>";
+  } catch {
+    try {
+      return String(value ?? "");
+    } catch {
+      return "";
+    }
+  }
 }
 
 export async function apiFetchParsed(path: string, init?: RequestInit): Promise<ApiFetchParsedResult> {
@@ -514,10 +537,20 @@ export async function apiFetch(path: string, init?: RequestInit) {
 
       const configMsg = await getUserFacingConfigMessage(response);
       if (shouldLogNon2xx({ url, status: response.status })) {
-        console.error("[apiFetch] Non-2xx response", {
+        const messagePreview = truncated.preview ? truncated.preview.slice(0, 200) : "";
+        const payload = {
           ...err,
           ...(configMsg ? { user_facing_config_message: configMsg } : {}),
-        });
+        };
+        const payloadText = safeStringifyForLog(payload);
+
+        // Many log sinks stringify non-string args as "[object Object]".
+        // Keep everything useful in the first string.
+        console.error(
+          `[apiFetch] Non-2xx response status=${err.status} method=${err.method} url=${err.url}${
+            messagePreview ? ` preview=${JSON.stringify(messagePreview)}` : ""
+          } details=${payloadText}`
+        );
       }
     }
 
@@ -590,10 +623,18 @@ export async function apiFetch(path: string, init?: RequestInit) {
 
           const configMsg = await getUserFacingConfigMessage(response);
           if (shouldLogNon2xx({ url: fallbackUrl, status: response.status })) {
-            console.error("[apiFetch] Non-2xx response (fallback /xapi)", {
+            const messagePreview = truncated.preview ? truncated.preview.slice(0, 200) : "";
+            const payload = {
               ...err,
               ...(configMsg ? { user_facing_config_message: configMsg } : {}),
-            });
+            };
+            const payloadText = safeStringifyForLog(payload);
+
+            console.error(
+              `[apiFetch] Non-2xx response (fallback /xapi) status=${err.status} method=${err.method} url=${err.url}${
+                messagePreview ? ` preview=${JSON.stringify(messagePreview)}` : ""
+              } details=${payloadText}`
+            );
           }
         }
 

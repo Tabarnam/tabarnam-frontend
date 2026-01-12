@@ -73,6 +73,7 @@ function getUpstreamXaiUrl(req) {
     process.env.XAI_UPSTREAM_BASE,
     process.env.XAI_BASE,
     process.env.XAI_EXTERNAL_BASE,
+    process.env.XAI_INTERNAL_BASE, // alias
     process.env.FUNCTION_URL,
   ];
 

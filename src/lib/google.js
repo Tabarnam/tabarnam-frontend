@@ -28,6 +28,25 @@ export async function geocode({ address, lat, lng, ipLookup = true } = {}) {
       method: "POST",
       body: { address, lat, lng, ipLookup },
     });
+
+    // Some deployments don't ship the optional google helpers. In dev, we provide
+    // a Vite-only server middleware fallback at /__dev/google/*.
+    if (r.status === 404) {
+      const devRes = await fetch("/__dev/google/geocode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, lat, lng, ipLookup }),
+      }).catch(() => null);
+
+      if (devRes && devRes.ok) {
+        const devData = await devRes.json().catch(() => null);
+        if (devData) {
+          _set(key, devData);
+          return devData;
+        }
+      }
+    }
+
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data?.error || r.statusText || "geocode failed");
     _set(key, data);
@@ -75,6 +94,27 @@ export async function placesAutocomplete({ input, country = "" } = {}) {
       headers: { Accept: "application/json" },
     });
 
+    if (r.status === 404) {
+      const devRes = await fetch(`/__dev/google/places?${params.toString()}`, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      }).catch(() => null);
+
+      if (devRes && devRes.ok) {
+        const devData = await devRes.json().catch(() => ({}));
+        if (Array.isArray(devData?.predictions)) {
+          return devData.predictions.map((p) => ({
+            placeId: p.place_id,
+            description: p.description,
+            mainText: p.main_text,
+            secondaryText: p.secondary_text,
+          }));
+        }
+      }
+
+      return [];
+    }
+
     if (!r.ok) {
       console.warn(`Places autocomplete returned ${r.status}`);
       return [];
@@ -107,6 +147,49 @@ export async function placeDetails({ placeId } = {}) {
       method: "GET",
       headers: { Accept: "application/json" },
     });
+
+    if (r.status === 404) {
+      const devRes = await fetch(`/__dev/google/places?${params.toString()}`, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      }).catch(() => null);
+
+      if (devRes && devRes.ok) {
+        const devData = await devRes.json().catch(() => ({}));
+        if (devData?.components) {
+          const components = devData.components || [];
+
+          const countryComponent = components.find((c) => Array.isArray(c.types) && c.types.includes("country"));
+          const countryCode = countryComponent?.short_name || "";
+          const countryName = countryComponent?.long_name || "";
+
+          const stateComponent = components.find((c) => Array.isArray(c.types) && c.types.includes("administrative_area_level_1"));
+          const stateCode = stateComponent?.short_name || "";
+          const stateName = stateComponent?.long_name || "";
+
+          const cityComponent = components.find(
+            (c) => Array.isArray(c.types) && (c.types.includes("locality") || c.types.includes("postal_town"))
+          );
+          const city = cityComponent?.long_name || "";
+
+          const postalComponent = components.find((c) => Array.isArray(c.types) && c.types.includes("postal_code"));
+          const postalCode = postalComponent?.short_name || "";
+
+          return {
+            geometry: devData.geometry,
+            country: countryName,
+            countryCode,
+            state: stateName,
+            stateCode,
+            city,
+            postalCode,
+            components,
+          };
+        }
+      }
+
+      return null;
+    }
 
     if (!r.ok) {
       console.warn(`Place details returned ${r.status}`);
