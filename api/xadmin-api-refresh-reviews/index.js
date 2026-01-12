@@ -1167,5 +1167,6 @@ module.exports._test = {
     extractJsonObjectFromText,
     normalizeUpstreamResult,
     getValueAtPath,
+    buildReviewsUpstreamPayload,
   },
 };
