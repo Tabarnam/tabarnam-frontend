@@ -683,20 +683,11 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       }
     })();
 
-    const searchBuild = buildSearchParameters({
+    const { payload, searchBuild } = buildReviewsUpstreamPayload({
+      prompt,
       companyWebsiteHost: companyHost,
-      additionalExcludedHosts: [],
-    });
-
-    const promptWithSpill = `${prompt}${searchBuild.prompt_exclusion_text || ""}`;
-
-    const payload = {
-      messages: [{ role: "user", content: promptWithSpill }],
       model: xaiModel,
-      search_parameters: searchBuild.search_parameters,
-      temperature: 0.2,
-      stream: false,
-    };
+    });
 
     const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(payload, searchBuild.telemetry);
     try {
