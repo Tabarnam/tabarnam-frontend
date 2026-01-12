@@ -2166,10 +2166,15 @@ Rules:
       }));
 
       const evidenceCount = Array.isArray(v?.evidence_snippets) ? v.evidence_snippets.length : 0;
+      const rejectionBucket = v?.is_valid === true ? null : classifyValidationRejection(v);
+
       debug.candidates.push({
         url: normalizedCandidateUrl,
-        title: titleRaw,
+        title_raw: titleRaw,
+        excerpt_preview: excerptRaw ? excerptRaw.slice(0, 200) : "",
+        rejection_bucket: rejectionBucket,
         link_status: v?.link_status,
+        fetch_status: Number.isFinite(Number(v?.fetch_status)) ? Number(v.fetch_status) : null,
         final_url: v?.final_url,
         is_valid: Boolean(v?.is_valid),
         matched_brand_terms: v?.matched_brand_terms || [],
