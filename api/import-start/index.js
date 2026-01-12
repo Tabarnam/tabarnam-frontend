@@ -6412,17 +6412,23 @@ Output JSON only:
                 // If we timed out or validation rejected candidates, leave the cursor open.
                 const cursorExhausted = fetchOk && reviewsStageStatus === "ok" && candidateCount === 0;
 
-                const cursorError = !fetchOk
-                  ? {
-                      code: fetchErrorCode || "REVIEWS_FAILED",
-                      message: fetchErrorMsg || "Reviews fetch failed",
-                    }
-                  : curated.length === 0 && candidateCount > 0
+                const cursorError =
+                  reviewsStageStatus === "timed_out"
                     ? {
-                        code: "REVIEWS_VALIDATION_REJECTED",
-                        message: "Upstream returned review candidates but none passed validation",
+                        code: "REVIEWS_TIMED_OUT",
+                        message: "Review validation stopped early due to time budget",
                       }
-                    : null;
+                    : !fetchOk
+                      ? {
+                          code: fetchErrorCode || "REVIEWS_FAILED",
+                          message: fetchErrorMsg || "Reviews fetch failed",
+                        }
+                      : curated.length === 0 && candidateCount > 0
+                        ? {
+                            code: "REVIEWS_VALIDATION_REJECTED",
+                            message: "Upstream returned review candidates but none passed validation",
+                          }
+                        : null;
 
                 const cursor = buildReviewCursor({
                   nowIso: nowReviewsIso,
