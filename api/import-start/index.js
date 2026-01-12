@@ -1711,17 +1711,27 @@ function dedupeCuratedReviews(reviews) {
   return out;
 }
 
-function buildReviewCursor({ nowIso, count, exhausted, last_error }) {
+function buildReviewCursor({ nowIso, count, exhausted, last_error, prev_cursor }) {
   const n = Math.max(0, Math.trunc(Number(count) || 0));
   const exhaustedBool = typeof exhausted === "boolean" ? exhausted : false;
-  const errObj = last_error && typeof last_error === "object" ? last_error : last_error ? { message: String(last_error) } : null;
+  const errObj =
+    last_error && typeof last_error === "object" ? last_error : last_error ? { message: String(last_error) } : null;
+
+  const prev = prev_cursor && typeof prev_cursor === "object" ? prev_cursor : null;
+  const prevSuccessAt =
+    typeof prev?.last_success_at === "string" && prev.last_success_at.trim() ? prev.last_success_at.trim() : null;
+
+  // Semantics: last_success_at means "we saved at least 1 review".
+  // Do not update it on failures or on 0-saved runs.
+  const last_success_at = errObj == null && n > 0 ? nowIso : prevSuccessAt;
+
   return {
     source: "xai_reviews",
     last_offset: n,
     total_fetched: n,
     exhausted: exhaustedBool,
     last_attempt_at: nowIso,
-    last_success_at: nowIso,
+    last_success_at,
     last_error: errObj,
   };
 }
