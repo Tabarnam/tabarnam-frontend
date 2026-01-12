@@ -1831,6 +1831,7 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugColl
     },
     review_validated_count: 0,
     review_saved_count: 0,
+    duplicate_host_used_as_fallback: false,
     time_budget_exhausted: false,
     upstream_status: null,
     upstream_error_code: null,
