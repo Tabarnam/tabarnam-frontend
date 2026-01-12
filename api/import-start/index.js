@@ -1780,8 +1780,6 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugColl
     bumpUpstreamFailureBucket,
   } = require("../_upstreamReviewsDiagnostics");
 
-  const { buildSearchParameters } = require("../_buildSearchParameters");
-
   const companyName = String(company?.company_name || company?.name || "").trim();
   const websiteUrl = String(company?.website_url || company?.url || "").trim();
 
