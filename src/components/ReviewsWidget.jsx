@@ -5,6 +5,38 @@ import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { normalizeExternalUrl } from "@/lib/externalUrl";
 import { RatingDots } from "@/components/Stars";
 
+function pickReviewDate(review) {
+  if (!review || typeof review !== "object") return "";
+  const raw =
+    String(review.date || "").trim() ||
+    String(review.published_at || "").trim() ||
+    String(review.updated_at || "").trim() ||
+    String(review.last_updated_at || "").trim() ||
+    String(review.imported_at || "").trim() ||
+    String(review.created_at || "").trim();
+  return raw;
+}
+
+function formatReviewDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  // Avoid timezone shifts for date-only strings (admin uses YYYY-MM-DD).
+  const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (ymd) {
+    const y = Number(ymd[1]);
+    const m = Number(ymd[2]);
+    const d = Number(ymd[3]);
+    const utc = new Date(Date.UTC(y, m - 1, d));
+    return utc.toLocaleDateString(undefined, { timeZone: "UTC" });
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return parsed.toLocaleDateString();
+
+  return raw;
+}
+
 export default function ReviewsWidget({ companyId, companyName, displayName }) {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
