@@ -2211,18 +2211,22 @@ Rules:
         // one credible source with multiple relevant mentions.
         if (curated.length >= 1) {
           const sourceName = sourceNameRaw || inferSourceNameFromUrl(finalUrl) || "Unknown Source";
+          incReason("duplicate_host_deferred");
           deferredDuplicates.push({
             id: `xai_auto_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.trunc(Math.random() * 1e6)}`,
             source_name: sourceName,
             source: sourceName,
             source_url: finalUrl,
             excerpt: excerptRaw,
+            title_raw: titleRaw,
             date: dateRaw || null,
             created_at: nowIso,
             last_updated_at: nowIso,
             imported_via: "xai_import",
             show_to_users: true,
             is_public: true,
+            _match_confidence: typeof v?.match_confidence === "number" ? v.match_confidence : null,
+            _looks_like_review_url: looksLikeReviewUrl(finalUrl),
           });
           continue;
         }
