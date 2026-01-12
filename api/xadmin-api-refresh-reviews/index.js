@@ -1150,6 +1150,9 @@ async function handler(req, context) {
           cursor.reviews_telemetry = {
             stage_status: normalized_root_cause,
             upstream_status,
+            attempts_count,
+            retry_exhausted,
+            attempt_upstream_statuses: attempt_upstream_statuses.slice(0, attempts_count),
             upstream_failure_buckets: {
               upstream_4xx: normalized_root_cause === "upstream_4xx" ? 1 : 0,
               upstream_5xx: normalized_root_cause === "upstream_5xx" ? 1 : 0,
