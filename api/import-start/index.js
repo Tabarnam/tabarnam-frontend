@@ -6973,24 +6973,89 @@ Return ONLY the JSON array, no other text.`,
                       const fetchErrorMsg = typeof editorialReviews?._fetch_error === "string" ? editorialReviews._fetch_error : null;
 
                       const curated = dedupeCuratedReviews(editorialReviews);
-                      const cursorExhausted = fetchOk && curated.length === 0;
+                      const candidateCount =
+                        typeof editorialReviews?._candidate_count === "number" && Number.isFinite(editorialReviews._candidate_count)
+                          ? editorialReviews._candidate_count
+                          : Array.isArray(editorialReviews)
+                            ? editorialReviews.length
+                            : 0;
+
+                      const rejectedCount =
+                        typeof editorialReviews?._rejected_count === "number" && Number.isFinite(editorialReviews._rejected_count)
+                          ? editorialReviews._rejected_count
+                          : null;
+
+                      const reviewsStageStatus =
+                        typeof editorialReviews?._stage_status === "string" && editorialReviews._stage_status.trim()
+                          ? editorialReviews._stage_status.trim()
+                          : fetchOk
+                            ? curated.length === 0 && candidateCount > 0
+                              ? "no_valid_reviews_found"
+                              : "ok"
+                            : "upstream_unreachable";
+
+                      const reviewsTelemetry = editorialReviews?._telemetry && typeof editorialReviews._telemetry === "object" ? editorialReviews._telemetry : null;
+                      const candidatesDebug = Array.isArray(editorialReviews?._candidates_debug) ? editorialReviews._candidates_debug : [];
+
+                      const cursorExhausted = fetchOk && reviewsStageStatus === "ok" && candidateCount === 0;
+
+                      const cursorError =
+                        reviewsStageStatus === "timed_out"
+                          ? {
+                              code: "REVIEWS_TIMED_OUT",
+                              message: "Review validation stopped early due to time budget",
+                            }
+                          : !fetchOk
+                            ? {
+                                code: fetchErrorCode || "REVIEWS_FAILED",
+                                message: fetchErrorMsg || "Reviews fetch failed",
+                              }
+                            : curated.length === 0 && candidateCount > 0
+                              ? {
+                                  code: "REVIEWS_VALIDATION_REJECTED",
+                                  message: "Upstream returned review candidates but none passed validation",
+                                }
+                              : null;
+
+                      const cursor = buildReviewCursor({
+                        nowIso: nowReviewsIso,
+                        count: curated.length,
+                        exhausted: cursorExhausted,
+                        last_error: cursorError,
+                      });
+
+                      cursor._candidate_count = candidateCount;
+                      if (rejectedCount != null) cursor._rejected_count = rejectedCount;
+                      cursor._saved_count = curated.length;
+                      cursor.exhausted_reason = cursorExhausted ? "no_candidates" : "";
+
+                      cursor.reviews_stage_status = reviewsStageStatus;
+                      if (reviewsTelemetry) {
+                        cursor.reviews_telemetry = {
+                          stage_status: reviewsTelemetry.stage_status,
+                          review_candidates_fetched_count: reviewsTelemetry.review_candidates_fetched_count,
+                          review_candidates_considered_count: reviewsTelemetry.review_candidates_considered_count,
+                          review_candidates_rejected_count: reviewsTelemetry.review_candidates_rejected_count,
+                          review_candidates_rejected_reasons: reviewsTelemetry.review_candidates_rejected_reasons,
+                          review_validated_count: reviewsTelemetry.review_validated_count,
+                          review_saved_count: reviewsTelemetry.review_saved_count,
+                          duplicate_host_used_as_fallback: reviewsTelemetry.duplicate_host_used_as_fallback,
+                          time_budget_exhausted: reviewsTelemetry.time_budget_exhausted,
+                          upstream_status: reviewsTelemetry.upstream_status,
+                          upstream_error_code: reviewsTelemetry.upstream_error_code,
+                        };
+                      }
+
+                      if ((reviewsStageStatus !== "ok" || curated.length === 0) && candidatesDebug.length) {
+                        cursor.review_candidates_debug = candidatesDebug;
+                      }
 
                       enrichedExpansion[i] = {
                         ...companyForReviews,
                         curated_reviews: curated,
                         review_count: curated.length,
                         reviews_last_updated_at: nowReviewsIso,
-                        review_cursor: buildReviewCursor({
-                          nowIso: nowReviewsIso,
-                          count: curated.length,
-                          exhausted: cursorExhausted,
-                          last_error: !fetchOk
-                            ? {
-                                code: fetchErrorCode || "REVIEWS_FAILED",
-                                message: fetchErrorMsg || "Reviews fetch failed",
-                              }
-                            : null,
-                        }),
+                        review_cursor: cursor,
                       };
 
                       if (curated.length > 0) {
