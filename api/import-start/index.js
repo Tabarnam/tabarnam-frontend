@@ -6396,10 +6396,21 @@ Output JSON only:
                     ? editorialReviews._rejected_count
                     : null;
 
-                // Only mark reviews "exhausted" when the upstream returned *no candidates*.
-                // If upstream returned candidates but validation rejected them all, leave the cursor open
-                // (and store a last_error) so admin refresh/resume can try again later.
-                const cursorExhausted = fetchOk && candidateCount === 0;
+                const reviewsStageStatus =
+                  typeof editorialReviews?._stage_status === "string" && editorialReviews._stage_status.trim()
+                    ? editorialReviews._stage_status.trim()
+                    : fetchOk
+                      ? curated.length === 0 && candidateCount > 0
+                        ? "no_valid_reviews_found"
+                        : "ok"
+                      : "upstream_unreachable";
+
+                const reviewsTelemetry = editorialReviews?._telemetry && typeof editorialReviews._telemetry === "object" ? editorialReviews._telemetry : null;
+                const candidatesDebug = Array.isArray(editorialReviews?._candidates_debug) ? editorialReviews._candidates_debug : [];
+
+                // Only mark reviews "exhausted" when upstream returned *no candidates*.
+                // If we timed out or validation rejected candidates, leave the cursor open.
+                const cursorExhausted = fetchOk && reviewsStageStatus === "ok" && candidateCount === 0;
 
                 const cursorError = !fetchOk
                   ? {
