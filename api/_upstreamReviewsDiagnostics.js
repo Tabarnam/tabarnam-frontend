@@ -120,6 +120,15 @@ function redactReviewsUpstreamPayloadForLog(payload, meta) {
       sources: sources_redacted,
     },
     messages: messages_redacted,
+
+    // Optional extra diagnostics (kept small + stable for log-only payload shape).
+    excluded_websites_original_count:
+      typeof m.excluded_websites_original_count === "number" ? m.excluded_websites_original_count : null,
+    excluded_websites_used_count: typeof m.excluded_websites_used_count === "number" ? m.excluded_websites_used_count : null,
+    excluded_websites_truncated:
+      typeof m.excluded_websites_truncated === "boolean" ? m.excluded_websites_truncated : null,
+    excluded_hosts_spilled_to_prompt_count:
+      typeof m.excluded_hosts_spilled_to_prompt_count === "number" ? m.excluded_hosts_spilled_to_prompt_count : null,
   };
 }
 
