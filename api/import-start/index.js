@@ -2195,6 +2195,7 @@ Rules:
       const finalUrl = normalizeHttpUrlOrNull(v?.final_url || normalizedCandidateUrl) || normalizedCandidateUrl;
       if (isDisallowedReviewSourceUrl(finalUrl)) {
         rejectedCount += 1;
+        incReason("disallowed_source");
         continue;
       }
 
