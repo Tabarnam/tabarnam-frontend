@@ -976,6 +976,10 @@ async function handler(req, context) {
             message: asString(err?.message || err),
           };
           cursor.reviews_stage_status = normalized_root_cause;
+
+          const exclusionTelemetry =
+            err?.exclusion_telemetry && typeof err.exclusion_telemetry === "object" ? err.exclusion_telemetry : {};
+
           cursor.reviews_telemetry = {
             stage_status: normalized_root_cause,
             upstream_status,
@@ -985,6 +989,19 @@ async function handler(req, context) {
               upstream_rate_limited: normalized_root_cause === "upstream_rate_limited" ? 1 : 0,
               upstream_unreachable: normalized_root_cause === "upstream_unreachable" ? 1 : 0,
             },
+
+            excluded_websites_original_count:
+              typeof exclusionTelemetry?.excluded_websites_original_count === "number"
+                ? exclusionTelemetry.excluded_websites_original_count
+                : null,
+            excluded_websites_used_count:
+              typeof exclusionTelemetry?.excluded_websites_used_count === "number" ? exclusionTelemetry.excluded_websites_used_count : null,
+            excluded_websites_truncated:
+              typeof exclusionTelemetry?.excluded_websites_truncated === "boolean" ? exclusionTelemetry.excluded_websites_truncated : null,
+            excluded_hosts_spilled_to_prompt_count:
+              typeof exclusionTelemetry?.excluded_hosts_spilled_to_prompt_count === "number"
+                ? exclusionTelemetry.excluded_hosts_spilled_to_prompt_count
+                : null,
           };
           await patchCompanyById(companiesContainer, company_id, company, { review_cursor: cursor });
         } catch {
