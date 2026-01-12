@@ -60,6 +60,7 @@ app.http('adminReviews', {
 
     const url = new URL(req.url);
     const company = url.searchParams.get("company") || "";
+    const company_id = url.searchParams.get("company_id") || url.searchParams.get("companyId") || "";
 
     const container = getCompaniesContainer();
     if (!container) {
