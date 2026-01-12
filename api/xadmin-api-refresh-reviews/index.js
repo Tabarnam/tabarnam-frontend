@@ -887,7 +887,18 @@ async function handler(req, context) {
       // Do not fail; just proceed.
     }
 
-    const backoffs = [0, 2000, 5000, 10000];
+    // Retry policy for retryable upstream failures.
+    // We keep this small to avoid long-running admin requests.
+    const backoffs = [0, 500, 1200];
+
+    const jitterMs = (baseMs) => {
+      const base = Math.max(0, Math.trunc(Number(baseMs) || 0));
+      if (!base) return 0;
+      const jitter = Math.floor(Math.random() * Math.min(350, Math.max(80, Math.floor(base * 0.3))));
+      return base + jitter;
+    };
+
+    const attempt_upstream_statuses = [];
 
     let saved_count_total = 0;
     let fetched_count_total = 0;
@@ -895,7 +906,8 @@ async function handler(req, context) {
     let lastErr = null;
 
     for (let i = 0; i < backoffs.length; i += 1) {
-      if (backoffs[i]) await sleep(backoffs[i]);
+      const delay = jitterMs(backoffs[i]);
+      if (delay) await sleep(delay);
 
       try {
         const offset = Math.max(0, Math.trunc(Number(cursor.last_offset) || 0));
