@@ -1050,7 +1050,7 @@ async function handler(req, context) {
         const retryable = typeof err?.retryable === "boolean" ? err.retryable : retryableForRootCause(normalized_root_cause);
 
         const attempts_count = i + 1;
-        const retry_exhausted = attempts_count >= backoffs.length;
+        const retry_exhausted = attempts_count >= backoffs.length || !retryable;
 
         const xai_request_id = asString(err?.xai_request_id).trim() || extractUpstreamRequestId(err?.response?.headers);
 
