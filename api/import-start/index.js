@@ -6510,6 +6510,62 @@ Output JSON only:
                 };
               }
             }
+
+            try {
+              const summary = {
+                companies_total: Array.isArray(enriched) ? enriched.length : 0,
+                companies_with_saved_0: 0,
+                candidates_fetched_total: 0,
+                candidates_considered_total: 0,
+                validated_total: 0,
+                saved_total: 0,
+                rejected_total: 0,
+                stage_status_counts: {},
+                rejected_reasons_total: {},
+              };
+
+              for (const c of Array.isArray(enriched) ? enriched : []) {
+                const cursor = c?.review_cursor && typeof c.review_cursor === "object" ? c.review_cursor : null;
+                const stageStatus = String(cursor?.reviews_stage_status || "").trim() || "unknown";
+                summary.stage_status_counts[stageStatus] = (summary.stage_status_counts[stageStatus] || 0) + 1;
+
+                const saved = typeof c?.review_count === "number" ? c.review_count : Array.isArray(c?.curated_reviews) ? c.curated_reviews.length : 0;
+                if (saved === 0) summary.companies_with_saved_0 += 1;
+
+                const t = cursor?.reviews_telemetry && typeof cursor.reviews_telemetry === "object" ? cursor.reviews_telemetry : null;
+                if (t) {
+                  summary.candidates_fetched_total += Number(t.review_candidates_fetched_count) || 0;
+                  summary.candidates_considered_total += Number(t.review_candidates_considered_count) || 0;
+                  summary.validated_total += Number(t.review_validated_count) || 0;
+                  summary.saved_total += Number(t.review_saved_count) || 0;
+                  summary.rejected_total += Number(t.review_candidates_rejected_count) || 0;
+
+                  const reasons = t.review_candidates_rejected_reasons && typeof t.review_candidates_rejected_reasons === "object" ? t.review_candidates_rejected_reasons : null;
+                  if (reasons) {
+                    for (const [k, v] of Object.entries(reasons)) {
+                      if (!k) continue;
+                      summary.rejected_reasons_total[k] = (summary.rejected_reasons_total[k] || 0) + (Number(v) || 0);
+                    }
+                  }
+                } else {
+                  summary.saved_total += saved;
+                }
+              }
+
+              if (!noUpstreamMode && cosmosEnabled) {
+                await upsertCosmosImportSessionDoc({
+                  sessionId,
+                  requestId,
+                  patch: {
+                    reviews_summary: summary,
+                    reviews_summary_updated_at: new Date().toISOString(),
+                  },
+                });
+              }
+
+              console.log("[import-start][reviews_summary] " + JSON.stringify({ session_id: sessionId, request_id: requestId, ...summary }));
+            } catch {}
+
             console.log(`[import-start] session=${sessionId} editorial review enrichment done`);
             mark(reviewStageCompleted ? "xai_reviews_fetch_done" : "xai_reviews_fetch_partial");
           } else if (!shouldRunStage("reviews")) {
