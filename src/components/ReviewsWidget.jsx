@@ -132,7 +132,7 @@ export default function ReviewsWidget({ companyId, companyName, displayName }) {
                   <div className="flex items-center justify-between">
                     <div className="font-medium text-amber-600">{sourceName || "Unknown Source"}</div>
                     <div className="text-xs text-gray-500">
-                      {r.created_at ? new Date(r.created_at).toLocaleString() : ""}
+                      {formatReviewDate(pickReviewDate(r))}
                     </div>
                   </div>
 
