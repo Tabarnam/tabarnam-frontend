@@ -1711,17 +1711,27 @@ function dedupeCuratedReviews(reviews) {
   return out;
 }
 
-function buildReviewCursor({ nowIso, count, exhausted, last_error }) {
+function buildReviewCursor({ nowIso, count, exhausted, last_error, prev_cursor }) {
   const n = Math.max(0, Math.trunc(Number(count) || 0));
   const exhaustedBool = typeof exhausted === "boolean" ? exhausted : false;
-  const errObj = last_error && typeof last_error === "object" ? last_error : last_error ? { message: String(last_error) } : null;
+  const errObj =
+    last_error && typeof last_error === "object" ? last_error : last_error ? { message: String(last_error) } : null;
+
+  const prev = prev_cursor && typeof prev_cursor === "object" ? prev_cursor : null;
+  const prevSuccessAt =
+    typeof prev?.last_success_at === "string" && prev.last_success_at.trim() ? prev.last_success_at.trim() : null;
+
+  // Semantics: last_success_at means "we saved at least 1 review".
+  // Do not update it on failures or on 0-saved runs.
+  const last_success_at = errObj == null && n > 0 ? nowIso : prevSuccessAt;
+
   return {
     source: "xai_reviews",
     last_offset: n,
     total_fetched: n,
     exhausted: exhaustedBool,
     last_attempt_at: nowIso,
-    last_success_at: nowIso,
+    last_success_at,
     last_error: errObj,
   };
 }
@@ -1729,6 +1739,14 @@ function buildReviewCursor({ nowIso, count, exhausted, last_error }) {
 // Fetch editorial reviews for a company using XAI
 async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugCollector, stageCtx, warn) {
   const { extractJsonFromText, normalizeUpstreamReviewsResult } = require("../_curatedReviewsXai");
+  const {
+    normalizeHttpStatus,
+    extractUpstreamRequestId,
+    safeBodyPreview,
+    redactReviewsUpstreamPayloadForLog,
+    classifyUpstreamFailure,
+    bumpUpstreamFailureBucket,
+  } = require("../_upstreamReviewsDiagnostics");
 
   const companyName = String(company?.company_name || company?.name || "").trim();
   const websiteUrl = String(company?.website_url || company?.url || "").trim();
@@ -1799,10 +1817,27 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugColl
       });
     }
 
+    if (typeof warn === "function") {
+      warn({
+        stage: "reviews",
+        root_cause: "client_bad_request",
+        retryable: false,
+        upstream_status: null,
+        company_name: companyName,
+        website_url: websiteUrl,
+        message: "Missing company_name or website_url",
+      });
+    }
+
     const out = [];
     out._fetch_ok = false;
     out._fetch_error = "missing company_name or website_url";
     out._fetch_error_code = "MISSING_COMPANY_INPUT";
+    out._stage_status = "client_bad_request";
+    out._fetch_error_detail = {
+      root_cause: "client_bad_request",
+      message: "Missing company_name or website_url",
+    };
     return out;
   }
 
@@ -1828,6 +1863,12 @@ async function fetchEditorialReviews(company, xaiUrl, xaiKey, timeout, debugColl
       validation_fetch_blocked: 0,
       validation_error_other: 0,
       missing_fields: 0,
+    },
+    upstream_failure_buckets: {
+      upstream_4xx: 0,
+      upstream_5xx: 0,
+      upstream_rate_limited: 0,
+      upstream_unreachable: 0,
     },
     review_validated_count: 0,
     review_saved_count: 0,
@@ -1924,6 +1965,46 @@ Rules:
 
     const companyHostForSearch = inferSourceNameFromUrl(websiteUrl).toLowerCase().replace(/^www\./, "");
 
+    const websiteHostForValidation = (() => {
+      try {
+        const u = new URL(websiteUrl);
+        return String(u.hostname || "").trim();
+      } catch {
+        return "";
+      }
+    })();
+
+    if (!websiteHostForValidation) {
+      telemetry.upstream_error_code = "CLIENT_BAD_REQUEST";
+      telemetry.upstream_error_message = "Invalid website_url (must be a valid URL with a hostname)";
+      telemetry.stage_status = "client_bad_request";
+
+      if (typeof warn === "function") {
+        warn({
+          stage: "reviews",
+          root_cause: "client_bad_request",
+          retryable: false,
+          upstream_status: null,
+          company_name: companyName,
+          website_url: websiteUrl,
+          message: telemetry.upstream_error_message,
+        });
+      }
+
+      const out = [];
+      out._fetch_ok = false;
+      out._fetch_error = telemetry.upstream_error_message;
+      out._fetch_error_code = telemetry.upstream_error_code;
+      out._stage_status = telemetry.stage_status;
+      out._telemetry = telemetry;
+      out._fetch_error_detail = {
+        root_cause: telemetry.stage_status,
+        retryable: false,
+        upstream_status: null,
+      };
+      return out;
+    }
+
     const excludedWebsites = [
       // Hard blocks
       "amazon.com",
@@ -1958,6 +2039,21 @@ Rules:
       stream: false,
     };
 
+    const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(reviewPayload);
+    try {
+      console.log(
+        "[import-start][reviews_upstream_request] " +
+          JSON.stringify({
+            stage: "reviews",
+            route: "import-start",
+            upstream: toHostPathOnlyForLog(xaiUrl),
+            payload_shape: payload_shape_for_log,
+          })
+      );
+    } catch {
+      // ignore
+    }
+
     console.log(
       `[import-start] Fetching editorial reviews for ${companyName} (upstream=${toHostPathOnlyForLog(xaiUrl)})`
     );
@@ -1989,31 +2085,52 @@ Rules:
           });
 
     if (!(response.status >= 200 && response.status < 300)) {
-      const upstream_status = Number.isFinite(Number(response.status)) ? Number(response.status) : null;
+      const upstream_status = normalizeHttpStatus(response.status);
       telemetry.upstream_status = upstream_status;
       telemetry.upstream_error_code = "UPSTREAM_HTTP_ERROR";
       telemetry.upstream_error_message = `Upstream HTTP ${response.status}`;
-      telemetry.stage_status = "upstream_unreachable";
+
+      const classification = classifyUpstreamFailure({ upstream_status });
+      telemetry.stage_status = classification.stage_status;
+      bumpUpstreamFailureBucket(telemetry, telemetry.stage_status);
+
+      const xai_request_id = extractUpstreamRequestId(response.headers);
+      const upstream_error_body = safeBodyPreview(response.data, { maxLen: 6000 });
+      const payload_shape = redactReviewsUpstreamPayloadForLog(reviewPayload);
+
+      try {
+        console.error(
+          "[import-start][reviews_upstream_error] " +
+            JSON.stringify({
+              stage: "reviews",
+              route: "import-start",
+              root_cause: telemetry.stage_status,
+              retryable: classification.retryable,
+              upstream_status,
+              xai_request_id,
+              upstream_error_body,
+              payload_shape,
+            })
+        );
+      } catch {
+        // ignore
+      }
 
       console.warn(`[import-start] Failed to fetch reviews for ${companyName}: status ${response.status}`);
       if (debugCollector) debugCollector.push({ ...debug, reason: `xai_status_${response.status}` });
 
       if (typeof warn === "function") {
-        const root_cause =
-          upstream_status != null && upstream_status >= 500
-            ? "upstream_5xx"
-            : upstream_status != null && upstream_status >= 400
-              ? "upstream_4xx"
-              : "upstream_error";
-
         warn({
           stage: "reviews",
-          root_cause,
-          retryable: true,
+          root_cause: telemetry.stage_status,
+          retryable: classification.retryable,
           upstream_status,
           company_name: companyName,
           website_url: websiteUrl,
           message: `Upstream HTTP ${response.status}`,
+          upstream_error_body,
+          xai_request_id,
+          payload_shape,
         });
       }
 
@@ -2023,6 +2140,14 @@ Rules:
       out._fetch_error_code = "REVIEWS_UPSTREAM_HTTP";
       out._stage_status = telemetry.stage_status;
       out._telemetry = telemetry;
+      out._fetch_error_detail = {
+        root_cause: telemetry.stage_status,
+        retryable: classification.retryable,
+        upstream_status,
+        xai_request_id,
+        upstream_error_body,
+        payload_shape,
+      };
       return out;
     }
 
@@ -2331,26 +2456,37 @@ Rules:
     return curated;
   } catch (e) {
     if (e instanceof AcceptedResponseError) throw e;
-    console.warn(`[import-start] Error fetching reviews for ${companyName}: ${e.message}`);
+
+    const upstream_status = normalizeHttpStatus(e?.status || e?.response?.status || null);
+    const code = typeof e?.code === "string" && e.code.trim() ? e.code.trim() : "REVIEWS_EXCEPTION";
+
+    telemetry.upstream_status = upstream_status;
+    telemetry.upstream_error_code = code;
+    telemetry.upstream_error_message = e?.message || String(e);
+
+    const classification = classifyUpstreamFailure({ upstream_status, err_code: code });
+    telemetry.stage_status = classification.stage_status;
+    bumpUpstreamFailureBucket(telemetry, telemetry.stage_status);
+
+    const xai_request_id = extractUpstreamRequestId(e?.response?.headers);
+    const upstream_error_body = safeBodyPreview(e?.response?.data, { maxLen: 6000 });
+
+    console.warn(`[import-start] Error fetching reviews for ${companyName}: ${telemetry.upstream_error_message}`);
     if (debugCollector) debugCollector.push({ ...debug, reason: e?.message || String(e) });
 
     if (typeof warn === "function") {
       warn({
         stage: "reviews",
-        root_cause: "exception",
-        retryable: true,
-        upstream_status: null,
+        root_cause: telemetry.stage_status,
+        retryable: classification.retryable,
+        upstream_status,
         company_name: companyName,
         website_url: websiteUrl,
-        message: e?.message || String(e),
+        message: telemetry.upstream_error_message,
+        upstream_error_body,
+        xai_request_id,
       });
     }
-
-    const code = typeof e?.code === "string" && e.code.trim() ? e.code.trim() : "REVIEWS_EXCEPTION";
-
-    telemetry.upstream_error_code = code;
-    telemetry.upstream_error_message = e?.message || String(e);
-    telemetry.stage_status = String(code || "").toUpperCase().includes("TIMEOUT") ? "timed_out" : "upstream_unreachable";
 
     const out = [];
     out._fetch_ok = false;
@@ -2358,6 +2494,13 @@ Rules:
     out._fetch_error_code = code;
     out._stage_status = telemetry.stage_status;
     out._telemetry = telemetry;
+    out._fetch_error_detail = {
+      root_cause: telemetry.stage_status,
+      retryable: classification.retryable,
+      upstream_status,
+      xai_request_id,
+      upstream_error_body,
+    };
     return out;
   }
 }
@@ -6356,6 +6499,7 @@ Output JSON only:
                       code: "MISSING_COMPANY_INPUT",
                       message: "Missing company_name or website_url",
                     },
+                    prev_cursor: company.review_cursor,
                   }),
                 };
                 continue;
@@ -6412,6 +6556,9 @@ Output JSON only:
                 // If we timed out or validation rejected candidates, leave the cursor open.
                 const cursorExhausted = fetchOk && reviewsStageStatus === "ok" && candidateCount === 0;
 
+                const fetchErrorDetail =
+                  editorialReviews && typeof editorialReviews === "object" ? editorialReviews._fetch_error_detail : null;
+
                 const cursorError =
                   reviewsStageStatus === "timed_out"
                     ? {
@@ -6422,6 +6569,7 @@ Output JSON only:
                       ? {
                           code: fetchErrorCode || "REVIEWS_FAILED",
                           message: fetchErrorMsg || "Reviews fetch failed",
+                          ...(fetchErrorDetail && typeof fetchErrorDetail === "object" ? { detail: fetchErrorDetail } : {}),
                         }
                       : curated.length === 0 && candidateCount > 0
                         ? {
@@ -6435,6 +6583,7 @@ Output JSON only:
                   count: curated.length,
                   exhausted: cursorExhausted,
                   last_error: cursorError,
+                  prev_cursor: companyForReviews.review_cursor,
                 });
 
                 // Persist candidate/rejection telemetry for retries and diagnostics.
@@ -6457,6 +6606,7 @@ Output JSON only:
                     time_budget_exhausted: reviewsTelemetry.time_budget_exhausted,
                     upstream_status: reviewsTelemetry.upstream_status,
                     upstream_error_code: reviewsTelemetry.upstream_error_code,
+                    upstream_failure_buckets: reviewsTelemetry.upstream_failure_buckets,
                   };
                 }
 
@@ -6506,6 +6656,7 @@ Output JSON only:
                       code: "REVIEWS_EXCEPTION",
                       message: msg,
                     },
+                    prev_cursor: company.review_cursor,
                   }),
                 };
               }
@@ -7055,30 +7206,35 @@ Return ONLY the JSON array, no other text.`,
 
                       const cursorExhausted = fetchOk && reviewsStageStatus === "ok" && candidateCount === 0;
 
-                      const cursorError =
-                        reviewsStageStatus === "timed_out"
-                          ? {
-                              code: "REVIEWS_TIMED_OUT",
-                              message: "Review validation stopped early due to time budget",
-                            }
-                          : !fetchOk
-                            ? {
-                                code: fetchErrorCode || "REVIEWS_FAILED",
-                                message: fetchErrorMsg || "Reviews fetch failed",
-                              }
-                            : curated.length === 0 && candidateCount > 0
-                              ? {
-                                  code: "REVIEWS_VALIDATION_REJECTED",
-                                  message: "Upstream returned review candidates but none passed validation",
-                                }
-                              : null;
+                      const fetchErrorDetail =
+                  editorialReviews && typeof editorialReviews === "object" ? editorialReviews._fetch_error_detail : null;
+
+                const cursorError =
+                  reviewsStageStatus === "timed_out"
+                    ? {
+                        code: "REVIEWS_TIMED_OUT",
+                        message: "Review validation stopped early due to time budget",
+                      }
+                    : !fetchOk
+                      ? {
+                          code: fetchErrorCode || "REVIEWS_FAILED",
+                          message: fetchErrorMsg || "Reviews fetch failed",
+                          ...(fetchErrorDetail && typeof fetchErrorDetail === "object" ? { detail: fetchErrorDetail } : {}),
+                        }
+                      : curated.length === 0 && candidateCount > 0
+                        ? {
+                            code: "REVIEWS_VALIDATION_REJECTED",
+                            message: "Upstream returned review candidates but none passed validation",
+                          }
+                        : null;
 
                       const cursor = buildReviewCursor({
-                        nowIso: nowReviewsIso,
-                        count: curated.length,
-                        exhausted: cursorExhausted,
-                        last_error: cursorError,
-                      });
+                  nowIso: nowReviewsIso,
+                  count: curated.length,
+                  exhausted: cursorExhausted,
+                  last_error: cursorError,
+                  prev_cursor: companyForReviews.review_cursor,
+                });
 
                       cursor._candidate_count = candidateCount;
                       if (rejectedCount != null) cursor._rejected_count = rejectedCount;
@@ -7099,7 +7255,8 @@ Return ONLY the JSON array, no other text.`,
                           time_budget_exhausted: reviewsTelemetry.time_budget_exhausted,
                           upstream_status: reviewsTelemetry.upstream_status,
                           upstream_error_code: reviewsTelemetry.upstream_error_code,
-                        };
+                    upstream_failure_buckets: reviewsTelemetry.upstream_failure_buckets,
+                  };
                       }
 
                       if ((reviewsStageStatus !== "ok" || curated.length === 0) && candidatesDebug.length) {
@@ -7134,6 +7291,7 @@ Return ONLY the JSON array, no other text.`,
                             code: "MISSING_COMPANY_INPUT",
                             message: "Missing company_name or website_url",
                           },
+                          prev_cursor: company.review_cursor,
                         }),
                       };
                     }

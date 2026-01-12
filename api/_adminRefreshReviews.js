@@ -18,6 +18,12 @@ const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_sh
 const { getBuildInfo } = require("./_buildInfo");
 const { loadCompanyById, toNormalizedDomain } = require("./_adminRefreshCompany");
 const { normalizeUrl, validateCuratedReviewCandidate } = require("./_reviewQuality");
+const {
+  extractUpstreamRequestId,
+  safeBodyPreview,
+  redactReviewsUpstreamPayloadForLog,
+  classifyUpstreamFailure,
+} = require("./_upstreamReviewsDiagnostics");
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "refresh-reviews";
@@ -684,6 +690,23 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       stream: false,
     };
 
+    const payload_shape_for_log = redactReviewsUpstreamPayloadForLog(payload);
+    try {
+      console.log(
+        JSON.stringify({
+          stage: API_STAGE,
+          handler_id: HANDLER_ID,
+          kind: "upstream_request",
+          company_id: logCtx.company_id || null,
+          company_domain: logCtx.company_domain || null,
+          upstream_url: redactUrlQueryAndHash(xaiUrl) || null,
+          payload_shape: payload_shape_for_log,
+        })
+      );
+    } catch {
+      // ignore
+    }
+
     stage = "call_xai";
     const axiosPost = deps.axiosPost || (axios ? axios.post.bind(axios) : null);
     if (!axiosPost) {
@@ -827,12 +850,16 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
 
     if (resp.status < 200 || resp.status >= 300) {
       const upstreamStatus = Number(resp.status) || 0;
-      const rootCause = upstreamStatus >= 400 && upstreamStatus < 500 ? "upstream_4xx" : "upstream_5xx";
+      const upstream_status = upstreamStatus >= 100 && upstreamStatus <= 599 ? upstreamStatus : null;
+      const failure = classifyUpstreamFailure({ upstream_status: upstream_status });
+
+      const xai_request_id = extractUpstreamRequestId(resp?.headers);
+      const upstream_error_body = safeBodyPreview(resp?.data, { maxLen: 6000 });
 
       return errorResponse(
         {
           httpStatus: 502,
-          root_cause: rootCause,
+          root_cause: failure.stage_status,
           message: `Upstream reviews fetch failed (HTTP ${upstreamStatus || "?"})`,
           step: stage,
           company_id: logCtx.company_id,
@@ -842,7 +869,11 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
           upstream_status: upstreamStatus,
           upstream_url: xaiUrl,
           extra: {
+            retryable: failure.retryable,
             status: upstreamStatus,
+            xai_request_id,
+            upstream_error_body,
+            payload_shape: payload_shape_for_log,
             details: {
               upstream_preview: asString(responseText).slice(0, 8000),
               xai_model: xaiModel,
