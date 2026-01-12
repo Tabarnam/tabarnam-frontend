@@ -2054,6 +2054,10 @@ Rules:
     const candidates = candidatesUpstream.slice(0, 10);
     const upstreamCandidateCount = candidatesUpstream.length;
 
+    telemetry.review_candidates_fetched_count = upstreamCandidateCount;
+    telemetry.review_candidates_considered_count = candidates.length;
+    telemetry.stage_status = parseError ? "timed_out" : "ok";
+
     const nowIso = new Date().toISOString();
     const curated = [];
     const keptHosts = new Set();
