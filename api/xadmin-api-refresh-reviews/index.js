@@ -9,6 +9,8 @@ const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../_s
 const { checkUrlHealthAndFetchText } = require("../_reviewQuality");
 const {
   extractUpstreamRequestId,
+  extractContentType,
+  buildUpstreamBodyDiagnostics,
   safeBodyPreview,
   redactReviewsUpstreamPayloadForLog,
   classifyUpstreamFailure,
@@ -122,6 +124,19 @@ function isAzureWebsitesUrl(rawUrl) {
     return /\.azurewebsites\.net$/i.test(String(u.hostname || ""));
   } catch {
     return false;
+  }
+}
+
+function redactUrlQueryAndHash(rawUrl) {
+  const s = asString(rawUrl).trim();
+  if (!s) return "";
+  try {
+    const u = new URL(s);
+    u.search = "";
+    u.hash = "";
+    return u.toString();
+  } catch {
+    return s.split("?")[0].split("#")[0];
   }
 }
 
@@ -571,11 +586,15 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
     });
 
     const status = Number(resp?.status) || 0;
+    const upstream_url_redacted = redactUrlQueryAndHash(xai_base_url) || xai_base_url;
+    const xai_request_id = extractUpstreamRequestId(resp?.headers);
 
+    const diag = buildUpstreamBodyDiagnostics(resp?.data, resp?.headers, { maxLen: 4096 });
+    const content_type = diag.content_type || extractContentType(resp?.headers);
+
+    // When upstream is non-2xx, capture a safe preview of the body and surface it for diagnostics.
     if (!(status >= 200 && status < 300)) {
       const upstream_status = normalizeHttpStatus(status);
-      const request_id = extractUpstreamRequestId(resp?.headers);
-      const upstream_error_body = safeBodyPreview(resp?.data, { maxLen: 6000 });
 
       const failure = classifyUpstreamFailure({ upstream_status });
 
@@ -584,8 +603,17 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
       err.response = resp;
       err.root_cause = failure.stage_status;
       err.retryable = failure.retryable;
-      err.xai_request_id = request_id;
-      err.upstream_error_body = upstream_error_body;
+      err.xai_request_id = xai_request_id;
+      err.upstream_url = upstream_url_redacted;
+      err.auth_header_present = Boolean(xai_key);
+      err.content_type = content_type;
+      err.raw_body_kind = diag.raw_body_kind;
+      err.raw_body_preview = diag.raw_body_preview;
+      err.upstream_error_body = {
+        content_type,
+        raw_body_kind: diag.raw_body_kind,
+        preview: diag.raw_body_preview,
+      };
       err.payload_shape = payload_shape_for_log;
       err.exclusion_telemetry = searchBuild.telemetry;
       throw err;
@@ -603,8 +631,32 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
     });
 
     if (normalized.parse_error) {
-      const err = new Error("Failed to parse upstream JSON");
+      // This is *not* a validation issue; upstream returned something we couldn't parse.
+      // Capture a small raw preview so we can distinguish HTML error pages vs. JSON-ish junk.
+      const retryable =
+        status >= 500 ||
+        diag.raw_body_kind === "empty" ||
+        diag.raw_body_kind === "json_invalid" ||
+        (diag.raw_body_kind === "html" && status >= 500);
+
+      const err = new Error("Upstream returned non-JSON (or invalid JSON) response");
       err.status = status;
+      err.response = resp;
+      err.root_cause = "bad_response_not_json";
+      err.retryable = retryable;
+      err.xai_request_id = xai_request_id;
+      err.upstream_url = upstream_url_redacted;
+      err.auth_header_present = Boolean(xai_key);
+      err.content_type = content_type;
+      err.raw_body_kind = diag.raw_body_kind;
+      err.raw_body_preview = diag.raw_body_preview;
+      err.upstream_error_body = {
+        content_type,
+        raw_body_kind: diag.raw_body_kind,
+        preview: diag.raw_body_preview,
+      };
+      err.payload_shape = payload_shape_for_log;
+      err.exclusion_telemetry = searchBuild.telemetry;
       throw err;
     }
 
@@ -835,7 +887,18 @@ async function handler(req, context) {
       // Do not fail; just proceed.
     }
 
-    const backoffs = [0, 2000, 5000, 10000];
+    // Retry policy for retryable upstream failures.
+    // We keep this small to avoid long-running admin requests.
+    const backoffs = [0, 500, 1200];
+
+    const jitterMs = (baseMs) => {
+      const base = Math.max(0, Math.trunc(Number(baseMs) || 0));
+      if (!base) return 0;
+      const jitter = Math.floor(Math.random() * Math.min(350, Math.max(80, Math.floor(base * 0.3))));
+      return base + jitter;
+    };
+
+    const attempt_upstream_statuses = [];
 
     let saved_count_total = 0;
     let fetched_count_total = 0;
@@ -843,7 +906,8 @@ async function handler(req, context) {
     let lastErr = null;
 
     for (let i = 0; i < backoffs.length; i += 1) {
-      if (backoffs[i]) await sleep(backoffs[i]);
+      const delay = jitterMs(backoffs[i]);
+      if (delay) await sleep(delay);
 
       try {
         const offset = Math.max(0, Math.trunc(Number(cursor.last_offset) || 0));
@@ -854,6 +918,8 @@ async function handler(req, context) {
           limit: requestedTake,
           timeout_ms: 65000,
         });
+
+        attempt_upstream_statuses.push(normalizeHttpStatus(upstream?._meta?.upstream_status));
 
         const incomingRaw = Array.isArray(upstream?.reviews) ? upstream.reviews : [];
         const incomingNormalized = incomingRaw.map(normalizeIncomingReview).filter(Boolean);
@@ -920,6 +986,9 @@ async function handler(req, context) {
         cursor.reviews_telemetry = {
           stage_status: "ok",
           upstream_status: normalizeHttpStatus(upstreamMeta?.upstream_status),
+          attempts_count: i + 1,
+          recovered_on_attempt: i + 1 > 1,
+          attempt_upstream_statuses: attempt_upstream_statuses.slice(0, i + 1),
           upstream_failure_buckets: {
             upstream_4xx: 0,
             upstream_5xx: 0,
@@ -976,14 +1045,42 @@ async function handler(req, context) {
         const { xai_base_url, xai_key } = extractXaiConfig();
         const upstream_status_raw = err?.status || err?.response?.status || 0;
         const upstream_status = normalizeHttpStatus(upstream_status_raw);
+        attempt_upstream_statuses.push(upstream_status);
+
         const root_cause = classifyError(err, { xai_base_url, xai_key });
 
         const normalized_root_cause = asString(root_cause).trim() || "unknown";
         const retryable = typeof err?.retryable === "boolean" ? err.retryable : retryableForRootCause(normalized_root_cause);
 
+        const attempts_count = i + 1;
+        const retry_exhausted = attempts_count >= backoffs.length || !retryable;
+
         const xai_request_id = asString(err?.xai_request_id).trim() || extractUpstreamRequestId(err?.response?.headers);
-        const upstream_error_body = err?.upstream_error_body || safeBodyPreview(err?.response?.data, { maxLen: 6000 });
+
+        const bodyDiag =
+          err?.raw_body_preview != null || err?.raw_body_kind != null || err?.content_type != null
+            ? {
+                content_type: asString(err?.content_type).trim() || null,
+                raw_body_kind: asString(err?.raw_body_kind).trim() || null,
+                raw_body_preview: asString(err?.raw_body_preview) || null,
+              }
+            : buildUpstreamBodyDiagnostics(err?.response?.data, err?.response?.headers, { maxLen: 4096 });
+
+        const upstream_error_body =
+          err?.upstream_error_body && typeof err.upstream_error_body === "object"
+            ? err.upstream_error_body
+            : bodyDiag.raw_body_preview
+              ? {
+                  content_type: bodyDiag.content_type,
+                  raw_body_kind: bodyDiag.raw_body_kind,
+                  preview: bodyDiag.raw_body_preview,
+                }
+              : safeBodyPreview(err?.response?.data, { maxLen: 6000 });
+
         const payload_shape = err?.payload_shape || null;
+        const upstream_url = asString(err?.upstream_url).trim() || redactUrlQueryAndHash(xai_base_url) || null;
+        const auth_header_present =
+          typeof err?.auth_header_present === "boolean" ? err.auth_header_present : Boolean(asString(xai_key).trim());
 
         try {
           console.error(
@@ -995,6 +1092,10 @@ async function handler(req, context) {
               retryable,
               upstream_status,
               xai_request_id,
+              upstream_url,
+              auth_header_present,
+              attempts_count,
+              retry_exhausted,
               upstream_error_body,
               payload_shape,
               message: asString(err?.message || err),
@@ -1010,6 +1111,10 @@ async function handler(req, context) {
           upstream_status,
           retryable,
           xai_request_id: xai_request_id || null,
+          upstream_url,
+          auth_header_present,
+          attempts_count,
+          retry_exhausted,
           upstream_error_body,
           payload_shape,
           message: asString(err?.message || err),
@@ -1022,7 +1127,17 @@ async function handler(req, context) {
             root_cause: normalized_root_cause,
             upstream_status,
             retryable,
+            attempts_count,
+            retry_exhausted,
+            upstream_url,
+            auth_header_present,
             xai_request_id: xai_request_id || null,
+
+            // Keep explicit non-JSON diagnostics small and stable for storage.
+            content_type: bodyDiag.content_type || null,
+            raw_body_kind: bodyDiag.raw_body_kind || null,
+            raw_body_preview: bodyDiag.raw_body_preview || null,
+
             upstream_error_body,
             payload_shape,
             message: asString(err?.message || err),
@@ -1035,6 +1150,9 @@ async function handler(req, context) {
           cursor.reviews_telemetry = {
             stage_status: normalized_root_cause,
             upstream_status,
+            attempts_count,
+            retry_exhausted,
+            attempt_upstream_statuses: attempt_upstream_statuses.slice(0, attempts_count),
             upstream_failure_buckets: {
               upstream_4xx: normalized_root_cause === "upstream_4xx" ? 1 : 0,
               upstream_5xx: normalized_root_cause === "upstream_5xx" ? 1 : 0,
@@ -1060,6 +1178,7 @@ async function handler(req, context) {
           // ignore
         }
 
+        if (!retryable) break;
         continue;
       }
     }
@@ -1096,14 +1215,53 @@ async function handler(req, context) {
     const root_cause_raw = classifyError(lastErr, { xai_base_url, xai_key });
     const root_cause = asString(root_cause_raw).trim() || "unknown";
 
+    const attempts_count = Number(lastErr?.attempts_count) || backoffs.length;
+
+    const xai_request_id =
+      asString(lastErr?.xai_request_id).trim() || extractUpstreamRequestId(lastErr?.response?.headers) || null;
+
+    const upstream_url = asString(lastErr?.upstream_url).trim() || redactUrlQueryAndHash(xai_base_url) || null;
+    const auth_header_present =
+      typeof lastErr?.auth_header_present === "boolean" ? lastErr.auth_header_present : Boolean(asString(xai_key).trim());
+
+    const bodyDiag =
+      lastErr?.raw_body_preview != null || lastErr?.raw_body_kind != null || lastErr?.content_type != null
+        ? {
+            content_type: asString(lastErr?.content_type).trim() || null,
+            raw_body_kind: asString(lastErr?.raw_body_kind).trim() || null,
+            raw_body_preview: asString(lastErr?.raw_body_preview) || null,
+          }
+        : buildUpstreamBodyDiagnostics(lastErr?.response?.data, lastErr?.response?.headers, { maxLen: 4096 });
+
+    const upstream_error_body =
+      lastErr?.upstream_error_body && typeof lastErr.upstream_error_body === "object"
+        ? lastErr.upstream_error_body
+        : bodyDiag.raw_body_preview
+          ? {
+              content_type: bodyDiag.content_type,
+              raw_body_kind: bodyDiag.raw_body_kind,
+              preview: bodyDiag.raw_body_preview,
+            }
+          : null;
+
+    const payload_shape = lastErr?.payload_shape || null;
+
     return respond({
       ok: false,
       stage: "reviews_refresh",
       company_id,
       root_cause,
       upstream_status,
-      retryable: retryableForRootCause(root_cause),
-      message: asString(lastErr?.message || lastErr || "Backend call failure"),
+      retryable: typeof lastErr?.retryable === "boolean" ? lastErr.retryable : retryableForRootCause(root_cause),
+      attempts_count,
+      attempt_upstream_statuses: attempt_upstream_statuses.slice(0, attempts_count),
+      retry_exhausted: true,
+      upstream_url,
+      auth_header_present,
+      xai_request_id,
+      upstream_error_body,
+      payload_shape,
+      message: asString(lastErr?.message || lastErr) || "Upstream request failed",
       warnings,
       build_id,
       version_tag: VERSION_TAG,
