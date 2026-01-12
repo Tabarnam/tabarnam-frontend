@@ -691,7 +691,7 @@ async function handler(req, context) {
       return respond({
         ok: false,
         stage: "reviews_refresh",
-        root_cause: "bad_request",
+        root_cause: "client_bad_request",
         upstream_status: null,
         retryable: false,
         message: "Missing company_id",
