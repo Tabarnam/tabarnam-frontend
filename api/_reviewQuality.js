@@ -415,6 +415,16 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
   const candidateText = String(input?.text || input?.abstract || input?.excerpt || "").trim();
   const titleText = title;
 
+  // Strong matching is based on the company name itself (normalized), not just a domain token.
+  // This avoids false positives for generic tokens (e.g. "advance") while still allowing
+  // fallbacks when pages are blocked/JS-heavy and we can only rely on the upstream excerpt.
+  const companyNorm = normalizeCompanyName(companyName).toLowerCase();
+  const candidateNorm = normalizeCompanyName(candidateText).toLowerCase();
+  const titleNorm = normalizeCompanyName(titleText).toLowerCase();
+  const candidateMentionsCompany =
+    !!companyNorm &&
+    ((candidateNorm && candidateNorm.includes(companyNorm)) || (titleNorm && titleNorm.includes(companyNorm)));
+
   if (!health.ok) {
     // If the URL is truly "page not found", never accept it.
     if (health.link_status === "not_found") {
@@ -431,7 +441,7 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
     }
 
     // Some legit sources block bots (403/429, etc). In those cases we still allow a
-    // low-confidence fallback when the candidate itself clearly mentions the brand.
+    // low-confidence fallback when the candidate itself clearly mentions the company name.
     const titleLower = titleText.toLowerCase();
     const candidateLower = candidateText.toLowerCase();
 
@@ -445,7 +455,7 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
       }
     }
 
-    if (matched.length > 0) {
+    if (candidateMentionsCompany) {
       const evidence = [];
       if (candidateText) evidence.push(candidateText.slice(0, 240));
       if (!evidence.length && titleText) evidence.push(titleText);
@@ -455,7 +465,7 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
         link_status: health.link_status || "unverified",
         last_checked_at: new Date().toISOString(),
         brand_mentions_found: true,
-        matched_brand_terms: matched,
+        matched_brand_terms: matched.length ? matched : [companyName],
         evidence_snippets: evidence.slice(0, 2),
         match_confidence: 0.25,
         final_url: health.final_url,
@@ -484,6 +494,27 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
   }
 
   if (matched.length === 0) {
+    // Some pages are JS-heavy and our HTML fetch may not include the article body even though
+    // the URL is real (HTTP 200). If the upstream excerpt clearly mentions the company name,
+    // accept the review so imports don't end up with 0 reviews.
+    if (candidateMentionsCompany) {
+      const evidence = [];
+      if (candidateText) evidence.push(candidateText.slice(0, 240));
+      if (!evidence.length && titleText) evidence.push(titleText);
+
+      return {
+        is_valid: true,
+        link_status: health.link_status,
+        last_checked_at: new Date().toISOString(),
+        brand_mentions_found: true,
+        matched_brand_terms: [companyName],
+        evidence_snippets: evidence.slice(0, 2),
+        match_confidence: 0.2,
+        final_url: health.final_url,
+        reason_if_rejected: null,
+      };
+    }
+
     return {
       is_valid: false,
       link_status: health.link_status,
