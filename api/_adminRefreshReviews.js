@@ -1013,6 +1013,7 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
                 normalizedDomain: normalizedDomainHint,
                 url: normalizedCandidateUrl,
                 title: asString(r.title).trim(),
+                excerpt: asString(r.excerpt).trim(),
               },
               { timeoutMs, maxBytes: 60000, maxSnippets: 2, minWords: 10, maxWords: 25 }
             ).catch((e) => ({

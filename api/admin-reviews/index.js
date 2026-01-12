@@ -33,7 +33,7 @@ function getCompaniesContainer() {
   return cosmosClient.database(databaseId).container(containerId);
 }
 
-const EXCLUDED_SOURCES = new Set(["amazon", "google", "facebook"]);
+const EXCLUDED_SOURCES = new Set(["amazon", "google"]);
 
 function isExcludedSource(source) {
   if (!source) return false;
@@ -137,7 +137,7 @@ app.http('adminReviews', {
         }
 
         if (isExcludedSource(source) || (normalizedUrl && isExcludedSource(normalizedUrl))) {
-          return json({ error: `Source "${source}" is excluded (Amazon/Google/Facebook)` }, 400);
+          return json({ error: `Source "${source}" is excluded (Amazon/Google)` }, 400);
         }
 
         const sql = `SELECT TOP 1 * FROM c WHERE c.id = @id OR c.company_id = @id OR c.companyId = @id OR c.company_name = @company ORDER BY c._ts DESC`;
