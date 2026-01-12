@@ -367,7 +367,9 @@ async function checkUrlHealthAndFetchText(url, opts = {}) {
 function isExcludedSourceValue(sourceOrUrl) {
   const v = String(sourceOrUrl || "").toLowerCase();
   if (!v) return false;
-  return v.includes("amazon") || v.includes("google") || v.includes("facebook");
+
+  // New rules: only exclude Amazon/Google; Facebook is allowed.
+  return v.includes("amazon") || v.includes("google");
 }
 
 async function validateCuratedReviewCandidate(input, opts = {}) {
@@ -414,6 +416,22 @@ async function validateCuratedReviewCandidate(input, opts = {}) {
   const titleText = title;
 
   if (!health.ok) {
+    // If the URL is truly "page not found", never accept it.
+    if (health.link_status === "not_found") {
+      return {
+        is_valid: false,
+        link_status: health.link_status,
+        brand_mentions_found: false,
+        matched_brand_terms: [],
+        evidence_snippets: [],
+        match_confidence: 0,
+        final_url: health.final_url,
+        reason_if_rejected: "url not found",
+      };
+    }
+
+    // Some legit sources block bots (403/429, etc). In those cases we still allow a
+    // low-confidence fallback when the candidate itself clearly mentions the brand.
     const titleLower = titleText.toLowerCase();
     const candidateLower = candidateText.toLowerCase();
 
