@@ -862,15 +862,27 @@ async function handler(req, context) {
         cursor.last_attempt_at = nowIso();
         cursor.last_error = null;
         cursor.reviews_stage_status = "ok";
+
+        const upstreamMeta = upstream?._meta && typeof upstream._meta === "object" ? upstream._meta : {};
+
         cursor.reviews_telemetry = {
           stage_status: "ok",
-          upstream_status: normalizeHttpStatus(upstream?._meta?.upstream_status),
+          upstream_status: normalizeHttpStatus(upstreamMeta?.upstream_status),
           upstream_failure_buckets: {
             upstream_4xx: 0,
             upstream_5xx: 0,
             upstream_rate_limited: 0,
             upstream_unreachable: 0,
           },
+
+          excluded_websites_original_count:
+            typeof upstreamMeta?.excluded_websites_original_count === "number" ? upstreamMeta.excluded_websites_original_count : null,
+          excluded_websites_used_count:
+            typeof upstreamMeta?.excluded_websites_used_count === "number" ? upstreamMeta.excluded_websites_used_count : null,
+          excluded_websites_truncated:
+            typeof upstreamMeta?.excluded_websites_truncated === "boolean" ? upstreamMeta.excluded_websites_truncated : null,
+          excluded_hosts_spilled_to_prompt_count:
+            typeof upstreamMeta?.excluded_hosts_spilled_to_prompt_count === "number" ? upstreamMeta.excluded_hosts_spilled_to_prompt_count : null,
         };
         cursor.exhausted = Boolean(upstream?.exhausted) || incoming.length === 0;
 
