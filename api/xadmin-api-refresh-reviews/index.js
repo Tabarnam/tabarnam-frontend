@@ -13,6 +13,7 @@ const {
   redactReviewsUpstreamPayloadForLog,
   classifyUpstreamFailure,
 } = require("../_upstreamReviewsDiagnostics");
+const { buildSearchParameters } = require("../_buildSearchParameters");
 
 let axios;
 try {
