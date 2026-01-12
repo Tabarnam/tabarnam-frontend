@@ -84,8 +84,10 @@ test("mergeCompanyDocsForSession preserves existing curated_reviews when incomin
     finalNormalizedDomain: "reviews.com",
   });
 
-  assert.equal(merged.curated_reviews.length, 1);
-  assert.equal(merged.review_count, 1);
+  // New behavior: when an import/refresh runs later (reviews_last_updated_at newer),
+  // curated_reviews is authoritative even if empty. This lets us clear stale/bad reviews.
+  assert.equal(merged.curated_reviews.length, 0);
+  assert.equal(merged.review_count, 0);
   assert.equal(merged.review_cursor.exhausted, true);
   assert.equal(merged.review_cursor.last_attempt_at, "2025-12-31T00:00:00.000Z");
 });
