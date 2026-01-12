@@ -32,6 +32,7 @@ export async function geocode({ address, lat, lng, ipLookup = true } = {}) {
     // Some deployments don't ship the optional google helpers. In dev, we provide
     // a Vite-only server middleware fallback at /__dev/google/*.
     if (r.status === 404) {
+      // 1) Local dev helper (Vite middleware)
       const devRes = await fetch("/__dev/google/geocode", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -43,6 +44,21 @@ export async function geocode({ address, lat, lng, ipLookup = true } = {}) {
         if (devData) {
           _set(key, devData);
           return devData;
+        }
+      }
+
+      // 2) Production SWA endpoint fallback (works cross-origin; the function sets CORS)
+      const prodRes = await fetch("https://tabarnam.com/api/google/geocode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, lat, lng, ipLookup }),
+      }).catch(() => null);
+
+      if (prodRes && prodRes.ok) {
+        const prodData = await prodRes.json().catch(() => null);
+        if (prodData) {
+          _set(key, prodData);
+          return prodData;
         }
       }
     }
@@ -95,22 +111,32 @@ export async function placesAutocomplete({ input, country = "" } = {}) {
     });
 
     if (r.status === 404) {
+      const tryMap = async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!Array.isArray(data?.predictions)) return [];
+        return data.predictions.map((p) => ({
+          placeId: p.place_id,
+          description: p.description,
+          mainText: p.main_text,
+          secondaryText: p.secondary_text,
+        }));
+      };
+
+      // 1) Local dev helper (Vite middleware)
       const devRes = await fetch(`/__dev/google/places?${params.toString()}`, {
         method: "GET",
         headers: { Accept: "application/json" },
       }).catch(() => null);
 
-      if (devRes && devRes.ok) {
-        const devData = await devRes.json().catch(() => ({}));
-        if (Array.isArray(devData?.predictions)) {
-          return devData.predictions.map((p) => ({
-            placeId: p.place_id,
-            description: p.description,
-            mainText: p.main_text,
-            secondaryText: p.secondary_text,
-          }));
-        }
-      }
+      if (devRes && devRes.ok) return await tryMap(devRes);
+
+      // 2) Production SWA endpoint fallback
+      const prodRes = await fetch(`https://tabarnam.com/api/google/places?${params.toString()}`, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      }).catch(() => null);
+
+      if (prodRes && prodRes.ok) return await tryMap(prodRes);
 
       return [];
     }
@@ -149,44 +175,50 @@ export async function placeDetails({ placeId } = {}) {
     });
 
     if (r.status === 404) {
-      const devRes = await fetch(`/__dev/google/places?${params.toString()}`, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      }).catch(() => null);
+      const mapDetails = (data) => {
+        if (!data?.components) return null;
+        const components = data.components || [];
 
-      if (devRes && devRes.ok) {
-        const devData = await devRes.json().catch(() => ({}));
-        if (devData?.components) {
-          const components = devData.components || [];
+        const countryComponent = components.find((c) => Array.isArray(c.types) && c.types.includes("country"));
+        const countryCode = countryComponent?.short_name || "";
+        const countryName = countryComponent?.long_name || "";
 
-          const countryComponent = components.find((c) => Array.isArray(c.types) && c.types.includes("country"));
-          const countryCode = countryComponent?.short_name || "";
-          const countryName = countryComponent?.long_name || "";
+        const stateComponent = components.find((c) => Array.isArray(c.types) && c.types.includes("administrative_area_level_1"));
+        const stateCode = stateComponent?.short_name || "";
+        const stateName = stateComponent?.long_name || "";
 
-          const stateComponent = components.find((c) => Array.isArray(c.types) && c.types.includes("administrative_area_level_1"));
-          const stateCode = stateComponent?.short_name || "";
-          const stateName = stateComponent?.long_name || "";
+        const cityComponent = components.find(
+          (c) => Array.isArray(c.types) && (c.types.includes("locality") || c.types.includes("postal_town"))
+        );
+        const city = cityComponent?.long_name || "";
 
-          const cityComponent = components.find(
-            (c) => Array.isArray(c.types) && (c.types.includes("locality") || c.types.includes("postal_town"))
-          );
-          const city = cityComponent?.long_name || "";
+        const postalComponent = components.find((c) => Array.isArray(c.types) && c.types.includes("postal_code"));
+        const postalCode = postalComponent?.short_name || "";
 
-          const postalComponent = components.find((c) => Array.isArray(c.types) && c.types.includes("postal_code"));
-          const postalCode = postalComponent?.short_name || "";
+        return {
+          geometry: data.geometry,
+          country: countryName,
+          countryCode,
+          state: stateName,
+          stateCode,
+          city,
+          postalCode,
+          components,
+        };
+      };
 
-          return {
-            geometry: devData.geometry,
-            country: countryName,
-            countryCode,
-            state: stateName,
-            stateCode,
-            city,
-            postalCode,
-            components,
-          };
-        }
-      }
+      const tryFetch = async (url) => {
+        const rr = await fetch(url, { method: "GET", headers: { Accept: "application/json" } }).catch(() => null);
+        if (!rr || !rr.ok) return null;
+        const d = await rr.json().catch(() => ({}));
+        return mapDetails(d);
+      };
+
+      const dev = await tryFetch(`/__dev/google/places?${params.toString()}`);
+      if (dev) return dev;
+
+      const prod = await tryFetch(`https://tabarnam.com/api/google/places?${params.toString()}`);
+      if (prod) return prod;
 
       return null;
     }

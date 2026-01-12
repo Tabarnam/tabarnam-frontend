@@ -229,7 +229,8 @@ function isAzureWebsitesUrl(rawUrl) {
 function readTake(value, fallback) {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
-  return Math.max(1, Math.min(200, Math.trunc(n)));
+  // New rule: we keep at most 2 curated reviews per company.
+  return Math.max(1, Math.min(2, Math.trunc(n)));
 }
 
 function getCompaniesContainer() {
@@ -506,7 +507,7 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
     config.DEADLINE_MS = requestDeadlineMs;
 
     const companyId = asString(body.company_id || body.id || query.company_id || query.id).trim();
-    const take = readTake(body.take ?? query.take, 10);
+    const take = readTake(body.take ?? query.take, 2);
     const includeExistingInContext =
       body.include_existing_in_context === undefined && body.include_existing === undefined && body.includeExistingInContext === undefined
         ? true
@@ -646,9 +647,39 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       existingContext,
     });
 
+    const companyHost = (() => {
+      try {
+        const u = new URL(websiteUrl);
+        return String(u.hostname || "").toLowerCase().replace(/^www\./, "");
+      } catch {
+        return "";
+      }
+    })();
+
+    const excludedWebsites = [
+      "amazon.com",
+      "www.amazon.com",
+      "amzn.to",
+      "google.com",
+      "www.google.com",
+      "g.co",
+      "goo.gl",
+      "yelp.com",
+      "www.yelp.com",
+      ...(companyHost ? [companyHost, `www.${companyHost}`] : []),
+    ];
+
     const payload = {
       messages: [{ role: "user", content: prompt }],
       model: xaiModel,
+      search_parameters: {
+        mode: "on",
+        sources: [
+          { type: "web", excluded_websites: excludedWebsites },
+          { type: "news", excluded_websites: excludedWebsites },
+          { type: "x" },
+        ],
+      },
       temperature: 0.2,
       stream: false,
     };

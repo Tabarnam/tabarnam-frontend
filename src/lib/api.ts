@@ -50,7 +50,23 @@ function resolveApiBaseFromEnv() {
     );
   }
 
-  return isValidBase ? rawBase : "/api";
+  if (isValidBase) return rawBase;
+
+  // If this frontend is running outside Azure Static Web Apps (where /api is automatically
+  // routed to the linked Functions backend), default to the production SWA API.
+  // This avoids common 404s on environments that don't have an /api backend.
+  try {
+    if (typeof window !== "undefined") {
+      const host = String(window.location.hostname || "").toLowerCase();
+      const isProd = host === "tabarnam.com" || host === "www.tabarnam.com";
+      const isAzureSwa = host.endsWith(".azurestaticapps.net") || host.includes("azurestaticapps");
+      if (!isProd && !isAzureSwa) return "https://tabarnam.com/api";
+    }
+  } catch {
+    // ignore
+  }
+
+  return "/api";
 }
 
 export const API_BASE = resolveApiBaseFromEnv();
