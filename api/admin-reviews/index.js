@@ -140,10 +140,16 @@ app.http('adminReviews', {
           return json({ error: `Source "${source}" is excluded (Amazon/Google/Facebook)` }, 400);
         }
 
-        const sql = `SELECT * FROM c WHERE c.company_name = @company`;
+        const sql = `SELECT TOP 1 * FROM c WHERE c.id = @id OR c.company_id = @id OR c.companyId = @id OR c.company_name = @company ORDER BY c._ts DESC`;
         const { resources } = await container.items
           .query(
-            { query: sql, parameters: [{ name: "@company", value: companyName }] },
+            {
+              query: sql,
+              parameters: [
+                { name: "@id", value: requestedCompany },
+                { name: "@company", value: String(companyName || requestedCompany) },
+              ],
+            },
             { enableCrossPartitionQuery: true }
           )
           .fetchAll();
