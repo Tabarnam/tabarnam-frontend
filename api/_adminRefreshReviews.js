@@ -1170,5 +1170,6 @@ module.exports = {
     normalizeReviewCandidate,
     computeReviewHash,
     normalizeUrlForCompare,
+    buildReviewsUpstreamPayload,
   },
 };
