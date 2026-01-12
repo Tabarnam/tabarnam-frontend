@@ -7,140 +7,140 @@ Azure Functions Core Tools
 Core Tools Version:       4.6.0+ab90faafcab539d63cd3d0ce5faf1bca4395fccc (64-bit)
 Function Runtime Version: 4.1045.200.25556
 
-[2026-01-11T13:16:49.594Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
-[2026-01-11T13:17:00.381Z] [api/index.js] Starting handler registration...
-[2026-01-11T13:17:00.382Z] [api] Registering: health
-[2026-01-11T13:17:00.382Z] [api] Registering: ping
-[2026-01-11T13:17:00.383Z] [api] ✓ ping registered
-[2026-01-11T13:17:00.383Z] [api] Registering: version
-[2026-01-11T13:17:00.383Z] [api] ✓ version registered
-[2026-01-11T13:17:00.383Z] [api] Registering: diag
-[2026-01-11T13:17:00.383Z] [api] ✓ diag registered
-[2026-01-11T13:17:00.383Z] [api] Registering: _diag-hello
-[2026-01-11T13:17:00.383Z] [api] ✓ _diag-hello registered
-[2026-01-11T13:17:00.383Z] [api] Registering: hello
-[2026-01-11T13:17:00.383Z] [api] Registering: proxy-xai
-[2026-01-11T13:17:00.383Z] [api] Registering: v1-chat-completions
-[2026-01-11T13:17:00.383Z] [api] Registering: _debug-ingress-latest
-[2026-01-11T13:17:00.383Z] [api] Registering: _debug-egress-latest
-[2026-01-11T13:17:00.383Z] [api] Registering: submit-review
-[2026-01-11T13:17:00.383Z] [api] Registering: get-reviews
-[2026-01-11T13:17:00.383Z] [api] Registering: xadmin-api-recalc-review-counts
-[2026-01-11T13:17:00.383Z] [api] Registering: search-companies
-[2026-01-11T13:17:00.383Z] [api] Registering: suggest-refinements
-[2026-01-11T13:17:00.384Z] [api] ✓ suggest-refinements registered
-[2026-01-11T13:17:00.384Z] [api] Registering: suggest-cities
-[2026-01-11T13:17:00.384Z] [api] ✓ suggest-cities registered
-[2026-01-11T13:17:00.384Z] [api] Registering: suggest-states
-[2026-01-11T13:17:00.384Z] [api] ✓ suggest-states registered
-[2026-01-11T13:17:00.384Z] [api] Registering: save-companies
-[2026-01-11T13:17:00.384Z] [api] Registering: logo-scrape
-[2026-01-11T13:17:00.384Z] [api] Registering: cosmos-smoke
-[2026-01-11T13:17:00.384Z] [api] Registering: import-start
-[2026-01-11T13:17:00.384Z] [import-start] module_loaded {
-[2026-01-11T13:17:00.384Z]   handler_version: 'ded-import-start-562e29dd7317',
-[2026-01-11T13:17:00.384Z]   build_id: '562e29dd7317d1b23e9cb1abc4de071c9105fae4'
-[2026-01-11T13:17:00.384Z] }
-[2026-01-11T13:17:00.384Z] [api] Registering: import-backend-ping
-[2026-01-11T13:17:00.384Z] [api] Registering: import-status
-[2026-01-11T13:17:00.384Z] [api] Registering: import-progress
-[2026-01-11T13:17:00.385Z] [api] Registering: import-stop
-[2026-01-11T13:17:00.385Z] [api] Registering: import/primary-worker
-[2026-01-11T13:17:00.385Z] [api] Registering: google/geocode
-[2026-01-11T13:17:00.385Z] [api] Registering: google/translate
-[2026-01-11T13:17:00.385Z] [api] Registering: test-echo
-[2026-01-11T13:17:00.385Z] [test-echo] Module loaded
-[2026-01-11T13:17:00.385Z] [test-echo] Handler registered successfully
-[2026-01-11T13:17:00.385Z] [api] ✓ test-echo registered
-[2026-01-11T13:17:00.385Z] [api] Registering: companies-list
-[2026-01-11T13:17:00.385Z] [companies-list] Starting module load...
-[2026-01-11T13:17:00.385Z] [companies-list] @azure/functions imported, app object created
-[2026-01-11T13:17:00.385Z] [companies-list] About to register app.http handler...
-[2026-01-11T13:17:00.385Z] [companies-list] ✅ Handler registered successfully with app.http v2
-[2026-01-11T13:17:00.385Z] [api] ✓ companies-list registered
-[2026-01-11T13:17:00.386Z] [api] Registering: keywords-list
-[2026-01-11T13:17:00.386Z] [keywords-list] Module loading started
-[2026-01-11T13:17:00.386Z] [keywords-list] Registering with app.http...
-[2026-01-11T13:17:00.386Z] [keywords-list] ✅ Successfully registered app.http with route: keywords-list
-[2026-01-11T13:17:00.386Z] [api] ✓ keywords-list registered
-[2026-01-11T13:17:00.386Z] [api] Registering: upload-logo-blob
-[2026-01-11T13:17:00.386Z] [api] ✓ upload-logo-blob registered
-[2026-01-11T13:17:00.386Z] [api] Registering: delete-logo-blob
-[2026-01-11T13:17:00.386Z] [api] ✓ delete-logo-blob registered
-[2026-01-11T13:17:00.386Z] [api] Registering: company-logo
-[2026-01-11T13:17:00.386Z] [api] ✓ company-logo registered
-[2026-01-11T13:17:00.386Z] [api] Registering: xadmin-api-logos
-[2026-01-11T13:17:00.386Z] [api] ✓ xadmin-api-logos registered
-[2026-01-11T13:17:00.386Z] [api] Registering: retry-logo-import
-[2026-01-11T13:17:00.386Z] [api] ✓ retry-logo-import registered
-[2026-01-11T13:17:00.386Z] [api] Registering: admin-keywords
-[2026-01-11T13:17:00.386Z] [api] Registering: admin-analytics
-[2026-01-11T13:17:00.459Z] [api] ❌ Failed to load admin-keywords: Identifier 'app' has already been declared
-[2026-01-11T13:17:00.460Z] [api] ✓ admin-analytics registered
-[2026-01-11T13:17:00.460Z] [api] Registering: admin-batch-update
-[2026-01-11T13:17:00.460Z] [api] ✓ admin-batch-update registered
-[2026-01-11T13:17:00.460Z] [api] Registering: admin-bulk-import-config
-[2026-01-11T13:17:00.460Z] [api] ✓ admin-bulk-import-config registered
-[2026-01-11T13:17:00.460Z] [api] Registering: admin-companies-v2
-[2026-01-11T13:17:00.460Z] [api] ✓ admin-companies-v2 registered
-[2026-01-11T13:17:00.460Z] [api] Registering: admin-company-history
-[2026-01-11T13:17:00.460Z] [api] ✓ admin-company-history registered
-[2026-01-11T13:17:00.460Z] [api] Registering: xadmin-api-debug
-[2026-01-11T13:17:00.461Z] [api] ✓ xadmin-api-debug registered
-[2026-01-11T13:17:00.461Z] [api] Registering: admin-echo
-[2026-01-11T13:17:00.461Z] [api] ✓ admin-echo registered
-[2026-01-11T13:17:00.461Z] [api] Registering: admin-import-stats
-[2026-01-11T13:17:00.461Z] [api] ✓ admin-import-stats registered
-[2026-01-11T13:17:00.461Z] [api] Registering: admin-cleanup-import-placeholders
-[2026-01-11T13:17:00.461Z] [api] ✓ admin-cleanup-import-placeholders registered
-[2026-01-11T13:17:00.461Z] [api] Registering: admin-login
-[2026-01-11T13:17:00.461Z] [api] ❌ Failed to load admin-login: Cannot find module 'bcryptjs'
-[2026-01-11T13:17:00.462Z] Require stack:
-[2026-01-11T13:17:00.462Z] - /root/app/code/api/admin-login/index.js
-[2026-01-11T13:17:00.462Z] - /root/app/code/api/index.js
-[2026-01-11T13:17:00.462Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
-[2026-01-11T13:17:00.462Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
-[2026-01-11T13:17:00.462Z] [api] Registering: admin-notes
-[2026-01-11T13:17:00.462Z] [api] ✓ admin-notes registered
-[2026-01-11T13:17:00.462Z] [api] Registering: admin-recalc-stars
-[2026-01-11T13:17:00.462Z] [api] ✓ admin-recalc-stars registered
-[2026-01-11T13:17:00.462Z] [api] Registering: admin-reviews
-[2026-01-11T13:17:00.462Z] [api] ✓ admin-reviews registered
-[2026-01-11T13:17:00.462Z] [api] Registering: admin-save-diagnostic
-[2026-01-11T13:17:00.462Z] [admin-save-diagnostic] ✅ Diagnostic endpoint registered
-[2026-01-11T13:17:00.462Z] [api] ✓ admin-save-diagnostic registered
-[2026-01-11T13:17:00.462Z] [api] Registering: admin-star-config
-[2026-01-11T13:17:00.462Z] [api] ✓ admin-star-config registered
-[2026-01-11T13:17:00.462Z] [api] Registering: admin-undo
-[2026-01-11T13:17:00.462Z] [api] ✓ admin-undo registered
-[2026-01-11T13:17:00.462Z] [api] Registering: admin-undo-history
-[2026-01-11T13:17:00.462Z] [api] ✓ admin-undo-history registered
-[2026-01-11T13:17:00.463Z] [api] Registering: admin-update-logos
-[2026-01-11T13:17:00.463Z] [api] ✓ admin-update-logos registered
-[2026-01-11T13:17:00.463Z] [api] Registering: admin-recent-imports
-[2026-01-11T13:17:00.463Z] [api] ✓ admin-recent-imports registered
-[2026-01-11T13:17:00.463Z] [api] Registering: admin-refresh-import
-[2026-01-11T13:17:00.463Z] [api] ✓ admin-refresh-import registered
-[2026-01-11T13:17:00.463Z] [api] Registering: admin-refresh-company
-[2026-01-11T13:17:00.463Z] [api] ✓ admin-refresh-company registered
-[2026-01-11T13:17:00.464Z] [api] Registering: xadmin-api-refresh-company
-[2026-01-11T13:17:00.464Z] [api] ✓ xadmin-api-refresh-company registered
-[2026-01-11T13:17:00.464Z] [api] Registering: admin-refresh-reviews
-[2026-01-11T13:17:00.464Z] [api] ✓ admin-refresh-reviews registered
-[2026-01-11T13:17:00.464Z] [api] Registering: xadmin-api-refresh-reviews
-[2026-01-11T13:17:00.464Z] [api] ✓ xadmin-api-refresh-reviews registered
-[2026-01-11T13:17:00.464Z] [api] Registering: admin-geocode-location
-[2026-01-11T13:17:00.464Z] [api] ✓ admin-geocode-location registered
-[2026-01-11T13:17:00.464Z] [api/index.js] ✅ All handler registration complete! Exporting app.
-[2026-01-11T13:17:01.503Z] Worker process started and initialized.
-[2026-01-11T13:17:03.900Z] The '_debug-egress-latest' function is in error: '_debug-egress-latest' is not a valid function name.
-[2026-01-11T13:17:03.900Z] The '_debug-ingress-latest' function is in error: '_debug-ingress-latest' is not a valid function name.
-[2026-01-11T13:17:03.901Z] The '_diagHello' function is in error: '_diagHello' is not a valid function name.
-[2026-01-11T13:17:03.901Z] The 'admin-cleanup-import-placeholders' function is in error: The specified route conflicts with one or more built in routes.
-[2026-01-11T13:17:03.901Z] The 'adminCompanyHistory' function is in error: The specified route conflicts with one or more built in routes.
-[2026-01-11T13:17:03.901Z] The 'adminCompanyHistoryAlias' function is in error: The specified route conflicts with one or more built in routes.
-[2026-01-11T13:17:03.901Z] The 'adminRefreshCompany' function is in error: The specified route conflicts with one or more built in routes.
-[2026-01-11T13:17:03.901Z] The 'adminRefreshReviews' function is in error: The specified route conflicts with one or more built in routes.
+[2026-01-12T03:45:59.788Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2026-01-12T03:46:03.383Z] [api/index.js] Starting handler registration...
+[2026-01-12T03:46:03.383Z] [api] Registering: health
+[2026-01-12T03:46:03.383Z] [api] Registering: ping
+[2026-01-12T03:46:03.383Z] [api] ✓ ping registered
+[2026-01-12T03:46:03.383Z] [api] Registering: version
+[2026-01-12T03:46:03.383Z] [api] ✓ version registered
+[2026-01-12T03:46:03.383Z] [api] Registering: diag
+[2026-01-12T03:46:03.383Z] [api] ✓ diag registered
+[2026-01-12T03:46:03.383Z] [api] Registering: _diag-hello
+[2026-01-12T03:46:03.383Z] [api] ✓ _diag-hello registered
+[2026-01-12T03:46:03.384Z] [api] Registering: hello
+[2026-01-12T03:46:03.384Z] [api] Registering: proxy-xai
+[2026-01-12T03:46:03.384Z] [api] Registering: v1-chat-completions
+[2026-01-12T03:46:03.384Z] [api] Registering: _debug-ingress-latest
+[2026-01-12T03:46:03.384Z] [api] Registering: _debug-egress-latest
+[2026-01-12T03:46:03.384Z] [api] Registering: submit-review
+[2026-01-12T03:46:03.384Z] [api] Registering: get-reviews
+[2026-01-12T03:46:03.384Z] [api] Registering: xadmin-api-recalc-review-counts
+[2026-01-12T03:46:03.384Z] [api] Registering: search-companies
+[2026-01-12T03:46:03.384Z] [api] Registering: suggest-refinements
+[2026-01-12T03:46:03.384Z] [api] ✓ suggest-refinements registered
+[2026-01-12T03:46:03.384Z] [api] Registering: suggest-cities
+[2026-01-12T03:46:03.384Z] [api] ✓ suggest-cities registered
+[2026-01-12T03:46:03.385Z] [api] Registering: suggest-states
+[2026-01-12T03:46:03.385Z] [api] ✓ suggest-states registered
+[2026-01-12T03:46:03.385Z] [api] Registering: save-companies
+[2026-01-12T03:46:03.385Z] [api] Registering: logo-scrape
+[2026-01-12T03:46:03.385Z] [api] Registering: cosmos-smoke
+[2026-01-12T03:46:03.385Z] [api] Registering: import-start
+[2026-01-12T03:46:03.385Z] [import-start] module_loaded {
+[2026-01-12T03:46:03.385Z]   handler_version: 'ded-import-start-31ee7667f6c7',
+[2026-01-12T03:46:03.385Z]   build_id: '31ee7667f6c7ac875f73b28e74921d62a3d6ba95'
+[2026-01-12T03:46:03.385Z] }
+[2026-01-12T03:46:03.385Z] [api] Registering: import-backend-ping
+[2026-01-12T03:46:03.385Z] [api] Registering: import-status
+[2026-01-12T03:46:03.385Z] [api] Registering: import-progress
+[2026-01-12T03:46:03.386Z] [api] Registering: import-stop
+[2026-01-12T03:46:03.386Z] [api] Registering: import/primary-worker
+[2026-01-12T03:46:03.386Z] [api] Registering: google/geocode
+[2026-01-12T03:46:03.386Z] [api] Registering: google/translate
+[2026-01-12T03:46:03.386Z] [api] Registering: test-echo
+[2026-01-12T03:46:03.386Z] [test-echo] Module loaded
+[2026-01-12T03:46:03.386Z] [test-echo] Handler registered successfully
+[2026-01-12T03:46:03.386Z] [api] ✓ test-echo registered
+[2026-01-12T03:46:03.386Z] [api] Registering: companies-list
+[2026-01-12T03:46:03.386Z] [companies-list] Starting module load...
+[2026-01-12T03:46:03.386Z] [companies-list] @azure/functions imported, app object created
+[2026-01-12T03:46:03.386Z] [companies-list] About to register app.http handler...
+[2026-01-12T03:46:03.386Z] [companies-list] ✅ Handler registered successfully with app.http v2
+[2026-01-12T03:46:03.386Z] [api] ✓ companies-list registered
+[2026-01-12T03:46:03.386Z] [api] Registering: keywords-list
+[2026-01-12T03:46:03.386Z] [keywords-list] Module loading started
+[2026-01-12T03:46:03.386Z] [keywords-list] Registering with app.http...
+[2026-01-12T03:46:03.386Z] [keywords-list] ✅ Successfully registered app.http with route: keywords-list
+[2026-01-12T03:46:03.387Z] [api] ✓ keywords-list registered
+[2026-01-12T03:46:03.387Z] [api] Registering: upload-logo-blob
+[2026-01-12T03:46:03.387Z] [api] ✓ upload-logo-blob registered
+[2026-01-12T03:46:03.387Z] [api] Registering: delete-logo-blob
+[2026-01-12T03:46:03.387Z] [api] ✓ delete-logo-blob registered
+[2026-01-12T03:46:03.387Z] [api] Registering: company-logo
+[2026-01-12T03:46:03.387Z] [api] ✓ company-logo registered
+[2026-01-12T03:46:03.387Z] [api] Registering: xadmin-api-logos
+[2026-01-12T03:46:03.387Z] [api] ✓ xadmin-api-logos registered
+[2026-01-12T03:46:03.387Z] [api] Registering: retry-logo-import
+[2026-01-12T03:46:03.387Z] [api] ✓ retry-logo-import registered
+[2026-01-12T03:46:03.387Z] [api] Registering: admin-keywords
+[2026-01-12T03:46:03.387Z] [api] Registering: admin-analytics
+[2026-01-12T03:46:03.387Z] [api] ✓ admin-analytics registered
+[2026-01-12T03:46:03.387Z] [api] Registering: admin-batch-update
+[2026-01-12T03:46:03.387Z] [api] ✓ admin-batch-update registered
+[2026-01-12T03:46:03.387Z] [api] Registering: admin-bulk-import-config
+[2026-01-12T03:46:03.387Z] [api] ✓ admin-bulk-import-config registered
+[2026-01-12T03:46:03.387Z] [api] Registering: admin-companies-v2
+[2026-01-12T03:46:03.388Z] [api] ❌ Failed to load admin-keywords: Identifier 'app' has already been declared
+[2026-01-12T03:46:03.388Z] [api] ✓ admin-companies-v2 registered
+[2026-01-12T03:46:03.388Z] [api] Registering: admin-company-history
+[2026-01-12T03:46:03.388Z] [api] ✓ admin-company-history registered
+[2026-01-12T03:46:03.388Z] [api] Registering: xadmin-api-debug
+[2026-01-12T03:46:03.388Z] [api] ✓ xadmin-api-debug registered
+[2026-01-12T03:46:03.461Z] [api] Registering: admin-echo
+[2026-01-12T03:46:03.461Z] [api] ✓ admin-echo registered
+[2026-01-12T03:46:03.462Z] [api] Registering: admin-import-stats
+[2026-01-12T03:46:03.462Z] [api] ✓ admin-import-stats registered
+[2026-01-12T03:46:03.462Z] [api] Registering: admin-cleanup-import-placeholders
+[2026-01-12T03:46:03.462Z] [api] ✓ admin-cleanup-import-placeholders registered
+[2026-01-12T03:46:03.462Z] [api] Registering: admin-login
+[2026-01-12T03:46:03.462Z] [api] Registering: admin-notes
+[2026-01-12T03:46:03.462Z] [api] ✓ admin-notes registered
+[2026-01-12T03:46:03.462Z] [api] Registering: admin-recalc-stars
+[2026-01-12T03:46:03.462Z] [api] ❌ Failed to load admin-login: Cannot find module 'bcryptjs'
+[2026-01-12T03:46:03.462Z] Require stack:
+[2026-01-12T03:46:03.463Z] - /root/app/code/api/admin-login/index.js
+[2026-01-12T03:46:03.463Z] - /root/app/code/api/index.js
+[2026-01-12T03:46:03.463Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/worker-bundle.js
+[2026-01-12T03:46:03.463Z] - /root/.npm/_npx/ea74a7a3cf090e3c/node_modules/azure-functions-core-tools/bin/workers/node/dist/src/nodejsWorker.js
+[2026-01-12T03:46:03.463Z] [api] ✓ admin-recalc-stars registered
+[2026-01-12T03:46:03.463Z] [api] Registering: admin-reviews
+[2026-01-12T03:46:03.463Z] [api] ✓ admin-reviews registered
+[2026-01-12T03:46:03.463Z] [api] Registering: admin-save-diagnostic
+[2026-01-12T03:46:03.463Z] [admin-save-diagnostic] ✅ Diagnostic endpoint registered
+[2026-01-12T03:46:03.463Z] [api] ✓ admin-save-diagnostic registered
+[2026-01-12T03:46:03.463Z] [api] Registering: admin-star-config
+[2026-01-12T03:46:03.463Z] [api] ✓ admin-star-config registered
+[2026-01-12T03:46:03.463Z] [api] Registering: admin-undo
+[2026-01-12T03:46:03.463Z] [api] ✓ admin-undo registered
+[2026-01-12T03:46:03.463Z] [api] Registering: admin-undo-history
+[2026-01-12T03:46:03.463Z] [api] ✓ admin-undo-history registered
+[2026-01-12T03:46:03.463Z] [api] Registering: admin-update-logos
+[2026-01-12T03:46:03.463Z] [api] ✓ admin-update-logos registered
+[2026-01-12T03:46:03.464Z] [api] Registering: admin-recent-imports
+[2026-01-12T03:46:03.464Z] [api] ✓ admin-recent-imports registered
+[2026-01-12T03:46:03.464Z] [api] Registering: admin-refresh-import
+[2026-01-12T03:46:03.464Z] [api] ✓ admin-refresh-import registered
+[2026-01-12T03:46:03.464Z] [api] Registering: admin-refresh-company
+[2026-01-12T03:46:03.464Z] [api] ✓ admin-refresh-company registered
+[2026-01-12T03:46:03.464Z] [api] Registering: xadmin-api-refresh-company
+[2026-01-12T03:46:03.464Z] [api] ✓ xadmin-api-refresh-company registered
+[2026-01-12T03:46:03.464Z] [api] Registering: admin-refresh-reviews
+[2026-01-12T03:46:03.464Z] [api] ✓ admin-refresh-reviews registered
+[2026-01-12T03:46:03.464Z] [api] Registering: xadmin-api-refresh-reviews
+[2026-01-12T03:46:03.464Z] [api] ✓ xadmin-api-refresh-reviews registered
+[2026-01-12T03:46:03.464Z] [api] Registering: admin-geocode-location
+[2026-01-12T03:46:03.464Z] [api] ✓ admin-geocode-location registered
+[2026-01-12T03:46:03.464Z] [api/index.js] ✅ All handler registration complete! Exporting app.
+[2026-01-12T03:46:04.425Z] Worker process started and initialized.
+[2026-01-12T03:46:06.749Z] The '_debug-ingress-latest' function is in error: '_debug-ingress-latest' is not a valid function name.
+[2026-01-12T03:46:06.749Z] The '_debug-egress-latest' function is in error: '_debug-egress-latest' is not a valid function name.
+[2026-01-12T03:46:06.749Z] The '_diagHello' function is in error: '_diagHello' is not a valid function name.
+[2026-01-12T03:46:06.749Z] The 'admin-cleanup-import-placeholders' function is in error: The specified route conflicts with one or more built in routes.
+[2026-01-12T03:46:06.749Z] The 'adminCompanyHistory' function is in error: The specified route conflicts with one or more built in routes.
+[2026-01-12T03:46:06.750Z] The 'adminCompanyHistoryAlias' function is in error: The specified route conflicts with one or more built in routes.
+[2026-01-12T03:46:06.750Z] The 'adminRefreshCompany' function is in error: The specified route conflicts with one or more built in routes.
+[2026-01-12T03:46:06.750Z] The 'adminRefreshReviews' function is in error: The specified route conflicts with one or more built in routes.
 
 Functions:
 
@@ -257,5 +257,5 @@ Functions:
 	xai-smoke: [GET,OPTIONS] http://localhost:7076/api/xai/smoke
 
 For detailed output, run func with --verbose flag.
-[2026-01-11T13:17:05.502Z] Host lock lease acquired by instance ID '0000000000000000000000008C5D2F13'.
-[2026-01-11T13:17:53.840Z] Detected mixed function app. Some functions may not be indexed - /root/app/code/api/import-start, /root/app/code/api/admin-company-history, /root/app/code/api/_diag-hello, /root/app/code/api/admin-companies-history, /root/app/code/api/import-start-hyphen Refer to the documentation to filter warning - https://docs.microsoft.com/en-us/azure/azure-functions/configure-monitoring?tabs=v2
+[2026-01-12T03:46:08.508Z] Host lock lease acquired by instance ID '0000000000000000000000004296B235'.
+[2026-01-12T03:47:00.750Z] Detected mixed function app. Some functions may not be indexed - /root/app/code/api/_diag-hello, /root/app/code/api/admin-company-history, /root/app/code/api/import-start-hyphen, /root/app/code/api/import-start, /root/app/code/api/admin-companies-history Refer to the documentation to filter warning - https://docs.microsoft.com/en-us/azure/azure-functions/configure-monitoring?tabs=v2
