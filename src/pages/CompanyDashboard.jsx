@@ -3082,6 +3082,30 @@ export default function CompanyDashboard() {
   }, []);
 
   useEffect(() => {
+    if (!editorOpen) return;
+
+    try {
+      const hash = typeof window !== "undefined" ? String(window.location.hash || "") : "";
+      if (!hash || hash !== "#reviews") return;
+
+      const el = reviewsImportRef.current;
+      if (!el || typeof el.scrollIntoView !== "function") return;
+
+      const t = window.setTimeout(() => {
+        try {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch {
+          // ignore
+        }
+      }, 50);
+
+      return () => window.clearTimeout(t);
+    } catch {
+      // ignore
+    }
+  }, [editorOpen]);
+
+  useEffect(() => {
     setLogoPreviewFailed(false);
   }, [asString(editorDraft?.logo_url).trim()]);
 

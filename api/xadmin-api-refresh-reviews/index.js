@@ -738,9 +738,11 @@ async function handler(req, context) {
 
     const isHttp0 = upstream_status_raw === 0 || upstream_status_raw === "0" || upstream_status_raw === "HTTP 0";
 
-    // Contract: it must be impossible to return ok:true with fetched_count=0 and saved_count=0.
+    // Contract: it must be impossible to return ok:true with fetched_count=0 and saved_count=0
+    // unless the upstream is exhausted (legit "no reviews" outcome).
     // (Exclude OPTIONS for CORS preflight.)
-    if (method !== "OPTIONS" && out.ok === true && noResults) {
+    const allowNoResults = Boolean(out.exhausted);
+    if (method !== "OPTIONS" && out.ok === true && noResults && !allowNoResults) {
       out.ok = false;
       out.retryable = true;
       out.root_cause = "upstream_unreachable";
@@ -802,6 +804,13 @@ async function handler(req, context) {
     const company_id = asString(body?.company_id).trim();
     // New rule: we keep at most 2 curated reviews per company.
     const requestedTake = Math.max(1, Math.min(2, Math.trunc(Number(body?.take ?? body?.limit ?? 2) || 2)));
+
+    // Allow callers (including import-start) to provide a smaller timeout so this stage can
+    // run inside the SWA gateway time budget.
+    const requestedTimeoutMs = Math.max(
+      5000,
+      Math.min(65000, Math.trunc(Number(body?.timeout_ms ?? body?.timeoutMs ?? body?.deadline_ms ?? 65000) || 65000))
+    );
 
     if (!company_id) {
       return respond({
@@ -931,7 +940,7 @@ async function handler(req, context) {
           company,
           offset,
           limit: requestedTake,
-          timeout_ms: 65000,
+          timeout_ms: requestedTimeoutMs,
         });
 
         const attemptUpstreamStatus = normalizeHttpStatus(upstream?._meta?.upstream_status);
@@ -983,6 +992,10 @@ async function handler(req, context) {
 
         saved_count_total += toAdd.length;
 
+        // Make 0-review outcomes explainable (never silent).
+        // If the company still has 0 imported reviews after this call, treat it as "no_valid_reviews_found".
+        const stageStatus = updatedCurated.length === 0 ? "no_valid_reviews_found" : "ok";
+
         const nextOffset =
           typeof upstream?.next_offset === "number" && Number.isFinite(upstream.next_offset)
             ? upstream.next_offset
@@ -1001,7 +1014,7 @@ async function handler(req, context) {
 
         cursor.last_attempt_at = nowIso();
         cursor.last_error = null;
-        cursor.reviews_stage_status = "ok";
+        cursor.reviews_stage_status = stageStatus;
         cursor.upstream_status = attemptUpstreamStatus;
         cursor.content_type = null;
         cursor.raw_body_kind = null;
@@ -1012,7 +1025,7 @@ async function handler(req, context) {
         const upstreamMeta = upstream?._meta && typeof upstream._meta === "object" ? upstream._meta : {};
 
         cursor.reviews_telemetry = {
-          stage_status: "ok",
+          stage_status: stageStatus,
           upstream_status: normalizeHttpStatus(upstreamMeta?.upstream_status),
           attempts_count: i + 1,
           recovered_on_attempt: i + 1 > 1,
@@ -1039,6 +1052,12 @@ async function handler(req, context) {
           curated_reviews: updatedCurated,
           review_cursor: cursor,
           reviews_fetch_lock_until: 0,
+
+          // Surface last stage status at top-level (used by import + admin UI).
+          reviews_stage_status: stageStatus,
+          reviews_upstream_status: attemptUpstreamStatus,
+          reviews_attempts_count: i + 1,
+          reviews_retry_exhausted: false,
         });
 
         if (!patchRes.ok) {

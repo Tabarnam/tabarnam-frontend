@@ -2764,6 +2764,61 @@ export default function AdminImport() {
                         {keywords ? (
                           <div className="mt-2 text-xs text-slate-600">{keywords}</div>
                         ) : null}
+
+                        {(() => {
+                          const companyId = asString(c?.id || c?.company_id).trim();
+                          const reviewCount = Number.isFinite(Number(c?.review_count))
+                            ? Number(c.review_count)
+                            : Array.isArray(c?.curated_reviews)
+                              ? c.curated_reviews.length
+                              : 0;
+
+                          const stageStatus = asString(
+                            c?.reviews_stage_status || c?.review_cursor?.reviews_stage_status || ""
+                          ).trim();
+
+                          const statusKind =
+                            stageStatus === "ok" && reviewCount > 0
+                              ? "ok"
+                              : stageStatus === "pending"
+                                ? "pending"
+                                : stageStatus
+                                  ? "warning"
+                                  : "unknown";
+
+                          const badgeClass =
+                            statusKind === "ok"
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                              : statusKind === "pending"
+                                ? "border-sky-200 bg-sky-50 text-sky-900"
+                                : statusKind === "warning"
+                                  ? "border-amber-200 bg-amber-50 text-amber-900"
+                                  : "border-slate-200 bg-slate-50 text-slate-700";
+
+                          if (!companyId && !stageStatus && reviewCount === 0) return null;
+
+                          return (
+                            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+                              <span className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-slate-700">
+                                review_count: {reviewCount}
+                              </span>
+                              {stageStatus ? (
+                                <span className={`rounded border px-2 py-0.5 ${badgeClass}`}>
+                                  reviews_stage_status: {stageStatus}
+                                </span>
+                              ) : null}
+                              {companyId ? (
+                                <a
+                                  className="rounded border border-slate-200 bg-white px-2 py-0.5 text-slate-700 hover:bg-slate-50"
+                                  href={`/admin?company_id=${encodeURIComponent(companyId)}#reviews`}
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  Open dashboard
+                                </a>
+                              ) : null}
+                            </div>
+                          );
+                        })()}
                       </div>
                     );
                   })}
@@ -2826,12 +2881,17 @@ export default function AdminImport() {
 
                     const isSkipped = Boolean(r.skipped) || (isCompleteNoSave && isPrimarySkippedCompanyUrl(stageBeaconForStatus));
 
+                    const warningsList = Array.isArray(r.warnings) ? r.warnings : [];
+                    const hasWarnings = warningsList.length > 0 || Boolean(r.warnings_detail || r.warnings_v2);
+
                     const statusLabel = isFailed
                       ? "Failed"
                       : isSkipped
                         ? "Skipped"
                         : isCompleteWithSave
-                          ? "Completed"
+                          ? hasWarnings
+                            ? "Completed with warnings"
+                            : "Completed"
                           : isCompleteNoSave
                             ? "Completed: no save"
                             : r.polling_exhausted
@@ -2843,7 +2903,9 @@ export default function AdminImport() {
                       : isSkipped
                         ? "border-amber-200 bg-amber-50 text-amber-900"
                         : isCompleteWithSave
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          ? hasWarnings
+                            ? "border-amber-200 bg-amber-50 text-amber-900"
+                            : "border-emerald-200 bg-emerald-50 text-emerald-800"
                           : isCompleteNoSave
                             ? "border-slate-200 bg-slate-50 text-slate-700"
                             : "border-sky-200 bg-sky-50 text-sky-800";
