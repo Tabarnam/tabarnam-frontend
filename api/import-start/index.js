@@ -7085,7 +7085,8 @@ Return ONLY the JSON array, no other text.`,
                 review_count: reviewCount,
                 reviews_last_updated_at: c.reviews_last_updated_at || nowReviewsIso,
                 review_cursor: cursor,
-                reviews_stage_status: asString(c.reviews_stage_status).trim() || "pending",
+                reviews_stage_status:
+                  (typeof c.reviews_stage_status === "string" ? c.reviews_stage_status.trim() : "") || "pending",
                 reviews_upstream_status: c.reviews_upstream_status ?? null,
               };
             }
