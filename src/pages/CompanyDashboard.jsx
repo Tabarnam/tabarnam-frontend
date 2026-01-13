@@ -297,13 +297,32 @@ function StringListEditor({ label, value, onChange, placeholder = "" }) {
   const [draft, setDraft] = useState("");
 
   const add = useCallback(() => {
-    const next = asString(draft).trim();
-    if (!next) return;
-    if (list.some((v) => v.toLowerCase() === next.toLowerCase())) {
+    const parts = asString(draft)
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+    if (parts.length === 0) {
+      // Treat comma-only / whitespace-only input as an attempted submission
       setDraft("");
       return;
     }
-    onChange([...list, next]);
+
+    const seen = new Set(list.map((v) => asString(v).trim().toLowerCase()).filter(Boolean));
+    const toAdd = [];
+
+    for (const part of parts) {
+      const key = part.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      toAdd.push(part);
+    }
+
+    if (toAdd.length > 0) {
+      onChange([...list, ...toAdd]);
+    }
+
+    // Clear after a submission attempt (even if everything was already present)
     setDraft("");
   }, [draft, list, onChange]);
 
@@ -315,6 +334,10 @@ function StringListEditor({ label, value, onChange, placeholder = "" }) {
     },
     [add]
   );
+
+  const canSubmit = asString(draft)
+    .split(",")
+    .some((part) => part.trim().length > 0);
 
   const remove = useCallback(
     (idx) => {
@@ -359,7 +382,7 @@ function StringListEditor({ label, value, onChange, placeholder = "" }) {
               <label className="text-xs font-medium text-slate-700">Add</label>
               <Input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKeyDown} placeholder={placeholder} />
             </div>
-            <Button type="button" onClick={add} disabled={!asString(draft).trim()}>
+            <Button type="button" onClick={add} disabled={!canSubmit}>
               <Plus className="h-4 w-4 mr-2" />
               Add
             </Button>
