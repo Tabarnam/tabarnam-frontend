@@ -621,6 +621,20 @@ function isDeletedCompany(company) {
   return String(v).toLowerCase() === "true" || String(v) === "1";
 }
 
+function normalizeRatingIconType(value, rating) {
+  if (value === "heart" || value === "star") return value;
+
+  const starKeys = ["star1", "star2", "star3", "star4", "star5"];
+  const icons = starKeys.map((k) => rating?.[k]?.icon_type).filter(Boolean);
+
+  if (icons.length === 0) return "star";
+  if (icons.every((i) => i === "heart")) return "heart";
+  if (icons.every((i) => i === "star")) return "star";
+
+  // Mixed icons: default to circle on places that don't support per-star icon overrides.
+  return "star";
+}
+
 function buildCompanyDraft(company) {
   const base = company && typeof company === "object" ? company : {};
   const baseCompany = base;
@@ -661,6 +675,8 @@ function buildCompanyDraft(company) {
   if (!draft.rating) {
     draft.rating = calculateInitialRating(computeAutoRatingInput(draft));
   }
+
+  draft.rating_icon_type = normalizeRatingIconType(draft.rating_icon_type, draft.rating);
 
   return draft;
 }
@@ -4027,11 +4043,13 @@ export default function CompanyDashboard() {
       const location_sources = normalizeLocationSources(draftForSave.location_sources);
       const visibility = normalizeVisibility(draftForSave.visibility);
       const affiliate_link_urls = normalizeStringList(draftForSave.affiliate_link_urls);
+      const rating_icon_type = normalizeRatingIconType(draftForSave.rating_icon_type, rating);
 
       const draftBase = draftForSave;
 
       const payload = {
         ...draftBase,
+        rating_icon_type,
         company_id: resolvedCompanyId,
         id: asString(draftForSave.id).trim() || resolvedCompanyId,
         company_name: resolvedCompanyName,
