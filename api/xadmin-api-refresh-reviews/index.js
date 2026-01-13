@@ -738,9 +738,11 @@ async function handler(req, context) {
 
     const isHttp0 = upstream_status_raw === 0 || upstream_status_raw === "0" || upstream_status_raw === "HTTP 0";
 
-    // Contract: it must be impossible to return ok:true with fetched_count=0 and saved_count=0.
+    // Contract: it must be impossible to return ok:true with fetched_count=0 and saved_count=0
+    // unless the upstream is exhausted (legit "no reviews" outcome).
     // (Exclude OPTIONS for CORS preflight.)
-    if (method !== "OPTIONS" && out.ok === true && noResults) {
+    const allowNoResults = Boolean(out.exhausted);
+    if (method !== "OPTIONS" && out.ok === true && noResults && !allowNoResults) {
       out.ok = false;
       out.retryable = true;
       out.root_cause = "upstream_unreachable";
