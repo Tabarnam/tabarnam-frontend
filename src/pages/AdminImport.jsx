@@ -2881,12 +2881,17 @@ export default function AdminImport() {
 
                     const isSkipped = Boolean(r.skipped) || (isCompleteNoSave && isPrimarySkippedCompanyUrl(stageBeaconForStatus));
 
+                    const warningsList = Array.isArray(r.warnings) ? r.warnings : [];
+                    const hasWarnings = warningsList.length > 0 || Boolean(r.warnings_detail || r.warnings_v2);
+
                     const statusLabel = isFailed
                       ? "Failed"
                       : isSkipped
                         ? "Skipped"
                         : isCompleteWithSave
-                          ? "Completed"
+                          ? hasWarnings
+                            ? "Completed with warnings"
+                            : "Completed"
                           : isCompleteNoSave
                             ? "Completed: no save"
                             : r.polling_exhausted
@@ -2898,7 +2903,9 @@ export default function AdminImport() {
                       : isSkipped
                         ? "border-amber-200 bg-amber-50 text-amber-900"
                         : isCompleteWithSave
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          ? hasWarnings
+                            ? "border-amber-200 bg-amber-50 text-amber-900"
+                            : "border-emerald-200 bg-emerald-50 text-emerald-800"
                           : isCompleteNoSave
                             ? "border-slate-200 bg-slate-50 text-slate-700"
                             : "border-sky-200 bg-sky-50 text-sky-800";
