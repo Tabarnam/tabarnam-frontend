@@ -297,13 +297,28 @@ function StringListEditor({ label, value, onChange, placeholder = "" }) {
   const [draft, setDraft] = useState("");
 
   const add = useCallback(() => {
-    const next = asString(draft).trim();
-    if (!next) return;
-    if (list.some((v) => v.toLowerCase() === next.toLowerCase())) {
-      setDraft("");
-      return;
+    const parts = asString(draft)
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+
+    if (parts.length === 0) return;
+
+    const seen = new Set(list.map((v) => asString(v).trim().toLowerCase()).filter(Boolean));
+    const toAdd = [];
+
+    for (const part of parts) {
+      const key = part.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      toAdd.push(part);
     }
-    onChange([...list, next]);
+
+    if (toAdd.length > 0) {
+      onChange([...list, ...toAdd]);
+    }
+
+    // Clear after a submission attempt (even if everything was already present)
     setDraft("");
   }, [draft, list, onChange]);
 
