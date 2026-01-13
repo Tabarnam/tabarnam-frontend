@@ -2762,6 +2762,21 @@ function CuratedReviewsEditor({ value, onChange, disabled }) {
 function RatingEditor({ draft, onChange }) {
   const rating = normalizeRating(draft?.rating);
   const auto = calculateInitialRating(computeAutoRatingInput(draft));
+  const defaultIconType = normalizeRatingIconType(draft?.rating_icon_type, rating);
+
+  const setDefaultIconType = (iconType) => {
+    const next = iconType === "heart" ? "heart" : "star";
+    onChange({ ...(draft || {}), rating_icon_type: next });
+  };
+
+  const matchAllStarsToDefault = () => {
+    const starKeys = ["star1", "star2", "star3", "star4", "star5"];
+    const nextRating = { ...rating };
+    for (const k of starKeys) {
+      nextRating[k] = { ...(nextRating[k] || {}), icon_type: defaultIconType };
+    }
+    onChange({ ...(draft || {}), rating_icon_type: defaultIconType, rating: nextRating });
+  };
 
   const setStar = (starKey, patch) => {
     const nextRating = {
@@ -2845,6 +2860,38 @@ function RatingEditor({ draft, onChange }) {
   return (
     <div className="space-y-3">
       <div className="text-sm text-slate-700 font-medium">Stars</div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="text-sm font-semibold text-slate-900">Frontend icon</div>
+            <div className="text-xs text-slate-600">
+              Used on cards and other places that don’t support per-star icon overrides.
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant={defaultIconType === "star" ? "default" : "outline"}
+              onClick={() => setDefaultIconType("star")}
+            >
+              Circle
+            </Button>
+            <Button
+              type="button"
+              variant={defaultIconType === "heart" ? "default" : "outline"}
+              onClick={() => setDefaultIconType("heart")}
+            >
+              Heart
+            </Button>
+            <Button type="button" variant="outline" onClick={matchAllStarsToDefault}>
+              Match all stars
+            </Button>
+          </div>
+        </div>
+      </div>
+
       <div className="space-y-3">
         {renderRow("star1", "Manufacturing (auto)", auto.star1.value)}
         {renderRow("star2", "HQ/Home (auto)", auto.star2.value)}
