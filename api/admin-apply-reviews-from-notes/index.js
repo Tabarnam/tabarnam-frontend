@@ -9,6 +9,7 @@ const crypto = require("node:crypto");
 const { CosmosClient } = require("@azure/cosmos");
 const { getBuildInfo } = require("../_buildInfo");
 const { getContainerPartitionKeyPath, buildPartitionKeyCandidates } = require("../_cosmosPartitionKey");
+const { resolveReviewsStarState } = require("../_reviewsStarState");
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "admin-apply-reviews-from-notes";
@@ -580,7 +581,10 @@ async function adminApplyReviewsFromNotesHandler(req, context, deps = {}) {
     saved_count = toAdd.length;
   }
 
-  const review_count = updatedCurated.length;
+  const curatedCount = updatedCurated.length;
+  const publicCount = Math.max(0, Math.trunc(Number(company?.public_review_count) || 0));
+  const privateCount = Math.max(0, Math.trunc(Number(company?.private_review_count) || 0));
+  const review_count = publicCount + privateCount + curatedCount;
 
   if (dry_run) {
     return json(
@@ -601,11 +605,23 @@ async function adminApplyReviewsFromNotesHandler(req, context, deps = {}) {
   cursor.source = "manual_notes";
   cursor.last_success_at = now;
 
+  const starState = resolveReviewsStarState({
+    ...company,
+    curated_reviews: updatedCurated,
+    review_count,
+    public_review_count: publicCount,
+    private_review_count: privateCount,
+  });
+
   const patch = {
     curated_reviews: updatedCurated,
     review_count,
     reviews_last_updated_at: now,
     review_cursor: cursor,
+
+    reviews_star_value: starState.next_value,
+    reviews_star_source: starState.next_source,
+    rating: starState.next_rating,
   };
 
   try {
