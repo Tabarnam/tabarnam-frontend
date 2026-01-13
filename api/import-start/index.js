@@ -2952,6 +2952,29 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               review_count: reviewCountNormalized,
               reviews_last_updated_at: reviewsLastUpdatedAt,
               review_cursor: reviewCursorNormalized,
+              reviews_stage_status: (() => {
+                const explicit = typeof company.reviews_stage_status === "string" ? company.reviews_stage_status.trim() : "";
+                if (explicit) return explicit;
+
+                const cursorStatus =
+                  reviewCursorNormalized && typeof reviewCursorNormalized.reviews_stage_status === "string"
+                    ? reviewCursorNormalized.reviews_stage_status.trim()
+                    : "";
+                if (cursorStatus) return cursorStatus;
+
+                if (reviewCursorNormalized && reviewCursorNormalized.last_error) return "upstream_unreachable";
+                if (reviewCursorNormalized && reviewCursorNormalized.exhausted) {
+                  return reviewCountNormalized > 0 ? "ok" : "no_valid_reviews_found";
+                }
+
+                return "pending";
+              })(),
+              reviews_upstream_status:
+                typeof company.reviews_upstream_status === "number"
+                  ? company.reviews_upstream_status
+                  : reviewCursorNormalized && typeof reviewCursorNormalized.upstream_status === "number"
+                    ? reviewCursorNormalized.upstream_status
+                    : null,
               red_flag: Boolean(company.red_flag),
               red_flag_reason: company.red_flag_reason || "",
               location_confidence: company.location_confidence || "medium",
