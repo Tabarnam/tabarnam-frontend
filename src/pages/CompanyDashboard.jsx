@@ -1325,6 +1325,10 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       saved_count: null,
       fetched_count: null,
       warnings: [],
+      attempts_count: null,
+      attempts: [],
+      upstream_body_diagnostics: null,
+      upstream_error_body: null,
     });
 
     setLoading(true);
@@ -1521,6 +1525,11 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           saved_count: doneLog.saved_count,
           fetched_count: doneLog.fetched_count,
           warnings: Array.isArray(doneLog.warnings) ? doneLog.warnings : [],
+          attempts_count: Number(body?.attempts_count ?? 0) || null,
+          attempts: Array.isArray(body?.attempts) ? body.attempts : [],
+          upstream_body_diagnostics:
+            body?.upstream_body_diagnostics && typeof body.upstream_body_diagnostics === "object" ? body.upstream_body_diagnostics : null,
+          upstream_error_body: body?.upstream_error_body && typeof body.upstream_error_body === "object" ? body.upstream_error_body : null,
         }));
 
         if (retryable) toast.warning(toastMsg);
@@ -1619,6 +1628,11 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
         saved_count: savedCount,
         fetched_count: fetchedCount,
         warnings: Array.isArray(warnings) ? warnings : [],
+        attempts_count: Number(body?.attempts_count ?? 0) || null,
+        attempts: Array.isArray(body?.attempts) ? body.attempts : [],
+        upstream_body_diagnostics:
+          body?.upstream_body_diagnostics && typeof body.upstream_body_diagnostics === "object" ? body.upstream_body_diagnostics : null,
+        upstream_error_body: body?.upstream_error_body && typeof body.upstream_error_body === "object" ? body.upstream_error_body : null,
       }));
 
       if (normalized.length === 0) {
@@ -1746,6 +1760,72 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
             {asString(lastRefreshAttempt.root_cause).trim() ? <div>root_cause: {asString(lastRefreshAttempt.root_cause).trim()}</div> : null}
             {asString(lastRefreshAttempt.client_note).trim() ? <div>{asString(lastRefreshAttempt.client_note).trim()}</div> : null}
             {upstreamStatusForDisplay != null ? <div>upstream_status: HTTP {upstreamStatusForDisplay}</div> : null}
+
+            {(() => {
+              const rootCause = asString(lastRefreshAttempt.root_cause).trim();
+              const category =
+                rootCause === "client_bad_request" || rootCause.startsWith("client_")
+                  ? "validation / client"
+                  : rootCause === "bad_response_not_json"
+                    ? "upstream non-JSON response"
+                    : rootCause === "upstream_4xx"
+                      ? "upstream 4xx"
+                      : rootCause === "upstream_5xx"
+                        ? "upstream 5xx"
+                        : rootCause === "upstream_rate_limited"
+                          ? "upstream rate limited"
+                          : rootCause === "upstream_unreachable" || rootCause === "upstream_http_0"
+                            ? "upstream unreachable"
+                            : rootCause
+                              ? "other"
+                              : "";
+
+              if (!category) return null;
+              return <div>failure_category: {category}</div>;
+            })()}
+
+            {(() => {
+              const diag =
+                lastRefreshAttempt?.upstream_body_diagnostics && typeof lastRefreshAttempt.upstream_body_diagnostics === "object"
+                  ? lastRefreshAttempt.upstream_body_diagnostics
+                  : lastRefreshAttempt?.upstream_error_body && typeof lastRefreshAttempt.upstream_error_body === "object"
+                    ? {
+                        content_type: lastRefreshAttempt.upstream_error_body.content_type,
+                        raw_body_kind: lastRefreshAttempt.upstream_error_body.raw_body_kind,
+                        raw_body_preview: lastRefreshAttempt.upstream_error_body.preview,
+                      }
+                    : null;
+
+              if (!diag) return null;
+
+              return (
+                <div className="mt-2 rounded border border-slate-200 bg-white p-2 text-[11px] text-slate-700">
+                  <div className="font-medium text-slate-900">upstream_body_diagnostics</div>
+                  <div className="mt-1">content_type: {asString(diag.content_type) || "(none)"}</div>
+                  <div>raw_body_kind: {asString(diag.raw_body_kind) || "(none)"}</div>
+                  {asString(diag.raw_body_preview).trim() ? (
+                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2">
+                      {asString(diag.raw_body_preview)}
+                    </pre>
+                  ) : null}
+                </div>
+              );
+            })()}
+
+            {Array.isArray(lastRefreshAttempt?.attempts) && lastRefreshAttempt.attempts.length ? (
+              <div className="mt-2 rounded border border-slate-200 bg-white p-2 text-[11px] text-slate-700">
+                <div className="font-medium text-slate-900">attempts</div>
+                <div className="mt-1 space-y-1">
+                  {lastRefreshAttempt.attempts.map((a, idx) => (
+                    <div key={`${idx}-${asString(a?.attempt)}`} className="break-words">
+                      #{Number(a?.attempt ?? idx + 1) || idx + 1} • ok: {String(Boolean(a?.ok))} • upstream_status: {a?.upstream_status ?? "(none)"}
+                      {asString(a?.root_cause).trim() ? ` • ${asString(a.root_cause).trim()}` : ""}
+                      {a?.retryable ? " • retryable" : ""}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

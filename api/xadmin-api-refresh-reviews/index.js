@@ -598,11 +598,25 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
 
       const failure = classifyUpstreamFailure({ upstream_status });
 
+      // Spec: if upstream is 5xx and the body isn't JSON (HTML/text/empty), report bad_response_not_json.
+      const ctLower = asString(content_type).toLowerCase();
+
+      const treatAsNonJson5xx =
+        upstream_status != null &&
+        upstream_status >= 500 &&
+        (!ctLower.includes("application/json") ||
+          diag.raw_body_kind === "html" ||
+          diag.raw_body_kind === "empty" ||
+          diag.raw_body_kind === "json_invalid");
+
+      const root_cause = treatAsNonJson5xx ? "bad_response_not_json" : failure.stage_status;
+      const retryable = treatAsNonJson5xx ? true : failure.retryable;
+
       const err = new Error(`Upstream HTTP ${status}`);
       err.status = status;
       err.response = resp;
-      err.root_cause = failure.stage_status;
-      err.retryable = failure.retryable;
+      err.root_cause = root_cause;
+      err.retryable = retryable;
       err.xai_request_id = xai_request_id;
       err.upstream_url = upstream_url_redacted;
       err.auth_header_present = Boolean(xai_key);
@@ -899,6 +913,7 @@ async function handler(req, context) {
     };
 
     const attempt_upstream_statuses = [];
+    const attempts = [];
 
     let saved_count_total = 0;
     let fetched_count_total = 0;
@@ -919,7 +934,14 @@ async function handler(req, context) {
           timeout_ms: 65000,
         });
 
-        attempt_upstream_statuses.push(normalizeHttpStatus(upstream?._meta?.upstream_status));
+        const attemptUpstreamStatus = normalizeHttpStatus(upstream?._meta?.upstream_status);
+        attempt_upstream_statuses.push(attemptUpstreamStatus);
+        attempts.push({
+          attempt: i + 1,
+          ok: true,
+          upstream_status: attemptUpstreamStatus,
+          recovered: i + 1 > 1,
+        });
 
         const incomingRaw = Array.isArray(upstream?.reviews) ? upstream.reviews : [];
         const incomingNormalized = incomingRaw.map(normalizeIncomingReview).filter(Boolean);
@@ -980,6 +1002,12 @@ async function handler(req, context) {
         cursor.last_attempt_at = nowIso();
         cursor.last_error = null;
         cursor.reviews_stage_status = "ok";
+        cursor.upstream_status = attemptUpstreamStatus;
+        cursor.content_type = null;
+        cursor.raw_body_kind = null;
+        cursor.raw_body_preview = null;
+        cursor.attempts_count = i + 1;
+        cursor.retry_exhausted = false;
 
         const upstreamMeta = upstream?._meta && typeof upstream._meta === "object" ? upstream._meta : {};
 
@@ -1035,6 +1063,7 @@ async function handler(req, context) {
           saved_count: saved_count_total,
           exhausted: Boolean(cursor.exhausted),
           warnings,
+          attempts,
           reviews: toAdd,
           build_id,
           version_tag: VERSION_TAG,
@@ -1120,6 +1149,24 @@ async function handler(req, context) {
           message: asString(err?.message || err),
         });
 
+        attempts.push({
+          attempt: attempts_count,
+          ok: false,
+          root_cause: normalized_root_cause,
+          upstream_status,
+          retryable,
+          retry_exhausted,
+          xai_request_id: xai_request_id || null,
+          upstream_url,
+          auth_header_present,
+          upstream_body_diagnostics: {
+            content_type: bodyDiag.content_type || null,
+            raw_body_kind: bodyDiag.raw_body_kind || null,
+            raw_body_preview: bodyDiag.raw_body_preview || null,
+          },
+          message: asString(err?.message || err),
+        });
+
         // Persist cursor last_error telemetry (best-effort)
         try {
           cursor.last_attempt_at = nowIso();
@@ -1143,6 +1190,12 @@ async function handler(req, context) {
             message: asString(err?.message || err),
           };
           cursor.reviews_stage_status = normalized_root_cause;
+          cursor.upstream_status = upstream_status;
+          cursor.content_type = bodyDiag.content_type || null;
+          cursor.raw_body_kind = bodyDiag.raw_body_kind || null;
+          cursor.raw_body_preview = bodyDiag.raw_body_preview || null;
+          cursor.attempts_count = attempts_count;
+          cursor.retry_exhausted = retry_exhausted;
 
           const exclusionTelemetry =
             err?.exclusion_telemetry && typeof err.exclusion_telemetry === "object" ? err.exclusion_telemetry : {};
@@ -1173,7 +1226,18 @@ async function handler(req, context) {
                 ? exclusionTelemetry.excluded_hosts_spilled_to_prompt_count
                 : null,
           };
-          await patchCompanyById(companiesContainer, company_id, company, { review_cursor: cursor });
+          await patchCompanyById(companiesContainer, company_id, company, {
+            review_cursor: cursor,
+
+            // Surface the last reviews fetch outcome at the top-level for Admin visibility.
+            reviews_stage_status: normalized_root_cause,
+            reviews_upstream_status: upstream_status,
+            reviews_content_type: bodyDiag.content_type || null,
+            reviews_raw_body_kind: bodyDiag.raw_body_kind || null,
+            reviews_raw_body_preview: bodyDiag.raw_body_preview || null,
+            reviews_attempts_count: attempts_count,
+            reviews_retry_exhausted: retry_exhausted,
+          });
         } catch {
           // ignore
         }
@@ -1255,10 +1319,16 @@ async function handler(req, context) {
       retryable: typeof lastErr?.retryable === "boolean" ? lastErr.retryable : retryableForRootCause(root_cause),
       attempts_count,
       attempt_upstream_statuses: attempt_upstream_statuses.slice(0, attempts_count),
+      attempts,
       retry_exhausted: true,
       upstream_url,
       auth_header_present,
       xai_request_id,
+      upstream_body_diagnostics: {
+        content_type: bodyDiag.content_type || null,
+        raw_body_kind: bodyDiag.raw_body_kind || null,
+        raw_body_preview: bodyDiag.raw_body_preview || null,
+      },
       upstream_error_body,
       payload_shape,
       message: asString(lastErr?.message || lastErr) || "Upstream request failed",
