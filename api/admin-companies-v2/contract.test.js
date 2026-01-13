@@ -341,3 +341,88 @@ test("xadmin-api-companies: persists curated_reviews array", async () => {
   assert.equal(Array.isArray(stored.curated_reviews), true);
   assert.equal(stored.curated_reviews.length, 2);
 });
+
+test("xadmin-api-companies: persists rating_icon_type and per-star icon_type", async () => {
+  const container = makeMemoryContainer();
+
+  const companyId = "company_rating_icon_contract";
+
+  const rating = {
+    star1: { value: 1, notes: [], icon_type: "heart" },
+    star2: { value: 1, notes: [], icon_type: "star" },
+    star3: { value: 1, notes: [] },
+    star4: { value: 0, notes: [] },
+    star5: { value: 0, notes: [] },
+  };
+
+  const createRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "POST",
+      url: "https://example.test/api/xadmin-api-companies",
+      json: async () => ({
+        id: companyId,
+        company_id: companyId,
+        company_name: "Icon Contract Co",
+        name: "Icon Contract Co",
+        website_url: "https://example.com",
+        rating_icon_type: "heart",
+        rating,
+      }),
+    }),
+    { log() {} },
+    { container }
+  );
+
+  assert.equal(createRes.status, 200);
+  const createBody = parseJson(createRes);
+  assert.equal(createBody.ok, true);
+  assert.equal(createBody.company?.rating_icon_type, "heart");
+  assert.equal(createBody.company?.rating?.star1?.icon_type, "heart");
+
+  const getRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "GET",
+      url: `https://example.test/api/xadmin-api-companies/${encodeURIComponent(companyId)}`,
+    }),
+    { log() {}, bindingData: { id: companyId } },
+    { container }
+  );
+
+  assert.equal(getRes.status, 200);
+  const getBody = parseJson(getRes);
+  assert.equal(getBody.ok, true);
+  assert.equal(getBody.company?.rating_icon_type, "heart");
+  assert.equal(getBody.company?.rating?.star1?.icon_type, "heart");
+
+  const updateRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "PUT",
+      url: `https://example.test/api/xadmin-api-companies/${encodeURIComponent(companyId)}`,
+      json: async () => ({
+        id: companyId,
+        company_id: companyId,
+        company_name: "Icon Contract Co",
+        name: "Icon Contract Co",
+        website_url: "https://example.com",
+        rating_icon_type: "star",
+        rating: {
+          ...rating,
+          star1: { ...rating.star1, icon_type: "star" },
+        },
+      }),
+    }),
+    { log() {}, bindingData: { id: companyId } },
+    { container }
+  );
+
+  assert.equal(updateRes.status, 200);
+  const updateBody = parseJson(updateRes);
+  assert.equal(updateBody.ok, true);
+  assert.equal(updateBody.company?.rating_icon_type, "star");
+  assert.equal(updateBody.company?.rating?.star1?.icon_type, "star");
+
+  const stored = container._dump().find((d) => d && d.id === companyId);
+  assert.ok(stored);
+  assert.equal(stored.rating_icon_type, "star");
+  assert.equal(stored.rating?.star1?.icon_type, "star");
+});
