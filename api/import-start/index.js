@@ -7386,6 +7386,43 @@ Return ONLY the JSON array, no other text.`,
                 }
               }
 
+              // Final guard: do not allow completion while any persisted company remains pending/missing.
+              try {
+                const pendingCompanyIds = [];
+
+                for (const item of persistedItems) {
+                  const companyId = String(item?.id || "").trim();
+                  if (!companyId) continue;
+
+                  const normalizedDomain = String(item?.normalized_domain || "").trim();
+
+                  const latest = await readItemWithPkCandidates(companiesContainer, companyId, {
+                    id: companyId,
+                    normalized_domain: normalizedDomain || "unknown",
+                    partition_key: normalizedDomain || "unknown",
+                  }).catch(() => null);
+
+                  const status = normalizeReviewsStageStatus(latest);
+                  if (!isTerminalReviewsStageStatus(status)) {
+                    pendingCompanyIds.push(companyId);
+                  }
+                }
+
+                if (pendingCompanyIds.length > 0) {
+                  postSaveReviewsCompleted = false;
+                  warnReviews({
+                    stage: "reviews",
+                    root_cause: "pending",
+                    retryable: true,
+                    upstream_status: null,
+                    message: `Reviews stage still pending for ${pendingCompanyIds.length} persisted compan${pendingCompanyIds.length === 1 ? "y" : "ies"}; import will not finalize as complete`,
+                    company_name: "",
+                  });
+                }
+              } catch {
+                postSaveReviewsCompleted = false;
+              }
+
               reviewStageCompleted = postSaveReviewsCompleted;
               mark(postSaveReviewsCompleted ? "xai_reviews_post_save_done" : "xai_reviews_post_save_partial");
             }
