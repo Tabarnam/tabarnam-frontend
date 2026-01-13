@@ -120,6 +120,10 @@ export function normalizeRating(rating: any): CompanyRating {
     if (star && typeof star === "object") {
       normalized[starKey].value = clampStarValue(star.value ?? 0);
       normalized[starKey].notes = Array.isArray(star.notes) ? star.notes : [];
+
+      // Preserve icon selection if provided (accept only 'star' or 'heart').
+      const icon = (star as any).icon_type;
+      normalized[starKey].icon_type = icon === "heart" ? "heart" : icon === "star" ? "star" : undefined;
     }
   }
 
