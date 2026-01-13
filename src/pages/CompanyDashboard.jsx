@@ -2869,6 +2869,7 @@ function RatingEditor({ draft, onChange }) {
   const rating = normalizeRating(draft?.rating);
   const auto = calculateInitialRating(computeAutoRatingInput(draft));
   const defaultIconType = normalizeRatingIconType(draft?.rating_icon_type, rating);
+  const reviewsStarSource = String(draft?.reviews_star_source || "").toLowerCase() === "manual" ? "manual" : "auto";
 
   const setDefaultIconType = (iconType) => {
     const next = iconType === "heart" ? "heart" : "star";
@@ -2904,11 +2905,18 @@ function RatingEditor({ draft, onChange }) {
       <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm font-semibold text-slate-900">{label}</div>
-          {autoText != null ? (
-            <div className="text-xs text-slate-600">Auto: {autoText}</div>
-          ) : (
-            <div className="text-xs text-slate-600">Manual</div>
-          )}
+          <div className="flex items-center gap-2 text-xs text-slate-600">
+            {autoText != null ? <span>Auto: {autoText}</span> : <span>Manual</span>}
+            {starKey === "star3" ? (
+              reviewsStarSource === "manual" ? (
+                <span className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-amber-700">
+                  Manual override
+                </span>
+              ) : (
+                <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-700">Auto</span>
+              )
+            ) : null}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:items-end">
@@ -2917,7 +2925,28 @@ function RatingEditor({ draft, onChange }) {
             <Input
               value={String(currentValue)}
               inputMode="decimal"
-              onChange={(e) => setStar(starKey, { value: clampStarValue(Number(e.target.value)) })}
+              onChange={(e) => {
+                const nextValue = clampStarValue(Number(e.target.value));
+                if (starKey === "star3") {
+                  const nextRating = {
+                    ...rating,
+                    star3: {
+                      ...(rating.star3 || {}),
+                      value: nextValue,
+                    },
+                  };
+
+                  onChange({
+                    ...(draft || {}),
+                    rating: nextRating,
+                    reviews_star_value: nextValue,
+                    reviews_star_source: "manual",
+                  });
+                  return;
+                }
+
+                setStar(starKey, { value: nextValue });
+              }}
             />
           </div>
 
@@ -2927,14 +2956,26 @@ function RatingEditor({ draft, onChange }) {
               <Button
                 type="button"
                 variant={star.icon_type === "heart" ? "outline" : "default"}
-                onClick={() => setStar(starKey, { icon_type: "star" })}
+                onClick={() => {
+                  if (starKey === "star3") {
+                    setStar("star3", { icon_type: "star" });
+                    return;
+                  }
+                  setStar(starKey, { icon_type: "star" });
+                }}
               >
                 Circle
               </Button>
               <Button
                 type="button"
                 variant={star.icon_type === "heart" ? "default" : "outline"}
-                onClick={() => setStar(starKey, { icon_type: "heart" })}
+                onClick={() => {
+                  if (starKey === "star3") {
+                    setStar("star3", { icon_type: "heart" });
+                    return;
+                  }
+                  setStar(starKey, { icon_type: "heart" });
+                }}
               >
                 Heart
               </Button>
@@ -2945,12 +2986,62 @@ function RatingEditor({ draft, onChange }) {
             <label className="text-xs font-medium text-slate-700">Quick set</label>
             <div className="flex gap-2 flex-wrap">
               {[0, 0.5, 1].map((v) => (
-                <Button key={v} type="button" variant="outline" onClick={() => setStar(starKey, { value: v })}>
+                <Button
+                  key={v}
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    if (starKey === "star3") {
+                      const nextRating = {
+                        ...rating,
+                        star3: {
+                          ...(rating.star3 || {}),
+                          value: v,
+                        },
+                      };
+
+                      onChange({
+                        ...(draft || {}),
+                        rating: nextRating,
+                        reviews_star_value: v,
+                        reviews_star_source: "manual",
+                      });
+                      return;
+                    }
+
+                    setStar(starKey, { value: v });
+                  }}
+                >
                   {v.toFixed(1)}
                 </Button>
               ))}
               {autoValue != null ? (
-                <Button type="button" variant="outline" onClick={() => setStar(starKey, { value: autoValue })}>
+                <Button
+                  type="button"
+                  variant={starKey === "star3" && reviewsStarSource !== "manual" ? "default" : "outline"}
+                  onClick={() => {
+                    if (starKey === "star3") {
+                      const next = clampStarValue(Number(autoValue));
+                      const nextRating = {
+                        ...rating,
+                        star3: {
+                          ...(rating.star3 || {}),
+                          value: next,
+                        },
+                      };
+
+                      onChange({
+                        ...(draft || {}),
+                        rating: nextRating,
+                        reviews_star_value: next,
+                        reviews_star_source: "auto",
+                      });
+                      return;
+                    }
+
+                    setStar(starKey, { value: autoValue });
+                  }}
+                >
                   Use auto
                 </Button>
               ) : null}
