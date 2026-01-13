@@ -599,10 +599,15 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
       const failure = classifyUpstreamFailure({ upstream_status });
 
       // Spec: if upstream is 5xx and the body isn't JSON (HTML/text/empty), report bad_response_not_json.
+      const ctLower = asString(content_type).toLowerCase();
+
       const treatAsNonJson5xx =
         upstream_status != null &&
         upstream_status >= 500 &&
-        (diag.raw_body_kind === "html" || diag.raw_body_kind === "empty" || diag.raw_body_kind === "json_invalid");
+        (!ctLower.includes("application/json") ||
+          diag.raw_body_kind === "html" ||
+          diag.raw_body_kind === "empty" ||
+          diag.raw_body_kind === "json_invalid");
 
       const root_cause = treatAsNonJson5xx ? "bad_response_not_json" : failure.stage_status;
       const retryable = treatAsNonJson5xx ? true : failure.retryable;
