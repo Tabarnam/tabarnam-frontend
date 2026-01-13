@@ -7153,8 +7153,6 @@ Return ONLY the JSON array, no other text.`,
 
                 // If we cannot safely run the upstream request, persist a classified failure state (never silent).
                 if (remaining < minWindowMs || typeof refreshReviewsHandler !== "function") {
-                  postSaveReviewsCompleted = false;
-
                   const nowIso = new Date().toISOString();
                   try {
                     const existingDoc = await readItemWithPkCandidates(companiesContainer, companyId, {
