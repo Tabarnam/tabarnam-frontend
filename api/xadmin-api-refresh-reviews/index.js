@@ -16,6 +16,7 @@ const {
   classifyUpstreamFailure,
 } = require("../_upstreamReviewsDiagnostics");
 const { buildSearchParameters } = require("../_buildSearchParameters");
+const { resolveReviewsStarState } = require("../_reviewsStarState");
 
 let axios;
 try {
@@ -1048,17 +1049,45 @@ async function handler(req, context) {
         };
         cursor.exhausted = Boolean(upstream?.exhausted) || incoming.length === 0;
 
-        const patchRes = await patchCompanyById(companiesContainer, company_id, company, {
+        const curatedCount = updatedCurated.length;
+        const publicCount = Math.max(0, Math.trunc(Number(company.public_review_count) || 0));
+        const privateCount = Math.max(0, Math.trunc(Number(company.private_review_count) || 0));
+        const derivedReviewCount = publicCount + privateCount + curatedCount;
+
+        const starState = resolveReviewsStarState({
+          ...company,
+          curated_reviews: updatedCurated,
+          review_count: derivedReviewCount,
+          public_review_count: publicCount,
+          private_review_count: privateCount,
+        });
+
+        const nextReviewsLastUpdatedAt =
+          toAdd.length > 0 ? nowIso() : asString(company.reviews_last_updated_at).trim() || null;
+
+        const patchPayload = {
           curated_reviews: updatedCurated,
           review_cursor: cursor,
           reviews_fetch_lock_until: 0,
+
+          // Canonical count should never remain 0 when curated reviews exist.
+          review_count: derivedReviewCount,
+
+          ...(nextReviewsLastUpdatedAt ? { reviews_last_updated_at: nextReviewsLastUpdatedAt } : {}),
+
+          // Persist deterministic review-star state.
+          reviews_star_value: starState.next_value,
+          reviews_star_source: starState.next_source,
+          rating: starState.next_rating,
 
           // Surface last stage status at top-level (used by import + admin UI).
           reviews_stage_status: stageStatus,
           reviews_upstream_status: attemptUpstreamStatus,
           reviews_attempts_count: i + 1,
           reviews_retry_exhausted: false,
-        });
+        };
+
+        const patchRes = await patchCompanyById(companiesContainer, company_id, company, patchPayload);
 
         if (!patchRes.ok) {
           const err = new Error(asString(patchRes.error) || "Cosmos patch failed");
@@ -1072,6 +1101,11 @@ async function handler(req, context) {
           curated_reviews: updatedCurated,
           review_cursor: cursor,
           reviews_fetch_lock_until: 0,
+          review_count: derivedReviewCount,
+          reviews_last_updated_at: nextReviewsLastUpdatedAt || company.reviews_last_updated_at,
+          reviews_star_value: starState.next_value,
+          reviews_star_source: starState.next_source,
+          rating: starState.next_rating,
         };
 
         return respond({
