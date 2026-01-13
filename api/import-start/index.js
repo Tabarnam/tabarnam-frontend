@@ -2952,6 +2952,29 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               review_count: reviewCountNormalized,
               reviews_last_updated_at: reviewsLastUpdatedAt,
               review_cursor: reviewCursorNormalized,
+              reviews_stage_status: (() => {
+                const explicit = typeof company.reviews_stage_status === "string" ? company.reviews_stage_status.trim() : "";
+                if (explicit) return explicit;
+
+                const cursorStatus =
+                  reviewCursorNormalized && typeof reviewCursorNormalized.reviews_stage_status === "string"
+                    ? reviewCursorNormalized.reviews_stage_status.trim()
+                    : "";
+                if (cursorStatus) return cursorStatus;
+
+                if (reviewCursorNormalized && reviewCursorNormalized.last_error) return "upstream_unreachable";
+                if (reviewCursorNormalized && reviewCursorNormalized.exhausted) {
+                  return reviewCountNormalized > 0 ? "ok" : "no_valid_reviews_found";
+                }
+
+                return "pending";
+              })(),
+              reviews_upstream_status:
+                typeof company.reviews_upstream_status === "number"
+                  ? company.reviews_upstream_status
+                  : reviewCursorNormalized && typeof reviewCursorNormalized.upstream_status === "number"
+                    ? reviewCursorNormalized.upstream_status
+                    : null,
               red_flag: Boolean(company.red_flag),
               red_flag_reason: company.red_flag_reason || "",
               location_confidence: company.location_confidence || "medium",
@@ -7130,6 +7153,26 @@ Return ONLY the JSON array, no other text.`,
               mark("xai_reviews_post_save_start");
               setStage("refreshReviewsPostSave");
 
+              const normalizeReviewsStageStatus = (doc) => {
+                const d = doc && typeof doc === "object" ? doc : null;
+                if (!d) return "";
+
+                const top = typeof d.reviews_stage_status === "string" ? d.reviews_stage_status.trim() : "";
+                if (top) return top;
+
+                const cursorStatus =
+                  d.review_cursor && typeof d.review_cursor === "object" && typeof d.review_cursor.reviews_stage_status === "string"
+                    ? d.review_cursor.reviews_stage_status.trim()
+                    : "";
+
+                return cursorStatus;
+              };
+
+              const isTerminalReviewsStageStatus = (status) => {
+                const s = typeof status === "string" ? status.trim() : "";
+                return Boolean(s && s !== "pending");
+              };
+
               let postSaveReviewsCompleted = true;
 
               let refreshReviewsHandler = null;
@@ -7185,7 +7228,11 @@ Return ONLY the JSON array, no other text.`,
                         reviews_retry_exhausted: false,
                         updated_at: nowIso,
                       };
-                      await upsertItemWithPkCandidates(companiesContainer, patched).catch(() => null);
+
+                      const upserted = await upsertItemWithPkCandidates(companiesContainer, patched).catch(() => null);
+                      if (!upserted || upserted.ok !== true) {
+                        postSaveReviewsCompleted = false;
+                      }
 
                       if (companyIndex != null && enriched[companyIndex]) {
                         enriched[companyIndex] = {
@@ -7197,6 +7244,8 @@ Return ONLY the JSON array, no other text.`,
                           reviews_upstream_status: patched.reviews_upstream_status,
                         };
                       }
+                    } else {
+                      postSaveReviewsCompleted = false;
                     }
                   } catch {}
 
@@ -7247,12 +7296,74 @@ Return ONLY the JSON array, no other text.`,
                 }
 
                 // Best-effort: load the updated company doc so the import response is consistent with persistence.
+                // Critical requirement: do not let the import finalize while reviews_stage_status is missing or still "pending".
                 try {
-                  const latest = await readItemWithPkCandidates(companiesContainer, companyId, {
+                  let latest = await readItemWithPkCandidates(companiesContainer, companyId, {
                     id: companyId,
                     normalized_domain: normalizedDomain || "unknown",
                     partition_key: normalizedDomain || "unknown",
                   }).catch(() => null);
+
+                  if (!latest) {
+                    postSaveReviewsCompleted = false;
+                  } else {
+                    const latestStatus = normalizeReviewsStageStatus(latest);
+
+                    if (!isTerminalReviewsStageStatus(latestStatus)) {
+                      const nowTerminalIso = new Date().toISOString();
+
+                      try {
+                        const prevCursor =
+                          latest.review_cursor && typeof latest.review_cursor === "object" ? latest.review_cursor : null;
+
+                        const count =
+                          typeof latest.review_count === "number" && Number.isFinite(latest.review_count)
+                            ? latest.review_count
+                            : Array.isArray(latest.curated_reviews)
+                              ? latest.curated_reviews.length
+                              : 0;
+
+                        const cursor = buildReviewCursor({
+                          nowIso: nowTerminalIso,
+                          count,
+                          exhausted: false,
+                          last_error: {
+                            code: "REVIEWS_POST_SAVE_DID_NOT_FINALIZE",
+                            message: "Reviews stage did not reach a terminal state during import; marking as terminal for diagnostics",
+                            retryable: true,
+                          },
+                          prev_cursor: prevCursor,
+                        });
+                        cursor.reviews_stage_status = "unhandled_exception";
+
+                        const patched = {
+                          ...latest,
+                          review_cursor: cursor,
+                          reviews_stage_status: "unhandled_exception",
+                          reviews_upstream_status: null,
+                          updated_at: nowTerminalIso,
+                        };
+
+                        const upserted = await upsertItemWithPkCandidates(companiesContainer, patched).catch(() => null);
+                        if (upserted && upserted.ok === true) {
+                          latest = patched;
+                        } else {
+                          postSaveReviewsCompleted = false;
+                        }
+
+                        warnReviews({
+                          stage: "reviews",
+                          root_cause: "unhandled_exception",
+                          retryable: true,
+                          upstream_status: null,
+                          message: "Reviews stage did not finalize during import; marking terminal state",
+                          company_name: companyName,
+                        });
+                      } catch {
+                        postSaveReviewsCompleted = false;
+                      }
+                    }
+                  }
 
                   if (latest && companyIndex != null && enriched[companyIndex]) {
                     enriched[companyIndex] = {
@@ -7270,7 +7381,46 @@ Return ONLY the JSON array, no other text.`,
                       reviews_upstream_status: latest.reviews_upstream_status ?? (enriched[companyIndex] || {}).reviews_upstream_status,
                     };
                   }
-                } catch {}
+                } catch {
+                  postSaveReviewsCompleted = false;
+                }
+              }
+
+              // Final guard: do not allow completion while any persisted company remains pending/missing.
+              try {
+                const pendingCompanyIds = [];
+
+                for (const item of persistedItems) {
+                  const companyId = String(item?.id || "").trim();
+                  if (!companyId) continue;
+
+                  const normalizedDomain = String(item?.normalized_domain || "").trim();
+
+                  const latest = await readItemWithPkCandidates(companiesContainer, companyId, {
+                    id: companyId,
+                    normalized_domain: normalizedDomain || "unknown",
+                    partition_key: normalizedDomain || "unknown",
+                  }).catch(() => null);
+
+                  const status = normalizeReviewsStageStatus(latest);
+                  if (!isTerminalReviewsStageStatus(status)) {
+                    pendingCompanyIds.push(companyId);
+                  }
+                }
+
+                if (pendingCompanyIds.length > 0) {
+                  postSaveReviewsCompleted = false;
+                  warnReviews({
+                    stage: "reviews",
+                    root_cause: "pending",
+                    retryable: true,
+                    upstream_status: null,
+                    message: `Reviews stage still pending for ${pendingCompanyIds.length} persisted compan${pendingCompanyIds.length === 1 ? "y" : "ies"}; import will not finalize as complete`,
+                    company_name: "",
+                  });
+                }
+              } catch {
+                postSaveReviewsCompleted = false;
               }
 
               reviewStageCompleted = postSaveReviewsCompleted;
@@ -7641,12 +7791,21 @@ Return ONLY the JSON array, no other text.`,
             const hasCuratedReviewsField = Array.isArray(c.curated_reviews);
             const hasReviewCursorField = Boolean(c.review_cursor && typeof c.review_cursor === "object");
 
+            const stageStatus =
+              typeof c.reviews_stage_status === "string" && c.reviews_stage_status.trim()
+                ? c.reviews_stage_status.trim()
+                : typeof c?.review_cursor?.reviews_stage_status === "string"
+                  ? String(c.review_cursor.reviews_stage_status).trim()
+                  : "";
+
+            const reviewsStageTerminal = shouldRunStage("reviews") ? Boolean(stageStatus && stageStatus !== "pending") : true;
+
             const missing = [];
             if (!hasIndustries) missing.push("industries");
             if (!hasKeywords) missing.push("product_keywords");
             if (!hasHq) missing.push("headquarters_location");
             if (!hasMfg) missing.push("manufacturing_locations");
-            if (!hasReviewCount || !hasCuratedReviewsField || !hasReviewCursorField) missing.push("reviews");
+            if (!hasReviewCount || !hasCuratedReviewsField || !hasReviewCursorField || !reviewsStageTerminal) missing.push("reviews");
 
             return missing;
           };

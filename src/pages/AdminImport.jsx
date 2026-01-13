@@ -2052,9 +2052,13 @@ export default function AdminImport() {
     const savedCompanies = Array.isArray(activeRun.saved_companies) ? activeRun.saved_companies : [];
     const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(activeRun.saved ?? 0) || 0;
 
+    // Saved count is authoritative, but some older runs only signaled persistence via stage beacon.
+    // Treat cosmos_write_done as a persisted signal so the UI never claims "No company persisted" when a company was written.
+    const persistedDetected = savedCount > 0 || stageBeacon === "cosmos_write_done";
+
     let stepText = stageBeacon ? toEnglishImportStage(stageBeacon) : "";
 
-    if (inferredTerminal && savedCount === 0) {
+    if (inferredTerminal && !persistedDetected) {
       if (stageBeacon === "primary_early_exit") {
         stepText = "Single match found, but no save was performed";
       }
@@ -2073,7 +2077,7 @@ export default function AdminImport() {
 
     let reasonText = terminalKind === "error" ? toEnglishImportStopReason(lastErrorCode) : "";
 
-    if (terminalKind === "complete" && savedCount === 0) {
+    if (terminalKind === "complete" && !persistedDetected) {
       const report = activeRun.report && typeof activeRun.report === "object" ? activeRun.report : null;
       const session = report?.session && typeof report.session === "object" ? report.session : null;
       const request = session?.request && typeof session.request === "object" ? session.request : null;
@@ -2838,6 +2842,9 @@ export default function AdminImport() {
 
                     const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(r.saved ?? 0) || 0;
 
+                    const stageBeaconForStatus = asString(r.final_stage_beacon || r.stage_beacon || r.last_stage_beacon).trim();
+                    const persistedDetected = savedCount > 0 || stageBeaconForStatus === "cosmos_write_done";
+
                     const enrichmentMissingFields = (() => {
                       const missing = new Set();
                       for (const c of savedCompanies) {
@@ -2854,8 +2861,24 @@ export default function AdminImport() {
                       return Array.from(missing);
                     })();
 
+                    const report = r.report && typeof r.report === "object" ? r.report : null;
+                    const session = report?.session && typeof report.session === "object" ? report.session : null;
+                    const request = session?.request && typeof session.request === "object" ? session.request : null;
+                    const skipStages = Array.isArray(request?.skip_stages)
+                      ? request.skip_stages.map((s) => asString(s).trim()).filter(Boolean)
+                      : [];
+                    const dryRunEnabled = Boolean(request?.dry_run);
+
+                    // "No company persisted" should only appear when saved===0 AND we have an explicit skip/early-exit signal.
+                    const explicitNoPersist =
+                      !persistedDetected &&
+                      (stageBeaconForStatus === "primary_early_exit" ||
+                        isPrimarySkippedCompanyUrl(stageBeaconForStatus) ||
+                        dryRunEnabled ||
+                        skipStages.includes("primary"));
+
                     const primaryCandidate =
-                      savedCount > 0
+                      savedCompanies.length > 0
                         ? primarySaved
                         : Array.isArray(r.items) && r.items.length > 0
                           ? r.items[0]
@@ -2863,13 +2886,14 @@ export default function AdminImport() {
 
                     const companyName = primaryCandidate
                       ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
-                      : "No company persisted";
+                      : explicitNoPersist
+                        ? "No company persisted"
+                        : "Company candidate";
 
                     const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
                     const isRefreshing = statusRefreshSessionId === r.session_id;
 
                     const jobState = asString(r.final_job_state || r.job_state).trim().toLowerCase();
-                    const stageBeaconForStatus = asString(r.final_stage_beacon || r.stage_beacon || r.last_stage_beacon).trim();
 
                     const isTerminal = Boolean(
                       r.completed || r.timedOut || r.stopped || jobState === "complete" || jobState === "error"
@@ -3013,8 +3037,27 @@ export default function AdminImport() {
                       const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
                       const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(activeRun.saved ?? 0) || 0;
+
+                      const stageBeacon = asString(activeRun.final_stage_beacon || activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
+                      const persistedDetected = savedCount > 0 || stageBeacon === "cosmos_write_done";
+
+                      const report = activeRun.report && typeof activeRun.report === "object" ? activeRun.report : null;
+                      const session = report?.session && typeof report.session === "object" ? report.session : null;
+                      const request = session?.request && typeof session.request === "object" ? session.request : null;
+                      const skipStages = Array.isArray(request?.skip_stages)
+                        ? request.skip_stages.map((s) => asString(s).trim()).filter(Boolean)
+                        : [];
+                      const dryRunEnabled = Boolean(request?.dry_run);
+
+                      const explicitNoPersist =
+                        !persistedDetected &&
+                        (stageBeacon === "primary_early_exit" ||
+                          isPrimarySkippedCompanyUrl(stageBeacon) ||
+                          dryRunEnabled ||
+                          skipStages.includes("primary"));
+
                       const primaryCandidate =
-                        savedCount > 0
+                        savedCompanies.length > 0
                           ? primarySaved
                           : Array.isArray(activeRun.items) && activeRun.items.length > 0
                             ? activeRun.items[0]
@@ -3023,7 +3066,9 @@ export default function AdminImport() {
                       const companyId = asString(primarySaved?.company_id).trim();
                       const companyName = primaryCandidate
                         ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
-                        : "No company persisted";
+                        : explicitNoPersist
+                          ? "No company persisted"
+                          : "Company candidate";
                       const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
 
                       const enrichmentMissingFields = (() => {
