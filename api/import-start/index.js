@@ -38,6 +38,7 @@ const {
 const { fillCompanyBaselineFromWebsite } = require("../_websiteBaseline");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { mergeCompanyDocsForSession: mergeCompanyDocsForSessionExternal } = require("../_companyDocMerge");
+const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { getBuildInfo } = require("../_buildInfo");
 const { getImportStartHandlerVersion } = require("../_handlerVersions");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
@@ -2887,6 +2888,15 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               star5: { value: 0.0, notes: [] },
             };
 
+            const reviewsStarState = resolveReviewsStarState({
+              ...company,
+              curated_reviews: curatedReviewsNormalized,
+              review_count: reviewCountNormalized,
+              public_review_count: Math.max(0, Math.trunc(Number(company.public_review_count) || 0)),
+              private_review_count: Math.max(0, Math.trunc(Number(company.private_review_count) || 0)),
+              rating: defaultRatingWithReviews,
+            });
+
             const nowIso = new Date().toISOString();
 
             const productKeywordsString = keywordListToString(keywordsNormalized);
@@ -2981,7 +2991,9 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               social: company.social || {},
               amazon_url: company.amazon_url || "",
               rating_icon_type: "star",
-              rating: defaultRatingWithReviews,
+              reviews_star_value: reviewsStarState.next_value,
+              reviews_star_source: reviewsStarState.next_source,
+              rating: reviewsStarState.next_rating,
               source: "xai_import",
               session_id: sid,
               import_session_id: sid,
