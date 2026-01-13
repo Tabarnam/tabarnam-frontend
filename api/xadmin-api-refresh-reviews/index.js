@@ -640,7 +640,7 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms, mo
       err.retryable = retryable;
       err.xai_request_id = xai_request_id;
       err.upstream_url = upstream_url_redacted;
-      err.auth_header_present = Boolean(xai_key);
+      err.auth_header_present = Boolean(cfg.xai_key);
       err.content_type = content_type;
       err.raw_body_kind = diag.raw_body_kind;
       err.raw_body_preview = diag.raw_body_preview;
@@ -681,7 +681,7 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms, mo
       err.retryable = retryable;
       err.xai_request_id = xai_request_id;
       err.upstream_url = upstream_url_redacted;
-      err.auth_header_present = Boolean(xai_key);
+      err.auth_header_present = Boolean(cfg.xai_key);
       err.content_type = content_type;
       err.raw_body_kind = diag.raw_body_kind;
       err.raw_body_preview = diag.raw_body_preview;
@@ -1362,10 +1362,10 @@ async function handler(req, context, opts) {
     }
 
     const { xai_base_url, xai_key } = extractXaiConfig({
-          model: options.model,
-          xai_base_url: options.xai_base_url || options.xaiUrl,
-          xai_key: options.xai_key || options.xaiKey,
-        });
+      model: options.model,
+      xai_base_url: options.xai_base_url || options.xaiUrl,
+      xai_key: options.xai_key || options.xaiKey,
+    });
 
     const upstream_status_raw = lastErr?.status || lastErr?.response?.status || 0;
     const upstream_status = normalizeHttpStatus(upstream_status_raw);
