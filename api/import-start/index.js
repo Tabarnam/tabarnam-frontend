@@ -2708,6 +2708,7 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
     const skipped_ids = [];
     const skipped_duplicates = [];
     const failed_items = [];
+    const persisted_items = [];
 
     // Process companies in batches for better concurrency
     const BATCH_SIZE = 4;
@@ -3069,7 +3070,16 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
 
         if (result.type === "saved" || result.type === "updated") {
           saved++;
-          if (result.id) saved_ids.push(result.id);
+          if (result.id) {
+            saved_ids.push(result.id);
+            persisted_items.push({
+              type: result.type,
+              index: Number.isFinite(Number(result.index)) ? Number(result.index) : null,
+              id: String(result.id),
+              company_name: String(result.company_name || ""),
+              normalized_domain: String(result.normalized_domain || ""),
+            });
+          }
           continue;
         }
 
@@ -3085,7 +3095,7 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
       }
     }
 
-    return { saved, failed, skipped, saved_ids, skipped_ids, skipped_duplicates, failed_items };
+    return { saved, failed, skipped, saved_ids, skipped_ids, skipped_duplicates, failed_items, persisted_items };
   } catch (e) {
     console.error("[import-start] Error in saveCompaniesToCosmos:", e.message);
     return {
