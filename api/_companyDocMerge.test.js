@@ -124,3 +124,54 @@ test("mergeCompanyDocsForSession prefers incoming manufacturing_locations when p
   assert.equal(merged.mfg_unknown, false);
   assert.equal(merged.mfg_unknown_reason, "");
 });
+
+test("mergeCompanyDocsForSession preserves manual review star and admin stars when incoming provides default rating", () => {
+  const existingDoc = {
+    id: "company_4",
+    normalized_domain: "stars.com",
+    company_name: "Stars Inc",
+    reviews_star_source: "manual",
+    reviews_star_value: 0.5,
+    rating: {
+      star1: { value: 0.0, notes: [] },
+      star2: { value: 0.0, notes: [] },
+      star3: { value: 0.5, notes: [] },
+      star4: { value: 1.0, notes: [{ id: "n1", source: "admin" }] },
+      star5: { value: 1.0, notes: [] },
+    },
+    created_at: "2025-01-01T00:00:00.000Z",
+    updated_at: "2025-01-01T00:00:00.000Z",
+  };
+
+  const incomingDoc = {
+    id: "company_4",
+    normalized_domain: "stars.com",
+    company_name: "Stars Inc",
+    reviews_star_source: "auto",
+    reviews_star_value: 1,
+    rating: {
+      star1: { value: 1.0, notes: [] },
+      star2: { value: 1.0, notes: [] },
+      star3: { value: 1.0, notes: [] },
+      star4: { value: 0.0, notes: [] },
+      star5: { value: 0.0, notes: [] },
+    },
+    updated_at: "2026-01-01T00:00:00.000Z",
+  };
+
+  const merged = mergeCompanyDocsForSession({
+    existingDoc,
+    incomingDoc,
+    finalNormalizedDomain: "stars.com",
+  });
+
+  assert.equal(merged.reviews_star_source, "manual");
+  assert.equal(merged.reviews_star_value, 0.5);
+
+  // incoming star1/star2 can update, but star3/star4/star5 must preserve existing manual adjustments.
+  assert.equal(merged.rating.star1.value, 1.0);
+  assert.equal(merged.rating.star2.value, 1.0);
+  assert.equal(merged.rating.star3.value, 0.5);
+  assert.equal(merged.rating.star4.value, 1.0);
+  assert.equal(merged.rating.star5.value, 1.0);
+});

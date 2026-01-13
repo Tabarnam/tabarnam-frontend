@@ -2771,11 +2771,9 @@ export default function AdminImport() {
 
                         {(() => {
                           const companyId = asString(c?.id || c?.company_id).trim();
-                          const reviewCount = Number.isFinite(Number(c?.review_count))
-                            ? Number(c.review_count)
-                            : Array.isArray(c?.curated_reviews)
-                              ? c.curated_reviews.length
-                              : 0;
+                          const canonicalCount = Number.isFinite(Number(c?.review_count)) ? Number(c.review_count) : 0;
+                          const curatedCount = Array.isArray(c?.curated_reviews) ? c.curated_reviews.length : 0;
+                          const reviewCount = Math.max(0, canonicalCount, curatedCount);
 
                           const stageStatus = asString(
                             c?.reviews_stage_status || c?.review_cursor?.reviews_stage_status || ""

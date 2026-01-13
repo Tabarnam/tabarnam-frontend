@@ -9,6 +9,7 @@ const { getBuildInfo } = require("../_buildInfo");
 const { computeTopLevelDiff, writeCompanyEditHistoryEntry, getCompanyEditHistoryContainer } = require("../_companyEditHistory");
 const { geocodeLocationArray, pickPrimaryLatLng, extractLatLng } = require("../_geocode");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
+const { resolveReviewsStarState } = require("../_reviewsStarState");
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "admin-companies-v2";
@@ -745,6 +746,21 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           updated_at: now,
           created_at: (existingDoc && existingDoc.created_at) || base.created_at || now,
         };
+
+        // Keep review_count consistent with curated reviews + public/private counts.
+        const incomingHasCuratedReviews = isPlainObject(incoming) && Object.prototype.hasOwnProperty.call(incoming, "curated_reviews");
+        const curatedCount = Array.isArray(doc.curated_reviews)
+          ? doc.curated_reviews.filter((r) => r && typeof r === "object").length
+          : 0;
+        const derivedReviewCount = Math.max(0, (doc.public_review_count || 0) + (doc.private_review_count || 0) + curatedCount);
+
+        doc.review_count = incomingHasCuratedReviews ? derivedReviewCount : Math.max(doc.review_count, derivedReviewCount);
+
+        // Deterministic review-star state (manual override takes precedence).
+        const reviewsStarState = resolveReviewsStarState(doc);
+        doc.reviews_star_value = reviewsStarState.next_value;
+        doc.reviews_star_source = reviewsStarState.next_source;
+        doc.rating = reviewsStarState.next_rating;
 
         // Ensure HQ/manufacturing have coordinates so the public Results page can compute distances.
         // This is especially important for locations manually entered in the admin editor.

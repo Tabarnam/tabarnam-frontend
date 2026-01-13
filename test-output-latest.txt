@@ -1,0 +1,140 @@
+TAP version 13
+# Subtest: mergeCompanyDocsForSession preserves existing HQ when incoming HQ is empty
+ok 1 - mergeCompanyDocsForSession preserves existing HQ when incoming HQ is empty
+  ---
+  duration_ms: 2.384361
+  ...
+# Subtest: mergeCompanyDocsForSession preserves existing curated_reviews when incoming reviews are empty
+ok 2 - mergeCompanyDocsForSession preserves existing curated_reviews when incoming reviews are empty
+  ---
+  duration_ms: 0.400181
+  ...
+# Subtest: mergeCompanyDocsForSession prefers incoming manufacturing_locations when provided
+ok 3 - mergeCompanyDocsForSession prefers incoming manufacturing_locations when provided
+  ---
+  duration_ms: 0.97071
+  ...
+# Subtest: mergeCompanyDocsForSession preserves manual review star and admin stars when incoming provides default rating
+ok 4 - mergeCompanyDocsForSession preserves manual review star and admin stars when incoming provides default rating
+  ---
+  duration_ms: 0.34311
+  ...
+# WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
+# WARNING: Skipping call to register function "adminApplyReviewsFromNotes" because the "@azure/functions" package is in test mode.
+# Subtest: /api/admin/companies/{id}/apply-reviews-from-notes parses JSON array of strings
+ok 5 - /api/admin/companies/{id}/apply-reviews-from-notes parses JSON array of strings
+  ---
+  duration_ms: 24.107887
+  ...
+# Subtest: /api/admin/companies/{id}/apply-reviews-from-notes parses YAML-ish blocks with multiline text
+ok 6 - /api/admin/companies/{id}/apply-reviews-from-notes parses YAML-ish blocks with multiline text
+  ---
+  duration_ms: 1.150931
+  ...
+# Subtest: /api/admin/companies/{id}/apply-reviews-from-notes parses delimited blocks
+ok 7 - /api/admin/companies/{id}/apply-reviews-from-notes parses delimited blocks
+  ---
+  duration_ms: 1.05413
+  ...
+# Subtest: append mode dedupes against existing curated_reviews
+ok 8 - append mode dedupes against existing curated_reviews
+  ---
+  duration_ms: 2.284131
+  ...
+# Subtest: replace mode overwrites curated_reviews
+ok 9 - replace mode overwrites curated_reviews
+  ---
+  duration_ms: 0.715351
+  ...
+# WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
+# WARNING: Skipping call to register function "adminCompanies" because the "@azure/functions" package is in test mode.
+# [admin-companies-v2-handler] Request received: {
+#   method: 'POST',
+#   url: 'https://example.test/api/xadmin-api-companies'
+# }
+# [admin-companies-v2-handler] Request received: {
+#   method: 'DELETE',
+#   url: 'https://example.test/api/xadmin-api-companies/company_contract_delete_marker'
+# }
+# [admin-companies-v2-handler] Request received: {
+#   method: 'GET',
+#   url: 'https://example.test/api/xadmin-api-companies/company_contract_delete_marker'
+# }
+# [admin-companies-v2-handler] Request received: {
+#   method: 'GET',
+#   url: 'https://example.test/api/xadmin-api-companies?q=contract_delete_marker'
+# }
+# [admin-companies-v2-handler] Request received: {
+#   method: 'POST',
+#   url: 'https://example.test/api/xadmin-api-companies'
+# }
+# Subtest: xadmin-api-companies: GET is 404 and search excludes after DELETE
+ok 10 - xadmin-api-companies: GET is 404 and search excludes after DELETE
+  ---
+  duration_ms: 981.117848
+  ...
+# [admin-companies-v2-handler] Request received: {
+#   method: 'PUT',
+#   url: 'https://example.test/api/xadmin-api-companies/company_display_name_contract'
+# }
+# [admin-companies-v2-handler] Request received: {
+#   method: 'PUT',
+#   url: 'https://example.test/api/xadmin-api-companies/company_display_name_contract'
+# }
+# [admin-companies-v2-handler] Request received: {
+#   method: 'POST',
+#   url: 'https://example.test/api/xadmin-api-companies'
+# }
+# Subtest: xadmin-api-companies: PUT infers and persists display_name from name override
+ok 11 - xadmin-api-companies: PUT infers and persists display_name from name override
+  ---
+  duration_ms: 228.204488
+  ...
+# [admin-companies-v2-handler] Request received: {
+#   method: 'PUT',
+#   url: 'https://example.test/api/xadmin-api-companies/company_curated_reviews_contract'
+# }
+# [admin-companies-v2-handler] Request received: {
+#   method: 'POST',
+#   url: 'https://example.test/api/xadmin-api-companies'
+# }
+# Subtest: xadmin-api-companies: persists curated_reviews array
+ok 12 - xadmin-api-companies: persists curated_reviews array
+  ---
+  duration_ms: 153.131606
+  ...
+# [admin-companies-v2-handler] Request received: {
+#   method: 'PUT',
+#   url: 'https://example.test/api/xadmin-api-companies/company_reviews_star_manual_contract'
+# }
+# [admin-companies-v2-handler] Request received: {
+#   method: 'POST',
+#   url: 'https://example.test/api/xadmin-api-companies'
+# }
+# Subtest: xadmin-api-companies: manual review star override blocks auto updates
+ok 13 - xadmin-api-companies: manual review star override blocks auto updates
+  ---
+  duration_ms: 153.623366
+  ...
+# [admin-companies-v2-handler] Request received: {
+#   method: 'GET',
+#   url: 'https://example.test/api/xadmin-api-companies/company_rating_icon_contract'
+# }
+# [admin-companies-v2-handler] Request received: {
+#   method: 'PUT',
+#   url: 'https://example.test/api/xadmin-api-companies/company_rating_icon_contract'
+# }
+# Subtest: xadmin-api-companies: persists rating_icon_type and per-star icon_type
+ok 14 - xadmin-api-companies: persists rating_icon_type and per-star icon_type
+  ---
+  duration_ms: 157.271188
+  ...
+1..14
+# tests 14
+# suites 0
+# pass 14
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2443.89397

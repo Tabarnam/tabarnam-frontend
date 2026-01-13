@@ -134,6 +134,20 @@ export interface Company {
   show_location_sources_to_users?: boolean;
   visibility?: CompanyVisibility;
 
+  // Reviews
+  curated_reviews?: any[];
+  reviews?: any[];
+  review_count?: number;
+  reviews_count?: number;
+  public_review_count?: number;
+  private_review_count?: number;
+  review_count_approved?: number;
+  editorial_review_count?: number;
+  amazon_review_count?: number;
+
+  reviews_star_value?: number | null;
+  reviews_star_source?: "auto" | "manual" | null;
+
   // Legacy fields (for backward compatibility)
   star_rating?: number;
   star_overrides?: any;

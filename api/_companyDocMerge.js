@@ -60,6 +60,8 @@ function preferObjectByRecency(incoming, existing) {
   return incTs >= exTs ? inc : ex;
 }
 
+const { normalizeReviewsStarSource } = require("./_reviewsStarState");
+
 function mergeCompanyDocsForSession({ existingDoc, incomingDoc, finalNormalizedDomain }) {
   const merged = {
     ...existingDoc,
@@ -152,13 +154,56 @@ function mergeCompanyDocsForSession({ existingDoc, incomingDoc, finalNormalizedD
         : {};
   merged.amazon_url = preferString(incomingDoc.amazon_url, existingDoc.amazon_url);
 
+  const incomingReviewsStarSource = normalizeReviewsStarSource(incomingDoc.reviews_star_source);
+  const existingReviewsStarSource = normalizeReviewsStarSource(existingDoc.reviews_star_source);
+
+  merged.reviews_star_source =
+    existingReviewsStarSource === "manual" ? "manual" : incomingReviewsStarSource || existingReviewsStarSource || null;
+
+  merged.reviews_star_value = (() => {
+    const pick = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const incomingVal = pick(incomingDoc.reviews_star_value);
+    const existingVal = pick(existingDoc.reviews_star_value);
+
+    if (merged.reviews_star_source === "manual") {
+      if (existingVal != null) return existingVal;
+      const existingStar3 =
+        existingDoc?.rating?.star3 && typeof existingDoc.rating.star3 === "object" ? pick(existingDoc.rating.star3.value) : null;
+      return existingStar3 != null ? existingStar3 : 0;
+    }
+
+    if (incomingVal != null) return incomingVal;
+    if (existingVal != null) return existingVal;
+    return null;
+  })();
+
   merged.rating_icon_type = preferString(incomingDoc.rating_icon_type, existingDoc.rating_icon_type) || "star";
-  merged.rating =
-    incomingDoc.rating && typeof incomingDoc.rating === "object"
-      ? incomingDoc.rating
-      : existingDoc.rating && typeof existingDoc.rating === "object"
-        ? existingDoc.rating
-        : incomingDoc.rating;
+
+  const existingRating = existingDoc.rating && typeof existingDoc.rating === "object" ? existingDoc.rating : null;
+  const incomingRating = incomingDoc.rating && typeof incomingDoc.rating === "object" ? incomingDoc.rating : null;
+
+  if (existingRating && incomingRating) {
+    const next = { ...existingRating, ...incomingRating };
+
+    // Preserve manual admin stars from existing doc (imports should never wipe admin adjustments).
+    if (existingRating.star4 && typeof existingRating.star4 === "object") next.star4 = existingRating.star4;
+    if (existingRating.star5 && typeof existingRating.star5 === "object") next.star5 = existingRating.star5;
+
+    // Preserve manual override of review star3.
+    if (existingReviewsStarSource === "manual" && existingRating.star3 && typeof existingRating.star3 === "object") {
+      next.star3 = existingRating.star3;
+    }
+
+    merged.rating = next;
+  } else if (existingRating) {
+    merged.rating = existingRating;
+  } else {
+    merged.rating = incomingRating;
+  }
 
   // Always preserve original created_at for the company doc.
   merged.created_at =

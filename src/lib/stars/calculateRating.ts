@@ -85,11 +85,14 @@ export function getOrCalculateRating(company: Company): CompanyRating {
     Number((company as any).private_review_count ?? 0) ||
     0;
 
+  const curatedCount = Array.isArray((company as any).curated_reviews) ? (company as any).curated_reviews.length : 0;
+
   const input: StarCalculationInput = {
     hasManufacturingLocations,
     hasHeadquarters,
     hasReviews:
       reviewCount >= 1 ||
+      curatedCount >= 1 ||
       (Array.isArray((company as any).reviews) && (company as any).reviews.length > 0),
   };
 
