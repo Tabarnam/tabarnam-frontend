@@ -808,10 +808,13 @@ function computeAutoRatingInput(draft) {
     Number(draft?.private_review_count ?? 0) ||
     0;
 
+  const curatedCount = Array.isArray(draft?.curated_reviews) ? draft.curated_reviews.length : 0;
+  const embeddedCount = Array.isArray(draft?.reviews) ? draft.reviews.length : 0;
+
   return {
     hasManufacturingLocations: manuList.length > 0,
     hasHeadquarters: hqList.length > 0,
-    hasReviews: reviewCount >= 1,
+    hasReviews: reviewCount >= 1 || curatedCount >= 1 || embeddedCount >= 1,
   };
 }
 
