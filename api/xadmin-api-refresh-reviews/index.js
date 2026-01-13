@@ -990,6 +990,10 @@ async function handler(req, context) {
 
         saved_count_total += toAdd.length;
 
+        // Make 0-review outcomes explainable (never silent).
+        // If the company still has 0 imported reviews after this call, treat it as "no_valid_reviews_found".
+        const stageStatus = updatedCurated.length === 0 ? "no_valid_reviews_found" : "ok";
+
         const nextOffset =
           typeof upstream?.next_offset === "number" && Number.isFinite(upstream.next_offset)
             ? upstream.next_offset
@@ -1008,7 +1012,7 @@ async function handler(req, context) {
 
         cursor.last_attempt_at = nowIso();
         cursor.last_error = null;
-        cursor.reviews_stage_status = "ok";
+        cursor.reviews_stage_status = stageStatus;
         cursor.upstream_status = attemptUpstreamStatus;
         cursor.content_type = null;
         cursor.raw_body_kind = null;
@@ -1019,7 +1023,7 @@ async function handler(req, context) {
         const upstreamMeta = upstream?._meta && typeof upstream._meta === "object" ? upstream._meta : {};
 
         cursor.reviews_telemetry = {
-          stage_status: "ok",
+          stage_status: stageStatus,
           upstream_status: normalizeHttpStatus(upstreamMeta?.upstream_status),
           attempts_count: i + 1,
           recovered_on_attempt: i + 1 > 1,
@@ -1046,6 +1050,12 @@ async function handler(req, context) {
           curated_reviews: updatedCurated,
           review_cursor: cursor,
           reviews_fetch_lock_until: 0,
+
+          // Surface last stage status at top-level (used by import + admin UI).
+          reviews_stage_status: stageStatus,
+          reviews_upstream_status: attemptUpstreamStatus,
+          reviews_attempts_count: i + 1,
+          reviews_retry_exhausted: false,
         });
 
         if (!patchRes.ok) {
