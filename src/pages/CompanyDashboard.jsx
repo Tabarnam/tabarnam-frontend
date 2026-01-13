@@ -623,7 +623,7 @@ function isDeletedCompany(company) {
 
 function buildCompanyDraft(company) {
   const base = company && typeof company === "object" ? company : {};
-  const { rating_icon_type: _ignoredRatingIconType, ...baseCompany } = base;
+  const baseCompany = base;
 
   const manuBase =
     Array.isArray(baseCompany?.manufacturing_geocodes) && baseCompany.manufacturing_geocodes.length > 0
@@ -4028,7 +4028,7 @@ export default function CompanyDashboard() {
       const visibility = normalizeVisibility(draftForSave.visibility);
       const affiliate_link_urls = normalizeStringList(draftForSave.affiliate_link_urls);
 
-      const { rating_icon_type: _ignoredRatingIconType, ...draftBase } = draftForSave;
+      const draftBase = draftForSave;
 
       const payload = {
         ...draftBase,
