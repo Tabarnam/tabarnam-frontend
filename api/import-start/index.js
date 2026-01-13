@@ -7115,6 +7115,171 @@ Return ONLY the JSON array, no other text.`,
             );
           }
 
+          // Reviews stage MUST execute (success or classified failure) before import is considered complete.
+          // When enabled, we use the exact same pipeline as the Company Dashboard "Fetch more reviews" button.
+          if (!dryRunRequested && cosmosEnabled && shouldRunStage("reviews") && usePostSaveReviews) {
+            const companiesContainer = getCompaniesCosmosContainer();
+            const persistedItems = Array.isArray(saveResult?.persisted_items) ? saveResult.persisted_items : [];
+
+            if (companiesContainer && persistedItems.length > 0) {
+              ensureStageBudgetOrThrow("reviews", "xai_reviews_post_save_start");
+
+              const deadlineBeforePostSaveReviews = checkDeadlineOrReturn("xai_reviews_post_save_start", "reviews");
+              if (deadlineBeforePostSaveReviews) return deadlineBeforePostSaveReviews;
+
+              mark("xai_reviews_post_save_start");
+              setStage("refreshReviewsPostSave");
+
+              let postSaveReviewsCompleted = true;
+
+              let refreshReviewsHandler = null;
+              try {
+                const xadminMod = require("../xadmin-api-refresh-reviews/index.js");
+                refreshReviewsHandler = xadminMod?._test?.handler;
+              } catch {
+                refreshReviewsHandler = null;
+              }
+
+              for (const item of persistedItems) {
+                const companyId = String(item?.id || "").trim();
+                if (!companyId) continue;
+
+                const companyIndex = Number.isFinite(Number(item?.index)) ? Number(item.index) : null;
+                const companyName = String(item?.company_name || "");
+                const normalizedDomain = String(item?.normalized_domain || "").trim();
+
+                const remaining = getRemainingMs();
+                const minWindowMs = DEADLINE_SAFETY_BUFFER_MS + 6000;
+
+                // If we cannot safely run the upstream request, persist a classified failure state (never silent).
+                if (remaining < minWindowMs || typeof refreshReviewsHandler !== "function") {
+                  postSaveReviewsCompleted = false;
+
+                  const nowIso = new Date().toISOString();
+                  try {
+                    const existingDoc = await readItemWithPkCandidates(companiesContainer, companyId, {
+                      id: companyId,
+                      normalized_domain: normalizedDomain || "unknown",
+                      partition_key: normalizedDomain || "unknown",
+                    }).catch(() => null);
+
+                    if (existingDoc) {
+                      const prevCursor = existingDoc.review_cursor && typeof existingDoc.review_cursor === "object" ? existingDoc.review_cursor : null;
+                      const cursor = buildReviewCursor({
+                        nowIso,
+                        count: 0,
+                        exhausted: false,
+                        last_error: {
+                          code: "REVIEWS_TIME_BUDGET_EXHAUSTED",
+                          message: "Skipped reviews fetch during import due to low remaining time budget",
+                          retryable: true,
+                        },
+                        prev_cursor: prevCursor,
+                      });
+                      cursor.reviews_stage_status = "upstream_unreachable";
+
+                      const patched = {
+                        ...existingDoc,
+                        review_cursor: cursor,
+                        reviews_stage_status: "upstream_unreachable",
+                        reviews_upstream_status: null,
+                        reviews_attempts_count: 0,
+                        reviews_retry_exhausted: false,
+                        updated_at: nowIso,
+                      };
+                      await upsertItemWithPkCandidates(companiesContainer, patched).catch(() => null);
+
+                      if (companyIndex != null && enriched[companyIndex]) {
+                        enriched[companyIndex] = {
+                          ...(enriched[companyIndex] || {}),
+                          curated_reviews: Array.isArray(patched.curated_reviews) ? patched.curated_reviews : [],
+                          review_count: Number(patched.review_count) || 0,
+                          review_cursor: patched.review_cursor,
+                          reviews_stage_status: patched.reviews_stage_status,
+                          reviews_upstream_status: patched.reviews_upstream_status,
+                        };
+                      }
+                    }
+                  } catch {}
+
+                  warnReviews({
+                    stage: "reviews",
+                    root_cause: "upstream_unreachable",
+                    retryable: true,
+                    upstream_status: null,
+                    message:
+                      typeof refreshReviewsHandler !== "function"
+                        ? "Reviews refresh handler unavailable"
+                        : "Skipped reviews due to low remaining time budget",
+                    company_name: companyName,
+                  });
+                  continue;
+                }
+
+                // Execute the refresh pipeline with a timeout clamped to remaining budget.
+                const timeoutMs = Math.max(
+                  5000,
+                  Math.min(timeout, Math.trunc(remaining - DEADLINE_SAFETY_BUFFER_MS - UPSTREAM_TIMEOUT_MARGIN_MS))
+                );
+
+                const reqMock = {
+                  method: "POST",
+                  url: "https://internal/api/xadmin-api-refresh-reviews",
+                  headers: {},
+                  json: async () => ({ company_id: companyId, take: 2, timeout_ms: timeoutMs }),
+                };
+
+                let refreshPayload = null;
+                try {
+                  const res = await refreshReviewsHandler(reqMock, context);
+                  refreshPayload = safeJsonParse(res?.body);
+                } catch (e) {
+                  refreshPayload = { ok: false, root_cause: "unhandled_exception", message: e?.message || String(e) };
+                }
+
+                if (!refreshPayload || refreshPayload.ok !== true) {
+                  warnReviews({
+                    stage: "reviews",
+                    root_cause: String(refreshPayload?.root_cause || "unknown"),
+                    retryable: typeof refreshPayload?.retryable === "boolean" ? refreshPayload.retryable : true,
+                    upstream_status: refreshPayload?.upstream_status ?? null,
+                    message: String(refreshPayload?.message || "Reviews stage failed"),
+                    company_name: companyName,
+                  });
+                }
+
+                // Best-effort: load the updated company doc so the import response is consistent with persistence.
+                try {
+                  const latest = await readItemWithPkCandidates(companiesContainer, companyId, {
+                    id: companyId,
+                    normalized_domain: normalizedDomain || "unknown",
+                    partition_key: normalizedDomain || "unknown",
+                  }).catch(() => null);
+
+                  if (latest && companyIndex != null && enriched[companyIndex]) {
+                    enriched[companyIndex] = {
+                      ...(enriched[companyIndex] || {}),
+                      curated_reviews: Array.isArray(latest.curated_reviews) ? latest.curated_reviews : [],
+                      review_count: Number(latest.review_count) || 0,
+                      reviews_last_updated_at: latest.reviews_last_updated_at || (enriched[companyIndex] || {}).reviews_last_updated_at,
+                      review_cursor: latest.review_cursor || (enriched[companyIndex] || {}).review_cursor,
+                      reviews_stage_status:
+                        typeof latest.reviews_stage_status === "string" && latest.reviews_stage_status.trim()
+                          ? latest.reviews_stage_status.trim()
+                          : typeof latest?.review_cursor?.reviews_stage_status === "string"
+                            ? latest.review_cursor.reviews_stage_status
+                            : (enriched[companyIndex] || {}).reviews_stage_status,
+                      reviews_upstream_status: latest.reviews_upstream_status ?? (enriched[companyIndex] || {}).reviews_upstream_status,
+                    };
+                  }
+                } catch {}
+              }
+
+              reviewStageCompleted = postSaveReviewsCompleted;
+              mark(postSaveReviewsCompleted ? "xai_reviews_post_save_done" : "xai_reviews_post_save_partial");
+            }
+          }
+
           const effectiveResultCountForExpansion = cosmosEnabled ? saveResult.saved + saveResult.failed : enriched.length;
 
           // If expand_if_few is enabled and we got very few results (or all were skipped), try alternative search
