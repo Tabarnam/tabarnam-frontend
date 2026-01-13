@@ -56,6 +56,26 @@ function isMeaningfulString(raw) {
   return true;
 }
 
+function normalizeStringList(value) {
+  if (value == null) return [];
+
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => asString(v).trim())
+      .filter(Boolean)
+      .map((v) => v.replace(/\s+/g, " "));
+  }
+
+  const raw = asString(value).trim();
+  if (!raw) return [];
+
+  return raw
+    .split(/\s*,\s*/g)
+    .map((v) => asString(v).trim())
+    .filter(Boolean)
+    .map((v) => v.replace(/\s+/g, " "));
+}
+
 function hasMeaningfulSeedEnrichment(item) {
   if (!item || typeof item !== "object") return false;
 
@@ -2023,6 +2043,17 @@ export default function AdminImport() {
     return { skipStages, skippedEnrichment };
   }, [activeRun]);
 
+  const keywordsStageSkipped = useMemo(() => {
+    if (!activeRun) return false;
+
+    const report = activeRun.report && typeof activeRun.report === "object" ? activeRun.report : null;
+    const session = report?.session && typeof report.session === "object" ? report.session : null;
+    const request = session?.request && typeof session.request === "object" ? session.request : null;
+
+    const skipStages = Array.isArray(request?.skip_stages) ? request.skip_stages.map((s) => asString(s).trim()).filter(Boolean) : [];
+    return skipStages.includes("keywords");
+  }, [activeRun]);
+
   const plainEnglishProgress = useMemo(() => {
     if (!activeRun) {
       return {
@@ -2732,11 +2763,24 @@ export default function AdminImport() {
                   })().map((c) => {
                     const name = asString(c?.company_name || c?.name).trim() || "(unnamed)";
                     const url = asString(c?.website_url || c?.url).trim();
-                    const keywords = asString(c?.product_keywords).trim();
+
+                    const keywordsCanonical =
+                      Array.isArray(c?.keywords) && c.keywords.length > 0
+                        ? c.keywords
+                        : Array.isArray(c?.keyword_tags) && c.keyword_tags.length > 0
+                          ? c.keyword_tags
+                          : c?.product_keywords ?? c?.keyword_list;
+
+                    const keywordsList = normalizeStringList(keywordsCanonical);
+                    const keywordsText = keywordsList.join(", ");
 
                     const issues = [];
                     if (!url) issues.push("missing url");
-                    if (!keywords) issues.push("missing keywords");
+
+                    // Truthfulness: do not flag missing keywords based on seed/pre-save items.
+                    // Only evaluate keywords once we're rendering saved (persisted) company docs.
+                    const shouldEvaluateKeywords = showSavedResults && !keywordsStageSkipped;
+                    if (shouldEvaluateKeywords && keywordsList.length === 0) issues.push("missing keywords");
 
                     return (
                       <div key={asString(c?.id || c?.company_id)} className="rounded border border-slate-200 p-3">
@@ -2765,8 +2809,8 @@ export default function AdminImport() {
                           ) : null}
                         </div>
 
-                        {keywords ? (
-                          <div className="mt-2 text-xs text-slate-600">{keywords}</div>
+                        {keywordsText ? (
+                          <div className="mt-2 text-xs text-slate-600">{keywordsText}</div>
                         ) : null}
 
                         {(() => {
