@@ -1784,18 +1784,33 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
               return <div>failure_category: {category}</div>;
             })()}
 
-            {lastRefreshAttempt?.upstream_body_diagnostics && typeof lastRefreshAttempt.upstream_body_diagnostics === "object" ? (
-              <div className="mt-2 rounded border border-slate-200 bg-white p-2 text-[11px] text-slate-700">
-                <div className="font-medium text-slate-900">upstream_body_diagnostics</div>
-                <div className="mt-1">content_type: {asString(lastRefreshAttempt.upstream_body_diagnostics.content_type) || "(none)"}</div>
-                <div>raw_body_kind: {asString(lastRefreshAttempt.upstream_body_diagnostics.raw_body_kind) || "(none)"}</div>
-                {asString(lastRefreshAttempt.upstream_body_diagnostics.raw_body_preview).trim() ? (
-                  <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2">
-                    {asString(lastRefreshAttempt.upstream_body_diagnostics.raw_body_preview)}
-                  </pre>
-                ) : null}
-              </div>
-            ) : null}
+            {(() => {
+              const diag =
+                lastRefreshAttempt?.upstream_body_diagnostics && typeof lastRefreshAttempt.upstream_body_diagnostics === "object"
+                  ? lastRefreshAttempt.upstream_body_diagnostics
+                  : lastRefreshAttempt?.upstream_error_body && typeof lastRefreshAttempt.upstream_error_body === "object"
+                    ? {
+                        content_type: lastRefreshAttempt.upstream_error_body.content_type,
+                        raw_body_kind: lastRefreshAttempt.upstream_error_body.raw_body_kind,
+                        raw_body_preview: lastRefreshAttempt.upstream_error_body.preview,
+                      }
+                    : null;
+
+              if (!diag) return null;
+
+              return (
+                <div className="mt-2 rounded border border-slate-200 bg-white p-2 text-[11px] text-slate-700">
+                  <div className="font-medium text-slate-900">upstream_body_diagnostics</div>
+                  <div className="mt-1">content_type: {asString(diag.content_type) || "(none)"}</div>
+                  <div>raw_body_kind: {asString(diag.raw_body_kind) || "(none)"}</div>
+                  {asString(diag.raw_body_preview).trim() ? (
+                    <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2">
+                      {asString(diag.raw_body_preview)}
+                    </pre>
+                  ) : null}
+                </div>
+              );
+            })()}
 
             {Array.isArray(lastRefreshAttempt?.attempts) && lastRefreshAttempt.attempts.length ? (
               <div className="mt-2 rounded border border-slate-200 bg-white p-2 text-[11px] text-slate-700">
