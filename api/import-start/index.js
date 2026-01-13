@@ -7296,12 +7296,74 @@ Return ONLY the JSON array, no other text.`,
                 }
 
                 // Best-effort: load the updated company doc so the import response is consistent with persistence.
+                // Critical requirement: do not let the import finalize while reviews_stage_status is missing or still "pending".
                 try {
-                  const latest = await readItemWithPkCandidates(companiesContainer, companyId, {
+                  let latest = await readItemWithPkCandidates(companiesContainer, companyId, {
                     id: companyId,
                     normalized_domain: normalizedDomain || "unknown",
                     partition_key: normalizedDomain || "unknown",
                   }).catch(() => null);
+
+                  if (!latest) {
+                    postSaveReviewsCompleted = false;
+                  } else {
+                    const latestStatus = normalizeReviewsStageStatus(latest);
+
+                    if (!isTerminalReviewsStageStatus(latestStatus)) {
+                      const nowTerminalIso = new Date().toISOString();
+
+                      try {
+                        const prevCursor =
+                          latest.review_cursor && typeof latest.review_cursor === "object" ? latest.review_cursor : null;
+
+                        const count =
+                          typeof latest.review_count === "number" && Number.isFinite(latest.review_count)
+                            ? latest.review_count
+                            : Array.isArray(latest.curated_reviews)
+                              ? latest.curated_reviews.length
+                              : 0;
+
+                        const cursor = buildReviewCursor({
+                          nowIso: nowTerminalIso,
+                          count,
+                          exhausted: false,
+                          last_error: {
+                            code: "REVIEWS_POST_SAVE_DID_NOT_FINALIZE",
+                            message: "Reviews stage did not reach a terminal state during import; marking as terminal for diagnostics",
+                            retryable: true,
+                          },
+                          prev_cursor: prevCursor,
+                        });
+                        cursor.reviews_stage_status = "unhandled_exception";
+
+                        const patched = {
+                          ...latest,
+                          review_cursor: cursor,
+                          reviews_stage_status: "unhandled_exception",
+                          reviews_upstream_status: null,
+                          updated_at: nowTerminalIso,
+                        };
+
+                        const upserted = await upsertItemWithPkCandidates(companiesContainer, patched).catch(() => null);
+                        if (upserted && upserted.ok === true) {
+                          latest = patched;
+                        } else {
+                          postSaveReviewsCompleted = false;
+                        }
+
+                        warnReviews({
+                          stage: "reviews",
+                          root_cause: "unhandled_exception",
+                          retryable: true,
+                          upstream_status: null,
+                          message: "Reviews stage did not finalize during import; marking terminal state",
+                          company_name: companyName,
+                        });
+                      } catch {
+                        postSaveReviewsCompleted = false;
+                      }
+                    }
+                  }
 
                   if (latest && companyIndex != null && enriched[companyIndex]) {
                     enriched[companyIndex] = {
@@ -7319,7 +7381,9 @@ Return ONLY the JSON array, no other text.`,
                       reviews_upstream_status: latest.reviews_upstream_status ?? (enriched[companyIndex] || {}).reviews_upstream_status,
                     };
                   }
-                } catch {}
+                } catch {
+                  postSaveReviewsCompleted = false;
+                }
               }
 
               reviewStageCompleted = postSaveReviewsCompleted;
