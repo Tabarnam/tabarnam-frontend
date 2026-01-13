@@ -6466,10 +6466,18 @@ Output JSON only:
             mark("xai_location_geocode_skipped");
           }
 
-          // Fetch editorial reviews for companies
+          // Reviews must be a first-class import stage.
+          // We run the same pipeline as "Fetch more reviews" (xadmin-api-refresh-reviews),
+          // and we run it AFTER the company is persisted so it can be committed.
+          const usePostSaveReviews = true;
+
           let reviewStageCompleted = !shouldRunStage("reviews");
 
-          if (shouldRunStage("reviews") && !shouldAbort()) {
+          if (shouldRunStage("reviews") && usePostSaveReviews) {
+            // Defer until after saveCompaniesToCosmos so we have stable company_id values.
+            reviewStageCompleted = false;
+            mark("xai_reviews_fetch_deferred");
+          } else if (shouldRunStage("reviews") && !shouldAbort()) {
             ensureStageBudgetOrThrow("reviews", "xai_reviews_fetch_start");
 
             const deadlineBeforeReviews = checkDeadlineOrReturn("xai_reviews_fetch_start", "reviews");
