@@ -1463,16 +1463,110 @@ async function handler(req, context, opts) {
 
 // Additional safety wrapper: the handler is already defensive, but this ensures *any* thrown exception
 // still becomes an HTTP 200 JSON response (never a hard 500 for upstream-originated failures).
-const safeHandler = async (req, context, opts) => {
-  try {
-    // Deployment-visible marker log so we can confirm the SAFE wrapper is live.
-    try {
-      console.log(`[xadmin-api-refresh-reviews] handler=SAFE build=${String(BUILD_INFO.build_id || "unknown")}`);
-    } catch {
-      // ignore
-    }
+const SAFE_MARKER_LINE = `[xadmin-api-refresh-reviews] handler=SAFE build=${String(BUILD_INFO.build_id || "unknown")}`;
 
-    return await handler(req, context, opts);
+function safeLogLine(context, line) {
+  try {
+    if (typeof context?.log === "function") context.log(line);
+    else console.log(line);
+  } catch {
+    // ignore
+  }
+}
+
+const safeHandler = async (req, context, opts) => {
+  // Mandatory per-request marker to validate SAFE wrapper deployment.
+  safeLogLine(context, SAFE_MARKER_LINE);
+
+  try {
+    const result = await handler(req, context, opts);
+
+    // Wrap response serialization/adapter issues: never let a malformed handler result
+    // become a hard 500 or a non-JSON response.
+    try {
+      if (!result || typeof result !== "object") {
+        return jsonBody({
+          ok: false,
+          stage: "reviews_refresh",
+          root_cause: "handler_contract",
+          upstream_status: null,
+          retryable: true,
+          message: "Handler returned an invalid response",
+          build_id: BUILD_INFO.build_id || null,
+          version_tag: VERSION_TAG,
+        });
+      }
+
+      const headers = result.headers && typeof result.headers === "object" ? result.headers : {};
+      const rawBody = "body" in result ? result.body : null;
+
+      // Ensure JSON body string.
+      if (rawBody && typeof rawBody === "object") {
+        return {
+          ...result,
+          status: 200,
+          headers: {
+            ...headers,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(rawBody),
+        };
+      }
+
+      const bodyText = typeof rawBody === "string" ? rawBody : rawBody == null ? "" : String(rawBody);
+
+      // If it isn't valid JSON, normalize to a stable JSON error payload.
+      try {
+        const parsed = bodyText.trim() ? JSON.parse(bodyText) : null;
+        const okJson = parsed !== null && (typeof parsed === "object" || Array.isArray(parsed));
+        if (!okJson) {
+          return jsonBody({
+            ok: false,
+            stage: "reviews_refresh",
+            root_cause: "non_json_response",
+            upstream_status: null,
+            retryable: true,
+            message: "Handler returned a non-JSON response body",
+            build_id: BUILD_INFO.build_id || null,
+            version_tag: VERSION_TAG,
+            original_body_preview: bodyText ? bodyText.slice(0, 700) : null,
+          });
+        }
+      } catch {
+        return jsonBody({
+          ok: false,
+          stage: "reviews_refresh",
+          root_cause: "non_json_response",
+          upstream_status: null,
+          retryable: true,
+          message: "Handler returned a non-JSON response body",
+          build_id: BUILD_INFO.build_id || null,
+          version_tag: VERSION_TAG,
+          original_body_preview: bodyText ? bodyText.slice(0, 700) : null,
+        });
+      }
+
+      return {
+        ...result,
+        status: 200,
+        headers: {
+          ...headers,
+          "Content-Type": "application/json",
+        },
+        body: bodyText,
+      };
+    } catch (e) {
+      return jsonBody({
+        ok: false,
+        stage: "reviews_refresh",
+        root_cause: "response_serialization_error",
+        upstream_status: null,
+        retryable: true,
+        message: asString(e?.message || e) || "Response serialization error",
+        build_id: BUILD_INFO.build_id || null,
+        version_tag: VERSION_TAG,
+      });
+    }
   } catch (e) {
     const message = asString(e?.message || e) || "Unhandled error";
 
@@ -1521,6 +1615,10 @@ if (!hasRoute("admin-refresh-reviews")) {
     handler: safeHandler,
   });
 }
+
+// Legacy compatibility: some deployments (or wrappers) still expect index.js to export a `handler`.
+// Ensure it is the SAFE wrapper, not the raw handler.
+module.exports.handler = safeHandler;
 
 module.exports._test = {
   handler: safeHandler,
