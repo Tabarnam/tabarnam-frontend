@@ -1445,18 +1445,22 @@ export default function AdminImport() {
       const startAcceptReason = extractAcceptReason(startResult.body);
 
       if (isPrimarySkippedCompanyUrl(startStageBeacon)) {
+        const notice = "Company not persisted — primary worker skipped company_url job. Reviews stage did not run.";
+
         setRuns((prev) =>
           prev.map((r) =>
             r.session_id === canonicalSessionId
               ? {
                   ...r,
                   completed: true,
+                  skipped: true,
+                  skipped_reason: "primary_skipped_company_url",
                   job_state: "complete",
                   final_job_state: "complete",
                   saved: 0,
                   start_error: null,
                   progress_error: null,
-                  progress_notice: "Completed: URL skipped by design (primary worker does not run for company_url queries).",
+                  progress_notice: notice,
                   stage_beacon: startStageBeacon,
                   last_stage_beacon: startStageBeacon,
                   final_stage_beacon: startStageBeacon,
@@ -1467,7 +1471,7 @@ export default function AdminImport() {
           )
         );
         setActiveStatus("done");
-        toast.info("Completed: URL skipped by design");
+        toast.info("Skipped: company_url import did not persist a company");
         return;
       }
 
@@ -2086,7 +2090,7 @@ export default function AdminImport() {
       } else if (stageBeacon === "primary_early_exit") {
         reasonText = "Completed with an early exit. No company was persisted.";
       } else if (isPrimarySkippedCompanyUrl(stageBeacon)) {
-        reasonText = "Completed: URL skipped by design (primary worker does not run for company_url queries).";
+        reasonText = "Company not persisted — primary worker skipped company_url job. Reviews stage did not run.";
       } else if (stageBeacon === "no_candidates_found" || lastErrorCode === "no_candidates_found") {
         reasonText = "Completed: no eligible companies found.";
       } else {
@@ -2687,8 +2691,17 @@ export default function AdminImport() {
                 <div className="mt-4 text-sm text-slate-600">Start an import to see results.</div>
               ) : activeIsTerminal && activeSavedCount === 0 ? (
                 <div className="mt-4 rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 space-y-1">
-                  <div className="font-medium">Completed: no company persisted</div>
-                  <div className="text-slate-600">{plainEnglishProgress.reasonText || "No company was saved for this run."}</div>
+                  {(() => {
+                    const stageBeacon = asString(activeRun?.final_stage_beacon || activeRun?.stage_beacon || activeRun?.last_stage_beacon).trim();
+                    const isSkipped = isPrimarySkippedCompanyUrl(stageBeacon);
+                    return (
+                      <>
+                        <div className="font-medium">{isSkipped ? "Skipped: company not persisted" : "Completed: no company persisted"}</div>
+                        <div className="text-slate-600">{plainEnglishProgress.reasonText || "No company was saved for this run."}</div>
+                        {isSkipped ? <div className="text-slate-600">Reviews stage did not run (company was never saved).</div> : null}
+                      </>
+                    );
+                  })()}
                 </div>
               ) : (
                 <div className="mt-4 space-y-2 max-h-[520px] overflow-auto">
@@ -2801,6 +2814,8 @@ export default function AdminImport() {
                     const isRefreshing = statusRefreshSessionId === r.session_id;
 
                     const jobState = asString(r.final_job_state || r.job_state).trim().toLowerCase();
+                    const stageBeaconForStatus = asString(r.final_stage_beacon || r.stage_beacon || r.last_stage_beacon).trim();
+
                     const isTerminal = Boolean(
                       r.completed || r.timedOut || r.stopped || jobState === "complete" || jobState === "error"
                     );
@@ -2809,23 +2824,29 @@ export default function AdminImport() {
                     const isCompleteWithSave = isComplete && savedCount > 0;
                     const isCompleteNoSave = isComplete && savedCount === 0;
 
+                    const isSkipped = Boolean(r.skipped) || (isCompleteNoSave && isPrimarySkippedCompanyUrl(stageBeaconForStatus));
+
                     const statusLabel = isFailed
                       ? "Failed"
-                      : isCompleteWithSave
-                        ? "Completed"
-                        : isCompleteNoSave
-                          ? "Completed: no save"
-                          : r.polling_exhausted
-                            ? "Processing async"
-                            : "Processing";
+                      : isSkipped
+                        ? "Skipped"
+                        : isCompleteWithSave
+                          ? "Completed"
+                          : isCompleteNoSave
+                            ? "Completed: no save"
+                            : r.polling_exhausted
+                              ? "Processing async"
+                              : "Processing";
 
                     const statusBadgeClass = isFailed
                       ? "border-red-200 bg-red-50 text-red-800"
-                      : isCompleteWithSave
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                        : isCompleteNoSave
-                          ? "border-slate-200 bg-slate-50 text-slate-700"
-                          : "border-sky-200 bg-sky-50 text-sky-800";
+                      : isSkipped
+                        ? "border-amber-200 bg-amber-50 text-amber-900"
+                        : isCompleteWithSave
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : isCompleteNoSave
+                            ? "border-slate-200 bg-slate-50 text-slate-700"
+                            : "border-sky-200 bg-sky-50 text-sky-800";
 
                     return (
                       <div
