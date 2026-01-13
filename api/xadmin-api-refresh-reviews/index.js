@@ -1387,11 +1387,47 @@ async function handler(req, context) {
   }
 }
 
+// Additional safety wrapper: the handler is already defensive, but this ensures *any* thrown exception
+// still becomes an HTTP 200 JSON response (never a hard 500 for upstream-originated failures).
+const safeHandler = async (req, context) => {
+  try {
+    return await handler(req, context);
+  } catch (e) {
+    const message = asString(e?.message || e) || "Unhandled error";
+
+    try {
+      console.error(
+        JSON.stringify({
+          stage: "reviews_refresh",
+          route: "xadmin-api-refresh-reviews",
+          kind: "safe_wrapper_unhandled_exception",
+          message,
+          build_id: BUILD_INFO.build_id || null,
+          version_tag: VERSION_TAG,
+        })
+      );
+    } catch {
+      // ignore
+    }
+
+    return jsonBody({
+      ok: false,
+      stage: "reviews_refresh",
+      root_cause: "unhandled_exception",
+      upstream_status: null,
+      retryable: true,
+      message,
+      build_id: BUILD_INFO.build_id || null,
+      version_tag: VERSION_TAG,
+    });
+  }
+};
+
 app.http("xadminApiRefreshReviews", {
   route: "xadmin-api-refresh-reviews",
   methods: ["GET", "POST", "OPTIONS"],
   authLevel: "anonymous",
-  handler,
+  handler: safeHandler,
 });
 
 // Production safety: if a deployment accidentally omits admin-refresh-reviews,
@@ -1401,12 +1437,12 @@ if (!hasRoute("admin-refresh-reviews")) {
     route: "admin-refresh-reviews",
     methods: ["GET", "POST", "OPTIONS"],
     authLevel: "anonymous",
-    handler,
+    handler: safeHandler,
   });
 }
 
 module.exports._test = {
-  handler,
+  handler: safeHandler,
   _internals: {
     dedupe,
     reviewKey,
