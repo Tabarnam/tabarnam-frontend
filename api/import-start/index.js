@@ -7049,6 +7049,48 @@ Return ONLY the JSON array, no other text.`,
             enrichedForCounts = enriched;
           }
 
+          // If we're deferring reviews to post-save, ensure every company already has
+          // a stable reviews shape so we never finish an import with "reviews missing".
+          if (shouldRunStage("reviews") && usePostSaveReviews) {
+            const nowReviewsIso = new Date().toISOString();
+
+            for (let i = 0; i < enriched.length; i += 1) {
+              const c = enriched[i] && typeof enriched[i] === "object" ? enriched[i] : {};
+
+              const curated = Array.isArray(c.curated_reviews)
+                ? c.curated_reviews.filter((r) => r && typeof r === "object")
+                : [];
+
+              const reviewCount = Number.isFinite(Number(c.review_count)) ? Number(c.review_count) : curated.length;
+              const cursorExisting = c.review_cursor && typeof c.review_cursor === "object" ? c.review_cursor : null;
+
+              const cursor = cursorExisting
+                ? { ...cursorExisting }
+                : buildReviewCursor({
+                    nowIso: nowReviewsIso,
+                    count: reviewCount,
+                    exhausted: false,
+                    last_error: {
+                      code: "REVIEWS_PENDING",
+                      message: "Reviews will be fetched after company persistence",
+                    },
+                    prev_cursor: null,
+                  });
+
+              if (!cursor.reviews_stage_status) cursor.reviews_stage_status = "pending";
+
+              enriched[i] = {
+                ...c,
+                curated_reviews: curated,
+                review_count: reviewCount,
+                reviews_last_updated_at: c.reviews_last_updated_at || nowReviewsIso,
+                review_cursor: cursor,
+                reviews_stage_status: asString(c.reviews_stage_status).trim() || "pending",
+                reviews_upstream_status: c.reviews_upstream_status ?? null,
+              };
+            }
+          }
+
           let saveResult = { saved: 0, failed: 0, skipped: 0 };
 
           if (!dryRunRequested && enriched.length > 0 && cosmosEnabled) {
