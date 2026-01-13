@@ -803,6 +803,13 @@ async function handler(req, context) {
     // New rule: we keep at most 2 curated reviews per company.
     const requestedTake = Math.max(1, Math.min(2, Math.trunc(Number(body?.take ?? body?.limit ?? 2) || 2)));
 
+    // Allow callers (including import-start) to provide a smaller timeout so this stage can
+    // run inside the SWA gateway time budget.
+    const requestedTimeoutMs = Math.max(
+      5000,
+      Math.min(65000, Math.trunc(Number(body?.timeout_ms ?? body?.timeoutMs ?? body?.deadline_ms ?? 65000) || 65000))
+    );
+
     if (!company_id) {
       return respond({
         ok: false,
@@ -931,7 +938,7 @@ async function handler(req, context) {
           company,
           offset,
           limit: requestedTake,
-          timeout_ms: 65000,
+          timeout_ms: requestedTimeoutMs,
         });
 
         const attemptUpstreamStatus = normalizeHttpStatus(upstream?._meta?.upstream_status);
