@@ -7228,7 +7228,11 @@ Return ONLY the JSON array, no other text.`,
                         reviews_retry_exhausted: false,
                         updated_at: nowIso,
                       };
-                      await upsertItemWithPkCandidates(companiesContainer, patched).catch(() => null);
+
+                      const upserted = await upsertItemWithPkCandidates(companiesContainer, patched).catch(() => null);
+                      if (!upserted || upserted.ok !== true) {
+                        postSaveReviewsCompleted = false;
+                      }
 
                       if (companyIndex != null && enriched[companyIndex]) {
                         enriched[companyIndex] = {
@@ -7240,6 +7244,8 @@ Return ONLY the JSON array, no other text.`,
                           reviews_upstream_status: patched.reviews_upstream_status,
                         };
                       }
+                    } else {
+                      postSaveReviewsCompleted = false;
                     }
                   } catch {}
 
