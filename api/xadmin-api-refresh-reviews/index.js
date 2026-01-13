@@ -55,6 +55,18 @@ function normalizeHttpStatus(value) {
 }
 
 function jsonBody(obj) {
+  let body = "{}";
+  try {
+    body = JSON.stringify(obj);
+  } catch (e) {
+    body = JSON.stringify({
+      ok: false,
+      stage: "reviews_refresh",
+      root_cause: "response_serialization_error",
+      message: asString(e?.message || e) || "Failed to serialize JSON response",
+    });
+  }
+
   return {
     status: 200,
     headers: {
@@ -68,7 +80,7 @@ function jsonBody(obj) {
       "X-Api-Build-Source": String(BUILD_INFO.build_id_source || ""),
       "X-Api-Version": VERSION_TAG,
     },
-    body: JSON.stringify(obj),
+    body,
   };
 }
 
@@ -374,11 +386,17 @@ async function patchCompanyById(companiesContainer, companyId, docForCandidates,
   return { ok: false, error: asString(lastError?.message || lastError || "patch failed"), candidates };
 }
 
-function extractXaiConfig() {
-  const model = "grok-4-latest";
+function extractXaiConfig(overrides) {
+  const o = overrides && typeof overrides === "object" ? overrides : {};
 
-  const rawBase = asString(process.env.XAI_BASE_URL).trim() || asString(getXAIEndpoint()).trim();
-  const xai_key = asString(process.env.XAI_KEY).trim() || asString(getXAIKey()).trim();
+  const model = asString(o.model).trim() || "grok-4-latest";
+
+  const rawBase =
+    asString(o.xai_base_url || o.xaiUrl).trim() ||
+    asString(process.env.XAI_BASE_URL).trim() ||
+    asString(getXAIEndpoint()).trim();
+
+  const xai_key = asString(o.xai_key || o.xaiKey).trim() || asString(process.env.XAI_KEY).trim() || asString(getXAIKey()).trim();
 
   const xai_base_url = rawBase ? resolveXaiEndpointForModel(rawBase, model) : "";
 
@@ -466,16 +484,18 @@ function buildReviewsUpstreamPayload({ company, offset, limit, model } = {}) {
   return { payload, searchBuild };
 }
 
-async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) {
-  const { model, xai_base_url, xai_key } = extractXaiConfig();
+async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms, model, xai_base_url, xai_key, axiosPost } = {}) {
+  const cfg = extractXaiConfig({ model, xai_base_url, xai_key });
 
-  if (!axios) {
+  const post = typeof axiosPost === "function" ? axiosPost : axios?.post?.bind?.(axios);
+
+  if (!post) {
     const err = new Error("Missing axios dependency");
     err.status = 0;
     throw err;
   }
 
-  if (!xai_base_url || !xai_key) {
+  if (!cfg.xai_base_url || !cfg.xai_key) {
     const err = new Error("Missing XAI configuration");
     err.status = 0;
     throw err;
@@ -542,7 +562,7 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
   });
 
   const payload = {
-    model,
+    model: cfg.model,
     messages: messagesWithSpill,
     search_parameters: searchBuild.search_parameters,
     temperature: 0.2,
@@ -556,7 +576,7 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
         stage: "reviews_refresh",
         route: "xadmin-api-refresh-reviews",
         kind: "upstream_request",
-        upstream: xai_base_url,
+        upstream: cfg.xai_base_url,
         payload_shape: payload_shape_for_log,
       })
     );
@@ -573,13 +593,13 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
       "Content-Type": "application/json",
     };
 
-    if (isAzureWebsitesUrl(xai_base_url)) {
-      headers["x-functions-key"] = xai_key;
+    if (isAzureWebsitesUrl(cfg.xai_base_url)) {
+      headers["x-functions-key"] = cfg.xai_key;
     } else {
-      headers["Authorization"] = `Bearer ${xai_key}`;
+      headers["Authorization"] = `Bearer ${cfg.xai_key}`;
     }
 
-    const resp = await axios.post(xai_base_url, payload, {
+    const resp = await post(cfg.xai_base_url, payload, {
       headers,
       timeout,
       signal: controller.signal,
@@ -587,7 +607,7 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
     });
 
     const status = Number(resp?.status) || 0;
-    const upstream_url_redacted = redactUrlQueryAndHash(xai_base_url) || xai_base_url;
+    const upstream_url_redacted = redactUrlQueryAndHash(cfg.xai_base_url) || cfg.xai_base_url;
     const xai_request_id = extractUpstreamRequestId(resp?.headers);
 
     const diag = buildUpstreamBodyDiagnostics(resp?.data, resp?.headers, { maxLen: 4096 });
@@ -620,7 +640,7 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
       err.retryable = retryable;
       err.xai_request_id = xai_request_id;
       err.upstream_url = upstream_url_redacted;
-      err.auth_header_present = Boolean(xai_key);
+      err.auth_header_present = Boolean(cfg.xai_key);
       err.content_type = content_type;
       err.raw_body_kind = diag.raw_body_kind;
       err.raw_body_preview = diag.raw_body_preview;
@@ -661,7 +681,7 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
       err.retryable = retryable;
       err.xai_request_id = xai_request_id;
       err.upstream_url = upstream_url_redacted;
-      err.auth_header_present = Boolean(xai_key);
+      err.auth_header_present = Boolean(cfg.xai_key);
       err.content_type = content_type;
       err.raw_body_kind = diag.raw_body_kind;
       err.raw_body_preview = diag.raw_body_preview;
@@ -697,8 +717,10 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms }) 
   }
 }
 
-async function handler(req, context) {
+async function handler(req, context, opts) {
   const method = String(req?.method || "GET").toUpperCase();
+
+  const options = opts && typeof opts === "object" ? opts : {};
 
   const build_id = String(BUILD_INFO.build_id || "");
 
@@ -762,14 +784,20 @@ async function handler(req, context) {
       out.retryable = true;
     }
 
-    // TEMP: one-line log of the final payload after enforcement.
+    // One-line summary log (kept intentionally small for SWA/Azure logs).
     try {
       console.log(
         JSON.stringify({
           stage: "reviews_refresh",
           route: "xadmin-api-refresh-reviews",
-          kind: "final_payload",
-          payload: out,
+          kind: "response_summary",
+          ok: out.ok,
+          root_cause: out.root_cause,
+          upstream_status: out.upstream_status,
+          fetched_count: out.fetched_count,
+          saved_count: out.saved_count,
+          build_id,
+          version_tag: VERSION_TAG,
         })
       );
     } catch {
@@ -826,7 +854,7 @@ async function handler(req, context) {
       });
     }
 
-    const companiesContainer = getCompaniesContainer();
+    const companiesContainer = options.companiesContainer || getCompaniesContainer();
     if (!companiesContainer) {
       return respond({
         ok: false,
@@ -942,6 +970,10 @@ async function handler(req, context) {
           offset,
           limit: requestedTake,
           timeout_ms: requestedTimeoutMs,
+          model: options.model,
+          xai_base_url: options.xai_base_url || options.xaiUrl,
+          xai_key: options.xai_key || options.xaiKey,
+          axiosPost: options.axiosPost,
         });
 
         const attemptUpstreamStatus = normalizeHttpStatus(upstream?._meta?.upstream_status);
@@ -1124,7 +1156,11 @@ async function handler(req, context) {
       } catch (err) {
         lastErr = err;
 
-        const { xai_base_url, xai_key } = extractXaiConfig();
+        const { xai_base_url, xai_key } = extractXaiConfig({
+          model: options.model,
+          xai_base_url: options.xai_base_url || options.xaiUrl,
+          xai_key: options.xai_key || options.xaiKey,
+        });
         const upstream_status_raw = err?.status || err?.response?.status || 0;
         const upstream_status = normalizeHttpStatus(upstream_status_raw);
         attempt_upstream_statuses.push(upstream_status);
@@ -1325,7 +1361,11 @@ async function handler(req, context) {
       });
     }
 
-    const { xai_base_url, xai_key } = extractXaiConfig();
+    const { xai_base_url, xai_key } = extractXaiConfig({
+      model: options.model,
+      xai_base_url: options.xai_base_url || options.xaiUrl,
+      xai_key: options.xai_key || options.xaiKey,
+    });
 
     const upstream_status_raw = lastErr?.status || lastErr?.response?.status || 0;
     const upstream_status = normalizeHttpStatus(upstream_status_raw);
@@ -1423,9 +1463,16 @@ async function handler(req, context) {
 
 // Additional safety wrapper: the handler is already defensive, but this ensures *any* thrown exception
 // still becomes an HTTP 200 JSON response (never a hard 500 for upstream-originated failures).
-const safeHandler = async (req, context) => {
+const safeHandler = async (req, context, opts) => {
   try {
-    return await handler(req, context);
+    // Deployment-visible marker log so we can confirm the SAFE wrapper is live.
+    try {
+      console.log(`[xadmin-api-refresh-reviews] handler=SAFE build=${String(BUILD_INFO.build_id || "unknown")}`);
+    } catch {
+      // ignore
+    }
+
+    return await handler(req, context, opts);
   } catch (e) {
     const message = asString(e?.message || e) || "Unhandled error";
 
