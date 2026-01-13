@@ -7791,12 +7791,21 @@ Return ONLY the JSON array, no other text.`,
             const hasCuratedReviewsField = Array.isArray(c.curated_reviews);
             const hasReviewCursorField = Boolean(c.review_cursor && typeof c.review_cursor === "object");
 
+            const stageStatus =
+              typeof c.reviews_stage_status === "string" && c.reviews_stage_status.trim()
+                ? c.reviews_stage_status.trim()
+                : typeof c?.review_cursor?.reviews_stage_status === "string"
+                  ? String(c.review_cursor.reviews_stage_status).trim()
+                  : "";
+
+            const reviewsStageTerminal = shouldRunStage("reviews") ? Boolean(stageStatus && stageStatus !== "pending") : true;
+
             const missing = [];
             if (!hasIndustries) missing.push("industries");
             if (!hasKeywords) missing.push("product_keywords");
             if (!hasHq) missing.push("headquarters_location");
             if (!hasMfg) missing.push("manufacturing_locations");
-            if (!hasReviewCount || !hasCuratedReviewsField || !hasReviewCursorField) missing.push("reviews");
+            if (!hasReviewCount || !hasCuratedReviewsField || !hasReviewCursorField || !reviewsStageTerminal) missing.push("reviews");
 
             return missing;
           };
