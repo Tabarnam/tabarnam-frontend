@@ -7153,6 +7153,26 @@ Return ONLY the JSON array, no other text.`,
               mark("xai_reviews_post_save_start");
               setStage("refreshReviewsPostSave");
 
+              const normalizeReviewsStageStatus = (doc) => {
+                const d = doc && typeof doc === "object" ? doc : null;
+                if (!d) return "";
+
+                const top = typeof d.reviews_stage_status === "string" ? d.reviews_stage_status.trim() : "";
+                if (top) return top;
+
+                const cursorStatus =
+                  d.review_cursor && typeof d.review_cursor === "object" && typeof d.review_cursor.reviews_stage_status === "string"
+                    ? d.review_cursor.reviews_stage_status.trim()
+                    : "";
+
+                return cursorStatus;
+              };
+
+              const isTerminalReviewsStageStatus = (status) => {
+                const s = typeof status === "string" ? status.trim() : "";
+                return Boolean(s && s !== "pending");
+              };
+
               let postSaveReviewsCompleted = true;
 
               let refreshReviewsHandler = null;
