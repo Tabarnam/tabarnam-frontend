@@ -299,6 +299,10 @@ test("xadmin-api-companies: persists curated_reviews array", async () => {
   assert.equal(createBody.ok, true);
   assert.equal(Array.isArray(createBody.company?.curated_reviews), true);
   assert.equal(createBody.company.curated_reviews.length, 1);
+  assert.equal(createBody.company.review_count, 1);
+  assert.equal(createBody.company.reviews_star_source, "auto");
+  assert.equal(createBody.company.reviews_star_value, 1);
+  assert.equal(createBody.company?.rating?.star3?.value, 1);
 
   const updateRes = await _test.adminCompaniesHandler(
     makeReq({
@@ -335,11 +339,111 @@ test("xadmin-api-companies: persists curated_reviews array", async () => {
   assert.equal(updateBody.ok, true);
   assert.equal(Array.isArray(updateBody.company?.curated_reviews), true);
   assert.equal(updateBody.company.curated_reviews.length, 2);
+  assert.equal(updateBody.company.review_count, 2);
+  assert.equal(updateBody.company.reviews_star_source, "auto");
+  assert.equal(updateBody.company.reviews_star_value, 1);
+  assert.equal(updateBody.company?.rating?.star3?.value, 1);
 
   const stored = container._dump().find((d) => d && d.id === companyId);
   assert.ok(stored);
   assert.equal(Array.isArray(stored.curated_reviews), true);
   assert.equal(stored.curated_reviews.length, 2);
+  assert.equal(stored.review_count, 2);
+  assert.equal(stored.reviews_star_source, "auto");
+  assert.equal(stored.reviews_star_value, 1);
+  assert.equal(stored?.rating?.star3?.value, 1);
+});
+
+test("xadmin-api-companies: manual review star override blocks auto updates", async () => {
+  const container = makeMemoryContainer();
+
+  const companyId = "company_reviews_star_manual_contract";
+
+  const rating = {
+    star1: { value: 0, notes: [] },
+    star2: { value: 0, notes: [] },
+    star3: { value: 0.5, notes: [] },
+    star4: { value: 0, notes: [] },
+    star5: { value: 0, notes: [] },
+  };
+
+  const createRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "POST",
+      url: "https://example.test/api/xadmin-api-companies",
+      json: async () => ({
+        id: companyId,
+        company_id: companyId,
+        company_name: "Manual Review Star Co",
+        name: "Manual Review Star Co",
+        website_url: "https://example.com",
+        curated_reviews: [
+          {
+            id: "curated_1",
+            source: "professional_review",
+            source_url: "https://example.com/review-1",
+            title: "Review One",
+            excerpt: "Good stuff",
+            author: "Example Magazine",
+            date: "2025-01-01",
+            show_to_users: true,
+            is_public: true,
+          },
+        ],
+        reviews_star_source: "manual",
+        reviews_star_value: 0.5,
+        rating,
+      }),
+    }),
+    { log() {} },
+    { container }
+  );
+
+  assert.equal(createRes.status, 200);
+  const createBody = parseJson(createRes);
+  assert.equal(createBody.ok, true);
+  assert.equal(createBody.company.review_count, 1);
+  assert.equal(createBody.company.reviews_star_source, "manual");
+  assert.equal(createBody.company.reviews_star_value, 0.5);
+  assert.equal(createBody.company?.rating?.star3?.value, 0.5);
+
+  const updateRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "PUT",
+      url: `https://example.test/api/xadmin-api-companies/${encodeURIComponent(companyId)}`,
+      json: async () => ({
+        id: companyId,
+        company_id: companyId,
+        company_name: "Manual Review Star Co",
+        name: "Manual Review Star Co",
+        website_url: "https://example.com",
+        curated_reviews: [
+          ...(createBody.company.curated_reviews || []),
+          {
+            id: "curated_2",
+            source: "professional_review",
+            source_url: "https://example.com/review-2",
+            title: "Review Two",
+            excerpt: "Even better",
+            author: "Example Lab",
+            date: "2025-02-01",
+            show_to_users: true,
+            is_public: true,
+          },
+        ],
+      }),
+    }),
+    { log() {}, bindingData: { id: companyId } },
+    { container }
+  );
+
+  assert.equal(updateRes.status, 200);
+  const updateBody = parseJson(updateRes);
+  assert.equal(updateBody.ok, true);
+  assert.equal(updateBody.company.review_count, 2);
+  assert.equal(updateBody.company.reviews_star_source, "manual");
+  assert.equal(updateBody.company.reviews_star_value, 0.5);
+  assert.equal(updateBody.company?.rating?.star3?.value, 0.5);
 });
 
 test("xadmin-api-companies: persists rating_icon_type and per-star icon_type", async () => {
