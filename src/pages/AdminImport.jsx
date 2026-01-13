@@ -3037,8 +3037,27 @@ export default function AdminImport() {
                       const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
                       const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(activeRun.saved ?? 0) || 0;
+
+                      const stageBeacon = asString(activeRun.final_stage_beacon || activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
+                      const persistedDetected = savedCount > 0 || stageBeacon === "cosmos_write_done";
+
+                      const report = activeRun.report && typeof activeRun.report === "object" ? activeRun.report : null;
+                      const session = report?.session && typeof report.session === "object" ? report.session : null;
+                      const request = session?.request && typeof session.request === "object" ? session.request : null;
+                      const skipStages = Array.isArray(request?.skip_stages)
+                        ? request.skip_stages.map((s) => asString(s).trim()).filter(Boolean)
+                        : [];
+                      const dryRunEnabled = Boolean(request?.dry_run);
+
+                      const explicitNoPersist =
+                        !persistedDetected &&
+                        (stageBeacon === "primary_early_exit" ||
+                          isPrimarySkippedCompanyUrl(stageBeacon) ||
+                          dryRunEnabled ||
+                          skipStages.includes("primary"));
+
                       const primaryCandidate =
-                        savedCount > 0
+                        savedCompanies.length > 0
                           ? primarySaved
                           : Array.isArray(activeRun.items) && activeRun.items.length > 0
                             ? activeRun.items[0]
@@ -3047,7 +3066,9 @@ export default function AdminImport() {
                       const companyId = asString(primarySaved?.company_id).trim();
                       const companyName = primaryCandidate
                         ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
-                        : "No company persisted";
+                        : explicitNoPersist
+                          ? "No company persisted"
+                          : "Company candidate";
                       const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
 
                       const enrichmentMissingFields = (() => {
