@@ -621,9 +621,23 @@ function isDeletedCompany(company) {
   return String(v).toLowerCase() === "true" || String(v) === "1";
 }
 
+function normalizeRatingIconType(value, rating) {
+  if (value === "heart" || value === "star") return value;
+
+  const starKeys = ["star1", "star2", "star3", "star4", "star5"];
+  const icons = starKeys.map((k) => rating?.[k]?.icon_type).filter(Boolean);
+
+  if (icons.length === 0) return "star";
+  if (icons.every((i) => i === "heart")) return "heart";
+  if (icons.every((i) => i === "star")) return "star";
+
+  // Mixed icons: default to circle on places that don't support per-star icon overrides.
+  return "star";
+}
+
 function buildCompanyDraft(company) {
   const base = company && typeof company === "object" ? company : {};
-  const { rating_icon_type: _ignoredRatingIconType, ...baseCompany } = base;
+  const baseCompany = base;
 
   const manuBase =
     Array.isArray(baseCompany?.manufacturing_geocodes) && baseCompany.manufacturing_geocodes.length > 0
@@ -661,6 +675,8 @@ function buildCompanyDraft(company) {
   if (!draft.rating) {
     draft.rating = calculateInitialRating(computeAutoRatingInput(draft));
   }
+
+  draft.rating_icon_type = normalizeRatingIconType(draft.rating_icon_type, draft.rating);
 
   return draft;
 }
@@ -2746,6 +2762,21 @@ function CuratedReviewsEditor({ value, onChange, disabled }) {
 function RatingEditor({ draft, onChange }) {
   const rating = normalizeRating(draft?.rating);
   const auto = calculateInitialRating(computeAutoRatingInput(draft));
+  const defaultIconType = normalizeRatingIconType(draft?.rating_icon_type, rating);
+
+  const setDefaultIconType = (iconType) => {
+    const next = iconType === "heart" ? "heart" : "star";
+    onChange({ ...(draft || {}), rating_icon_type: next });
+  };
+
+  const matchAllStarsToDefault = () => {
+    const starKeys = ["star1", "star2", "star3", "star4", "star5"];
+    const nextRating = { ...rating };
+    for (const k of starKeys) {
+      nextRating[k] = { ...(nextRating[k] || {}), icon_type: defaultIconType };
+    }
+    onChange({ ...(draft || {}), rating_icon_type: defaultIconType, rating: nextRating });
+  };
 
   const setStar = (starKey, patch) => {
     const nextRating = {
@@ -2829,6 +2860,38 @@ function RatingEditor({ draft, onChange }) {
   return (
     <div className="space-y-3">
       <div className="text-sm text-slate-700 font-medium">Stars</div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="text-sm font-semibold text-slate-900">Frontend icon</div>
+            <div className="text-xs text-slate-600">
+              Used on cards and other places that don’t support per-star icon overrides.
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant={defaultIconType === "star" ? "default" : "outline"}
+              onClick={() => setDefaultIconType("star")}
+            >
+              Circle
+            </Button>
+            <Button
+              type="button"
+              variant={defaultIconType === "heart" ? "default" : "outline"}
+              onClick={() => setDefaultIconType("heart")}
+            >
+              Heart
+            </Button>
+            <Button type="button" variant="outline" onClick={matchAllStarsToDefault}>
+              Match all stars
+            </Button>
+          </div>
+        </div>
+      </div>
+
       <div className="space-y-3">
         {renderRow("star1", "Manufacturing (auto)", auto.star1.value)}
         {renderRow("star2", "HQ/Home (auto)", auto.star2.value)}
@@ -4027,11 +4090,13 @@ export default function CompanyDashboard() {
       const location_sources = normalizeLocationSources(draftForSave.location_sources);
       const visibility = normalizeVisibility(draftForSave.visibility);
       const affiliate_link_urls = normalizeStringList(draftForSave.affiliate_link_urls);
+      const rating_icon_type = normalizeRatingIconType(draftForSave.rating_icon_type, rating);
 
-      const { rating_icon_type: _ignoredRatingIconType, ...draftBase } = draftForSave;
+      const draftBase = draftForSave;
 
       const payload = {
         ...draftBase,
+        rating_icon_type,
         company_id: resolvedCompanyId,
         id: asString(draftForSave.id).trim() || resolvedCompanyId,
         company_name: resolvedCompanyName,
