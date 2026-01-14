@@ -3553,6 +3553,32 @@ export default function AdminImport() {
                               </a>
                             </div>
                           ) : null}
+
+                          {Boolean(activeRun.resume_needed) ? (
+                            <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-2">
+                              <div className="font-medium">Resume needed</div>
+                              {asString(activeRun.resume?.trigger_error).trim() ? (
+                                <div className="text-amber-900/90 break-words">
+                                  Last resume error: {asString(activeRun.resume?.trigger_error).trim()}
+                                </div>
+                              ) : (
+                                <div className="text-amber-900/90">
+                                  Enrichment is still in progress (reviews/logos/location). You can retry the resume worker if it stalled.
+                                </div>
+                              )}
+                              <div>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => retryResumeWorker({ session_id: activeRun.session_id })}
+                                >
+                                  Retry resume
+                                </Button>
+                              </div>
+                            </div>
+                          ) : null}
                         </>
                       );
                     })()}
