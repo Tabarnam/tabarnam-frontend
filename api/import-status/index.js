@@ -448,10 +448,14 @@ function toSavedCompanies(docs) {
       const companyId = String(doc?.id || doc?.company_id || "").trim();
       if (!companyId) return null;
 
+      const canonicalUrl = String(doc?.canonical_url || "").trim();
+      const websiteUrl = String(doc?.website_url || doc?.url || "").trim();
+
       return {
         company_id: companyId,
         company_name: String(doc?.company_name || doc?.name || "").trim() || "Unknown company",
-        website_url: String(doc?.website_url || doc?.url || "").trim() || "",
+        canonical_url: canonicalUrl,
+        website_url: websiteUrl || canonicalUrl,
         enrichment_health: computeEnrichmentHealth(doc),
       };
     })
