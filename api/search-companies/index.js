@@ -427,7 +427,12 @@ function mapCompanyToPublic(doc) {
   return {
     id: company_id,
     company_id,
-    company_name: doc.company_name || doc.name || "",
+    company_name:
+      asString(doc.company_name).trim() ||
+      asString(doc.display_name).trim() ||
+      asString(doc.name).trim() ||
+      deriveNameFromHost(asString(doc.normalized_domain).trim() || website_url) ||
+      "Unknown company",
     display_name: display_name || undefined,
     name: doc.name,
     website_url,
