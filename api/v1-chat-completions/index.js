@@ -70,10 +70,13 @@ function getRequestHost(req) {
 function getUpstreamXaiUrl(req) {
   const requestHost = getRequestHost(req);
   const candidates = [
-    process.env.XAI_UPSTREAM_BASE,
-    process.env.XAI_BASE,
+    // Prefer external first.
     process.env.XAI_EXTERNAL_BASE,
     process.env.XAI_INTERNAL_BASE, // alias
+    process.env.XAI_UPSTREAM_BASE,
+
+    // Legacy fallbacks (only when external is missing).
+    process.env.XAI_BASE,
     process.env.FUNCTION_URL,
   ];
 
