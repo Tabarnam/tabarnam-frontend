@@ -391,21 +391,33 @@ function extractXaiConfig(overrides) {
 
   const model = asString(o.model).trim() || "grok-4-latest";
 
+  const externalBase = asString(getXAIEndpoint()).trim();
+  const legacyBase = asString(process.env.XAI_BASE_URL).trim();
+
   const rawBase =
     asString(o.xai_base_url || o.xaiUrl).trim() ||
     // Prefer consolidated env resolution (XAI_EXTERNAL_BASE, etc.) over legacy XAI_BASE_URL.
-    asString(getXAIEndpoint()).trim() ||
-    asString(process.env.XAI_BASE_URL).trim();
+    externalBase ||
+    legacyBase;
 
   const xai_key =
     asString(o.xai_key || o.xaiKey).trim() ||
     // Prefer consolidated env resolution (XAI_EXTERNAL_KEY / XAI_API_KEY / FUNCTION_KEY) over legacy XAI_KEY.
-    asString(getXAIKey()).trim() ||
-    asString(process.env.XAI_KEY).trim();
+    asString(getXAIKey()).trim();
 
   const xai_base_url = rawBase ? resolveXaiEndpointForModel(rawBase, model) : "";
 
-  return { model, xai_base_url, xai_key };
+  const xai_config_source = externalBase ? "external" : legacyBase ? "legacy" : "external";
+  const upstreamMeta = getResolvedUpstreamMeta(xai_base_url);
+
+  return {
+    model,
+    xai_base_url,
+    xai_key,
+    xai_config_source,
+    resolved_upstream_host: upstreamMeta.resolved_upstream_host,
+    resolved_upstream_path: upstreamMeta.resolved_upstream_path,
+  };
 }
 
 function normalizeUpstreamResult(result) {
