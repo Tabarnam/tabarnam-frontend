@@ -601,7 +601,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
 
           const company = normalizeCompanyForResponse(found);
 
-          return json({ ok: true, company }, 200);
+          return json({ ok: true, company, ...(cosmosTarget ? cosmosTarget : {}) }, 200);
         }
 
         const search = (req.query?.search || req.query?.q || "").toString().toLowerCase().trim();
