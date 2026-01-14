@@ -6814,45 +6814,55 @@ Output JSON only:
           let keywordStageCompleted = !shouldRunStage("keywords");
 
           if (shouldRunStage("keywords")) {
-            ensureStageBudgetOrThrow("keywords", "xai_keywords_fetch_start");
-            mark("xai_keywords_fetch_start");
-            setStage("generateKeywords");
+            const remainingBeforeKeywords = getRemainingMs();
+            if (remainingBeforeKeywords < MIN_STAGE_REMAINING_MS) {
+              keywordStageCompleted = false;
+              downstreamDeferredByBudget = true;
+              deferredStages.add("keywords");
+              mark("xai_keywords_fetch_deferred_budget");
+            } else {
+              ensureStageBudgetOrThrow("keywords", "xai_keywords_fetch_start");
+              mark("xai_keywords_fetch_start");
+              setStage("generateKeywords");
 
-            const keywordsConcurrency = 4;
-            keywordStageCompleted = true;
-            for (let i = 0; i < enriched.length; i += keywordsConcurrency) {
-              if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
-                keywordStageCompleted = false;
-                console.log(
-                  `[import-start] session=${sessionId} keyword enrichment stopping early: remaining budget low`
-                );
-                break;
-              }
+              const keywordsConcurrency = 4;
+              keywordStageCompleted = true;
+              for (let i = 0; i < enriched.length; i += keywordsConcurrency) {
+                if (getRemainingMs() < MIN_STAGE_REMAINING_MS) {
+                  keywordStageCompleted = false;
+                  downstreamDeferredByBudget = true;
+                  deferredStages.add("keywords");
+                  console.log(
+                    `[import-start] session=${sessionId} keyword enrichment stopping early: remaining budget low`
+                  );
+                  break;
+                }
 
-              const slice = enriched.slice(i, i + keywordsConcurrency);
-              const batch = await Promise.all(
-                slice.map(async (company) => {
-                  try {
-                    return await ensureCompanyKeywords(company);
-                  } catch (e) {
-                    if (e instanceof AcceptedResponseError) throw e;
+                const slice = enriched.slice(i, i + keywordsConcurrency);
+                const batch = await Promise.all(
+                  slice.map(async (company) => {
                     try {
-                      console.log(
-                        `[import-start] session=${sessionId} keyword enrichment failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`
-                      );
-                    } catch {}
-                    return company;
-                  }
-                })
-              );
+                      return await ensureCompanyKeywords(company);
+                    } catch (e) {
+                      if (e instanceof AcceptedResponseError) throw e;
+                      try {
+                        console.log(
+                          `[import-start] session=${sessionId} keyword enrichment failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`
+                        );
+                      } catch {}
+                      return company;
+                    }
+                  })
+                );
 
-              for (let j = 0; j < batch.length; j++) {
-                enriched[i + j] = batch[j];
+                for (let j = 0; j < batch.length; j++) {
+                  enriched[i + j] = batch[j];
+                }
+
+                enrichedForCounts = enriched;
               }
-
-              enrichedForCounts = enriched;
+              mark(keywordStageCompleted ? "xai_keywords_fetch_done" : "xai_keywords_fetch_partial");
             }
-            mark(keywordStageCompleted ? "xai_keywords_fetch_done" : "xai_keywords_fetch_partial");
           } else {
             mark("xai_keywords_fetch_skipped");
           }
