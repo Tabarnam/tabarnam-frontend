@@ -7620,6 +7620,31 @@ Return ONLY the JSON array, no other text.`,
             console.log(
               `[import-start] session=${sessionId} saveCompaniesToCosmos done saved=${saveResult.saved} skipped=${saveResult.skipped} duplicates=${saveResult.skipped}`
             );
+
+            // Critical: persist canonical saved IDs immediately so /import/status can recover even if SWA kills
+            // later enrichment stages.
+            try {
+              const savedCompanyUrls = (Array.isArray(enriched) ? enriched : [])
+                .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
+                .filter(Boolean)
+                .slice(0, 50);
+
+              await upsertCosmosImportSessionDoc({
+                sessionId,
+                requestId,
+                patch: {
+                  saved: Number(saveResult.saved || 0),
+                  saved_count: Number(saveResult.saved || 0),
+                  saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                  saved_company_urls: savedCompanyUrls,
+                  saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                  skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                  failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
+                  stage_beacon,
+                  status: "running",
+                },
+              }).catch(() => null);
+            } catch {}
           }
 
           // Reviews stage MUST execute (success or classified failure) before import is considered complete.
