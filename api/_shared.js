@@ -120,9 +120,28 @@ function resolveXaiEndpointForModel(rawEndpoint, model) {
  * Tries multiple env vars for backwards compatibility
  */
 function getXAIKey() {
-  // Prefer XAI_API_KEY to match direct upstream calls (PowerShell sanity tests),
-  // but keep backwards-compat with older variable names.
-  return (process.env.XAI_API_KEY || process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || '').trim();
+  // Prefer the consolidated key vars first.
+  // IMPORTANT: if an external key is present, legacy vars must NOT override it.
+  const primary = (process.env.XAI_API_KEY || process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || "").trim();
+  if (primary) return primary;
+
+  // Legacy fallback (only used when consolidated vars are missing).
+  return (process.env.XAI_KEY || "").trim();
+}
+
+function getResolvedUpstreamMeta(rawUrl) {
+  const raw = String(rawUrl || "").trim();
+  if (!raw) return { resolved_upstream_host: null, resolved_upstream_path: null };
+  try {
+    const u = tryParseUrl(raw);
+    if (!u) return { resolved_upstream_host: null, resolved_upstream_path: null };
+    return {
+      resolved_upstream_host: String(u.hostname || "") || null,
+      resolved_upstream_path: String(u.pathname || "") || null,
+    };
+  } catch {
+    return { resolved_upstream_host: null, resolved_upstream_path: null };
+  }
 }
 
 /**
@@ -130,16 +149,16 @@ function getXAIKey() {
  * Used for endpoints like logo-scrape
  */
 function getProxyBase() {
-  const primary = (process.env.XAI_PROXY_BASE || '').trim();
+  const primary = (process.env.XAI_PROXY_BASE || "").trim();
   if (primary) return primary;
 
   const candidates = [process.env.XAI_EXTERNAL_BASE, process.env.XAI_INTERNAL_BASE, process.env.XAI_BASE];
   for (const c of candidates) {
-    const raw = String(c || '').trim();
+    const raw = String(c || "").trim();
     if (raw) return raw;
   }
 
-  return '';
+  return "";
 }
 
 function json(context, status, obj, extraHeaders) {
@@ -147,16 +166,23 @@ function json(context, status, obj, extraHeaders) {
     status,
     headers: Object.assign(
       {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-        'Access-Control-Allow-Headers': 'content-type,x-functions-key'
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "content-type,x-functions-key",
       },
       extraHeaders || {}
     ),
-    body: JSON.stringify(obj)
+    body: JSON.stringify(obj),
   };
   return context.res;
 }
 
-module.exports = { getXAIEndpoint, getXAIKey, getProxyBase, resolveXaiEndpointForModel, json };
+module.exports = {
+  getXAIEndpoint,
+  getXAIKey,
+  getResolvedUpstreamMeta,
+  getProxyBase,
+  resolveXaiEndpointForModel,
+  json,
+};

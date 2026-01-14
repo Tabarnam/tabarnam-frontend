@@ -929,6 +929,7 @@ async function handler(req, context, opts) {
     const nowMs = Date.now();
     const lockUntilExisting = Number(company.reviews_fetch_lock_until || 0) || 0;
     if (lockUntilExisting > nowMs) {
+      const retryAfterMs = Math.max(0, lockUntilExisting - nowMs);
       return respond({
         ok: false,
         stage: "reviews_refresh",
@@ -937,6 +938,7 @@ async function handler(req, context, opts) {
         upstream_status: null,
         retryable: true,
         lock_until_ms: lockUntilExisting,
+        retry_after_ms: retryAfterMs,
         message: "Reviews refresh already in progress",
         build_id,
         version_tag: VERSION_TAG,
@@ -978,10 +980,14 @@ async function handler(req, context, opts) {
     let fetched_count_total = 0;
     const warnings = [];
     let lastErr = null;
+    let budget_exhausted = false;
 
     for (let i = 0; i < backoffs.length; i += 1) {
       const remainingBeforeDelay = getRemainingBudgetMs();
-      if (remainingBeforeDelay < 4500) break;
+      if (remainingBeforeDelay < 4500) {
+        budget_exhausted = true;
+        break;
+      }
 
       const delay = jitterMs(backoffs[i]);
       if (delay && remainingBeforeDelay > delay + 3500) await sleep(delay);
@@ -1371,6 +1377,59 @@ async function handler(req, context, opts) {
 
     // Final failure: still JSON, still 200
     const ok = saved_count_total > 0;
+
+    // Critical: if we stopped early due to budget exhaustion (to avoid SWA gateway kills),
+    // classify it deterministically so the UI/admin doesn't treat it as a generic upstream error.
+    if (!ok && !lastErr && budget_exhausted) {
+      const remainingMs = getRemainingBudgetMs();
+      try {
+        cursor.last_attempt_at = nowIso();
+        cursor.last_error = {
+          root_cause: "upstream_timeout_budget_exhausted",
+          upstream_status: null,
+          retryable: true,
+          attempts_count: attempts.length,
+          retry_exhausted: true,
+          message: "Stopped before calling upstream: total timeout budget exhausted",
+        };
+        cursor.reviews_stage_status = "upstream_timeout_budget_exhausted";
+        cursor.attempts_count = attempts.length;
+        cursor.retry_exhausted = true;
+
+        await patchCompanyById(companiesContainer, company_id, company, {
+          review_cursor: cursor,
+          reviews_stage_status: "upstream_timeout_budget_exhausted",
+          reviews_attempts_count: attempts.length,
+          reviews_retry_exhausted: true,
+        });
+      } catch {
+        // ignore
+      }
+
+      try {
+        await patchCompanyById(companiesContainer, company_id, company, {
+          reviews_fetch_lock_until: 0,
+        });
+      } catch {
+        // ignore
+      }
+
+      return respond({
+        ok: false,
+        stage: "reviews_refresh",
+        company_id,
+        root_cause: "upstream_timeout_budget_exhausted",
+        upstream_status: null,
+        retryable: true,
+        attempts_count: attempts.length,
+        attempt_upstream_statuses: attempt_upstream_statuses.slice(0, attempts.length),
+        attempts,
+        warnings,
+        remaining_budget_ms: remainingMs,
+        build_id,
+        version_tag: VERSION_TAG,
+      });
+    }
 
     try {
       await patchCompanyById(companiesContainer, company_id, company, {
