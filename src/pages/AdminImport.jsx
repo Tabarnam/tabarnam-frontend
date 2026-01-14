@@ -1263,6 +1263,62 @@ export default function AdminImport() {
               return;
             }
 
+            const isCompanyUrlRequest =
+              Array.isArray(requestPayload?.queryTypes) && requestPayload.queryTypes.map((t) => asString(t).trim()).includes("company_url");
+
+            const rawText = asString(body?.text).trim();
+            const isBackendCallFailureText = isNonJsonMasked && rawText === "Backend call failure";
+
+            if (canonicalSessionId && isCompanyUrlRequest && isBackendCallFailureText && savedCount === 0) {
+              // Nothing saved yet (or status couldn't detect it). Force a deterministic seed save (max_stage=primary)
+              // then trigger resume-worker.
+              try {
+                const seedResult = await callImportStage({ stage: "primary", skipStages: [], companies: [] });
+                syncCanonicalSessionId({ res: seedResult.res, body: seedResult.body });
+                recordStageCall({
+                  stage: "primary",
+                  skipStages: [],
+                  usedPath: seedResult.usedPath,
+                  payload: seedResult.payload,
+                  res: seedResult.res,
+                  body: seedResult.body,
+                });
+              } catch {
+                // ignore; resume-worker trigger below may still succeed if something was saved
+              }
+
+              try {
+                const resumeUrl = join(API_BASE, "import/resume-worker");
+                fetch(`${resumeUrl}?session_id=${encodeURIComponent(canonicalSessionId)}`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ session_id: canonicalSessionId }),
+                  keepalive: true,
+                }).catch(() => {});
+              } catch {}
+
+              setRuns((prev) =>
+                prev.map((r) =>
+                  r.session_id === canonicalSessionId
+                    ? {
+                        ...r,
+                        completed: true,
+                        start_error: null,
+                        start_error_details: detailsForCopy,
+                        progress_error: "Backend call failure detected; forced seed-only retry + resume-worker triggered.",
+                        progress_notice: null,
+                        polling_exhausted: false,
+                        updatedAt: new Date().toISOString(),
+                      }
+                    : r
+                )
+              );
+
+              setActiveStatus("done");
+              toast.warning("Backend call failure — retrying seed + resuming");
+              return;
+            }
+
             if (statusTerminalComplete) {
               const isSkipped = isPrimarySkippedCompanyUrl(statusStageBeacon);
               const noCandidates =
