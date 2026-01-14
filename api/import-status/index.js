@@ -1469,6 +1469,16 @@ async function handler(req, context) {
       } catch (e) {
         resume_trigger_error = e?.message || String(e);
       }
+
+      if (resume_trigger_error && sessionDoc) {
+        const now = nowIso();
+        await upsertDoc(container, {
+          ...sessionDoc,
+          resume_error: String(resume_trigger_error || "").trim(),
+          resume_error_at: now,
+          updated_at: now,
+        }).catch(() => null);
+      }
     }
 
     const effectiveCompleted = completed && !resume_needed;
