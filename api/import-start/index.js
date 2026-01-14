@@ -6993,8 +6993,10 @@ Output JSON only:
             console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
             reviewStageCompleted = true;
             for (let i = 0; i < enriched.length; i++) {
-              if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
+              if (getRemainingMs() < MIN_STAGE_REMAINING_MS) {
                 reviewStageCompleted = false;
+                downstreamDeferredByBudget = true;
+                deferredStages.add("reviews");
                 console.log(
                   `[import-start] session=${sessionId} review enrichment stopping early: remaining budget low`
                 );
