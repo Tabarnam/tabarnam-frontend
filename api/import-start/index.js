@@ -2930,12 +2930,22 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               ? String(existingDoc.id)
               : `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
+            const remainingForLogo = getRemainingMs();
+            const logoBudgetMs = Math.max(
+              0,
+              Math.min(
+                8000,
+                Math.trunc(remainingForLogo - DEADLINE_SAFETY_BUFFER_MS - UPSTREAM_TIMEOUT_MARGIN_MS)
+              )
+            );
+
             const logoImport = await fetchLogo({
               companyId,
               companyName,
               domain: finalNormalizedDomain,
               websiteUrl: company.website_url || company.canonical_url || company.url || "",
               existingLogoUrl: company.logo_url || existingDoc?.logo_url || null,
+              budgetMs: logoBudgetMs,
             });
 
             // Calculate default rating based on company data
@@ -3009,7 +3019,14 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               logo_source_type: logoImport.logo_source_type || null,
               logo_status: logoImport.logo_status || (logoImport.logo_url ? "imported" : "not_found_on_site"),
               logo_import_status: logoImport.logo_import_status || "missing",
+              logo_stage_status:
+                typeof logoImport.logo_stage_status === "string" && logoImport.logo_stage_status.trim()
+                  ? logoImport.logo_stage_status.trim()
+                  : logoImport.logo_url
+                    ? "ok"
+                    : "not_found_on_site",
               logo_error: logoImport.logo_error || "",
+              logo_telemetry: logoImport.logo_telemetry && typeof logoImport.logo_telemetry === "object" ? logoImport.logo_telemetry : null,
               tagline: company.tagline || "",
               location_sources: Array.isArray(company.location_sources) ? company.location_sources : [],
               show_location_sources_to_users: Boolean(company.show_location_sources_to_users),
