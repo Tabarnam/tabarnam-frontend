@@ -23,6 +23,7 @@ const {
   getValueAtPath,
 } = require("../_cosmosPartitionKey");
 const { getXAIEndpoint, getXAIKey, getResolvedUpstreamMeta } = require("../_shared");
+const { startBudget } = require("../_budget");
 function requireImportCompanyLogo() {
   const mod = require("../_logoImport");
   if (!mod || typeof mod.importCompanyLogo !== "function") {
@@ -72,22 +73,28 @@ try {
 } catch {}
 
 const DEFAULT_HARD_TIMEOUT_MS = 25_000;
-const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000;
+
+// IMPORTANT: /api/* runs behind the SWA gateway. Keep upstream timeouts small and derived
+// from remaining budget so we return JSON before the platform kill (~30s).
+const DEFAULT_UPSTREAM_TIMEOUT_MS = 8_000;
 
 // Per-stage upstream hard caps (must stay under SWA gateway wall-clock).
 const STAGE_MAX_MS = {
-  primary: 20_000,
-  keywords: 20_000,
-  reviews: 20_000,
-  location: 20_000,
-  expand: 12_000,
+  primary: 8_000,
+  keywords: 8_000,
+  reviews: 8_000,
+  location: 7_000,
+  expand: 8_000,
 };
 
-// Safety buffer before the SWA gateway timeout where we stop doing work and return 202.
-const DEADLINE_SAFETY_BUFFER_MS = 8_000;
+// Minimum remaining budget required to start a new network stage.
+const MIN_STAGE_REMAINING_MS = 4_000;
 
-// Budget we keep in reserve for JSON formatting / logging / finishing the response.
-const UPSTREAM_TIMEOUT_MARGIN_MS = 3_000;
+// Safety buffer we reserve for Cosmos writes + formatting the response.
+const DEADLINE_SAFETY_BUFFER_MS = 1_500;
+
+// Extra buffer before starting any upstream call.
+const UPSTREAM_TIMEOUT_MARGIN_MS = 1_200;
 
 const XAI_SYSTEM_PROMPT =
   "You are a precise assistant. Follow the user's instructions exactly. When asked for JSON, output ONLY valid JSON with no markdown, no prose, and no extra keys.";
