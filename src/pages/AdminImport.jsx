@@ -608,6 +608,22 @@ export default function AdminImport() {
               items: mergeById(r.items, items),
               lastCreatedAt: asString(body?.lastCreatedAt || r.lastCreatedAt),
               saved: savedCount,
+              saved_verified_count:
+                typeof body?.saved_verified_count === "number" && Number.isFinite(body.saved_verified_count)
+                  ? body.saved_verified_count
+                  : Number.isFinite(r.saved_verified_count)
+                    ? r.saved_verified_count
+                    : null,
+              saved_company_ids_verified: Array.isArray(body?.saved_company_ids_verified)
+                ? body.saved_company_ids_verified
+                : Array.isArray(r.saved_company_ids_verified)
+                  ? r.saved_company_ids_verified
+                  : [],
+              saved_company_ids_unverified: Array.isArray(body?.saved_company_ids_unverified)
+                ? body.saved_company_ids_unverified
+                : Array.isArray(r.saved_company_ids_unverified)
+                  ? r.saved_company_ids_unverified
+                  : [],
               reconciled,
               reconcile_strategy: reconcileStrategy || null,
               reconciled_saved_ids: reconciledSavedIds,
