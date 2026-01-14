@@ -5746,20 +5746,34 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           // If primary times out, we fall back to a local URL seed and continue downstream enrichment inline.
           function buildCompanyUrlSeedFromQuery(rawQuery) {
             const q = String(rawQuery || "").trim();
-            let hostname = "";
+
+            let parsed = null;
             try {
-              const u = q.includes("://") ? new URL(q) : new URL(`https://${q}`);
-              hostname = String(u.hostname || "").trim();
+              parsed = q.includes("://") ? new URL(q) : new URL(`https://${q}`);
             } catch {
-              hostname = q.replace(/^https?:\/\//i, "").split("/")[0].trim();
+              parsed = null;
             }
 
+            const hostnameFromParsed = parsed ? String(parsed.hostname || "").trim() : "";
+            const fallbackHost = q.replace(/^https?:\/\//i, "").split("/")[0].trim();
+            const hostname = hostnameFromParsed || fallbackHost;
+
             const cleanHost = String(hostname || "").toLowerCase().replace(/^www\./, "");
-            const websiteUrl = cleanHost ? `https://${cleanHost}/` : q;
+
+            // Required semantics:
+            // - company_url + website_url should reflect the input URL (normalized to include protocol).
+            // - canonical_url should be the normalized canonical host URL.
+            const inputUrl = (() => {
+              if (parsed) return parsed.toString();
+              if (cleanHost) return `https://${cleanHost}/`;
+              return q;
+            })();
+
+            const canonicalUrl = cleanHost ? `https://${cleanHost}/` : inputUrl;
 
             const companyName = (() => {
               const base = cleanHost ? cleanHost.split(".")[0] : "";
-              if (!base) return cleanHost || websiteUrl;
+              if (!base) return cleanHost || canonicalUrl || inputUrl;
               return base.charAt(0).toUpperCase() + base.slice(1);
             })();
 
@@ -5770,10 +5784,10 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             // the record can be saved and later upgraded by resume-worker.
             return {
               company_name: companyName,
-              company_url: websiteUrl,
-              canonical_url: websiteUrl,
-              website_url: websiteUrl,
-              url: websiteUrl,
+              company_url: inputUrl,
+              website_url: inputUrl,
+              canonical_url: canonicalUrl,
+              url: inputUrl,
               normalized_domain: cleanHost,
               source: "company_url_shortcut",
               candidate: false,
