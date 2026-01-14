@@ -8353,7 +8353,13 @@ Return ONLY the JSON array, no other text.`,
                     updated_at: nowResumeIso,
                     request_id: requestId,
                     status: "queued",
+                    saved_count: Number(saveResult.saved || 0),
                     saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                    saved_company_urls: (Array.isArray(enriched) ? enriched : [])
+                      .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
+                      .filter(Boolean)
+                      .slice(0, 50),
+                    deferred_stages: Array.from(deferredStages),
                     missing_by_company: enrichmentMissingByCompany,
                     keywords_stage_completed: Boolean(keywordStageCompleted),
                     reviews_stage_completed: Boolean(reviewStageCompleted),
