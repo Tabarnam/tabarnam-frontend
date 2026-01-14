@@ -636,10 +636,16 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     const normalizedDomain = asString(existing.normalized_domain).trim() || toNormalizedDomain(websiteUrl);
 
     stage = "init_xai";
-    const xaiEndpointRaw = asString(deps.xaiUrl || getXAIEndpoint()).trim();
+    const externalBase = asString(getXAIEndpoint()).trim();
+    const legacyBase = asString(process.env.XAI_BASE_URL).trim();
+
+    const xaiEndpointRaw = asString(deps.xaiUrl || externalBase || legacyBase).trim();
     const xaiKey = asString(deps.xaiKey || getXAIKey()).trim();
     const xaiModel = asString(deps.xaiModel || process.env.XAI_MODEL || process.env.XAI_CHAT_MODEL || "grok-4-latest").trim();
     const xaiUrl = asString(deps.resolvedXaiUrl || resolveXaiEndpointForModel(xaiEndpointRaw, xaiModel)).trim();
+
+    const xai_config_source = externalBase ? "external" : legacyBase ? "legacy" : "external";
+    const upstreamMeta = getResolvedUpstreamMeta(xaiUrl);
 
     const missing_env = [];
     if (!xaiEndpointRaw) missing_env.push("XAI_EXTERNAL_BASE");
