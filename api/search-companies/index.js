@@ -631,11 +631,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         q,
         limit,
       });
-      return json({ ok: false, success: false, error: e?.message || "query failed" }, 500, req);
+      return json({ ok: false, success: false, ...(cosmosTarget ? cosmosTarget : {}), error: e?.message || "query failed" }, 500, req);
     }
   }
 
-  return json({ ok: false, success: false, error: "Cosmos DB not configured" }, 503, req);
+  return json({ ok: false, success: false, ...(cosmosTarget ? cosmosTarget : {}), error: "Cosmos DB not configured" }, 503, req);
 }
 
 app.http("search-companies", {
