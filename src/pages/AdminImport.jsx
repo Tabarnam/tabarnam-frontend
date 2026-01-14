@@ -114,6 +114,11 @@ function isValidSeedCompany(item) {
 
   if (!companyName || !websiteUrl) return false;
 
+  const id = asString(item.id || item.company_id).trim();
+
+  // Rule: if a company doc is already persisted (id exists), it is always eligible for resume.
+  if (id && !id.startsWith("_import_")) return true;
+
   const source = asString(item.source).trim();
 
   // Critical: company_url_shortcut is NEVER a valid resume seed unless it already contains meaningful enrichment
