@@ -3866,6 +3866,25 @@ const importStartHandlerInner = async (req, context) => {
       const noCosmosMode = String(readQueryParam(req, "no_cosmos") || "").trim() === "1";
       const cosmosEnabled = !noCosmosMode;
 
+      let cosmosTargetDiagnostics = null;
+      if (cosmosEnabled) {
+        cosmosTargetDiagnostics = await getCompaniesCosmosTargetDiagnostics().catch(() => null);
+
+        if (debugOutput && cosmosTargetDiagnostics) {
+          debugOutput.cosmos_target = cosmosTargetDiagnostics;
+        }
+
+        if (cosmosTargetDiagnostics) {
+          try {
+            console.log("[import-start] cosmos_target", {
+              request_id: requestId,
+              session_id: sessionId,
+              ...cosmosTargetDiagnostics,
+            });
+          } catch {}
+        }
+      }
+
       const inline_budget_ms = Number(STAGE_MAX_MS?.primary) || DEFAULT_UPSTREAM_TIMEOUT_MS;
 
       const requestedDeadlineRaw = readQueryParam(req, "deadline_ms");
