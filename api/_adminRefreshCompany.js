@@ -508,10 +508,12 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
   const startedAt = Date.now();
   let stage = "start";
 
-  const xaiTimeoutMs = readTimeoutMs(
-    deps.xaiTimeoutMs ?? process.env.XAI_TIMEOUT_MS ?? process.env.XAI_REQUEST_TIMEOUT_MS,
-    120000
-  );
+  let budgetMs = 20000;
+  let deadlineAtMs = startedAt + budgetMs;
+  const getRemainingBudgetMs = () => Math.max(0, deadlineAtMs - Date.now());
+
+  // Derive per-call timeouts from the remaining total budget.
+  const computeUpstreamTimeoutMs = () => Math.max(3500, Math.min(12000, getRemainingBudgetMs() - 1500));
 
   const config = {
     COSMOS_DB_ENDPOINT_SET: Boolean(asString(process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_ENDPOINT).trim()),
@@ -525,7 +527,6 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       asString(process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || process.env.XAI_API_KEY).trim()
     ),
     XAI_MODEL: asString(process.env.XAI_MODEL || process.env.XAI_CHAT_MODEL || "grok-4-latest").trim(),
-    XAI_TIMEOUT_MS: xaiTimeoutMs,
   };
 
   try {
