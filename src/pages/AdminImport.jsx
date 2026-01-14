@@ -2344,7 +2344,18 @@ export default function AdminImport() {
                 {effectiveImportConfig.dryRun ? "true" : "false"}
               </div>
               <div>
-                <span className="font-semibold">Resume debug:</span> resume_allowed: {activeRun && Array.isArray(activeRun.items) && activeRun.items.length > 0 ? "true" : "false"} (seeded_companies_count={activeRun && Array.isArray(activeRun.items) ? activeRun.items.length : 0})
+                <span className="font-semibold">Resume debug:</span> resume_allowed:{" "}
+                {activeRun && ((Array.isArray(activeRun.items) && activeRun.items.length > 0) || (Array.isArray(activeRun.saved_companies) && activeRun.saved_companies.length > 0))
+                  ? "true"
+                  : "false"} (seeded_companies_count=
+                {activeRun
+                  ? Array.isArray(activeRun.items) && activeRun.items.length > 0
+                    ? activeRun.items.length
+                    : Array.isArray(activeRun.saved_companies)
+                      ? activeRun.saved_companies.length
+                      : 0
+                  : 0}
+                )
               </div>
             </div>
 
