@@ -3733,7 +3733,7 @@ const importStartHandlerInner = async (req, context) => {
       const noCosmosMode = String(readQueryParam(req, "no_cosmos") || "").trim() === "1";
       const cosmosEnabled = !noCosmosMode;
 
-      const inline_budget_ms = Number(STAGE_MAX_MS?.primary) || 20_000;
+      const inline_budget_ms = Number(STAGE_MAX_MS?.primary) || DEFAULT_UPSTREAM_TIMEOUT_MS;
 
       const requestedDeadlineRaw = readQueryParam(req, "deadline_ms");
       const requested_deadline_ms_number =
@@ -3742,10 +3742,16 @@ const importStartHandlerInner = async (req, context) => {
           : null;
 
       const requested_deadline_ms = requested_deadline_ms_number
-        ? Math.max(5_000, Math.min(requested_deadline_ms_number, MAX_PROCESSING_TIME_MS))
-        : 300_000;
+        ? Math.max(5_000, Math.min(requested_deadline_ms_number, DEFAULT_HARD_TIMEOUT_MS))
+        : DEFAULT_HARD_TIMEOUT_MS;
 
-      const deadlineMs = Date.now() + requested_deadline_ms;
+      const budget = startBudget({
+        hardCapMs: DEFAULT_HARD_TIMEOUT_MS,
+        clientDeadlineMs: requested_deadline_ms,
+        startedAtMs: Date.now(),
+      });
+
+      const deadlineMs = budget.deadlineMs;
 
       const stageMsPrimaryRaw = readQueryParam(req, "stage_ms_primary");
       const requested_stage_ms_primary =
