@@ -123,7 +123,9 @@ async function fetchSeedCompanies(container, sessionId, limit = 25) {
         c.curated_reviews, c.review_count, c.review_cursor,
         c.red_flag, c.red_flag_reason,
         c.hq_unknown, c.hq_unknown_reason,
-        c.mfg_unknown, c.mfg_unknown_reason
+        c.mfg_unknown, c.mfg_unknown_reason,
+        c.source, c.source_stage, c.seed_ready,
+        c.primary_candidate, c.seed
       FROM c
       WHERE (c.session_id = @sid OR c.import_session_id = @sid)
         AND NOT STARTSWITH(c.id, '_import_')
