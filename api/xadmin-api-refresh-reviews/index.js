@@ -765,6 +765,10 @@ async function handler(req, context, opts) {
       ...base,
     };
 
+    if (xai_config_source && !out.xai_config_source) out.xai_config_source = xai_config_source;
+    if (resolved_upstream_host && !out.resolved_upstream_host) out.resolved_upstream_host = resolved_upstream_host;
+    if (resolved_upstream_path && !out.resolved_upstream_path) out.resolved_upstream_path = resolved_upstream_path;
+
     out.warnings = Array.isArray(out.warnings) ? out.warnings : [];
 
     out.fetched_count = Number(out.fetched_count ?? 0) || 0;
