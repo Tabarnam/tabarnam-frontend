@@ -655,6 +655,12 @@ export default function AdminImport() {
               last_status_checked_at: new Date().toISOString(),
               last_status_body: body,
               resume_needed: resumeNeeded,
+              resume:
+                body?.resume && typeof body.resume === "object"
+                  ? body.resume
+                  : r.resume && typeof r.resume === "object"
+                    ? r.resume
+                    : null,
               start_error: nextStartError,
               start_error_details: nextStartErrorDetails,
               progress_error: nextProgressError,
