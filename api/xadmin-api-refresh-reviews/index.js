@@ -856,6 +856,9 @@ async function handler(req, context, opts) {
         route: "xadmin-api-refresh-reviews",
         kind: "request_start",
         method,
+        xai_config_source,
+        resolved_upstream_host,
+        resolved_upstream_path,
         build_id: BUILD_INFO.build_id || null,
         version_tag: VERSION_TAG,
       })
