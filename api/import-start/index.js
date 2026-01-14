@@ -6410,7 +6410,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           const baselineEligible = queryTypes.includes("company_url") || enriched.length <= 3;
           const baselineNeeded =
             baselineEligible &&
-            (downstreamStagesSkipped ||
+            (downstreamStagesSkipped || downstreamDeferredByBudget ||
               (queryTypes.includes("company_url") &&
                 enriched.some((c) => !String(c?.tagline || "").trim())));
 
