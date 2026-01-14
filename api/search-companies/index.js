@@ -626,7 +626,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
       const mapped = normalized
         .map(mapCompanyToPublic)
-        .filter((c) => c && c.id && c.company_name);
+        .filter((c) => c && c.id);
 
       if (sortField) {
         mapped.sort((a, b) => compareCompanies(sortField, sortDir, a, b));
