@@ -1584,8 +1584,9 @@ async function findExistingCompany(container, normalizedDomain, companyName) {
 }
 
 // Helper: import logo (discover -> fetch w/ retries -> rasterize SVG -> upload to blob)
-async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingLogoUrl }) {
+async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingLogoUrl, budgetMs }) {
   const existing = String(existingLogoUrl || "").trim();
+  const budget = Number.isFinite(Number(budgetMs)) ? Math.max(0, Math.trunc(Number(budgetMs))) : null;
 
   const looksLikeCompanyLogoBlobUrl = (u) => {
     const s = String(u || "");
@@ -1594,7 +1595,13 @@ async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingL
 
   const headCheck = async (u) => {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
+    const timeoutMs = (() => {
+      if (budget == null) return 6000;
+      // If the budget is tight, don't burn the whole thing on the HEAD probe.
+      return Math.max(900, Math.min(6000, Math.trunc(budget * 0.4)));
+    })();
+
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const res = await fetch(u, {
@@ -1625,18 +1632,54 @@ async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingL
   // Only accept an existing logo URL if it's a previously uploaded blob AND it actually exists.
   // Never persist arbitrary / synthetic URLs as logo_url.
   if (existing && looksLikeCompanyLogoBlobUrl(existing)) {
+    if (budget != null && budget < 900) {
+      return {
+        ok: true,
+        logo_status: "imported",
+        logo_import_status: "imported",
+        logo_stage_status: "ok",
+        logo_source_url: null,
+        logo_source_type: "existing_blob_unverified",
+        logo_url: existing,
+        logo_error: "",
+        logo_discovery_strategy: "existing_blob_unverified",
+        logo_discovery_page_url: "",
+        logo_telemetry: {
+          budget_ms: budget,
+          elapsed_ms: 0,
+          discovery_ok: null,
+          candidates_total: 0,
+          candidates_tried: 0,
+          tiers: [],
+          rejection_reasons: {},
+          time_budget_exhausted: true,
+        },
+      };
+    }
+
     const verified = await headCheck(existing);
     if (verified.ok) {
       return {
         ok: true,
         logo_status: "imported",
         logo_import_status: "imported",
+        logo_stage_status: "ok",
         logo_source_url: null,
         logo_source_type: "existing_blob",
         logo_url: existing,
         logo_error: "",
         logo_discovery_strategy: "existing_blob",
         logo_discovery_page_url: "",
+        logo_telemetry: {
+          budget_ms: budget,
+          elapsed_ms: 0,
+          discovery_ok: null,
+          candidates_total: 0,
+          candidates_tried: 0,
+          tiers: [{ tier: "existing_blob", attempted: 1, rejected: 0, ok: true, selected_url: existing, selected_content_type: "" }],
+          rejection_reasons: {},
+          time_budget_exhausted: false,
+        },
       };
     }
   }
@@ -1657,8 +1700,35 @@ async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingL
     };
   }
 
+  if (budget != null && budget < 900) {
+    return {
+      ok: true,
+      logo_status: "not_found_on_site",
+      logo_import_status: "missing",
+      logo_stage_status: "budget_exhausted",
+      logo_source_url: null,
+      logo_source_location: null,
+      logo_source_domain: null,
+      logo_source_type: null,
+      logo_url: null,
+      logo_error: "Skipped logo import due to low remaining time budget",
+      logo_discovery_strategy: "",
+      logo_discovery_page_url: "",
+      logo_telemetry: {
+        budget_ms: budget,
+        elapsed_ms: 0,
+        discovery_ok: null,
+        candidates_total: 0,
+        candidates_tried: 0,
+        tiers: [],
+        rejection_reasons: { budget_exhausted: 1 },
+        time_budget_exhausted: true,
+      },
+    };
+  }
+
   const importCompanyLogo = requireImportCompanyLogo();
-  return importCompanyLogo({ companyId, domain, websiteUrl, companyName }, console);
+  return importCompanyLogo({ companyId, domain, websiteUrl, companyName }, console, { budgetMs: budget });
 }
 
 function normalizeUrlForCompare(s) {
