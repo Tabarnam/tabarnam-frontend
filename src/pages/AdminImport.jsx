@@ -1264,222 +1264,47 @@ export default function AdminImport() {
 
         const isReported5xx = reportedHttpStatus != null && reportedHttpStatus >= 500;
 
-        // Guard: if import-start fails with a SWA-masked raw-text response, any 5xx, or a
-        // wrapper-normalized delegate 5xx (http_status), status polling is the only reliable
-        // source of truth about whether anything was saved.
-        if (((Number(res?.status) || 0) >= 500 || isNonJsonMasked || isReported5xx) && canonicalSessionId) {
+        // Guard: if import-start fails with a SWA-masked raw-text response ("Backend call failure") or any 5xx,
+        // immediately switch to session-driven polling. The session status endpoint is the ONLY source of truth
+        // about whether anything was actually persisted.
+        const rawText = asString(body?.text).trim();
+        const isBackendCallFailureText = isNonJsonMasked && rawText === "Backend call failure";
+        const shouldRecoverViaPolling =
+          Boolean(canonicalSessionId) &&
+          (isBackendCallFailureText || (Number(res?.status) || 0) >= 500 || isReported5xx);
+
+        if (shouldRecoverViaPolling && canonicalSessionId) {
+          setRuns((prev) =>
+            prev.map((r) =>
+              r.session_id === canonicalSessionId
+                ? {
+                    ...r,
+                    // Keep the row visible, but avoid any optimistic saved/completed values.
+                    completed: false,
+                    start_error: null,
+                    start_error_details: detailsForCopy,
+                    progress_error: null,
+                    progress_notice: isBackendCallFailureText
+                      ? "Gateway interrupted, recovering via status polling…"
+                      : "Start call failed, recovering via status polling…",
+                    polling_exhausted: false,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : r
+            )
+          );
+
+          resetPollAttempts(canonicalSessionId);
+          setActiveStatus("running");
+
+          // Kick off the recovery loop. Status polling will populate verified saved ids/counts.
           try {
-            const encoded = encodeURIComponent(canonicalSessionId);
-            const { res: statusRes } = await apiFetchWithFallback([`/import/status?session_id=${encoded}`]);
-            const statusBody = await readJsonOrText(statusRes).catch(() => null);
+            await pollProgress({ session_id: canonicalSessionId });
+          } catch {}
+          schedulePoll({ session_id: canonicalSessionId });
 
-            const savedCompanies = Array.isArray(statusBody?.saved_companies) ? statusBody.saved_companies : [];
-            const statusStageBeacon = asString(statusBody?.stage_beacon).trim();
-
-            const savedVerifiedCount =
-              typeof statusBody?.saved_verified_count === "number" && Number.isFinite(statusBody.saved_verified_count)
-                ? statusBody.saved_verified_count
-                : typeof statusBody?.result?.saved_verified_count === "number" && Number.isFinite(statusBody.result.saved_verified_count)
-                  ? statusBody.result.saved_verified_count
-                  : null;
-
-            const savedCount =
-              savedVerifiedCount != null
-                ? savedVerifiedCount
-                : savedCompanies.length > 0
-                  ? savedCompanies.length
-                  : Number(statusBody?.saved ?? statusBody?.result?.saved ?? 0) || 0;
-
-            const statusState = asString(statusBody?.state).trim();
-            const statusStatus = asString(statusBody?.status).trim();
-            const statusJobState = asString(
-              statusBody?.job_state || statusBody?.primary_job_state || statusBody?.primary_job?.job_state
-            ).trim();
-            const statusCompleted = statusState === "complete" ? true : Boolean(statusBody?.completed);
-            const statusTerminalComplete =
-              statusState === "complete" || statusStatus === "complete" || statusJobState === "complete" || statusCompleted;
-
-            const acceptReason = extractAcceptReason(statusBody);
-            const acceptedNonError = isNonErrorAcceptedOutcome(statusBody);
-
-            if (savedCount >= 1) {
-              const isCompanyUrlRequest =
-                Array.isArray(requestPayload?.queryTypes) && requestPayload.queryTypes.map((t) => asString(t).trim()).includes("company_url");
-
-              const rawText = asString(body?.text).trim();
-              const isBackendCallFailureText = isNonJsonMasked && rawText === "Backend call failure";
-
-              // If SWA killed /import/start mid-flight, immediately trigger resume-worker so enrichment (reviews/logos)
-              // still completes without manual intervention.
-              if (canonicalSessionId && isCompanyUrlRequest && isBackendCallFailureText) {
-                try {
-                  const resumeUrl = join(API_BASE, "import/resume-worker");
-                  fetch(`${resumeUrl}?session_id=${encodeURIComponent(canonicalSessionId)}`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ session_id: canonicalSessionId }),
-                    keepalive: true,
-                  }).catch(() => {});
-                } catch {}
-              }
-
-              setRuns((prev) =>
-                prev.map((r) =>
-                  r.session_id === canonicalSessionId
-                    ? {
-                        ...r,
-                        saved: Math.max(Number(r.saved ?? 0) || 0, savedCount),
-                        saved_companies:
-                          savedCompanies.length > 0
-                            ? savedCompanies
-                            : Array.isArray(r.saved_companies)
-                              ? r.saved_companies
-                              : [],
-                        completed: true,
-                        start_error: null,
-                        start_error_details: detailsForCopy,
-                        accepted_reason: acceptReason || r.accepted_reason || null,
-                        stage_beacon: statusStageBeacon || r.stage_beacon,
-                        last_stage_beacon: statusStageBeacon || r.last_stage_beacon,
-                        final_stage_beacon: statusStageBeacon || r.final_stage_beacon,
-                        progress_error: `Saved with warnings${statusStageBeacon ? ` (${statusStageBeacon})` : ""}: ${msg || "post-save stage failed"}`,
-                        progress_notice:
-                          isCompanyUrlRequest && isBackendCallFailureText
-                            ? "Backend call failure detected; resume-worker triggered to finish enrichment."
-                            : null,
-                        polling_exhausted: false,
-                        updatedAt: new Date().toISOString(),
-                      }
-                    : r
-                )
-              );
-
-              setActiveStatus("done");
-              toast.warning(isCompanyUrlRequest && isBackendCallFailureText ? "Saved with warnings — auto-resuming" : "Saved with warnings");
-              return;
-            }
-
-            const isCompanyUrlRequest =
-              Array.isArray(requestPayload?.queryTypes) && requestPayload.queryTypes.map((t) => asString(t).trim()).includes("company_url");
-
-            const rawText = asString(body?.text).trim();
-            const isBackendCallFailureText = isNonJsonMasked && rawText === "Backend call failure";
-
-            if (canonicalSessionId && isCompanyUrlRequest && isBackendCallFailureText && savedCount === 0) {
-              // Nothing saved yet (or status couldn't detect it). Force a deterministic seed save (max_stage=primary)
-              // then trigger resume-worker.
-              try {
-                const seedResult = await callImportStage({ stage: "primary", skipStages: [], companies: [] });
-                syncCanonicalSessionId({ res: seedResult.res, body: seedResult.body });
-                recordStageCall({
-                  stage: "primary",
-                  skipStages: [],
-                  usedPath: seedResult.usedPath,
-                  payload: seedResult.payload,
-                  res: seedResult.res,
-                  body: seedResult.body,
-                });
-              } catch {
-                // ignore; resume-worker trigger below may still succeed if something was saved
-              }
-
-              try {
-                const resumeUrl = join(API_BASE, "import/resume-worker");
-                fetch(`${resumeUrl}?session_id=${encodeURIComponent(canonicalSessionId)}`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ session_id: canonicalSessionId }),
-                  keepalive: true,
-                }).catch(() => {});
-              } catch {}
-
-              setRuns((prev) =>
-                prev.map((r) =>
-                  r.session_id === canonicalSessionId
-                    ? {
-                        ...r,
-                        completed: true,
-                        start_error: null,
-                        start_error_details: detailsForCopy,
-                        progress_error: "Backend call failure detected; forced seed-only retry + resume-worker triggered.",
-                        progress_notice: null,
-                        polling_exhausted: false,
-                        updatedAt: new Date().toISOString(),
-                      }
-                    : r
-                )
-              );
-
-              setActiveStatus("done");
-              toast.warning("Backend call failure — retrying seed + resuming");
-              return;
-            }
-
-            if (statusTerminalComplete) {
-              const isSkipped = isPrimarySkippedCompanyUrl(statusStageBeacon);
-              const noCandidates =
-                statusStageBeacon === "no_candidates_found" || asString(statusBody?.last_error?.code).trim() === "no_candidates_found";
-
-              if (isSkipped || noCandidates) {
-                const notice = isSkipped
-                  ? "Completed: URL skipped by design (primary worker does not run for company_url queries)."
-                  : "Completed: no eligible companies found.";
-
-                setRuns((prev) =>
-                  prev.map((r) =>
-                    r.session_id === canonicalSessionId
-                      ? {
-                          ...r,
-                          saved: 0,
-                          saved_companies: [],
-                          items: Array.isArray(r.items) ? r.items : [],
-                          completed: true,
-                          job_state: "complete",
-                          final_job_state: "complete",
-                          start_error: null,
-                          start_error_details: detailsForCopy,
-                          accepted_reason: acceptReason || r.accepted_reason || null,
-                          stage_beacon: statusStageBeacon || r.stage_beacon,
-                          last_stage_beacon: statusStageBeacon || r.last_stage_beacon,
-                          final_stage_beacon: statusStageBeacon || r.final_stage_beacon,
-                          progress_error: null,
-                          progress_notice: notice,
-                          polling_exhausted: false,
-                          updatedAt: new Date().toISOString(),
-                        }
-                      : r
-                  )
-                );
-
-                setActiveStatus("done");
-                toast.info(isSkipped ? "Completed: URL skipped by design" : "Completed: no eligible companies found");
-                return;
-              }
-            }
-
-            if (acceptedNonError) {
-              const notice = "Import accepted, processing asynchronously. Use \"View status\" to refresh.";
-              setRuns((prev) =>
-                prev.map((r) =>
-                  r.session_id === canonicalSessionId
-                    ? {
-                        ...r,
-                        start_error: null,
-                        start_error_details: detailsForCopy,
-                        accepted_reason: acceptReason || r.accepted_reason || null,
-                        progress_notice: notice,
-                        polling_exhausted: false,
-                        updatedAt: new Date().toISOString(),
-                      }
-                    : r
-                )
-              );
-              toast.info("Import accepted, processing asynchronously");
-              return;
-            }
-          } catch {
-            // fall through to normal error handling
-          }
+          toast.info(isBackendCallFailureText ? "Gateway interrupted — recovering…" : "Start failed — checking status…");
+          return;
         }
 
         setRuns((prev) =>
