@@ -93,6 +93,21 @@ const NO_NETWORK_ENV = {
   COSMOS_DB_DB_KEY: "",
 };
 
+test("/api/import/start safeHandler returns HTTP 200 JSON on unhandled exception", async () => {
+  const throwingHandler = _test.createSafeHandler(async () => {
+    throw new Error("boom");
+  });
+
+  const res = await throwingHandler(makeReq(), { log() {} });
+  const body = parseJsonResponse(res);
+
+  assert.equal(res.status, 200);
+  assert.equal(body.ok, false);
+  assert.equal(body.root_cause, "unhandled_exception");
+  assert.equal(body.stage, "import_start");
+  assert.ok(String(body.message || "").includes("boom"));
+});
+
 test("/api/import/start parses body with proxy=false boolean", async () => {
   await withTempEnv(NO_NETWORK_ENV, async () => {
     const req = makeReq({
