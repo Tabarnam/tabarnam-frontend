@@ -747,8 +747,9 @@ test("/api/import/start uses provided session_id for async primary job and impor
         const startRes = await _test.importStartHandler(startReq, { log() {} });
         const startBody = parseJsonResponse(startRes);
 
-        assert.equal(startRes.status, 202);
+        assert.equal(startRes.status, 200);
         assert.equal(startBody.ok, true);
+        assert.equal(startBody.accepted, true);
         assert.equal(startBody.session_id, session_id);
         assert.equal(startRes.headers?.["x-session-id"], session_id);
 
