@@ -854,43 +854,49 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     stage = "tagline_confirm";
     let tagline_meta = null;
     try {
-      const taglineTimeout = Math.min(30000, Math.max(7000, Math.trunc(xaiTimeoutMs / 2)));
-      const info = await fetchConfirmedCompanyTagline({
-        axiosPost,
-        xaiUrl,
-        xaiKey,
-        companyName,
-        websiteUrl,
-        timeoutMs: taglineTimeout,
-      });
+      const remainingForTagline = getRemainingBudgetMs();
+      const taglineTimeout = Math.min(12000, Math.max(4000, remainingForTagline - 1500));
 
-      tagline_meta = {
-        confirmed_company_name: info.confirmed_company_name,
-        confirm_confidence: info.confirm_confidence,
-        confirm_reason: info.confirm_reason,
-        tagline_confidence: info.tagline_confidence,
-        tagline_reason: info.tagline_reason,
-      };
+      if (taglineTimeout < 4000) {
+        tagline_meta = { status: "skipped_budget" };
+      } else {
+        const info = await fetchConfirmedCompanyTagline({
+          axiosPost,
+          xaiUrl,
+          xaiKey,
+          companyName,
+          websiteUrl,
+          timeoutMs: taglineTimeout,
+        });
 
-      if (info.tagline) {
-        proposed.tagline = info.tagline;
-      }
+        tagline_meta = {
+          confirmed_company_name: info.confirmed_company_name,
+          confirm_confidence: info.confirm_confidence,
+          confirm_reason: info.confirm_reason,
+          tagline_confidence: info.tagline_confidence,
+          tagline_reason: info.tagline_reason,
+        };
 
-      try {
-        console.log(
-          JSON.stringify({
-            stage: "refresh_company_tagline",
-            company_id: companyId,
-            website_url: websiteUrl,
-            input_company_name: companyName,
-            confirmed_company_name: info.confirmed_company_name,
-            tagline: info.tagline,
-            confirm_confidence: info.confirm_confidence,
-            tagline_confidence: info.tagline_confidence,
-          })
-        );
-      } catch {
-        // ignore
+        if (info.tagline) {
+          proposed.tagline = info.tagline;
+        }
+
+        try {
+          console.log(
+            JSON.stringify({
+              stage: "refresh_company_tagline",
+              company_id: companyId,
+              website_url: websiteUrl,
+              input_company_name: companyName,
+              confirmed_company_name: info.confirmed_company_name,
+              tagline: info.tagline,
+              confirm_confidence: info.confirm_confidence,
+              tagline_confidence: info.tagline_confidence,
+            })
+          );
+        } catch {
+          // ignore
+        }
       }
     } catch (e) {
       tagline_meta = {
