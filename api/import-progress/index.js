@@ -117,6 +117,7 @@ app.http("import-progress", {
       const timeoutDoc = await readControlDoc(container, timeoutDocId, sessionId);
       const completionDoc = await readControlDoc(container, completionDocId, sessionId);
       const errorDoc = await readControlDoc(container, errorDocId, sessionId);
+      const sessionDoc = await readControlDoc(container, `_import_session_${sessionId}`, sessionId);
 
       stopped = !!stopDoc;
       timedOut = !!timeoutDoc;
@@ -132,15 +133,30 @@ app.http("import-progress", {
           WHERE c.session_id = @sid AND NOT STARTSWITH(c.id, '_import_')
           ORDER BY c.created_at DESC
         `,
-        parameters: [
-          { name: "@sid", value: sessionId },
-          { name: "@take", value: take }
-        ],
+        parameters: [{ name: "@sid", value: sessionId }],
       };
 
       const { resources } = await container.items.query(q, { enableCrossPartitionQuery: true }).fetchAll();
-      const saved = resources.length || 0;
+
+      const verifiedCount =
+        sessionDoc && typeof sessionDoc.saved_verified_count === "number" && Number.isFinite(sessionDoc.saved_verified_count)
+          ? sessionDoc.saved_verified_count
+          : null;
+
+      const saved = verifiedCount != null ? verifiedCount : resources.length || 0;
       const lastCreatedAt = resources?.[0]?.created_at || "";
+
+      const saved_company_ids_verified = Array.isArray(sessionDoc?.saved_company_ids_verified)
+        ? sessionDoc.saved_company_ids_verified
+        : Array.isArray(sessionDoc?.saved_ids)
+          ? sessionDoc.saved_ids
+          : [];
+
+      const saved_company_ids_unverified = Array.isArray(sessionDoc?.saved_company_ids_unverified)
+        ? sessionDoc.saved_company_ids_unverified
+        : [];
+
+      const saved_verified_count = verifiedCount != null ? verifiedCount : saved_company_ids_verified.length;
 
       console.log(`[import-progress] session=${sessionId} found=${saved} stopped=${stopped} timedOut=${timedOut} completed=${completed}`);
 
@@ -158,6 +174,9 @@ app.http("import-progress", {
           failed,
           ...(error ? { error } : {}),
           saved,
+          saved_verified_count,
+          saved_company_ids_verified,
+          saved_company_ids_unverified,
           lastCreatedAt,
         },
         200,

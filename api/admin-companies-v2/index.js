@@ -52,6 +52,51 @@ function getCompaniesContainer() {
   }
 }
 
+let cosmosTargetPromise;
+
+function redactHostForDiagnostics(value) {
+  const host = typeof value === "string" ? value.trim() : "";
+  if (!host) return "";
+  if (host.length <= 12) return host;
+  return `${host.slice(0, 8)}…${host.slice(-8)}`;
+}
+
+async function getCompaniesCosmosTargetDiagnostics(container) {
+  cosmosTargetPromise ||= (async () => {
+    const endpoint = env("COSMOS_DB_ENDPOINT", "");
+    const database = env("COSMOS_DB_DATABASE", "tabarnam-db");
+    const containerName = env("COSMOS_DB_COMPANIES_CONTAINER", "companies");
+
+    let host = "";
+    try {
+      host = endpoint ? new URL(endpoint).host : "";
+    } catch {
+      host = "";
+    }
+
+    const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
+    const pkPath = await getContainerPartitionKeyPath(container, "/normalized_domain");
+
+    return {
+      cosmos_account_host_redacted: redactHostForDiagnostics(host),
+      cosmos_db_name: database,
+      cosmos_container_name: containerName,
+      cosmos_container_partition_key_path: pkPath,
+    };
+  })();
+
+  try {
+    return await cosmosTargetPromise;
+  } catch {
+    return {
+      cosmos_account_host_redacted: "",
+      cosmos_db_name: env("COSMOS_DB_DATABASE", "tabarnam-db"),
+      cosmos_container_name: env("COSMOS_DB_COMPANIES_CONTAINER", "companies"),
+      cosmos_container_partition_key_path: "/normalized_domain",
+    };
+  }
+}
+
 const toNormalizedDomain = (s = "") => {
   try {
     const u = s.startsWith("http") ? new URL(s) : new URL(`https://${s}`);
@@ -531,6 +576,13 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           (context && context.bindingData && context.bindingData.id) || (req && req.params && req.params.id) || "";
         const routeId = String(routeIdRaw || "").trim();
 
+        const cosmosTarget = await getCompaniesCosmosTargetDiagnostics(container).catch(() => null);
+        if (cosmosTarget) {
+          try {
+            context.log("[admin-companies-v2] cosmos_target", cosmosTarget);
+          } catch {}
+        }
+
         if (routeId) {
           const querySpec = {
             query:
@@ -549,7 +601,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
 
           const company = normalizeCompanyForResponse(found);
 
-          return json({ ok: true, company }, 200);
+          return json({ ok: true, company, ...(cosmosTarget ? cosmosTarget : {}) }, 200);
         }
 
         const search = (req.query?.search || req.query?.q || "").toString().toLowerCase().trim();
@@ -580,7 +632,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           .map((d) => normalizeCompanyForResponse(d));
 
         context.log("[admin-companies-v2] GET count after soft-delete filter:", items.length);
-        return json({ items, count: items.length }, 200);
+        return json({ items, count: items.length, ...(cosmosTarget ? cosmosTarget : {}) }, 200);
       }
 
       if (method === "POST" || method === "PUT") {

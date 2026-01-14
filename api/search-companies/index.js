@@ -6,6 +6,51 @@ try {
 }
 
 const { CosmosClient } = require("@azure/cosmos");
+const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
+
+let cosmosTargetPromise;
+
+function redactHostForDiagnostics(value) {
+  const host = typeof value === "string" ? value.trim() : "";
+  if (!host) return "";
+  if (host.length <= 12) return host;
+  return `${host.slice(0, 8)}…${host.slice(-8)}`;
+}
+
+async function getCompaniesCosmosTargetDiagnostics(container) {
+  cosmosTargetPromise ||= (async () => {
+    const endpoint = env("COSMOS_DB_ENDPOINT", "");
+    const databaseId = env("COSMOS_DB_DATABASE", "tabarnam-db");
+    const containerId = env("COSMOS_DB_COMPANIES_CONTAINER", "companies");
+
+    let host = "";
+    try {
+      host = endpoint ? new URL(endpoint).host : "";
+    } catch {
+      host = "";
+    }
+
+    const pkPath = await getContainerPartitionKeyPath(container, "/normalized_domain");
+
+    return {
+      cosmos_account_host_redacted: redactHostForDiagnostics(host),
+      cosmos_db_name: databaseId,
+      cosmos_container_name: containerId,
+      cosmos_container_partition_key_path: pkPath,
+    };
+  })();
+
+  try {
+    return await cosmosTargetPromise;
+  } catch {
+    return {
+      cosmos_account_host_redacted: "",
+      cosmos_db_name: env("COSMOS_DB_DATABASE", "tabarnam-db"),
+      cosmos_container_name: env("COSMOS_DB_COMPANIES_CONTAINER", "companies"),
+      cosmos_container_partition_key_path: "/normalized_domain",
+    };
+  }
+}
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -309,6 +354,25 @@ function normalizeStringArray(value) {
   return [];
 }
 
+function deriveNameFromHost(value) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return "";
+
+  let host = "";
+  try {
+    const u = raw.includes("://") ? new URL(raw) : new URL(`https://${raw}`);
+    host = String(u.hostname || "").trim();
+  } catch {
+    host = raw.replace(/^https?:\/\//i, "").split("/")[0].trim();
+  }
+
+  const clean = host.toLowerCase().replace(/^www\./, "");
+  const base = clean.split(".")[0] || "";
+  if (!base) return "";
+
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
 function mapCompanyToPublic(doc) {
   if (!doc) return null;
 
@@ -363,7 +427,12 @@ function mapCompanyToPublic(doc) {
   return {
     id: company_id,
     company_id,
-    company_name: doc.company_name || doc.name || "",
+    company_name:
+      asString(doc.company_name).trim() ||
+      asString(doc.display_name).trim() ||
+      asString(doc.name).trim() ||
+      deriveNameFromHost(asString(doc.normalized_domain).trim() || website_url) ||
+      "Unknown company",
     display_name: display_name || undefined,
     name: doc.name,
     website_url,
@@ -470,6 +539,14 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   const limit = clamp(skip + take, 1, 500);
 
   const container = deps.companiesContainer ?? getCompaniesContainer();
+
+  const cosmosTarget = container ? await getCompaniesCosmosTargetDiagnostics(container).catch(() => null) : null;
+  if (cosmosTarget) {
+    try {
+      context.log("[search-companies] cosmos_target", cosmosTarget);
+    } catch {}
+  }
+
   if (container) {
     try {
       let items = [];
@@ -549,7 +626,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
       const mapped = normalized
         .map(mapCompanyToPublic)
-        .filter((c) => c && c.id && c.company_name);
+        .filter((c) => c && c.id);
 
       if (sortField) {
         mapped.sort((a, b) => compareCompanies(sortField, sortDir, a, b));
@@ -561,6 +638,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         {
           ok: true,
           success: true,
+          ...(cosmosTarget ? cosmosTarget : {}),
           items: paged,
           count: mapped.length,
           meta: { q: qRaw, sort, skip, take, user_location },
@@ -577,11 +655,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         q,
         limit,
       });
-      return json({ ok: false, success: false, error: e?.message || "query failed" }, 500, req);
+      return json({ ok: false, success: false, ...(cosmosTarget ? cosmosTarget : {}), error: e?.message || "query failed" }, 500, req);
     }
   }
 
-  return json({ ok: false, success: false, error: "Cosmos DB not configured" }, 503, req);
+  return json({ ok: false, success: false, ...(cosmosTarget ? cosmosTarget : {}), error: "Cosmos DB not configured" }, 503, req);
 }
 
 app.http("search-companies", {

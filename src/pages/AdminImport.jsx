@@ -478,10 +478,20 @@ export default function AdminImport() {
 
         const items = normalizeItems(body?.items || body?.companies);
         const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
+
+        const savedVerifiedCount =
+          typeof body?.saved_verified_count === "number" && Number.isFinite(body.saved_verified_count)
+            ? body.saved_verified_count
+            : typeof body?.result?.saved_verified_count === "number" && Number.isFinite(body.result.saved_verified_count)
+              ? body.result.saved_verified_count
+              : null;
+
         const saved =
-          savedCompanies.length > 0
-            ? savedCompanies.length
-            : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
+          savedVerifiedCount != null
+            ? savedVerifiedCount
+            : savedCompanies.length > 0
+              ? savedCompanies.length
+              : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
 
         const reconciled = Boolean(body?.reconciled);
         const reconcileStrategy = asString(body?.reconcile_strategy).trim();
@@ -546,7 +556,9 @@ export default function AdminImport() {
               ? lastErrorCode || asString(r.final_last_error_code)
               : asString(r.final_last_error_code);
 
-            const savedCount = Number.isFinite(saved) ? saved : Number(r.saved ?? 0) || 0;
+            const savedVerifiedCount = Number.isFinite(r.saved_verified_count) ? r.saved_verified_count : null;
+            const savedCount =
+              savedVerifiedCount != null ? savedVerifiedCount : Number.isFinite(saved) ? saved : Number(r.saved ?? 0) || 0;
             const hasSaved = savedCount > 0;
 
             const shouldDemoteStartErrorToWarning = Boolean(isTerminalComplete && hasSaved);
@@ -596,6 +608,22 @@ export default function AdminImport() {
               items: mergeById(r.items, items),
               lastCreatedAt: asString(body?.lastCreatedAt || r.lastCreatedAt),
               saved: savedCount,
+              saved_verified_count:
+                typeof body?.saved_verified_count === "number" && Number.isFinite(body.saved_verified_count)
+                  ? body.saved_verified_count
+                  : Number.isFinite(r.saved_verified_count)
+                    ? r.saved_verified_count
+                    : null,
+              saved_company_ids_verified: Array.isArray(body?.saved_company_ids_verified)
+                ? body.saved_company_ids_verified
+                : Array.isArray(r.saved_company_ids_verified)
+                  ? r.saved_company_ids_verified
+                  : [],
+              saved_company_ids_unverified: Array.isArray(body?.saved_company_ids_unverified)
+                ? body.saved_company_ids_unverified
+                : Array.isArray(r.saved_company_ids_unverified)
+                  ? r.saved_company_ids_unverified
+                  : [],
               reconciled,
               reconcile_strategy: reconcileStrategy || null,
               reconciled_saved_ids: reconciledSavedIds,
@@ -627,6 +655,12 @@ export default function AdminImport() {
               last_status_checked_at: new Date().toISOString(),
               last_status_body: body,
               resume_needed: resumeNeeded,
+              resume:
+                body?.resume && typeof body.resume === "object"
+                  ? body.resume
+                  : r.resume && typeof r.resume === "object"
+                    ? r.resume
+                    : null,
               start_error: nextStartError,
               start_error_details: nextStartErrorDetails,
               progress_error: nextProgressError,
@@ -679,6 +713,35 @@ export default function AdminImport() {
     []
   );
 
+  const retryResumeWorker = useCallback(
+    async ({ session_id }) => {
+      const sid = asString(session_id).trim();
+      if (!sid) return;
+
+      try {
+        const resumeUrl = join(API_BASE, "import/resume-worker");
+        const res = await fetch(`${resumeUrl}?session_id=${encodeURIComponent(sid)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sid }),
+          keepalive: true,
+        });
+
+        if (!res.ok) {
+          const msg = (await getUserFacingConfigMessage(res)) || `Retry resume failed (HTTP ${res.status})`;
+          toast.error(msg);
+        } else {
+          toast.success("Resume requested");
+        }
+      } catch (e) {
+        toast.error(toErrorString(e) || "Retry resume failed");
+      } finally {
+        await pollProgress({ session_id: sid });
+      }
+    },
+    [pollProgress]
+  );
+
   const scheduleTerminalRefresh = useCallback(
     ({ session_id }) => {
       const sid = asString(session_id).trim();
@@ -699,10 +762,20 @@ export default function AdminImport() {
         const body = result?.body;
 
         const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
+
+        const savedVerifiedCount =
+          typeof body?.saved_verified_count === "number" && Number.isFinite(body.saved_verified_count)
+            ? body.saved_verified_count
+            : typeof body?.result?.saved_verified_count === "number" && Number.isFinite(body.result.saved_verified_count)
+              ? body.result.saved_verified_count
+              : null;
+
         const savedCount =
-          savedCompanies.length > 0
-            ? savedCompanies.length
-            : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
+          savedVerifiedCount != null
+            ? savedVerifiedCount
+            : savedCompanies.length > 0
+              ? savedCompanies.length
+              : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
 
         const status = asString(body?.status).trim();
         const state = asString(body?.state).trim();
@@ -772,10 +845,20 @@ export default function AdminImport() {
           const body = result?.body;
 
           const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
+
+          const savedVerifiedCount =
+            typeof body?.saved_verified_count === "number" && Number.isFinite(body.saved_verified_count)
+              ? body.saved_verified_count
+              : typeof body?.result?.saved_verified_count === "number" && Number.isFinite(body.result.saved_verified_count)
+                ? body.result.saved_verified_count
+                : null;
+
           const savedCount =
-            savedCompanies.length > 0
-              ? savedCompanies.length
-              : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
+            savedVerifiedCount != null
+              ? savedVerifiedCount
+              : savedCompanies.length > 0
+                ? savedCompanies.length
+                : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
 
           const status = asString(body?.status).trim();
           const state = asString(body?.state).trim();
@@ -1189,10 +1272,20 @@ export default function AdminImport() {
 
             const savedCompanies = Array.isArray(statusBody?.saved_companies) ? statusBody.saved_companies : [];
             const statusStageBeacon = asString(statusBody?.stage_beacon).trim();
+
+            const savedVerifiedCount =
+              typeof statusBody?.saved_verified_count === "number" && Number.isFinite(statusBody.saved_verified_count)
+                ? statusBody.saved_verified_count
+                : typeof statusBody?.result?.saved_verified_count === "number" && Number.isFinite(statusBody.result.saved_verified_count)
+                  ? statusBody.result.saved_verified_count
+                  : null;
+
             const savedCount =
-              savedCompanies.length > 0
-                ? savedCompanies.length
-                : Number(statusBody?.saved ?? statusBody?.result?.saved ?? 0) || 0;
+              savedVerifiedCount != null
+                ? savedVerifiedCount
+                : savedCompanies.length > 0
+                  ? savedCompanies.length
+                  : Number(statusBody?.saved ?? statusBody?.result?.saved ?? 0) || 0;
 
             const statusState = asString(statusBody?.state).trim();
             const statusStatus = asString(statusBody?.status).trim();
@@ -3146,7 +3239,18 @@ export default function AdminImport() {
                     const savedCompanies = Array.isArray(r.saved_companies) ? r.saved_companies : [];
                     const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
-                    const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(r.saved ?? 0) || 0;
+                    const verifiedCount = Number.isFinite(r.saved_verified_count) ? r.saved_verified_count : null;
+                    const savedCount =
+                      verifiedCount != null
+                        ? verifiedCount
+                        : savedCompanies.length > 0
+                          ? savedCompanies.length
+                          : Number(r.saved ?? 0) || 0;
+
+                    const companyId =
+                      asString(primarySaved?.company_id).trim() ||
+                      (Array.isArray(r.saved_company_ids_verified) ? asString(r.saved_company_ids_verified[0]).trim() : "") ||
+                      (Array.isArray(r.saved_company_ids) ? asString(r.saved_company_ids[0]).trim() : "");
 
                     const stageBeaconForStatus = asString(r.final_stage_beacon || r.stage_beacon || r.last_stage_beacon).trim();
                     const persistedDetected = savedCount > 0 || stageBeaconForStatus === "cosmos_write_done";
@@ -3304,6 +3408,18 @@ export default function AdminImport() {
                                 <RefreshCcw className={isRefreshing ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
                                 <span className="ml-1">View status</span>
                               </Button>
+
+                              {companyId ? (
+                                <Button
+                                  asChild
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <a href={`/admin?company_id=${encodeURIComponent(companyId)}`}>Open company</a>
+                                </Button>
+                              ) : null}
                             </div>
 
                             {Boolean(r.reconciled) ? (
@@ -3342,7 +3458,13 @@ export default function AdminImport() {
                       const savedCompanies = Array.isArray(activeRun.saved_companies) ? activeRun.saved_companies : [];
                       const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
-                      const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(activeRun.saved ?? 0) || 0;
+                      const verifiedCount = Number.isFinite(activeRun.saved_verified_count) ? activeRun.saved_verified_count : null;
+                      const savedCount =
+                        verifiedCount != null
+                          ? verifiedCount
+                          : savedCompanies.length > 0
+                            ? savedCompanies.length
+                            : Number(activeRun.saved ?? 0) || 0;
 
                       const stageBeacon = asString(activeRun.final_stage_beacon || activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
                       const persistedDetected = savedCount > 0 || stageBeacon === "cosmos_write_done";
@@ -3369,7 +3491,10 @@ export default function AdminImport() {
                             ? activeRun.items[0]
                             : null;
 
-                      const companyId = asString(primarySaved?.company_id).trim();
+                      const companyId =
+                        asString(primarySaved?.company_id).trim() ||
+                        (Array.isArray(activeRun.saved_company_ids_verified) ? asString(activeRun.saved_company_ids_verified[0]).trim() : "") ||
+                        (Array.isArray(activeRun.saved_company_ids) ? asString(activeRun.saved_company_ids[0]).trim() : "");
                       const companyName = primaryCandidate
                         ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
                         : explicitNoPersist
@@ -3426,6 +3551,32 @@ export default function AdminImport() {
                               <a className="text-sm text-blue-700 underline" href={`/admin?company_id=${encodeURIComponent(companyId)}`}>
                                 Open company in admin
                               </a>
+                            </div>
+                          ) : null}
+
+                          {Boolean(activeRun.resume_needed) ? (
+                            <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-2">
+                              <div className="font-medium">Resume needed</div>
+                              {asString(activeRun.resume?.trigger_error).trim() ? (
+                                <div className="text-amber-900/90 break-words">
+                                  Last resume error: {asString(activeRun.resume?.trigger_error).trim()}
+                                </div>
+                              ) : (
+                                <div className="text-amber-900/90">
+                                  Enrichment is still in progress (reviews/logos/location). You can retry the resume worker if it stalled.
+                                </div>
+                              )}
+                              <div>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  onClick={() => retryResumeWorker({ session_id: activeRun.session_id })}
+                                >
+                                  Retry resume
+                                </Button>
+                              </div>
                             </div>
                           ) : null}
                         </>
