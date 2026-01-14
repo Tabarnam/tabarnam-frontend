@@ -4687,13 +4687,30 @@ const importStartHandlerInner = async (req, context) => {
         const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, xaiModel);
         const xaiUrlForLog = toHostPathOnlyForLog(xaiUrl);
 
+        const externalBaseSet = Boolean(
+          String(
+            process.env.XAI_EXTERNAL_BASE || process.env.XAI_INTERNAL_BASE || process.env.XAI_UPSTREAM_BASE || process.env.XAI_BASE || ""
+          ).trim()
+        );
+        const legacyBaseSet = Boolean(String(process.env.XAI_BASE_URL || "").trim());
+        const xai_config_source = externalBaseSet ? "external" : legacyBaseSet ? "legacy" : "external";
+        const upstreamMeta = getResolvedUpstreamMeta(xaiUrl);
+
         console.log(`[import-start] XAI Endpoint: ${xaiEndpointRaw ? "configured" : "NOT SET"}`);
         console.log(`[import-start] XAI Key: ${xaiKey ? "configured" : "NOT SET"}`);
         console.log("[import-start] env_check", {
           has_xai_key: Boolean(xaiKey),
           xai_key_length: xaiKey ? String(xaiKey).length : 0,
+          xai_config_source,
+          resolved_upstream_host: upstreamMeta.resolved_upstream_host,
+          resolved_upstream_path: upstreamMeta.resolved_upstream_path,
         });
-        console.log(`[import-start] Config source: ${process.env.XAI_EXTERNAL_BASE ? "XAI_EXTERNAL_BASE" : process.env.FUNCTION_URL ? "FUNCTION_URL (legacy)" : "none"}`);
+        console.log("[import-start] xai_routing", {
+          xai_config_source,
+          resolved_upstream_host: upstreamMeta.resolved_upstream_host,
+          resolved_upstream_path: upstreamMeta.resolved_upstream_path,
+          xai_url: xaiUrlForLog || null,
+        });
         console.log(`[import-start] XAI Request URL: ${xaiUrlForLog || "(unparseable)"}`);
 
         if ((!xaiUrl || !xaiKey) && !noUpstreamMode) {
