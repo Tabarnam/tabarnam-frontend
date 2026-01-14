@@ -5634,6 +5634,15 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
             const dryRunRequested = Boolean(bodyObj?.dry_run || bodyObj?.dryRun);
 
+            const missing_by_company = [
+              {
+                company_name: seed.company_name,
+                website_url: seed.website_url,
+                normalized_domain: seed.normalized_domain,
+                missing_fields: ["industries", "product_keywords", "reviews"],
+              },
+            ];
+
             let saveResult = {
               saved: 0,
               skipped: 0,
@@ -5644,20 +5653,146 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               failed_items: [],
             };
 
-            if (!dryRunRequested && cosmosEnabled) {
+            const canPersist = !dryRunRequested && cosmosEnabled;
+
+            if (canPersist) {
               sessionCreatedAtIso ||= new Date().toISOString();
 
-              saveResult = await saveCompaniesToCosmos({
-                companies,
-                sessionId,
-                requestId,
-                sessionCreatedAt: sessionCreatedAtIso,
-                axiosTimeout: Math.min(timeout, 20_000),
-                saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
-              });
+              try {
+                saveResult = await saveCompaniesToCosmos({
+                  companies,
+                  sessionId,
+                  requestId,
+                  sessionCreatedAt: sessionCreatedAtIso,
+                  axiosTimeout: Math.min(timeout, 20_000),
+                  saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
+                });
+              } catch (e) {
+                addWarning("company_url_seed_save_failed", {
+                  stage: "save",
+                  root_cause: "seed_save_failed",
+                  retryable: true,
+                  message: `Failed to persist URL seed: ${toErrorString(e)}`,
+                });
+              }
 
               saveReport = saveResult;
+            }
 
+            const canResume = canPersist && Number(saveResult.saved || 0) > 0;
+
+            if (canResume) {
+              if (cosmosEnabled) {
+                try {
+                  const container = getCompaniesCosmosContainer();
+                  if (container) {
+                    const resumeDocId = `_import_resume_${sessionId}`;
+                    const nowResumeIso = new Date().toISOString();
+
+                    const resumeDoc = {
+                      id: resumeDocId,
+                      ...buildImportControlDocBase(sessionId),
+                      created_at: nowResumeIso,
+                      updated_at: nowResumeIso,
+                      request_id: requestId,
+                      status: "queued",
+                      missing_by_company,
+                      keywords_stage_completed: false,
+                      reviews_stage_completed: false,
+                      location_stage_completed: false,
+                    };
+
+                    await upsertItemWithPkCandidates(container, resumeDoc).catch(() => null);
+                  }
+
+                  await upsertCosmosImportSessionDoc({
+                    sessionId,
+                    requestId,
+                    patch: {
+                      status: "running",
+                      stage_beacon: "company_url_seed_fallback",
+                      saved: Number(saveResult.saved || 0),
+                      skipped: Number(saveResult.skipped || 0),
+                      failed: Number(saveResult.failed || 0),
+                      resume_needed: true,
+                      resume_updated_at: new Date().toISOString(),
+                    },
+                  }).catch(() => null);
+                } catch {
+                  // ignore
+                }
+              }
+
+              try {
+                upsertImportSession({
+                  session_id: sessionId,
+                  request_id: requestId,
+                  status: "running",
+                  stage_beacon: "company_url_seed_fallback",
+                  companies_count: companies.length,
+                  resume_needed: true,
+                });
+              } catch {}
+
+              // Auto-trigger the resume worker so missing enrichment stages get another chance.
+              try {
+                const resumeWorkerRequested = !(bodyObj?.auto_resume === false || bodyObj?.autoResume === false);
+                const invocationIsResumeWorker = String(new URL(req.url).searchParams.get("resume_worker") || "") === "1";
+
+                if (resumeWorkerRequested && !invocationIsResumeWorker) {
+                  const base = new URL(req.url);
+                  const triggerUrl = new URL("/api/import/resume-worker", base.origin);
+                  triggerUrl.searchParams.set("session_id", sessionId);
+                  if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
+
+                  setTimeout(() => {
+                    fetch(triggerUrl.toString(), {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ session_id: sessionId }),
+                    }).catch(() => {});
+                  }, 0);
+                }
+              } catch {}
+
+              return jsonWithRequestId(
+                {
+                  ok: true,
+                  session_id: sessionId,
+                  request_id: requestId,
+                  stage_beacon: "company_url_seed_fallback",
+                  status: "running",
+                  resume_needed: true,
+                  missing_by_company,
+                  company_name: seed.company_name,
+                  website_url: seed.website_url,
+                  companies,
+                  meta: {
+                    mode: "direct",
+                    seed_fallback: true,
+                    accepted_reason: typeof acceptedError?.reason === "string" ? acceptedError.reason : undefined,
+                  },
+                  saved: Number(saveResult.saved || 0),
+                  skipped: Number(saveResult.skipped || 0),
+                  failed: Number(saveResult.failed || 0),
+                  save_report: {
+                    saved: Number(saveResult.saved || 0),
+                    skipped: Number(saveResult.skipped || 0),
+                    failed: Number(saveResult.failed || 0),
+                    saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                    skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                    skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
+                    failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
+                  },
+                  ...(warningKeys.size ? { warnings: Array.from(warningKeys), warnings_detail, warnings_v2 } : {}),
+                  ...(debugOutput ? { debug: debugOutput } : {}),
+                },
+                200
+              );
+            }
+
+            // If we cannot persist or cannot resume, end the session deterministically with a completion marker.
+            if (canPersist) {
               try {
                 const container = getCompaniesCosmosContainer();
                 if (container) {
@@ -5711,6 +5846,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 session_id: sessionId,
                 request_id: requestId,
                 stage_beacon: "company_url_seed_fallback",
+                status: "complete",
+                resume_needed: false,
                 company_name: seed.company_name,
                 website_url: seed.website_url,
                 companies,
