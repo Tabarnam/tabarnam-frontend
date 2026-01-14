@@ -2628,6 +2628,139 @@ async function getCompaniesPartitionKeyPath(companiesContainer) {
   }
 }
 
+let companiesCosmosTargetPromise;
+
+function redactHostForDiagnostics(value) {
+  const host = typeof value === "string" ? value.trim() : "";
+  if (!host) return "";
+  if (host.length <= 12) return host;
+  return `${host.slice(0, 8)}…${host.slice(-8)}`;
+}
+
+async function getCompaniesCosmosTargetDiagnostics() {
+  companiesCosmosTargetPromise ||= (async () => {
+    const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+    const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+    const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+
+    let host = "";
+    try {
+      host = endpoint ? new URL(endpoint).host : "";
+    } catch {
+      host = "";
+    }
+
+    const container = getCompaniesCosmosContainer();
+    const pkPath = await getCompaniesPartitionKeyPath(container);
+
+    return {
+      cosmos_account_host_redacted: redactHostForDiagnostics(host),
+      cosmos_db_name: databaseId,
+      cosmos_container_name: containerId,
+      cosmos_container_partition_key_path: pkPath,
+    };
+  })();
+
+  try {
+    return await companiesCosmosTargetPromise;
+  } catch {
+    return {
+      cosmos_account_host_redacted: "",
+      cosmos_db_name: (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim(),
+      cosmos_container_name: (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim(),
+      cosmos_container_partition_key_path: "/normalized_domain",
+    };
+  }
+}
+
+async function verifySavedCompaniesReadAfterWrite(saveResult) {
+  const result = saveResult && typeof saveResult === "object" ? saveResult : {};
+
+  const savedIds = Array.isArray(result.saved_ids)
+    ? result.saved_ids.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+
+  const persisted = Array.isArray(result.persisted_items) ? result.persisted_items : [];
+  const domainById = new Map();
+  for (const item of persisted) {
+    const id = String(item?.id || "").trim();
+    if (!id) continue;
+    const normalizedDomain = String(item?.normalized_domain || "").trim();
+    if (normalizedDomain) domainById.set(id, normalizedDomain);
+  }
+
+  const container = getCompaniesCosmosContainer();
+  if (!container) {
+    return {
+      verified_ids: [],
+      unverified_ids: savedIds,
+      verified_persisted_items: [],
+    };
+  }
+
+  const BATCH_SIZE = 4;
+  const verified = [];
+  const unverified = [];
+
+  for (let i = 0; i < savedIds.length; i += BATCH_SIZE) {
+    const batch = savedIds.slice(i, i + BATCH_SIZE);
+    const reads = await Promise.all(
+      batch.map(async (companyId) => {
+        const normalizedDomain = domainById.get(companyId) || "unknown";
+        const doc = await readItemWithPkCandidates(container, companyId, {
+          id: companyId,
+          normalized_domain: normalizedDomain,
+          partition_key: normalizedDomain,
+        }).catch(() => null);
+
+        return { companyId, ok: Boolean(doc) };
+      })
+    );
+
+    for (const r of reads) {
+      if (r.ok) verified.push(r.companyId);
+      else unverified.push(r.companyId);
+    }
+  }
+
+  const verifiedSet = new Set(verified);
+  const verifiedPersistedItems = persisted.filter((it) => verifiedSet.has(String(it?.id || "").trim()));
+
+  return {
+    verified_ids: verified,
+    unverified_ids: unverified,
+    verified_persisted_items: verifiedPersistedItems,
+  };
+}
+
+function applyReadAfterWriteVerification(saveResult, verification) {
+  const result = saveResult && typeof saveResult === "object" ? { ...saveResult } : {};
+
+  const writeCount = Number(result.saved || 0) || 0;
+  const writeIds = Array.isArray(result.saved_ids) ? result.saved_ids : [];
+
+  const verifiedIds = Array.isArray(verification?.verified_ids)
+    ? verification.verified_ids.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+  const unverifiedIds = Array.isArray(verification?.unverified_ids)
+    ? verification.unverified_ids.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+
+  const verifiedCount = verifiedIds.length;
+
+  return {
+    ...result,
+    saved_write_count: writeCount,
+    saved_ids_write: writeIds,
+    saved_company_ids_verified: verifiedIds,
+    saved_company_ids_unverified: unverifiedIds,
+    saved_verified_count: verifiedCount,
+    saved: verifiedCount,
+    saved_ids: verifiedIds,
+    persisted_items: Array.isArray(verification?.verified_persisted_items) ? verification.verified_persisted_items : result.persisted_items,
+  };
+}
+
 async function readItemWithPkCandidates(container, id, docForCandidates) {
   if (!container || !id) return null;
   const containerPkPath = await getCompaniesPartitionKeyPath(container);
