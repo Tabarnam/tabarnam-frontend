@@ -722,9 +722,17 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     let resp;
 
     try {
+      const timeoutMsUsed = computeUpstreamTimeoutMs();
+      if (timeoutMsUsed < 3500) {
+        const err = new Error("Total budget exhausted before calling upstream");
+        err.root_cause = "upstream_timeout_budget_exhausted";
+        err.retryable = true;
+        throw err;
+      }
+
       resp = await axiosPost(xaiUrl, payload, {
         headers: buildXaiHeaders(xaiUrl, xaiKey),
-        timeout: xaiTimeoutMs,
+        timeout: timeoutMsUsed,
         validateStatus: () => true,
       });
     } catch (e) {
