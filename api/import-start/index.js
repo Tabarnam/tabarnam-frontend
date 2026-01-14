@@ -4906,12 +4906,21 @@ const importStartHandlerInner = async (req, context) => {
             Number.isFinite(Number(stageCapMsOverride)) && Number(stageCapMsOverride) > 0 ? Number(stageCapMsOverride) : null;
           const stageCapMs = stageCapMsOverrideNumber ? Math.min(stageCapMsOverrideNumber, stageCapMsBase) : stageCapMsBase;
 
-          const timeoutForThisStage = Math.min(Math.max(1, remainingMs - UPSTREAM_TIMEOUT_MARGIN_MS), stageCapMs);
+          // Dynamic stage timeout (SWA-safe): clamp to remaining budget and never exceed ~8s.
+          const timeoutForThisStage = budget.clampStageTimeoutMs({
+            remainingMs,
+            minMs: 2500,
+            maxMs: Math.min(8000, stageCapMs),
+            safetyMarginMs: DEADLINE_SAFETY_BUFFER_MS + UPSTREAM_TIMEOUT_MARGIN_MS,
+          });
 
-          if (timeoutForThisStage < 1_000) {
+          // If we can't safely run the upstream call within this request, bail out early.
+          const minRequired = DEADLINE_SAFETY_BUFFER_MS + UPSTREAM_TIMEOUT_MARGIN_MS + 2500;
+          if (remainingMs < minRequired) {
             if (stageKey === "primary") {
               throwAccepted(stageBeacon, "insufficient_time_for_fetch", {
                 stage: stageKey,
+                remainingMs,
                 timeoutForThisStage,
                 stageCapMs,
               });
@@ -4921,6 +4930,7 @@ const importStartHandlerInner = async (req, context) => {
             err.code = "INSUFFICIENT_TIME_FOR_FETCH";
             err.stage = stageKey;
             err.stage_beacon = stageBeacon;
+            err.remainingMs = remainingMs;
             err.timeoutForThisStage = timeoutForThisStage;
             err.stageCapMs = stageCapMs;
             throw err;
