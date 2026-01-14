@@ -1211,10 +1211,20 @@ export default function AdminImport() {
 
             const savedCompanies = Array.isArray(statusBody?.saved_companies) ? statusBody.saved_companies : [];
             const statusStageBeacon = asString(statusBody?.stage_beacon).trim();
+
+            const savedVerifiedCount =
+              typeof statusBody?.saved_verified_count === "number" && Number.isFinite(statusBody.saved_verified_count)
+                ? statusBody.saved_verified_count
+                : typeof statusBody?.result?.saved_verified_count === "number" && Number.isFinite(statusBody.result.saved_verified_count)
+                  ? statusBody.result.saved_verified_count
+                  : null;
+
             const savedCount =
-              savedCompanies.length > 0
-                ? savedCompanies.length
-                : Number(statusBody?.saved ?? statusBody?.result?.saved ?? 0) || 0;
+              savedVerifiedCount != null
+                ? savedVerifiedCount
+                : savedCompanies.length > 0
+                  ? savedCompanies.length
+                  : Number(statusBody?.saved ?? statusBody?.result?.saved ?? 0) || 0;
 
             const statusState = asString(statusBody?.state).trim();
             const statusStatus = asString(statusBody?.status).trim();
