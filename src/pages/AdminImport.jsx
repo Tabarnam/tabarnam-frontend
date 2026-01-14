@@ -1207,6 +1207,26 @@ export default function AdminImport() {
             const acceptedNonError = isNonErrorAcceptedOutcome(statusBody);
 
             if (savedCount >= 1) {
+              const isCompanyUrlRequest =
+                Array.isArray(requestPayload?.queryTypes) && requestPayload.queryTypes.map((t) => asString(t).trim()).includes("company_url");
+
+              const rawText = asString(body?.text).trim();
+              const isBackendCallFailureText = isNonJsonMasked && rawText === "Backend call failure";
+
+              // If SWA killed /import/start mid-flight, immediately trigger resume-worker so enrichment (reviews/logos)
+              // still completes without manual intervention.
+              if (canonicalSessionId && isCompanyUrlRequest && isBackendCallFailureText) {
+                try {
+                  const resumeUrl = join(API_BASE, "import/resume-worker");
+                  fetch(`${resumeUrl}?session_id=${encodeURIComponent(canonicalSessionId)}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ session_id: canonicalSessionId }),
+                    keepalive: true,
+                  }).catch(() => {});
+                } catch {}
+              }
+
               setRuns((prev) =>
                 prev.map((r) =>
                   r.session_id === canonicalSessionId
@@ -1227,7 +1247,10 @@ export default function AdminImport() {
                         last_stage_beacon: statusStageBeacon || r.last_stage_beacon,
                         final_stage_beacon: statusStageBeacon || r.final_stage_beacon,
                         progress_error: `Saved with warnings${statusStageBeacon ? ` (${statusStageBeacon})` : ""}: ${msg || "post-save stage failed"}`,
-                        progress_notice: null,
+                        progress_notice:
+                          isCompanyUrlRequest && isBackendCallFailureText
+                            ? "Backend call failure detected; resume-worker triggered to finish enrichment."
+                            : null,
                         polling_exhausted: false,
                         updatedAt: new Date().toISOString(),
                       }
@@ -1236,7 +1259,7 @@ export default function AdminImport() {
               );
 
               setActiveStatus("done");
-              toast.warning("Saved with warnings");
+              toast.warning(isCompanyUrlRequest && isBackendCallFailureText ? "Saved with warnings — auto-resuming" : "Saved with warnings");
               return;
             }
 
