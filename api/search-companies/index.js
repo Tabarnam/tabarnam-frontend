@@ -515,6 +515,14 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   const limit = clamp(skip + take, 1, 500);
 
   const container = deps.companiesContainer ?? getCompaniesContainer();
+
+  const cosmosTarget = container ? await getCompaniesCosmosTargetDiagnostics(container).catch(() => null) : null;
+  if (cosmosTarget) {
+    try {
+      context.log("[search-companies] cosmos_target", cosmosTarget);
+    } catch {}
+  }
+
   if (container) {
     try {
       let items = [];
