@@ -744,6 +744,16 @@ async function handler(req, context, opts) {
 
   const build_id = String(BUILD_INFO.build_id || "");
 
+  const effectiveXaiConfig = extractXaiConfig({
+    model: options.model,
+    xai_base_url: options.xai_base_url || options.xaiUrl,
+    xai_key: options.xai_key || options.xaiKey,
+  });
+
+  const xai_config_source = asString(effectiveXaiConfig?.xai_config_source).trim() || null;
+  const resolved_upstream_host = asString(effectiveXaiConfig?.resolved_upstream_host).trim() || null;
+  const resolved_upstream_path = asString(effectiveXaiConfig?.resolved_upstream_path).trim() || null;
+
   function respond(payload) {
     const base = payload && typeof payload === "object" ? payload : {};
 
