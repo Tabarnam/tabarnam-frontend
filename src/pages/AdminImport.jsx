@@ -3484,11 +3484,15 @@ export default function AdminImport() {
                         asString(primarySaved?.company_id).trim() ||
                         (Array.isArray(activeRun.saved_company_ids_verified) ? asString(activeRun.saved_company_ids_verified[0]).trim() : "") ||
                         (Array.isArray(activeRun.saved_company_ids) ? asString(activeRun.saved_company_ids[0]).trim() : "");
-                      const companyName = primaryCandidate
-                        ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
-                        : explicitNoPersist
-                          ? "No company persisted"
-                          : "Company candidate";
+                      const companyName =
+                        asString(primaryDoc?.company_name).trim() ||
+                        (primaryCandidate
+                          ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
+                          : explicitNoPersist
+                            ? "No company persisted"
+                            : savedCount > 0
+                              ? "Saved (verified) but cannot read company doc"
+                              : "Company candidate");
                       const websiteUrl = asString(
                         primaryCandidate?.canonical_url || primaryCandidate?.website_url || primaryCandidate?.url
                       ).trim();
