@@ -4812,6 +4812,9 @@ const importStartHandlerInner = async (req, context) => {
           debugOutput.xai.payload = xaiPayload;
         }
 
+        const deferredStages = new Set();
+        let downstreamDeferredByBudget = false;
+
         // Client-controlled timeouts must never exceed the SWA-safe stage caps.
         const requestedTimeout = Number(bodyObj.timeout_ms) || DEFAULT_UPSTREAM_TIMEOUT_MS;
         const timeout = Math.min(requestedTimeout, DEFAULT_UPSTREAM_TIMEOUT_MS);
