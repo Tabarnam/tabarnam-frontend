@@ -3480,6 +3480,7 @@ export default function AdminImport() {
                             : null;
 
                       const companyId =
+                        asString(primaryDoc?.company_id).trim() ||
                         asString(primarySaved?.company_id).trim() ||
                         (Array.isArray(activeRun.saved_company_ids_verified) ? asString(activeRun.saved_company_ids_verified[0]).trim() : "") ||
                         (Array.isArray(activeRun.saved_company_ids) ? asString(activeRun.saved_company_ids[0]).trim() : "");
