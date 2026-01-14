@@ -8425,6 +8425,13 @@ Return ONLY the JSON array, no other text.`,
                 stage_beacon,
                 status: "running",
                 resume_needed: true,
+                deferred_stages: Array.from(deferredStages),
+                saved_count: Number(saveResult.saved || 0),
+                saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                saved_company_urls: (Array.isArray(enriched) ? enriched : [])
+                  .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
+                  .filter(Boolean)
+                  .slice(0, 50),
                 missing_by_company: enrichmentMissingByCompany,
                 companies: enriched,
                 saved: saveResult.saved,
