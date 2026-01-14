@@ -108,12 +108,21 @@ app.http("retry-logo-import", {
         ...doc,
         logo_status: result.logo_status || (result.logo_url ? "imported" : "not_found_on_site"),
         logo_import_status: result.logo_import_status,
+        logo_stage_status:
+          typeof result.logo_stage_status === "string" && result.logo_stage_status.trim()
+            ? result.logo_stage_status.trim()
+            : result.logo_url
+              ? "ok"
+              : "not_found_on_site",
         logo_source_url: result.logo_source_url || doc.logo_source_url || null,
         logo_source_location: result.logo_source_location || doc.logo_source_location || null,
         logo_source_domain: result.logo_source_domain || doc.logo_source_domain || null,
         logo_source_type: result.logo_source_type || doc.logo_source_type || null,
         logo_error: result.logo_error || "",
         logo_url: result.logo_url || null,
+        logo_discovery_strategy: result.logo_discovery_strategy || doc.logo_discovery_strategy || "",
+        logo_discovery_page_url: result.logo_discovery_page_url || doc.logo_discovery_page_url || "",
+        logo_telemetry: result.logo_telemetry && typeof result.logo_telemetry === "object" ? result.logo_telemetry : doc.logo_telemetry || null,
         updated_at: new Date().toISOString(),
       };
 
