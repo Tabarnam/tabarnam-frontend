@@ -3382,7 +3382,9 @@ export default function AdminImport() {
                         : explicitNoPersist
                           ? "No company persisted"
                           : "Company candidate";
-                      const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
+                      const websiteUrl = asString(
+                        primaryCandidate?.canonical_url || primaryCandidate?.website_url || primaryCandidate?.url
+                      ).trim();
 
                       const enrichmentMissingFields = (() => {
                         const missing = new Set();
