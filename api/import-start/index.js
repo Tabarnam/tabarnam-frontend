@@ -5984,7 +5984,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               sessionCreatedAtIso ||= new Date().toISOString();
 
               try {
-                saveResult = await saveCompaniesToCosmos({
+                const saveResultRaw = await saveCompaniesToCosmos({
                   companies,
                   sessionId,
                   requestId,
@@ -5992,6 +5992,14 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   axiosTimeout: Math.min(timeout, 20_000),
                   saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
                 });
+
+                const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
+                  verified_ids: [],
+                  unverified_ids: Array.isArray(saveResultRaw?.saved_ids) ? saveResultRaw.saved_ids : [],
+                  verified_persisted_items: [],
+                }));
+
+                saveResult = applyReadAfterWriteVerification(saveResultRaw, verification);
               } catch (e) {
                 addWarning("company_url_seed_save_failed", {
                   stage: "save",
