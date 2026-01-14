@@ -4769,14 +4769,19 @@ const importStartHandlerInner = async (req, context) => {
       };
 
       const checkDeadlineOrReturn = (nextStageBeacon, stageKey) => {
-        if (Date.now() > deadlineMs) {
-          // Only primary is allowed to return 202 + continue async.
-          // For downstream enrichment stages, skip the stage and proceed to saving.
+        const remainingMs = budget.getRemainingMs();
+
+        // If we're too close to the SWA gateway wall-clock, stop starting new stages.
+        if (remainingMs < MIN_STAGE_REMAINING_MS) {
+          // Only primary is allowed to continue async.
           if (stageKey === "primary") {
-            return respondAcceptedBeforeGatewayTimeout(nextStageBeacon, "deadline_exceeded_returning_202");
+            return respondAcceptedBeforeGatewayTimeout(nextStageBeacon, "remaining_budget_low", {
+              remainingMs,
+            });
           }
           return null;
         }
+
         return null;
       };
 
@@ -4807,9 +4812,9 @@ const importStartHandlerInner = async (req, context) => {
           debugOutput.xai.payload = xaiPayload;
         }
 
-        // Cap the upstream timeout to 5 minutes to match the import runtime budget.
-        const requestedTimeout = Number(bodyObj.timeout_ms) || 600000;
-        const timeout = Math.min(requestedTimeout, 5 * 60 * 1000);
+        // Client-controlled timeouts must never exceed the SWA-safe stage caps.
+        const requestedTimeout = Number(bodyObj.timeout_ms) || DEFAULT_UPSTREAM_TIMEOUT_MS;
+        const timeout = Math.min(requestedTimeout, DEFAULT_UPSTREAM_TIMEOUT_MS);
         console.log(`[import-start] Request timeout: ${timeout}ms (requested: ${requestedTimeout}ms)`);
 
         // Get XAI configuration (consolidated to use XAI_EXTERNAL_BASE primarily)
