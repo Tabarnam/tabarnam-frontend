@@ -3494,7 +3494,11 @@ export default function AdminImport() {
                               ? "Saved (verified) but cannot read company doc"
                               : "Company candidate");
                       const websiteUrl = asString(
-                        primaryCandidate?.canonical_url || primaryCandidate?.website_url || primaryCandidate?.url
+                        primaryDoc?.canonical_url ||
+                          primaryDoc?.website_url ||
+                          primaryCandidate?.canonical_url ||
+                          primaryCandidate?.website_url ||
+                          primaryCandidate?.url
                       ).trim();
 
                       const enrichmentMissingFields = (() => {
