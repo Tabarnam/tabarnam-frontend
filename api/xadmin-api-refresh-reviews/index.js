@@ -393,10 +393,15 @@ function extractXaiConfig(overrides) {
 
   const rawBase =
     asString(o.xai_base_url || o.xaiUrl).trim() ||
-    asString(process.env.XAI_BASE_URL).trim() ||
-    asString(getXAIEndpoint()).trim();
+    // Prefer consolidated env resolution (XAI_EXTERNAL_BASE, etc.) over legacy XAI_BASE_URL.
+    asString(getXAIEndpoint()).trim() ||
+    asString(process.env.XAI_BASE_URL).trim();
 
-  const xai_key = asString(o.xai_key || o.xaiKey).trim() || asString(process.env.XAI_KEY).trim() || asString(getXAIKey()).trim();
+  const xai_key =
+    asString(o.xai_key || o.xaiKey).trim() ||
+    // Prefer consolidated env resolution (XAI_EXTERNAL_KEY / XAI_API_KEY / FUNCTION_KEY) over legacy XAI_KEY.
+    asString(getXAIKey()).trim() ||
+    asString(process.env.XAI_KEY).trim();
 
   const xai_base_url = rawBase ? resolveXaiEndpointForModel(rawBase, model) : "";
 
