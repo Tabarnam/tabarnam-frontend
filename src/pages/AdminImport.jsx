@@ -713,6 +713,35 @@ export default function AdminImport() {
     []
   );
 
+  const retryResumeWorker = useCallback(
+    async ({ session_id }) => {
+      const sid = asString(session_id).trim();
+      if (!sid) return;
+
+      try {
+        const resumeUrl = join(API_BASE, "import/resume-worker");
+        const res = await fetch(`${resumeUrl}?session_id=${encodeURIComponent(sid)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sid }),
+          keepalive: true,
+        });
+
+        if (!res.ok) {
+          const msg = (await getUserFacingConfigMessage(res)) || `Retry resume failed (HTTP ${res.status})`;
+          toast.error(msg);
+        } else {
+          toast.success("Resume requested");
+        }
+      } catch (e) {
+        toast.error(toErrorString(e) || "Retry resume failed");
+      } finally {
+        await pollProgress({ session_id: sid });
+      }
+    },
+    [pollProgress]
+  );
+
   const scheduleTerminalRefresh = useCallback(
     ({ session_id }) => {
       const sid = asString(session_id).trim();
