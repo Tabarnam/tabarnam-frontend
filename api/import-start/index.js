@@ -9407,12 +9407,80 @@ app.http("import-start-legacy", {
   handler: async (req, context) => importStartSwaWrapper(req, context),
 });
 
+function createSafeHandler(handler, { stage = "import_start" } = {}) {
+  return async (req, context) => {
+    try {
+      const result = await handler(req, context);
+
+      if (!result || typeof result !== "object") {
+        return json(
+          {
+            ok: false,
+            root_cause: "handler_contract",
+            stage,
+            message: "Handler returned no response",
+          },
+          200
+        );
+      }
+
+      const status = Number(result.status || 200) || 200;
+
+      // Never let a raw 5xx response escape: SWA can mask it as plain-text "Backend call failure".
+      if (status >= 500) {
+        return json(
+          {
+            ok: false,
+            root_cause: "handler_5xx",
+            stage,
+            http_status: status,
+            message: `Handler returned HTTP ${status}`,
+          },
+          200
+        );
+      }
+
+      if (result.body && typeof result.body === "object") {
+        return {
+          ...result,
+          status: 200,
+          headers: {
+            ...(result.headers && typeof result.headers === "object" ? result.headers : {}),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(result.body),
+        };
+      }
+
+      return result;
+    } catch (e) {
+      const message = sanitizeTextPreview(e?.message || String(e || "Unhandled exception"));
+      try {
+        console.error("[import-start] safeHandler caught exception:", message);
+      } catch {}
+      return json(
+        {
+          ok: false,
+          root_cause: "unhandled_exception",
+          message,
+          stage,
+        },
+        200
+      );
+    }
+  };
+}
+
+const safeHandler = createSafeHandler(importStartHandler, { stage: "import_start" });
+
 module.exports = {
-  handler: importStartHandler,
+  handler: safeHandler,
+  safeHandler,
   _test: {
     readJsonBody,
     readQueryParam,
     importStartHandler,
     buildReviewsUpstreamPayloadForImportStart,
+    createSafeHandler,
   },
 };
