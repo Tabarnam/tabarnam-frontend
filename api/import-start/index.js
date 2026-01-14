@@ -4888,11 +4888,11 @@ const importStartHandlerInner = async (req, context) => {
         const ensureStageBudgetOrThrow = (stageKey, nextStageBeacon) => {
           const remainingMs = getRemainingMs();
 
-          if (remainingMs < DEADLINE_SAFETY_BUFFER_MS) {
-            // Only "primary" is allowed to return 202 + continue async.
-            // For downstream enrichment stages, we prefer to skip and still save whatever we have.
+          if (remainingMs < MIN_STAGE_REMAINING_MS) {
+            // Only primary is allowed to continue async. Downstream stages should defer and let
+            // resume-worker finish.
             if (stageKey === "primary") {
-              throwAccepted(nextStageBeacon, "remaining_budget_low", { stage: stageKey });
+              throwAccepted(nextStageBeacon, "remaining_budget_low", { stage: stageKey, remainingMs });
             }
           }
 
