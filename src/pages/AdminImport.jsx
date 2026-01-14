@@ -430,6 +430,8 @@ export default function AdminImport() {
   const terminalRefreshAttemptsRef = useRef(new Map());
   const terminalRefreshTimersRef = useRef(new Map());
 
+  const companyDocFetchInFlightRef = useRef(new Set());
+
   const startImportRequestInFlightRef = useRef(false);
   const activeStatusRef = useRef(activeStatus);
   activeStatusRef.current = activeStatus;
