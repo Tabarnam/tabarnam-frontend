@@ -632,7 +632,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           .map((d) => normalizeCompanyForResponse(d));
 
         context.log("[admin-companies-v2] GET count after soft-delete filter:", items.length);
-        return json({ items, count: items.length }, 200);
+        return json({ items, count: items.length, ...(cosmosTarget ? cosmosTarget : {}) }, 200);
       }
 
       if (method === "POST" || method === "PUT") {
