@@ -3301,19 +3301,23 @@ export default function AdminImport() {
                     const warningsList = Array.isArray(r.warnings) ? r.warnings : [];
                     const hasWarnings = warningsList.length > 0 || Boolean(r.warnings_detail || r.warnings_v2);
 
+                    const resumeNeeded = Boolean(r.resume_needed);
+
                     const statusLabel = isFailed
                       ? "Failed"
                       : isSkipped
                         ? "Skipped"
-                        : isCompleteWithSave
-                          ? hasWarnings
-                            ? "Completed with warnings"
-                            : "Completed"
-                          : isCompleteNoSave
-                            ? "Completed: no save"
-                            : r.polling_exhausted
-                              ? "Processing async"
-                              : "Processing";
+                        : resumeNeeded && savedCount > 0
+                          ? "Resume needed"
+                          : isCompleteWithSave
+                            ? hasWarnings
+                              ? "Completed with warnings"
+                              : "Completed"
+                            : isCompleteNoSave
+                              ? "Completed: no save"
+                              : r.polling_exhausted
+                                ? "Processing async"
+                                : "Processing";
 
                     const statusBadgeClass = isFailed
                       ? "border-red-200 bg-red-50 text-red-800"
