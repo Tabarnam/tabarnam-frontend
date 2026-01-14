@@ -1376,7 +1376,10 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
             company_id: id,
             take: requestedTake,
             include_existing_in_context: Boolean(includeExisting),
-            deadline_ms: 65000,
+
+            // Keep this below SWA gateway time budgets. The backend will further clamp.
+            timeout_ms: 20000,
+            deadline_ms: 20000,
           },
         });
 
