@@ -576,6 +576,13 @@ async function adminCompaniesHandler(req, context, deps = {}) {
           (context && context.bindingData && context.bindingData.id) || (req && req.params && req.params.id) || "";
         const routeId = String(routeIdRaw || "").trim();
 
+        const cosmosTarget = await getCompaniesCosmosTargetDiagnostics(container).catch(() => null);
+        if (cosmosTarget) {
+          try {
+            context.log("[admin-companies-v2] cosmos_target", cosmosTarget);
+          } catch {}
+        }
+
         if (routeId) {
           const querySpec = {
             query:
