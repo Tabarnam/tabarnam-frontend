@@ -6054,6 +6054,19 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             );
           }
 
+          const isCompanyUrlImport =
+            Array.isArray(queryTypes) &&
+            queryTypes.includes("company_url") &&
+            typeof query === "string" &&
+            looksLikeCompanyUrlQuery(query);
+
+          // Core rule: company_url imports must never spend the full request budget on inline enrichment.
+          // Persist a deterministic seed immediately and let resume-worker do the heavy lifting.
+          if (isCompanyUrlImport && inputCompanies.length === 0 && !skipStages.has("primary")) {
+            mark("company_url_seed_short_circuit");
+            return await respondWithCompanyUrlSeedFallback(null);
+          }
+
           const wantsAsyncPrimary =
             inputCompanies.length === 0 &&
             shouldRunStage("primary") &&
