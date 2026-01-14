@@ -6914,49 +6914,59 @@ Output JSON only:
           let geocodeStageCompleted = !shouldRunStage("location");
 
           if (shouldRunStage("location")) {
-            ensureStageBudgetOrThrow("location", "xai_location_geocode_start");
+            const remainingBeforeGeocode = getRemainingMs();
+            if (remainingBeforeGeocode < MIN_STAGE_REMAINING_MS) {
+              geocodeStageCompleted = false;
+              downstreamDeferredByBudget = true;
+              deferredStages.add("location");
+              mark("xai_location_geocode_deferred_budget");
+            } else {
+              ensureStageBudgetOrThrow("location", "xai_location_geocode_start");
 
-            const deadlineBeforeGeocode = checkDeadlineOrReturn("xai_location_geocode_start", "location");
-            if (deadlineBeforeGeocode) return deadlineBeforeGeocode;
+              const deadlineBeforeGeocode = checkDeadlineOrReturn("xai_location_geocode_start", "location");
+              if (deadlineBeforeGeocode) return deadlineBeforeGeocode;
 
-            mark("xai_location_geocode_start");
-            setStage("geocodeLocations");
-            console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
+              mark("xai_location_geocode_start");
+              setStage("geocodeLocations");
+              console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
 
-            geocodeStageCompleted = true;
-            for (let i = 0; i < enriched.length; i++) {
-              if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
-                geocodeStageCompleted = false;
-                console.log(
-                  `[import-start] session=${sessionId} geocoding stopping early: remaining budget low`
-                );
-                break;
+              geocodeStageCompleted = true;
+              for (let i = 0; i < enriched.length; i++) {
+                if (getRemainingMs() < MIN_STAGE_REMAINING_MS) {
+                  geocodeStageCompleted = false;
+                  downstreamDeferredByBudget = true;
+                  deferredStages.add("location");
+                  console.log(
+                    `[import-start] session=${sessionId} geocoding stopping early: remaining budget low`
+                  );
+                  break;
+                }
+
+                if (shouldAbort()) {
+                  console.log(`[import-start] session=${sessionId} aborting during geocoding: time limit exceeded`);
+                  break;
+                }
+
+                const stopped = await safeCheckIfSessionStopped(sessionId);
+                if (stopped) {
+                  console.log(`[import-start] session=${sessionId} stop signal detected, aborting during geocoding`);
+                  break;
+                }
+
+                const company = enriched[i];
+                try {
+                  enriched[i] = await geocodeCompanyLocations(company, { timeoutMs: 5000 });
+                } catch (e) {
+                  console.log(
+                    `[import-start] session=${sessionId} geocoding failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`
+                  );
+                }
               }
 
-              if (shouldAbort()) {
-                console.log(`[import-start] session=${sessionId} aborting during geocoding: time limit exceeded`);
-                break;
-              }
-
-              const stopped = await safeCheckIfSessionStopped(sessionId);
-              if (stopped) {
-                console.log(`[import-start] session=${sessionId} stop signal detected, aborting during geocoding`);
-                break;
-              }
-
-              const company = enriched[i];
-              try {
-                enriched[i] = await geocodeCompanyLocations(company, { timeoutMs: 5000 });
-              } catch (e) {
-                console.log(
-                  `[import-start] session=${sessionId} geocoding failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`
-                );
-              }
+              const okCount = enriched.filter((c) => Number.isFinite(c.hq_lat) && Number.isFinite(c.hq_lng)).length;
+              console.log(`[import-start] session=${sessionId} geocoding done success=${okCount} failed=${enriched.length - okCount}`);
+              mark(geocodeStageCompleted ? "xai_location_geocode_done" : "xai_location_geocode_partial");
             }
-
-            const okCount = enriched.filter((c) => Number.isFinite(c.hq_lat) && Number.isFinite(c.hq_lng)).length;
-            console.log(`[import-start] session=${sessionId} geocoding done success=${okCount} failed=${enriched.length - okCount}`);
-            mark(geocodeStageCompleted ? "xai_location_geocode_done" : "xai_location_geocode_partial");
           } else {
             mark("xai_location_geocode_skipped");
           }
