@@ -6034,6 +6034,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 status: "complete",
                 resume_needed: false,
                 company_name: seed.company_name,
+                company_url: seed.company_url || seed.website_url,
                 website_url: seed.website_url,
                 companies,
                 meta: {
