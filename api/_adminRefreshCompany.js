@@ -737,11 +737,25 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       });
     } catch (e) {
       stage = "upstream_error";
+
+      try {
+        await patchCompanyById(container, companyId, existing, {
+          company_refresh_lock_until: 0,
+        });
+      } catch {
+        // ignore
+      }
+
       return json({
         ok: false,
-        stage,
-        error: "Upstream request failed",
+        stage: "refresh_company",
+        root_cause: asString(e?.root_cause).trim() || "upstream_unreachable",
+        retryable: typeof e?.retryable === "boolean" ? e.retryable : true,
+        company_id: companyId,
         upstream_status: 0,
+        xai_config_source,
+        resolved_upstream_host: upstreamMeta.resolved_upstream_host,
+        resolved_upstream_path: upstreamMeta.resolved_upstream_path,
         details: {
           message: asString(e?.message || e).trim() || "Request failed",
           resolved_xai_endpoint: xaiUrl || null,
@@ -749,6 +763,8 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         config,
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
       });
     }
 
