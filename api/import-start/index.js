@@ -8812,6 +8812,8 @@ Return ONLY the JSON array, no other text.`,
             });
           } catch {}
 
+          const cosmosTarget = cosmosEnabled ? await getCompaniesCosmosTargetDiagnostics().catch(() => null) : null;
+
           return jsonWithRequestId(
             {
               ok: true,
@@ -8834,14 +8836,27 @@ Return ONLY the JSON array, no other text.`,
                 timedOut: timedOut,
                 elapsedMs: elapsed,
               },
+              ...(cosmosTarget ? cosmosTarget : {}),
+              saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+              saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
+                ? saveResult.saved_company_ids_verified
+                : Array.isArray(saveResult.saved_ids)
+                  ? saveResult.saved_ids
+                  : [],
+              saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
               saved: saveResult.saved,
               skipped: saveResult.skipped,
               failed: saveResult.failed,
               save_report: {
                 saved: saveResult.saved,
+                saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+                saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
                 skipped: saveResult.skipped,
                 failed: saveResult.failed,
                 saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                saved_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
+                saved_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
+                saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
                 skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
                 skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
                 failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
