@@ -546,7 +546,9 @@ export default function AdminImport() {
               ? lastErrorCode || asString(r.final_last_error_code)
               : asString(r.final_last_error_code);
 
-            const savedCount = Number.isFinite(saved) ? saved : Number(r.saved ?? 0) || 0;
+            const savedVerifiedCount = Number.isFinite(r.saved_verified_count) ? r.saved_verified_count : null;
+            const savedCount =
+              savedVerifiedCount != null ? savedVerifiedCount : Number.isFinite(saved) ? saved : Number(r.saved ?? 0) || 0;
             const hasSaved = savedCount > 0;
 
             const shouldDemoteStartErrorToWarning = Boolean(isTerminalComplete && hasSaved);
