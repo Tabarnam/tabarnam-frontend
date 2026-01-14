@@ -430,6 +430,8 @@ export default function AdminImport() {
   const terminalRefreshAttemptsRef = useRef(new Map());
   const terminalRefreshTimersRef = useRef(new Map());
 
+  const companyDocFetchInFlightRef = useRef(new Set());
+
   const startImportRequestInFlightRef = useRef(false);
   const activeStatusRef = useRef(activeStatus);
   activeStatusRef.current = activeStatus;
@@ -438,6 +440,101 @@ export default function AdminImport() {
     if (!activeSessionId) return null;
     return runs.find((r) => r.session_id === activeSessionId) || null;
   }, [activeSessionId, runs]);
+
+  useEffect(() => {
+    if (!activeRun) return;
+
+    const sid = asString(activeRun.session_id).trim();
+    const verifiedCompanyId = Array.isArray(activeRun.saved_company_ids_verified)
+      ? asString(activeRun.saved_company_ids_verified[0]).trim()
+      : "";
+
+    if (!sid || !verifiedCompanyId) return;
+
+    const existingDocCompanyId = asString(activeRun.primary_company_doc?.company_id).trim();
+    if (existingDocCompanyId === verifiedCompanyId) return;
+
+    const existingErrCompanyId = asString(activeRun.primary_company_doc_error?.company_id).trim();
+    if (existingErrCompanyId === verifiedCompanyId) return;
+
+    const fetchKey = `${sid}:${verifiedCompanyId}`;
+    if (companyDocFetchInFlightRef.current.has(fetchKey)) return;
+    companyDocFetchInFlightRef.current.add(fetchKey);
+
+    (async () => {
+      try {
+        const { res } = await apiFetchWithFallback([`/xadmin-api-companies/${encodeURIComponent(verifiedCompanyId)}`]);
+        const body = await readJsonOrText(res);
+
+        const company = body && typeof body === "object" ? body.company : null;
+        if (!res.ok || !company || typeof company !== "object") {
+          const msg =
+            body && typeof body === "object"
+              ? asString(body.error || body.message || body.text).trim() || `HTTP ${res.status}`
+              : `HTTP ${res.status}`;
+
+          setRuns((prev) =>
+            prev.map((r) =>
+              r.session_id === sid
+                ? {
+                    ...r,
+                    primary_company_doc: null,
+                    primary_company_doc_error: {
+                      company_id: verifiedCompanyId,
+                      message: msg || "Failed to load company doc",
+                    },
+                    updatedAt: new Date().toISOString(),
+                  }
+                : r
+            )
+          );
+          return;
+        }
+
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === sid
+              ? {
+                  ...r,
+                  primary_company_doc: {
+                    company_id: asString(company.id || verifiedCompanyId).trim() || verifiedCompanyId,
+                    company_name: asString(company.company_name || company.name).trim() || "Unknown company",
+                    canonical_url: asString(company.canonical_url).trim(),
+                    website_url: asString(company.website_url || company.url || company.canonical_url).trim(),
+                  },
+                  primary_company_doc_error: null,
+                  updatedAt: new Date().toISOString(),
+                }
+              : r
+          )
+        );
+      } catch (e) {
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === sid
+              ? {
+                  ...r,
+                  primary_company_doc: null,
+                  primary_company_doc_error: {
+                    company_id: verifiedCompanyId,
+                    message: toErrorString(e) || "Failed to load company doc",
+                  },
+                  updatedAt: new Date().toISOString(),
+                }
+              : r
+          )
+        );
+      } finally {
+        companyDocFetchInFlightRef.current.delete(fetchKey);
+      }
+    })();
+  }, [
+    activeRun,
+    activeRun?.session_id,
+    Array.isArray(activeRun?.saved_company_ids_verified) ? activeRun.saved_company_ids_verified[0] : "",
+    activeRun?.primary_company_doc?.company_id,
+    activeRun?.primary_company_doc_error?.company_id,
+  ]);
 
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current) {
@@ -470,9 +567,24 @@ export default function AdminImport() {
           );
           const msg = bodyPreview ? `${baseMsg}\n${bodyPreview}` : baseMsg;
 
-          setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
+          if (isUnknownSession) {
+            setRuns((prev) =>
+              prev.map((r) =>
+                r.session_id === session_id
+                  ? {
+                      ...r,
+                      progress_error: null,
+                      progress_notice: "Session not found yet; retrying status polling…",
+                      updatedAt: new Date().toISOString(),
+                    }
+                  : r
+              )
+            );
+            return { shouldStop: false, body, unknown_session: true };
+          }
 
-          if (!isUnknownSession) toast.error(baseMsg);
+          setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
+          toast.error(baseMsg);
           return { shouldStop: true, body };
         }
 
@@ -516,9 +628,9 @@ export default function AdminImport() {
           (!resumeNeeded && jobState === "complete") ||
           (completed && !resumeNeeded);
 
-        // If at least one company is already saved, we can stop polling even when resume_needed is true.
-        // Resume-worker can continue enrichment in the background.
-        const shouldStopAfterSeedSave = resumeNeeded && saved > 0 && !isTerminalError && !isTerminalComplete;
+        // If at least one company is already saved (verified), we can pause polling while resume-worker
+        // continues enrichment. This is NOT a terminal "Completed" state.
+        const shouldPauseForResume = resumeNeeded && saved > 0 && !isTerminalError && !isTerminalComplete;
 
         const lastErrorCode = asString(lastError?.code).trim();
         const primaryTimeoutLabel = formatDurationShort(lastError?.hard_timeout_ms);
@@ -594,7 +706,7 @@ export default function AdminImport() {
               if (upstreamStatus != null) meta.push(`HTTP ${upstreamStatus}`);
 
               const safeMsg = responseMsg.toLowerCase() === "backend call failure" ? "" : responseMsg;
-              const base = stageLabel || "follow_up_failed";
+              const base = stageLabel || rootCauseLabel || "post_save_warning";
               const warningReason = `${base}${meta.length ? ` (${meta.join(", ")})` : ""}${safeMsg ? `: ${safeMsg}` : ""}`.trim() || existingStartError;
 
               nextStartError = null;
@@ -628,7 +740,7 @@ export default function AdminImport() {
               reconcile_strategy: reconcileStrategy || null,
               reconciled_saved_ids: reconciledSavedIds,
               saved_companies: savedCompanies.length > 0 ? savedCompanies : Array.isArray(r.saved_companies) ? r.saved_companies : [],
-              completed: isTerminalComplete || shouldStopAfterSeedSave,
+              completed: isTerminalComplete,
               timedOut,
               stopped: isTerminalError ? true : stopped,
               job_state: normalizedJobState,
@@ -664,6 +776,9 @@ export default function AdminImport() {
               start_error: nextStartError,
               start_error_details: nextStartErrorDetails,
               progress_error: nextProgressError,
+              progress_notice: shouldPauseForResume
+                ? `Saved (verified): ${savedCount}. Resume needed — enrichment will continue in the background.`
+                : r.progress_notice,
               updatedAt: new Date().toISOString(),
             };
           })
@@ -672,12 +787,12 @@ export default function AdminImport() {
         if (isTerminalError) return { shouldStop: true, body };
         if (isTerminalComplete) return { shouldStop: true, body };
 
-        if (shouldStopAfterSeedSave) {
+        if (shouldPauseForResume) {
           try {
             setActiveStatus((prev) => (prev === "running" ? "done" : prev));
           } catch {}
-          toast.success("Company saved. Enrichment will continue in the background.");
-          return { shouldStop: true, body };
+          toast.info("Saved (verified). Enrichment pending — use Retry resume if it gets stuck.");
+          return { shouldStop: true, body, stop_reason: "resume_needed" };
         }
 
         return { shouldStop: timedOut || stopped, body };
@@ -841,6 +956,32 @@ export default function AdminImport() {
         }
 
         const result = await pollProgress({ session_id });
+
+        if (result?.unknown_session) {
+          const MAX_UNKNOWN_SESSION_ATTEMPTS = 8;
+          if (nextAttempts >= MAX_UNKNOWN_SESSION_ATTEMPTS) {
+            const msg = "No session found after repeated status checks. The gateway may have interrupted before the session was created. Retry start.";
+
+            setRuns((prev) =>
+              prev.map((r) =>
+                r.session_id === session_id
+                  ? {
+                      ...r,
+                      progress_error: msg,
+                      progress_notice: null,
+                      polling_exhausted: true,
+                      updatedAt: new Date().toISOString(),
+                    }
+                  : r
+              )
+            );
+
+            setActiveStatus("error");
+            toast.error("No session found — retry start");
+            return;
+          }
+        }
+
         if (result?.shouldStop) {
           const body = result?.body;
 
@@ -1261,222 +1402,47 @@ export default function AdminImport() {
 
         const isReported5xx = reportedHttpStatus != null && reportedHttpStatus >= 500;
 
-        // Guard: if import-start fails with a SWA-masked raw-text response, any 5xx, or a
-        // wrapper-normalized delegate 5xx (http_status), status polling is the only reliable
-        // source of truth about whether anything was saved.
-        if (((Number(res?.status) || 0) >= 500 || isNonJsonMasked || isReported5xx) && canonicalSessionId) {
+        // Guard: if import-start fails with a SWA-masked raw-text response ("Backend call failure") or any 5xx,
+        // immediately switch to session-driven polling. The session status endpoint is the ONLY source of truth
+        // about whether anything was actually persisted.
+        const rawText = asString(body?.text).trim();
+        const isBackendCallFailureText = isNonJsonMasked && rawText === "Backend call failure";
+        const shouldRecoverViaPolling =
+          Boolean(canonicalSessionId) &&
+          (isBackendCallFailureText || (Number(res?.status) || 0) >= 500 || isReported5xx);
+
+        if (shouldRecoverViaPolling && canonicalSessionId) {
+          setRuns((prev) =>
+            prev.map((r) =>
+              r.session_id === canonicalSessionId
+                ? {
+                    ...r,
+                    // Keep the row visible, but avoid any optimistic saved/completed values.
+                    completed: false,
+                    start_error: null,
+                    start_error_details: detailsForCopy,
+                    progress_error: null,
+                    progress_notice: isBackendCallFailureText
+                      ? "Gateway interrupted, recovering via status polling…"
+                      : "Start call failed, recovering via status polling…",
+                    polling_exhausted: false,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : r
+            )
+          );
+
+          resetPollAttempts(canonicalSessionId);
+          setActiveStatus("running");
+
+          // Kick off the recovery loop. Status polling will populate verified saved ids/counts.
           try {
-            const encoded = encodeURIComponent(canonicalSessionId);
-            const { res: statusRes } = await apiFetchWithFallback([`/import/status?session_id=${encoded}`]);
-            const statusBody = await readJsonOrText(statusRes).catch(() => null);
+            await pollProgress({ session_id: canonicalSessionId });
+          } catch {}
+          schedulePoll({ session_id: canonicalSessionId });
 
-            const savedCompanies = Array.isArray(statusBody?.saved_companies) ? statusBody.saved_companies : [];
-            const statusStageBeacon = asString(statusBody?.stage_beacon).trim();
-
-            const savedVerifiedCount =
-              typeof statusBody?.saved_verified_count === "number" && Number.isFinite(statusBody.saved_verified_count)
-                ? statusBody.saved_verified_count
-                : typeof statusBody?.result?.saved_verified_count === "number" && Number.isFinite(statusBody.result.saved_verified_count)
-                  ? statusBody.result.saved_verified_count
-                  : null;
-
-            const savedCount =
-              savedVerifiedCount != null
-                ? savedVerifiedCount
-                : savedCompanies.length > 0
-                  ? savedCompanies.length
-                  : Number(statusBody?.saved ?? statusBody?.result?.saved ?? 0) || 0;
-
-            const statusState = asString(statusBody?.state).trim();
-            const statusStatus = asString(statusBody?.status).trim();
-            const statusJobState = asString(
-              statusBody?.job_state || statusBody?.primary_job_state || statusBody?.primary_job?.job_state
-            ).trim();
-            const statusCompleted = statusState === "complete" ? true : Boolean(statusBody?.completed);
-            const statusTerminalComplete =
-              statusState === "complete" || statusStatus === "complete" || statusJobState === "complete" || statusCompleted;
-
-            const acceptReason = extractAcceptReason(statusBody);
-            const acceptedNonError = isNonErrorAcceptedOutcome(statusBody);
-
-            if (savedCount >= 1) {
-              const isCompanyUrlRequest =
-                Array.isArray(requestPayload?.queryTypes) && requestPayload.queryTypes.map((t) => asString(t).trim()).includes("company_url");
-
-              const rawText = asString(body?.text).trim();
-              const isBackendCallFailureText = isNonJsonMasked && rawText === "Backend call failure";
-
-              // If SWA killed /import/start mid-flight, immediately trigger resume-worker so enrichment (reviews/logos)
-              // still completes without manual intervention.
-              if (canonicalSessionId && isCompanyUrlRequest && isBackendCallFailureText) {
-                try {
-                  const resumeUrl = join(API_BASE, "import/resume-worker");
-                  fetch(`${resumeUrl}?session_id=${encodeURIComponent(canonicalSessionId)}`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ session_id: canonicalSessionId }),
-                    keepalive: true,
-                  }).catch(() => {});
-                } catch {}
-              }
-
-              setRuns((prev) =>
-                prev.map((r) =>
-                  r.session_id === canonicalSessionId
-                    ? {
-                        ...r,
-                        saved: Math.max(Number(r.saved ?? 0) || 0, savedCount),
-                        saved_companies:
-                          savedCompanies.length > 0
-                            ? savedCompanies
-                            : Array.isArray(r.saved_companies)
-                              ? r.saved_companies
-                              : [],
-                        completed: true,
-                        start_error: null,
-                        start_error_details: detailsForCopy,
-                        accepted_reason: acceptReason || r.accepted_reason || null,
-                        stage_beacon: statusStageBeacon || r.stage_beacon,
-                        last_stage_beacon: statusStageBeacon || r.last_stage_beacon,
-                        final_stage_beacon: statusStageBeacon || r.final_stage_beacon,
-                        progress_error: `Saved with warnings${statusStageBeacon ? ` (${statusStageBeacon})` : ""}: ${msg || "post-save stage failed"}`,
-                        progress_notice:
-                          isCompanyUrlRequest && isBackendCallFailureText
-                            ? "Backend call failure detected; resume-worker triggered to finish enrichment."
-                            : null,
-                        polling_exhausted: false,
-                        updatedAt: new Date().toISOString(),
-                      }
-                    : r
-                )
-              );
-
-              setActiveStatus("done");
-              toast.warning(isCompanyUrlRequest && isBackendCallFailureText ? "Saved with warnings — auto-resuming" : "Saved with warnings");
-              return;
-            }
-
-            const isCompanyUrlRequest =
-              Array.isArray(requestPayload?.queryTypes) && requestPayload.queryTypes.map((t) => asString(t).trim()).includes("company_url");
-
-            const rawText = asString(body?.text).trim();
-            const isBackendCallFailureText = isNonJsonMasked && rawText === "Backend call failure";
-
-            if (canonicalSessionId && isCompanyUrlRequest && isBackendCallFailureText && savedCount === 0) {
-              // Nothing saved yet (or status couldn't detect it). Force a deterministic seed save (max_stage=primary)
-              // then trigger resume-worker.
-              try {
-                const seedResult = await callImportStage({ stage: "primary", skipStages: [], companies: [] });
-                syncCanonicalSessionId({ res: seedResult.res, body: seedResult.body });
-                recordStageCall({
-                  stage: "primary",
-                  skipStages: [],
-                  usedPath: seedResult.usedPath,
-                  payload: seedResult.payload,
-                  res: seedResult.res,
-                  body: seedResult.body,
-                });
-              } catch {
-                // ignore; resume-worker trigger below may still succeed if something was saved
-              }
-
-              try {
-                const resumeUrl = join(API_BASE, "import/resume-worker");
-                fetch(`${resumeUrl}?session_id=${encodeURIComponent(canonicalSessionId)}`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ session_id: canonicalSessionId }),
-                  keepalive: true,
-                }).catch(() => {});
-              } catch {}
-
-              setRuns((prev) =>
-                prev.map((r) =>
-                  r.session_id === canonicalSessionId
-                    ? {
-                        ...r,
-                        completed: true,
-                        start_error: null,
-                        start_error_details: detailsForCopy,
-                        progress_error: "Backend call failure detected; forced seed-only retry + resume-worker triggered.",
-                        progress_notice: null,
-                        polling_exhausted: false,
-                        updatedAt: new Date().toISOString(),
-                      }
-                    : r
-                )
-              );
-
-              setActiveStatus("done");
-              toast.warning("Backend call failure — retrying seed + resuming");
-              return;
-            }
-
-            if (statusTerminalComplete) {
-              const isSkipped = isPrimarySkippedCompanyUrl(statusStageBeacon);
-              const noCandidates =
-                statusStageBeacon === "no_candidates_found" || asString(statusBody?.last_error?.code).trim() === "no_candidates_found";
-
-              if (isSkipped || noCandidates) {
-                const notice = isSkipped
-                  ? "Completed: URL skipped by design (primary worker does not run for company_url queries)."
-                  : "Completed: no eligible companies found.";
-
-                setRuns((prev) =>
-                  prev.map((r) =>
-                    r.session_id === canonicalSessionId
-                      ? {
-                          ...r,
-                          saved: 0,
-                          saved_companies: [],
-                          items: Array.isArray(r.items) ? r.items : [],
-                          completed: true,
-                          job_state: "complete",
-                          final_job_state: "complete",
-                          start_error: null,
-                          start_error_details: detailsForCopy,
-                          accepted_reason: acceptReason || r.accepted_reason || null,
-                          stage_beacon: statusStageBeacon || r.stage_beacon,
-                          last_stage_beacon: statusStageBeacon || r.last_stage_beacon,
-                          final_stage_beacon: statusStageBeacon || r.final_stage_beacon,
-                          progress_error: null,
-                          progress_notice: notice,
-                          polling_exhausted: false,
-                          updatedAt: new Date().toISOString(),
-                        }
-                      : r
-                  )
-                );
-
-                setActiveStatus("done");
-                toast.info(isSkipped ? "Completed: URL skipped by design" : "Completed: no eligible companies found");
-                return;
-              }
-            }
-
-            if (acceptedNonError) {
-              const notice = "Import accepted, processing asynchronously. Use \"View status\" to refresh.";
-              setRuns((prev) =>
-                prev.map((r) =>
-                  r.session_id === canonicalSessionId
-                    ? {
-                        ...r,
-                        start_error: null,
-                        start_error_details: detailsForCopy,
-                        accepted_reason: acceptReason || r.accepted_reason || null,
-                        progress_notice: notice,
-                        polling_exhausted: false,
-                        updatedAt: new Date().toISOString(),
-                      }
-                    : r
-                )
-              );
-              toast.info("Import accepted, processing asynchronously");
-              return;
-            }
-          } catch {
-            // fall through to normal error handling
-          }
+          toast.info(isBackendCallFailureText ? "Gateway interrupted — recovering…" : "Start failed — checking status…");
+          return;
         }
 
         setRuns((prev) =>
@@ -2215,21 +2181,34 @@ export default function AdminImport() {
 
   const activeItems = Array.isArray(activeRun?.items) ? activeRun.items : [];
   const activeSavedCompanies = Array.isArray(activeRun?.saved_companies) ? activeRun.saved_companies : [];
-  const activeSavedCount = activeSavedCompanies.length > 0 ? activeSavedCompanies.length : Number(activeRun?.saved ?? 0) || 0;
+  const activeSavedVerifiedIds = Array.isArray(activeRun?.saved_company_ids_verified) ? activeRun.saved_company_ids_verified : [];
+
+  const activeSavedVerifiedCount =
+    typeof activeRun?.saved_verified_count === "number" && Number.isFinite(activeRun.saved_verified_count)
+      ? activeRun.saved_verified_count
+      : activeSavedVerifiedIds.length;
+
+  const activeSavedCount = Math.max(
+    activeSavedCompanies.length,
+    activeSavedVerifiedCount,
+    Number(activeRun?.saved ?? 0) || 0
+  );
 
   const activeIsTerminal = Boolean(activeRun && (activeRun.completed || activeRun.timedOut || activeRun.stopped));
 
-  // If the start request errored (e.g. post-save review refresh failure) but status polling
-  // later confirms that companies were saved, treat it as a warning instead of a fatal import failure.
+  // If the start request errored (e.g. post-save follow-up stage) but status polling later confirms
+  // that companies were saved, treat it as a warning instead of a fatal import failure.
   useEffect(() => {
     if (!activeRun) return;
     if (activeStatus !== "error") return;
-    if (!activeRun.completed) return;
-    if (activeSavedCount <= 0) return;
+    if (activeSavedVerifiedCount <= 0) return;
 
     setActiveStatus("done");
-  }, [activeRun, activeSavedCount, activeStatus]);
-  const showSavedResults = Boolean(activeIsTerminal && activeSavedCount > 0);
+  }, [activeRun, activeSavedVerifiedCount, activeStatus]);
+
+  // Saved results should render as soon as we have verified saved ids/counts, even if the session
+  // still needs resume-worker to finish enrichment.
+  const showSavedResults = activeSavedVerifiedCount > 0 || activeSavedCompanies.length > 0;
   const activeResults = showSavedResults ? activeSavedCompanies : activeItems;
 
   const activeItemsCount = activeIsTerminal && activeSavedCount === 0 ? 0 : activeResults.length;
@@ -3119,7 +3098,7 @@ export default function AdminImport() {
                     return items;
                   })().map((c) => {
                     const name = asString(c?.company_name || c?.name).trim() || "(unnamed)";
-                    const url = asString(c?.website_url || c?.url).trim();
+                    const url = asString(c?.canonical_url || c?.website_url || c?.url).trim();
 
                     const keywordsCanonical =
                       Array.isArray(c?.keywords) && c.keywords.length > 0
@@ -3298,9 +3277,13 @@ export default function AdminImport() {
                       ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
                       : explicitNoPersist
                         ? "No company persisted"
-                        : "Company candidate";
+                        : savedCount > 0
+                          ? "Saved (verified) — company doc missing"
+                          : "Company candidate";
 
-                    const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
+                    const websiteUrl = asString(
+                      primaryCandidate?.canonical_url || primaryCandidate?.website_url || primaryCandidate?.url
+                    ).trim();
                     const isRefreshing = statusRefreshSessionId === r.session_id;
 
                     const jobState = asString(r.final_job_state || r.job_state).trim().toLowerCase();
@@ -3318,31 +3301,37 @@ export default function AdminImport() {
                     const warningsList = Array.isArray(r.warnings) ? r.warnings : [];
                     const hasWarnings = warningsList.length > 0 || Boolean(r.warnings_detail || r.warnings_v2);
 
+                    const resumeNeeded = Boolean(r.resume_needed);
+
                     const statusLabel = isFailed
                       ? "Failed"
                       : isSkipped
                         ? "Skipped"
-                        : isCompleteWithSave
-                          ? hasWarnings
-                            ? "Completed with warnings"
-                            : "Completed"
-                          : isCompleteNoSave
-                            ? "Completed: no save"
-                            : r.polling_exhausted
-                              ? "Processing async"
-                              : "Processing";
+                        : resumeNeeded && savedCount > 0
+                          ? "Resume needed"
+                          : isCompleteWithSave
+                            ? hasWarnings
+                              ? "Completed with warnings"
+                              : "Completed"
+                            : isCompleteNoSave
+                              ? "Completed: no save"
+                              : r.polling_exhausted
+                                ? "Processing async"
+                                : "Processing";
 
                     const statusBadgeClass = isFailed
                       ? "border-red-200 bg-red-50 text-red-800"
                       : isSkipped
                         ? "border-amber-200 bg-amber-50 text-amber-900"
-                        : isCompleteWithSave
-                          ? hasWarnings
-                            ? "border-amber-200 bg-amber-50 text-amber-900"
-                            : "border-emerald-200 bg-emerald-50 text-emerald-800"
-                          : isCompleteNoSave
-                            ? "border-slate-200 bg-slate-50 text-slate-700"
-                            : "border-sky-200 bg-sky-50 text-sky-800";
+                        : resumeNeeded && savedCount > 0
+                          ? "border-amber-200 bg-amber-50 text-amber-900"
+                          : isCompleteWithSave
+                            ? hasWarnings
+                              ? "border-amber-200 bg-amber-50 text-amber-900"
+                              : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                            : isCompleteNoSave
+                              ? "border-slate-200 bg-slate-50 text-slate-700"
+                              : "border-sky-200 bg-sky-50 text-sky-800";
 
                     return (
                       <div
@@ -3458,6 +3447,15 @@ export default function AdminImport() {
                       const savedCompanies = Array.isArray(activeRun.saved_companies) ? activeRun.saved_companies : [];
                       const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
+                      const primaryDoc =
+                        activeRun.primary_company_doc && typeof activeRun.primary_company_doc === "object"
+                          ? activeRun.primary_company_doc
+                          : null;
+                      const primaryDocError =
+                        activeRun.primary_company_doc_error && typeof activeRun.primary_company_doc_error === "object"
+                          ? activeRun.primary_company_doc_error
+                          : null;
+
                       const verifiedCount = Number.isFinite(activeRun.saved_verified_count) ? activeRun.saved_verified_count : null;
                       const savedCount =
                         verifiedCount != null
@@ -3492,15 +3490,26 @@ export default function AdminImport() {
                             : null;
 
                       const companyId =
+                        asString(primaryDoc?.company_id).trim() ||
                         asString(primarySaved?.company_id).trim() ||
                         (Array.isArray(activeRun.saved_company_ids_verified) ? asString(activeRun.saved_company_ids_verified[0]).trim() : "") ||
                         (Array.isArray(activeRun.saved_company_ids) ? asString(activeRun.saved_company_ids[0]).trim() : "");
-                      const companyName = primaryCandidate
-                        ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
-                        : explicitNoPersist
-                          ? "No company persisted"
-                          : "Company candidate";
-                      const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
+                      const companyName =
+                        asString(primaryDoc?.company_name).trim() ||
+                        (primaryCandidate
+                          ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
+                          : explicitNoPersist
+                            ? "No company persisted"
+                            : savedCount > 0
+                              ? "Saved (verified) but cannot read company doc"
+                              : "Company candidate");
+                      const websiteUrl = asString(
+                        primaryDoc?.canonical_url ||
+                          primaryDoc?.website_url ||
+                          primaryCandidate?.canonical_url ||
+                          primaryCandidate?.website_url ||
+                          primaryCandidate?.url
+                      ).trim();
 
                       const enrichmentMissingFields = (() => {
                         const missing = new Set();
@@ -3535,6 +3544,12 @@ export default function AdminImport() {
                               ) : (
                                 <div className="mt-1 text-sm text-slate-600">No URL</div>
                               )}
+
+                              {primaryDocError && savedCount > 0 ? (
+                                <div className="mt-1 text-xs text-amber-900 break-words">
+                                  Saved (verified) but cannot read company doc: {asString(primaryDocError.message).trim() || "unknown error"}
+                                </div>
+                              ) : null}
                             </div>
                             <div className="text-sm text-slate-700">Saved: {savedCount}</div>
                           </div>
