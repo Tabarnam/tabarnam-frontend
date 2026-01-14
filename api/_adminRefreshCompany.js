@@ -582,6 +582,54 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       );
     }
 
+    // Best-effort per-company lock so repeated clicks don't overlap.
+    stage = "lock_check";
+    const nowMs = Date.now();
+    const lockUntilExisting = Number(existing.company_refresh_lock_until || 0) || 0;
+    if (lockUntilExisting > nowMs) {
+      const retryAfterMs = Math.max(0, lockUntilExisting - nowMs);
+      return json({
+        ok: false,
+        stage: "refresh_company",
+        root_cause: "locked",
+        retryable: true,
+        company_id: companyId,
+        lock_until_ms: lockUntilExisting,
+        retry_after_ms: retryAfterMs,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
+      });
+    }
+
+    stage = "budget_guard";
+    if (getRemainingBudgetMs() < 4500) {
+      return json({
+        ok: false,
+        stage: "refresh_company",
+        root_cause: "upstream_timeout_budget_exhausted",
+        retryable: true,
+        company_id: companyId,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
+      });
+    }
+
+    try {
+      const lockWindowMs = Math.max(8000, Math.min(30000, budgetMs + 5000));
+      const lockUntil = nowMs + lockWindowMs;
+      await patchCompanyById(container, companyId, existing, {
+        company_refresh_lock_key: `company_refresh_lock::${companyId}`,
+        company_refresh_lock_until: lockUntil,
+        company_refresh_last_attempt_at: new Date().toISOString(),
+      });
+    } catch {
+      // ignore
+    }
+
     stage = "prepare_prompt";
     const companyName = asString(existing.company_name || existing.name).trim();
     const websiteUrl = asString(existing.website_url || existing.canonical_url || existing.url).trim();
