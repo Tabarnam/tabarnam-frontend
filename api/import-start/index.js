@@ -3811,6 +3811,11 @@ const importStartHandlerInner = async (req, context) => {
         const websiteUrl = String(c.website_url || c.url || c.canonical_url || "").trim();
         if (!companyName || !websiteUrl) return false;
 
+        const id = String(c.id || c.company_id || c.companyId || "").trim();
+
+        // Rule: if we already persisted a company doc (id exists), we can resume enrichment for it.
+        if (id && !id.startsWith("_import_")) return true;
+
         const source = String(c.source || "").trim();
 
         // Critical: company_url_shortcut is NEVER a valid resume seed unless it already contains meaningful enrichment
