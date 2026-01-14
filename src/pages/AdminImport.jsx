@@ -3001,7 +3001,7 @@ export default function AdminImport() {
                     return items;
                   })().map((c) => {
                     const name = asString(c?.company_name || c?.name).trim() || "(unnamed)";
-                    const url = asString(c?.website_url || c?.url).trim();
+                    const url = asString(c?.canonical_url || c?.website_url || c?.url).trim();
 
                     const keywordsCanonical =
                       Array.isArray(c?.keywords) && c.keywords.length > 0
