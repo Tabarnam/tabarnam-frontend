@@ -830,6 +830,9 @@ async function handler(req, context, opts) {
           upstream_status: out.upstream_status,
           fetched_count: out.fetched_count,
           saved_count: out.saved_count,
+          xai_config_source: out.xai_config_source || null,
+          resolved_upstream_host: out.resolved_upstream_host || null,
+          resolved_upstream_path: out.resolved_upstream_path || null,
           build_id,
           version_tag: VERSION_TAG,
         })
