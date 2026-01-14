@@ -142,6 +142,24 @@ async function fetchSeedCompanies(container, sessionId, limit = 25) {
   return Array.isArray(resources) ? resources : [];
 }
 
+async function fetchCompaniesByIds(container, ids) {
+  if (!container) return [];
+  const list = Array.isArray(ids) ? ids.map((v) => String(v || "").trim()).filter(Boolean) : [];
+  if (list.length === 0) return [];
+
+  const unique = Array.from(new Set(list)).slice(0, 25);
+  const params = unique.map((id, idx) => ({ name: `@id${idx}`, value: id }));
+  const inClause = unique.map((_, idx) => `@id${idx}`).join(", ");
+
+  const q = {
+    query: `SELECT * FROM c WHERE c.id IN (${inClause})`,
+    parameters: params,
+  };
+
+  const { resources } = await container.items.query(q, { enableCrossPartitionQuery: true }).fetchAll();
+  return Array.isArray(resources) ? resources : [];
+}
+
 async function handler(req, context) {
   const method = String(req?.method || "").toUpperCase();
   if (method === "OPTIONS") return { status: 200, headers: cors(req) };
@@ -229,7 +247,17 @@ async function handler(req, context) {
     updated_at: nowIso(),
   }).catch(() => null);
 
-  const seedDocs = await fetchSeedCompanies(container, sessionId, 25).catch(() => []);
+  let seedDocs = await fetchSeedCompanies(container, sessionId, 25).catch(() => []);
+
+  // If the session/company docs are missing the session_id markers (e.g. platform kill mid-flight),
+  // fall back to canonical saved IDs persisted in the resume/session docs.
+  if (seedDocs.length === 0) {
+    const fallbackIds = Array.isArray(resumeDoc?.saved_company_ids) ? resumeDoc.saved_company_ids : [];
+    if (fallbackIds.length > 0) {
+      seedDocs = await fetchCompaniesByIds(container, fallbackIds).catch(() => []);
+    }
+  }
+
   const companies = seedDocs
     .map((d) => {
       const company_name = String(d?.company_name || d?.name || "").trim();
@@ -305,6 +333,7 @@ async function handler(req, context) {
   startUrl.searchParams.set("skip_stages", "primary");
   startUrl.searchParams.set("max_stage", "expand");
   startUrl.searchParams.set("resume_worker", "1");
+  startUrl.searchParams.set("deadline_ms", "25000");
 
   const startRes = await fetch(startUrl.toString(), {
     method: "POST",
