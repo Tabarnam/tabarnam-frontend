@@ -7755,7 +7755,7 @@ Return ONLY the JSON array, no other text.`,
             mark("cosmos_write_start");
             setStage("saveCompaniesToCosmos");
             console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos start count=${enriched.length}`);
-            saveResult = await saveCompaniesToCosmos({
+            const saveResultRaw = await saveCompaniesToCosmos({
               companies: enriched,
               sessionId,
               requestId,
@@ -7763,14 +7763,46 @@ Return ONLY the JSON array, no other text.`,
               axiosTimeout: timeout,
               saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
             });
+
+            const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
+              verified_ids: [],
+              unverified_ids: Array.isArray(saveResultRaw?.saved_ids) ? saveResultRaw.saved_ids : [],
+              verified_persisted_items: [],
+            }));
+
+            saveResult = applyReadAfterWriteVerification(saveResultRaw, verification);
             saveReport = saveResult;
+
+            const verifiedCount = Number(saveResult.saved_verified_count || 0) || 0;
+            const unverifiedIds = Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [];
+
             console.log(
-              `[import-start] session=${sessionId} saveCompaniesToCosmos done saved=${saveResult.saved} skipped=${saveResult.skipped} duplicates=${saveResult.skipped}`
+              `[import-start] session=${sessionId} saveCompaniesToCosmos done saved_verified=${verifiedCount} saved_write=${Number(saveResult.saved_write_count || 0) || 0} skipped=${saveResult.skipped} failed=${saveResult.failed}`
             );
+
+            if (Number(saveResult.saved_write_count || 0) > 0 && verifiedCount === 0) {
+              addWarning("cosmos_read_after_write_failed", {
+                stage: "save",
+                root_cause: "read_after_write_failed",
+                retryable: true,
+                message: "Cosmos write reported success, but read-after-write verification could not read the document back.",
+              });
+            }
+
+            if (unverifiedIds.length > 0) {
+              addWarning("cosmos_saved_unverified", {
+                stage: "save",
+                root_cause: "read_after_write_partial",
+                retryable: true,
+                message: `Some saved company IDs could not be verified via read-after-write (${unverifiedIds.length}).`,
+              });
+            }
 
             // Critical: persist canonical saved IDs immediately so /import/status can recover even if SWA kills
             // later enrichment stages.
             try {
+              const cosmosTarget = await getCompaniesCosmosTargetDiagnostics().catch(() => null);
+
               const savedCompanyUrls = (Array.isArray(enriched) ? enriched : [])
                 .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
                 .filter(Boolean)
@@ -7780,13 +7812,19 @@ Return ONLY the JSON array, no other text.`,
                 sessionId,
                 requestId,
                 patch: {
-                  saved: Number(saveResult.saved || 0),
-                  saved_count: Number(saveResult.saved || 0),
-                  saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                  saved: verifiedCount,
+                  saved_count: verifiedCount,
+                  saved_verified_count: verifiedCount,
+                  saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
+                  saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
+                  saved_company_ids: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
                   saved_company_urls: savedCompanyUrls,
-                  saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                  saved_ids: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
+                  saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
+                  saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
                   skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
                   failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
+                  ...(cosmosTarget ? cosmosTarget : {}),
                   stage_beacon,
                   status: "running",
                 },
