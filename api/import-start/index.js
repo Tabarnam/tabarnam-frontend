@@ -5718,6 +5718,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       updated_at: nowResumeIso,
                       request_id: requestId,
                       status: "queued",
+                      saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
                       missing_by_company,
                       keywords_stage_completed: false,
                       reviews_stage_completed: false,
