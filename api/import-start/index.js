@@ -5783,6 +5783,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               red_flag_reason: "Imported from URL; enrichment pending",
               curated_reviews: [],
               review_count: 0,
+              reviews_stage_status: "pending",
+              logo_stage_status: "pending",
               reviews_last_updated_at: nowIso,
               review_cursor: {
                 exhausted: false,
