@@ -12,7 +12,16 @@ try {
   CosmosClient = null;
 }
 
-const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
+const {
+  getXAIEndpoint,
+  getXAIKey,
+  getResolvedUpstreamMeta,
+  resolveXaiEndpointForModel,
+} = require("./_shared");
+const {
+  getContainerPartitionKeyPath,
+  buildPartitionKeyCandidates,
+} = require("./_cosmosPartitionKey");
 const { fetchConfirmedCompanyTagline } = require("./_taglineXai");
 const { getBuildInfo } = require("./_buildInfo");
 
