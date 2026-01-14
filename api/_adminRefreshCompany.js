@@ -947,7 +947,9 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
 
     return json({
       ok: false,
-      stage,
+      stage: "refresh_company",
+      root_cause: asString(e?.root_cause).trim() || "unhandled_exception",
+      retryable: true,
       error: e?.message || "Internal error",
       details: {
         message: asString(e?.message || e).trim() || "Internal error",
@@ -955,6 +957,8 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       config,
       build_id: String(BUILD_INFO.build_id || ""),
       elapsed_ms: Date.now() - startedAt,
+      budget_ms: budgetMs,
+      remaining_budget_ms: typeof getRemainingBudgetMs === "function" ? getRemainingBudgetMs() : null,
     });
   }
 }
