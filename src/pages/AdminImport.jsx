@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
-import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save } from "lucide-react";
+import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save, Download } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
@@ -202,6 +202,39 @@ function toAbsoluteUrlForRepro(rawUrl) {
   if (!origin) return s;
   if (s.startsWith("/")) return `${origin}${s}`;
   return `${origin}/${s}`;
+}
+
+function sanitizeFilename(value) {
+  return asString(value)
+    .trim()
+    .replace(/[^a-z0-9._-]+/gi, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-.]+|[-.]+$/g, "")
+    .slice(0, 120);
+}
+
+function downloadTextFile({ filename, text, mime = "application/json" }) {
+  const safeName = sanitizeFilename(filename) || "download.json";
+  const content = typeof text === "string" ? text : "";
+
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = safeName;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 2500);
+}
+
+function downloadJsonFile({ filename, value }) {
+  downloadTextFile({ filename, text: toPrettyJsonText(value), mime: "application/json" });
 }
 
 function buildWindowsSafeCurlOutFileScript({ url, method, jsonBody }) {
@@ -590,6 +623,9 @@ export default function AdminImport() {
                 typeof body?.early_exit_triggered === "boolean" ? body.early_exit_triggered : Boolean(r.early_exit_triggered),
               last_error: lastError || r.last_error || null,
               report: report || r.report || null,
+              last_status_http_status: Number(res?.status) || null,
+              last_status_checked_at: new Date().toISOString(),
+              last_status_body: body,
               resume_needed: resumeNeeded,
               start_error: nextStartError,
               start_error_details: nextStartErrorDetails,
@@ -951,6 +987,14 @@ export default function AdminImport() {
       limit: normalizedLimit,
       startedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+
+      // Debug snapshots (persisted across UI state transitions)
+      start_request_payload: null,
+      stage_calls: [],
+      last_status_http_status: null,
+      last_status_checked_at: null,
+      last_status_body: null,
+
       items: [],
       saved: 0,
       saved_companies: [],
@@ -1004,6 +1048,11 @@ export default function AdminImport() {
         expand_if_few: true,
         dry_run: dryRun,
       };
+
+      // Persist the outbound payload so the Import Report panel can be copied/downloaded later.
+      setRuns((prev) =>
+        prev.map((r) => (r.session_id === uiSessionIdBefore ? { ...r, start_request_payload: requestPayload } : r))
+      );
 
       let canonicalSessionId = uiSessionIdBefore;
       let mismatchDetected = false;
@@ -1327,6 +1376,32 @@ export default function AdminImport() {
         return { res, body, usedPath, payload };
       };
 
+      const recordStageCall = ({ stage, skipStages, usedPath, payload, res, body }) => {
+        const entry = {
+          at: new Date().toISOString(),
+          stage: asString(stage).trim() || null,
+          skip_stages: Array.isArray(skipStages) ? skipStages : [],
+          used_path: asString(usedPath).trim() || null,
+          http_status: Number(res?.status) || null,
+          request_id: getResponseRequestId(res) || null,
+          payload,
+          response_body: body,
+        };
+
+        setRuns((prev) =>
+          prev.map((r) => {
+            if (r.session_id !== canonicalSessionId) return r;
+            const existing = Array.isArray(r.stage_calls) ? r.stage_calls : [];
+            const next = [entry, ...existing].slice(0, 12);
+            return {
+              ...r,
+              stage_calls: next,
+              updatedAt: new Date().toISOString(),
+            };
+          })
+        );
+      };
+
       let companiesForNextStage = [];
 
       const recordStatusFailureAndToast = (body, extra) => {
@@ -1463,6 +1538,14 @@ export default function AdminImport() {
 
       const startResult = await callImportStage({ stage: pipelineMaxStage, skipStages: baseSkipStages, companies: [] });
       syncCanonicalSessionId({ res: startResult.res, body: startResult.body });
+      recordStageCall({
+        stage: pipelineMaxStage,
+        skipStages: baseSkipStages,
+        usedPath: startResult.usedPath,
+        payload: startResult.payload,
+        res: startResult.res,
+        body: startResult.body,
+      });
 
       let lastStageBody = startResult.body;
 
@@ -1673,6 +1756,14 @@ export default function AdminImport() {
         });
 
         syncCanonicalSessionId({ res: resumeResult.res, body: resumeResult.body });
+        recordStageCall({
+          stage: pipelineMaxStage,
+          skipStages: resumeSkipStages,
+          usedPath: resumeResult.usedPath,
+          payload: resumeResult.payload,
+          res: resumeResult.res,
+          body: resumeResult.body,
+        });
 
         if (!resumeResult.res.ok || resumeResult.body?.ok === false) {
           await recordStartErrorAndToast(resumeResult.res, resumeResult.body, {
@@ -2176,6 +2267,24 @@ export default function AdminImport() {
     }
   }, [activeReportPayload]);
 
+  const activeDebugPayload = useMemo(() => {
+    if (!activeRun) return null;
+
+    return {
+      kind: "admin_import_debug",
+      captured_at: new Date().toISOString(),
+      session_id: asString(activeRun.session_id).trim() || null,
+      run: activeRun,
+      report: activeReportPayload,
+      last_request_explain: getLastApiRequestExplain(),
+    };
+  }, [activeRun, activeReportPayload]);
+
+  const activeDebugText = useMemo(() => {
+    if (!activeDebugPayload) return "";
+    return toPrettyJsonText(activeDebugPayload);
+  }, [activeDebugPayload]);
+
   const startImportDisabled = !API_BASE || activeStatus === "running" || activeStatus === "stopping";
 
   useEffect(() => {
@@ -2489,36 +2598,96 @@ export default function AdminImport() {
               </div>
             ) : null}
 
-            {activeReportText ? (
+            {activeRun ? (
               <div className="rounded border border-slate-200 bg-slate-50 p-3 space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-medium text-slate-700">Import report</div>
                     <div className="mt-0.5 text-[11px] text-slate-600">
-                      Shows what happened after the command (accepted reasons, completion details, saved ids, and failures).
+                      Includes report + save result (if any). Use Copy Debug / Download JSON to share with support.
                     </div>
                   </div>
 
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(activeReportText);
-                        toast.success("Report copied");
-                      } catch {
-                        toast.error("Could not copy");
-                      }
-                    }}
-                  >
-                    <Copy className="h-4 w-4 mr-2" />
-                    Copy report
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!activeReportText}
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(activeReportText);
+                          toast.success("Report copied");
+                        } catch {
+                          toast.error("Could not copy");
+                        }
+                      }}
+                    >
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy report
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!activeDebugText}
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(activeDebugText);
+                          toast.success("Debug JSON copied");
+                        } catch {
+                          toast.error("Could not copy");
+                        }
+                      }}
+                    >
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy debug
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!activeReportPayload}
+                      onClick={() => {
+                        try {
+                          const sid = asString(activeRun?.session_id).trim() || "session";
+                          downloadJsonFile({ filename: `import-report-${sid}.json`, value: activeReportPayload });
+                        } catch {
+                          toast.error("Download failed");
+                        }
+                      }}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download report
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!activeDebugPayload}
+                      onClick={() => {
+                        try {
+                          const sid = asString(activeRun?.session_id).trim() || "session";
+                          downloadJsonFile({ filename: `import-debug-${sid}.json`, value: activeDebugPayload });
+                        } catch {
+                          toast.error("Download failed");
+                        }
+                      }}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download debug
+                    </Button>
+                  </div>
                 </div>
 
-                <pre className="max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">
-                  {toDisplayText(activeReportText)}
-                </pre>
+                {activeReportText ? (
+                  <pre className="max-h-64 overflow-auto rounded bg-white p-2 text-[11px] leading-relaxed text-slate-900">
+                    {toDisplayText(activeReportText)}
+                  </pre>
+                ) : (
+                  <div className="rounded bg-white p-2 text-[11px] leading-relaxed text-slate-700">
+                    No report yet. Run an import (or click Poll now) to populate the report.
+                  </div>
+                )}
               </div>
             ) : null}
 
