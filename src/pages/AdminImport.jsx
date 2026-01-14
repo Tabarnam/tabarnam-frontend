@@ -478,10 +478,20 @@ export default function AdminImport() {
 
         const items = normalizeItems(body?.items || body?.companies);
         const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
+
+        const savedVerifiedCount =
+          typeof body?.saved_verified_count === "number" && Number.isFinite(body.saved_verified_count)
+            ? body.saved_verified_count
+            : typeof body?.result?.saved_verified_count === "number" && Number.isFinite(body.result.saved_verified_count)
+              ? body.result.saved_verified_count
+              : null;
+
         const saved =
-          savedCompanies.length > 0
-            ? savedCompanies.length
-            : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
+          savedVerifiedCount != null
+            ? savedVerifiedCount
+            : savedCompanies.length > 0
+              ? savedCompanies.length
+              : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
 
         const reconciled = Boolean(body?.reconciled);
         const reconcileStrategy = asString(body?.reconcile_strategy).trim();
