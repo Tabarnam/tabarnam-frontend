@@ -354,6 +354,25 @@ function normalizeStringArray(value) {
   return [];
 }
 
+function deriveNameFromHost(value) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return "";
+
+  let host = "";
+  try {
+    const u = raw.includes("://") ? new URL(raw) : new URL(`https://${raw}`);
+    host = String(u.hostname || "").trim();
+  } catch {
+    host = raw.replace(/^https?:\/\//i, "").split("/")[0].trim();
+  }
+
+  const clean = host.toLowerCase().replace(/^www\./, "");
+  const base = clean.split(".")[0] || "";
+  if (!base) return "";
+
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
 function mapCompanyToPublic(doc) {
   if (!doc) return null;
 
