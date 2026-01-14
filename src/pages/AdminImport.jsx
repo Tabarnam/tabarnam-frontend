@@ -516,9 +516,9 @@ export default function AdminImport() {
           (!resumeNeeded && jobState === "complete") ||
           (completed && !resumeNeeded);
 
-        // If at least one company is already saved, we can stop polling even when resume_needed is true.
-        // Resume-worker can continue enrichment in the background.
-        const shouldStopAfterSeedSave = resumeNeeded && saved > 0 && !isTerminalError && !isTerminalComplete;
+        // If at least one company is already saved (verified), we can pause polling while resume-worker
+        // continues enrichment. This is NOT a terminal "Completed" state.
+        const shouldPauseForResume = resumeNeeded && saved > 0 && !isTerminalError && !isTerminalComplete;
 
         const lastErrorCode = asString(lastError?.code).trim();
         const primaryTimeoutLabel = formatDurationShort(lastError?.hard_timeout_ms);
@@ -594,7 +594,7 @@ export default function AdminImport() {
               if (upstreamStatus != null) meta.push(`HTTP ${upstreamStatus}`);
 
               const safeMsg = responseMsg.toLowerCase() === "backend call failure" ? "" : responseMsg;
-              const base = stageLabel || "follow_up_failed";
+              const base = stageLabel || rootCauseLabel || "post_save_warning";
               const warningReason = `${base}${meta.length ? ` (${meta.join(", ")})` : ""}${safeMsg ? `: ${safeMsg}` : ""}`.trim() || existingStartError;
 
               nextStartError = null;
@@ -628,7 +628,7 @@ export default function AdminImport() {
               reconcile_strategy: reconcileStrategy || null,
               reconciled_saved_ids: reconciledSavedIds,
               saved_companies: savedCompanies.length > 0 ? savedCompanies : Array.isArray(r.saved_companies) ? r.saved_companies : [],
-              completed: isTerminalComplete || shouldStopAfterSeedSave,
+              completed: isTerminalComplete,
               timedOut,
               stopped: isTerminalError ? true : stopped,
               job_state: normalizedJobState,
@@ -664,6 +664,9 @@ export default function AdminImport() {
               start_error: nextStartError,
               start_error_details: nextStartErrorDetails,
               progress_error: nextProgressError,
+              progress_notice: shouldPauseForResume
+                ? `Saved (verified): ${savedCount}. Resume needed — enrichment will continue in the background.`
+                : r.progress_notice,
               updatedAt: new Date().toISOString(),
             };
           })
@@ -672,12 +675,12 @@ export default function AdminImport() {
         if (isTerminalError) return { shouldStop: true, body };
         if (isTerminalComplete) return { shouldStop: true, body };
 
-        if (shouldStopAfterSeedSave) {
+        if (shouldPauseForResume) {
           try {
             setActiveStatus((prev) => (prev === "running" ? "done" : prev));
           } catch {}
-          toast.success("Company saved. Enrichment will continue in the background.");
-          return { shouldStop: true, body };
+          toast.info("Saved (verified). Enrichment pending — use Retry resume if it gets stuck.");
+          return { shouldStop: true, body, stop_reason: "resume_needed" };
         }
 
         return { shouldStop: timedOut || stopped, body };
