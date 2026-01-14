@@ -5767,6 +5767,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             // the record can be saved and later upgraded by resume-worker.
             return {
               company_name: companyName,
+              company_url: websiteUrl,
+              canonical_url: websiteUrl,
               website_url: websiteUrl,
               url: websiteUrl,
               normalized_domain: cleanHost,
