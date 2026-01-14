@@ -98,14 +98,17 @@ function getUpstreamXaiUrl(req) {
 }
 
 function getUpstreamXaiKey() {
-  return (
-    (process.env.XAI_UPSTREAM_KEY || "").trim() ||
-    (process.env.XAI_KEY || "").trim() ||
+  // IMPORTANT: if an external key is present, legacy vars must NOT override it.
+  const primary = (
+    (process.env.XAI_API_KEY || "").trim() ||
     (process.env.XAI_EXTERNAL_KEY || "").trim() ||
     (process.env.FUNCTION_KEY || "").trim() ||
-    (process.env.XAI_API_KEY || "").trim() ||
-    ""
+    (process.env.XAI_UPSTREAM_KEY || "").trim()
   );
+
+  if (primary) return primary;
+
+  return (process.env.XAI_KEY || "").trim() || "";
 }
 
 async function readRawBodyText(req) {
