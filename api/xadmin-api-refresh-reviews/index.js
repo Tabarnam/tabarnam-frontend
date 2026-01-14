@@ -585,7 +585,10 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms, mo
   }
 
   const controller = new AbortController();
-  const timeout = Math.max(5000, Math.min(120000, Math.trunc(Number(timeout_ms) || 65000)));
+  // Keep the upstream call timeout short to avoid Azure Static Web Apps gateway timeouts.
+  // This is capped well below the ~30s gateway wall-clock limit so we still have time to
+  // serialize a JSON response even on retries.
+  const timeout = Math.max(4000, Math.min(20000, Math.trunc(Number(timeout_ms) || 12000)));
   const timeoutHandle = setTimeout(() => controller.abort(), timeout);
 
   try {

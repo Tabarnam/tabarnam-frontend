@@ -3108,22 +3108,36 @@ async function copyToClipboard(value) {
   if (!s) return false;
 
   try {
-    if (navigator?.clipboard?.writeText) {
+    // Clipboard API is the most reliable in modern browsers, but it can fail in some embedded
+    // contexts or when permissions are restricted.
+    if (typeof navigator !== "undefined" && navigator?.clipboard?.writeText && window?.isSecureContext) {
       await navigator.clipboard.writeText(s);
       return true;
     }
   } catch {
-    // fall through
+    // fall through to legacy path
   }
 
   try {
+    // Legacy fallback: execCommand('copy')
     const el = document.createElement("textarea");
     el.value = s;
     el.setAttribute("readonly", "");
-    el.style.position = "absolute";
-    el.style.left = "-9999px";
+    el.style.position = "fixed";
+    el.style.top = "0";
+    el.style.left = "0";
+    el.style.opacity = "0";
+    el.style.pointerEvents = "none";
     document.body.appendChild(el);
+
+    el.focus();
     el.select();
+    try {
+      el.setSelectionRange(0, el.value.length);
+    } catch {
+      // ignore (not supported in some browsers)
+    }
+
     const ok = document.execCommand("copy");
     document.body.removeChild(el);
     return ok;
