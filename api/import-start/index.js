@@ -8421,7 +8421,7 @@ Return ONLY the JSON array, no other text.`,
 
                   // Re-save with expansion results
                   if (cosmosEnabled) {
-                    const expansionResult = await saveCompaniesToCosmos({
+                    const expansionRaw = await saveCompaniesToCosmos({
                       companies: enrichedExpansion,
                       sessionId,
                       requestId,
@@ -8429,12 +8429,62 @@ Return ONLY the JSON array, no other text.`,
                       axiosTimeout: timeout,
                       saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
                     });
-                    saveResult.saved += expansionResult.saved;
-                    saveResult.skipped += expansionResult.skipped;
-                    saveResult.failed += expansionResult.failed;
+
+                    const expansionVerification = await verifySavedCompaniesReadAfterWrite(expansionRaw).catch(() => ({
+                      verified_ids: [],
+                      unverified_ids: Array.isArray(expansionRaw?.saved_ids) ? expansionRaw.saved_ids : [],
+                      verified_persisted_items: [],
+                    }));
+
+                    const expansionResult = applyReadAfterWriteVerification(expansionRaw, expansionVerification);
+
+                    const mergeUnique = (a, b) => {
+                      const out = [];
+                      const seen = new Set();
+                      for (const id of [...(Array.isArray(a) ? a : []), ...(Array.isArray(b) ? b : [])]) {
+                        const key = String(id || "").trim();
+                        if (!key || seen.has(key)) continue;
+                        seen.add(key);
+                        out.push(key);
+                      }
+                      return out;
+                    };
+
+                    const mergedVerifiedIds = mergeUnique(
+                      Array.isArray(saveResult?.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : saveResult?.saved_ids,
+                      Array.isArray(expansionResult?.saved_company_ids_verified) ? expansionResult.saved_company_ids_verified : expansionResult?.saved_ids
+                    );
+
+                    const mergedUnverifiedIds = mergeUnique(
+                      Array.isArray(saveResult?.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
+                      Array.isArray(expansionResult?.saved_company_ids_unverified) ? expansionResult.saved_company_ids_unverified : []
+                    );
+
+                    const mergedWriteIds = mergeUnique(
+                      Array.isArray(saveResult?.saved_ids_write) ? saveResult.saved_ids_write : [],
+                      Array.isArray(expansionResult?.saved_ids_write) ? expansionResult.saved_ids_write : []
+                    );
+
+                    saveResult = {
+                      ...(saveResult && typeof saveResult === "object" ? saveResult : {}),
+                      saved: mergedVerifiedIds.length,
+                      saved_verified_count: mergedVerifiedIds.length,
+                      saved_company_ids_verified: mergedVerifiedIds,
+                      saved_company_ids_unverified: mergedUnverifiedIds,
+                      saved_ids: mergedVerifiedIds,
+                      saved_write_count: (Number(saveResult?.saved_write_count || 0) || 0) + (Number(expansionResult?.saved_write_count || 0) || 0),
+                      saved_ids_write: mergedWriteIds,
+                      skipped: (Number(saveResult?.skipped || 0) || 0) + (Number(expansionResult?.skipped || 0) || 0),
+                      failed: (Number(saveResult?.failed || 0) || 0) + (Number(expansionResult?.failed || 0) || 0),
+                      persisted_items: [
+                        ...(Array.isArray(saveResult?.persisted_items) ? saveResult.persisted_items : []),
+                        ...(Array.isArray(expansionResult?.persisted_items) ? expansionResult.persisted_items : []),
+                      ],
+                    };
+
                     saveReport = saveResult;
                     console.log(
-                      `[import-start] Expansion: saved ${expansionResult.saved}, skipped ${expansionResult.skipped}, failed ${expansionResult.failed}`
+                      `[import-start] Expansion: saved_verified ${Number(expansionResult.saved_verified_count || 0) || 0}, saved_write ${Number(expansionResult.saved_write_count || 0) || 0}, skipped ${expansionResult.skipped}, failed ${expansionResult.failed}`
                     );
                   }
                 }
