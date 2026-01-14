@@ -1473,6 +1473,23 @@ async function handler(req, context) {
 
     const effectiveCompleted = completed && !resume_needed;
 
+    const saved_verified_count =
+      sessionDoc && typeof sessionDoc.saved_verified_count === "number" && Number.isFinite(sessionDoc.saved_verified_count)
+        ? sessionDoc.saved_verified_count
+        : Number.isFinite(Number(savedVerifiedCount))
+          ? Number(savedVerifiedCount)
+          : Number(saved || 0) || 0;
+
+    const saved_company_ids_verified = Array.isArray(sessionDoc?.saved_company_ids_verified)
+      ? sessionDoc.saved_company_ids_verified
+      : Array.isArray(savedIds)
+        ? savedIds
+        : [];
+
+    const saved_company_ids_unverified = Array.isArray(sessionDoc?.saved_company_ids_unverified)
+      ? sessionDoc.saved_company_ids_unverified
+      : [];
+
     if (errorPayload || timedOut || stopped) {
       const errorOut =
         errorPayload ||
