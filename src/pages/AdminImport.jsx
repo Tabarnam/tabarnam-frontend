@@ -2218,21 +2218,34 @@ export default function AdminImport() {
 
   const activeItems = Array.isArray(activeRun?.items) ? activeRun.items : [];
   const activeSavedCompanies = Array.isArray(activeRun?.saved_companies) ? activeRun.saved_companies : [];
-  const activeSavedCount = activeSavedCompanies.length > 0 ? activeSavedCompanies.length : Number(activeRun?.saved ?? 0) || 0;
+  const activeSavedVerifiedIds = Array.isArray(activeRun?.saved_company_ids_verified) ? activeRun.saved_company_ids_verified : [];
+
+  const activeSavedVerifiedCount =
+    typeof activeRun?.saved_verified_count === "number" && Number.isFinite(activeRun.saved_verified_count)
+      ? activeRun.saved_verified_count
+      : activeSavedVerifiedIds.length;
+
+  const activeSavedCount = Math.max(
+    activeSavedCompanies.length,
+    activeSavedVerifiedCount,
+    Number(activeRun?.saved ?? 0) || 0
+  );
 
   const activeIsTerminal = Boolean(activeRun && (activeRun.completed || activeRun.timedOut || activeRun.stopped));
 
-  // If the start request errored (e.g. post-save review refresh failure) but status polling
-  // later confirms that companies were saved, treat it as a warning instead of a fatal import failure.
+  // If the start request errored (e.g. post-save follow-up stage) but status polling later confirms
+  // that companies were saved, treat it as a warning instead of a fatal import failure.
   useEffect(() => {
     if (!activeRun) return;
     if (activeStatus !== "error") return;
-    if (!activeRun.completed) return;
-    if (activeSavedCount <= 0) return;
+    if (activeSavedVerifiedCount <= 0) return;
 
     setActiveStatus("done");
-  }, [activeRun, activeSavedCount, activeStatus]);
-  const showSavedResults = Boolean(activeIsTerminal && activeSavedCount > 0);
+  }, [activeRun, activeSavedVerifiedCount, activeStatus]);
+
+  // Saved results should render as soon as we have verified saved ids/counts, even if the session
+  // still needs resume-worker to finish enrichment.
+  const showSavedResults = activeSavedVerifiedCount > 0 || activeSavedCompanies.length > 0;
   const activeResults = showSavedResults ? activeSavedCompanies : activeItems;
 
   const activeItemsCount = activeIsTerminal && activeSavedCount === 0 ? 0 : activeResults.length;
