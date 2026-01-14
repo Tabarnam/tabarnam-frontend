@@ -8378,6 +8378,13 @@ Return ONLY the JSON array, no other text.`,
                     saved: saveResult.saved,
                     skipped: saveResult.skipped,
                     failed: saveResult.failed,
+                    saved_count: Number(saveResult.saved || 0),
+                    saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                    saved_company_urls: (Array.isArray(enriched) ? enriched : [])
+                      .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
+                      .filter(Boolean)
+                      .slice(0, 50),
+                    deferred_stages: Array.from(deferredStages),
                     saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
                     skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
                     failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
