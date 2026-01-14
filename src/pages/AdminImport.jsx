@@ -3279,7 +3279,9 @@ export default function AdminImport() {
                         ? "No company persisted"
                         : "Company candidate";
 
-                    const websiteUrl = asString(primaryCandidate?.website_url || primaryCandidate?.url).trim();
+                    const websiteUrl = asString(
+                      primaryCandidate?.canonical_url || primaryCandidate?.website_url || primaryCandidate?.url
+                    ).trim();
                     const isRefreshing = statusRefreshSessionId === r.session_id;
 
                     const jobState = asString(r.final_job_state || r.job_state).trim().toLowerCase();
