@@ -3423,7 +3423,13 @@ export default function AdminImport() {
                       const savedCompanies = Array.isArray(activeRun.saved_companies) ? activeRun.saved_companies : [];
                       const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
-                      const savedCount = savedCompanies.length > 0 ? savedCompanies.length : Number(activeRun.saved ?? 0) || 0;
+                      const verifiedCount = Number.isFinite(activeRun.saved_verified_count) ? activeRun.saved_verified_count : null;
+                      const savedCount =
+                        verifiedCount != null
+                          ? verifiedCount
+                          : savedCompanies.length > 0
+                            ? savedCompanies.length
+                            : Number(activeRun.saved ?? 0) || 0;
 
                       const stageBeacon = asString(activeRun.final_stage_beacon || activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
                       const persistedDetected = savedCount > 0 || stageBeacon === "cosmos_write_done";
