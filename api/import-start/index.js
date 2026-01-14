@@ -22,7 +22,8 @@ const {
   buildPartitionKeyCandidates,
   getValueAtPath,
 } = require("../_cosmosPartitionKey");
-const { getXAIEndpoint, getXAIKey } = require("../_shared");
+const { getXAIEndpoint, getXAIKey, getResolvedUpstreamMeta } = require("../_shared");
+const { startBudget } = require("../_budget");
 function requireImportCompanyLogo() {
   const mod = require("../_logoImport");
   if (!mod || typeof mod.importCompanyLogo !== "function") {
@@ -72,22 +73,28 @@ try {
 } catch {}
 
 const DEFAULT_HARD_TIMEOUT_MS = 25_000;
-const DEFAULT_UPSTREAM_TIMEOUT_MS = 20_000;
+
+// IMPORTANT: /api/* runs behind the SWA gateway. Keep upstream timeouts small and derived
+// from remaining budget so we return JSON before the platform kill (~30s).
+const DEFAULT_UPSTREAM_TIMEOUT_MS = 8_000;
 
 // Per-stage upstream hard caps (must stay under SWA gateway wall-clock).
 const STAGE_MAX_MS = {
-  primary: 20_000,
-  keywords: 20_000,
-  reviews: 20_000,
-  location: 20_000,
-  expand: 12_000,
+  primary: 8_000,
+  keywords: 8_000,
+  reviews: 8_000,
+  location: 7_000,
+  expand: 8_000,
 };
 
-// Safety buffer before the SWA gateway timeout where we stop doing work and return 202.
-const DEADLINE_SAFETY_BUFFER_MS = 8_000;
+// Minimum remaining budget required to start a new network stage.
+const MIN_STAGE_REMAINING_MS = 4_000;
 
-// Budget we keep in reserve for JSON formatting / logging / finishing the response.
-const UPSTREAM_TIMEOUT_MARGIN_MS = 3_000;
+// Safety buffer we reserve for Cosmos writes + formatting the response.
+const DEADLINE_SAFETY_BUFFER_MS = 1_500;
+
+// Extra buffer before starting any upstream call.
+const UPSTREAM_TIMEOUT_MARGIN_MS = 1_200;
 
 const XAI_SYSTEM_PROMPT =
   "You are a precise assistant. Follow the user's instructions exactly. When asked for JSON, output ONLY valid JSON with no markdown, no prose, and no extra keys.";
@@ -1584,8 +1591,9 @@ async function findExistingCompany(container, normalizedDomain, companyName) {
 }
 
 // Helper: import logo (discover -> fetch w/ retries -> rasterize SVG -> upload to blob)
-async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingLogoUrl }) {
+async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingLogoUrl, budgetMs }) {
   const existing = String(existingLogoUrl || "").trim();
+  const budget = Number.isFinite(Number(budgetMs)) ? Math.max(0, Math.trunc(Number(budgetMs))) : null;
 
   const looksLikeCompanyLogoBlobUrl = (u) => {
     const s = String(u || "");
@@ -1594,7 +1602,13 @@ async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingL
 
   const headCheck = async (u) => {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
+    const timeoutMs = (() => {
+      if (budget == null) return 6000;
+      // If the budget is tight, don't burn the whole thing on the HEAD probe.
+      return Math.max(900, Math.min(6000, Math.trunc(budget * 0.4)));
+    })();
+
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const res = await fetch(u, {
@@ -1625,18 +1639,54 @@ async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingL
   // Only accept an existing logo URL if it's a previously uploaded blob AND it actually exists.
   // Never persist arbitrary / synthetic URLs as logo_url.
   if (existing && looksLikeCompanyLogoBlobUrl(existing)) {
+    if (budget != null && budget < 900) {
+      return {
+        ok: true,
+        logo_status: "imported",
+        logo_import_status: "imported",
+        logo_stage_status: "ok",
+        logo_source_url: null,
+        logo_source_type: "existing_blob_unverified",
+        logo_url: existing,
+        logo_error: "",
+        logo_discovery_strategy: "existing_blob_unverified",
+        logo_discovery_page_url: "",
+        logo_telemetry: {
+          budget_ms: budget,
+          elapsed_ms: 0,
+          discovery_ok: null,
+          candidates_total: 0,
+          candidates_tried: 0,
+          tiers: [],
+          rejection_reasons: {},
+          time_budget_exhausted: true,
+        },
+      };
+    }
+
     const verified = await headCheck(existing);
     if (verified.ok) {
       return {
         ok: true,
         logo_status: "imported",
         logo_import_status: "imported",
+        logo_stage_status: "ok",
         logo_source_url: null,
         logo_source_type: "existing_blob",
         logo_url: existing,
         logo_error: "",
         logo_discovery_strategy: "existing_blob",
         logo_discovery_page_url: "",
+        logo_telemetry: {
+          budget_ms: budget,
+          elapsed_ms: 0,
+          discovery_ok: null,
+          candidates_total: 0,
+          candidates_tried: 0,
+          tiers: [{ tier: "existing_blob", attempted: 1, rejected: 0, ok: true, selected_url: existing, selected_content_type: "" }],
+          rejection_reasons: {},
+          time_budget_exhausted: false,
+        },
       };
     }
   }
@@ -1657,8 +1707,35 @@ async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingL
     };
   }
 
+  if (budget != null && budget < 900) {
+    return {
+      ok: true,
+      logo_status: "not_found_on_site",
+      logo_import_status: "missing",
+      logo_stage_status: "budget_exhausted",
+      logo_source_url: null,
+      logo_source_location: null,
+      logo_source_domain: null,
+      logo_source_type: null,
+      logo_url: null,
+      logo_error: "Skipped logo import due to low remaining time budget",
+      logo_discovery_strategy: "",
+      logo_discovery_page_url: "",
+      logo_telemetry: {
+        budget_ms: budget,
+        elapsed_ms: 0,
+        discovery_ok: null,
+        candidates_total: 0,
+        candidates_tried: 0,
+        tiers: [],
+        rejection_reasons: { budget_exhausted: 1 },
+        time_budget_exhausted: true,
+      },
+    };
+  }
+
   const importCompanyLogo = requireImportCompanyLogo();
-  return importCompanyLogo({ companyId, domain, websiteUrl, companyName }, console);
+  return importCompanyLogo({ companyId, domain, websiteUrl, companyName }, console, { budgetMs: budget });
 }
 
 function normalizeUrlForCompare(s) {
@@ -2860,12 +2937,22 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               ? String(existingDoc.id)
               : `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
+            const remainingForLogo = getRemainingMs();
+            const logoBudgetMs = Math.max(
+              0,
+              Math.min(
+                8000,
+                Math.trunc(remainingForLogo - DEADLINE_SAFETY_BUFFER_MS - UPSTREAM_TIMEOUT_MARGIN_MS)
+              )
+            );
+
             const logoImport = await fetchLogo({
               companyId,
               companyName,
               domain: finalNormalizedDomain,
               websiteUrl: company.website_url || company.canonical_url || company.url || "",
               existingLogoUrl: company.logo_url || existingDoc?.logo_url || null,
+              budgetMs: logoBudgetMs,
             });
 
             // Calculate default rating based on company data
@@ -2939,7 +3026,14 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               logo_source_type: logoImport.logo_source_type || null,
               logo_status: logoImport.logo_status || (logoImport.logo_url ? "imported" : "not_found_on_site"),
               logo_import_status: logoImport.logo_import_status || "missing",
+              logo_stage_status:
+                typeof logoImport.logo_stage_status === "string" && logoImport.logo_stage_status.trim()
+                  ? logoImport.logo_stage_status.trim()
+                  : logoImport.logo_url
+                    ? "ok"
+                    : "not_found_on_site",
               logo_error: logoImport.logo_error || "",
+              logo_telemetry: logoImport.logo_telemetry && typeof logoImport.logo_telemetry === "object" ? logoImport.logo_telemetry : null,
               tagline: company.tagline || "",
               location_sources: Array.isArray(company.location_sources) ? company.location_sources : [],
               show_location_sources_to_users: Boolean(company.show_location_sources_to_users),
@@ -3005,6 +3099,30 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
                   : nowIso,
               updated_at: nowIso,
             };
+
+            try {
+              const missing_fields = [];
+
+              if (!Array.isArray(doc.industries) || doc.industries.length === 0) missing_fields.push("industries");
+              if (!String(doc.product_keywords || "").trim()) missing_fields.push("product_keywords");
+
+              const hq = String(doc.headquarters_location || "").trim();
+              const hqLower = hq.toLowerCase();
+              const hasHq = Boolean(hq && hqLower !== "unknown" && hqLower !== "n/a" && hqLower !== "na" && hqLower !== "none");
+              if (!hasHq) missing_fields.push("hq");
+
+              if (!Array.isArray(doc.manufacturing_locations) || doc.manufacturing_locations.length === 0) missing_fields.push("mfg");
+
+              const hasReviews =
+                (Array.isArray(doc.curated_reviews) && doc.curated_reviews.length > 0) ||
+                (Number.isFinite(Number(doc.review_count)) && Number(doc.review_count) > 0);
+              if (!hasReviews) missing_fields.push("reviews");
+
+              if (!String(doc.logo_url || "").trim()) missing_fields.push("logo");
+
+              doc.missing_fields = missing_fields;
+              doc.missing_fields_updated_at = nowIso;
+            } catch {}
 
             try {
               const completeness = computeProfileCompleteness(doc);
@@ -3615,7 +3733,7 @@ const importStartHandlerInner = async (req, context) => {
       const noCosmosMode = String(readQueryParam(req, "no_cosmos") || "").trim() === "1";
       const cosmosEnabled = !noCosmosMode;
 
-      const inline_budget_ms = Number(STAGE_MAX_MS?.primary) || 20_000;
+      const inline_budget_ms = Number(STAGE_MAX_MS?.primary) || DEFAULT_UPSTREAM_TIMEOUT_MS;
 
       const requestedDeadlineRaw = readQueryParam(req, "deadline_ms");
       const requested_deadline_ms_number =
@@ -3624,10 +3742,16 @@ const importStartHandlerInner = async (req, context) => {
           : null;
 
       const requested_deadline_ms = requested_deadline_ms_number
-        ? Math.max(5_000, Math.min(requested_deadline_ms_number, MAX_PROCESSING_TIME_MS))
-        : 300_000;
+        ? Math.max(5_000, Math.min(requested_deadline_ms_number, DEFAULT_HARD_TIMEOUT_MS))
+        : DEFAULT_HARD_TIMEOUT_MS;
 
-      const deadlineMs = Date.now() + requested_deadline_ms;
+      const budget = startBudget({
+        hardCapMs: DEFAULT_HARD_TIMEOUT_MS,
+        clientDeadlineMs: requested_deadline_ms,
+        startedAtMs: Date.now(),
+      });
+
+      const deadlineMs = budget.deadlineMs;
 
       const stageMsPrimaryRaw = readQueryParam(req, "stage_ms_primary");
       const requested_stage_ms_primary =
@@ -3810,6 +3934,11 @@ const importStartHandlerInner = async (req, context) => {
         const companyName = String(c.company_name || c.name || "").trim();
         const websiteUrl = String(c.website_url || c.url || c.canonical_url || "").trim();
         if (!companyName || !websiteUrl) return false;
+
+        const id = String(c.id || c.company_id || c.companyId || "").trim();
+
+        // Rule: if we already persisted a company doc (id exists), we can resume enrichment for it.
+        if (id && !id.startsWith("_import_")) return true;
 
         const source = String(c.source || "").trim();
 
@@ -4501,16 +4630,19 @@ const importStartHandlerInner = async (req, context) => {
         };
       }
 
-      // Helper to check if we're running out of time
-      const isOutOfTime = () => {
-        const elapsed = Date.now() - startTime;
-        return elapsed > MAX_PROCESSING_TIME_MS;
-      };
+      // Budget is the single source of truth (SWA gateway kills are not catchable).
+      const isOutOfTime = () => budget.isExpired();
 
-      // Helper to check if we need to abort
       const shouldAbort = () => {
         if (isOutOfTime()) {
-          console.warn(`[import-start] TIMEOUT: Processing exceeded ${MAX_PROCESSING_TIME_MS}ms limit`);
+          try {
+            console.warn("[import-start] TIMEOUT: request budget exhausted", {
+              request_id: requestId,
+              session_id: sessionId,
+              elapsed_ms: budget.getElapsedMs(),
+              total_ms: budget.totalMs,
+            });
+          } catch {}
           return true;
         }
         return false;
@@ -4533,7 +4665,7 @@ const importStartHandlerInner = async (req, context) => {
         } catch {}
 
         // Fire-and-forget: persist an acceptance marker so status can explain what happened even if the
-        // start handler had to return 202 early.
+        // start handler had to return early.
         if (!noUpstreamMode && cosmosEnabled) {
           (async () => {
             const container = getCompaniesCosmosContainer();
@@ -4632,19 +4764,24 @@ const importStartHandlerInner = async (req, context) => {
             note: "start endpoint is inline capped; long primary runs async",
             ...(extra && typeof extra === "object" ? extra : {}),
           },
-          202
+          200
         );
       };
 
       const checkDeadlineOrReturn = (nextStageBeacon, stageKey) => {
-        if (Date.now() > deadlineMs) {
-          // Only primary is allowed to return 202 + continue async.
-          // For downstream enrichment stages, skip the stage and proceed to saving.
+        const remainingMs = budget.getRemainingMs();
+
+        // If we're too close to the SWA gateway wall-clock, stop starting new stages.
+        if (remainingMs < MIN_STAGE_REMAINING_MS) {
+          // Only primary is allowed to continue async.
           if (stageKey === "primary") {
-            return respondAcceptedBeforeGatewayTimeout(nextStageBeacon, "deadline_exceeded_returning_202");
+            return respondAcceptedBeforeGatewayTimeout(nextStageBeacon, "remaining_budget_low", {
+              remainingMs,
+            });
           }
           return null;
         }
+
         return null;
       };
 
@@ -4675,9 +4812,12 @@ const importStartHandlerInner = async (req, context) => {
           debugOutput.xai.payload = xaiPayload;
         }
 
-        // Cap the upstream timeout to 5 minutes to match the import runtime budget.
-        const requestedTimeout = Number(bodyObj.timeout_ms) || 600000;
-        const timeout = Math.min(requestedTimeout, 5 * 60 * 1000);
+        const deferredStages = new Set();
+        let downstreamDeferredByBudget = false;
+
+        // Client-controlled timeouts must never exceed the SWA-safe stage caps.
+        const requestedTimeout = Number(bodyObj.timeout_ms) || DEFAULT_UPSTREAM_TIMEOUT_MS;
+        const timeout = Math.min(requestedTimeout, DEFAULT_UPSTREAM_TIMEOUT_MS);
         console.log(`[import-start] Request timeout: ${timeout}ms (requested: ${requestedTimeout}ms)`);
 
         // Get XAI configuration (consolidated to use XAI_EXTERNAL_BASE primarily)
@@ -4687,13 +4827,30 @@ const importStartHandlerInner = async (req, context) => {
         const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, xaiModel);
         const xaiUrlForLog = toHostPathOnlyForLog(xaiUrl);
 
+        const externalBaseSet = Boolean(
+          String(
+            process.env.XAI_EXTERNAL_BASE || process.env.XAI_INTERNAL_BASE || process.env.XAI_UPSTREAM_BASE || process.env.XAI_BASE || ""
+          ).trim()
+        );
+        const legacyBaseSet = Boolean(String(process.env.XAI_BASE_URL || "").trim());
+        const xai_config_source = externalBaseSet ? "external" : legacyBaseSet ? "legacy" : "external";
+        const upstreamMeta = getResolvedUpstreamMeta(xaiUrl);
+
         console.log(`[import-start] XAI Endpoint: ${xaiEndpointRaw ? "configured" : "NOT SET"}`);
         console.log(`[import-start] XAI Key: ${xaiKey ? "configured" : "NOT SET"}`);
         console.log("[import-start] env_check", {
           has_xai_key: Boolean(xaiKey),
           xai_key_length: xaiKey ? String(xaiKey).length : 0,
+          xai_config_source,
+          resolved_upstream_host: upstreamMeta.resolved_upstream_host,
+          resolved_upstream_path: upstreamMeta.resolved_upstream_path,
         });
-        console.log(`[import-start] Config source: ${process.env.XAI_EXTERNAL_BASE ? "XAI_EXTERNAL_BASE" : process.env.FUNCTION_URL ? "FUNCTION_URL (legacy)" : "none"}`);
+        console.log("[import-start] xai_routing", {
+          xai_config_source,
+          resolved_upstream_host: upstreamMeta.resolved_upstream_host,
+          resolved_upstream_path: upstreamMeta.resolved_upstream_path,
+          xai_url: xaiUrlForLog || null,
+        });
         console.log(`[import-start] XAI Request URL: ${xaiUrlForLog || "(unparseable)"}`);
 
         if ((!xaiUrl || !xaiKey) && !noUpstreamMode) {
@@ -4706,7 +4863,7 @@ const importStartHandlerInner = async (req, context) => {
           });
         }
 
-        const getRemainingMs = () => deadlineMs - Date.now();
+        const getRemainingMs = () => budget.getRemainingMs();
 
         const throwAccepted = (nextStageBeacon, reason, extra) => {
           const beacon = String(nextStageBeacon || stage_beacon || stage || "unknown") || "unknown";
@@ -4734,11 +4891,11 @@ const importStartHandlerInner = async (req, context) => {
         const ensureStageBudgetOrThrow = (stageKey, nextStageBeacon) => {
           const remainingMs = getRemainingMs();
 
-          if (remainingMs < DEADLINE_SAFETY_BUFFER_MS) {
-            // Only "primary" is allowed to return 202 + continue async.
-            // For downstream enrichment stages, we prefer to skip and still save whatever we have.
+          if (remainingMs < MIN_STAGE_REMAINING_MS) {
+            // Only primary is allowed to continue async. Downstream stages should defer and let
+            // resume-worker finish.
             if (stageKey === "primary") {
-              throwAccepted(nextStageBeacon, "remaining_budget_low", { stage: stageKey });
+              throwAccepted(nextStageBeacon, "remaining_budget_low", { stage: stageKey, remainingMs });
             }
           }
 
@@ -4752,12 +4909,21 @@ const importStartHandlerInner = async (req, context) => {
             Number.isFinite(Number(stageCapMsOverride)) && Number(stageCapMsOverride) > 0 ? Number(stageCapMsOverride) : null;
           const stageCapMs = stageCapMsOverrideNumber ? Math.min(stageCapMsOverrideNumber, stageCapMsBase) : stageCapMsBase;
 
-          const timeoutForThisStage = Math.min(Math.max(1, remainingMs - UPSTREAM_TIMEOUT_MARGIN_MS), stageCapMs);
+          // Dynamic stage timeout (SWA-safe): clamp to remaining budget and never exceed ~8s.
+          const timeoutForThisStage = budget.clampStageTimeoutMs({
+            remainingMs,
+            minMs: 2500,
+            maxMs: Math.min(8000, stageCapMs),
+            safetyMarginMs: DEADLINE_SAFETY_BUFFER_MS + UPSTREAM_TIMEOUT_MARGIN_MS,
+          });
 
-          if (timeoutForThisStage < 1_000) {
+          // If we can't safely run the upstream call within this request, bail out early.
+          const minRequired = DEADLINE_SAFETY_BUFFER_MS + UPSTREAM_TIMEOUT_MARGIN_MS + 2500;
+          if (remainingMs < minRequired) {
             if (stageKey === "primary") {
               throwAccepted(stageBeacon, "insufficient_time_for_fetch", {
                 stage: stageKey,
+                remainingMs,
                 timeoutForThisStage,
                 stageCapMs,
               });
@@ -4767,6 +4933,7 @@ const importStartHandlerInner = async (req, context) => {
             err.code = "INSUFFICIENT_TIME_FOR_FETCH";
             err.stage = stageKey;
             err.stage_beacon = stageBeacon;
+            err.remainingMs = remainingMs;
             err.timeoutForThisStage = timeoutForThisStage;
             err.stageCapMs = stageCapMs;
             throw err;
@@ -5603,6 +5770,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             // the record can be saved and later upgraded by resume-worker.
             return {
               company_name: companyName,
+              company_url: websiteUrl,
+              canonical_url: websiteUrl,
               website_url: websiteUrl,
               url: websiteUrl,
               normalized_domain: cleanHost,
@@ -5617,6 +5786,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               red_flag_reason: "Imported from URL; enrichment pending",
               curated_reviews: [],
               review_count: 0,
+              reviews_stage_status: "pending",
+              logo_stage_status: "pending",
               reviews_last_updated_at: nowIso,
               review_cursor: {
                 exhausted: false,
@@ -5639,7 +5810,14 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 company_name: seed.company_name,
                 website_url: seed.website_url,
                 normalized_domain: seed.normalized_domain,
-                missing_fields: ["industries", "product_keywords", "reviews"],
+                missing_fields: [
+                  "industries",
+                  "product_keywords",
+                  "headquarters_location",
+                  "manufacturing_locations",
+                  "reviews",
+                  "logo",
+                ],
               },
             ];
 
@@ -5696,6 +5874,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       updated_at: nowResumeIso,
                       request_id: requestId,
                       status: "queued",
+                      saved_count: Number(saveResult.saved || 0),
+                      saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                      saved_company_urls: [String(seed.company_url || seed.website_url || seed.url || "").trim()].filter(Boolean),
                       missing_by_company,
                       keywords_stage_completed: false,
                       reviews_stage_completed: false,
@@ -5714,6 +5895,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       saved: Number(saveResult.saved || 0),
                       skipped: Number(saveResult.skipped || 0),
                       failed: Number(saveResult.failed || 0),
+                      saved_count: Number(saveResult.saved || 0),
+                      saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                      saved_company_urls: [String(seed.company_url || seed.website_url || seed.url || "").trim()].filter(Boolean),
+                      saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                      skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                      failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
                       resume_needed: true,
                       resume_updated_at: new Date().toISOString(),
                     },
@@ -5765,6 +5952,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   resume_needed: true,
                   missing_by_company,
                   company_name: seed.company_name,
+                  company_url: seed.company_url || seed.website_url,
                   website_url: seed.website_url,
                   companies,
                   meta: {
@@ -5849,6 +6037,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 status: "complete",
                 resume_needed: false,
                 company_name: seed.company_name,
+                company_url: seed.company_url || seed.website_url,
                 website_url: seed.website_url,
                 companies,
                 meta: {
@@ -5873,6 +6062,19 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               },
               200
             );
+          }
+
+          const isCompanyUrlImport =
+            Array.isArray(queryTypes) &&
+            queryTypes.includes("company_url") &&
+            typeof query === "string" &&
+            looksLikeCompanyUrlQuery(query);
+
+          // Core rule: company_url imports must never spend the full request budget on inline enrichment.
+          // Persist a deterministic seed immediately and let resume-worker do the heavy lifting.
+          if (isCompanyUrlImport && inputCompanies.length === 0 && !skipStages.has("primary")) {
+            mark("company_url_seed_short_circuit");
+            return await respondWithCompanyUrlSeedFallback(null);
           }
 
           const wantsAsyncPrimary =
@@ -6028,7 +6230,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   stageCapMs: inline_budget_ms,
                   note: "start endpoint is inline capped; long primary runs async",
                 },
-                202
+                200
               );
             }
           }
@@ -6208,7 +6410,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           const baselineEligible = queryTypes.includes("company_url") || enriched.length <= 3;
           const baselineNeeded =
             baselineEligible &&
-            (downstreamStagesSkipped ||
+            (downstreamStagesSkipped || downstreamDeferredByBudget ||
               (queryTypes.includes("company_url") &&
                 enriched.some((c) => !String(c?.tagline || "").trim())));
 
@@ -6612,45 +6814,55 @@ Output JSON only:
           let keywordStageCompleted = !shouldRunStage("keywords");
 
           if (shouldRunStage("keywords")) {
-            ensureStageBudgetOrThrow("keywords", "xai_keywords_fetch_start");
-            mark("xai_keywords_fetch_start");
-            setStage("generateKeywords");
+            const remainingBeforeKeywords = getRemainingMs();
+            if (remainingBeforeKeywords < MIN_STAGE_REMAINING_MS) {
+              keywordStageCompleted = false;
+              downstreamDeferredByBudget = true;
+              deferredStages.add("keywords");
+              mark("xai_keywords_fetch_deferred_budget");
+            } else {
+              ensureStageBudgetOrThrow("keywords", "xai_keywords_fetch_start");
+              mark("xai_keywords_fetch_start");
+              setStage("generateKeywords");
 
-            const keywordsConcurrency = 4;
-            keywordStageCompleted = true;
-            for (let i = 0; i < enriched.length; i += keywordsConcurrency) {
-              if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
-                keywordStageCompleted = false;
-                console.log(
-                  `[import-start] session=${sessionId} keyword enrichment stopping early: remaining budget low`
-                );
-                break;
-              }
+              const keywordsConcurrency = 4;
+              keywordStageCompleted = true;
+              for (let i = 0; i < enriched.length; i += keywordsConcurrency) {
+                if (getRemainingMs() < MIN_STAGE_REMAINING_MS) {
+                  keywordStageCompleted = false;
+                  downstreamDeferredByBudget = true;
+                  deferredStages.add("keywords");
+                  console.log(
+                    `[import-start] session=${sessionId} keyword enrichment stopping early: remaining budget low`
+                  );
+                  break;
+                }
 
-              const slice = enriched.slice(i, i + keywordsConcurrency);
-              const batch = await Promise.all(
-                slice.map(async (company) => {
-                  try {
-                    return await ensureCompanyKeywords(company);
-                  } catch (e) {
-                    if (e instanceof AcceptedResponseError) throw e;
+                const slice = enriched.slice(i, i + keywordsConcurrency);
+                const batch = await Promise.all(
+                  slice.map(async (company) => {
                     try {
-                      console.log(
-                        `[import-start] session=${sessionId} keyword enrichment failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`
-                      );
-                    } catch {}
-                    return company;
-                  }
-                })
-              );
+                      return await ensureCompanyKeywords(company);
+                    } catch (e) {
+                      if (e instanceof AcceptedResponseError) throw e;
+                      try {
+                        console.log(
+                          `[import-start] session=${sessionId} keyword enrichment failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`
+                        );
+                      } catch {}
+                      return company;
+                    }
+                  })
+                );
 
-              for (let j = 0; j < batch.length; j++) {
-                enriched[i + j] = batch[j];
+                for (let j = 0; j < batch.length; j++) {
+                  enriched[i + j] = batch[j];
+                }
+
+                enrichedForCounts = enriched;
               }
-
-              enrichedForCounts = enriched;
+              mark(keywordStageCompleted ? "xai_keywords_fetch_done" : "xai_keywords_fetch_partial");
             }
-            mark(keywordStageCompleted ? "xai_keywords_fetch_done" : "xai_keywords_fetch_partial");
           } else {
             mark("xai_keywords_fetch_skipped");
           }
@@ -6702,49 +6914,59 @@ Output JSON only:
           let geocodeStageCompleted = !shouldRunStage("location");
 
           if (shouldRunStage("location")) {
-            ensureStageBudgetOrThrow("location", "xai_location_geocode_start");
+            const remainingBeforeGeocode = getRemainingMs();
+            if (remainingBeforeGeocode < MIN_STAGE_REMAINING_MS) {
+              geocodeStageCompleted = false;
+              downstreamDeferredByBudget = true;
+              deferredStages.add("location");
+              mark("xai_location_geocode_deferred_budget");
+            } else {
+              ensureStageBudgetOrThrow("location", "xai_location_geocode_start");
 
-            const deadlineBeforeGeocode = checkDeadlineOrReturn("xai_location_geocode_start", "location");
-            if (deadlineBeforeGeocode) return deadlineBeforeGeocode;
+              const deadlineBeforeGeocode = checkDeadlineOrReturn("xai_location_geocode_start", "location");
+              if (deadlineBeforeGeocode) return deadlineBeforeGeocode;
 
-            mark("xai_location_geocode_start");
-            setStage("geocodeLocations");
-            console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
+              mark("xai_location_geocode_start");
+              setStage("geocodeLocations");
+              console.log(`[import-start] session=${sessionId} geocoding start count=${enriched.length}`);
 
-            geocodeStageCompleted = true;
-            for (let i = 0; i < enriched.length; i++) {
-              if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
-                geocodeStageCompleted = false;
-                console.log(
-                  `[import-start] session=${sessionId} geocoding stopping early: remaining budget low`
-                );
-                break;
+              geocodeStageCompleted = true;
+              for (let i = 0; i < enriched.length; i++) {
+                if (getRemainingMs() < MIN_STAGE_REMAINING_MS) {
+                  geocodeStageCompleted = false;
+                  downstreamDeferredByBudget = true;
+                  deferredStages.add("location");
+                  console.log(
+                    `[import-start] session=${sessionId} geocoding stopping early: remaining budget low`
+                  );
+                  break;
+                }
+
+                if (shouldAbort()) {
+                  console.log(`[import-start] session=${sessionId} aborting during geocoding: time limit exceeded`);
+                  break;
+                }
+
+                const stopped = await safeCheckIfSessionStopped(sessionId);
+                if (stopped) {
+                  console.log(`[import-start] session=${sessionId} stop signal detected, aborting during geocoding`);
+                  break;
+                }
+
+                const company = enriched[i];
+                try {
+                  enriched[i] = await geocodeCompanyLocations(company, { timeoutMs: 5000 });
+                } catch (e) {
+                  console.log(
+                    `[import-start] session=${sessionId} geocoding failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`
+                  );
+                }
               }
 
-              if (shouldAbort()) {
-                console.log(`[import-start] session=${sessionId} aborting during geocoding: time limit exceeded`);
-                break;
-              }
-
-              const stopped = await safeCheckIfSessionStopped(sessionId);
-              if (stopped) {
-                console.log(`[import-start] session=${sessionId} stop signal detected, aborting during geocoding`);
-                break;
-              }
-
-              const company = enriched[i];
-              try {
-                enriched[i] = await geocodeCompanyLocations(company, { timeoutMs: 5000 });
-              } catch (e) {
-                console.log(
-                  `[import-start] session=${sessionId} geocoding failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`
-                );
-              }
+              const okCount = enriched.filter((c) => Number.isFinite(c.hq_lat) && Number.isFinite(c.hq_lng)).length;
+              console.log(`[import-start] session=${sessionId} geocoding done success=${okCount} failed=${enriched.length - okCount}`);
+              mark(geocodeStageCompleted ? "xai_location_geocode_done" : "xai_location_geocode_partial");
             }
-
-            const okCount = enriched.filter((c) => Number.isFinite(c.hq_lat) && Number.isFinite(c.hq_lng)).length;
-            console.log(`[import-start] session=${sessionId} geocoding done success=${okCount} failed=${enriched.length - okCount}`);
-            mark(geocodeStageCompleted ? "xai_location_geocode_done" : "xai_location_geocode_partial");
           } else {
             mark("xai_location_geocode_skipped");
           }
@@ -6771,8 +6993,10 @@ Output JSON only:
             console.log(`[import-start] session=${sessionId} editorial review enrichment start count=${enriched.length}`);
             reviewStageCompleted = true;
             for (let i = 0; i < enriched.length; i++) {
-              if (getRemainingMs() < DEADLINE_SAFETY_BUFFER_MS) {
+              if (getRemainingMs() < MIN_STAGE_REMAINING_MS) {
                 reviewStageCompleted = false;
+                downstreamDeferredByBudget = true;
+                deferredStages.add("reviews");
                 console.log(
                   `[import-start] session=${sessionId} review enrichment stopping early: remaining budget low`
                 );
@@ -7396,6 +7620,31 @@ Return ONLY the JSON array, no other text.`,
             console.log(
               `[import-start] session=${sessionId} saveCompaniesToCosmos done saved=${saveResult.saved} skipped=${saveResult.skipped} duplicates=${saveResult.skipped}`
             );
+
+            // Critical: persist canonical saved IDs immediately so /import/status can recover even if SWA kills
+            // later enrichment stages.
+            try {
+              const savedCompanyUrls = (Array.isArray(enriched) ? enriched : [])
+                .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
+                .filter(Boolean)
+                .slice(0, 50);
+
+              await upsertCosmosImportSessionDoc({
+                sessionId,
+                requestId,
+                patch: {
+                  saved: Number(saveResult.saved || 0),
+                  saved_count: Number(saveResult.saved || 0),
+                  saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                  saved_company_urls: savedCompanyUrls,
+                  saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                  skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                  failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
+                  stage_beacon,
+                  status: "running",
+                },
+              }).catch(() => null);
+            } catch {}
           }
 
           // Reviews stage MUST execute (success or classified failure) before import is considered complete.
@@ -8104,6 +8353,13 @@ Return ONLY the JSON array, no other text.`,
                     updated_at: nowResumeIso,
                     request_id: requestId,
                     status: "queued",
+                    saved_count: Number(saveResult.saved || 0),
+                    saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                    saved_company_urls: (Array.isArray(enriched) ? enriched : [])
+                      .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
+                      .filter(Boolean)
+                      .slice(0, 50),
+                    deferred_stages: Array.from(deferredStages),
                     missing_by_company: enrichmentMissingByCompany,
                     keywords_stage_completed: Boolean(keywordStageCompleted),
                     reviews_stage_completed: Boolean(reviewStageCompleted),
@@ -8122,6 +8378,16 @@ Return ONLY the JSON array, no other text.`,
                     saved: saveResult.saved,
                     skipped: saveResult.skipped,
                     failed: saveResult.failed,
+                    saved_count: Number(saveResult.saved || 0),
+                    saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                    saved_company_urls: (Array.isArray(enriched) ? enriched : [])
+                      .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
+                      .filter(Boolean)
+                      .slice(0, 50),
+                    deferred_stages: Array.from(deferredStages),
+                    saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                    skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                    failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
                     resume_needed: true,
                     resume_updated_at: new Date().toISOString(),
                   },
@@ -8159,6 +8425,13 @@ Return ONLY the JSON array, no other text.`,
                 stage_beacon,
                 status: "running",
                 resume_needed: true,
+                deferred_stages: Array.from(deferredStages),
+                saved_count: Number(saveResult.saved || 0),
+                saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                saved_company_urls: (Array.isArray(enriched) ? enriched : [])
+                  .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
+                  .filter(Boolean)
+                  .slice(0, 50),
                 missing_by_company: enrichmentMissingByCompany,
                 companies: enriched,
                 saved: saveResult.saved,
@@ -8244,6 +8517,9 @@ Return ONLY the JSON array, no other text.`,
                     saved: saveResult.saved,
                     skipped: saveResult.skipped,
                     failed: saveResult.failed,
+                    saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                    skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                    failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
                     completed_at: completionDoc.completed_at,
                     ...(warningKeyList.length
                       ? {

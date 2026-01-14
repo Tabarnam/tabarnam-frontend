@@ -12,7 +12,16 @@ try {
   CosmosClient = null;
 }
 
-const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("./_shared");
+const {
+  getXAIEndpoint,
+  getXAIKey,
+  getResolvedUpstreamMeta,
+  resolveXaiEndpointForModel,
+} = require("./_shared");
+const {
+  getContainerPartitionKeyPath,
+  buildPartitionKeyCandidates,
+} = require("./_cosmosPartitionKey");
 const { fetchConfirmedCompanyTagline } = require("./_taglineXai");
 const { getBuildInfo } = require("./_buildInfo");
 
@@ -387,6 +396,17 @@ function getCompaniesContainer() {
   return client.database(database).container(containerName);
 }
 
+let companiesPkPathPromise;
+async function getCompaniesPartitionKeyPath(container) {
+  if (!container) return "/normalized_domain";
+  companiesPkPathPromise ||= getContainerPartitionKeyPath(container, "/normalized_domain");
+  try {
+    return await companiesPkPathPromise;
+  } catch {
+    return "/normalized_domain";
+  }
+}
+
 async function loadCompanyById(container, companyId) {
   const querySpec = {
     query: "SELECT * FROM c WHERE c.id = @id",
@@ -395,6 +415,34 @@ async function loadCompanyById(container, companyId) {
   const { resources } = await container.items.query(querySpec, { enableCrossPartitionQuery: true }).fetchAll();
   const docs = Array.isArray(resources) ? resources : [];
   return docs[0] || null;
+}
+
+async function patchCompanyById(container, companyId, docForCandidates, patch) {
+  const id = asString(companyId).trim();
+  if (!id) throw new Error("Missing company id");
+  if (!container) throw new Error("Cosmos not configured");
+
+  const containerPkPath = await getCompaniesPartitionKeyPath(container);
+  const candidates = buildPartitionKeyCandidates({
+    doc: docForCandidates,
+    containerPkPath,
+    requestedId: id,
+  });
+
+  const ops = Object.keys(patch || {}).map((key) => ({ op: "set", path: `/${key}`, value: patch[key] }));
+  let lastError;
+
+  for (const pk of candidates) {
+    try {
+      const itemRef = pk !== undefined ? container.item(id, pk) : container.item(id);
+      await itemRef.patch(ops);
+      return { ok: true, pk };
+    } catch (e) {
+      lastError = e;
+    }
+  }
+
+  return { ok: false, error: asString(lastError?.message || lastError || "patch_failed") };
 }
 
 function buildProposedCompanyFromXaiResult(xaiCompany) {
@@ -460,10 +508,12 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
   const startedAt = Date.now();
   let stage = "start";
 
-  const xaiTimeoutMs = readTimeoutMs(
-    deps.xaiTimeoutMs ?? process.env.XAI_TIMEOUT_MS ?? process.env.XAI_REQUEST_TIMEOUT_MS,
-    120000
-  );
+  let budgetMs = 20000;
+  let deadlineAtMs = startedAt + budgetMs;
+  const getRemainingBudgetMs = () => Math.max(0, deadlineAtMs - Date.now());
+
+  // Derive per-call timeouts from the remaining total budget.
+  const computeUpstreamTimeoutMs = () => Math.max(3500, Math.min(12000, getRemainingBudgetMs() - 1500));
 
   const config = {
     COSMOS_DB_ENDPOINT_SET: Boolean(asString(process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_ENDPOINT).trim()),
@@ -477,12 +527,15 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       asString(process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || process.env.XAI_API_KEY).trim()
     ),
     XAI_MODEL: asString(process.env.XAI_MODEL || process.env.XAI_CHAT_MODEL || "grok-4-latest").trim(),
-    XAI_TIMEOUT_MS: xaiTimeoutMs,
   };
 
   try {
     stage = "parse_body";
     const body = await readJsonBody(req);
+
+    budgetMs = Math.max(5000, Math.min(25000, Math.trunc(Number(body?.timeout_ms ?? body?.timeoutMs ?? 20000) || 20000)));
+    deadlineAtMs = startedAt + budgetMs;
+
     const companyId = asString(body.company_id || body.id).trim();
 
     if (!companyId) {
@@ -529,16 +582,87 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       );
     }
 
+    // Best-effort per-company lock so repeated clicks don't overlap.
+    stage = "lock_check";
+    const nowMs = Date.now();
+    const lockUntilExisting = Number(existing.company_refresh_lock_until || 0) || 0;
+    if (lockUntilExisting > nowMs) {
+      const retryAfterMs = Math.max(0, lockUntilExisting - nowMs);
+      return json({
+        ok: false,
+        stage: "refresh_company",
+        root_cause: "locked",
+        retryable: true,
+        company_id: companyId,
+        lock_until_ms: lockUntilExisting,
+        retry_after_ms: retryAfterMs,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
+      });
+    }
+
+    stage = "budget_guard";
+    if (getRemainingBudgetMs() < 4500) {
+      return json({
+        ok: false,
+        stage: "refresh_company",
+        root_cause: "upstream_timeout_budget_exhausted",
+        retryable: true,
+        company_id: companyId,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
+      });
+    }
+
+    try {
+      const lockWindowMs = Math.max(8000, Math.min(30000, budgetMs + 5000));
+      const lockUntil = nowMs + lockWindowMs;
+      await patchCompanyById(container, companyId, existing, {
+        company_refresh_lock_key: `company_refresh_lock::${companyId}`,
+        company_refresh_lock_until: lockUntil,
+        company_refresh_last_attempt_at: new Date().toISOString(),
+      });
+    } catch {
+      // ignore
+    }
+
     stage = "prepare_prompt";
     const companyName = asString(existing.company_name || existing.name).trim();
     const websiteUrl = asString(existing.website_url || existing.canonical_url || existing.url).trim();
     const normalizedDomain = asString(existing.normalized_domain).trim() || toNormalizedDomain(websiteUrl);
 
     stage = "init_xai";
-    const xaiEndpointRaw = asString(deps.xaiUrl || getXAIEndpoint()).trim();
+    const externalBase = asString(getXAIEndpoint()).trim();
+    const legacyBase = asString(process.env.XAI_BASE_URL).trim();
+
+    const xaiEndpointRaw = asString(deps.xaiUrl || externalBase || legacyBase).trim();
     const xaiKey = asString(deps.xaiKey || getXAIKey()).trim();
     const xaiModel = asString(deps.xaiModel || process.env.XAI_MODEL || process.env.XAI_CHAT_MODEL || "grok-4-latest").trim();
     const xaiUrl = asString(deps.resolvedXaiUrl || resolveXaiEndpointForModel(xaiEndpointRaw, xaiModel)).trim();
+
+    const xai_config_source = externalBase ? "external" : legacyBase ? "legacy" : "external";
+    const upstreamMeta = getResolvedUpstreamMeta(xaiUrl);
+
+    try {
+      console.log(
+        JSON.stringify({
+          stage: "refresh_company",
+          route: "xadmin-api-refresh-company",
+          kind: "xai_config",
+          company_id: companyId,
+          xai_config_source,
+          resolved_upstream_host: upstreamMeta.resolved_upstream_host,
+          resolved_upstream_path: upstreamMeta.resolved_upstream_path,
+          build_id: BUILD_INFO.build_id || null,
+        })
+      );
+    } catch {
+      // ignore
+    }
 
     const missing_env = [];
     if (!xaiEndpointRaw) missing_env.push("XAI_EXTERNAL_BASE");
@@ -615,18 +739,40 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     let resp;
 
     try {
+      const timeoutMsUsed = computeUpstreamTimeoutMs();
+      if (timeoutMsUsed < 3500) {
+        const err = new Error("Total budget exhausted before calling upstream");
+        err.root_cause = "upstream_timeout_budget_exhausted";
+        err.retryable = true;
+        throw err;
+      }
+
       resp = await axiosPost(xaiUrl, payload, {
         headers: buildXaiHeaders(xaiUrl, xaiKey),
-        timeout: xaiTimeoutMs,
+        timeout: timeoutMsUsed,
         validateStatus: () => true,
       });
     } catch (e) {
       stage = "upstream_error";
+
+      try {
+        await patchCompanyById(container, companyId, existing, {
+          company_refresh_lock_until: 0,
+        });
+      } catch {
+        // ignore
+      }
+
       return json({
         ok: false,
-        stage,
-        error: "Upstream request failed",
+        stage: "refresh_company",
+        root_cause: asString(e?.root_cause).trim() || "upstream_unreachable",
+        retryable: typeof e?.retryable === "boolean" ? e.retryable : true,
+        company_id: companyId,
         upstream_status: 0,
+        xai_config_source,
+        resolved_upstream_host: upstreamMeta.resolved_upstream_host,
+        resolved_upstream_path: upstreamMeta.resolved_upstream_path,
         details: {
           message: asString(e?.message || e).trim() || "Request failed",
           resolved_xai_endpoint: xaiUrl || null,
@@ -634,6 +780,8 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         config,
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
       });
     }
 
@@ -723,43 +871,49 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     stage = "tagline_confirm";
     let tagline_meta = null;
     try {
-      const taglineTimeout = Math.min(30000, Math.max(7000, Math.trunc(xaiTimeoutMs / 2)));
-      const info = await fetchConfirmedCompanyTagline({
-        axiosPost,
-        xaiUrl,
-        xaiKey,
-        companyName,
-        websiteUrl,
-        timeoutMs: taglineTimeout,
-      });
+      const remainingForTagline = getRemainingBudgetMs();
+      const taglineTimeout = Math.min(12000, Math.max(4000, remainingForTagline - 1500));
 
-      tagline_meta = {
-        confirmed_company_name: info.confirmed_company_name,
-        confirm_confidence: info.confirm_confidence,
-        confirm_reason: info.confirm_reason,
-        tagline_confidence: info.tagline_confidence,
-        tagline_reason: info.tagline_reason,
-      };
+      if (taglineTimeout < 4000) {
+        tagline_meta = { status: "skipped_budget" };
+      } else {
+        const info = await fetchConfirmedCompanyTagline({
+          axiosPost,
+          xaiUrl,
+          xaiKey,
+          companyName,
+          websiteUrl,
+          timeoutMs: taglineTimeout,
+        });
 
-      if (info.tagline) {
-        proposed.tagline = info.tagline;
-      }
+        tagline_meta = {
+          confirmed_company_name: info.confirmed_company_name,
+          confirm_confidence: info.confirm_confidence,
+          confirm_reason: info.confirm_reason,
+          tagline_confidence: info.tagline_confidence,
+          tagline_reason: info.tagline_reason,
+        };
 
-      try {
-        console.log(
-          JSON.stringify({
-            stage: "refresh_company_tagline",
-            company_id: companyId,
-            website_url: websiteUrl,
-            input_company_name: companyName,
-            confirmed_company_name: info.confirmed_company_name,
-            tagline: info.tagline,
-            confirm_confidence: info.confirm_confidence,
-            tagline_confidence: info.tagline_confidence,
-          })
-        );
-      } catch {
-        // ignore
+        if (info.tagline) {
+          proposed.tagline = info.tagline;
+        }
+
+        try {
+          console.log(
+            JSON.stringify({
+              stage: "refresh_company_tagline",
+              company_id: companyId,
+              website_url: websiteUrl,
+              input_company_name: companyName,
+              confirmed_company_name: info.confirmed_company_name,
+              tagline: info.tagline,
+              confirm_confidence: info.confirm_confidence,
+              tagline_confidence: info.tagline_confidence,
+            })
+          );
+        } catch {
+          // ignore
+        }
       }
     } catch (e) {
       tagline_meta = {
@@ -768,10 +922,24 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
 
     stage = "done";
+
+    try {
+      await patchCompanyById(container, companyId, existing, {
+        company_refresh_lock_until: 0,
+      });
+    } catch {
+      // ignore
+    }
+
     return json({
       ok: true,
       company_id: companyId,
       elapsed_ms: Date.now() - startedAt,
+      budget_ms: budgetMs,
+      remaining_budget_ms: getRemainingBudgetMs(),
+      xai_config_source,
+      resolved_upstream_host: upstreamMeta.resolved_upstream_host,
+      resolved_upstream_path: upstreamMeta.resolved_upstream_path,
       proposed,
       upstream_status: Number(resp?.status) || 0,
       request_id: request_id || null,
@@ -796,7 +964,9 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
 
     return json({
       ok: false,
-      stage,
+      stage: "refresh_company",
+      root_cause: asString(e?.root_cause).trim() || "unhandled_exception",
+      retryable: true,
       error: e?.message || "Internal error",
       details: {
         message: asString(e?.message || e).trim() || "Internal error",
@@ -804,6 +974,8 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       config,
       build_id: String(BUILD_INFO.build_id || ""),
       elapsed_ms: Date.now() - startedAt,
+      budget_ms: budgetMs,
+      remaining_budget_ms: typeof getRemainingBudgetMs === "function" ? getRemainingBudgetMs() : null,
     });
   }
 }

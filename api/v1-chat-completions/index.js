@@ -70,10 +70,13 @@ function getRequestHost(req) {
 function getUpstreamXaiUrl(req) {
   const requestHost = getRequestHost(req);
   const candidates = [
-    process.env.XAI_UPSTREAM_BASE,
-    process.env.XAI_BASE,
+    // Prefer external first.
     process.env.XAI_EXTERNAL_BASE,
     process.env.XAI_INTERNAL_BASE, // alias
+    process.env.XAI_UPSTREAM_BASE,
+
+    // Legacy fallbacks (only when external is missing).
+    process.env.XAI_BASE,
     process.env.FUNCTION_URL,
   ];
 
@@ -95,14 +98,17 @@ function getUpstreamXaiUrl(req) {
 }
 
 function getUpstreamXaiKey() {
-  return (
-    (process.env.XAI_UPSTREAM_KEY || "").trim() ||
-    (process.env.XAI_KEY || "").trim() ||
+  // IMPORTANT: if an external key is present, legacy vars must NOT override it.
+  const primary = (
+    (process.env.XAI_API_KEY || "").trim() ||
     (process.env.XAI_EXTERNAL_KEY || "").trim() ||
     (process.env.FUNCTION_KEY || "").trim() ||
-    (process.env.XAI_API_KEY || "").trim() ||
-    ""
+    (process.env.XAI_UPSTREAM_KEY || "").trim()
   );
+
+  if (primary) return primary;
+
+  return (process.env.XAI_KEY || "").trim() || "";
 }
 
 async function readRawBodyText(req) {

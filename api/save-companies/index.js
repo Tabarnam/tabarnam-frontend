@@ -568,7 +568,14 @@ app.http("save-companies", {
             logo_source_type: logoImport?.logo_source_type || (looksLikeCompanyLogoBlobUrl(existingLogoUrl) ? company?.logo_source_type || null : null),
             logo_status: logoImport?.logo_status || (resolvedLogoUrl ? "imported" : "not_found_on_site"),
             logo_import_status: logoImport?.logo_import_status || (resolvedLogoUrl ? "imported" : "missing"),
+            logo_stage_status:
+              typeof logoImport?.logo_stage_status === "string" && logoImport.logo_stage_status.trim()
+                ? logoImport.logo_stage_status.trim()
+                : resolvedLogoUrl
+                  ? "ok"
+                  : "not_found_on_site",
             logo_error: String(logoImport?.logo_error || ""),
+            logo_telemetry: logoImport?.logo_telemetry && typeof logoImport.logo_telemetry === "object" ? logoImport.logo_telemetry : null,
             logo_discovery_strategy: String(logoImport?.logo_discovery_strategy || ""),
             logo_discovery_page_url: String(logoImport?.logo_discovery_page_url || ""),
 

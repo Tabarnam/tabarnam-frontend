@@ -5,7 +5,7 @@ const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
 } = require("../_cosmosPartitionKey");
-const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../_shared");
+const { getXAIEndpoint, getXAIKey, getResolvedUpstreamMeta, resolveXaiEndpointForModel } = require("../_shared");
 const { checkUrlHealthAndFetchText } = require("../_reviewQuality");
 const {
   extractUpstreamRequestId,
@@ -391,21 +391,33 @@ function extractXaiConfig(overrides) {
 
   const model = asString(o.model).trim() || "grok-4-latest";
 
+  const externalBase = asString(getXAIEndpoint()).trim();
+  const legacyBase = asString(process.env.XAI_BASE_URL).trim();
+
   const rawBase =
     asString(o.xai_base_url || o.xaiUrl).trim() ||
     // Prefer consolidated env resolution (XAI_EXTERNAL_BASE, etc.) over legacy XAI_BASE_URL.
-    asString(getXAIEndpoint()).trim() ||
-    asString(process.env.XAI_BASE_URL).trim();
+    externalBase ||
+    legacyBase;
 
   const xai_key =
     asString(o.xai_key || o.xaiKey).trim() ||
     // Prefer consolidated env resolution (XAI_EXTERNAL_KEY / XAI_API_KEY / FUNCTION_KEY) over legacy XAI_KEY.
-    asString(getXAIKey()).trim() ||
-    asString(process.env.XAI_KEY).trim();
+    asString(getXAIKey()).trim();
 
   const xai_base_url = rawBase ? resolveXaiEndpointForModel(rawBase, model) : "";
 
-  return { model, xai_base_url, xai_key };
+  const xai_config_source = externalBase ? "external" : legacyBase ? "legacy" : "external";
+  const upstreamMeta = getResolvedUpstreamMeta(xai_base_url);
+
+  return {
+    model,
+    xai_base_url,
+    xai_key,
+    xai_config_source,
+    resolved_upstream_host: upstreamMeta.resolved_upstream_host,
+    resolved_upstream_path: upstreamMeta.resolved_upstream_path,
+  };
 }
 
 function normalizeUpstreamResult(result) {
@@ -732,6 +744,16 @@ async function handler(req, context, opts) {
 
   const build_id = String(BUILD_INFO.build_id || "");
 
+  const effectiveXaiConfig = extractXaiConfig({
+    model: options.model,
+    xai_base_url: options.xai_base_url || options.xaiUrl,
+    xai_key: options.xai_key || options.xaiKey,
+  });
+
+  const xai_config_source = asString(effectiveXaiConfig?.xai_config_source).trim() || null;
+  const resolved_upstream_host = asString(effectiveXaiConfig?.resolved_upstream_host).trim() || null;
+  const resolved_upstream_path = asString(effectiveXaiConfig?.resolved_upstream_path).trim() || null;
+
   function respond(payload) {
     const base = payload && typeof payload === "object" ? payload : {};
 
@@ -742,6 +764,10 @@ async function handler(req, context, opts) {
       version_tag: VERSION_TAG,
       ...base,
     };
+
+    if (xai_config_source && !out.xai_config_source) out.xai_config_source = xai_config_source;
+    if (resolved_upstream_host && !out.resolved_upstream_host) out.resolved_upstream_host = resolved_upstream_host;
+    if (resolved_upstream_path && !out.resolved_upstream_path) out.resolved_upstream_path = resolved_upstream_path;
 
     out.warnings = Array.isArray(out.warnings) ? out.warnings : [];
 
@@ -804,6 +830,9 @@ async function handler(req, context, opts) {
           upstream_status: out.upstream_status,
           fetched_count: out.fetched_count,
           saved_count: out.saved_count,
+          xai_config_source: out.xai_config_source || null,
+          resolved_upstream_host: out.resolved_upstream_host || null,
+          resolved_upstream_path: out.resolved_upstream_path || null,
           build_id,
           version_tag: VERSION_TAG,
         })
@@ -827,6 +856,9 @@ async function handler(req, context, opts) {
         route: "xadmin-api-refresh-reviews",
         kind: "request_start",
         method,
+        xai_config_source,
+        resolved_upstream_host,
+        resolved_upstream_path,
         build_id: BUILD_INFO.build_id || null,
         version_tag: VERSION_TAG,
       })
@@ -929,6 +961,7 @@ async function handler(req, context, opts) {
     const nowMs = Date.now();
     const lockUntilExisting = Number(company.reviews_fetch_lock_until || 0) || 0;
     if (lockUntilExisting > nowMs) {
+      const retryAfterMs = Math.max(0, lockUntilExisting - nowMs);
       return respond({
         ok: false,
         stage: "reviews_refresh",
@@ -937,6 +970,7 @@ async function handler(req, context, opts) {
         upstream_status: null,
         retryable: true,
         lock_until_ms: lockUntilExisting,
+        retry_after_ms: retryAfterMs,
         message: "Reviews refresh already in progress",
         build_id,
         version_tag: VERSION_TAG,
@@ -978,10 +1012,14 @@ async function handler(req, context, opts) {
     let fetched_count_total = 0;
     const warnings = [];
     let lastErr = null;
+    let budget_exhausted = false;
 
     for (let i = 0; i < backoffs.length; i += 1) {
       const remainingBeforeDelay = getRemainingBudgetMs();
-      if (remainingBeforeDelay < 4500) break;
+      if (remainingBeforeDelay < 4500) {
+        budget_exhausted = true;
+        break;
+      }
 
       const delay = jitterMs(backoffs[i]);
       if (delay && remainingBeforeDelay > delay + 3500) await sleep(delay);
@@ -1371,6 +1409,59 @@ async function handler(req, context, opts) {
 
     // Final failure: still JSON, still 200
     const ok = saved_count_total > 0;
+
+    // Critical: if we stopped early due to budget exhaustion (to avoid SWA gateway kills),
+    // classify it deterministically so the UI/admin doesn't treat it as a generic upstream error.
+    if (!ok && !lastErr && budget_exhausted) {
+      const remainingMs = getRemainingBudgetMs();
+      try {
+        cursor.last_attempt_at = nowIso();
+        cursor.last_error = {
+          root_cause: "upstream_timeout_budget_exhausted",
+          upstream_status: null,
+          retryable: true,
+          attempts_count: attempts.length,
+          retry_exhausted: true,
+          message: "Stopped before calling upstream: total timeout budget exhausted",
+        };
+        cursor.reviews_stage_status = "upstream_timeout_budget_exhausted";
+        cursor.attempts_count = attempts.length;
+        cursor.retry_exhausted = true;
+
+        await patchCompanyById(companiesContainer, company_id, company, {
+          review_cursor: cursor,
+          reviews_stage_status: "upstream_timeout_budget_exhausted",
+          reviews_attempts_count: attempts.length,
+          reviews_retry_exhausted: true,
+        });
+      } catch {
+        // ignore
+      }
+
+      try {
+        await patchCompanyById(companiesContainer, company_id, company, {
+          reviews_fetch_lock_until: 0,
+        });
+      } catch {
+        // ignore
+      }
+
+      return respond({
+        ok: false,
+        stage: "reviews_refresh",
+        company_id,
+        root_cause: "upstream_timeout_budget_exhausted",
+        upstream_status: null,
+        retryable: true,
+        attempts_count: attempts.length,
+        attempt_upstream_statuses: attempt_upstream_statuses.slice(0, attempts.length),
+        attempts,
+        warnings,
+        remaining_budget_ms: remainingMs,
+        build_id,
+        version_tag: VERSION_TAG,
+      });
+    }
 
     try {
       await patchCompanyById(companiesContainer, company_id, company, {

@@ -123,7 +123,9 @@ async function fetchSeedCompanies(container, sessionId, limit = 25) {
         c.curated_reviews, c.review_count, c.review_cursor,
         c.red_flag, c.red_flag_reason,
         c.hq_unknown, c.hq_unknown_reason,
-        c.mfg_unknown, c.mfg_unknown_reason
+        c.mfg_unknown, c.mfg_unknown_reason,
+        c.source, c.source_stage, c.seed_ready,
+        c.primary_candidate, c.seed
       FROM c
       WHERE (c.session_id = @sid OR c.import_session_id = @sid)
         AND NOT STARTSWITH(c.id, '_import_')
@@ -137,6 +139,24 @@ async function fetchSeedCompanies(container, sessionId, limit = 25) {
     .query(q, { enableCrossPartitionQuery: true })
     .fetchAll();
 
+  return Array.isArray(resources) ? resources : [];
+}
+
+async function fetchCompaniesByIds(container, ids) {
+  if (!container) return [];
+  const list = Array.isArray(ids) ? ids.map((v) => String(v || "").trim()).filter(Boolean) : [];
+  if (list.length === 0) return [];
+
+  const unique = Array.from(new Set(list)).slice(0, 25);
+  const params = unique.map((id, idx) => ({ name: `@id${idx}`, value: id }));
+  const inClause = unique.map((_, idx) => `@id${idx}`).join(", ");
+
+  const q = {
+    query: `SELECT * FROM c WHERE c.id IN (${inClause})`,
+    parameters: params,
+  };
+
+  const { resources } = await container.items.query(q, { enableCrossPartitionQuery: true }).fetchAll();
   return Array.isArray(resources) ? resources : [];
 }
 
@@ -227,7 +247,17 @@ async function handler(req, context) {
     updated_at: nowIso(),
   }).catch(() => null);
 
-  const seedDocs = await fetchSeedCompanies(container, sessionId, 25).catch(() => []);
+  let seedDocs = await fetchSeedCompanies(container, sessionId, 25).catch(() => []);
+
+  // If the session/company docs are missing the session_id markers (e.g. platform kill mid-flight),
+  // fall back to canonical saved IDs persisted in the resume/session docs.
+  if (seedDocs.length === 0) {
+    const fallbackIds = Array.isArray(resumeDoc?.saved_company_ids) ? resumeDoc.saved_company_ids : [];
+    if (fallbackIds.length > 0) {
+      seedDocs = await fetchCompaniesByIds(container, fallbackIds).catch(() => []);
+    }
+  }
+
   const companies = seedDocs
     .map((d) => {
       const company_name = String(d?.company_name || d?.name || "").trim();
@@ -255,6 +285,11 @@ async function handler(req, context) {
         hq_unknown_reason: String(d?.hq_unknown_reason || "").trim(),
         mfg_unknown: Boolean(d?.mfg_unknown),
         mfg_unknown_reason: String(d?.mfg_unknown_reason || "").trim(),
+        source: String(d?.source || "").trim(),
+        source_stage: String(d?.source_stage || "").trim(),
+        seed_ready: Boolean(d?.seed_ready),
+        primary_candidate: Boolean(d?.primary_candidate),
+        seed: Boolean(d?.seed),
       };
     })
     .filter(Boolean);
@@ -298,6 +333,7 @@ async function handler(req, context) {
   startUrl.searchParams.set("skip_stages", "primary");
   startUrl.searchParams.set("max_stage", "expand");
   startUrl.searchParams.set("resume_worker", "1");
+  startUrl.searchParams.set("deadline_ms", "25000");
 
   const startRes = await fetch(startUrl.toString(), {
     method: "POST",
