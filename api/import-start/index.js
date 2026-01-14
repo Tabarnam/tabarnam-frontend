@@ -6217,6 +6217,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               });
             } catch {}
 
+            const cosmosTarget = await getCompaniesCosmosTargetDiagnostics().catch(() => null);
+
             return jsonWithRequestId(
               {
                 ok: true,
@@ -6234,14 +6236,27 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   seed_fallback: true,
                   accepted_reason: typeof acceptedError?.reason === "string" ? acceptedError.reason : undefined,
                 },
+                ...(cosmosTarget ? cosmosTarget : {}),
+                saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+                saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
+                  ? saveResult.saved_company_ids_verified
+                  : Array.isArray(saveResult.saved_ids)
+                    ? saveResult.saved_ids
+                    : [],
+                saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
                 saved: Number(saveResult.saved || 0),
                 skipped: Number(saveResult.skipped || 0),
                 failed: Number(saveResult.failed || 0),
                 save_report: {
                   saved: Number(saveResult.saved || 0),
+                  saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+                  saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
                   skipped: Number(saveResult.skipped || 0),
                   failed: Number(saveResult.failed || 0),
                   saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                  saved_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
+                  saved_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
+                  saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
                   skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
                   skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
                   failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
