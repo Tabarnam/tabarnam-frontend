@@ -257,6 +257,11 @@ async function handler(req, context) {
         hq_unknown_reason: String(d?.hq_unknown_reason || "").trim(),
         mfg_unknown: Boolean(d?.mfg_unknown),
         mfg_unknown_reason: String(d?.mfg_unknown_reason || "").trim(),
+        source: String(d?.source || "").trim(),
+        source_stage: String(d?.source_stage || "").trim(),
+        seed_ready: Boolean(d?.seed_ready),
+        primary_candidate: Boolean(d?.primary_candidate),
+        seed: Boolean(d?.seed),
       };
     })
     .filter(Boolean);
