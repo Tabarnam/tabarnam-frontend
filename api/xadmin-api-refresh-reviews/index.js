@@ -836,10 +836,18 @@ async function handler(req, context, opts) {
 
     // Allow callers (including import-start) to provide a smaller timeout so this stage can
     // run inside the SWA gateway time budget.
-    const requestedTimeoutMs = Math.max(
+    //
+    // IMPORTANT: Treat this as the *total* time budget for this endpoint, not per-attempt.
+    // If we exceed the gateway budget, Azure Static Web Apps can terminate the function and
+    // return a plain-text 500 "Backend call failure" (non-JSON), which breaks the admin UI.
+    const budgetMs = Math.max(
       5000,
-      Math.min(65000, Math.trunc(Number(body?.timeout_ms ?? body?.timeoutMs ?? body?.deadline_ms ?? 65000) || 65000))
+      Math.min(25000, Math.trunc(Number(body?.timeout_ms ?? body?.timeoutMs ?? body?.deadline_ms ?? 20000) || 20000))
     );
+
+    const startedAtMs = Date.now();
+    const deadlineAtMs = startedAtMs + budgetMs;
+    const getRemainingBudgetMs = () => Math.max(0, deadlineAtMs - Date.now());
 
     if (!company_id) {
       return respond({
@@ -920,6 +928,7 @@ async function handler(req, context, opts) {
         root_cause: "locked",
         upstream_status: null,
         retryable: true,
+        lock_until_ms: lockUntilExisting,
         message: "Reviews refresh already in progress",
         build_id,
         version_tag: VERSION_TAG,
@@ -927,7 +936,11 @@ async function handler(req, context, opts) {
     }
 
     try {
-      const lockUntil = nowMs + 60000;
+      // Keep this short so aborted requests don't block retries for a full minute.
+      // (If SWA kills the request, we might not get a chance to clear the lock.)
+      const lockWindowMs = Math.max(8000, Math.min(30000, budgetMs + 5000));
+      const lockUntil = nowMs + lockWindowMs;
+
       cursor.last_attempt_at = nowIso();
 
       await patchCompanyById(companiesContainer, company_id, company, {
@@ -940,8 +953,8 @@ async function handler(req, context, opts) {
     }
 
     // Retry policy for retryable upstream failures.
-    // We keep this small to avoid long-running admin requests.
-    const backoffs = [0, 500, 1200];
+    // Keep this tiny and respect the overall time budget to avoid gateway kills.
+    const backoffs = budgetMs <= 12000 ? [0] : [0, 450];
 
     const jitterMs = (baseMs) => {
       const base = Math.max(0, Math.trunc(Number(baseMs) || 0));
@@ -959,8 +972,14 @@ async function handler(req, context, opts) {
     let lastErr = null;
 
     for (let i = 0; i < backoffs.length; i += 1) {
+      const remainingBeforeDelay = getRemainingBudgetMs();
+      if (remainingBeforeDelay < 4500) break;
+
       const delay = jitterMs(backoffs[i]);
-      if (delay) await sleep(delay);
+      if (delay && remainingBeforeDelay > delay + 3500) await sleep(delay);
+
+      const remaining = getRemainingBudgetMs();
+      const attemptTimeoutMs = Math.max(4000, Math.min(12000, remaining - 1500));
 
       try {
         const offset = Math.max(0, Math.trunc(Number(cursor.last_offset) || 0));
@@ -969,7 +988,7 @@ async function handler(req, context, opts) {
           company,
           offset,
           limit: requestedTake,
-          timeout_ms: requestedTimeoutMs,
+          timeout_ms: attemptTimeoutMs,
           model: options.model,
           xai_base_url: options.xai_base_url || options.xaiUrl,
           xai_key: options.xai_key || options.xaiKey,
@@ -991,9 +1010,15 @@ async function handler(req, context, opts) {
         // Filter out review URLs that are clearly dead (404/page not found).
         // Note: We allow "blocked" (403/429/etc) because those often work in a real browser.
         const incoming = [];
+        const validateReviewUrls = getRemainingBudgetMs() > 8000;
         for (const r of incomingNormalized) {
+          if (!validateReviewUrls) {
+            incoming.push(r);
+            continue;
+          }
+
           try {
-            const health = await checkUrlHealthAndFetchText(r.source_url, { timeoutMs: 4000, maxBytes: 30000 });
+            const health = await checkUrlHealthAndFetchText(r.source_url, { timeoutMs: 2500, maxBytes: 20000 });
             if (health?.link_status === "not_found") {
               warnings.push({
                 stage: "reviews_refresh",
