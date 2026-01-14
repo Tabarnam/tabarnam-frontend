@@ -139,6 +139,12 @@ app.http("retry-logo-import", {
           company_id: doc.id,
           logo_status: result.logo_status || (result.logo_url ? "imported" : "not_found_on_site"),
           logo_import_status: result.logo_import_status,
+          logo_stage_status:
+            typeof result.logo_stage_status === "string" && result.logo_stage_status.trim()
+              ? result.logo_stage_status.trim()
+              : result.logo_url
+                ? "ok"
+                : "not_found_on_site",
           logo_source_url: result.logo_source_url || null,
           logo_source_location: result.logo_source_location || null,
           logo_source_domain: result.logo_source_domain || null,
