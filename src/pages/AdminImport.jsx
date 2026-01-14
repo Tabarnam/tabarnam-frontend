@@ -859,6 +859,32 @@ export default function AdminImport() {
         }
 
         const result = await pollProgress({ session_id });
+
+        if (result?.unknown_session) {
+          const MAX_UNKNOWN_SESSION_ATTEMPTS = 8;
+          if (nextAttempts >= MAX_UNKNOWN_SESSION_ATTEMPTS) {
+            const msg = "No session found after repeated status checks. The gateway may have interrupted before the session was created. Retry start.";
+
+            setRuns((prev) =>
+              prev.map((r) =>
+                r.session_id === session_id
+                  ? {
+                      ...r,
+                      progress_error: msg,
+                      progress_notice: null,
+                      polling_exhausted: true,
+                      updatedAt: new Date().toISOString(),
+                    }
+                  : r
+              )
+            );
+
+            setActiveStatus("error");
+            toast.error("No session found — retry start");
+            return;
+          }
+        }
+
         if (result?.shouldStop) {
           const body = result?.body;
 
