@@ -8274,6 +8274,9 @@ Return ONLY the JSON array, no other text.`,
                     saved: saveResult.saved,
                     skipped: saveResult.skipped,
                     failed: saveResult.failed,
+                    saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                    skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                    failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
                     completed_at: completionDoc.completed_at,
                     ...(warningKeyList.length
                       ? {
