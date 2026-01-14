@@ -5,7 +5,7 @@ const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
 } = require("../_cosmosPartitionKey");
-const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../_shared");
+const { getXAIEndpoint, getXAIKey, getResolvedUpstreamMeta, resolveXaiEndpointForModel } = require("../_shared");
 const { checkUrlHealthAndFetchText } = require("../_reviewQuality");
 const {
   extractUpstreamRequestId,

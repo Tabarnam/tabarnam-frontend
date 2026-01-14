@@ -22,7 +22,7 @@ const {
   buildPartitionKeyCandidates,
   getValueAtPath,
 } = require("../_cosmosPartitionKey");
-const { getXAIEndpoint, getXAIKey } = require("../_shared");
+const { getXAIEndpoint, getXAIKey, getResolvedUpstreamMeta } = require("../_shared");
 function requireImportCompanyLogo() {
   const mod = require("../_logoImport");
   if (!mod || typeof mod.importCompanyLogo !== "function") {

@@ -647,6 +647,23 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     const xai_config_source = externalBase ? "external" : legacyBase ? "legacy" : "external";
     const upstreamMeta = getResolvedUpstreamMeta(xaiUrl);
 
+    try {
+      console.log(
+        JSON.stringify({
+          stage: "refresh_company",
+          route: "xadmin-api-refresh-company",
+          kind: "xai_config",
+          company_id: companyId,
+          xai_config_source,
+          resolved_upstream_host: upstreamMeta.resolved_upstream_host,
+          resolved_upstream_path: upstreamMeta.resolved_upstream_path,
+          build_id: BUILD_INFO.build_id || null,
+        })
+      );
+    } catch {
+      // ignore
+    }
+
     const missing_env = [];
     if (!xaiEndpointRaw) missing_env.push("XAI_EXTERNAL_BASE");
     if (!xaiKey) missing_env.push("XAI_API_KEY");
