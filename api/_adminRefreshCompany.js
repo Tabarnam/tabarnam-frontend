@@ -532,6 +532,10 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
   try {
     stage = "parse_body";
     const body = await readJsonBody(req);
+
+    budgetMs = Math.max(5000, Math.min(25000, Math.trunc(Number(body?.timeout_ms ?? body?.timeoutMs ?? 20000) || 20000)));
+    deadlineAtMs = startedAt + budgetMs;
+
     const companyId = asString(body.company_id || body.id).trim();
 
     if (!companyId) {
