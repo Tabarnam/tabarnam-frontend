@@ -3007,6 +3007,30 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
             };
 
             try {
+              const missing_fields = [];
+
+              if (!Array.isArray(doc.industries) || doc.industries.length === 0) missing_fields.push("industries");
+              if (!String(doc.product_keywords || "").trim()) missing_fields.push("product_keywords");
+
+              const hq = String(doc.headquarters_location || "").trim();
+              const hqLower = hq.toLowerCase();
+              const hasHq = Boolean(hq && hqLower !== "unknown" && hqLower !== "n/a" && hqLower !== "na" && hqLower !== "none");
+              if (!hasHq) missing_fields.push("hq");
+
+              if (!Array.isArray(doc.manufacturing_locations) || doc.manufacturing_locations.length === 0) missing_fields.push("mfg");
+
+              const hasReviews =
+                (Array.isArray(doc.curated_reviews) && doc.curated_reviews.length > 0) ||
+                (Number.isFinite(Number(doc.review_count)) && Number(doc.review_count) > 0);
+              if (!hasReviews) missing_fields.push("reviews");
+
+              if (!String(doc.logo_url || "").trim()) missing_fields.push("logo");
+
+              doc.missing_fields = missing_fields;
+              doc.missing_fields_updated_at = nowIso;
+            } catch {}
+
+            try {
               const completeness = computeProfileCompleteness(doc);
               doc.profile_completeness = completeness.profile_completeness;
               doc.profile_completeness_version = completeness.profile_completeness_version;
