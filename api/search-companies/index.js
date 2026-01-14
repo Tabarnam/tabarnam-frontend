@@ -6,6 +6,51 @@ try {
 }
 
 const { CosmosClient } = require("@azure/cosmos");
+const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
+
+let cosmosTargetPromise;
+
+function redactHostForDiagnostics(value) {
+  const host = typeof value === "string" ? value.trim() : "";
+  if (!host) return "";
+  if (host.length <= 12) return host;
+  return `${host.slice(0, 8)}…${host.slice(-8)}`;
+}
+
+async function getCompaniesCosmosTargetDiagnostics(container) {
+  cosmosTargetPromise ||= (async () => {
+    const endpoint = env("COSMOS_DB_ENDPOINT", "");
+    const databaseId = env("COSMOS_DB_DATABASE", "tabarnam-db");
+    const containerId = env("COSMOS_DB_COMPANIES_CONTAINER", "companies");
+
+    let host = "";
+    try {
+      host = endpoint ? new URL(endpoint).host : "";
+    } catch {
+      host = "";
+    }
+
+    const pkPath = await getContainerPartitionKeyPath(container, "/normalized_domain");
+
+    return {
+      cosmos_account_host_redacted: redactHostForDiagnostics(host),
+      cosmos_db_name: databaseId,
+      cosmos_container_name: containerId,
+      cosmos_container_partition_key_path: pkPath,
+    };
+  })();
+
+  try {
+    return await cosmosTargetPromise;
+  } catch {
+    return {
+      cosmos_account_host_redacted: "",
+      cosmos_db_name: env("COSMOS_DB_DATABASE", "tabarnam-db"),
+      cosmos_container_name: env("COSMOS_DB_COMPANIES_CONTAINER", "companies"),
+      cosmos_container_partition_key_path: "/normalized_domain",
+    };
+  }
+}
 
 function env(k, d = "") {
   const v = process.env[k];
