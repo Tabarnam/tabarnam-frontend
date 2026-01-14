@@ -1281,7 +1281,7 @@ async function handler(req, context) {
         ? sessionDoc.saved_ids
         : [];
 
-    const savedIds = (completionVerifiedIds.length > 0 ? completionVerifiedIds : sessionVerifiedIds)
+    let savedIds = (completionVerifiedIds.length > 0 ? completionVerifiedIds : sessionVerifiedIds)
       .map((id) => String(id || "").trim())
       .filter(Boolean);
 
