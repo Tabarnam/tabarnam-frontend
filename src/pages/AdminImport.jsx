@@ -441,6 +441,101 @@ export default function AdminImport() {
     return runs.find((r) => r.session_id === activeSessionId) || null;
   }, [activeSessionId, runs]);
 
+  useEffect(() => {
+    if (!activeRun) return;
+
+    const sid = asString(activeRun.session_id).trim();
+    const verifiedCompanyId = Array.isArray(activeRun.saved_company_ids_verified)
+      ? asString(activeRun.saved_company_ids_verified[0]).trim()
+      : "";
+
+    if (!sid || !verifiedCompanyId) return;
+
+    const existingDocCompanyId = asString(activeRun.primary_company_doc?.company_id).trim();
+    if (existingDocCompanyId === verifiedCompanyId) return;
+
+    const existingErrCompanyId = asString(activeRun.primary_company_doc_error?.company_id).trim();
+    if (existingErrCompanyId === verifiedCompanyId) return;
+
+    const fetchKey = `${sid}:${verifiedCompanyId}`;
+    if (companyDocFetchInFlightRef.current.has(fetchKey)) return;
+    companyDocFetchInFlightRef.current.add(fetchKey);
+
+    (async () => {
+      try {
+        const { res } = await apiFetchWithFallback([`/xadmin-api-companies/${encodeURIComponent(verifiedCompanyId)}`]);
+        const body = await readJsonOrText(res);
+
+        const company = body && typeof body === "object" ? body.company : null;
+        if (!res.ok || !company || typeof company !== "object") {
+          const msg =
+            body && typeof body === "object"
+              ? asString(body.error || body.message || body.text).trim() || `HTTP ${res.status}`
+              : `HTTP ${res.status}`;
+
+          setRuns((prev) =>
+            prev.map((r) =>
+              r.session_id === sid
+                ? {
+                    ...r,
+                    primary_company_doc: null,
+                    primary_company_doc_error: {
+                      company_id: verifiedCompanyId,
+                      message: msg || "Failed to load company doc",
+                    },
+                    updatedAt: new Date().toISOString(),
+                  }
+                : r
+            )
+          );
+          return;
+        }
+
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === sid
+              ? {
+                  ...r,
+                  primary_company_doc: {
+                    company_id: asString(company.id || verifiedCompanyId).trim() || verifiedCompanyId,
+                    company_name: asString(company.company_name || company.name).trim() || "Unknown company",
+                    canonical_url: asString(company.canonical_url).trim(),
+                    website_url: asString(company.website_url || company.url || company.canonical_url).trim(),
+                  },
+                  primary_company_doc_error: null,
+                  updatedAt: new Date().toISOString(),
+                }
+              : r
+          )
+        );
+      } catch (e) {
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === sid
+              ? {
+                  ...r,
+                  primary_company_doc: null,
+                  primary_company_doc_error: {
+                    company_id: verifiedCompanyId,
+                    message: toErrorString(e) || "Failed to load company doc",
+                  },
+                  updatedAt: new Date().toISOString(),
+                }
+              : r
+          )
+        );
+      } finally {
+        companyDocFetchInFlightRef.current.delete(fetchKey);
+      }
+    })();
+  }, [
+    activeRun,
+    activeRun?.session_id,
+    Array.isArray(activeRun?.saved_company_ids_verified) ? activeRun.saved_company_ids_verified[0] : "",
+    activeRun?.primary_company_doc?.company_id,
+    activeRun?.primary_company_doc_error?.company_id,
+  ]);
+
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current) {
       clearTimeout(pollTimerRef.current);
