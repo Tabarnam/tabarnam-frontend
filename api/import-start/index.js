@@ -5807,7 +5807,14 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 company_name: seed.company_name,
                 website_url: seed.website_url,
                 normalized_domain: seed.normalized_domain,
-                missing_fields: ["industries", "product_keywords", "reviews"],
+                missing_fields: [
+                  "industries",
+                  "product_keywords",
+                  "headquarters_location",
+                  "manufacturing_locations",
+                  "reviews",
+                  "logo",
+                ],
               },
             ];
 
