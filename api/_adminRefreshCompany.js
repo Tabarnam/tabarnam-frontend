@@ -905,10 +905,24 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
 
     stage = "done";
+
+    try {
+      await patchCompanyById(container, companyId, existing, {
+        company_refresh_lock_until: 0,
+      });
+    } catch {
+      // ignore
+    }
+
     return json({
       ok: true,
       company_id: companyId,
       elapsed_ms: Date.now() - startedAt,
+      budget_ms: budgetMs,
+      remaining_budget_ms: getRemainingBudgetMs(),
+      xai_config_source,
+      resolved_upstream_host: upstreamMeta.resolved_upstream_host,
+      resolved_upstream_path: upstreamMeta.resolved_upstream_path,
       proposed,
       upstream_status: Number(resp?.status) || 0,
       request_id: request_id || null,
