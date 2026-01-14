@@ -396,6 +396,17 @@ function getCompaniesContainer() {
   return client.database(database).container(containerName);
 }
 
+let companiesPkPathPromise;
+async function getCompaniesPartitionKeyPath(container) {
+  if (!container) return "/normalized_domain";
+  companiesPkPathPromise ||= getContainerPartitionKeyPath(container, "/normalized_domain");
+  try {
+    return await companiesPkPathPromise;
+  } catch {
+    return "/normalized_domain";
+  }
+}
+
 async function loadCompanyById(container, companyId) {
   const querySpec = {
     query: "SELECT * FROM c WHERE c.id = @id",
@@ -404,6 +415,34 @@ async function loadCompanyById(container, companyId) {
   const { resources } = await container.items.query(querySpec, { enableCrossPartitionQuery: true }).fetchAll();
   const docs = Array.isArray(resources) ? resources : [];
   return docs[0] || null;
+}
+
+async function patchCompanyById(container, companyId, docForCandidates, patch) {
+  const id = asString(companyId).trim();
+  if (!id) throw new Error("Missing company id");
+  if (!container) throw new Error("Cosmos not configured");
+
+  const containerPkPath = await getCompaniesPartitionKeyPath(container);
+  const candidates = buildPartitionKeyCandidates({
+    doc: docForCandidates,
+    containerPkPath,
+    requestedId: id,
+  });
+
+  const ops = Object.keys(patch || {}).map((key) => ({ op: "set", path: `/${key}`, value: patch[key] }));
+  let lastError;
+
+  for (const pk of candidates) {
+    try {
+      const itemRef = pk !== undefined ? container.item(id, pk) : container.item(id);
+      await itemRef.patch(ops);
+      return { ok: true, pk };
+    } catch (e) {
+      lastError = e;
+    }
+  }
+
+  return { ok: false, error: asString(lastError?.message || lastError || "patch_failed") };
 }
 
 function buildProposedCompanyFromXaiResult(xaiCompany) {
