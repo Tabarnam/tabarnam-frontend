@@ -4860,7 +4860,7 @@ const importStartHandlerInner = async (req, context) => {
           });
         }
 
-        const getRemainingMs = () => deadlineMs - Date.now();
+        const getRemainingMs = () => budget.getRemainingMs();
 
         const throwAccepted = (nextStageBeacon, reason, extra) => {
           const beacon = String(nextStageBeacon || stage_beacon || stage || "unknown") || "unknown";
