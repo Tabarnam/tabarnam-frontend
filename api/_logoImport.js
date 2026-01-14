@@ -14,6 +14,41 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function clampNumber(n, min, max, fallback) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return fallback;
+  return Math.max(min, Math.min(max, v));
+}
+
+function createTimeBudget(budgetMs, { defaultMs = 20_000, maxMs = 25_000 } = {}) {
+  const cap = clampNumber(budgetMs, 0, maxMs, defaultMs);
+  const startMs = Date.now();
+  const deadlineMs = startMs + cap;
+
+  return {
+    start_ms: startMs,
+    deadline_ms: deadlineMs,
+    budget_ms: cap,
+    elapsed_ms: () => Date.now() - startMs,
+    remaining_ms: (marginMs = 0) => deadlineMs - Date.now() - (Number(marginMs) || 0),
+  };
+}
+
+function computeBudgetedTimeoutMs(budget, desiredMs, { minMs = 800, marginMs = 350, maxMs = 25_000 } = {}) {
+  const desired = clampNumber(desiredMs, 1, maxMs, desiredMs);
+  if (!budget || typeof budget.remaining_ms !== "function") {
+    return clampNumber(desired, minMs, maxMs, desired);
+  }
+
+  const remaining = budget.remaining_ms(marginMs);
+  return clampNumber(remaining, minMs, desired, minMs);
+}
+
+function isBudgetExhausted(budget, { marginMs = 0, minRemainingMs = 1 } = {}) {
+  if (!budget || typeof budget.remaining_ms !== "function") return false;
+  return budget.remaining_ms(marginMs) < minRemainingMs;
+}
+
 function normalizeDomain(domain) {
   const raw = String(domain || "").trim().toLowerCase();
   if (!raw) return "";
@@ -537,9 +572,14 @@ async function headProbeImage(url, { timeoutMs = 6000 } = {}) {
   }
 }
 
-async function fetchAndEvaluateCandidate(candidate, logger = console) {
+async function fetchAndEvaluateCandidate(candidate, logger = console, options = {}) {
   const sourceUrl = String(candidate?.url || "").trim();
   if (!sourceUrl) return { ok: false, reason: "missing_url" };
+
+  const budget = options?.budget;
+  if (isBudgetExhausted(budget, { marginMs: 0, minRemainingMs: 800 })) {
+    return { ok: false, reason: "budget_exhausted" };
+  }
 
   if (sourceUrl.startsWith("data:")) return { ok: false, reason: "data_url" };
 
@@ -557,8 +597,8 @@ async function fetchAndEvaluateCandidate(candidate, logger = console) {
     return { ok: false, reason: `unsupported_extension_${urlExt}` };
   }
 
-  // Lightweight probe before downloading full image
-  const head = await headProbeImage(sourceUrl, { timeoutMs: 6000 });
+  const headTimeoutMs = computeBudgetedTimeoutMs(budget, 6000, { minMs: 900, marginMs: 400, maxMs: 8000 });
+  const head = await headProbeImage(sourceUrl, { timeoutMs: headTimeoutMs });
   const probedType = String(head.contentType || "").toLowerCase();
 
   if (!head.ok) return { ok: false, reason: `head_status_${head.status || 0}` };
@@ -568,10 +608,16 @@ async function fetchAndEvaluateCandidate(candidate, logger = console) {
   if (!isAllowedLogoContentType(probedType)) return { ok: false, reason: `unsupported_content_type_${probedType || "unknown"}` };
   if (head.contentLength != null && head.contentLength <= 1024) return { ok: false, reason: `too_small_${head.contentLength}_bytes` };
 
+  if (isBudgetExhausted(budget, { marginMs: 0, minRemainingMs: 1200 })) {
+    return { ok: false, reason: "budget_exhausted" };
+  }
+
   try {
+    const fetchTimeoutMs = computeBudgetedTimeoutMs(budget, 8000, { minMs: 1400, marginMs: 650, maxMs: 12_000 });
+
     const { buf, contentType, finalUrl } = await fetchImageBufferWithRetries(sourceUrl, {
       retries: 1,
-      timeoutMs: 8000,
+      timeoutMs: fetchTimeoutMs,
       maxBytes: 6 * 1024 * 1024,
     });
 
@@ -613,7 +659,7 @@ async function fetchAndEvaluateCandidate(candidate, logger = console) {
       return { ok: false, reason: "raster_jpeg_weak_signal" };
     }
 
-    const { width, height } = await getImageMetadata(buf, isSvg);
+    const { width, height } = await getImageMetadata(buf, false);
 
     if (!Number.isFinite(width) || !Number.isFinite(height) || width < 64 || height < 64) {
       return { ok: false, reason: `too_small_dimensions_${width || "?"}x${height || "?"}` };
@@ -627,7 +673,7 @@ async function fetchAndEvaluateCandidate(candidate, logger = console) {
       return { ok: false, reason: `likely_hero_dimensions_${width}x${height}` };
     }
 
-    return { ok: true, buf, contentType: ct, finalUrl: resolvedUrl, isSvg, width, height };
+    return { ok: true, buf, contentType: ct, finalUrl: resolvedUrl, isSvg: false, width, height };
   } catch (e) {
     logger?.warn?.(`[logoImport] candidate fetch/eval failed: ${candidate?.url} ${e?.message || e}`);
     return { ok: false, reason: e?.message || String(e) };
@@ -985,15 +1031,22 @@ function collectLogoCandidatesFromHtml(html, baseUrl, options = {}) {
   return dedupeAndSortCandidates(onSite);
 }
 
-async function discoverLogoCandidates({ domain, websiteUrl, companyName }, logger = console) {
+async function discoverLogoCandidates({ domain, websiteUrl, companyName }, logger = console, options = {}) {
   const d = normalizeDomain(domain);
   const homes = buildHomeUrlCandidates(d, websiteUrl);
 
+  const budget = options?.budget;
   let lastError = "";
 
   for (const home of homes) {
+    if (isBudgetExhausted(budget, { marginMs: 0, minRemainingMs: 1200 })) {
+      lastError = "time_budget_exhausted";
+      break;
+    }
+
     try {
-      const { ok, status, url: finalUrl, text } = await fetchText(home, 8000);
+      const timeoutMs = computeBudgetedTimeoutMs(budget, 8000, { minMs: 1200, marginMs: 650, maxMs: 10_000 });
+      const { ok, status, url: finalUrl, text } = await fetchText(home, timeoutMs);
       if (!ok || !text) {
         lastError = `homepage fetch failed status=${status}`;
         continue;
@@ -1013,7 +1066,7 @@ async function discoverLogoCandidates({ domain, websiteUrl, companyName }, logge
         return { ok: true, candidates, page_url: baseUrl, allowed_host_root: allowedHostRoot, warning: "" };
       }
 
-      lastError = "no on-site logo candidates found";
+      lastError = "no_on_site_candidates";
     } catch (e) {
       lastError = e?.message || String(e);
       logger?.warn?.(`[logoImport] discover failed for ${home}: ${lastError}`);
@@ -1023,17 +1076,22 @@ async function discoverLogoCandidates({ domain, websiteUrl, companyName }, logge
   return { ok: false, candidates: [], page_url: "", allowed_host_root: d || "", error: lastError || "missing domain" };
 }
 
-async function discoverLogoSourceUrl({ domain, websiteUrl, companyName }, logger = console) {
+async function discoverLogoSourceUrl({ domain, websiteUrl, companyName }, logger = console, options = {}) {
   const d = normalizeDomain(domain);
+  const budget = options?.budget || createTimeBudget(options?.budgetMs, { defaultMs: 12_000, maxMs: 20_000 });
 
-  const discovered = await discoverLogoCandidates({ domain: d, websiteUrl, companyName }, logger);
+  const discovered = await discoverLogoCandidates({ domain: d, websiteUrl, companyName }, logger, { budget });
   const candidates = dedupeAndSortCandidates(discovered?.candidates || []);
   candidates.sort(sortCandidatesStrict);
 
   const maxToTry = 8;
   for (let i = 0; i < Math.min(maxToTry, candidates.length); i += 1) {
+    if (isBudgetExhausted(budget, { marginMs: 0, minRemainingMs: 1200 })) {
+      break;
+    }
+
     const candidate = candidates[i];
-    const evalResult = await fetchAndEvaluateCandidate(candidate, logger);
+    const evalResult = await fetchAndEvaluateCandidate(candidate, logger, { budget });
     if (evalResult.ok) {
       return {
         ok: true,
@@ -1047,6 +1105,8 @@ async function discoverLogoSourceUrl({ domain, websiteUrl, companyName }, logger
     }
   }
 
+  const err = String(discovered?.error || "no suitable logo found") || "no suitable logo found";
+
   return {
     ok: false,
     logo_source_url: "",
@@ -1054,7 +1114,7 @@ async function discoverLogoSourceUrl({ domain, websiteUrl, companyName }, logger
     logo_source_domain: discovered?.allowed_host_root || null,
     strategy: "",
     page_url: "",
-    error: discovered?.error || "no suitable logo found",
+    error: err,
   };
 }
 
@@ -1174,142 +1234,301 @@ function sortCandidatesStrict(a, b) {
   return (Number(b?.score) || 0) - (Number(a?.score) || 0);
 }
 
-async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, logoSourceUrl }, logger = console) {
+async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, logoSourceUrl }, logger = console, options = {}) {
+  const budget = options?.budget || createTimeBudget(options?.budgetMs, { defaultMs: 20_000, maxMs: 25_000 });
+
+  const telemetry = {
+    budget_ms: budget.budget_ms,
+    elapsed_ms: 0,
+    discovery_ok: null,
+    discovery_page_url: "",
+    allowed_host_root: "",
+    candidates_total: 0,
+    candidates_tried: 0,
+    tiers: [],
+    rejection_reasons: {},
+    time_budget_exhausted: false,
+  };
+
+  const finalizeTelemetry = () => {
+    try {
+      telemetry.elapsed_ms = budget.elapsed_ms();
+    } catch {
+      telemetry.elapsed_ms = telemetry.elapsed_ms || 0;
+    }
+    return telemetry;
+  };
+
+  const bumpReason = (reason) => {
+    const key = String(reason || "unknown").slice(0, 120);
+    telemetry.rejection_reasons[key] = (telemetry.rejection_reasons[key] || 0) + 1;
+  };
+
   if (!companyId) {
     return {
       ok: false,
       logo_status: "error",
       logo_import_status: "failed",
+      logo_stage_status: "invalid_input",
       logo_error: "missing companyId",
       logo_source_url: logoSourceUrl || null,
       logo_source_type: logoSourceUrl ? "provided" : null,
       logo_url: null,
+      logo_telemetry: finalizeTelemetry(),
     };
   }
 
-  const candidates = [];
+  const normalizedDomain = normalizeDomain(domain);
+  const siteUrl = String(websiteUrl || "").trim();
+
+  if ((!normalizedDomain || normalizedDomain === "unknown") && !siteUrl) {
+    return {
+      ok: true,
+      logo_status: "not_found_on_site",
+      logo_import_status: "missing",
+      logo_stage_status: "missing_domain",
+      logo_error: "missing domain",
+      logo_source_url: null,
+      logo_source_location: null,
+      logo_source_domain: null,
+      logo_source_type: null,
+      logo_url: null,
+      logo_discovery_strategy: "",
+      logo_discovery_page_url: "",
+      logo_telemetry: finalizeTelemetry(),
+    };
+  }
+
+  const allCandidates = [];
 
   if (logoSourceUrl) {
     const providedUrl = String(logoSourceUrl).trim();
     if (providedUrl) {
-      candidates.push({
+      allCandidates.push({
         url: providedUrl,
         source: "provided",
         page_url: "",
-        score: 5 + extScore(getFileExt(providedUrl)) + (hasAnyToken(providedUrl, LOGO_POSITIVE_TOKENS) ? 50 : 0),
+        score: 500 + extScore(getFileExt(providedUrl)) + (hasAnyToken(providedUrl, LOGO_POSITIVE_TOKENS) ? 80 : 0),
         strong_signal: strongLogoSignal({ url: providedUrl }),
       });
     }
   }
 
-  const discovered = await discoverLogoCandidates({ domain, websiteUrl, companyName }, logger);
-  candidates.push(...(discovered?.candidates || []));
+  let discovered = { ok: false, candidates: [], page_url: "", allowed_host_root: normalizedDomain || "", error: "" };
 
-  const sorted = dedupeAndSortCandidates(candidates);
-  sorted.sort(sortCandidatesStrict);
+  if (!isBudgetExhausted(budget, { minRemainingMs: 1200 })) {
+    discovered = await discoverLogoCandidates(
+      { domain: normalizedDomain || domain, websiteUrl: siteUrl, companyName },
+      logger,
+      { budget }
+    );
+  } else {
+    discovered = { ok: false, candidates: [], page_url: "", allowed_host_root: normalizedDomain || "", error: "time_budget_exhausted" };
+    telemetry.time_budget_exhausted = true;
+  }
+
+  telemetry.discovery_ok = Boolean(discovered?.ok);
+  telemetry.discovery_page_url = String(discovered?.page_url || "");
+  telemetry.allowed_host_root = String(discovered?.allowed_host_root || "");
+
+  allCandidates.push(...(Array.isArray(discovered?.candidates) ? discovered.candidates : []));
+
+  const deduped = dedupeAndSortCandidates(allCandidates);
+  telemetry.candidates_total = deduped.length;
+
+  const tierOrder = ["provided", "jsonld", "header", "og_logo", "og_image", "twitter_image", "icon", "footer", "img"];
+  const tierMax = {
+    provided: 2,
+    jsonld: 3,
+    header: 5,
+    og_logo: 2,
+    og_image: 2,
+    twitter_image: 2,
+    icon: 4,
+    footer: 3,
+    img: 2,
+  };
+
+  const buildTierList = (tier) => {
+    const list = deduped.filter((c) => String(c?.source || "").toLowerCase() === tier);
+    list.sort((a, b) => {
+      const diff = (Number(b?.score) || 0) - (Number(a?.score) || 0);
+      if (diff) return diff;
+      return String(a?.url || "").localeCompare(String(b?.url || ""));
+    });
+    return list;
+  };
 
   let lastReason = "";
-  const maxToTry = 12;
 
-  for (let i = 0; i < Math.min(maxToTry, sorted.length); i += 1) {
-    const candidate = sorted[i];
-
-    try {
-      logger?.log?.("logo_candidate_found", {
-        company_id: companyId,
-        candidate_url: candidate?.url || "",
-        candidate_source: candidate?.source || "",
-        candidate_score: Number(candidate?.score) || 0,
-        attempt: i + 1,
-      });
-    } catch {
-      // ignore
+  for (const tier of tierOrder) {
+    if (isBudgetExhausted(budget, { minRemainingMs: 1200 })) {
+      telemetry.time_budget_exhausted = true;
+      break;
     }
 
-    const evalResult = await fetchAndEvaluateCandidate(candidate, logger);
+    const tierCandidates = buildTierList(tier);
+    if (tierCandidates.length === 0) continue;
 
-    if (!evalResult.ok) {
-      lastReason = evalResult.reason || lastReason;
+    const limit = Math.min(tierCandidates.length, Number(tierMax[tier] || 2));
 
-      const reason = String(evalResult.reason || "");
-      if (reason.includes("too_small")) {
-        try {
-          logger?.log?.("logo_rejected_small", {
-            company_id: companyId,
-            candidate_url: candidate?.url || "",
-            reason,
-          });
-        } catch {
-          // ignore
-        }
+    const tierTelemetry = {
+      tier,
+      attempted: 0,
+      rejected: 0,
+      ok: false,
+      selected_url: "",
+      selected_content_type: "",
+      reasons: {},
+      attempted_samples: [],
+    };
+
+    for (let i = 0; i < limit; i += 1) {
+      const candidate = tierCandidates[i];
+
+      if (isBudgetExhausted(budget, { minRemainingMs: 1200 })) {
+        telemetry.time_budget_exhausted = true;
+        break;
       }
 
-      continue;
-    }
+      tierTelemetry.attempted += 1;
+      telemetry.candidates_tried += 1;
 
-    try {
-      logger?.log?.("logo_download_ok", {
-        company_id: companyId,
-        source_url: evalResult.finalUrl || candidate?.url || "",
-        content_type: evalResult.contentType || "",
-        width: evalResult.width || null,
-        height: evalResult.height || null,
-        is_svg: Boolean(evalResult.isSvg),
-      });
-    } catch {
-      // ignore
-    }
-
-    try {
-      let logoUrl = null;
-
-      if (evalResult.isSvg) {
-        logoUrl = await uploadSvgToBlob({ companyId, svgBuffer: evalResult.buf }, logger);
-      } else {
-        const pngBuffer = await rasterizeToPng(evalResult.buf, { maxSize: 500, isSvg: false });
-        logoUrl = await uploadPngToBlob({ companyId, pngBuffer }, logger);
+      if (tierTelemetry.attempted_samples.length < 2) {
+        tierTelemetry.attempted_samples.push(String(candidate?.url || ""));
       }
 
       try {
-        logger?.log?.("logo_uploaded_ok", {
+        logger?.log?.("logo_candidate_found", {
           company_id: companyId,
-          logo_url: logoUrl,
+          candidate_url: candidate?.url || "",
+          candidate_source: candidate?.source || "",
+          candidate_score: Number(candidate?.score) || 0,
+          attempt: telemetry.candidates_tried,
+          tier,
+          remaining_ms: typeof budget.remaining_ms === "function" ? budget.remaining_ms(0) : null,
         });
       } catch {
         // ignore
       }
 
-      return {
-        ok: true,
-        logo_status: "imported",
-        logo_import_status: "imported",
-        logo_error: "",
-        logo_source_url: evalResult.finalUrl || candidate.url,
-        logo_source_location: candidate.location || null,
-        logo_source_domain: candidate.logo_source_domain || discovered?.allowed_host_root || null,
-        logo_source_type: toLogoSourceType(candidate.source),
-        logo_url: logoUrl,
-        logo_discovery_strategy: candidate.source || "",
-        logo_discovery_page_url: candidate.page_url || discovered?.page_url || "",
-      };
-    } catch (e) {
-      lastReason = e?.message || String(e);
-      continue;
+      const evalResult = await fetchAndEvaluateCandidate(candidate, logger, { budget });
+
+      if (!evalResult.ok) {
+        const reason = String(evalResult.reason || "unknown");
+        lastReason = reason || lastReason;
+
+        tierTelemetry.rejected += 1;
+        tierTelemetry.reasons[reason] = (tierTelemetry.reasons[reason] || 0) + 1;
+        bumpReason(reason);
+
+        continue;
+      }
+
+      try {
+        logger?.log?.("logo_download_ok", {
+          company_id: companyId,
+          source_url: evalResult.finalUrl || candidate?.url || "",
+          content_type: evalResult.contentType || "",
+          width: evalResult.width || null,
+          height: evalResult.height || null,
+          is_svg: Boolean(evalResult.isSvg),
+          tier,
+        });
+      } catch {
+        // ignore
+      }
+
+      if (isBudgetExhausted(budget, { minRemainingMs: 1200 })) {
+        telemetry.time_budget_exhausted = true;
+        lastReason = "budget_exhausted_before_upload";
+        bumpReason(lastReason);
+        break;
+      }
+
+      try {
+        let logoUrl = null;
+
+        if (evalResult.isSvg) {
+          logoUrl = await uploadSvgToBlob({ companyId, svgBuffer: evalResult.buf }, logger);
+        } else {
+          const pngBuffer = await rasterizeToPng(evalResult.buf, { maxSize: 500, isSvg: false });
+          logoUrl = await uploadPngToBlob({ companyId, pngBuffer }, logger);
+        }
+
+        try {
+          logger?.log?.("logo_uploaded_ok", {
+            company_id: companyId,
+            logo_url: logoUrl,
+            tier,
+          });
+        } catch {
+          // ignore
+        }
+
+        tierTelemetry.ok = true;
+        tierTelemetry.selected_url = String(evalResult.finalUrl || candidate.url || "");
+        tierTelemetry.selected_content_type = String(evalResult.contentType || "");
+
+        telemetry.tiers.push(tierTelemetry);
+
+        return {
+          ok: true,
+          logo_status: "imported",
+          logo_import_status: "imported",
+          logo_stage_status: "ok",
+          logo_error: "",
+          logo_source_url: evalResult.finalUrl || candidate.url,
+          logo_source_location: candidate.location || null,
+          logo_source_domain: candidate.logo_source_domain || discovered?.allowed_host_root || null,
+          logo_source_type: toLogoSourceType(candidate.source),
+          logo_url: logoUrl,
+          logo_discovery_strategy: candidate.source || "",
+          logo_discovery_page_url: candidate.page_url || discovered?.page_url || "",
+          logo_telemetry: finalizeTelemetry(),
+        };
+      } catch (e) {
+        const reason = e?.message || String(e);
+        lastReason = reason || lastReason;
+        tierTelemetry.rejected += 1;
+        tierTelemetry.reasons[reason] = (tierTelemetry.reasons[reason] || 0) + 1;
+        bumpReason(reason);
+        continue;
+      }
+    }
+
+    telemetry.tiers.push(tierTelemetry);
+
+    if (tierTelemetry.ok) {
+      break;
+    }
+
+    if (telemetry.time_budget_exhausted) {
+      break;
     }
   }
+
+  const errorReason =
+    telemetry.time_budget_exhausted && (!telemetry.candidates_total || telemetry.candidates_tried === 0)
+      ? "time_budget_exhausted"
+      : lastReason || discovered?.error || "no on-site logo found";
+
+  const stageStatus = telemetry.time_budget_exhausted ? "budget_exhausted" : telemetry.candidates_total === 0 ? "no_candidates" : "not_found_on_site";
 
   return {
     ok: true,
     logo_status: "not_found_on_site",
     logo_import_status: "missing",
-    logo_error: lastReason || discovered?.error || "no on-site logo found",
+    logo_stage_status: stageStatus,
+    logo_error: errorReason,
     logo_source_url: null,
     logo_source_location: null,
-    logo_source_domain: discovered?.allowed_host_root || normalizeDomain(domain) || null,
+    logo_source_domain: discovered?.allowed_host_root || normalizedDomain || null,
     logo_source_type: null,
     logo_url: null,
     logo_discovery_strategy: "",
     logo_discovery_page_url: discovered?.page_url || "",
+    logo_telemetry: finalizeTelemetry(),
   };
 }
 
