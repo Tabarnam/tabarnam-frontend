@@ -5577,7 +5577,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
           // NOTE: company_url imports should still attempt the upstream primary call (it tends to be the
           // best source for HQ + manufacturing), but we must NOT ever return 202 for company_url.
           // If primary times out, we fall back to a local URL seed and continue downstream enrichment inline.
-          const buildCompanyUrlSeedFromQuery = (rawQuery) => {
+          function buildCompanyUrlSeedFromQuery(rawQuery) {
             const q = String(rawQuery || "").trim();
             let hostname = "";
             try {
@@ -5609,6 +5609,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               source: "company_url_shortcut",
               candidate: false,
               source_stage: "seed",
+              seed_ready: true,
               hq_unknown: true,
               hq_unknown_reason: "seed_from_company_url",
               mfg_unknown: true,
@@ -5625,7 +5626,117 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 },
               },
             };
-          };
+          }
+
+          async function respondWithCompanyUrlSeedFallback(acceptedError) {
+            const seed = buildCompanyUrlSeedFromQuery(query);
+            const companies = [seed];
+
+            const dryRunRequested = Boolean(bodyObj?.dry_run || bodyObj?.dryRun);
+
+            let saveResult = {
+              saved: 0,
+              skipped: 0,
+              failed: 0,
+              saved_ids: [],
+              skipped_ids: [],
+              skipped_duplicates: [],
+              failed_items: [],
+            };
+
+            if (!dryRunRequested && cosmosEnabled) {
+              sessionCreatedAtIso ||= new Date().toISOString();
+
+              saveResult = await saveCompaniesToCosmos({
+                companies,
+                sessionId,
+                requestId,
+                sessionCreatedAt: sessionCreatedAtIso,
+                axiosTimeout: Math.min(timeout, 20_000),
+                saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
+              });
+
+              saveReport = saveResult;
+
+              try {
+                const container = getCompaniesCosmosContainer();
+                if (container) {
+                  const completed_at = new Date().toISOString();
+                  const completionDoc = {
+                    id: `_import_complete_${sessionId}`,
+                    ...buildImportControlDocBase(sessionId),
+                    completed_at,
+                    reason: "company_url_seed_fallback",
+                    saved: Number(saveResult.saved || 0),
+                    skipped: Number(saveResult.skipped || 0),
+                    failed: Number(saveResult.failed || 0),
+                    saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                    skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                    failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
+                  };
+
+                  await upsertItemWithPkCandidates(container, completionDoc).catch(() => null);
+
+                  await upsertCosmosImportSessionDoc({
+                    sessionId,
+                    requestId,
+                    patch: {
+                      status: "complete",
+                      stage_beacon: "company_url_seed_fallback",
+                      saved: completionDoc.saved,
+                      skipped: completionDoc.skipped,
+                      failed: completionDoc.failed,
+                      completed_at,
+                    },
+                  }).catch(() => null);
+                }
+              } catch {
+                // ignore
+              }
+            }
+
+            try {
+              upsertImportSession({
+                session_id: sessionId,
+                request_id: requestId,
+                status: "complete",
+                stage_beacon: "company_url_seed_fallback",
+                companies_count: companies.length,
+              });
+            } catch {}
+
+            return jsonWithRequestId(
+              {
+                ok: true,
+                session_id: sessionId,
+                request_id: requestId,
+                stage_beacon: "company_url_seed_fallback",
+                company_name: seed.company_name,
+                website_url: seed.website_url,
+                companies,
+                meta: {
+                  mode: "direct",
+                  seed_fallback: true,
+                  accepted_reason: typeof acceptedError?.reason === "string" ? acceptedError.reason : undefined,
+                },
+                saved: Number(saveResult.saved || 0),
+                skipped: Number(saveResult.skipped || 0),
+                failed: Number(saveResult.failed || 0),
+                save_report: {
+                  saved: Number(saveResult.saved || 0),
+                  skipped: Number(saveResult.skipped || 0),
+                  failed: Number(saveResult.failed || 0),
+                  saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                  skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                  skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
+                  failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
+                },
+                ...(warningKeys.size ? { warnings: Array.from(warningKeys), warnings_detail, warnings_v2 } : {}),
+                ...(debugOutput ? { debug: debugOutput } : {}),
+              },
+              200
+            );
+          }
 
           const wantsAsyncPrimary =
             inputCompanies.length === 0 &&
@@ -8236,11 +8347,41 @@ Return ONLY the JSON array, no other text.`,
         return jsonWithRequestId({ ...failurePayload, http_status: mappedStatus }, 200);
       }
       } catch (e) {
-        if (e instanceof AcceptedResponseError && e.response) return e.response;
+        if (e instanceof AcceptedResponseError && e.response) {
+          const isCompanyUrlImport =
+            Array.isArray(queryTypes) &&
+            queryTypes.includes("company_url") &&
+            typeof query === "string" &&
+            query.trim() &&
+            looksLikeCompanyUrlQuery(query);
+
+          if (isCompanyUrlImport) {
+            const fallback = await respondWithCompanyUrlSeedFallback(e);
+            if (fallback) return fallback;
+          }
+
+          return e.response;
+        }
+
         return respondError(e, { status: 500 });
       }
     } catch (e) {
-      if (e instanceof AcceptedResponseError && e.response) return e.response;
+      if (e instanceof AcceptedResponseError && e.response) {
+        const isCompanyUrlImport =
+          Array.isArray(bodyObj?.queryTypes) &&
+          bodyObj.queryTypes.map((t) => String(t || "").trim()).includes("company_url") &&
+          typeof bodyObj?.query === "string" &&
+          bodyObj.query.trim() &&
+          looksLikeCompanyUrlQuery(bodyObj.query);
+
+        if (isCompanyUrlImport) {
+          const fallback = await respondWithCompanyUrlSeedFallback(e);
+          if (fallback) return fallback;
+        }
+
+        return e.response;
+      }
+
       const lastStage = String(stage_beacon || stage || "fatal") || "fatal";
       const error_message = toErrorString(e) || "Unhandled error";
 
