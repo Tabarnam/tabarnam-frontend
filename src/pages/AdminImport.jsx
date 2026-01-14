@@ -3373,6 +3373,18 @@ export default function AdminImport() {
                                 <RefreshCcw className={isRefreshing ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
                                 <span className="ml-1">View status</span>
                               </Button>
+
+                              {companyId ? (
+                                <Button
+                                  asChild
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <a href={`/admin?company_id=${encodeURIComponent(companyId)}`}>Open company</a>
+                                </Button>
+                              ) : null}
                             </div>
 
                             {Boolean(r.reconciled) ? (
