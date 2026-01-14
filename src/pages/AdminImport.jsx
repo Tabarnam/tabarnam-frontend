@@ -3277,7 +3277,9 @@ export default function AdminImport() {
                       ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
                       : explicitNoPersist
                         ? "No company persisted"
-                        : "Company candidate";
+                        : savedCount > 0
+                          ? "Saved (verified) — company doc missing"
+                          : "Company candidate";
 
                     const websiteUrl = asString(
                       primaryCandidate?.canonical_url || primaryCandidate?.website_url || primaryCandidate?.url
