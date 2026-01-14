@@ -3437,6 +3437,15 @@ export default function AdminImport() {
                       const savedCompanies = Array.isArray(activeRun.saved_companies) ? activeRun.saved_companies : [];
                       const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
+                      const primaryDoc =
+                        activeRun.primary_company_doc && typeof activeRun.primary_company_doc === "object"
+                          ? activeRun.primary_company_doc
+                          : null;
+                      const primaryDocError =
+                        activeRun.primary_company_doc_error && typeof activeRun.primary_company_doc_error === "object"
+                          ? activeRun.primary_company_doc_error
+                          : null;
+
                       const verifiedCount = Number.isFinite(activeRun.saved_verified_count) ? activeRun.saved_verified_count : null;
                       const savedCount =
                         verifiedCount != null
