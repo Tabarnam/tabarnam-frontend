@@ -4630,16 +4630,19 @@ const importStartHandlerInner = async (req, context) => {
         };
       }
 
-      // Helper to check if we're running out of time
-      const isOutOfTime = () => {
-        const elapsed = Date.now() - startTime;
-        return elapsed > MAX_PROCESSING_TIME_MS;
-      };
+      // Budget is the single source of truth (SWA gateway kills are not catchable).
+      const isOutOfTime = () => budget.isExpired();
 
-      // Helper to check if we need to abort
       const shouldAbort = () => {
         if (isOutOfTime()) {
-          console.warn(`[import-start] TIMEOUT: Processing exceeded ${MAX_PROCESSING_TIME_MS}ms limit`);
+          try {
+            console.warn("[import-start] TIMEOUT: request budget exhausted", {
+              request_id: requestId,
+              session_id: sessionId,
+              elapsed_ms: budget.getElapsedMs(),
+              total_ms: budget.totalMs,
+            });
+          } catch {}
           return true;
         }
         return false;
@@ -4662,7 +4665,7 @@ const importStartHandlerInner = async (req, context) => {
         } catch {}
 
         // Fire-and-forget: persist an acceptance marker so status can explain what happened even if the
-        // start handler had to return 202 early.
+        // start handler had to return early.
         if (!noUpstreamMode && cosmosEnabled) {
           (async () => {
             const container = getCompaniesCosmosContainer();
@@ -4761,7 +4764,7 @@ const importStartHandlerInner = async (req, context) => {
             note: "start endpoint is inline capped; long primary runs async",
             ...(extra && typeof extra === "object" ? extra : {}),
           },
-          202
+          200
         );
       };
 
