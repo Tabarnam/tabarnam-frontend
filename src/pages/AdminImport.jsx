@@ -470,9 +470,24 @@ export default function AdminImport() {
           );
           const msg = bodyPreview ? `${baseMsg}\n${bodyPreview}` : baseMsg;
 
-          setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
+          if (isUnknownSession) {
+            setRuns((prev) =>
+              prev.map((r) =>
+                r.session_id === session_id
+                  ? {
+                      ...r,
+                      progress_error: null,
+                      progress_notice: "Session not found yet; retrying status polling…",
+                      updatedAt: new Date().toISOString(),
+                    }
+                  : r
+              )
+            );
+            return { shouldStop: false, body, unknown_session: true };
+          }
 
-          if (!isUnknownSession) toast.error(baseMsg);
+          setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
+          toast.error(baseMsg);
           return { shouldStop: true, body };
         }
 
