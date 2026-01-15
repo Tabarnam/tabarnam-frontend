@@ -3420,9 +3420,25 @@ export default function AdminImport() {
                         : `https://${queryUrlRaw}`
                       : "";
 
-                    const websiteUrl = websiteUrlRaw || queryUrlNormalized;
+                    const primaryDoc =
+                      r.primary_company_doc && typeof r.primary_company_doc === "object" ? r.primary_company_doc : null;
+
+                    const websiteUrlFromDoc = asString(primaryDoc?.website_url || primaryDoc?.canonical_url).trim();
+                    const websiteUrl = websiteUrlRaw || websiteUrlFromDoc || queryUrlNormalized;
+
                     const isCompanyUrlRun = Array.isArray(r.queryTypes) ? r.queryTypes.includes("company_url") : false;
-                    const seedMissingBug = isCompanyUrlRun && Boolean(queryUrlNormalized && !websiteUrlRaw);
+                    const hasResolvedCompanyRecord = Boolean(primaryCandidate || primaryDoc);
+
+                    const hasCompanyUrl = isMeaningfulString(primaryCandidate?.company_url || primaryDoc?.company_url);
+                    const hasWebsiteUrl = isMeaningfulString(
+                      primaryCandidate?.website_url ||
+                        primaryCandidate?.canonical_url ||
+                        primaryCandidate?.url ||
+                        primaryDoc?.website_url ||
+                        primaryDoc?.canonical_url
+                    );
+
+                    const seedMissingBug = Boolean(isCompanyUrlRun && savedCount > 0 && hasResolvedCompanyRecord && !hasCompanyUrl && !hasWebsiteUrl);
                     const isRefreshing = statusRefreshSessionId === r.session_id;
 
                     const jobState = asString(r.final_job_state || r.job_state).trim().toLowerCase();
