@@ -682,6 +682,13 @@ async function handler(req, context) {
     let reconcile_strategy = null;
     let reconciled_saved_ids = [];
 
+    let saved_verified_count = null;
+    let saved_company_ids_verified = [];
+    let saved_company_ids_unverified = [];
+    let saved_company_urls = [];
+    let save_outcome = null;
+    let resume_error = null;
+
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
       const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
@@ -700,6 +707,47 @@ async function handler(req, context) {
         ]);
 
         const domainMeta = deriveDomainAndCreatedAfter({ sessionDoc, acceptDoc });
+
+        const completionVerifiedIds = Array.isArray(completionDoc?.saved_company_ids_verified)
+          ? completionDoc.saved_company_ids_verified
+          : Array.isArray(completionDoc?.saved_ids)
+            ? completionDoc.saved_ids
+            : [];
+
+        const sessionVerifiedIds = Array.isArray(sessionDoc?.saved_company_ids_verified)
+          ? sessionDoc.saved_company_ids_verified
+          : Array.isArray(sessionDoc?.saved_ids)
+            ? sessionDoc.saved_ids
+            : [];
+
+        saved_company_ids_verified = (completionVerifiedIds.length > 0 ? completionVerifiedIds : sessionVerifiedIds)
+          .map((id) => String(id || "").trim())
+          .filter(Boolean);
+
+        saved_verified_count =
+          (typeof completionDoc?.saved_verified_count === "number" && Number.isFinite(completionDoc.saved_verified_count)
+            ? completionDoc.saved_verified_count
+            : null) ??
+          (typeof sessionDoc?.saved_verified_count === "number" && Number.isFinite(sessionDoc.saved_verified_count)
+            ? sessionDoc.saved_verified_count
+            : null) ??
+          (saved_company_ids_verified.length > 0 ? saved_company_ids_verified.length : null);
+
+        saved_company_ids_unverified = Array.isArray(sessionDoc?.saved_company_ids_unverified)
+          ? sessionDoc.saved_company_ids_unverified
+          : [];
+
+        saved_company_urls = Array.isArray(sessionDoc?.saved_company_urls) ? sessionDoc.saved_company_urls : [];
+
+        save_outcome =
+          typeof sessionDoc?.save_outcome === "string" && sessionDoc.save_outcome.trim()
+            ? sessionDoc.save_outcome.trim()
+            : typeof completionDoc?.save_outcome === "string" && completionDoc.save_outcome.trim()
+              ? completionDoc.save_outcome.trim()
+              : null;
+
+        resume_error =
+          typeof sessionDoc?.resume_error === "string" && sessionDoc.resume_error.trim() ? sessionDoc.resume_error.trim() : null;
 
         const completionSavedIds = Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [];
         const completionSaved = typeof completionDoc?.saved === "number" ? completionDoc.saved : null;
@@ -868,6 +916,23 @@ async function handler(req, context) {
     const saved_companies = toSavedCompanies(savedDocsForHealth);
     const enrichment_health_summary = summarizeEnrichmentHealth(saved_companies);
 
+    // Always surface "verified save" fields while running so the Admin UI can render
+    // stable saved counts + Open company links.
+    if (!Number.isFinite(Number(saved_verified_count))) {
+      saved_verified_count = saved_company_ids_verified.length > 0 ? saved_company_ids_verified.length : 0;
+    }
+
+    if (Array.isArray(saved_company_ids_verified) && saved_company_ids_verified.length === 0 && saved_companies.length > 0) {
+      saved_company_ids_verified = saved_companies
+        .map((c) => String(c?.company_id || "").trim())
+        .filter(Boolean)
+        .slice(0, 50);
+    }
+
+    if (Number(saved || 0) !== Number(saved_verified_count || 0)) {
+      saved = Number(saved_verified_count || 0);
+    }
+
     const resumeNeededFromSession = Boolean(report?.session && report.session.resume_needed);
     const resumeNeededFromHealth = enrichment_health_summary.incomplete > 0;
 
@@ -990,6 +1055,12 @@ async function handler(req, context) {
               : 0,
         items: effectiveStatus === "error" ? [] : Array.isArray(primaryJob?.companies) ? primaryJob.companies : [],
         saved,
+        saved_verified_count,
+        saved_company_ids_verified,
+        saved_company_ids_unverified,
+        saved_company_urls,
+        save_outcome,
+        resume_error,
         reconciled,
         reconcile_strategy,
         reconciled_saved_ids,
@@ -1047,39 +1118,6 @@ async function handler(req, context) {
   const mem = getImportSession(sessionId);
   if (mem) {
     stageBeaconValues.status_seen_session_memory = nowIso();
-
-    const saved = Number.isFinite(Number(mem.saved))
-      ? Number(mem.saved)
-      : Number.isFinite(Number(mem.companies_count))
-        ? Number(mem.companies_count)
-        : 0;
-
-    return jsonWithSessionId(
-      {
-        ok: true,
-        session_id: sessionId,
-        status: mem.status || "running",
-        state: mem.status === "complete" ? "complete" : mem.status === "failed" ? "failed" : "running",
-        job_state: null,
-        stage_beacon: mem.stage_beacon || "init",
-        stage_beacon_values: stageBeaconValues,
-        elapsed_ms: null,
-        remaining_budget_ms: null,
-        upstream_calls_made: 0,
-        companies_candidates_found: 0,
-        early_exit_triggered: false,
-        primary_job_state: null,
-        last_heartbeat_at: null,
-        lock_until: null,
-        attempts: 0,
-        last_error: null,
-        companies_count: Number.isFinite(Number(mem.companies_count)) ? Number(mem.companies_count) : 0,
-        saved,
-        saved_companies: [],
-      },
-      200,
-      req
-    );
   }
 
   const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
@@ -1170,11 +1208,115 @@ async function handler(req, context) {
       );
     }
 
+    if (mem) {
+      const memCompaniesCount = Number.isFinite(Number(mem.companies_count)) ? Number(mem.companies_count) : 0;
+      const memVerifiedIds = Array.isArray(mem.saved_company_ids_verified) ? mem.saved_company_ids_verified : [];
+      const memVerifiedCount = Number.isFinite(Number(mem.saved_verified_count))
+        ? Number(mem.saved_verified_count)
+        : memVerifiedIds.length;
+
+      const saved_verified_count = memVerifiedCount;
+      const saved_company_ids_verified = memVerifiedIds;
+      const saved_company_ids_unverified = Array.isArray(mem.saved_company_ids_unverified) ? mem.saved_company_ids_unverified : [];
+      const saved_company_urls = Array.isArray(mem.saved_company_urls) ? mem.saved_company_urls : [];
+      const save_outcome = typeof mem.save_outcome === "string" && mem.save_outcome.trim() ? mem.save_outcome.trim() : null;
+      const resume_needed = typeof mem.resume_needed === "boolean" ? mem.resume_needed : false;
+      const resume_error = typeof mem.resume_error === "string" && mem.resume_error.trim() ? mem.resume_error.trim() : null;
+
+      const saved = Number.isFinite(Number(mem.saved)) ? Number(mem.saved) : saved_verified_count;
+
+      return jsonWithSessionId(
+        {
+          ok: true,
+          session_id: sessionId,
+          status: mem.status || "running",
+          state: mem.status === "complete" ? "complete" : mem.status === "failed" ? "failed" : "running",
+          job_state: null,
+          stage_beacon: mem.stage_beacon || "init",
+          stage_beacon_values: stageBeaconValues,
+          elapsed_ms: null,
+          remaining_budget_ms: null,
+          upstream_calls_made: 0,
+          companies_candidates_found: 0,
+          early_exit_triggered: false,
+          primary_job_state: null,
+          last_heartbeat_at: null,
+          lock_until: null,
+          attempts: 0,
+          last_error: null,
+          companies_count: memCompaniesCount,
+          saved,
+          saved_verified_count,
+          saved_company_ids_verified,
+          saved_company_ids_unverified,
+          saved_company_urls,
+          save_outcome,
+          resume_needed,
+          resume_error,
+          saved_companies: [],
+        },
+        200,
+        req
+      );
+    }
+
     return jsonWithSessionId({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404);
   }
 
   try {
     if (!CosmosClient) {
+      if (mem) {
+        const memCompaniesCount = Number.isFinite(Number(mem.companies_count)) ? Number(mem.companies_count) : 0;
+        const memVerifiedIds = Array.isArray(mem.saved_company_ids_verified) ? mem.saved_company_ids_verified : [];
+        const memVerifiedCount = Number.isFinite(Number(mem.saved_verified_count))
+          ? Number(mem.saved_verified_count)
+          : memVerifiedIds.length;
+
+        const saved_verified_count = memVerifiedCount;
+        const saved_company_ids_verified = memVerifiedIds;
+        const saved_company_ids_unverified = Array.isArray(mem.saved_company_ids_unverified) ? mem.saved_company_ids_unverified : [];
+        const saved_company_urls = Array.isArray(mem.saved_company_urls) ? mem.saved_company_urls : [];
+        const save_outcome = typeof mem.save_outcome === "string" && mem.save_outcome.trim() ? mem.save_outcome.trim() : null;
+        const resume_needed = typeof mem.resume_needed === "boolean" ? mem.resume_needed : false;
+        const resume_error = typeof mem.resume_error === "string" && mem.resume_error.trim() ? mem.resume_error.trim() : null;
+
+        const saved = Number.isFinite(Number(mem.saved)) ? Number(mem.saved) : saved_verified_count;
+
+        return jsonWithSessionId(
+          {
+            ok: true,
+            session_id: sessionId,
+            status: mem.status || "running",
+            state: mem.status === "complete" ? "complete" : mem.status === "failed" ? "failed" : "running",
+            job_state: null,
+            stage_beacon: mem.stage_beacon || "init",
+            stage_beacon_values: stageBeaconValues,
+            elapsed_ms: null,
+            remaining_budget_ms: null,
+            upstream_calls_made: 0,
+            companies_candidates_found: 0,
+            early_exit_triggered: false,
+            primary_job_state: null,
+            last_heartbeat_at: null,
+            lock_until: null,
+            attempts: 0,
+            last_error: null,
+            companies_count: memCompaniesCount,
+            saved,
+            saved_verified_count,
+            saved_company_ids_verified,
+            saved_company_ids_unverified,
+            saved_company_urls,
+            save_outcome,
+            resume_needed,
+            resume_error,
+            saved_companies: [],
+          },
+          200,
+          req
+        );
+      }
+
       return jsonWithSessionId(
         {
           ok: false,
@@ -1488,6 +1630,22 @@ async function handler(req, context) {
       ? sessionDoc.saved_company_ids_unverified
       : [];
 
+    const save_outcome =
+      typeof sessionDoc?.save_outcome === "string" && sessionDoc.save_outcome.trim()
+        ? sessionDoc.save_outcome.trim()
+        : typeof completionDoc?.save_outcome === "string" && completionDoc.save_outcome.trim()
+          ? completionDoc.save_outcome.trim()
+          : null;
+
+    const saved_company_urls = Array.isArray(sessionDoc?.saved_company_urls)
+      ? sessionDoc.saved_company_urls
+      : Array.isArray(completionDoc?.saved_company_urls)
+        ? completionDoc.saved_company_urls
+        : [];
+
+    const resume_error =
+      typeof sessionDoc?.resume_error === "string" && sessionDoc.resume_error.trim() ? sessionDoc.resume_error.trim() : null;
+
     const requestObj = sessionDoc?.request && typeof sessionDoc.request === "object" ? sessionDoc.request : null;
     const requestQueryTypes = Array.isArray(requestObj?.queryTypes)
       ? requestObj.queryTypes.map((t) => String(t || "").trim()).filter(Boolean)
@@ -1530,6 +1688,9 @@ async function handler(req, context) {
           saved_verified_count,
           saved_company_ids_verified,
           saved_company_ids_unverified,
+          saved_company_urls,
+          save_outcome,
+          resume_error,
           reconciled,
           reconcile_strategy,
           reconciled_saved_ids,
@@ -1600,6 +1761,9 @@ async function handler(req, context) {
           saved_verified_count: 0,
           saved_company_ids_verified: [],
           saved_company_ids_unverified,
+          saved_company_urls,
+          save_outcome,
+          resume_error,
           save_report: {
             saved: 0,
             saved_verified_count: 0,
@@ -1678,6 +1842,9 @@ async function handler(req, context) {
           saved_verified_count,
           saved_company_ids_verified,
           saved_company_ids_unverified,
+          saved_company_urls,
+          save_outcome,
+          resume_error,
           reconciled,
           reconcile_strategy,
           reconciled_saved_ids,
@@ -1725,6 +1892,9 @@ async function handler(req, context) {
         saved_verified_count,
         saved_company_ids_verified,
         saved_company_ids_unverified,
+        saved_company_urls,
+        save_outcome,
+        resume_error,
         reconciled,
         reconcile_strategy,
         reconciled_saved_ids,

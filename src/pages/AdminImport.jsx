@@ -159,6 +159,25 @@ function mergeById(prev, next) {
   return Array.from(map.values());
 }
 
+function mergeUniqueStrings(prev, next) {
+  const left = Array.isArray(prev) ? prev : [];
+  const right = Array.isArray(next) ? next : [];
+
+  const out = [];
+  const seen = new Set();
+
+  for (const item of [...left, ...right]) {
+    const value = asString(item).trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+
+  return out;
+}
+
 function safeJsonParse(text) {
   if (typeof text !== "string") return null;
   try {
@@ -592,19 +611,35 @@ export default function AdminImport() {
         const items = normalizeItems(body?.items || body?.companies);
         const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
 
+        const incomingVerifiedIds = Array.isArray(body?.saved_company_ids_verified)
+          ? body.saved_company_ids_verified
+          : Array.isArray(body?.result?.saved_company_ids_verified)
+            ? body.result.saved_company_ids_verified
+            : [];
+
+        const incomingUnverifiedIds = Array.isArray(body?.saved_company_ids_unverified)
+          ? body.saved_company_ids_unverified
+          : Array.isArray(body?.result?.saved_company_ids_unverified)
+            ? body.result.saved_company_ids_unverified
+            : [];
+
         const savedVerifiedCount =
           typeof body?.saved_verified_count === "number" && Number.isFinite(body.saved_verified_count)
             ? body.saved_verified_count
             : typeof body?.result?.saved_verified_count === "number" && Number.isFinite(body.result.saved_verified_count)
               ? body.result.saved_verified_count
-              : null;
+              : incomingVerifiedIds.length > 0
+                ? incomingVerifiedIds.length
+                : null;
 
         const saved =
           savedVerifiedCount != null
             ? savedVerifiedCount
-            : savedCompanies.length > 0
-              ? savedCompanies.length
-              : 0;
+            : incomingVerifiedIds.length > 0
+              ? incomingVerifiedIds.length
+              : savedCompanies.length > 0
+                ? savedCompanies.length
+                : 0;
 
         const reconciled = Boolean(body?.reconciled);
         const reconcileStrategy = asString(body?.reconcile_strategy).trim();
@@ -669,8 +704,19 @@ export default function AdminImport() {
               ? lastErrorCode || asString(r.final_last_error_code)
               : asString(r.final_last_error_code);
 
-            const savedVerifiedCount = Number.isFinite(r.saved_verified_count) ? r.saved_verified_count : null;
-            const savedCount = savedVerifiedCount != null ? savedVerifiedCount : Number.isFinite(saved) ? saved : 0;
+            const prevVerifiedIds = Array.isArray(r.saved_company_ids_verified) ? r.saved_company_ids_verified : [];
+            const nextVerifiedIds = mergeUniqueStrings(prevVerifiedIds, incomingVerifiedIds);
+
+            const prevUnverifiedIds = Array.isArray(r.saved_company_ids_unverified) ? r.saved_company_ids_unverified : [];
+            const nextUnverifiedIds = mergeUniqueStrings(prevUnverifiedIds, incomingUnverifiedIds);
+
+            const prevVerifiedCount =
+              typeof r.saved_verified_count === "number" && Number.isFinite(r.saved_verified_count) ? r.saved_verified_count : 0;
+            const nextSavedVerifiedCountRaw =
+              typeof savedVerifiedCount === "number" && Number.isFinite(savedVerifiedCount) ? savedVerifiedCount : 0;
+
+            const nextSavedVerifiedCount = Math.max(prevVerifiedCount, nextSavedVerifiedCountRaw, nextVerifiedIds.length);
+            const savedCount = Math.max(nextSavedVerifiedCount, Number.isFinite(Number(saved)) ? Number(saved) : 0, savedCompanies.length);
             const hasSaved = savedCount > 0;
 
             const shouldDemoteStartErrorToWarning = Boolean(isTerminalComplete && hasSaved);
@@ -720,22 +766,16 @@ export default function AdminImport() {
               items: mergeById(r.items, items),
               lastCreatedAt: asString(body?.lastCreatedAt || r.lastCreatedAt),
               saved: savedCount,
-              saved_verified_count:
-                typeof body?.saved_verified_count === "number" && Number.isFinite(body.saved_verified_count)
-                  ? body.saved_verified_count
-                  : Number.isFinite(r.saved_verified_count)
-                    ? r.saved_verified_count
-                    : null,
-              saved_company_ids_verified: Array.isArray(body?.saved_company_ids_verified)
-                ? body.saved_company_ids_verified
-                : Array.isArray(r.saved_company_ids_verified)
-                  ? r.saved_company_ids_verified
+              saved_verified_count: nextSavedVerifiedCount,
+              saved_company_ids_verified: nextVerifiedIds,
+              saved_company_ids_unverified: nextUnverifiedIds,
+              saved_company_urls: Array.isArray(body?.saved_company_urls)
+                ? body.saved_company_urls
+                : Array.isArray(r.saved_company_urls)
+                  ? r.saved_company_urls
                   : [],
-              saved_company_ids_unverified: Array.isArray(body?.saved_company_ids_unverified)
-                ? body.saved_company_ids_unverified
-                : Array.isArray(r.saved_company_ids_unverified)
-                  ? r.saved_company_ids_unverified
-                  : [],
+              save_outcome: asString(body?.save_outcome || body?.save_report?.save_outcome || r.save_outcome).trim() || null,
+              resume_error: asString(body?.resume_error || r.resume_error).trim() || null,
               reconciled,
               reconcile_strategy: reconcileStrategy || null,
               reconciled_saved_ids: reconciledSavedIds,
@@ -1930,33 +1970,88 @@ export default function AdminImport() {
       const warningsDetail =
         lastStageBody?.warnings_detail && typeof lastStageBody.warnings_detail === "object" ? lastStageBody.warnings_detail : null;
 
+      const snapshotVerifiedIds = Array.isArray(lastStageBody?.saved_company_ids_verified)
+        ? lastStageBody.saved_company_ids_verified
+        : Array.isArray(lastStageBody?.saved_company_ids)
+          ? lastStageBody.saved_company_ids
+          : [];
+
+      const snapshotSavedVerifiedCount =
+        typeof lastStageBody?.saved_verified_count === "number" && Number.isFinite(lastStageBody.saved_verified_count)
+          ? lastStageBody.saved_verified_count
+          : snapshotVerifiedIds.length > 0
+            ? snapshotVerifiedIds.length
+            : null;
+
+      const snapshotResumeNeeded = Boolean(lastStageBody?.resume_needed);
+      const snapshotSaveOutcome = asString(lastStageBody?.save_outcome || lastStageBody?.save_report?.save_outcome).trim() || null;
+      const snapshotCompanyUrls = Array.isArray(lastStageBody?.saved_company_urls) ? lastStageBody.saved_company_urls : [];
+
       setRuns((prev) =>
-        prev.map((r) =>
-          r.session_id === canonicalSessionId ? { ...r, completed: true, updatedAt: new Date().toISOString() } : r
-        )
+        prev.map((r) => {
+          if (r.session_id !== canonicalSessionId) return r;
+
+          const prevVerifiedIds = Array.isArray(r.saved_company_ids_verified) ? r.saved_company_ids_verified : [];
+          const nextVerifiedIds = mergeUniqueStrings(prevVerifiedIds, snapshotVerifiedIds);
+
+          const prevSavedVerified =
+            typeof r.saved_verified_count === "number" && Number.isFinite(r.saved_verified_count) ? r.saved_verified_count : 0;
+          const nextSavedVerifiedRaw =
+            typeof snapshotSavedVerifiedCount === "number" && Number.isFinite(snapshotSavedVerifiedCount) ? snapshotSavedVerifiedCount : 0;
+
+          const nextSavedVerifiedCount = Math.max(prevSavedVerified, nextSavedVerifiedRaw, nextVerifiedIds.length);
+
+          return {
+            ...r,
+            saved_verified_count: nextSavedVerifiedCount,
+            saved_company_ids_verified: nextVerifiedIds,
+            saved_company_urls: mergeUniqueStrings(r.saved_company_urls, snapshotCompanyUrls),
+            save_outcome: snapshotSaveOutcome || r.save_outcome || null,
+            resume_needed: snapshotResumeNeeded || Boolean(r.resume_needed),
+            // Do not mark completed here; /import/status polling is the source of truth.
+            updatedAt: new Date().toISOString(),
+          };
+        })
       );
-      setActiveStatus("done");
 
-      if (warnings.length > 0) {
-        const firstKey = warnings[0];
-        const detail =
-          firstKey && warningsDetail && typeof warningsDetail[firstKey] === "object" ? warningsDetail[firstKey] : null;
+      const responseState = asString(lastStageBody?.state).trim();
+      const responseStatus = asString(lastStageBody?.status).trim();
+      const terminalComplete = (responseState === "complete" || responseStatus === "complete") && !snapshotResumeNeeded;
 
-        const stage = asString(detail?.stage).trim() || asString(firstKey).trim();
-        const rootCause = asString(detail?.root_cause).trim();
-        const upstreamStatusRaw = detail?.upstream_status;
-        const upstreamStatus = Number.isFinite(Number(upstreamStatusRaw)) ? Number(upstreamStatusRaw) : null;
+      if (terminalComplete) {
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === canonicalSessionId ? { ...r, completed: true, updatedAt: new Date().toISOString() } : r
+          )
+        );
+        setActiveStatus("done");
 
-        const meta = [];
-        if (rootCause) meta.push(rootCause);
-        if (upstreamStatus != null) meta.push(`HTTP ${upstreamStatus}`);
+        if (warnings.length > 0) {
+          const firstKey = warnings[0];
+          const detail =
+            firstKey && warningsDetail && typeof warningsDetail[firstKey] === "object" ? warningsDetail[firstKey] : null;
 
-        const suffix = meta.length ? ` (${meta.join(", ")})` : "";
-        const extraCount = warnings.length > 1 ? ` (+${warnings.length - 1} more)` : "";
+          const stage = asString(detail?.stage).trim() || asString(firstKey).trim();
+          const rootCause = asString(detail?.root_cause).trim();
+          const upstreamStatusRaw = detail?.upstream_status;
+          const upstreamStatus = Number.isFinite(Number(upstreamStatusRaw)) ? Number(upstreamStatusRaw) : null;
 
-        toast.warning(`Saved with warnings: ${stage}${suffix}${extraCount}`);
+          const meta = [];
+          if (rootCause) meta.push(rootCause);
+          if (upstreamStatus != null) meta.push(`HTTP ${upstreamStatus}`);
+
+          const suffix = meta.length ? ` (${meta.join(", ")})` : "";
+          const extraCount = warnings.length > 1 ? ` (+${warnings.length - 1} more)` : "";
+
+          toast.warning(`Saved with warnings: ${stage}${suffix}${extraCount}`);
+        } else {
+          toast.success(`Import finished (${companiesForNextStage.length} companies)`);
+        }
       } else {
-        toast.success(`Import finished (${companiesForNextStage.length} companies)`);
+        // Keep the run in a non-terminal state until /import/status confirms completion.
+        const savedVerifiedLabel = (snapshotSavedVerifiedCount ?? snapshotVerifiedIds.length) || 0;
+        const label = snapshotResumeNeeded ? `Saved (verified): ${savedVerifiedLabel}. Enrichment in progress…` : "Import started";
+        toast.success(label);
       }
     } catch (e) {
       const msg = e?.name === "AbortError" ? "Import aborted" : toErrorString(e) || "Import failed";
@@ -3110,10 +3205,19 @@ export default function AdminImport() {
                       : "";
 
                     const displayUrl = urlRaw || queryUrlNormalized;
-                    const seedMissingBug =
-                      Array.isArray(activeRun?.queryTypes) &&
-                      activeRun.queryTypes.includes("company_url") &&
-                      Boolean(queryUrlNormalized && !urlRaw);
+
+                    const isCompanyUrlRun = Array.isArray(activeRun?.queryTypes) && activeRun.queryTypes.includes("company_url");
+                    const hasSavedVerified =
+                      (typeof activeRun?.saved_verified_count === "number" && Number.isFinite(activeRun.saved_verified_count)
+                        ? activeRun.saved_verified_count
+                        : Array.isArray(activeRun?.saved_company_ids_verified)
+                          ? activeRun.saved_company_ids_verified.length
+                          : 0) > 0;
+
+                    const hasCompanyUrl = isMeaningfulString(c?.company_url);
+                    const hasWebsiteUrl = isMeaningfulString(c?.website_url || c?.canonical_url || c?.url);
+
+                    const seedMissingBug = Boolean(isCompanyUrlRun && showSavedResults && hasSavedVerified && !hasCompanyUrl && !hasWebsiteUrl);
 
                     const keywordsCanonical =
                       Array.isArray(c?.keywords) && c.keywords.length > 0
@@ -3241,13 +3345,25 @@ export default function AdminImport() {
                     const savedCompanies = Array.isArray(r.saved_companies) ? r.saved_companies : [];
                     const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
-                    const verifiedCount = Number.isFinite(r.saved_verified_count) ? r.saved_verified_count : null;
+                    const verifiedCount =
+                      typeof r.saved_verified_count === "number" && Number.isFinite(r.saved_verified_count)
+                        ? r.saved_verified_count
+                        : null;
+
                     const verifiedIds = Array.isArray(r.saved_company_ids_verified)
                       ? r.saved_company_ids_verified
                       : Array.isArray(r.saved_company_ids)
                         ? r.saved_company_ids
                         : [];
-                    const savedCount = verifiedCount != null ? verifiedCount : verifiedIds.length;
+
+                    const savedCount =
+                      verifiedCount != null
+                        ? verifiedCount
+                        : verifiedIds.length > 0
+                          ? verifiedIds.length
+                          : Number.isFinite(Number(r.saved))
+                            ? Number(r.saved)
+                            : 0;
 
                     const companyId =
                       asString(primarySaved?.company_id).trim() ||
@@ -3316,9 +3432,25 @@ export default function AdminImport() {
                         : `https://${queryUrlRaw}`
                       : "";
 
-                    const websiteUrl = websiteUrlRaw || queryUrlNormalized;
+                    const primaryDoc =
+                      r.primary_company_doc && typeof r.primary_company_doc === "object" ? r.primary_company_doc : null;
+
+                    const websiteUrlFromDoc = asString(primaryDoc?.website_url || primaryDoc?.canonical_url).trim();
+                    const websiteUrl = websiteUrlRaw || websiteUrlFromDoc || queryUrlNormalized;
+
                     const isCompanyUrlRun = Array.isArray(r.queryTypes) ? r.queryTypes.includes("company_url") : false;
-                    const seedMissingBug = isCompanyUrlRun && Boolean(queryUrlNormalized && !websiteUrlRaw);
+                    const hasResolvedCompanyRecord = Boolean(primaryCandidate || primaryDoc);
+
+                    const hasCompanyUrl = isMeaningfulString(primaryCandidate?.company_url || primaryDoc?.company_url);
+                    const hasWebsiteUrl = isMeaningfulString(
+                      primaryCandidate?.website_url ||
+                        primaryCandidate?.canonical_url ||
+                        primaryCandidate?.url ||
+                        primaryDoc?.website_url ||
+                        primaryDoc?.canonical_url
+                    );
+
+                    const seedMissingBug = Boolean(isCompanyUrlRun && savedCount > 0 && hasResolvedCompanyRecord && !hasCompanyUrl && !hasWebsiteUrl);
                     const isRefreshing = statusRefreshSessionId === r.session_id;
 
                     const jobState = asString(r.final_job_state || r.job_state).trim().toLowerCase();
