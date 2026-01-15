@@ -13,6 +13,7 @@ try {
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { getJob: getImportPrimaryJob, patchJob: patchImportPrimaryJob } = require("../_importPrimaryJobStore");
 const { runPrimaryJob } = require("../_importPrimaryWorker");
+const { buildInternalFetchHeaders } = require("../_internalJobAuth");
 const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
