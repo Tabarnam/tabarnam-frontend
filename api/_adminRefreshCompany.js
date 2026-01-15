@@ -555,15 +555,24 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     const companyId = asString(body.company_id || body.id).trim();
 
     if (!companyId) {
-      return json(
-        {
-          ok: false,
-          stage,
-          error: "company_id required",
-          config,
+      pushBreadcrumb("client_bad_request", { reason: "missing_company_id" });
+      return json({
+        ok: false,
+        stage: "refresh_company",
+        root_cause: "client_bad_request",
+        retryable: false,
+        error: "company_id required",
+        attempts,
+        breadcrumbs,
+        diagnostics: {
+          message: "company_id required",
         },
-        400
-      );
+        config,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
+      });
     }
 
     stage = "init_cosmos";
