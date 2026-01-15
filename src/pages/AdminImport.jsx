@@ -3125,7 +3125,8 @@ export default function AdminImport() {
                     const keywordsText = keywordsList.join(", ");
 
                     const issues = [];
-                    if (!url) issues.push("missing url");
+                    if (!displayUrl) issues.push("missing url");
+                    if (seedMissingBug) issues.push("seed missing (bug)");
 
                     // Truthfulness: do not flag missing keywords based on seed/pre-save items.
                     // Only evaluate keywords once we're rendering saved (persisted) company docs.
@@ -3137,15 +3138,22 @@ export default function AdminImport() {
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <div className="font-semibold text-slate-900">{name}</div>
-                            {url ? (
-                              <a
-                                className="text-sm text-blue-700 underline break-all"
-                                href={url}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                {url}
-                              </a>
+                            {displayUrl ? (
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                                <a
+                                  className="text-sm text-blue-700 underline break-all"
+                                  href={displayUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  {displayUrl}
+                                </a>
+                                {seedMissingBug ? (
+                                  <span className="rounded border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] text-rose-800">
+                                    Seed missing (bug)
+                                  </span>
+                                ) : null}
+                              </div>
                             ) : (
                               <div className="text-sm text-slate-500">No URL</div>
                             )}
