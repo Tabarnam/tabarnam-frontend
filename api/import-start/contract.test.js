@@ -959,6 +959,7 @@ test("/api/import/start company_url_seed_fallback persists and verifies seed com
     },
     async () => {
       const req = makeReq({
+        url: "https://example.test/api/import/start?max_stage=expand",
         body: JSON.stringify({
           query: seedUrl,
           queryTypes: ["company_url"],
