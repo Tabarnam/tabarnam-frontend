@@ -6,49 +6,49 @@ TAP version 13
 # Subtest: mergeCompanyDocsForSession preserves existing HQ when incoming HQ is empty
 ok 1 - mergeCompanyDocsForSession preserves existing HQ when incoming HQ is empty
   ---
-  duration_ms: 2.134171
+  duration_ms: 2.34984
   ...
 # Subtest: mergeCompanyDocsForSession preserves existing curated_reviews when incoming reviews are empty
 ok 2 - mergeCompanyDocsForSession preserves existing curated_reviews when incoming reviews are empty
   ---
-  duration_ms: 0.329939
+  duration_ms: 0.406184
   ...
 # Subtest: mergeCompanyDocsForSession prefers incoming manufacturing_locations when provided
 ok 3 - mergeCompanyDocsForSession prefers incoming manufacturing_locations when provided
   ---
-  duration_ms: 0.833312
+  duration_ms: 0.837539
   ...
 # Subtest: mergeCompanyDocsForSession preserves manual review star and admin stars when incoming provides default rating
 ok 4 - mergeCompanyDocsForSession preserves manual review star and admin stars when incoming provides default rating
   ---
-  duration_ms: 0.331962
+  duration_ms: 0.357053
   ...
 # WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
 # WARNING: Skipping call to register function "adminApplyReviewsFromNotes" because the "@azure/functions" package is in test mode.
 # Subtest: /api/admin/companies/{id}/apply-reviews-from-notes parses JSON array of strings
 ok 5 - /api/admin/companies/{id}/apply-reviews-from-notes parses JSON array of strings
   ---
-  duration_ms: 23.181996
+  duration_ms: 24.15869
   ...
 # Subtest: /api/admin/companies/{id}/apply-reviews-from-notes parses YAML-ish blocks with multiline text
 ok 6 - /api/admin/companies/{id}/apply-reviews-from-notes parses YAML-ish blocks with multiline text
   ---
-  duration_ms: 0.964378
+  duration_ms: 0.87658
   ...
 # Subtest: /api/admin/companies/{id}/apply-reviews-from-notes parses delimited blocks
 ok 7 - /api/admin/companies/{id}/apply-reviews-from-notes parses delimited blocks
   ---
-  duration_ms: 0.737082
+  duration_ms: 1.044216
   ...
 # Subtest: append mode dedupes against existing curated_reviews
 ok 8 - append mode dedupes against existing curated_reviews
   ---
-  duration_ms: 1.667446
+  duration_ms: 2.140533
   ...
 # Subtest: replace mode overwrites curated_reviews
 ok 9 - replace mode overwrites curated_reviews
   ---
-  duration_ms: 0.522981
+  duration_ms: 0.627342
   ...
 # WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
 # WARNING: Skipping call to register function "adminCompanies" because the "@azure/functions" package is in test mode.
@@ -75,7 +75,7 @@ ok 9 - replace mode overwrites curated_reviews
 # Subtest: xadmin-api-companies: GET is 404 and search excludes after DELETE
 ok 10 - xadmin-api-companies: GET is 404 and search excludes after DELETE
   ---
-  duration_ms: 1749.285922
+  duration_ms: 1630.523367
   ...
 # [admin-companies-v2-handler] Request received: {
 #   method: 'PUT',
@@ -92,7 +92,7 @@ ok 10 - xadmin-api-companies: GET is 404 and search excludes after DELETE
 # Subtest: xadmin-api-companies: PUT infers and persists display_name from name override
 ok 11 - xadmin-api-companies: PUT infers and persists display_name from name override
   ---
-  duration_ms: 485.816675
+  duration_ms: 448.289734
   ...
 # [admin-companies-v2-handler] Request received: {
 #   method: 'PUT',
@@ -105,7 +105,7 @@ ok 11 - xadmin-api-companies: PUT infers and persists display_name from name ove
 # Subtest: xadmin-api-companies: persists curated_reviews array
 ok 12 - xadmin-api-companies: persists curated_reviews array
   ---
-  duration_ms: 322.950876
+  duration_ms: 300.198235
   ...
 # [admin-companies-v2-handler] Request received: {
 #   method: 'PUT',
@@ -118,7 +118,7 @@ ok 12 - xadmin-api-companies: persists curated_reviews array
 # Subtest: xadmin-api-companies: manual review star override blocks auto updates
 ok 13 - xadmin-api-companies: manual review star override blocks auto updates
   ---
-  duration_ms: 323.742771
+  duration_ms: 304.545414
   ...
 # [admin-companies-v2-handler] Request received: {
 #   method: 'GET',
@@ -131,247 +131,264 @@ ok 13 - xadmin-api-companies: manual review star override blocks auto updates
 # Subtest: xadmin-api-companies: persists rating_icon_type and per-star icon_type
 ok 14 - xadmin-api-companies: persists rating_icon_type and per-star icon_type
   ---
-  duration_ms: 323.457326
+  duration_ms: 300.608069
   ...
 # WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
 # WARNING: Skipping call to register function "adminRefreshCompany" because the "@azure/functions" package is in test mode.
+# {"stage":"refresh_company","route":"xadmin-api-refresh-company","kind":"xai_config","company_id":"company_1","xai_config_source":"external","resolved_upstream_host":"xai.test","resolved_upstream_path":"/api/v1/chat/completions","build_id":"3458475c192895c92496a446133c2cb6d768e18c"}
 # Subtest: /api/xadmin-api-refresh-company returns 400 if company_id missing
 ok 15 - /api/xadmin-api-refresh-company returns 400 if company_id missing
   ---
-  duration_ms: 2.270648
+  duration_ms: 2.537637
   ...
 # Subtest: /api/xadmin-api-refresh-company returns 200 with ok/proposed for stubbed upstream
 ok 16 - /api/xadmin-api-refresh-company returns 200 with ok/proposed for stubbed upstream
   ---
-  duration_ms: 2.602911
+  duration_ms: 4.178233
   ...
 # Subtest: admin-refresh-reviews upstream payload caps excluded websites to 5 and spills to prompt
 ok 17 - admin-refresh-reviews upstream payload caps excluded websites to 5 and spills to prompt
   ---
-  duration_ms: 12.722083
+  duration_ms: 12.422577
   ...
 # WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
 # WARNING: Skipping call to register function "get-reviews" because the "@azure/functions" package is in test mode.
 # Subtest: /api/get-reviews?company=... returns ok/items even when empty
 ok 18 - /api/get-reviews?company=... returns ok/items even when empty
   ---
-  duration_ms: 1389.149594
+  duration_ms: 1362.547298
   ...
 # Subtest: /api/get-reviews?normalized_domain=... resolves company name and succeeds
 ok 19 - /api/get-reviews?normalized_domain=... resolves company name and succeeds
   ---
-  duration_ms: 172.293687
+  duration_ms: 650.362697
   ...
 # Subtest: /api/get-reviews?company_id=... succeeds even when company name cannot be resolved
 ok 20 - /api/get-reviews?company_id=... succeeds even when company name cannot be resolved
   ---
-  duration_ms: 662.925721
+  duration_ms: 177.552021
   ...
 # Subtest: /api/get-reviews with no identifier returns 400
 ok 21 - /api/get-reviews with no identifier returns 400
   ---
-  duration_ms: 0.688922
+  duration_ms: 0.762597
+  ...
+# Subtest: /api/import/start safeHandler returns HTTP 200 JSON on unhandled exception
+ok 22 - /api/import/start safeHandler returns HTTP 200 JSON on unhandled exception
+  ---
+  duration_ms: 2.159234
   ...
 # Subtest: /api/import/start parses body with proxy=false boolean
-ok 22 - /api/import/start parses body with proxy=false boolean
+ok 23 - /api/import/start parses body with proxy=false boolean
   ---
-  duration_ms: 12.474068
+  duration_ms: 11.885198
   ...
 # Subtest: /api/import/start parses body with proxy='false' string
-ok 23 - /api/import/start parses body with proxy='false' string
+ok 24 - /api/import/start parses body with proxy='false' string
   ---
-  duration_ms: 1.086217
+  duration_ms: 1.054536
   ...
 # Subtest: /api/import/start returns INVALID_JSON_BODY for malformed JSON
-ok 24 - /api/import/start returns INVALID_JSON_BODY for malformed JSON
+ok 25 - /api/import/start returns INVALID_JSON_BODY for malformed JSON
   ---
-  duration_ms: 3.01358
+  duration_ms: 2.830077
   ...
 # Subtest: /api/import/start includes parse diagnostics for INVALID_JSON_BODY when x-debug header is present
-ok 25 - /api/import/start includes parse diagnostics for INVALID_JSON_BODY when x-debug header is present
+ok 26 - /api/import/start includes parse diagnostics for INVALID_JSON_BODY when x-debug header is present
   ---
-  duration_ms: 1.587998
+  duration_ms: 1.45869
   ...
 # Subtest: /api/import/start respects query proxy=false when body has no proxy
-ok 26 - /api/import/start respects query proxy=false when body has no proxy
+ok 27 - /api/import/start respects query proxy=false when body has no proxy
   ---
-  duration_ms: 1.408992
+  duration_ms: 1.268893
   ...
 # Subtest: /api/import/start uses req.body object even when rawBody is present
-ok 27 - /api/import/start uses req.body object even when rawBody is present
+ok 28 - /api/import/start uses req.body object even when rawBody is present
   ---
-  duration_ms: 0.871704
+  duration_ms: 0.910861
   ...
 # Subtest: /api/import/start parses stream body when req.body is stream-like
-ok 28 - /api/import/start parses stream body when req.body is stream-like
+ok 29 - /api/import/start parses stream body when req.body is stream-like
   ---
-  duration_ms: 4.45858
+  duration_ms: 4.344489
   ...
 # Subtest: /api/import/start parses WHATWG ReadableStream body
-ok 29 - /api/import/start parses WHATWG ReadableStream body
+ok 30 - /api/import/start parses WHATWG ReadableStream body
   ---
-  duration_ms: 3.651416
+  duration_ms: 2.977802
   ...
 # Subtest: /api/import/start includes diagnostics on 400 when x-debug header is present
-ok 30 - /api/import/start includes diagnostics on 400 when x-debug header is present
+ok 31 - /api/import/start includes diagnostics on 400 when x-debug header is present
   ---
-  duration_ms: 2.495369
+  duration_ms: 2.376322
   ...
 # Subtest: /api/import/start rejects ambiguous queryType + queryTypes
-ok 31 - /api/import/start rejects ambiguous queryType + queryTypes
+ok 32 - /api/import/start rejects ambiguous queryType + queryTypes
   ---
-  duration_ms: 1.377553
+  duration_ms: 1.140839
   ...
 # Subtest: /api/import/start rejects URL query without company_url
-ok 32 - /api/import/start rejects URL query without company_url
+ok 33 - /api/import/start rejects URL query without company_url
   ---
-  duration_ms: 1.050981
+  duration_ms: 0.992394
   ...
 # Subtest: /api/import/start treats URL query as company_url when selected
-ok 33 - /api/import/start treats URL query as company_url when selected
+ok 34 - /api/import/start treats URL query as company_url when selected
   ---
-  duration_ms: 1.598207
+  duration_ms: 1.528662
   ...
 # Subtest: getBuildInfo uses WEBSITE_COMMIT_HASH when set
-ok 34 - getBuildInfo uses WEBSITE_COMMIT_HASH when set
+ok 35 - getBuildInfo uses WEBSITE_COMMIT_HASH when set
   ---
-  duration_ms: 0.378549
+  duration_ms: 0.452685
   ...
 # Subtest: /api/import/start live mode builds >=2 messages and hits /v1/chat/completions (fetch payload)
-ok 35 - /api/import/start live mode builds >=2 messages and hits /v1/chat/completions (fetch payload)
+ok 36 - /api/import/start live mode builds >=2 messages and hits /v1/chat/completions (fetch payload)
   ---
-  duration_ms: 5.090805
+  duration_ms: 8.412329
   ...
 # Subtest: import-start reviews upstream payload caps excluded websites to 5 and spills to prompt
-ok 36 - import-start reviews upstream payload caps excluded websites to 5 and spills to prompt
+ok 37 - import-start reviews upstream payload caps excluded websites to 5 and spills to prompt
   ---
-  duration_ms: 14.940674
+  duration_ms: 11.426112
   ...
 # Subtest: /api/import/start auto-generates messages when messages is [] and prompt is empty (fetch payload)
-ok 37 - /api/import/start auto-generates messages when messages is [] and prompt is empty (fetch payload)
+ok 38 - /api/import/start auto-generates messages when messages is [] and prompt is empty (fetch payload)
   ---
-  duration_ms: 3.046141
+  duration_ms: 2.371191
   ...
 # Subtest: /api/import/start returns 400 when any message has empty/non-string content (EMPTY_MESSAGE_CONTENT_BUILDER_BUG)
-ok 38 - /api/import/start returns 400 when any message has empty/non-string content (EMPTY_MESSAGE_CONTENT_BUILDER_BUG)
+ok 39 - /api/import/start returns 400 when any message has empty/non-string content (EMPTY_MESSAGE_CONTENT_BUILDER_BUG)
   ---
-  duration_ms: 1.780759
+  duration_ms: 1.621536
   ...
 # Subtest: /api/import/start explain=1 returns outbound payload meta and does not call upstream
-ok 39 - /api/import/start explain=1 returns outbound payload meta and does not call upstream
+ok 40 - /api/import/start explain=1 returns outbound payload meta and does not call upstream
   ---
-  duration_ms: 1.999158
+  duration_ms: 1.517672
   ...
 # Subtest: getBuildInfo uses __build_id.txt when env vars are absent
-ok 40 - getBuildInfo uses __build_id.txt when env vars are absent
+ok 41 - getBuildInfo uses __build_id.txt when env vars are absent
   ---
-  duration_ms: 2.051767
+  duration_ms: 1.612525
   ...
 # Subtest: /api/import/start?explain=1 echoes client-provided session_id (and sets x-session-id)
-ok 41 - /api/import/start?explain=1 echoes client-provided session_id (and sets x-session-id)
+ok 42 - /api/import/start?explain=1 echoes client-provided session_id (and sets x-session-id)
   ---
-  duration_ms: 3.85078
+  duration_ms: 4.260537
+  ...
+# Subtest: /api/import/status surfaces verified save fields while running (memory fallback)
+ok 43 - /api/import/status surfaces verified save fields while running (memory fallback)
+  ---
+  duration_ms: 0.652422
   ...
 # Subtest: /api/import/start uses provided session_id for async primary job and import-status reaches terminal state
-ok 42 - /api/import/start uses provided session_id for async primary job and import-status reaches terminal state
+ok 44 - /api/import/start uses provided session_id for async primary job and import-status reaches terminal state
   ---
-  duration_ms: 8.696586
+  duration_ms: 8.675398
   ...
 # Subtest: /api/import/start?max_stage=primary does not mark session complete in /api/import/status
-ok 43 - /api/import/start?max_stage=primary does not mark session complete in /api/import/status
+ok 45 - /api/import/start?max_stage=primary does not mark session complete in /api/import/status
   ---
-  duration_ms: 1551.401434
+  duration_ms: 1449.510627
   ...
 # Subtest: /api/import/start rejects skip_stages=primary without seed companies
-ok 44 - /api/import/start rejects skip_stages=primary without seed companies
+ok 46 - /api/import/start rejects skip_stages=primary without seed companies
   ---
-  duration_ms: 1.103128
+  duration_ms: 1.049766
   ...
 # Subtest: /api/import/start rejects skip_stages=primary with only invalid seed companies
-ok 45 - /api/import/start rejects skip_stages=primary with only invalid seed companies
+ok 47 - /api/import/start rejects skip_stages=primary with only invalid seed companies
   ---
-  duration_ms: 0.895699
+  duration_ms: 0.934962
+  ...
+# Subtest: /api/import/start company_url_seed_fallback persists and verifies seed company
+ok 48 - /api/import/start company_url_seed_fallback persists and verifies seed company
+  ---
+  duration_ms: 5801.237555
+  ...
+# Subtest: /api/import/start company_url_seed_fallback duplicate_detected returns verified existing company
+ok 49 - /api/import/start company_url_seed_fallback duplicate_detected returns verified existing company
+  ---
+  duration_ms: 5723.335699
   ...
 # [api/index.js] Starting handler registration...
 # [api] Registering (routes-test): admin-refresh-company
 # WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
 # WARNING: Skipping call to register function "adminRefreshCompany" because the "@azure/functions" package is in test mode.
-# WARNING: Skipping call to register function "xadminApiRefreshCompany" because the "@azure/functions" package is in test mode.
 # [api] Registering (routes-test): xadmin-api-refresh-company
+# WARNING: Skipping call to register function "xadminApiRefreshCompany" because the "@azure/functions" package is in test mode.
 # [api] Registering (routes-test): admin-refresh-reviews
 # WARNING: Skipping call to register function "adminRefreshReviews" because the "@azure/functions" package is in test mode.
+# [api] Registering (routes-test): xadmin-api-refresh-reviews
 # WARNING: Skipping call to register function "xadminApiRefreshReviews" because the "@azure/functions" package is in test mode.
+# [api] Registering (routes-test): admin-company-history
 # WARNING: Skipping call to register function "adminCompanyHistory" because the "@azure/functions" package is in test mode.
 # WARNING: Skipping call to register function "adminCompanyHistoryAlias" because the "@azure/functions" package is in test mode.
-# WARNING: Skipping call to register function "company-logo" because the "@azure/functions" package is in test mode.
-# [api] Registering (routes-test): xadmin-api-refresh-reviews
-# [api] Registering (routes-test): admin-company-history
 # [api] Registering (routes-test): company-logo
+# WARNING: Skipping call to register function "company-logo" because the "@azure/functions" package is in test mode.
 # [api/index.js] ✅ All handler registration complete! Exporting app.
 # Subtest: api/index.js registers refresh-company routes
-ok 46 - api/index.js registers refresh-company routes
+ok 50 - api/index.js registers refresh-company routes
   ---
-  duration_ms: 224.63203
+  duration_ms: 233.615417
   ...
 # WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
 # WARNING: Skipping call to register function "search-companies" because the "@azure/functions" package is in test mode.
 # Subtest: /api/search-companies maps keywords to public payload
-ok 47 - /api/search-companies maps keywords to public payload
+ok 51 - /api/search-companies maps keywords to public payload
   ---
-  duration_ms: 23.779786
+  duration_ms: 20.085311
   ...
 # Subtest: /api/search-companies uses keywords in Cosmos filter when q is present
-ok 48 - /api/search-companies uses keywords in Cosmos filter when q is present
+ok 52 - /api/search-companies uses keywords in Cosmos filter when q is present
   ---
-  duration_ms: 0.525486
+  duration_ms: 0.504658
   ...
 # Subtest: /api/search-companies returns display_name and filters by it
-ok 49 - /api/search-companies returns display_name and filters by it
+ok 53 - /api/search-companies returns display_name and filters by it
   ---
-  duration_ms: 0.595457
+  duration_ms: 0.554089
   ...
 # WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
 # WARNING: Skipping call to register function "xadminApiRefreshCompany" because the "@azure/functions" package is in test mode.
 # WARNING: Skipping call to register function "adminRefreshCompanyAlias" because the "@azure/functions" package is in test mode.
 # Subtest: /api/xadmin-api-refresh-company entrypoint returns 400 if company_id missing
-ok 50 - /api/xadmin-api-refresh-company entrypoint returns 400 if company_id missing
+ok 54 - /api/xadmin-api-refresh-company entrypoint returns 400 if company_id missing
   ---
-  duration_ms: 2.813866
+  duration_ms: 2.399862
   ...
 # WARNING: Failed to detect the Azure Functions runtime. Switching "@azure/functions" package to test mode - not all features are supported.
 # WARNING: Skipping call to register function "xadminApiRefreshReviews" because the "@azure/functions" package is in test mode.
 # WARNING: Skipping call to register function "adminRefreshReviewsAlias" because the "@azure/functions" package is in test mode.
-# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"request_start","method":"POST","build_id":"8d459f10e529a7a22601da2a84814bf0039a216f","version_tag":"ded-xadmin-api-refresh-reviews-8d459f10e529"}
-# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"response_summary","ok":false,"root_cause":"client_bad_request","upstream_status":null,"fetched_count":0,"saved_count":0,"build_id":"8d459f10e529a7a22601da2a84814bf0039a216f","version_tag":"ded-xadmin-api-refresh-reviews-8d459f10e529"}
-# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"request_start","method":"POST","build_id":"8d459f10e529a7a22601da2a84814bf0039a216f","version_tag":"ded-xadmin-api-refresh-reviews-8d459f10e529"}
+# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"request_start","method":"POST","xai_config_source":"external","resolved_upstream_host":"tabarnam-xai-dedicated-awe3h9bvcxckeja9.westus2-01.azurewebsites.net","resolved_upstream_path":"/api/v1/chat/completions","build_id":"3458475c192895c92496a446133c2cb6d768e18c","version_tag":"ded-xadmin-api-refresh-reviews-3458475c1928"}
+# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"response_summary","ok":false,"root_cause":"client_bad_request","upstream_status":null,"fetched_count":0,"saved_count":0,"xai_config_source":"external","resolved_upstream_host":"tabarnam-xai-dedicated-awe3h9bvcxckeja9.westus2-01.azurewebsites.net","resolved_upstream_path":"/api/v1/chat/completions","build_id":"3458475c192895c92496a446133c2cb6d768e18c","version_tag":"ded-xadmin-api-refresh-reviews-3458475c1928"}
+# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"request_start","method":"POST","xai_config_source":"external","resolved_upstream_host":"xai.test","resolved_upstream_path":"/api/v1/chat/completions","build_id":"3458475c192895c92496a446133c2cb6d768e18c","version_tag":"ded-xadmin-api-refresh-reviews-3458475c1928"}
 # {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"upstream_request","upstream":"https://xai.test/api/v1/chat/completions","payload_shape":{"model":"grok-4-latest","temperature":0.2,"stream":false,"search_parameters":{"mode":"on","sources":[{"type":"web","excluded_websites_count":5,"excluded_websites_hosts_preview":["acme.example","amazon.com","google.com","yelp.com","trustpilot.com"]},{"type":"news","excluded_websites_count":5,"excluded_websites_hosts_preview":["acme.example","amazon.com","google.com","yelp.com","trustpilot.com"]},{"type":"x","excluded_websites_count":0,"excluded_websites_hosts_preview":[]}]},"messages":[{"role":"system","content_len":115,"content_preview":"You are a research assistant. Always respond with valid JSON only; no markdown, no prose. Do not wrap in backticks."},{"role":"user","content_len":1150,"content_preview":"Find independent reviews about this company (or its products/services). Company: Acme Audio Website: https://acme.example Return EXACTLY a single JSON object with this shape: { \\"re…(+946 chars)"}],"excluded_websites_original_count":8,"excluded_websites_used_count":5,"excluded_websites_truncated":true,"excluded_hosts_spilled_to_prompt_count":3}}
-# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"upstream_error","root_cause":"bad_response_not_json","retryable":true,"upstream_status":500,"xai_request_id":null,"upstream_url":"https://xai.test/api/v1/chat/completions","auth_header_present":true,"attempts_count":1,"retry_exhausted":false,"upstream_error_body":{"content_type":"text/html; charset=utf-8","raw_body_kind":"html","preview":"<html><body>Backend call failure</body></html>"},"payload_shape":{"model":"grok-4-latest","temperature":0.2,"stream":false,"search_parameters":{"mode":"on","sources":[{"type":"web","excluded_websites_count":5,"excluded_websites_hosts_preview":["acme.example","amazon.com","google.com","yelp.com","trustpilot.com"]},{"type":"news","excluded_websites_count":5,"excluded_websites_hosts_preview":["acme.example","amazon.com","google.com","yelp.com","trustpilot.com"]},{"type":"x","excluded_websites_count":0,"excluded_websites_hosts_preview":[]}]},"messages":[{"role":"system","content_len":115,"content_preview":"You are a research assistant. Always respond with valid JSON only; no markdown, no prose. Do not wrap in backticks."},{"role":"user","content_len":1150,"content_preview":"Find independent reviews about this company (or its products/services). Company: Acme Audio Website: https://acme.example Return EXACTLY a single JSON object with this shape: { \\"re…(+946 chars)"}],"excluded_websites_original_count":8,"excluded_websites_used_count":5,"excluded_websites_truncated":true,"excluded_hosts_spilled_to_prompt_count":3},"message":"Upstream HTTP 500"}
+# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"upstream_error","root_cause":"bad_response_not_json","retryable":true,"upstream_status":500,"xai_request_id":null,"upstream_url":"https://xai.test/api/v1/chat/completions","auth_header_present":true,"attempts_count":1,"retry_exhausted":true,"upstream_error_body":{"content_type":"text/html; charset=utf-8","raw_body_kind":"html","preview":"<html><body>Backend call failure</body></html>"},"payload_shape":{"model":"grok-4-latest","temperature":0.2,"stream":false,"search_parameters":{"mode":"on","sources":[{"type":"web","excluded_websites_count":5,"excluded_websites_hosts_preview":["acme.example","amazon.com","google.com","yelp.com","trustpilot.com"]},{"type":"news","excluded_websites_count":5,"excluded_websites_hosts_preview":["acme.example","amazon.com","google.com","yelp.com","trustpilot.com"]},{"type":"x","excluded_websites_count":0,"excluded_websites_hosts_preview":[]}]},"messages":[{"role":"system","content_len":115,"content_preview":"You are a research assistant. Always respond with valid JSON only; no markdown, no prose. Do not wrap in backticks."},{"role":"user","content_len":1150,"content_preview":"Find independent reviews about this company (or its products/services). Company: Acme Audio Website: https://acme.example Return EXACTLY a single JSON object with this shape: { \\"re…(+946 chars)"}],"excluded_websites_original_count":8,"excluded_websites_used_count":5,"excluded_websites_truncated":true,"excluded_hosts_spilled_to_prompt_count":3},"message":"Upstream HTTP 500"}
+# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"response_summary","ok":false,"root_cause":"bad_response_not_json","upstream_status":500,"fetched_count":0,"saved_count":0,"xai_config_source":"external","resolved_upstream_host":"xai.test","resolved_upstream_path":"/api/v1/chat/completions","build_id":"3458475c192895c92496a446133c2cb6d768e18c","version_tag":"ded-xadmin-api-refresh-reviews-3458475c1928"}
 # Subtest: /api/xadmin-api-refresh-reviews returns 200 JSON ok:false if company_id missing
-ok 51 - /api/xadmin-api-refresh-reviews returns 200 JSON ok:false if company_id missing
+ok 55 - /api/xadmin-api-refresh-reviews returns 200 JSON ok:false if company_id missing
   ---
-  duration_ms: 6.749005
+  duration_ms: 4.07827
   ...
 # Subtest: xadmin refresh reviews upstream payload caps excluded websites to 5 and spills to prompt
-ok 52 - xadmin refresh reviews upstream payload caps excluded websites to 5 and spills to prompt
+ok 56 - xadmin refresh reviews upstream payload caps excluded websites to 5 and spills to prompt
   ---
-  duration_ms: 11.126993
+  duration_ms: 11.66011
   ...
-# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"upstream_request","upstream":"https://xai.test/api/v1/chat/completions","payload_shape":{"model":"grok-4-latest","temperature":0.2,"stream":false,"search_parameters":{"mode":"on","sources":[{"type":"web","excluded_websites_count":5,"excluded_websites_hosts_preview":["acme.example","amazon.com","google.com","yelp.com","trustpilot.com"]},{"type":"news","excluded_websites_count":5,"excluded_websites_hosts_preview":["acme.example","amazon.com","google.com","yelp.com","trustpilot.com"]},{"type":"x","excluded_websites_count":0,"excluded_websites_hosts_preview":[]}]},"messages":[{"role":"system","content_len":115,"content_preview":"You are a research assistant. Always respond with valid JSON only; no markdown, no prose. Do not wrap in backticks."},{"role":"user","content_len":1150,"content_preview":"Find independent reviews about this company (or its products/services). Company: Acme Audio Website: https://acme.example Return EXACTLY a single JSON object with this shape: { \\"re…(+946 chars)"}],"excluded_websites_original_count":8,"excluded_websites_used_count":5,"excluded_websites_truncated":true,"excluded_hosts_spilled_to_prompt_count":3}}
-# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"upstream_error","root_cause":"bad_response_not_json","retryable":true,"upstream_status":500,"xai_request_id":null,"upstream_url":"https://xai.test/api/v1/chat/completions","auth_header_present":true,"attempts_count":2,"retry_exhausted":false,"upstream_error_body":{"content_type":"text/html; charset=utf-8","raw_body_kind":"html","preview":"<html><body>Backend call failure</body></html>"},"payload_shape":{"model":"grok-4-latest","temperature":0.2,"stream":false,"search_parameters":{"mode":"on","sources":[{"type":"web","excluded_websites_count":5,"excluded_websites_hosts_preview":["acme.example","amazon.com","google.com","yelp.com","trustpilot.com"]},{"type":"news","excluded_websites_count":5,"excluded_websites_hosts_preview":["acme.example","amazon.com","google.com","yelp.com","trustpilot.com"]},{"type":"x","excluded_websites_count":0,"excluded_websites_hosts_preview":[]}]},"messages":[{"role":"system","content_len":115,"content_preview":"You are a research assistant. Always respond with valid JSON only; no markdown, no prose. Do not wrap in backticks."},{"role":"user","content_len":1150,"content_preview":"Find independent reviews about this company (or its products/services). Company: Acme Audio Website: https://acme.example Return EXACTLY a single JSON object with this shape: { \\"re…(+946 chars)"}],"excluded_websites_original_count":8,"excluded_websites_used_count":5,"excluded_websites_truncated":true,"excluded_hosts_spilled_to_prompt_count":3},"message":"Upstream HTTP 500"}
-# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"upstream_request","upstream":"https://xai.test/api/v1/chat/completions","payload_shape":{"model":"grok-4-latest","temperature":0.2,"stream":false,"search_parameters":{"mode":"on","sources":[{"type":"web","excluded_websites_count":5,"excluded_websites_hosts_preview":["acme.example","amazon.com","google.com","yelp.com","trustpilot.com"]},{"type":"news","excluded_websites_count":5,"excluded_websites_hosts_preview":["acme.example","amazon.com","google.com","yelp.com","trustpilot.com"]},{"type":"x","excluded_websites_count":0,"excluded_websites_hosts_preview":[]}]},"messages":[{"role":"system","content_len":115,"content_preview":"You are a research assistant. Always respond with valid JSON only; no markdown, no prose. Do not wrap in backticks."},{"role":"user","content_len":1150,"content_preview":"Find independent reviews about this company (or its products/services). Company: Acme Audio Website: https://acme.example Return EXACTLY a single JSON object with this shape: { \\"re…(+946 chars)"}],"excluded_websites_original_count":8,"excluded_websites_used_count":5,"excluded_websites_truncated":true,"excluded_hosts_spilled_to_prompt_count":3}}
-# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"upstream_error","root_cause":"bad_response_not_json","retryable":true,"upstream_status":500,"xai_request_id":null,"upstream_url":"https://xai.test/api/v1/chat/completions","auth_header_present":true,"attempts_count":3,"retry_exhausted":true,"upstream_error_body":{"content_type":"text/html; charset=utf-8","raw_body_kind":"html","preview":"<html><body>Backend call failure</body></html>"},"payload_shape":{"model":"grok-4-latest","temperature":0.2,"stream":false,"search_parameters":{"mode":"on","sources":[{"type":"web","excluded_websites_count":5,"excluded_websites_hosts_preview":["acme.example","amazon.com","google.com","yelp.com","trustpilot.com"]},{"type":"news","excluded_websites_count":5,"excluded_websites_hosts_preview":["acme.example","amazon.com","google.com","yelp.com","trustpilot.com"]},{"type":"x","excluded_websites_count":0,"excluded_websites_hosts_preview":[]}]},"messages":[{"role":"system","content_len":115,"content_preview":"You are a research assistant. Always respond with valid JSON only; no markdown, no prose. Do not wrap in backticks."},{"role":"user","content_len":1150,"content_preview":"Find independent reviews about this company (or its products/services). Company: Acme Audio Website: https://acme.example Return EXACTLY a single JSON object with this shape: { \\"re…(+946 chars)"}],"excluded_websites_original_count":8,"excluded_websites_used_count":5,"excluded_websites_truncated":true,"excluded_hosts_spilled_to_prompt_count":3},"message":"Upstream HTTP 500"}
-# {"stage":"reviews_refresh","route":"xadmin-api-refresh-reviews","kind":"response_summary","ok":false,"root_cause":"bad_response_not_json","upstream_status":500,"fetched_count":0,"saved_count":0,"build_id":"8d459f10e529a7a22601da2a84814bf0039a216f","version_tag":"ded-xadmin-api-refresh-reviews-8d459f10e529"}
 # Subtest: /api/xadmin-api-refresh-reviews returns 200 ok:false on upstream 500 html/text
-ok 53 - /api/xadmin-api-refresh-reviews returns 200 ok:false on upstream 500 html/text
+ok 57 - /api/xadmin-api-refresh-reviews returns 200 ok:false on upstream 500 html/text
   ---
-  duration_ms: 1742.633149
+  duration_ms: 4.918849
   ...
-1..53
-# tests 53
+1..57
+# tests 57
 # suites 0
-# pass 53
+# pass 57
 # fail 0
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 18221.787617
+# duration_ms 21029.814742
