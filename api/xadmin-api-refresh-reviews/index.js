@@ -744,6 +744,24 @@ async function handler(req, context, opts) {
 
   const build_id = String(BUILD_INFO.build_id || "");
 
+  const requestStartedAtMs = Date.now();
+  const breadcrumbs = [];
+  const pushBreadcrumb = (step, extra) => {
+    try {
+      const entry = {
+        at_ms: Date.now() - requestStartedAtMs,
+        step: asString(step).trim() || "(unknown)",
+        ...(extra && typeof extra === "object" ? extra : {}),
+      };
+      breadcrumbs.push(entry);
+      if (breadcrumbs.length > 20) breadcrumbs.splice(0, breadcrumbs.length - 20);
+    } catch {
+      // ignore
+    }
+  };
+
+  pushBreadcrumb("handler_start", { method });
+
   const effectiveXaiConfig = extractXaiConfig({
     model: options.model,
     xai_base_url: options.xai_base_url || options.xaiUrl,
