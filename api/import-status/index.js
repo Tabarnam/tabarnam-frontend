@@ -1697,6 +1697,9 @@ async function handler(req, context) {
     const resume_error =
       typeof sessionDoc?.resume_error === "string" && sessionDoc.resume_error.trim() ? sessionDoc.resume_error.trim() : null;
 
+    const resume_error_details =
+      sessionDoc?.resume_error_details && typeof sessionDoc.resume_error_details === "object" ? sessionDoc.resume_error_details : null;
+
     const requestObj = sessionDoc?.request && typeof sessionDoc.request === "object" ? sessionDoc.request : null;
     const requestQueryTypes = Array.isArray(requestObj?.queryTypes)
       ? requestObj.queryTypes.map((t) => String(t || "").trim()).filter(Boolean)
