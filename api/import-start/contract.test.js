@@ -1006,3 +1006,101 @@ test("/api/import/start company_url_seed_fallback persists and verifies seed com
     }
   );
 });
+
+test("/api/import/start company_url_seed_fallback duplicate_detected returns verified existing company", async (t) => {
+  const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+  const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+
+  if (!endpoint || !key) {
+    t.skip("Cosmos not configured in test environment");
+    return;
+  }
+
+  const { CosmosClient } = require("@azure/cosmos");
+
+  const seedHost = `seed-fallback-dup-${Date.now()}.example.com`;
+  const seedUrl = `https://${seedHost}/`;
+
+  await withTempEnv(
+    {
+      XAI_EXTERNAL_BASE: "https://example.invalid",
+      XAI_EXTERNAL_KEY: "test",
+    },
+    async () => {
+      const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+      const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+      const client = new CosmosClient({ endpoint, key });
+      const container = client.database(databaseId).container(containerId);
+
+      const req1 = makeReq({
+        url: "https://example.test/api/import/start?max_stage=expand",
+        body: JSON.stringify({
+          query: seedUrl,
+          queryTypes: ["company_url"],
+          auto_resume: false,
+        }),
+        headers: {
+          "content-type": "application/json",
+        },
+      });
+
+      const res1 = await _test.importStartHandler(req1, { log() {} });
+      const body1 = parseJsonResponse(res1);
+
+      assert.equal(res1.status, 200);
+      assert.equal(body1.ok, true);
+      assert.equal(body1.stage_beacon, "company_url_seed_fallback");
+      assert.equal(body1.company_url, seedUrl);
+      assert.equal(Number(body1?.save_report?.failed ?? 0), 0);
+      assert.equal(Number(body1?.saved_verified_count ?? 0), 1);
+
+      const verifiedIds1 = Array.isArray(body1?.saved_company_ids_verified) ? body1.saved_company_ids_verified : [];
+      assert.equal(verifiedIds1.length, 1);
+      const companyId = String(verifiedIds1[0] || "").trim();
+      assert.ok(companyId);
+
+      const req2 = makeReq({
+        url: "https://example.test/api/import/start?max_stage=expand",
+        body: JSON.stringify({
+          query: seedUrl,
+          queryTypes: ["company_url"],
+          auto_resume: false,
+        }),
+        headers: {
+          "content-type": "application/json",
+        },
+      });
+
+      const res2 = await _test.importStartHandler(req2, { log() {} });
+      const body2 = parseJsonResponse(res2);
+
+      assert.equal(res2.status, 200);
+      assert.equal(body2.ok, true);
+      assert.equal(body2.stage_beacon, "company_url_seed_fallback");
+      assert.equal(body2.company_url, seedUrl);
+      assert.equal(Number(body2?.save_report?.failed ?? 0), 0);
+      assert.equal(Number(body2?.saved_verified_count ?? 0), 1);
+      assert.equal(String(body2?.save_report?.save_outcome || ""), "duplicate_detected");
+
+      const verifiedIds2 = Array.isArray(body2?.saved_company_ids_verified) ? body2.saved_company_ids_verified : [];
+      assert.equal(verifiedIds2.length, 1);
+      assert.equal(String(verifiedIds2[0] || ""), companyId);
+
+      const normalizedDomain = seedHost.replace(/^www\./, "").toLowerCase();
+      await container.item(companyId, normalizedDomain).delete().catch(() => null);
+
+      const cleanupSession = async (sid) => {
+        const sessionId = String(sid || "").trim();
+        if (!sessionId) return;
+        await container.item(`_import_session_${sessionId}`, "import").delete().catch(() => null);
+        await container.item(`_import_resume_${sessionId}`, "import").delete().catch(() => null);
+        await container.item(`_import_accept_${sessionId}`, "import").delete().catch(() => null);
+        await container.item(`_import_complete_${sessionId}`, "import").delete().catch(() => null);
+        await container.item(`_import_error_${sessionId}`, "import").delete().catch(() => null);
+      };
+
+      await cleanupSession(body1?.session_id);
+      await cleanupSession(body2?.session_id);
+    }
+  );
+});
