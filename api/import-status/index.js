@@ -1559,6 +1559,22 @@ async function handler(req, context) {
       ? sessionDoc.saved_company_ids_unverified
       : [];
 
+    const save_outcome =
+      typeof sessionDoc?.save_outcome === "string" && sessionDoc.save_outcome.trim()
+        ? sessionDoc.save_outcome.trim()
+        : typeof completionDoc?.save_outcome === "string" && completionDoc.save_outcome.trim()
+          ? completionDoc.save_outcome.trim()
+          : null;
+
+    const saved_company_urls = Array.isArray(sessionDoc?.saved_company_urls)
+      ? sessionDoc.saved_company_urls
+      : Array.isArray(completionDoc?.saved_company_urls)
+        ? completionDoc.saved_company_urls
+        : [];
+
+    const resume_error =
+      typeof sessionDoc?.resume_error === "string" && sessionDoc.resume_error.trim() ? sessionDoc.resume_error.trim() : null;
+
     const requestObj = sessionDoc?.request && typeof sessionDoc.request === "object" ? sessionDoc.request : null;
     const requestQueryTypes = Array.isArray(requestObj?.queryTypes)
       ? requestObj.queryTypes.map((t) => String(t || "").trim()).filter(Boolean)
