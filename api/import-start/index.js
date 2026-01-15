@@ -8174,8 +8174,8 @@ Return ONLY the JSON array, no other text.`,
               for (let i = 0; i < enriched.length; i += 1) {
                 const base = enriched[i] && typeof enriched[i] === "object" ? enriched[i] : {};
 
-                const company_name = String(base.company_name || base.name || "").trim();
-                const website_url = String(base.website_url || base.url || base.canonical_url || "").trim();
+                let company_name = String(base.company_name || base.name || "").trim();
+                let website_url = String(base.website_url || base.url || base.canonical_url || "").trim();
 
                 const import_missing_fields = Array.isArray(base.import_missing_fields)
                   ? base.import_missing_fields.map((v) => String(v || "").trim()).filter(Boolean)
@@ -8205,6 +8205,23 @@ Return ONLY the JSON array, no other text.`,
                     website_url: website_url || undefined,
                   });
                 };
+
+                // company_name
+                if (!company_name) {
+                  base.company_name = "Unknown";
+                  base.company_name_unknown = true;
+                  company_name = base.company_name;
+                  ensureMissing("company_name", "missing", "company_name missing; set to placeholder 'Unknown'", false);
+                }
+
+                // website_url
+                if (!website_url) {
+                  base.website_url = "Unknown";
+                  base.website_url_unknown = true;
+                  if (!String(base.normalized_domain || "").trim()) base.normalized_domain = "unknown";
+                  website_url = base.website_url;
+                  ensureMissing("website_url", "missing", "website_url missing; set to placeholder 'Unknown'", false);
+                }
 
                 // industries
                 if (!Array.isArray(base.industries) || base.industries.length === 0) {
