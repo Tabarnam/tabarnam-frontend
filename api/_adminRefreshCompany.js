@@ -635,7 +635,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
 
     try {
-      const lockWindowMs = Math.max(8000, Math.min(30000, budgetMs + 5000));
+      const lockWindowMs = Math.max(8000, Math.min(25000, budgetMs + 2000));
       const lockUntil = nowMs + lockWindowMs;
       await patchCompanyById(container, companyId, existing, {
         company_refresh_lock_key: `company_refresh_lock::${companyId}`,
