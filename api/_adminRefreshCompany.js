@@ -1066,6 +1066,8 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       // ignore
     }
 
+    pushBreadcrumb("done", { company_id: companyId });
+
     return json({
       ok: true,
       company_id: companyId,
@@ -1078,6 +1080,9 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       proposed,
       upstream_status: Number(resp?.status) || 0,
       request_id: request_id || null,
+      attempts,
+      breadcrumbs,
+      diagnostics: {},
       build_id: String(BUILD_INFO.build_id || ""),
       hints: {
         company_name: companyName,
