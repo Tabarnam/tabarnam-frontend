@@ -1516,6 +1516,24 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           attempts,
           build_id: responseBuildId,
           response: rawText.trim().slice(0, 500),
+          debug_bundle: {
+            kind: "refresh_reviews",
+            endpoint_url: `/api${usedPath}`,
+            request_payload: requestPayload,
+            request_explain: attempts.length ? attempts[attempts.length - 1]?.request : null,
+            attempts,
+            response: {
+              status: res.status,
+              ok: res.ok,
+              headers: getResponseHeadersForDebug(res),
+              body_json: null,
+              body_text: rawText || "",
+            },
+            build: {
+              api_build_id: responseBuildId || null,
+              cached_build_id: getCachedBuildId() || null,
+            },
+          },
         });
 
         const doneLog = {
