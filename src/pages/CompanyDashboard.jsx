@@ -1403,18 +1403,20 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
         usedPath = path;
         res = await apiFetch(path, {
           method: "POST",
-          body: {
-            company_id: id,
-            take: requestedTake,
-            include_existing_in_context: Boolean(includeExisting),
-
-            // Keep this below SWA gateway time budgets. The backend will further clamp.
-            timeout_ms: 20000,
-            deadline_ms: 20000,
-          },
+          body: requestPayload,
         });
 
-        attempts.push({ path, status: res.status });
+        const requestExplain = getLastApiRequestExplain();
+
+        attempts.push({
+          path,
+          status: res.status,
+          request: requestExplain,
+          request_payload: requestPayload,
+          response_headers: getResponseHeadersForDebug(res),
+          api_fetch_error: res && typeof res === "object" ? res.__api_fetch_error : null,
+          api_fetch_fallback: res && typeof res === "object" ? res.__api_fetch_fallback : null,
+        });
         if (res.status !== 404) break;
       }
 
