@@ -751,6 +751,11 @@ async function handler(req, context) {
         resume_error =
           typeof sessionDoc?.resume_error === "string" && sessionDoc.resume_error.trim() ? sessionDoc.resume_error.trim() : null;
 
+        resume_error_details =
+          sessionDoc?.resume_error_details && typeof sessionDoc.resume_error_details === "object"
+            ? sessionDoc.resume_error_details
+            : null;
+
         const completionSavedIds = Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [];
         const completionSaved = typeof completionDoc?.saved === "number" ? completionDoc.saved : null;
         const sessionSaved = typeof sessionDoc?.saved === "number" ? sessionDoc.saved : null;
