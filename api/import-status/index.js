@@ -1638,6 +1638,8 @@ async function handler(req, context) {
         await upsertDoc(container, {
           ...sessionDoc,
           resume_error: String(resume_trigger_error || "").trim(),
+          resume_error_details:
+            resume_trigger_error_details && typeof resume_trigger_error_details === "object" ? resume_trigger_error_details : null,
           resume_error_at: now,
           updated_at: now,
         }).catch(() => null);
