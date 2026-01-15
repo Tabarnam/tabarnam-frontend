@@ -916,6 +916,23 @@ async function handler(req, context) {
     const saved_companies = toSavedCompanies(savedDocsForHealth);
     const enrichment_health_summary = summarizeEnrichmentHealth(saved_companies);
 
+    // Always surface "verified save" fields while running so the Admin UI can render
+    // stable saved counts + Open company links.
+    if (!Number.isFinite(Number(saved_verified_count))) {
+      saved_verified_count = saved_company_ids_verified.length > 0 ? saved_company_ids_verified.length : 0;
+    }
+
+    if (Array.isArray(saved_company_ids_verified) && saved_company_ids_verified.length === 0 && saved_companies.length > 0) {
+      saved_company_ids_verified = saved_companies
+        .map((c) => String(c?.company_id || "").trim())
+        .filter(Boolean)
+        .slice(0, 50);
+    }
+
+    if (Number(saved || 0) !== Number(saved_verified_count || 0)) {
+      saved = Number(saved_verified_count || 0);
+    }
+
     const resumeNeededFromSession = Boolean(report?.session && report.session.resume_needed);
     const resumeNeededFromHealth = enrichment_health_summary.incomplete > 0;
 
