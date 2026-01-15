@@ -508,6 +508,22 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
   const startedAt = Date.now();
   let stage = "start";
 
+  const attempts = [];
+  const breadcrumbs = [];
+  const pushBreadcrumb = (step, extra) => {
+    try {
+      const entry = {
+        at_ms: Date.now() - startedAt,
+        step: asString(step).trim() || "(unknown)",
+        ...(extra && typeof extra === "object" ? extra : {}),
+      };
+      breadcrumbs.push(entry);
+      if (breadcrumbs.length > 20) breadcrumbs.splice(0, breadcrumbs.length - 20);
+    } catch {
+      // ignore
+    }
+  };
+
   let budgetMs = 20000;
   let deadlineAtMs = startedAt + budgetMs;
   const getRemainingBudgetMs = () => Math.max(0, deadlineAtMs - Date.now());
