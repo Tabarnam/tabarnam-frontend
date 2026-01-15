@@ -6445,6 +6445,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   },
                   ...(cosmosTarget ? cosmosTarget : {}),
                   last_error,
+                  save_outcome: outcome || failureStage,
                   saved_verified_count: 0,
                   saved_company_ids_verified: [],
                   saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
