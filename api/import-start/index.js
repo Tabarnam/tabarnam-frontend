@@ -6062,7 +6062,99 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               saveReport = saveResult;
             }
 
-            const canResume = canPersist && Number(saveResult.saved || 0) > 0;
+            const queryUrlForTelemetry = String(seed.company_url || seed.website_url || seed.url || "").trim();
+            const normalizedDomainForTelemetry = String(seed.normalized_domain || "").trim();
+
+            const getDuplicateOfId = (result) => {
+              const dup =
+                Array.isArray(result?.skipped_duplicates)
+                  ? result.skipped_duplicates
+                      .map((d) => String(d?.duplicate_of_id || "").trim())
+                      .find(Boolean)
+                  : "";
+              if (dup) return dup;
+
+              const fromSkippedIds =
+                Array.isArray(result?.skipped_ids)
+                  ? result.skipped_ids.map((id) => String(id || "").trim()).find(Boolean)
+                  : "";
+              return fromSkippedIds || "";
+            };
+
+            let save_outcome = "not_persisted";
+            if (dryRunRequested) save_outcome = "dry_run";
+
+            if (canPersist) {
+              const verifiedCountPre = Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0;
+              const writeCountPre = Number(saveResult.saved_write_count || 0) || 0;
+
+              if (verifiedCountPre > 0) {
+                save_outcome = "saved_verified";
+              } else if (getDuplicateOfId(saveResult)) {
+                save_outcome = "duplicate_detected";
+              } else if (writeCountPre > 0) {
+                save_outcome = "read_after_write_failed";
+              } else if (Number(saveResult.failed || 0) > 0) {
+                save_outcome = "cosmos_write_failed";
+              } else if (Number(saveResult.skipped || 0) > 0) {
+                save_outcome = "validation_failed_missing_required_fields";
+              } else {
+                save_outcome = "cosmos_write_failed";
+              }
+
+              // If we skipped due to duplicate, treat the existing company doc as a verified saved result.
+              if (
+                save_outcome === "duplicate_detected" &&
+                (Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0) === 0
+              ) {
+                const duplicateOfId = getDuplicateOfId(saveResult);
+                if (duplicateOfId) {
+                  try {
+                    const container = getCompaniesCosmosContainer();
+                    const existingDoc = container
+                      ? await readItemWithPkCandidates(container, duplicateOfId, {
+                          id: duplicateOfId,
+                          normalized_domain: normalizedDomainForTelemetry,
+                          partition_key: normalizedDomainForTelemetry,
+                        }).catch(() => null)
+                      : null;
+
+                    if (existingDoc) {
+                      saveResult = {
+                        ...saveResult,
+                        saved: 1,
+                        skipped: 0,
+                        failed: 0,
+                        saved_ids: [duplicateOfId],
+                        skipped_ids: [],
+                        failed_items: [],
+                        saved_company_ids_verified: [duplicateOfId],
+                        saved_company_ids_unverified: [],
+                        saved_verified_count: 1,
+                        saved_write_count: 0,
+                        saved_ids_write: [],
+                        duplicate_of_id: duplicateOfId,
+                      };
+                    } else {
+                      save_outcome = "read_after_write_failed";
+                    }
+                  } catch {
+                    save_outcome = "read_after_write_failed";
+                  }
+                }
+              }
+
+              if (saveResult && typeof saveResult === "object") {
+                saveResult.save_outcome = save_outcome;
+                saveResult.seed_url = queryUrlForTelemetry || null;
+                saveResult.seed_normalized_domain = normalizedDomainForTelemetry || null;
+              }
+
+              saveReport = saveResult;
+            }
+
+            const verifiedCount = Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0;
+            const canResume = canPersist && verifiedCount > 0;
 
             if (canResume) {
               if (cosmosEnabled) {
