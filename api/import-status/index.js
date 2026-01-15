@@ -552,6 +552,13 @@ async function handler(req, context) {
   const url = new URL(req.url);
   const sessionId = String(url.searchParams.get("session_id") || "").trim();
   const take = Number(url.searchParams.get("take") || "10") || 10;
+  const forceResume =
+    String(
+      url.searchParams.get("force_resume") ||
+        url.searchParams.get("forceResume") ||
+        url.searchParams.get("trigger_resume") ||
+        ""
+    ).trim() === "1";
 
   if (!sessionId) {
     return json({ ok: false, error: "Missing session_id" }, 400, req);
