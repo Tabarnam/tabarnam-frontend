@@ -994,15 +994,30 @@ async function handler(req, context) {
           const base = new URL(req.url);
           const workerUrl = new URL("/api/import/resume-worker", base.origin);
 
+          const workerHeaders = buildInternalFetchHeaders();
+
           const workerRes = await fetch(workerUrl.toString(), {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: workerHeaders,
             body: JSON.stringify({ session_id: sessionId }),
           }).catch((e) => ({ ok: false, status: 0, _error: e }));
 
+          let workerText = "";
+          try {
+            if (workerRes && typeof workerRes.text === "function") workerText = await workerRes.text();
+          } catch {}
+
           resume_triggered = Boolean(workerRes?.ok);
           if (!resume_triggered) {
-            resume_trigger_error = workerRes?._error?.message || `resume_worker_http_${Number(workerRes?.status || 0)}`;
+            const statusCode = Number(workerRes?.status || 0) || 0;
+            const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
+
+            resume_trigger_error = workerRes?._error?.message || `resume_worker_http_${statusCode}`;
+            resume_trigger_error_details = {
+              http_status: statusCode,
+              used_url: workerUrl.toString(),
+              response_text_preview: preview || null,
+            };
           }
         }
       }
@@ -1588,15 +1603,30 @@ async function handler(req, context) {
           const base = new URL(req.url);
           const workerUrl = new URL("/api/import/resume-worker", base.origin);
 
+          const workerHeaders = buildInternalFetchHeaders();
+
           const workerRes = await fetch(workerUrl.toString(), {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: workerHeaders,
             body: JSON.stringify({ session_id: sessionId }),
           }).catch((e) => ({ ok: false, status: 0, _error: e }));
 
+          let workerText = "";
+          try {
+            if (workerRes && typeof workerRes.text === "function") workerText = await workerRes.text();
+          } catch {}
+
           resume_triggered = Boolean(workerRes?.ok);
           if (!resume_triggered) {
-            resume_trigger_error = workerRes?._error?.message || `resume_worker_http_${Number(workerRes?.status || 0)}`;
+            const statusCode = Number(workerRes?.status || 0) || 0;
+            const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
+
+            resume_trigger_error = workerRes?._error?.message || `resume_worker_http_${statusCode}`;
+            resume_trigger_error_details = {
+              http_status: statusCode,
+              used_url: workerUrl.toString(),
+              response_text_preview: preview || null,
+            };
           }
         }
       } catch (e) {
