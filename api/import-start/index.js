@@ -6251,12 +6251,57 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
 
                   setTimeout(() => {
-                  fetch(triggerUrl.toString(), {
-                    method: "POST",
-                    headers: buildInternalFetchHeaders(),
-                    body: JSON.stringify({ session_id: sessionId }),
-                  }).catch(() => {});
-                }, 0);
+                    (async () => {
+                      const workerRes = await fetch(triggerUrl.toString(), {
+                        method: "POST",
+                        headers: buildInternalFetchHeaders(),
+                        body: JSON.stringify({ session_id: sessionId }),
+                      }).catch((e) => ({ ok: false, status: 0, _error: e }));
+
+                      if (workerRes?.ok) return;
+
+                      let workerText = "";
+                      try {
+                        if (workerRes && typeof workerRes.text === "function") workerText = await workerRes.text();
+                      } catch {}
+
+                      const statusCode = Number(workerRes?.status || 0) || 0;
+                      const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
+                      const resume_error = workerRes?._error?.message || `resume_worker_http_${statusCode}`;
+                      const resume_error_details = {
+                        http_status: statusCode,
+                        used_url: triggerUrl.toString(),
+                        response_text_preview: preview || null,
+                      };
+
+                      try {
+                        upsertImportSession({
+                          session_id: sessionId,
+                          request_id: requestId,
+                          status: "running",
+                          stage_beacon: "company_url_seed_fallback",
+                          resume_needed: true,
+                          resume_error,
+                          resume_error_details,
+                        });
+                      } catch {}
+
+                      if (cosmosEnabled) {
+                        try {
+                          await upsertCosmosImportSessionDoc({
+                            sessionId,
+                            requestId,
+                            patch: {
+                              resume_error,
+                              resume_error_details,
+                              resume_error_at: new Date().toISOString(),
+                              updated_at: new Date().toISOString(),
+                            },
+                          }).catch(() => null);
+                        } catch {}
+                      }
+                    })().catch(() => {});
+                  }, 0);
                 }
               } catch {}
 
