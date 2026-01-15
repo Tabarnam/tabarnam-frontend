@@ -1488,6 +1488,12 @@ async function handler(req, context) {
       ? sessionDoc.saved_company_ids_unverified
       : [];
 
+    const requestObj = sessionDoc?.request && typeof sessionDoc.request === "object" ? sessionDoc.request : null;
+    const requestQueryTypes = Array.isArray(requestObj?.queryTypes)
+      ? requestObj.queryTypes.map((t) => String(t || "").trim()).filter(Boolean)
+      : [];
+    const isCompanyUrlImport = requestQueryTypes.includes("company_url");
+
     if (errorPayload || timedOut || stopped) {
       const errorOut =
         errorPayload ||
