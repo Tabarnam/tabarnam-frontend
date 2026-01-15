@@ -682,6 +682,13 @@ async function handler(req, context) {
     let reconcile_strategy = null;
     let reconciled_saved_ids = [];
 
+    let saved_verified_count = null;
+    let saved_company_ids_verified = [];
+    let saved_company_ids_unverified = [];
+    let saved_company_urls = [];
+    let save_outcome = null;
+    let resume_error = null;
+
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
       const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
