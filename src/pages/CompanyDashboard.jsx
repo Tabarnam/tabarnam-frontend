@@ -4053,6 +4053,24 @@ export default function CompanyDashboard() {
           attempts,
           build_id: apiBuildId,
           debug: preview || textBody || null,
+          debug_bundle: {
+            kind: "refresh_company",
+            endpoint_url: `/api${usedPath}`,
+            request_payload: requestPayload,
+            request_explain: attempts.length ? attempts[attempts.length - 1]?.request : null,
+            attempts,
+            response: {
+              status: res.status,
+              ok: res.ok,
+              headers: getResponseHeadersForDebug(res),
+              body_json: null,
+              body_text: typeof textBody === "string" ? textBody : "",
+            },
+            build: {
+              api_build_id: apiBuildId || null,
+              cached_build_id: getCachedBuildId() || null,
+            },
+          },
         };
 
         setRefreshError(errObj);
