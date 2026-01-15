@@ -976,8 +976,10 @@ test("/api/import/start company_url_seed_fallback persists and verifies seed com
       assert.equal(res.status, 200);
       assert.equal(body.ok, true);
       assert.equal(body.stage_beacon, "company_url_seed_fallback");
+      assert.equal(body.company_url, seedUrl);
 
       assert.equal(Number(body?.save_report?.failed ?? 0), 0);
+      assert.equal(String(body?.save_report?.save_outcome || ""), "saved_verified");
       assert.equal(Number(body?.saved_verified_count ?? 0), 1);
 
       const verifiedIds = Array.isArray(body?.saved_company_ids_verified) ? body.saved_company_ids_verified : [];
