@@ -1102,13 +1102,17 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       stack: e?.stack,
     });
 
+    pushBreadcrumb("unhandled_exception");
+
     return json({
       ok: false,
       stage: "refresh_company",
       root_cause: asString(e?.root_cause).trim() || "unhandled_exception",
       retryable: true,
       error: e?.message || "Internal error",
-      details: {
+      attempts,
+      breadcrumbs,
+      diagnostics: {
         message: asString(e?.message || e).trim() || "Internal error",
       },
       config,
