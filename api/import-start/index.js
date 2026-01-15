@@ -6417,7 +6417,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   session_id: sessionId,
                   request_id: requestId,
                   status: "error",
-                  stage_beacon: "cosmos_write_failed",
+                  stage_beacon: failureStage,
                   companies_count: companies.length,
                   resume_needed: false,
                   last_error,
