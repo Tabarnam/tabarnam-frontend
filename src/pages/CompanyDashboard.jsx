@@ -1387,6 +1387,15 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       const refreshPaths = ["/xadmin-api-refresh-reviews", "/admin-refresh-reviews"];
       const attempts = [];
 
+      const requestPayload = {
+        company_id: id,
+        take: requestedTake,
+        include_existing_in_context: Boolean(includeExisting),
+        // Keep this below SWA gateway time budgets. The backend will further clamp.
+        timeout_ms: 20000,
+        deadline_ms: 20000,
+      };
+
       let res;
       let usedPath = refreshPaths[0];
 
