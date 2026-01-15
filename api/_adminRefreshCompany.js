@@ -935,6 +935,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
 
     if (normalized.error) {
       stage = "upstream_error";
+      await releaseRefreshLockBestEffort();
       pushBreadcrumb(stage, { upstream_status: Number(resp.status) || 0 });
       return json({
         ok: false,
@@ -961,6 +962,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
 
     if (resp.status < 200 || resp.status >= 300) {
       stage = "upstream_error";
+      await releaseRefreshLockBestEffort();
       pushBreadcrumb(stage, { upstream_status: Number(resp.status) || 0 });
       return json({
         ok: false,
@@ -986,6 +988,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
 
     if (!normalized.company || typeof normalized.company !== "object") {
       stage = "parse_xai";
+      await releaseRefreshLockBestEffort();
       pushBreadcrumb(stage, { upstream_status: Number(resp.status) || 0 });
       return json({
         ok: false,
