@@ -1137,6 +1137,58 @@ async function handler(req, context) {
       );
     }
 
+    if (mem) {
+      const memCompaniesCount = Number.isFinite(Number(mem.companies_count)) ? Number(mem.companies_count) : 0;
+      const memVerifiedIds = Array.isArray(mem.saved_company_ids_verified) ? mem.saved_company_ids_verified : [];
+      const memVerifiedCount = Number.isFinite(Number(mem.saved_verified_count))
+        ? Number(mem.saved_verified_count)
+        : memVerifiedIds.length;
+
+      const saved_verified_count = memVerifiedCount;
+      const saved_company_ids_verified = memVerifiedIds;
+      const saved_company_ids_unverified = Array.isArray(mem.saved_company_ids_unverified) ? mem.saved_company_ids_unverified : [];
+      const saved_company_urls = Array.isArray(mem.saved_company_urls) ? mem.saved_company_urls : [];
+      const save_outcome = typeof mem.save_outcome === "string" && mem.save_outcome.trim() ? mem.save_outcome.trim() : null;
+      const resume_needed = typeof mem.resume_needed === "boolean" ? mem.resume_needed : false;
+      const resume_error = typeof mem.resume_error === "string" && mem.resume_error.trim() ? mem.resume_error.trim() : null;
+
+      const saved = Number.isFinite(Number(mem.saved)) ? Number(mem.saved) : saved_verified_count;
+
+      return jsonWithSessionId(
+        {
+          ok: true,
+          session_id: sessionId,
+          status: mem.status || "running",
+          state: mem.status === "complete" ? "complete" : mem.status === "failed" ? "failed" : "running",
+          job_state: null,
+          stage_beacon: mem.stage_beacon || "init",
+          stage_beacon_values: stageBeaconValues,
+          elapsed_ms: null,
+          remaining_budget_ms: null,
+          upstream_calls_made: 0,
+          companies_candidates_found: 0,
+          early_exit_triggered: false,
+          primary_job_state: null,
+          last_heartbeat_at: null,
+          lock_until: null,
+          attempts: 0,
+          last_error: null,
+          companies_count: memCompaniesCount,
+          saved,
+          saved_verified_count,
+          saved_company_ids_verified,
+          saved_company_ids_unverified,
+          saved_company_urls,
+          save_outcome,
+          resume_needed,
+          resume_error,
+          saved_companies: [],
+        },
+        200,
+        req
+      );
+    }
+
     return jsonWithSessionId({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404);
   }
 
