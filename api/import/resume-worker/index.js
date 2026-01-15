@@ -17,6 +17,8 @@ const {
   buildPartitionKeyCandidates,
 } = require("../../_cosmosPartitionKey");
 
+const { buildInternalFetchHeaders, isInternalJobRequest } = require("../../_internalJobAuth");
+
 function cors(req) {
   const origin = req?.headers?.get?.("origin") || "*";
   return {
@@ -24,7 +26,7 @@ function cors(req) {
     Vary: "Origin",
     "Access-Control-Allow-Methods": "POST,OPTIONS",
     "Access-Control-Allow-Headers":
-      "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id",
+      "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id,x-tabarnam-internal,x-internal-secret",
   };
 }
 
@@ -164,6 +166,10 @@ async function handler(req, context) {
   const method = String(req?.method || "").toUpperCase();
   if (method === "OPTIONS") return { status: 200, headers: cors(req) };
   if (method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405, req);
+
+  if (!isInternalJobRequest(req)) {
+    return json({ ok: false, error: "Unauthorized" }, 401, req);
+  }
 
   const url = new URL(req.url);
   const noCosmosMode = String(url.searchParams.get("no_cosmos") || "").trim() === "1";
@@ -337,7 +343,7 @@ async function handler(req, context) {
 
   const startRes = await fetch(startUrl.toString(), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: buildInternalFetchHeaders(),
     body: JSON.stringify(startBody),
   }).catch((e) => ({ ok: false, status: 0, _error: e }));
 
