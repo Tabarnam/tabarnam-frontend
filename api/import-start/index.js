@@ -6295,6 +6295,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
                     skipped: Number(saveResult.skipped || 0),
                     failed: Number(saveResult.failed || 0),
+                    save_outcome,
                     saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
                     saved_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
                     saved_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
