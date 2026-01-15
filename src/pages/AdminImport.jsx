@@ -159,6 +159,25 @@ function mergeById(prev, next) {
   return Array.from(map.values());
 }
 
+function mergeUniqueStrings(prev, next) {
+  const left = Array.isArray(prev) ? prev : [];
+  const right = Array.isArray(next) ? next : [];
+
+  const out = [];
+  const seen = new Set();
+
+  for (const item of [...left, ...right]) {
+    const value = asString(item).trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+
+  return out;
+}
+
 function safeJsonParse(text) {
   if (typeof text !== "string") return null;
   try {
