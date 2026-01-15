@@ -708,6 +708,47 @@ async function handler(req, context) {
 
         const domainMeta = deriveDomainAndCreatedAfter({ sessionDoc, acceptDoc });
 
+        const completionVerifiedIds = Array.isArray(completionDoc?.saved_company_ids_verified)
+          ? completionDoc.saved_company_ids_verified
+          : Array.isArray(completionDoc?.saved_ids)
+            ? completionDoc.saved_ids
+            : [];
+
+        const sessionVerifiedIds = Array.isArray(sessionDoc?.saved_company_ids_verified)
+          ? sessionDoc.saved_company_ids_verified
+          : Array.isArray(sessionDoc?.saved_ids)
+            ? sessionDoc.saved_ids
+            : [];
+
+        saved_company_ids_verified = (completionVerifiedIds.length > 0 ? completionVerifiedIds : sessionVerifiedIds)
+          .map((id) => String(id || "").trim())
+          .filter(Boolean);
+
+        saved_verified_count =
+          (typeof completionDoc?.saved_verified_count === "number" && Number.isFinite(completionDoc.saved_verified_count)
+            ? completionDoc.saved_verified_count
+            : null) ??
+          (typeof sessionDoc?.saved_verified_count === "number" && Number.isFinite(sessionDoc.saved_verified_count)
+            ? sessionDoc.saved_verified_count
+            : null) ??
+          (saved_company_ids_verified.length > 0 ? saved_company_ids_verified.length : null);
+
+        saved_company_ids_unverified = Array.isArray(sessionDoc?.saved_company_ids_unverified)
+          ? sessionDoc.saved_company_ids_unverified
+          : [];
+
+        saved_company_urls = Array.isArray(sessionDoc?.saved_company_urls) ? sessionDoc.saved_company_urls : [];
+
+        save_outcome =
+          typeof sessionDoc?.save_outcome === "string" && sessionDoc.save_outcome.trim()
+            ? sessionDoc.save_outcome.trim()
+            : typeof completionDoc?.save_outcome === "string" && completionDoc.save_outcome.trim()
+              ? completionDoc.save_outcome.trim()
+              : null;
+
+        resume_error =
+          typeof sessionDoc?.resume_error === "string" && sessionDoc.resume_error.trim() ? sessionDoc.resume_error.trim() : null;
+
         const completionSavedIds = Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [];
         const completionSaved = typeof completionDoc?.saved === "number" ? completionDoc.saved : null;
         const sessionSaved = typeof sessionDoc?.saved === "number" ? sessionDoc.saved : null;
