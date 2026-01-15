@@ -624,6 +624,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     const lockUntilExisting = Number(existing.company_refresh_lock_until || 0) || 0;
     if (lockUntilExisting > nowMs) {
       const retryAfterMs = Math.max(0, lockUntilExisting - nowMs);
+      pushBreadcrumb("locked", { company_id: companyId, retry_after_ms: retryAfterMs });
       return json({
         ok: false,
         stage: "refresh_company",
@@ -632,6 +633,9 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         company_id: companyId,
         lock_until_ms: lockUntilExisting,
         retry_after_ms: retryAfterMs,
+        attempts,
+        breadcrumbs,
+        diagnostics: { message: "Refresh already in progress" },
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
         budget_ms: budgetMs,
@@ -641,12 +645,18 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
 
     stage = "budget_guard";
     if (getRemainingBudgetMs() < 4500) {
+      pushBreadcrumb("time_budget_exhausted", { company_id: companyId });
       return json({
         ok: false,
         stage: "refresh_company",
-        root_cause: "upstream_timeout_budget_exhausted",
+        root_cause: "time_budget_exhausted",
         retryable: true,
         company_id: companyId,
+        attempts,
+        breadcrumbs,
+        diagnostics: {
+          message: "Total execution budget exhausted before calling upstream",
+        },
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
         budget_ms: budgetMs,
