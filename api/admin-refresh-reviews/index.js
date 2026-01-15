@@ -1,4 +1,4 @@
-const { app, hasRoute } = require("../_app");
+const { app } = require("../_app");
 const { getBuildInfo } = require("../_buildInfo");
 
 const { adminRefreshReviewsHandler } = require("../_adminRefreshReviews");
@@ -130,15 +130,12 @@ async function safeHandler(req, context) {
   }
 }
 
-// Avoid duplicate registrations if xadmin-api-refresh-reviews already created an alias.
-if (!hasRoute("admin-refresh-reviews")) {
-  app.http("adminRefreshReviews", {
-    route: "admin-refresh-reviews",
-    methods: ["GET", "POST", "OPTIONS"],
-    authLevel: "anonymous",
-    handler: safeHandler,
-  });
-}
+app.http("adminRefreshReviews", {
+  route: "admin-refresh-reviews",
+  methods: ["GET", "POST", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: safeHandler,
+});
 
 module.exports.handler = safeHandler;
 

@@ -1,4 +1,4 @@
-const { app, hasRoute } = require("../_app");
+const { app } = require("../_app");
 const { getBuildInfo } = require("../_buildInfo");
 const {
   getValueAtPath,
@@ -1812,16 +1812,6 @@ app.http("xadminApiRefreshReviews", {
   handler: safeHandler,
 });
 
-// Production safety: if a deployment accidentally omits admin-refresh-reviews,
-// this alias keeps /api/admin-refresh-reviews available.
-if (!hasRoute("admin-refresh-reviews")) {
-  app.http("adminRefreshReviewsAlias", {
-    route: "admin-refresh-reviews",
-    methods: ["GET", "POST", "OPTIONS"],
-    authLevel: "anonymous",
-    handler: safeHandler,
-  });
-}
 
 // Legacy compatibility: some deployments (or wrappers) still expect index.js to export a `handler`.
 // Ensure it is the SAFE wrapper, not the raw handler.
