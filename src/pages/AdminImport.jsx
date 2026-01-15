@@ -704,8 +704,19 @@ export default function AdminImport() {
               ? lastErrorCode || asString(r.final_last_error_code)
               : asString(r.final_last_error_code);
 
-            const savedVerifiedCount = Number.isFinite(r.saved_verified_count) ? r.saved_verified_count : null;
-            const savedCount = savedVerifiedCount != null ? savedVerifiedCount : Number.isFinite(saved) ? saved : 0;
+            const prevVerifiedIds = Array.isArray(r.saved_company_ids_verified) ? r.saved_company_ids_verified : [];
+            const nextVerifiedIds = mergeUniqueStrings(prevVerifiedIds, incomingVerifiedIds);
+
+            const prevUnverifiedIds = Array.isArray(r.saved_company_ids_unverified) ? r.saved_company_ids_unverified : [];
+            const nextUnverifiedIds = mergeUniqueStrings(prevUnverifiedIds, incomingUnverifiedIds);
+
+            const prevVerifiedCount =
+              typeof r.saved_verified_count === "number" && Number.isFinite(r.saved_verified_count) ? r.saved_verified_count : 0;
+            const nextSavedVerifiedCountRaw =
+              typeof savedVerifiedCount === "number" && Number.isFinite(savedVerifiedCount) ? savedVerifiedCount : 0;
+
+            const nextSavedVerifiedCount = Math.max(prevVerifiedCount, nextSavedVerifiedCountRaw, nextVerifiedIds.length);
+            const savedCount = Math.max(nextSavedVerifiedCount, Number.isFinite(Number(saved)) ? Number(saved) : 0, savedCompanies.length);
             const hasSaved = savedCount > 0;
 
             const shouldDemoteStartErrorToWarning = Boolean(isTerminalComplete && hasSaved);
