@@ -33,6 +33,33 @@ function upsertSession(input) {
 
   const prev = state.map.get(session_id) || null;
 
+  const mergeUniqueStrings = (a, b) => {
+    const left = Array.isArray(a) ? a : [];
+    const right = Array.isArray(b) ? b : [];
+    const out = [];
+    const seen = new Set();
+
+    for (const item of [...left, ...right]) {
+      const value = String(item || "").trim();
+      if (!value) continue;
+      const key = value.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(value);
+    }
+
+    return out;
+  };
+
+  const saved_verified_count = Number.isFinite(Number(input?.saved_verified_count))
+    ? Number(input.saved_verified_count)
+    : Number.isFinite(Number(prev?.saved_verified_count))
+      ? Number(prev.saved_verified_count)
+      : null;
+
+  const saved_company_ids_verified = mergeUniqueStrings(prev?.saved_company_ids_verified, input?.saved_company_ids_verified);
+  const saved_company_ids_unverified = mergeUniqueStrings(prev?.saved_company_ids_unverified, input?.saved_company_ids_unverified);
+
   const next = {
     session_id,
     request_id: typeof input?.request_id === "string" && input.request_id.trim() ? input.request_id.trim() : prev?.request_id || null,
@@ -49,6 +76,37 @@ function upsertSession(input) {
       : Number.isFinite(Number(prev?.companies_count))
         ? Number(prev.companies_count)
         : 0,
+
+    // Optional session doc fields: allow status endpoint to surface verified save state even when Cosmos
+    // isn't configured (tests/local runs).
+    saved: Number.isFinite(Number(input?.saved))
+      ? Number(input.saved)
+      : Number.isFinite(Number(prev?.saved))
+        ? Number(prev.saved)
+        : undefined,
+    saved_verified_count,
+    saved_company_ids_verified,
+    saved_company_ids_unverified,
+    saved_company_urls: mergeUniqueStrings(prev?.saved_company_urls, input?.saved_company_urls),
+    save_outcome:
+      typeof input?.save_outcome === "string" && input.save_outcome.trim()
+        ? input.save_outcome.trim()
+        : typeof prev?.save_outcome === "string" && prev.save_outcome.trim()
+          ? prev.save_outcome.trim()
+          : null,
+    resume_needed:
+      typeof input?.resume_needed === "boolean"
+        ? input.resume_needed
+        : typeof prev?.resume_needed === "boolean"
+          ? prev.resume_needed
+          : undefined,
+    resume_error:
+      typeof input?.resume_error === "string" && input.resume_error.trim()
+        ? input.resume_error.trim()
+        : typeof prev?.resume_error === "string" && prev.resume_error.trim()
+          ? prev.resume_error.trim()
+          : null,
+
     created_at: prev?.created_at || nowIso(),
     updated_at: nowIso(),
   };
