@@ -676,6 +676,16 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       // ignore
     }
 
+    const releaseRefreshLockBestEffort = async () => {
+      try {
+        await patchCompanyById(container, companyId, existing, {
+          company_refresh_lock_until: 0,
+        });
+      } catch {
+        // ignore
+      }
+    };
+
     stage = "prepare_prompt";
     const companyName = asString(existing.company_name || existing.name).trim();
     const websiteUrl = asString(existing.website_url || existing.canonical_url || existing.url).trim();
