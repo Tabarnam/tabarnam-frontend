@@ -3205,10 +3205,19 @@ export default function AdminImport() {
                       : "";
 
                     const displayUrl = urlRaw || queryUrlNormalized;
-                    const seedMissingBug =
-                      Array.isArray(activeRun?.queryTypes) &&
-                      activeRun.queryTypes.includes("company_url") &&
-                      Boolean(queryUrlNormalized && !urlRaw);
+
+                    const isCompanyUrlRun = Array.isArray(activeRun?.queryTypes) && activeRun.queryTypes.includes("company_url");
+                    const hasSavedVerified =
+                      (typeof activeRun?.saved_verified_count === "number" && Number.isFinite(activeRun.saved_verified_count)
+                        ? activeRun.saved_verified_count
+                        : Array.isArray(activeRun?.saved_company_ids_verified)
+                          ? activeRun.saved_company_ids_verified.length
+                          : 0) > 0;
+
+                    const hasCompanyUrl = isMeaningfulString(c?.company_url);
+                    const hasWebsiteUrl = isMeaningfulString(c?.website_url || c?.canonical_url || c?.url);
+
+                    const seedMissingBug = Boolean(isCompanyUrlRun && showSavedResults && hasSavedVerified && !hasCompanyUrl && !hasWebsiteUrl);
 
                     const keywordsCanonical =
                       Array.isArray(c?.keywords) && c.keywords.length > 0
