@@ -766,22 +766,16 @@ export default function AdminImport() {
               items: mergeById(r.items, items),
               lastCreatedAt: asString(body?.lastCreatedAt || r.lastCreatedAt),
               saved: savedCount,
-              saved_verified_count:
-                typeof body?.saved_verified_count === "number" && Number.isFinite(body.saved_verified_count)
-                  ? body.saved_verified_count
-                  : Number.isFinite(r.saved_verified_count)
-                    ? r.saved_verified_count
-                    : null,
-              saved_company_ids_verified: Array.isArray(body?.saved_company_ids_verified)
-                ? body.saved_company_ids_verified
-                : Array.isArray(r.saved_company_ids_verified)
-                  ? r.saved_company_ids_verified
+              saved_verified_count: nextSavedVerifiedCount,
+              saved_company_ids_verified: nextVerifiedIds,
+              saved_company_ids_unverified: nextUnverifiedIds,
+              saved_company_urls: Array.isArray(body?.saved_company_urls)
+                ? body.saved_company_urls
+                : Array.isArray(r.saved_company_urls)
+                  ? r.saved_company_urls
                   : [],
-              saved_company_ids_unverified: Array.isArray(body?.saved_company_ids_unverified)
-                ? body.saved_company_ids_unverified
-                : Array.isArray(r.saved_company_ids_unverified)
-                  ? r.saved_company_ids_unverified
-                  : [],
+              save_outcome: asString(body?.save_outcome || body?.save_report?.save_outcome || r.save_outcome).trim() || null,
+              resume_error: asString(body?.resume_error || r.resume_error).trim() || null,
               reconciled,
               reconcile_strategy: reconcileStrategy || null,
               reconciled_saved_ids: reconciledSavedIds,
