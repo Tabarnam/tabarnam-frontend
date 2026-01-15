@@ -789,6 +789,16 @@ async function handler(req, context, opts) {
 
     out.warnings = Array.isArray(out.warnings) ? out.warnings : [];
 
+    out.attempts = Array.isArray(out.attempts) ? out.attempts : [];
+
+    const diag = out.diagnostics && typeof out.diagnostics === "object" && !Array.isArray(out.diagnostics) ? out.diagnostics : {};
+    out.diagnostics = {
+      route: "xadmin-api-refresh-reviews",
+      ...diag,
+    };
+
+    out.breadcrumbs = Array.isArray(out.breadcrumbs) ? out.breadcrumbs : breadcrumbs;
+
     out.fetched_count = Number(out.fetched_count ?? 0) || 0;
     out.saved_count = Number(out.saved_count ?? 0) || 0;
 
