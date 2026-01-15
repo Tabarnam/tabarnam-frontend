@@ -1245,6 +1245,8 @@ async function handler(req, context) {
       const save_outcome = typeof mem.save_outcome === "string" && mem.save_outcome.trim() ? mem.save_outcome.trim() : null;
       const resume_needed = typeof mem.resume_needed === "boolean" ? mem.resume_needed : false;
       const resume_error = typeof mem.resume_error === "string" && mem.resume_error.trim() ? mem.resume_error.trim() : null;
+      const resume_error_details =
+        mem.resume_error_details && typeof mem.resume_error_details === "object" ? mem.resume_error_details : null;
 
       const saved = Number.isFinite(Number(mem.saved)) ? Number(mem.saved) : saved_verified_count;
 
@@ -1302,6 +1304,8 @@ async function handler(req, context) {
         const save_outcome = typeof mem.save_outcome === "string" && mem.save_outcome.trim() ? mem.save_outcome.trim() : null;
         const resume_needed = typeof mem.resume_needed === "boolean" ? mem.resume_needed : false;
         const resume_error = typeof mem.resume_error === "string" && mem.resume_error.trim() ? mem.resume_error.trim() : null;
+      const resume_error_details =
+        mem.resume_error_details && typeof mem.resume_error_details === "object" ? mem.resume_error_details : null;
 
         const saved = Number.isFinite(Number(mem.saved)) ? Number(mem.saved) : saved_verified_count;
 
