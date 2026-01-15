@@ -962,6 +962,8 @@ async function handler(req, context, opts) {
       });
     }
 
+    pushBreadcrumb("load_company", { company_id, ok: Boolean(company) });
+
     const cursor =
       company.review_cursor && typeof company.review_cursor === "object"
         ? { ...company.review_cursor }
