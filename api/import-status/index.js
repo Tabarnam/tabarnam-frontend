@@ -1690,6 +1690,9 @@ async function handler(req, context) {
           saved_verified_count: 0,
           saved_company_ids_verified: [],
           saved_company_ids_unverified,
+          saved_company_urls,
+          save_outcome,
+          resume_error,
           save_report: {
             saved: 0,
             saved_verified_count: 0,
