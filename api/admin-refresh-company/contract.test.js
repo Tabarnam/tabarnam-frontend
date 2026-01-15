@@ -37,15 +37,17 @@ function makeCompaniesContainer(docById) {
   };
 }
 
-test("/api/xadmin-api-refresh-company returns 400 if company_id missing", async () => {
+test("/api/xadmin-api-refresh-company returns HTTP 200 JSON if company_id missing", async () => {
   const res = await _test.adminRefreshCompanyHandler(
     makeReq({ json: async () => ({}) }),
     { log() {} }
   );
 
-  assert.equal(res.status, 400);
+  // SAFE refresh contract: always 200 JSON (never hard errors that strand the UI).
+  assert.equal(res.status, 200);
   const body = JSON.parse(res.body);
   assert.equal(body.ok, false);
+  assert.equal(body.root_cause, "client_bad_request");
   assert.equal(body.error, "company_id required");
 });
 

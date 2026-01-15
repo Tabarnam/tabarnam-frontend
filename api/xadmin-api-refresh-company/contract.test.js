@@ -23,7 +23,7 @@ function makeReq({
   return req;
 }
 
-test("/api/xadmin-api-refresh-company entrypoint returns 400 if company_id missing", async () => {
+test("/api/xadmin-api-refresh-company entrypoint returns HTTP 200 JSON if company_id missing", async () => {
   assert.equal(typeof _test?.adminRefreshCompanyHandler, "function");
 
   const res = await _test.adminRefreshCompanyHandler(
@@ -31,8 +31,10 @@ test("/api/xadmin-api-refresh-company entrypoint returns 400 if company_id missi
     { log() {} }
   );
 
-  assert.equal(res.status, 400);
+  // SAFE refresh contract: always 200 JSON (never hard errors that strand the UI).
+  assert.equal(res.status, 200);
   const body = JSON.parse(res.body);
   assert.equal(body.ok, false);
+  assert.equal(body.root_cause, "client_bad_request");
   assert.equal(body.error, "company_id required");
 });
