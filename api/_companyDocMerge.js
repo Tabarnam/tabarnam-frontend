@@ -218,6 +218,47 @@ function mergeCompanyDocsForSession({ existingDoc, incomingDoc, finalNormalizedD
   merged.profile_completeness_version = incomingDoc.profile_completeness_version || existingDoc.profile_completeness_version;
   merged.profile_completeness_meta = incomingDoc.profile_completeness_meta || existingDoc.profile_completeness_meta;
 
+  // Import completeness diagnostics (do not drop them during session merges).
+  // These are used by /import/status, /import/progress, and admin debug tooling.
+  try {
+    const incMissingUpdatedAt = Date.parse(String(incomingDoc.missing_fields_updated_at || "")) || 0;
+    const exMissingUpdatedAt = Date.parse(String(existingDoc.missing_fields_updated_at || "")) || 0;
+
+    if (Array.isArray(incomingDoc.missing_fields) && incMissingUpdatedAt >= exMissingUpdatedAt) {
+      merged.missing_fields = incomingDoc.missing_fields;
+    } else if (Array.isArray(existingDoc.missing_fields)) {
+      merged.missing_fields = existingDoc.missing_fields;
+    }
+
+    merged.missing_fields_updated_at = preferString(
+      incomingDoc.missing_fields_updated_at,
+      existingDoc.missing_fields_updated_at
+    );
+
+    merged.import_missing_fields = preferArray(incomingDoc.import_missing_fields, existingDoc.import_missing_fields);
+
+    const exReasons =
+      existingDoc.import_missing_reason && typeof existingDoc.import_missing_reason === "object" && !Array.isArray(existingDoc.import_missing_reason)
+        ? existingDoc.import_missing_reason
+        : null;
+
+    const incReasons =
+      incomingDoc.import_missing_reason && typeof incomingDoc.import_missing_reason === "object" && !Array.isArray(incomingDoc.import_missing_reason)
+        ? incomingDoc.import_missing_reason
+        : null;
+
+    if (exReasons || incReasons) {
+      merged.import_missing_reason = {
+        ...(exReasons ? exReasons : {}),
+        ...(incReasons ? incReasons : {}),
+      };
+    }
+
+    merged.import_warnings = preferArray(incomingDoc.import_warnings, existingDoc.import_warnings);
+  } catch {
+    // ignore
+  }
+
   return merged;
 }
 

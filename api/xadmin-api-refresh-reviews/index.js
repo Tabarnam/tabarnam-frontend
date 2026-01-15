@@ -1,4 +1,4 @@
-const { app, hasRoute } = require("../_app");
+const { app } = require("../_app");
 const { getBuildInfo } = require("../_buildInfo");
 const {
   getValueAtPath,
@@ -222,6 +222,40 @@ function dedupe(existing = [], incoming = []) {
   }
 
   return out;
+}
+
+function getReviewDedupeKey(r) {
+  return asString(r?._dedupe_key).trim() || reviewKey(r);
+}
+
+function reviewTimestampMs(r) {
+  const ts =
+    Date.parse(asString(r?.date || "")) ||
+    Date.parse(asString(r?.last_updated_at || "")) ||
+    Date.parse(asString(r?.created_at || "")) ||
+    0;
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function capCuratedReviews(reviews, max = 2) {
+  const n = Math.max(0, Math.trunc(Number(max) || 0));
+  if (!n) return [];
+
+  const list = (Array.isArray(reviews) ? reviews : []).filter((r) => r && typeof r === "object");
+  if (list.length <= n) return list;
+
+  const scored = list.map((r, idx) => ({
+    r,
+    idx,
+    ts: reviewTimestampMs(r),
+  }));
+
+  scored.sort((a, b) => {
+    if (a.ts !== b.ts) return b.ts - a.ts;
+    return b.idx - a.idx;
+  });
+
+  return scored.slice(0, n).map((x) => x.r);
 }
 
 function normalizeHttpUrlOrNull(input) {
@@ -464,7 +498,7 @@ function buildReviewsUpstreamPayload({ company, offset, limit, model } = {}) {
     },
     {
       role: "user",
-      content: `Find independent reviews about this company (or its products/services).\n\nCompany: ${companyName}\nWebsite: ${websiteUrl}\n\nReturn EXACTLY a single JSON object with this shape:\n{\n  \\\"reviews\\\": [ ... ],\n  \\\"next_offset\\\": number,\n  \\\"exhausted\\\": boolean\n}\n\nRules:\n- Return at most ${cappedLimit} review objects in \\\"reviews\\\".\n- Use \\\"offset\\\"=${safeOffset} to skip that many results from your internal ranking list so subsequent calls can page forward.\n- If there are no more results, set exhausted=true and return reviews: [].\n- Reviews MUST NOT be sourced from Amazon or Google.\n  - Exclude amazon.* domains, amzn.to\n  - Exclude google.* domains, g.co, goo.gl\n  - YouTube is allowed.\n- Prefer magazines, blogs, news sites, YouTube, X (Twitter), and Facebook posts/pages.\n- Each review must be an object with keys:\n  - source_name (string, optional)\n  - source_url (string, REQUIRED) — direct link to the specific article/video/post\n  - date (string, optional; prefer YYYY-MM-DD if known)\n  - excerpt (string, REQUIRED) — short excerpt/quote (1-2 sentences)\n- Output JSON only (no markdown).`,
+      content: `Find independent reviews about this company (or its products/services).\n\nCompany: ${companyName}\nWebsite: ${websiteUrl}\n\nReturn EXACTLY a single JSON object with this shape:\n{\n  \\\"reviews\\\": [ ... ],\n  \\\"next_offset\\\": number,\n  \\\"exhausted\\\": boolean\n}\n\nRules:\n- Return at most ${cappedLimit} review objects in \\\"reviews\\\".\n- Use \\\"offset\\\"=${safeOffset} to skip that many results from your internal ranking list so subsequent calls can page forward.\n- If there are no more results, set exhausted=true and return reviews: [].\n- Reviews MUST be independent (do NOT use the company website domain).\n- Reviews MUST NOT be sourced from Amazon or Google.\n  - Exclude amazon.* domains, amzn.to\n  - Exclude google.* domains, g.co, goo.gl\n  - YouTube is allowed.\n- Prefer magazines, blogs, news sites, YouTube, X (Twitter), and Facebook posts/pages.\n- Each review must be an object with keys:\n  - source_name (string, optional)\n  - source_url (string, REQUIRED) — direct link to the specific article/video/post\n  - date (string, optional; prefer YYYY-MM-DD if known)\n  - excerpt (string, REQUIRED) — short excerpt/quote (1-2 sentences)\n- Output JSON only (no markdown).`,
     },
   ];
 
@@ -552,7 +586,7 @@ async function fetchReviewsFromUpstream({ company, offset, limit, timeout_ms, mo
     },
     {
       role: "user",
-      content: `Find independent reviews about this company (or its products/services).\n\nCompany: ${companyName}\nWebsite: ${websiteUrl}\n\nReturn EXACTLY a single JSON object with this shape:\n{\n  \"reviews\": [ ... ],\n  \"next_offset\": number,\n  \"exhausted\": boolean\n}\n\nRules:\n- Return at most ${Math.max(1, Math.min(50, Math.trunc(Number(limit) || 3)))} review objects in \"reviews\".\n- Use \"offset\"=${Math.max(0, Math.trunc(Number(offset) || 0))} to skip that many results from your internal ranking list so subsequent calls can page forward.\n- If there are no more results, set exhausted=true and return reviews: [].\n- Reviews MUST NOT be sourced from Amazon or Google.\n  - Exclude amazon.* domains, amzn.to\n  - Exclude google.* domains, g.co, goo.gl\n  - YouTube is allowed.\n- Prefer magazines, blogs, news sites, YouTube, X (Twitter), and Facebook posts/pages.\n- Each review must be an object with keys:\n  - source_name (string, optional)\n  - source_url (string, REQUIRED) — direct link to the specific article/video/post\n  - date (string, optional; prefer YYYY-MM-DD if known)\n  - excerpt (string, REQUIRED) — short excerpt/quote (1-2 sentences)\n- Output JSON only (no markdown).`,
+      content: `Find independent reviews about this company (or its products/services).\n\nCompany: ${companyName}\nWebsite: ${websiteUrl}\n\nReturn EXACTLY a single JSON object with this shape:\n{\n  \"reviews\": [ ... ],\n  \"next_offset\": number,\n  \"exhausted\": boolean\n}\n\nRules:\n- Return at most ${Math.max(1, Math.min(50, Math.trunc(Number(limit) || 3)))} review objects in \"reviews\".\n- Use \"offset\"=${Math.max(0, Math.trunc(Number(offset) || 0))} to skip that many results from your internal ranking list so subsequent calls can page forward.\n- If there are no more results, set exhausted=true and return reviews: [].\n- Reviews MUST be independent (do NOT use the company website domain).\n- Reviews MUST NOT be sourced from Amazon or Google.\n  - Exclude amazon.* domains, amzn.to\n  - Exclude google.* domains, g.co, goo.gl\n  - YouTube is allowed.\n- Prefer magazines, blogs, news sites, YouTube, X (Twitter), and Facebook posts/pages.\n- Each review must be an object with keys:\n  - source_name (string, optional)\n  - source_url (string, REQUIRED) — direct link to the specific article/video/post\n  - date (string, optional; prefer YYYY-MM-DD if known)\n  - excerpt (string, REQUIRED) — short excerpt/quote (1-2 sentences)\n- Output JSON only (no markdown).`,
     },
   ];
 
@@ -744,6 +778,24 @@ async function handler(req, context, opts) {
 
   const build_id = String(BUILD_INFO.build_id || "");
 
+  const requestStartedAtMs = Date.now();
+  const breadcrumbs = [];
+  const pushBreadcrumb = (step, extra) => {
+    try {
+      const entry = {
+        at_ms: Date.now() - requestStartedAtMs,
+        step: asString(step).trim() || "(unknown)",
+        ...(extra && typeof extra === "object" ? extra : {}),
+      };
+      breadcrumbs.push(entry);
+      if (breadcrumbs.length > 20) breadcrumbs.splice(0, breadcrumbs.length - 20);
+    } catch {
+      // ignore
+    }
+  };
+
+  pushBreadcrumb("handler_start", { method });
+
   const effectiveXaiConfig = extractXaiConfig({
     model: options.model,
     xai_base_url: options.xai_base_url || options.xaiUrl,
@@ -770,6 +822,16 @@ async function handler(req, context, opts) {
     if (resolved_upstream_path && !out.resolved_upstream_path) out.resolved_upstream_path = resolved_upstream_path;
 
     out.warnings = Array.isArray(out.warnings) ? out.warnings : [];
+
+    out.attempts = Array.isArray(out.attempts) ? out.attempts : [];
+
+    const diag = out.diagnostics && typeof out.diagnostics === "object" && !Array.isArray(out.diagnostics) ? out.diagnostics : {};
+    out.diagnostics = {
+      route: "xadmin-api-refresh-reviews",
+      ...diag,
+    };
+
+    out.breadcrumbs = Array.isArray(out.breadcrumbs) ? out.breadcrumbs : breadcrumbs;
 
     out.fetched_count = Number(out.fetched_count ?? 0) || 0;
     out.saved_count = Number(out.saved_count ?? 0) || 0;
@@ -889,6 +951,8 @@ async function handler(req, context, opts) {
     const deadlineAtMs = startedAtMs + budgetMs;
     const getRemainingBudgetMs = () => Math.max(0, deadlineAtMs - Date.now());
 
+    pushBreadcrumb("parse_body", { budget_ms: budgetMs, requested_take: requestedTake });
+
     if (!company_id) {
       return respond({
         ok: false,
@@ -931,6 +995,8 @@ async function handler(req, context, opts) {
         version_tag: VERSION_TAG,
       });
     }
+
+    pushBreadcrumb("load_company", { company_id, ok: Boolean(company) });
 
     const cursor =
       company.review_cursor && typeof company.review_cursor === "object"
@@ -980,8 +1046,10 @@ async function handler(req, context, opts) {
     try {
       // Keep this short so aborted requests don't block retries for a full minute.
       // (If SWA kills the request, we might not get a chance to clear the lock.)
-      const lockWindowMs = Math.max(8000, Math.min(30000, budgetMs + 5000));
+      const lockWindowMs = Math.max(8000, Math.min(25000, budgetMs + 2000));
       const lockUntil = nowMs + lockWindowMs;
+
+      pushBreadcrumb("lock_set", { lock_until_ms: lockUntil });
 
       cursor.last_attempt_at = nowIso();
 
@@ -1092,13 +1160,28 @@ async function handler(req, context, opts) {
         const existing = Array.isArray(company.curated_reviews) ? company.curated_reviews : [];
         const toAdd = dedupe(existing, incoming);
 
-        const updatedCurated = toAdd.length ? existing.concat(toAdd) : existing;
+        const updatedCuratedRaw = toAdd.length ? existing.concat(toAdd) : existing;
 
-        saved_count_total += toAdd.length;
+        // Canonical rule: keep at most 2 curated reviews per company.
+        const cappedCurated = capCuratedReviews(updatedCuratedRaw, 2);
+
+        const existingKeys = new Set(existing.map(getReviewDedupeKey));
+        const additionsPersisted = cappedCurated.filter((r) => !existingKeys.has(getReviewDedupeKey(r)));
+
+        if (toAdd.length > additionsPersisted.length) {
+          warnings.push({
+            stage: "reviews_refresh",
+            root_cause: "curated_reviews_capped",
+            upstream_status: null,
+            message: `Capped curated reviews to 2; dropped ${toAdd.length - additionsPersisted.length} newly fetched review(s).`,
+          });
+        }
+
+        saved_count_total += additionsPersisted.length;
 
         // Make 0-review outcomes explainable (never silent).
         // If the company still has 0 imported reviews after this call, treat it as "no_valid_reviews_found".
-        const stageStatus = updatedCurated.length === 0 ? "no_valid_reviews_found" : "ok";
+        const stageStatus = cappedCurated.length === 0 ? "no_valid_reviews_found" : "ok";
 
         const nextOffset =
           typeof upstream?.next_offset === "number" && Number.isFinite(upstream.next_offset)
@@ -1109,10 +1192,10 @@ async function handler(req, context, opts) {
         cursor.last_offset = nextOffset;
 
         // Keep cursor.total_fetched aligned with "saved reviews" (not just upstream candidates).
-        cursor.total_fetched = Math.max(0, Math.trunc(Number(cursor.total_fetched) || 0)) + toAdd.length;
+        cursor.total_fetched = Math.max(0, Math.trunc(Number(cursor.total_fetched) || 0)) + additionsPersisted.length;
 
         // Only update last_success_at when we actually saved at least 1 new review.
-        if (toAdd.length > 0) {
+        if (additionsPersisted.length > 0) {
           cursor.last_success_at = nowIso();
         }
 
@@ -1152,24 +1235,24 @@ async function handler(req, context, opts) {
         };
         cursor.exhausted = Boolean(upstream?.exhausted) || incoming.length === 0;
 
-        const curatedCount = updatedCurated.length;
+        const curatedCount = cappedCurated.length;
         const publicCount = Math.max(0, Math.trunc(Number(company.public_review_count) || 0));
         const privateCount = Math.max(0, Math.trunc(Number(company.private_review_count) || 0));
         const derivedReviewCount = publicCount + privateCount + curatedCount;
 
         const starState = resolveReviewsStarState({
           ...company,
-          curated_reviews: updatedCurated,
+          curated_reviews: cappedCurated,
           review_count: derivedReviewCount,
           public_review_count: publicCount,
           private_review_count: privateCount,
         });
 
         const nextReviewsLastUpdatedAt =
-          toAdd.length > 0 ? nowIso() : asString(company.reviews_last_updated_at).trim() || null;
+          additionsPersisted.length > 0 ? nowIso() : asString(company.reviews_last_updated_at).trim() || null;
 
         const patchPayload = {
-          curated_reviews: updatedCurated,
+          curated_reviews: cappedCurated,
           review_cursor: cursor,
           reviews_fetch_lock_until: 0,
 
@@ -1201,7 +1284,7 @@ async function handler(req, context, opts) {
         // Keep local model in sync for subsequent steps.
         company = {
           ...company,
-          curated_reviews: updatedCurated,
+          curated_reviews: cappedCurated,
           review_cursor: cursor,
           reviews_fetch_lock_until: 0,
           review_count: derivedReviewCount,
@@ -1220,7 +1303,7 @@ async function handler(req, context, opts) {
           exhausted: Boolean(cursor.exhausted),
           warnings,
           attempts,
-          reviews: toAdd,
+          reviews: additionsPersisted,
           build_id,
           version_tag: VERSION_TAG,
         });
@@ -1729,16 +1812,6 @@ app.http("xadminApiRefreshReviews", {
   handler: safeHandler,
 });
 
-// Production safety: if a deployment accidentally omits admin-refresh-reviews,
-// this alias keeps /api/admin-refresh-reviews available.
-if (!hasRoute("admin-refresh-reviews")) {
-  app.http("adminRefreshReviewsAlias", {
-    route: "admin-refresh-reviews",
-    methods: ["GET", "POST", "OPTIONS"],
-    authLevel: "anonymous",
-    handler: safeHandler,
-  });
-}
 
 // Legacy compatibility: some deployments (or wrappers) still expect index.js to export a `handler`.
 // Ensure it is the SAFE wrapper, not the raw handler.

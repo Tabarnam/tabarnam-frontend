@@ -415,6 +415,7 @@ function buildReviewsPrompt({ companyName, websiteUrl, industries, take, existin
 ${hints || "(no company hints provided)"}
 
 SOURCE RULES:
+- Reviews MUST be independent (do NOT use the company website domain).
 - Reviews MUST NOT be sourced from Amazon or Google.
   - Exclude amazon.* domains, amzn.to
   - Exclude google.* domains, g.co, goo.gl
@@ -455,6 +456,7 @@ function buildReviewsPromptFallback({ companyName, websiteUrl, industries, take,
 ${hints || "(no company hints provided)"}
 
 RULES:
+- Reviews MUST be independent (do NOT use the company website domain).
 - Reviews MUST NOT be sourced from Amazon or Google.
   - Exclude amazon.* domains, amzn.to
   - Exclude google.* domains, g.co, goo.gl
@@ -1128,6 +1130,8 @@ async function adminRefreshReviewsHandler(req, context, deps = {}) {
       reviews: proposed_reviews,
       proposed_reviews,
       attempts: attemptsOut,
+      search_telemetry: searchBuild?.telemetry || null,
+      excluded_hosts: searchBuild?.excluded_hosts || null,
       ...(parse_error ? { parse_error } : {}),
       elapsed_ms: Date.now() - startedAt,
       hints: {

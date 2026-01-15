@@ -26,7 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
-import { apiFetch, apiFetchParsed, getCachedBuildId, getUserFacingConfigMessage, toErrorString } from "@/lib/api";
+import { apiFetch, apiFetchParsed, getCachedBuildId, getLastApiRequestExplain, getUserFacingConfigMessage, toErrorString } from "@/lib/api";
 import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
 import { getAdminUser } from "@/lib/azureAuth";
@@ -62,6 +62,28 @@ function prettyJson(value) {
   } catch {
     return asString(value);
   }
+}
+
+function getResponseHeadersForDebug(res) {
+  const headers = res?.headers;
+  const pick = (name) => {
+    try {
+      return asString(headers?.get?.(name)).trim();
+    } catch {
+      return "";
+    }
+  };
+
+  return {
+    "content-type": pick("content-type"),
+    "x-api-handler": pick("x-api-handler"),
+    "x-api-build-id": pick("x-api-build-id"),
+    "x-api-build-source": pick("x-api-build-source"),
+    "x-api-version": pick("x-api-version"),
+    "x-request-id": pick("x-request-id"),
+    "x-ms-request-id": pick("x-ms-request-id"),
+    "x-functions-execution-id": pick("x-functions-execution-id"),
+  };
 }
 
 function deepClone(value) {
@@ -1365,6 +1387,15 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
       const refreshPaths = ["/xadmin-api-refresh-reviews", "/admin-refresh-reviews"];
       const attempts = [];
 
+      const requestPayload = {
+        company_id: id,
+        take: requestedTake,
+        include_existing_in_context: Boolean(includeExisting),
+        // Keep this below SWA gateway time budgets. The backend will further clamp.
+        timeout_ms: 20000,
+        deadline_ms: 20000,
+      };
+
       let res;
       let usedPath = refreshPaths[0];
 
@@ -1372,18 +1403,20 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
         usedPath = path;
         res = await apiFetch(path, {
           method: "POST",
-          body: {
-            company_id: id,
-            take: requestedTake,
-            include_existing_in_context: Boolean(includeExisting),
-
-            // Keep this below SWA gateway time budgets. The backend will further clamp.
-            timeout_ms: 20000,
-            deadline_ms: 20000,
-          },
+          body: requestPayload,
         });
 
-        attempts.push({ path, status: res.status });
+        const requestExplain = getLastApiRequestExplain();
+
+        attempts.push({
+          path,
+          status: res.status,
+          request: requestExplain,
+          request_payload: requestPayload,
+          response_headers: getResponseHeadersForDebug(res),
+          api_fetch_error: res && typeof res === "object" ? res.__api_fetch_error : null,
+          api_fetch_fallback: res && typeof res === "object" ? res.__api_fetch_fallback : null,
+        });
         if (res.status !== 404) break;
       }
 
@@ -1404,6 +1437,18 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           attempts,
           build_id: buildId,
           response: { error: "both refresh endpoints returned 404" },
+          debug_bundle: {
+            kind: "refresh_reviews",
+            endpoint_url: `/api${usedPath}`,
+            request_payload: requestPayload,
+            request_explain: attempts.length ? attempts[attempts.length - 1]?.request : null,
+            attempts,
+            response: null,
+            build: {
+              api_build_id: buildId || null,
+              cached_build_id: getCachedBuildId() || null,
+            },
+          },
         });
 
         const doneLog = {
@@ -1471,6 +1516,24 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           attempts,
           build_id: responseBuildId,
           response: rawText.trim().slice(0, 500),
+          debug_bundle: {
+            kind: "refresh_reviews",
+            endpoint_url: `/api${usedPath}`,
+            request_payload: requestPayload,
+            request_explain: attempts.length ? attempts[attempts.length - 1]?.request : null,
+            attempts,
+            response: {
+              status: res.status,
+              ok: res.ok,
+              headers: getResponseHeadersForDebug(res),
+              body_json: null,
+              body_text: rawText || "",
+            },
+            build: {
+              api_build_id: responseBuildId || null,
+              cached_build_id: getCachedBuildId() || null,
+            },
+          },
         });
 
         const doneLog = {
@@ -1529,6 +1592,24 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           attempts,
           build_id: responseBuildId,
           response: body && Object.keys(body).length ? body : rawText,
+          debug_bundle: {
+            kind: "refresh_reviews",
+            endpoint_url: `/api${usedPath}`,
+            request_payload: requestPayload,
+            request_explain: attempts.length ? attempts[attempts.length - 1]?.request : null,
+            attempts,
+            response: {
+              status: res.status,
+              ok: res.ok,
+              headers: getResponseHeadersForDebug(res),
+              body_json: body && typeof body === "object" ? body : null,
+              body_text: rawText || "",
+            },
+            build: {
+              api_build_id: responseBuildId || null,
+              cached_build_id: getCachedBuildId() || null,
+            },
+          },
         });
 
         const toastMsg = `${asString(msg).trim() || "Reviews fetch failed"} (${usedPath} → HTTP ${res.status}${responseBuildId ? `, build ${responseBuildId}` : ""})`;
@@ -1881,7 +1962,8 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
               variant="outline"
               className="bg-white"
               onClick={async () => {
-                const ok = await copyToClipboard(prettyJson(error));
+                const payloadObj = error?.debug_bundle && typeof error.debug_bundle === "object" ? error.debug_bundle : error;
+                const ok = await copyToClipboard(prettyJson(payloadObj));
                 if (ok) toast.success("Copied error");
                 else toast.error("Copy failed");
               }}
@@ -3926,6 +4008,12 @@ export default function CompanyDashboard() {
     setRefreshSelection({});
     setRefreshApplied(false);
 
+    const requestPayload = {
+      company_id: companyId,
+      timeout_ms: 20000,
+      deadline_ms: 20000,
+    };
+
     try {
       const refreshPaths = ["/xadmin-api-refresh-company"];
       const attempts = [];
@@ -3939,15 +4027,31 @@ export default function CompanyDashboard() {
         try {
           const r = await apiFetchParsed(path, {
             method: "POST",
-            body: { company_id: companyId },
+            body: requestPayload,
           });
 
-          attempts.push({ path, status: r.status });
+          const requestExplain = getLastApiRequestExplain();
+
+          attempts.push({
+            path,
+            status: r.status,
+            request: requestExplain,
+            request_payload: requestPayload,
+            response_headers: getResponseHeadersForDebug(r.response),
+            api_fetch_error: r.response && typeof r.response === "object" ? r.response.__api_fetch_error : null,
+            api_fetch_fallback: r.response && typeof r.response === "object" ? r.response.__api_fetch_fallback : null,
+          });
           result = r;
           break;
         } catch (err) {
           const status = normalizeHttpStatusNumber(err?.status) ?? 0;
-          attempts.push({ path, status });
+          const requestExplain = getLastApiRequestExplain();
+          attempts.push({
+            path,
+            status,
+            request: requestExplain,
+            request_payload: requestPayload,
+          });
           if (status === 404) continue;
           throw { ...(err || {}), status, attempts, usedPath: path };
         }
@@ -3964,6 +4068,18 @@ export default function CompanyDashboard() {
           attempts,
           build_id: staticBuildId,
           debug: { error: "both refresh endpoints returned 404" },
+          debug_bundle: {
+            kind: "refresh_company",
+            endpoint_url: `/api${usedPath}`,
+            request_payload: requestPayload,
+            request_explain: attempts.length ? attempts[attempts.length - 1]?.request : null,
+            attempts,
+            response: null,
+            build: {
+              api_build_id: staticBuildId || null,
+              cached_build_id: getCachedBuildId() || null,
+            },
+          },
         };
 
         setRefreshError(errObj);
@@ -3997,6 +4113,24 @@ export default function CompanyDashboard() {
           attempts,
           build_id: apiBuildId,
           debug: preview || textBody || null,
+          debug_bundle: {
+            kind: "refresh_company",
+            endpoint_url: `/api${usedPath}`,
+            request_payload: requestPayload,
+            request_explain: attempts.length ? attempts[attempts.length - 1]?.request : null,
+            attempts,
+            response: {
+              status: res.status,
+              ok: res.ok,
+              headers: getResponseHeadersForDebug(res),
+              body_json: null,
+              body_text: typeof textBody === "string" ? textBody : "",
+            },
+            build: {
+              api_build_id: apiBuildId || null,
+              cached_build_id: getCachedBuildId() || null,
+            },
+          },
         };
 
         setRefreshError(errObj);
@@ -4040,6 +4174,24 @@ export default function CompanyDashboard() {
           attempts,
           build_id: apiBuildId,
           debug,
+          debug_bundle: {
+            kind: "refresh_company",
+            endpoint_url: `/api${usedPath}`,
+            request_payload: requestPayload,
+            request_explain: attempts.length ? attempts[attempts.length - 1]?.request : null,
+            attempts,
+            response: {
+              status: res.status,
+              ok: res.ok,
+              headers: getResponseHeadersForDebug(res),
+              body_json: jsonBody,
+              body_text: typeof textBody === "string" ? textBody : "",
+            },
+            build: {
+              api_build_id: apiBuildId || null,
+              cached_build_id: getCachedBuildId() || null,
+            },
+          },
         };
 
         setRefreshError(errObj);
@@ -4065,6 +4217,24 @@ export default function CompanyDashboard() {
           attempts,
           build_id: apiBuildId,
           debug: jsonBody,
+          debug_bundle: {
+            kind: "refresh_company",
+            endpoint_url: `/api${usedPath}`,
+            request_payload: requestPayload,
+            request_explain: attempts.length ? attempts[attempts.length - 1]?.request : null,
+            attempts,
+            response: {
+              status: res.status,
+              ok: res.ok,
+              headers: getResponseHeadersForDebug(res),
+              body_json: jsonBody,
+              body_text: typeof textBody === "string" ? textBody : "",
+            },
+            build: {
+              api_build_id: apiBuildId || null,
+              cached_build_id: getCachedBuildId() || null,
+            },
+          },
         };
         setRefreshError(errObj);
         setRefreshMetaByCompany((prev) => ({
@@ -4156,6 +4326,8 @@ export default function CompanyDashboard() {
       const attemptsList = Array.isArray(e?.attempts) ? e.attempts : [];
       const attemptsForDisplay = attemptsList.length ? attemptsList : [];
 
+      const requestExplain = getLastApiRequestExplain();
+
       const errObj = {
         status: errStatus,
         message: asString(msg).trim() || "Refresh failed",
@@ -4163,6 +4335,24 @@ export default function CompanyDashboard() {
         attempts: attemptsForDisplay,
         build_id: normalizeBuildIdString(debugData?.build_id) || "",
         debug: debugPayload,
+        debug_bundle: {
+          kind: "refresh_company",
+          endpoint_url: asString(e?.url).trim() || asString(e?.usedPath).trim() || "(request failed)",
+          request_payload: requestPayload,
+          request_explain: requestExplain,
+          attempts: attemptsForDisplay,
+          response: {
+            status: errStatus,
+            ok: false,
+            headers: null,
+            body_json: debugData && typeof debugData === "object" ? debugData : null,
+            body_text: debugText || "",
+          },
+          build: {
+            api_build_id: normalizeBuildIdString(debugData?.build_id) || null,
+            cached_build_id: getCachedBuildId() || null,
+          },
+        },
       };
 
       setRefreshError(errObj);
@@ -5390,7 +5580,17 @@ export default function CompanyDashboard() {
                                         variant="outline"
                                         className="bg-white"
                                         onClick={async () => {
-                                          const payload = debugObj ? prettyJson(debugObj) : asString(debugText);
+                                          const bundle =
+                                            refreshError?.debug_bundle && typeof refreshError.debug_bundle === "object"
+                                              ? refreshError.debug_bundle
+                                              : debugObj
+                                                ? debugObj
+                                                : {
+                                                    kind: "refresh_company",
+                                                    message: asString(debugText).trim() || "Refresh failed",
+                                                  };
+
+                                          const payload = prettyJson(bundle);
                                           const ok = await copyToClipboard(payload);
                                           if (ok) toast.success("Copied debug");
                                           else toast.error("Copy failed");

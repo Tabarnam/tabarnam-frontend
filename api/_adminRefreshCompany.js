@@ -508,6 +508,22 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
   const startedAt = Date.now();
   let stage = "start";
 
+  const attempts = [];
+  const breadcrumbs = [];
+  const pushBreadcrumb = (step, extra) => {
+    try {
+      const entry = {
+        at_ms: Date.now() - startedAt,
+        step: asString(step).trim() || "(unknown)",
+        ...(extra && typeof extra === "object" ? extra : {}),
+      };
+      breadcrumbs.push(entry);
+      if (breadcrumbs.length > 20) breadcrumbs.splice(0, breadcrumbs.length - 20);
+    } catch {
+      // ignore
+    }
+  };
+
   let budgetMs = 20000;
   let deadlineAtMs = startedAt + budgetMs;
   const getRemainingBudgetMs = () => Math.max(0, deadlineAtMs - Date.now());
@@ -539,47 +555,67 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     const companyId = asString(body.company_id || body.id).trim();
 
     if (!companyId) {
-      return json(
-        {
-          ok: false,
-          stage,
-          error: "company_id required",
-          config,
+      pushBreadcrumb("client_bad_request", { reason: "missing_company_id" });
+      return json({
+        ok: false,
+        stage: "refresh_company",
+        root_cause: "client_bad_request",
+        retryable: false,
+        error: "company_id required",
+        attempts,
+        breadcrumbs,
+        diagnostics: {
+          message: "company_id required",
         },
-        400
-      );
+        config,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
+      });
     }
 
     stage = "init_cosmos";
     const container = deps.companiesContainer || getCompaniesContainer();
     if (!container) {
-      return json(
-        {
-          ok: false,
-          stage,
-          error: "Cosmos not configured",
-          details: { message: "Set COSMOS_DB_ENDPOINT and COSMOS_DB_KEY" },
-          config,
-          elapsed_ms: Date.now() - startedAt,
-        },
-        500
-      );
+      pushBreadcrumb("missing_env", { env: "cosmos" });
+      return json({
+        ok: false,
+        stage: "refresh_company",
+        root_cause: "missing_env",
+        retryable: true,
+        error: "Cosmos not configured",
+        attempts,
+        breadcrumbs,
+        diagnostics: { message: "Set COSMOS_DB_ENDPOINT and COSMOS_DB_KEY" },
+        config,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
+      });
     }
 
     stage = "load_company";
     const loadFn = deps.loadCompanyById || loadCompanyById;
     const existing = await loadFn(container, companyId);
     if (!existing) {
-      return json(
-        {
-          ok: false,
-          stage,
-          error: "Company not found",
-          company_id: companyId,
-          elapsed_ms: Date.now() - startedAt,
-        },
-        404
-      );
+      pushBreadcrumb("not_found", { company_id: companyId });
+      return json({
+        ok: false,
+        stage: "refresh_company",
+        root_cause: "not_found",
+        retryable: false,
+        error: "Company not found",
+        company_id: companyId,
+        attempts,
+        breadcrumbs,
+        diagnostics: { message: "Company not found" },
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
+      });
     }
 
     // Best-effort per-company lock so repeated clicks don't overlap.
@@ -588,6 +624,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     const lockUntilExisting = Number(existing.company_refresh_lock_until || 0) || 0;
     if (lockUntilExisting > nowMs) {
       const retryAfterMs = Math.max(0, lockUntilExisting - nowMs);
+      pushBreadcrumb("locked", { company_id: companyId, retry_after_ms: retryAfterMs });
       return json({
         ok: false,
         stage: "refresh_company",
@@ -596,6 +633,9 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         company_id: companyId,
         lock_until_ms: lockUntilExisting,
         retry_after_ms: retryAfterMs,
+        attempts,
+        breadcrumbs,
+        diagnostics: { message: "Refresh already in progress" },
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
         budget_ms: budgetMs,
@@ -605,12 +645,18 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
 
     stage = "budget_guard";
     if (getRemainingBudgetMs() < 4500) {
+      pushBreadcrumb("time_budget_exhausted", { company_id: companyId });
       return json({
         ok: false,
         stage: "refresh_company",
-        root_cause: "upstream_timeout_budget_exhausted",
+        root_cause: "time_budget_exhausted",
         retryable: true,
         company_id: companyId,
+        attempts,
+        breadcrumbs,
+        diagnostics: {
+          message: "Total execution budget exhausted before calling upstream",
+        },
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
         budget_ms: budgetMs,
@@ -619,7 +665,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     }
 
     try {
-      const lockWindowMs = Math.max(8000, Math.min(30000, budgetMs + 5000));
+      const lockWindowMs = Math.max(8000, Math.min(25000, budgetMs + 2000));
       const lockUntil = nowMs + lockWindowMs;
       await patchCompanyById(container, companyId, existing, {
         company_refresh_lock_key: `company_refresh_lock::${companyId}`,
@@ -629,6 +675,16 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     } catch {
       // ignore
     }
+
+    const releaseRefreshLockBestEffort = async () => {
+      try {
+        await patchCompanyById(container, companyId, existing, {
+          company_refresh_lock_until: 0,
+        });
+      } catch {
+        // ignore
+      }
+    };
 
     stage = "prepare_prompt";
     const companyName = asString(existing.company_name || existing.name).trim();
@@ -695,13 +751,19 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         !xaiModel ? "Set XAI_MODEL to a valid model name (example: grok-4-latest)." : null,
       ].filter(Boolean);
 
+      await releaseRefreshLockBestEffort();
+      pushBreadcrumb("xai_config_error", { missing_env_count: missing_env.length, bad_base_url: Boolean(bad_base_url) });
       return json({
         ok: false,
-        stage,
+        stage: "refresh_company",
+        root_cause: "xai_config_error",
+        retryable: false,
         error: "xAI configuration error",
         missing_env: missing_env.length ? missing_env : undefined,
         bad_base_url: bad_base_url || undefined,
-        details: {
+        attempts,
+        breadcrumbs,
+        diagnostics: {
           hints,
           xai_endpoint: xaiEndpointRaw || null,
           resolved_xai_endpoint: xaiUrl || null,
@@ -711,6 +773,8 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         config,
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
       });
     }
 
@@ -723,37 +787,91 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     };
 
     stage = "call_xai";
+    pushBreadcrumb(stage, { company_id: companyId });
+
     const axiosPost = deps.axiosPost || (axios ? axios.post.bind(axios) : null);
     if (!axiosPost) {
-      return json(
-        {
-          ok: false,
-          stage,
-          error: "Axios not available",
+      await releaseRefreshLockBestEffort();
+      return json({
+        ok: false,
+        stage: "refresh_company",
+        root_cause: "missing_dependency",
+        retryable: false,
+        company_id: companyId,
+        upstream_status: null,
+        attempts,
+        breadcrumbs,
+        diagnostics: {
+          message: "Axios not available",
           config,
-          elapsed_ms: Date.now() - startedAt,
         },
-        500
-      );
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
+      });
     }
-    let resp;
 
-    try {
+    let resp = null;
+
+    // Single retry (budget-aware): only for unreachable upstream or 5xx.
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
       const timeoutMsUsed = computeUpstreamTimeoutMs();
+      const attemptEntry = {
+        attempt,
+        timeout_ms: timeoutMsUsed,
+        ok: false,
+        root_cause: "",
+        upstream_status: null,
+      };
+      attempts.push(attemptEntry);
+
       if (timeoutMsUsed < 3500) {
-        const err = new Error("Total budget exhausted before calling upstream");
-        err.root_cause = "upstream_timeout_budget_exhausted";
-        err.retryable = true;
-        throw err;
+        attemptEntry.root_cause = "upstream_timeout_budget_exhausted";
+        attemptEntry.message = "Total budget exhausted before calling upstream";
+        break;
       }
 
-      resp = await axiosPost(xaiUrl, payload, {
-        headers: buildXaiHeaders(xaiUrl, xaiKey),
-        timeout: timeoutMsUsed,
-        validateStatus: () => true,
-      });
-    } catch (e) {
+      pushBreadcrumb(`call_xai_attempt_${attempt}`, { timeout_ms: timeoutMsUsed });
+
+      try {
+        const r = await axiosPost(xaiUrl, payload, {
+          headers: buildXaiHeaders(xaiUrl, xaiKey),
+          timeout: timeoutMsUsed,
+          validateStatus: () => true,
+        });
+
+        const status = Number(r?.status) || 0;
+        attemptEntry.upstream_status = status;
+
+        // Treat 5xx as retryable once if we still have budget.
+        if (status >= 500 && attempt === 1 && getRemainingBudgetMs() > 6500) {
+          attemptEntry.root_cause = `upstream_http_${status}`;
+          attemptEntry.message = `Upstream returned HTTP ${status}`;
+          continue;
+        }
+
+        attemptEntry.ok = status >= 200 && status < 300;
+        attemptEntry.root_cause = attemptEntry.ok ? "" : `upstream_http_${status || 0}`;
+
+        resp = r;
+        break;
+      } catch (e) {
+        attemptEntry.root_cause = asString(e?.root_cause).trim() || "upstream_unreachable";
+        attemptEntry.message = asString(e?.message || e).trim() || "Upstream request failed";
+
+        // Retry once for unreachable upstream if we still have time budget.
+        if (attempt === 1 && getRemainingBudgetMs() > 6500) {
+          continue;
+        }
+
+        break;
+      }
+    }
+
+    if (!resp) {
       stage = "upstream_error";
+      pushBreadcrumb(stage);
 
       try {
         await patchCompanyById(container, companyId, existing, {
@@ -763,19 +881,25 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         // ignore
       }
 
+      const lastAttempt = attempts.length ? attempts[attempts.length - 1] : null;
+
       return json({
         ok: false,
         stage: "refresh_company",
-        root_cause: asString(e?.root_cause).trim() || "upstream_unreachable",
-        retryable: typeof e?.retryable === "boolean" ? e.retryable : true,
+        root_cause: asString(lastAttempt?.root_cause).trim() || "upstream_unreachable",
+        retryable: true,
         company_id: companyId,
         upstream_status: 0,
         xai_config_source,
         resolved_upstream_host: upstreamMeta.resolved_upstream_host,
         resolved_upstream_path: upstreamMeta.resolved_upstream_path,
-        details: {
-          message: asString(e?.message || e).trim() || "Request failed",
+        attempts,
+        breadcrumbs,
+        diagnostics: {
+          message: asString(lastAttempt?.message).trim() || "Request failed",
           resolved_xai_endpoint: xaiUrl || null,
+          budget_ms: budgetMs,
+          remaining_budget_ms: getRemainingBudgetMs(),
         },
         config,
         build_id: String(BUILD_INFO.build_id || ""),
@@ -811,54 +935,80 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
 
     if (normalized.error) {
       stage = "upstream_error";
+      await releaseRefreshLockBestEffort();
+      pushBreadcrumb(stage, { upstream_status: Number(resp.status) || 0 });
       return json({
         ok: false,
-        stage,
+        stage: "refresh_company",
+        root_cause: "upstream_error_object",
+        retryable: false,
         error: "Upstream returned error",
         upstream_status: Number(resp.status) || 0,
-        upstream_code: normalized.error.code ?? null,
-        upstream_message: normalized.error.message || null,
-        upstream_preview,
         request_id: request_id || null,
+        attempts,
+        breadcrumbs,
+        diagnostics: {
+          upstream_code: normalized.error.code ?? null,
+          upstream_message: normalized.error.message || null,
+          upstream_preview,
+        },
         config,
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
       });
     }
 
     if (resp.status < 200 || resp.status >= 300) {
       stage = "upstream_error";
+      await releaseRefreshLockBestEffort();
+      pushBreadcrumb(stage, { upstream_status: Number(resp.status) || 0 });
       return json({
         ok: false,
-        stage,
+        stage: "refresh_company",
+        root_cause: `upstream_http_${Number(resp.status) || 0}`,
+        retryable: Number(resp.status) >= 500,
         error: `Upstream enrichment failed (HTTP ${Number(resp.status) || "?"})`,
         upstream_status: Number(resp.status) || 0,
-        upstream_preview,
         request_id: request_id || null,
-        details: {
+        attempts,
+        breadcrumbs,
+        diagnostics: {
           parse_error: parse_error || null,
+          upstream_preview,
         },
         config,
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
       });
     }
 
     if (!normalized.company || typeof normalized.company !== "object") {
       stage = "parse_xai";
+      await releaseRefreshLockBestEffort();
+      pushBreadcrumb(stage, { upstream_status: Number(resp.status) || 0 });
       return json({
         ok: false,
-        stage,
+        stage: "refresh_company",
+        root_cause: "upstream_bad_response",
+        retryable: true,
         error: "No proposed company returned",
         upstream_status: Number(resp.status) || 0,
-        upstream_preview,
         request_id: request_id || null,
-        details: {
+        attempts,
+        breadcrumbs,
+        diagnostics: {
           parse_error: parse_error || "No company object found",
+          upstream_preview,
         },
         config,
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
       });
     }
 
@@ -931,6 +1081,8 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       // ignore
     }
 
+    pushBreadcrumb("done", { company_id: companyId });
+
     return json({
       ok: true,
       company_id: companyId,
@@ -943,6 +1095,9 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       proposed,
       upstream_status: Number(resp?.status) || 0,
       request_id: request_id || null,
+      attempts,
+      breadcrumbs,
+      diagnostics: {},
       build_id: String(BUILD_INFO.build_id || ""),
       hints: {
         company_name: companyName,
@@ -962,13 +1117,17 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
       stack: e?.stack,
     });
 
+    pushBreadcrumb("unhandled_exception");
+
     return json({
       ok: false,
       stage: "refresh_company",
       root_cause: asString(e?.root_cause).trim() || "unhandled_exception",
       retryable: true,
       error: e?.message || "Internal error",
-      details: {
+      attempts,
+      breadcrumbs,
+      diagnostics: {
         message: asString(e?.message || e).trim() || "Internal error",
       },
       config,

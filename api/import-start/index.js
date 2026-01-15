@@ -8168,6 +8168,126 @@ Return ONLY the JSON array, no other text.`,
             const deadlineBeforeCosmosWrite = checkDeadlineOrReturn("cosmos_write_start");
             if (deadlineBeforeCosmosWrite) return deadlineBeforeCosmosWrite;
 
+            // Enforce canonical "usable import" contract *before* persistence.
+            // This ensures we never save partially undefined records.
+            try {
+              for (let i = 0; i < enriched.length; i += 1) {
+                const base = enriched[i] && typeof enriched[i] === "object" ? enriched[i] : {};
+
+                let company_name = String(base.company_name || base.name || "").trim();
+                let website_url = String(base.website_url || base.url || base.canonical_url || "").trim();
+
+                const import_missing_fields = Array.isArray(base.import_missing_fields)
+                  ? base.import_missing_fields.map((v) => String(v || "").trim()).filter(Boolean)
+                  : [];
+
+                const import_missing_reason =
+                  base.import_missing_reason && typeof base.import_missing_reason === "object" && !Array.isArray(base.import_missing_reason)
+                    ? { ...base.import_missing_reason }
+                    : {};
+
+                const import_warnings = Array.isArray(base.import_warnings)
+                  ? base.import_warnings.filter((w) => w && typeof w === "object")
+                  : [];
+
+                const ensureMissing = (field, reason, message, retryable = true) => {
+                  if (!import_missing_fields.includes(field)) import_missing_fields.push(field);
+                  if (!import_missing_reason[field]) import_missing_reason[field] = String(reason || "missing");
+                  import_warnings.push({ field, root_cause: field, retryable: Boolean(retryable), message: String(message || "missing") });
+
+                  // Session-level warning (visible in import completion doc)
+                  addWarning(`import_missing_${field}_${i}`, {
+                    stage: "enrich",
+                    root_cause: `missing_${field}`,
+                    retryable: Boolean(retryable),
+                    message: String(message || "missing"),
+                    company_name: company_name || undefined,
+                    website_url: website_url || undefined,
+                  });
+                };
+
+                // company_name
+                if (!company_name) {
+                  base.company_name = "Unknown";
+                  base.company_name_unknown = true;
+                  company_name = base.company_name;
+                  ensureMissing("company_name", "missing", "company_name missing; set to placeholder 'Unknown'", false);
+                }
+
+                // website_url
+                if (!website_url) {
+                  base.website_url = "Unknown";
+                  base.website_url_unknown = true;
+                  if (!String(base.normalized_domain || "").trim()) base.normalized_domain = "unknown";
+                  website_url = base.website_url;
+                  ensureMissing("website_url", "missing", "website_url missing; set to placeholder 'Unknown'", false);
+                }
+
+                // industries
+                if (!Array.isArray(base.industries) || base.industries.length === 0) {
+                  base.industries = ["Unknown"];
+                  base.industries_unknown = true;
+                  ensureMissing("industries", "not_found", "Industries missing; set to placeholder ['Unknown']");
+                }
+
+                // product keywords
+                const pkRaw = typeof base.product_keywords === "string" ? base.product_keywords.trim() : "";
+                const hasKeywords = pkRaw.length > 0 || (Array.isArray(base.keywords) && base.keywords.length > 0);
+                if (!hasKeywords) {
+                  base.product_keywords = "Unknown";
+                  if (!Array.isArray(base.keywords)) base.keywords = [];
+                  ensureMissing("product_keywords", "not_found", "product_keywords missing; set to placeholder 'Unknown'");
+                }
+
+                // headquarters
+                if (!String(base.headquarters_location || "").trim()) {
+                  base.headquarters_location = "Unknown";
+                  base.hq_unknown = true;
+                  base.hq_unknown_reason = String(base.hq_unknown_reason || "unknown");
+                  ensureMissing("headquarters_location", base.hq_unknown_reason, "headquarters_location missing; set to placeholder 'Unknown'");
+                }
+
+                // manufacturing
+                const mfgList = Array.isArray(base.manufacturing_locations) ? base.manufacturing_locations : [];
+                if (mfgList.length === 0) {
+                  base.manufacturing_locations = ["Unknown"];
+                  base.mfg_unknown = true;
+                  base.mfg_unknown_reason = String(base.mfg_unknown_reason || "unknown");
+                  ensureMissing(
+                    "manufacturing_locations",
+                    base.mfg_unknown_reason,
+                    "manufacturing_locations missing; set to placeholder ['Unknown']"
+                  );
+                }
+
+                // logo
+                if (!String(base.logo_url || "").trim()) {
+                  base.logo_url = null;
+                  base.logo_status = base.logo_status || "not_found_on_site";
+                  base.logo_import_status = base.logo_import_status || "missing";
+                  base.logo_stage_status = base.logo_stage_status || "not_found_on_site";
+                  ensureMissing("logo", base.logo_stage_status, "logo_url missing or not imported");
+                }
+
+                // curated reviews
+                if (!Array.isArray(base.curated_reviews)) base.curated_reviews = [];
+                if (!Number.isFinite(Number(base.review_count))) base.review_count = base.curated_reviews.length;
+
+                if (base.curated_reviews.length === 0) {
+                  ensureMissing("curated_reviews", String(base.reviews_stage_status || "none"), "curated_reviews empty (persisted as empty list)");
+                }
+
+                // Persist per-company import diagnostics.
+                base.import_missing_fields = import_missing_fields;
+                base.import_missing_reason = import_missing_reason;
+                base.import_warnings = import_warnings;
+
+                enriched[i] = base;
+              }
+            } catch {
+              // Never block imports on placeholder enforcement.
+            }
+
             mark("cosmos_write_start");
             setStage("saveCompaniesToCosmos");
             console.log(`[import-start] session=${sessionId} saveCompaniesToCosmos start count=${enriched.length}`);
@@ -9156,13 +9276,19 @@ Return ONLY the JSON array, no other text.`,
               if (container) {
                 const warningKeyList = Array.from(warningKeys);
 
+                const completionReason = timedOut
+                  ? "max_processing_time_exceeded"
+                  : warningKeyList.length
+                    ? "completed_with_warnings"
+                    : "completed_normally";
+
                 const completionDoc = timedOut
                   ? {
                       id: `_import_timeout_${sessionId}`,
                       ...buildImportControlDocBase(sessionId),
                       completed_at: new Date().toISOString(),
                       elapsed_ms: elapsed,
-                      reason: "max_processing_time_exceeded",
+                      reason: completionReason,
                       ...(warningKeyList.length
                         ? {
                             warnings: warningKeyList,
@@ -9176,7 +9302,7 @@ Return ONLY the JSON array, no other text.`,
                       ...buildImportControlDocBase(sessionId),
                       completed_at: new Date().toISOString(),
                       elapsed_ms: elapsed,
-                      reason: "completed_normally",
+                      reason: completionReason,
                       saved: saveResult.saved,
                       skipped: saveResult.skipped,
                       failed: saveResult.failed,
@@ -9272,6 +9398,7 @@ Return ONLY the JSON array, no other text.`,
                 timedOut: timedOut,
                 elapsedMs: elapsed,
               },
+              completed_with_warnings: Boolean(warningKeys.size),
               ...(cosmosTarget ? cosmosTarget : {}),
               saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
               saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
