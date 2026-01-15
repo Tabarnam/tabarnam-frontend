@@ -727,6 +727,50 @@ test("/api/import/start?explain=1 echoes client-provided session_id (and sets x-
   });
 });
 
+test("/api/import/status surfaces verified save fields while running (memory fallback)", async () => {
+  await withTempEnv(NO_NETWORK_ENV, async () => {
+    const { upsertSession, _test: sessionStoreTest } = require("../_importSessionStore");
+    const store = sessionStoreTest.getState();
+    store.map.clear();
+    store.order.length = 0;
+
+    const session_id = "44444444-5555-6666-7777-888888888888";
+    const verifiedId = "company_1768443839619_y23rg37o6b";
+
+    upsertSession({
+      session_id,
+      status: "running",
+      stage_beacon: "company_url_seed_fallback",
+      companies_count: 1,
+      saved_verified_count: 1,
+      saved_company_ids_verified: [verifiedId],
+      saved_company_ids_unverified: [],
+      saved_company_urls: ["https://omre.co/"],
+      save_outcome: "duplicate_detected",
+      resume_needed: true,
+    });
+
+    const statusReq = makeReq({
+      url: `https://example.test/api/import/status?session_id=${encodeURIComponent(session_id)}`,
+      method: "GET",
+    });
+
+    const statusRes = await importStatusTest.handler(statusReq, { log() {} });
+    const statusBody = JSON.parse(String(statusRes.body || "{}"));
+
+    assert.equal(statusRes.status, 200);
+    assert.equal(statusBody.ok, true);
+    assert.equal(statusBody.status, "running");
+    assert.equal(statusBody.session_id, session_id);
+    assert.equal(statusBody.saved_verified_count, 1);
+    assert.deepEqual(statusBody.saved_company_ids_verified, [verifiedId]);
+    assert.equal(statusBody.resume_needed, true);
+    assert.equal(statusBody.save_outcome, "duplicate_detected");
+    assert.ok(Array.isArray(statusBody.saved_company_urls));
+    assert.ok(statusBody.saved_company_urls.includes("https://omre.co/"));
+  });
+});
+
 test("/api/import/start uses provided session_id for async primary job and import-status reaches terminal state", async () => {
   await withTempEnv(
     {
