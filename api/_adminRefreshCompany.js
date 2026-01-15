@@ -600,16 +600,22 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     const loadFn = deps.loadCompanyById || loadCompanyById;
     const existing = await loadFn(container, companyId);
     if (!existing) {
-      return json(
-        {
-          ok: false,
-          stage,
-          error: "Company not found",
-          company_id: companyId,
-          elapsed_ms: Date.now() - startedAt,
-        },
-        404
-      );
+      pushBreadcrumb("not_found", { company_id: companyId });
+      return json({
+        ok: false,
+        stage: "refresh_company",
+        root_cause: "not_found",
+        retryable: false,
+        error: "Company not found",
+        company_id: companyId,
+        attempts,
+        breadcrumbs,
+        diagnostics: { message: "Company not found" },
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
+      });
     }
 
     // Best-effort per-company lock so repeated clicks don't overlap.
