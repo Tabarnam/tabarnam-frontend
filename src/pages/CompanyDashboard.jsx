@@ -3970,7 +3970,17 @@ export default function CompanyDashboard() {
             body: requestPayload,
           });
 
-          attempts.push({ path, status: r.status });
+          const requestExplain = getLastApiRequestExplain();
+
+          attempts.push({
+            path,
+            status: r.status,
+            request: requestExplain,
+            request_payload: requestPayload,
+            response_headers: getResponseHeadersForDebug(r.response),
+            api_fetch_error: r.response && typeof r.response === "object" ? r.response.__api_fetch_error : null,
+            api_fetch_fallback: r.response && typeof r.response === "object" ? r.response.__api_fetch_fallback : null,
+          });
           result = r;
           break;
         } catch (err) {
