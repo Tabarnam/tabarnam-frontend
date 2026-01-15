@@ -1335,6 +1335,24 @@ async function handler(req, context) {
       (typeof acceptDoc?.stage_beacon === "string" && acceptDoc.stage_beacon.trim() ? acceptDoc.stage_beacon.trim() : null) ||
       (completed ? "complete" : timedOut ? "timeout" : stopped ? "stopped" : "running");
 
+    const cosmosTarget = (() => {
+      const pick = (key) =>
+        (sessionDoc && sessionDoc[key] != null ? sessionDoc[key] : null) ??
+        (completionDoc && completionDoc[key] != null ? completionDoc[key] : null) ??
+        (acceptDoc && acceptDoc[key] != null ? acceptDoc[key] : null) ??
+        null;
+
+      const diag = {
+        cosmos_account_host_redacted: pick("cosmos_account_host_redacted"),
+        cosmos_db_name: pick("cosmos_db_name"),
+        cosmos_container_name: pick("cosmos_container_name"),
+        cosmos_container_partition_key_path: pick("cosmos_container_partition_key_path"),
+      };
+
+      const hasAny = Object.values(diag).some((v) => typeof v === "string" ? v.trim() : v != null);
+      return hasAny ? diag : null;
+    })();
+
     const report = {
       session: sessionDoc
         ? {
