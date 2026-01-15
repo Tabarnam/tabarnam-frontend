@@ -5520,7 +5520,17 @@ export default function CompanyDashboard() {
                                         variant="outline"
                                         className="bg-white"
                                         onClick={async () => {
-                                          const payload = debugObj ? prettyJson(debugObj) : asString(debugText);
+                                          const bundle =
+                                            refreshError?.debug_bundle && typeof refreshError.debug_bundle === "object"
+                                              ? refreshError.debug_bundle
+                                              : debugObj
+                                                ? debugObj
+                                                : {
+                                                    kind: "refresh_company",
+                                                    message: asString(debugText).trim() || "Refresh failed",
+                                                  };
+
+                                          const payload = prettyJson(bundle);
                                           const ok = await copyToClipboard(payload);
                                           if (ok) toast.success("Copied debug");
                                           else toast.error("Copy failed");
