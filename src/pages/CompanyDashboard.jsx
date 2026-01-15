@@ -1437,6 +1437,18 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           attempts,
           build_id: buildId,
           response: { error: "both refresh endpoints returned 404" },
+          debug_bundle: {
+            kind: "refresh_reviews",
+            endpoint_url: `/api${usedPath}`,
+            request_payload: requestPayload,
+            request_explain: attempts.length ? attempts[attempts.length - 1]?.request : null,
+            attempts,
+            response: null,
+            build: {
+              api_build_id: buildId || null,
+              cached_build_id: getCachedBuildId() || null,
+            },
+          },
         });
 
         const doneLog = {
