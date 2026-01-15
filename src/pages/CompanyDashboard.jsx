@@ -3948,15 +3948,15 @@ export default function CompanyDashboard() {
     setRefreshSelection({});
     setRefreshApplied(false);
 
+    const requestPayload = {
+      company_id: companyId,
+      timeout_ms: 20000,
+      deadline_ms: 20000,
+    };
+
     try {
       const refreshPaths = ["/xadmin-api-refresh-company"];
       const attempts = [];
-
-      const requestPayload = {
-        company_id: companyId,
-        timeout_ms: 20000,
-        deadline_ms: 20000,
-      };
 
       let usedPath = refreshPaths[0];
       let result = null;
