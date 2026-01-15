@@ -3365,15 +3365,22 @@ export default function AdminImport() {
                           <div className="min-w-0">
                             <div className="font-semibold text-slate-900 truncate">{companyName}</div>
                             {websiteUrl ? (
-                              <a
-                                className="mt-1 block text-xs text-blue-700 underline break-all"
-                                href={websiteUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {websiteUrl}
-                              </a>
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                                <a
+                                  className="text-xs text-blue-700 underline break-all"
+                                  href={websiteUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {websiteUrl}
+                                </a>
+                                {seedMissingBug ? (
+                                  <span className="rounded border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] text-rose-800">
+                                    Seed missing (bug)
+                                  </span>
+                                ) : null}
+                              </div>
                             ) : (
                               <div className="mt-1 text-xs text-slate-500">No URL</div>
                             )}
