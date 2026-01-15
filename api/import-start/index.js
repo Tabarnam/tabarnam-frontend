@@ -2884,7 +2884,15 @@ async function checkIfSessionStopped(sessionId) {
 }
 
 // Save companies to Cosmos DB (skip duplicates)
-async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionCreatedAt, axiosTimeout, saveStub = false }) {
+async function saveCompaniesToCosmos({
+  companies,
+  sessionId,
+  requestId,
+  sessionCreatedAt,
+  axiosTimeout,
+  saveStub = false,
+  getRemainingMs,
+}) {
   try {
     const list = Array.isArray(companies) ? companies : [];
     const sid = String(sessionId || "").trim();
@@ -3070,7 +3078,13 @@ async function saveCompaniesToCosmos({ companies, sessionId, requestId, sessionC
               ? String(existingDoc.id)
               : `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-            const remainingForLogo = getRemainingMs();
+            const remainingForLogo =
+              typeof getRemainingMs === "function"
+                ? Number(getRemainingMs())
+                : Number.isFinite(Number(axiosTimeout))
+                  ? Number(axiosTimeout)
+                  : DEFAULT_UPSTREAM_TIMEOUT_MS;
+
             const logoBudgetMs = Math.max(
               0,
               Math.min(
@@ -6010,6 +6024,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   sessionCreatedAt: sessionCreatedAtIso,
                   axiosTimeout: Math.min(timeout, 20_000),
                   saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
+                  getRemainingMs,
                 });
 
                 const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
@@ -6020,12 +6035,28 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
                 saveResult = applyReadAfterWriteVerification(saveResultRaw, verification);
               } catch (e) {
+                const errorMessage = toErrorString(e);
+
                 addWarning("company_url_seed_save_failed", {
                   stage: "save",
                   root_cause: "seed_save_failed",
                   retryable: true,
-                  message: `Failed to persist URL seed: ${toErrorString(e)}`,
+                  message: `Failed to persist URL seed: ${errorMessage}`,
                 });
+
+                saveResult = {
+                  ...saveResult,
+                  saved: 0,
+                  saved_ids: [],
+                  failed: Math.max(1, Number(saveResult.failed || 0) || 0),
+                  failed_items: [
+                    {
+                      index: 0,
+                      company_name: seed.company_name,
+                      error: errorMessage,
+                    },
+                  ],
+                };
               }
 
               saveReport = saveResult;
@@ -6175,6 +6206,138 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
                     saved_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
                     saved_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
+                    saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
+                    skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                    skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
+                    failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
+                  },
+                  ...(warningKeys.size ? { warnings: Array.from(warningKeys), warnings_detail, warnings_v2 } : {}),
+                  ...(debugOutput ? { debug: debugOutput } : {}),
+                },
+                200
+              );
+            }
+
+            const seedSaveFailed =
+              canPersist &&
+              (Number(saveResult.failed || 0) > 0 ||
+                (Number(saveResult.saved || 0) === 0 && Number(saveResult.skipped || 0) === 0));
+
+            if (seedSaveFailed) {
+              const firstFailure = Array.isArray(saveResult.failed_items) && saveResult.failed_items.length > 0
+                ? saveResult.failed_items[0]
+                : null;
+
+              const errorMessage =
+                typeof firstFailure?.error === "string" && firstFailure.error.trim()
+                  ? firstFailure.error.trim()
+                  : "Failed to save company seed";
+
+              const last_error = {
+                code: "COSMOS_SAVE_FAILED",
+                message: errorMessage,
+              };
+
+              if (cosmosEnabled) {
+                try {
+                  const container = getCompaniesCosmosContainer();
+                  if (container) {
+                    const errorDoc = {
+                      id: `_import_error_${sessionId}`,
+                      ...buildImportControlDocBase(sessionId),
+                      request_id: requestId,
+                      stage: "cosmos_write_failed",
+                      error: {
+                        ...last_error,
+                        request_id: requestId,
+                        step: "save",
+                      },
+                      details: {
+                        stage_beacon: "company_url_seed_fallback",
+                        save_report: saveResult,
+                      },
+                    };
+
+                    await upsertItemWithPkCandidates(container, errorDoc).catch(() => null);
+
+                    await upsertCosmosImportSessionDoc({
+                      sessionId,
+                      requestId,
+                      patch: {
+                        status: "error",
+                        stage_beacon: "cosmos_write_failed",
+                        last_error,
+                        saved: 0,
+                        saved_verified_count: 0,
+                        saved_company_ids_verified: [],
+                        saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
+                          ? saveResult.saved_company_ids_unverified
+                          : [],
+                        skipped: Number(saveResult.skipped || 0),
+                        failed: Number(saveResult.failed || 0),
+                        failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
+                        completed_at: new Date().toISOString(),
+                        resume_needed: false,
+                      },
+                    }).catch(() => null);
+                  }
+                } catch {
+                  // ignore
+                }
+              }
+
+              try {
+                upsertImportSession({
+                  session_id: sessionId,
+                  request_id: requestId,
+                  status: "error",
+                  stage_beacon: "cosmos_write_failed",
+                  companies_count: companies.length,
+                  resume_needed: false,
+                  last_error,
+                });
+              } catch {}
+
+              const cosmosTarget = await getCompaniesCosmosTargetDiagnostics().catch(() => null);
+
+              return jsonWithRequestId(
+                {
+                  ok: false,
+                  session_id: sessionId,
+                  request_id: requestId,
+                  stage_beacon: "cosmos_write_failed",
+                  status: "error",
+                  resume_needed: false,
+                  company_name: seed.company_name,
+                  company_url: seed.company_url || seed.website_url,
+                  website_url: seed.website_url,
+                  companies,
+                  meta: {
+                    mode: "direct",
+                    seed_fallback: true,
+                    accepted_reason: typeof acceptedError?.reason === "string" ? acceptedError.reason : undefined,
+                  },
+                  ...(cosmosTarget ? cosmosTarget : {}),
+                  last_error,
+                  saved_verified_count: 0,
+                  saved_company_ids_verified: [],
+                  saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
+                    ? saveResult.saved_company_ids_unverified
+                    : [],
+                  saved: 0,
+                  skipped: Number(saveResult.skipped || 0),
+                  failed: Number(saveResult.failed || 0),
+                  save_report: {
+                    saved: 0,
+                    saved_verified_count: 0,
+                    saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
+                    skipped: Number(saveResult.skipped || 0),
+                    failed: Number(saveResult.failed || 0),
+                    saved_ids: [],
+                    saved_ids_verified: [],
+                    saved_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
+                      ? saveResult.saved_company_ids_unverified
+                      : [],
                     saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
                     skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
                     skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
@@ -7838,6 +8001,7 @@ Return ONLY the JSON array, no other text.`,
               sessionCreatedAt: sessionCreatedAtIso,
               axiosTimeout: timeout,
               saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
+              getRemainingMs,
             });
 
             const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
@@ -8477,6 +8641,7 @@ Return ONLY the JSON array, no other text.`,
                       sessionCreatedAt: sessionCreatedAtIso,
                       axiosTimeout: timeout,
                       saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
+                      getRemainingMs,
                     });
 
                     const expansionVerification = await verifySavedCompaniesReadAfterWrite(expansionRaw).catch(() => ({
