@@ -6319,13 +6319,47 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 ? saveResult.failed_items[0]
                 : null;
 
-              const errorMessage =
-                typeof firstFailure?.error === "string" && firstFailure.error.trim()
-                  ? firstFailure.error.trim()
-                  : "Failed to save company seed";
+              const firstSkipped =
+                Array.isArray(saveResult.skipped_duplicates) && saveResult.skipped_duplicates.length > 0
+                  ? saveResult.skipped_duplicates[0]
+                  : null;
+
+              const outcome = typeof saveResult?.save_outcome === "string" ? saveResult.save_outcome.trim() : "";
+
+              const errorMessage = (() => {
+                const failedMsg = typeof firstFailure?.error === "string" && firstFailure.error.trim() ? firstFailure.error.trim() : "";
+                if (failedMsg) return failedMsg;
+
+                if (seedWriteCount > 0) {
+                  return "Cosmos write reported success, but read-after-write verification could not confirm the saved document.";
+                }
+
+                if (outcome === "validation_failed_missing_required_fields") {
+                  return "Seed was rejected before persistence (missing required fields or enrichment markers).";
+                }
+
+                const dupId = String(firstSkipped?.duplicate_of_id || "").trim();
+                if (dupId) {
+                  return `Seed was treated as a duplicate of ${dupId}, but the existing company doc could not be verified.`;
+                }
+
+                return "Failed to save company seed";
+              })();
+
+              const failureStage =
+                seedWriteCount > 0
+                  ? "read_after_write_failed"
+                  : outcome === "validation_failed_missing_required_fields"
+                    ? "validation_failed_missing_required_fields"
+                    : "cosmos_write_failed";
 
               const last_error = {
-                code: "COSMOS_SAVE_FAILED",
+                code:
+                  failureStage === "read_after_write_failed"
+                    ? "READ_AFTER_WRITE_FAILED"
+                    : failureStage === "validation_failed_missing_required_fields"
+                      ? "VALIDATION_FAILED"
+                      : "COSMOS_SAVE_FAILED",
                 message: errorMessage,
               };
 
