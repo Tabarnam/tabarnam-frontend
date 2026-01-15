@@ -6202,6 +6202,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     patch: {
                       status: "running",
                       stage_beacon: "company_url_seed_fallback",
+                      save_outcome,
                       saved: verifiedCount,
                       skipped: Number(saveResult.skipped || 0),
                       failed: Number(saveResult.failed || 0),
