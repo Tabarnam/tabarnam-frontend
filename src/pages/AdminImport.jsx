@@ -3220,12 +3220,12 @@ export default function AdminImport() {
                     const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
                     const verifiedCount = Number.isFinite(r.saved_verified_count) ? r.saved_verified_count : null;
-                    const savedCount =
-                      verifiedCount != null
-                        ? verifiedCount
-                        : savedCompanies.length > 0
-                          ? savedCompanies.length
-                          : 0;
+                    const verifiedIds = Array.isArray(r.saved_company_ids_verified)
+                      ? r.saved_company_ids_verified
+                      : Array.isArray(r.saved_company_ids)
+                        ? r.saved_company_ids
+                        : [];
+                    const savedCount = verifiedCount != null ? verifiedCount : verifiedIds.length;
 
                     const companyId =
                       asString(primarySaved?.company_id).trim() ||
