@@ -791,6 +791,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
 
     const axiosPost = deps.axiosPost || (axios ? axios.post.bind(axios) : null);
     if (!axiosPost) {
+      await releaseRefreshLockBestEffort();
       return json({
         ok: false,
         stage: "refresh_company",
