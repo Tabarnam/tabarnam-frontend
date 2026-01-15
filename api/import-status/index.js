@@ -402,24 +402,52 @@ function computeEnrichmentHealth(company) {
   const mfgReason = String(c.mfg_unknown_reason || c.red_flag_reason || "").trim();
   const hasMfg = manufacturingLocations.length > 0 || Boolean(c.mfg_unknown && mfgReason);
 
+  const taglineRaw = typeof c.tagline === "string" ? c.tagline.trim() : "";
+  const taglineLower = taglineRaw.toLowerCase();
+  const hasTagline = Boolean(taglineRaw) && taglineLower !== "unknown" && taglineLower !== "n/a" && taglineLower !== "na" && taglineLower !== "none";
+
+  const logoStage = String(c.logo_stage_status || "").trim();
+  const logoUrl = String(c.logo_url || "").trim();
+  const hasLogo = logoStage === "ok" || Boolean(logoUrl);
+
   const hasReviewCount = typeof c.review_count === "number" && Number.isFinite(c.review_count);
-  const hasCuratedReviewsField = Array.isArray(c.curated_reviews);
+  const curatedReviews = Array.isArray(c.curated_reviews) ? c.curated_reviews : [];
+  const reviewCount = hasReviewCount ? Number(c.review_count) : curatedReviews.length;
   const hasReviewCursorField = Boolean(c.review_cursor && typeof c.review_cursor === "object");
-  const hasReviewsField = hasReviewCount && hasCuratedReviewsField && hasReviewCursorField;
+  const hasReviewsField = hasReviewCount && Array.isArray(c.curated_reviews) && hasReviewCursorField;
+
+  const reviewsStageRaw = String(
+    c.reviews_stage_status ||
+      (c.review_cursor && typeof c.review_cursor === "object" ? c.review_cursor.reviews_stage_status : "") ||
+      ""
+  ).trim();
+  const reviewsStage = reviewsStageRaw.toLowerCase();
+  const hasReviewsStageOk = reviewsStage === "ok";
+
+  const hasReviews = reviewsStageRaw
+    ? hasReviewsStageOk && reviewCount > 0
+    : hasReviewsField && reviewCount > 0;
 
   const missing_fields = [];
   if (!hasIndustries) missing_fields.push("industries");
   if (!hasKeywords) missing_fields.push("product_keywords");
+  if (!hasTagline) missing_fields.push("tagline");
   if (!hasHq) missing_fields.push("headquarters_location");
   if (!hasMfg) missing_fields.push("manufacturing_locations");
-  if (!hasReviewsField) missing_fields.push("reviews");
+  if (!hasLogo) missing_fields.push("logo");
+  if (!hasReviews) missing_fields.push("reviews");
 
   return {
     has_industries: hasIndustries,
     has_keywords: hasKeywords,
+    has_tagline: hasTagline,
     has_hq: hasHq,
     has_mfg: hasMfg,
+    has_logo: hasLogo,
+    has_reviews: hasReviews,
     has_reviews_field: hasReviewsField,
+    reviews_stage_status: reviewsStageRaw || null,
+    logo_stage_status: logoStage || null,
     missing_fields,
   };
 }
