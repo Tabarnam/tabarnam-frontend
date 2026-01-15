@@ -1614,6 +1614,7 @@ async function handler(req, context) {
         job_state: null,
         stage_beacon: resume_needed ? "enrichment_resume_pending" : stage_beacon,
         stage_beacon_values: stageBeaconValues,
+        ...(cosmosTarget ? cosmosTarget : {}),
         primary_job_state: null,
         elapsed_ms: null,
         remaining_budget_ms: null,
