@@ -9381,6 +9381,7 @@ Return ONLY the JSON array, no other text.`,
                 timedOut: timedOut,
                 elapsedMs: elapsed,
               },
+              completed_with_warnings: Boolean(warningKeys.size),
               ...(cosmosTarget ? cosmosTarget : {}),
               saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
               saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
