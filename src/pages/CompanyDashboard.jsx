@@ -3985,7 +3985,13 @@ export default function CompanyDashboard() {
           break;
         } catch (err) {
           const status = normalizeHttpStatusNumber(err?.status) ?? 0;
-          attempts.push({ path, status });
+          const requestExplain = getLastApiRequestExplain();
+          attempts.push({
+            path,
+            status,
+            request: requestExplain,
+            request_payload: requestPayload,
+          });
           if (status === 404) continue;
           throw { ...(err || {}), status, attempts, usedPath: path };
         }
