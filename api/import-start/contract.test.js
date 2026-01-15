@@ -748,6 +748,12 @@ test("/api/import/status surfaces verified save fields while running (memory fal
       saved_company_urls: ["https://omre.co/"],
       save_outcome: "duplicate_detected",
       resume_needed: true,
+      resume_error: "resume_worker_http_401",
+      resume_error_details: {
+        http_status: 401,
+        used_url: "https://example.test/api/import/resume-worker",
+        response_text_preview: "Unauthorized",
+      },
     });
 
     const statusReq = makeReq({
@@ -766,6 +772,8 @@ test("/api/import/status surfaces verified save fields while running (memory fal
     assert.deepEqual(statusBody.saved_company_ids_verified, [verifiedId]);
     assert.equal(statusBody.resume_needed, true);
     assert.equal(statusBody.save_outcome, "duplicate_detected");
+    assert.equal(statusBody.resume_error, "resume_worker_http_401");
+    assert.equal(statusBody.resume_error_details?.http_status, 401);
     assert.ok(Array.isArray(statusBody.saved_company_urls));
     assert.ok(statusBody.saved_company_urls.includes("https://omre.co/"));
   });
