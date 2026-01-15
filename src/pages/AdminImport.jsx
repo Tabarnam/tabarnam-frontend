@@ -1970,33 +1970,88 @@ export default function AdminImport() {
       const warningsDetail =
         lastStageBody?.warnings_detail && typeof lastStageBody.warnings_detail === "object" ? lastStageBody.warnings_detail : null;
 
+      const snapshotVerifiedIds = Array.isArray(lastStageBody?.saved_company_ids_verified)
+        ? lastStageBody.saved_company_ids_verified
+        : Array.isArray(lastStageBody?.saved_company_ids)
+          ? lastStageBody.saved_company_ids
+          : [];
+
+      const snapshotSavedVerifiedCount =
+        typeof lastStageBody?.saved_verified_count === "number" && Number.isFinite(lastStageBody.saved_verified_count)
+          ? lastStageBody.saved_verified_count
+          : snapshotVerifiedIds.length > 0
+            ? snapshotVerifiedIds.length
+            : null;
+
+      const snapshotResumeNeeded = Boolean(lastStageBody?.resume_needed);
+      const snapshotSaveOutcome = asString(lastStageBody?.save_outcome || lastStageBody?.save_report?.save_outcome).trim() || null;
+      const snapshotCompanyUrls = Array.isArray(lastStageBody?.saved_company_urls) ? lastStageBody.saved_company_urls : [];
+
       setRuns((prev) =>
-        prev.map((r) =>
-          r.session_id === canonicalSessionId ? { ...r, completed: true, updatedAt: new Date().toISOString() } : r
-        )
+        prev.map((r) => {
+          if (r.session_id !== canonicalSessionId) return r;
+
+          const prevVerifiedIds = Array.isArray(r.saved_company_ids_verified) ? r.saved_company_ids_verified : [];
+          const nextVerifiedIds = mergeUniqueStrings(prevVerifiedIds, snapshotVerifiedIds);
+
+          const prevSavedVerified =
+            typeof r.saved_verified_count === "number" && Number.isFinite(r.saved_verified_count) ? r.saved_verified_count : 0;
+          const nextSavedVerifiedRaw =
+            typeof snapshotSavedVerifiedCount === "number" && Number.isFinite(snapshotSavedVerifiedCount) ? snapshotSavedVerifiedCount : 0;
+
+          const nextSavedVerifiedCount = Math.max(prevSavedVerified, nextSavedVerifiedRaw, nextVerifiedIds.length);
+
+          return {
+            ...r,
+            saved_verified_count: nextSavedVerifiedCount,
+            saved_company_ids_verified: nextVerifiedIds,
+            saved_company_urls: mergeUniqueStrings(r.saved_company_urls, snapshotCompanyUrls),
+            save_outcome: snapshotSaveOutcome || r.save_outcome || null,
+            resume_needed: snapshotResumeNeeded || Boolean(r.resume_needed),
+            // Do not mark completed here; /import/status polling is the source of truth.
+            updatedAt: new Date().toISOString(),
+          };
+        })
       );
-      setActiveStatus("done");
 
-      if (warnings.length > 0) {
-        const firstKey = warnings[0];
-        const detail =
-          firstKey && warningsDetail && typeof warningsDetail[firstKey] === "object" ? warningsDetail[firstKey] : null;
+      const responseState = asString(lastStageBody?.state).trim();
+      const responseStatus = asString(lastStageBody?.status).trim();
+      const terminalComplete = (responseState === "complete" || responseStatus === "complete") && !snapshotResumeNeeded;
 
-        const stage = asString(detail?.stage).trim() || asString(firstKey).trim();
-        const rootCause = asString(detail?.root_cause).trim();
-        const upstreamStatusRaw = detail?.upstream_status;
-        const upstreamStatus = Number.isFinite(Number(upstreamStatusRaw)) ? Number(upstreamStatusRaw) : null;
+      if (terminalComplete) {
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === canonicalSessionId ? { ...r, completed: true, updatedAt: new Date().toISOString() } : r
+          )
+        );
+        setActiveStatus("done");
 
-        const meta = [];
-        if (rootCause) meta.push(rootCause);
-        if (upstreamStatus != null) meta.push(`HTTP ${upstreamStatus}`);
+        if (warnings.length > 0) {
+          const firstKey = warnings[0];
+          const detail =
+            firstKey && warningsDetail && typeof warningsDetail[firstKey] === "object" ? warningsDetail[firstKey] : null;
 
-        const suffix = meta.length ? ` (${meta.join(", ")})` : "";
-        const extraCount = warnings.length > 1 ? ` (+${warnings.length - 1} more)` : "";
+          const stage = asString(detail?.stage).trim() || asString(firstKey).trim();
+          const rootCause = asString(detail?.root_cause).trim();
+          const upstreamStatusRaw = detail?.upstream_status;
+          const upstreamStatus = Number.isFinite(Number(upstreamStatusRaw)) ? Number(upstreamStatusRaw) : null;
 
-        toast.warning(`Saved with warnings: ${stage}${suffix}${extraCount}`);
+          const meta = [];
+          if (rootCause) meta.push(rootCause);
+          if (upstreamStatus != null) meta.push(`HTTP ${upstreamStatus}`);
+
+          const suffix = meta.length ? ` (${meta.join(", ")})` : "";
+          const extraCount = warnings.length > 1 ? ` (+${warnings.length - 1} more)` : "";
+
+          toast.warning(`Saved with warnings: ${stage}${suffix}${extraCount}`);
+        } else {
+          toast.success(`Import finished (${companiesForNextStage.length} companies)`);
+        }
       } else {
-        toast.success(`Import finished (${companiesForNextStage.length} companies)`);
+        // Keep the run in a non-terminal state until /import/status confirms completion.
+        const savedVerifiedLabel = (snapshotSavedVerifiedCount ?? snapshotVerifiedIds.length) || 0;
+        const label = snapshotResumeNeeded ? `Saved (verified): ${savedVerifiedLabel}. Enrichment in progress…` : "Import started";
+        toast.success(label);
       }
     } catch (e) {
       const msg = e?.name === "AbortError" ? "Import aborted" : toErrorString(e) || "Import failed";
