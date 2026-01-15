@@ -510,31 +510,8 @@ async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionC
   const domain = typeof normalizedDomain === "string" ? normalizedDomain.trim().toLowerCase() : "";
   const createdAfterIso = typeof createdAfter === "string" && createdAfter.trim() ? createdAfter.trim() : "";
 
-  // Prefer explicit session linking fields; only fall back to created_at/domain when the linking fields are missing.
-  const createdAtFallbackClause = createdAtIso
-    ? `
-        OR (
-          IS_DEFINED(c.created_at) AND c.created_at >= @createdAt
-          AND (NOT IS_DEFINED(c.session_id) OR c.session_id = "")
-          AND (NOT IS_DEFINED(c.import_session_id) OR c.import_session_id = "")
-          AND (NOT IS_DEFINED(c.import_session) OR c.import_session = "")
-          AND (NOT IS_DEFINED(c.source_session_id) OR c.source_session_id = "")
-          AND (NOT IS_DEFINED(c.source_session) OR c.source_session = "")
-          AND c.source = "xai_import"
-        )
-      `
-    : "";
-
-  const domainFallbackClause =
-    domain && createdAfterIso
-      ? `
-        OR (
-          IS_DEFINED(c.normalized_domain) AND c.normalized_domain = @domain
-          AND IS_DEFINED(c.created_at) AND c.created_at >= @createdAfter
-        )
-      `
-      : "";
-
+  // Truthfulness: only count companies that are explicitly linked to this session.
+  // Avoid domain/created_at fallbacks here because they can inflate saved counts.
   const q = {
     query: `
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
@@ -553,21 +530,10 @@ async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionC
           OR (IS_DEFINED(c.import_session) AND c.import_session = @sid)
           OR (IS_DEFINED(c.source_session_id) AND c.source_session_id = @sid)
           OR (IS_DEFINED(c.source_session) AND c.source_session = @sid)
-          ${createdAtFallbackClause}
-          ${domainFallbackClause}
         )
       ORDER BY c.created_at DESC
     `,
-    parameters: [
-      { name: "@sid", value: sessionId },
-      ...(createdAtIso ? [{ name: "@createdAt", value: createdAtIso }] : []),
-      ...(domain && createdAfterIso
-        ? [
-            { name: "@domain", value: domain },
-            { name: "@createdAfter", value: createdAfterIso },
-          ]
-        : []),
-    ],
+    parameters: [{ name: "@sid", value: sessionId }],
   };
 
   const { resources } = await container.items
