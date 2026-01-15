@@ -1592,6 +1592,24 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
           attempts,
           build_id: responseBuildId,
           response: body && Object.keys(body).length ? body : rawText,
+          debug_bundle: {
+            kind: "refresh_reviews",
+            endpoint_url: `/api${usedPath}`,
+            request_payload: requestPayload,
+            request_explain: attempts.length ? attempts[attempts.length - 1]?.request : null,
+            attempts,
+            response: {
+              status: res.status,
+              ok: res.ok,
+              headers: getResponseHeadersForDebug(res),
+              body_json: body && typeof body === "object" ? body : null,
+              body_text: rawText || "",
+            },
+            build: {
+              api_build_id: responseBuildId || null,
+              cached_build_id: getCachedBuildId() || null,
+            },
+          },
         });
 
         const toastMsg = `${asString(msg).trim() || "Reviews fetch failed"} (${usedPath} → HTTP ${res.status}${responseBuildId ? `, build ${responseBuildId}` : ""})`;
