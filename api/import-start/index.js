@@ -6310,10 +6310,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               );
             }
 
-            const seedSaveFailed =
-              canPersist &&
-              (Number(saveResult.failed || 0) > 0 ||
-                (Number(saveResult.saved || 0) === 0 && Number(saveResult.skipped || 0) === 0));
+            const seedVerifiedCount = Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0;
+            const seedWriteCount = Number(saveResult.saved_write_count || 0) || 0;
+            const seedSaveFailed = canPersist && seedVerifiedCount === 0;
 
             if (seedSaveFailed) {
               const firstFailure = Array.isArray(saveResult.failed_items) && saveResult.failed_items.length > 0
