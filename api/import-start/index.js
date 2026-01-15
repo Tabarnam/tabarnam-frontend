@@ -9259,13 +9259,19 @@ Return ONLY the JSON array, no other text.`,
               if (container) {
                 const warningKeyList = Array.from(warningKeys);
 
+                const completionReason = timedOut
+                  ? "max_processing_time_exceeded"
+                  : warningKeyList.length
+                    ? "completed_with_warnings"
+                    : "completed_normally";
+
                 const completionDoc = timedOut
                   ? {
                       id: `_import_timeout_${sessionId}`,
                       ...buildImportControlDocBase(sessionId),
                       completed_at: new Date().toISOString(),
                       elapsed_ms: elapsed,
-                      reason: "max_processing_time_exceeded",
+                      reason: completionReason,
                       ...(warningKeyList.length
                         ? {
                             warnings: warningKeyList,
@@ -9279,7 +9285,7 @@ Return ONLY the JSON array, no other text.`,
                       ...buildImportControlDocBase(sessionId),
                       completed_at: new Date().toISOString(),
                       elapsed_ms: elapsed,
-                      reason: "completed_normally",
+                      reason: completionReason,
                       saved: saveResult.saved,
                       skipped: saveResult.skipped,
                       failed: saveResult.failed,
