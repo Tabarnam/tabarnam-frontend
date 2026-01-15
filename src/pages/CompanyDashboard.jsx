@@ -1962,7 +1962,8 @@ const ReviewsImportPanel = React.forwardRef(function ReviewsImportPanel(
               variant="outline"
               className="bg-white"
               onClick={async () => {
-                const ok = await copyToClipboard(prettyJson(error));
+                const payloadObj = error?.debug_bundle && typeof error.debug_bundle === "object" ? error.debug_bundle : error;
+                const ok = await copyToClipboard(prettyJson(payloadObj));
                 if (ok) toast.success("Copied error");
                 else toast.error("Copy failed");
               }}
