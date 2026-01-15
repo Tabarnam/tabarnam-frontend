@@ -603,7 +603,7 @@ export default function AdminImport() {
             ? savedVerifiedCount
             : savedCompanies.length > 0
               ? savedCompanies.length
-              : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
+              : 0;
 
         const reconciled = Boolean(body?.reconciled);
         const reconcileStrategy = asString(body?.reconcile_strategy).trim();
@@ -669,8 +669,7 @@ export default function AdminImport() {
               : asString(r.final_last_error_code);
 
             const savedVerifiedCount = Number.isFinite(r.saved_verified_count) ? r.saved_verified_count : null;
-            const savedCount =
-              savedVerifiedCount != null ? savedVerifiedCount : Number.isFinite(saved) ? saved : Number(r.saved ?? 0) || 0;
+            const savedCount = savedVerifiedCount != null ? savedVerifiedCount : Number.isFinite(saved) ? saved : 0;
             const hasSaved = savedCount > 0;
 
             const shouldDemoteStartErrorToWarning = Boolean(isTerminalComplete && hasSaved);
@@ -890,7 +889,7 @@ export default function AdminImport() {
             ? savedVerifiedCount
             : savedCompanies.length > 0
               ? savedCompanies.length
-              : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
+              : 0;
 
         const status = asString(body?.status).trim();
         const state = asString(body?.state).trim();
@@ -995,11 +994,11 @@ export default function AdminImport() {
                 : null;
 
           const savedCount =
-            savedVerifiedCount != null
-              ? savedVerifiedCount
-              : savedCompanies.length > 0
-                ? savedCompanies.length
-                : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
+          savedVerifiedCount != null
+            ? savedVerifiedCount
+            : savedCompanies.length > 0
+              ? savedCompanies.length
+              : 0;
 
           const status = asString(body?.status).trim();
           const state = asString(body?.state).trim();
@@ -2188,11 +2187,7 @@ export default function AdminImport() {
       ? activeRun.saved_verified_count
       : activeSavedVerifiedIds.length;
 
-  const activeSavedCount = Math.max(
-    activeSavedCompanies.length,
-    activeSavedVerifiedCount,
-    Number(activeRun?.saved ?? 0) || 0
-  );
+  const activeSavedCount = Math.max(activeSavedCompanies.length, activeSavedVerifiedCount);
 
   const activeIsTerminal = Boolean(activeRun && (activeRun.completed || activeRun.timedOut || activeRun.stopped));
 
@@ -3065,10 +3060,16 @@ export default function AdminImport() {
                   {(() => {
                     const stageBeacon = asString(activeRun?.final_stage_beacon || activeRun?.stage_beacon || activeRun?.last_stage_beacon).trim();
                     const isSkipped = isPrimarySkippedCompanyUrl(stageBeacon);
+                    const failureCode = asString(activeRun?.last_error?.code).trim();
+                    const failureMessage = asString(activeRun?.last_error?.message).trim();
+                    const failureLine = failureMessage
+                      ? `Save failed${failureCode ? ` (${failureCode})` : ""}: ${failureMessage}`
+                      : "";
                     return (
                       <>
                         <div className="font-medium">{isSkipped ? "Skipped: company not persisted" : "Completed: no company persisted"}</div>
                         <div className="text-slate-600">{plainEnglishProgress.reasonText || "No company was saved for this run."}</div>
+                        {failureLine ? <div className="text-red-700 break-words">{failureLine}</div> : null}
                         {isSkipped ? <div className="text-slate-600">Reviews stage did not run (company was never saved).</div> : null}
                       </>
                     );
@@ -3224,7 +3225,7 @@ export default function AdminImport() {
                         ? verifiedCount
                         : savedCompanies.length > 0
                           ? savedCompanies.length
-                          : Number(r.saved ?? 0) || 0;
+                          : 0;
 
                     const companyId =
                       asString(primarySaved?.company_id).trim() ||
@@ -3462,7 +3463,7 @@ export default function AdminImport() {
                           ? verifiedCount
                           : savedCompanies.length > 0
                             ? savedCompanies.length
-                            : Number(activeRun.saved ?? 0) || 0;
+                            : 0;
 
                       const stageBeacon = asString(activeRun.final_stage_beacon || activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
                       const persistedDetected = savedCount > 0 || stageBeacon === "cosmos_write_done";

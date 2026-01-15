@@ -937,3 +937,69 @@ test("/api/import/start rejects skip_stages=primary with only invalid seed compa
     assert.equal(body.seed_counts?.valid, 0);
   });
 });
+
+test("/api/import/start company_url_seed_fallback persists and verifies seed company", async (t) => {
+  const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+  const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+
+  if (!endpoint || !key) {
+    t.skip("Cosmos not configured in test environment");
+    return;
+  }
+
+  const { CosmosClient } = require("@azure/cosmos");
+
+  const seedHost = `seed-fallback-contract-${Date.now()}.example.com`;
+  const seedUrl = `https://${seedHost}/`;
+
+  await withTempEnv(
+    {
+      XAI_EXTERNAL_BASE: "https://example.invalid",
+      XAI_EXTERNAL_KEY: "test",
+    },
+    async () => {
+      const req = makeReq({
+        body: JSON.stringify({
+          query: seedUrl,
+          queryTypes: ["company_url"],
+          auto_resume: false,
+        }),
+        headers: {
+          "content-type": "application/json",
+        },
+      });
+
+      const res = await _test.importStartHandler(req, { log() {} });
+      const body = parseJsonResponse(res);
+
+      assert.equal(res.status, 200);
+      assert.equal(body.ok, true);
+      assert.equal(body.stage_beacon, "company_url_seed_fallback");
+
+      assert.equal(Number(body?.save_report?.failed ?? 0), 0);
+      assert.equal(Number(body?.saved_verified_count ?? 0), 1);
+
+      const verifiedIds = Array.isArray(body?.saved_company_ids_verified) ? body.saved_company_ids_verified : [];
+      assert.equal(verifiedIds.length, 1);
+
+      const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+      const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+      const client = new CosmosClient({ endpoint, key });
+      const container = client.database(databaseId).container(containerId);
+
+      const normalizedDomain = seedHost.replace(/^www\./, "").toLowerCase();
+      const companyId = String(verifiedIds[0] || "").trim();
+
+      await container.item(companyId, normalizedDomain).delete().catch(() => null);
+
+      const sessionId = String(body?.session_id || "").trim();
+      if (sessionId) {
+        await container.item(`_import_session_${sessionId}`, "import").delete().catch(() => null);
+        await container.item(`_import_resume_${sessionId}`, "import").delete().catch(() => null);
+        await container.item(`_import_accept_${sessionId}`, "import").delete().catch(() => null);
+        await container.item(`_import_complete_${sessionId}`, "import").delete().catch(() => null);
+        await container.item(`_import_error_${sessionId}`, "import").delete().catch(() => null);
+      }
+    }
+  );
+});
