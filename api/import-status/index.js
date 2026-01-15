@@ -306,7 +306,8 @@ async function fetchRecentCompanies(container, { sessionId, take, normalizedDoma
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
         c.industries, c.product_keywords, c.keywords,
         c.headquarters_location, c.manufacturing_locations,
-        c.curated_reviews, c.review_count, c.review_cursor,
+        c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
+        c.tagline, c.logo_url, c.logo_stage_status,
         c.hq_unknown, c.hq_unknown_reason,
         c.mfg_unknown, c.mfg_unknown_reason,
         c.red_flag, c.red_flag_reason
@@ -351,7 +352,8 @@ async function fetchCompaniesByIds(container, ids) {
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
         c.industries, c.product_keywords, c.keywords,
         c.headquarters_location, c.manufacturing_locations,
-        c.curated_reviews, c.review_count, c.review_cursor,
+        c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
+        c.tagline, c.logo_url, c.logo_stage_status,
         c.hq_unknown, c.hq_unknown_reason,
         c.mfg_unknown, c.mfg_unknown_reason,
         c.red_flag, c.red_flag_reason
@@ -518,7 +520,8 @@ async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionC
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
         c.industries, c.product_keywords, c.keywords,
         c.headquarters_location, c.manufacturing_locations,
-        c.curated_reviews, c.review_count, c.review_cursor,
+        c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
+        c.tagline, c.logo_url, c.logo_stage_status,
         c.hq_unknown, c.hq_unknown_reason,
         c.mfg_unknown, c.mfg_unknown_reason,
         c.red_flag, c.red_flag_reason
