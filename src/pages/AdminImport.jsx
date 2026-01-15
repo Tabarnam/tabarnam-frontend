@@ -3099,7 +3099,20 @@ export default function AdminImport() {
                     return items;
                   })().map((c) => {
                     const name = asString(c?.company_name || c?.name).trim() || "(unnamed)";
-                    const url = asString(c?.canonical_url || c?.website_url || c?.url).trim();
+                    const urlRaw = asString(c?.canonical_url || c?.website_url || c?.url).trim();
+                    const queryUrlRaw = asString(activeRun?.query).trim();
+                    const queryLooksLikeUrl = looksLikeUrlOrDomain(queryUrlRaw);
+                    const queryUrlNormalized = queryLooksLikeUrl
+                      ? /^https?:\/\//i.test(queryUrlRaw)
+                        ? queryUrlRaw
+                        : `https://${queryUrlRaw}`
+                      : "";
+
+                    const displayUrl = urlRaw || queryUrlNormalized;
+                    const seedMissingBug =
+                      Array.isArray(activeRun?.queryTypes) &&
+                      activeRun.queryTypes.includes("company_url") &&
+                      Boolean(queryUrlNormalized && !urlRaw);
 
                     const keywordsCanonical =
                       Array.isArray(c?.keywords) && c.keywords.length > 0
