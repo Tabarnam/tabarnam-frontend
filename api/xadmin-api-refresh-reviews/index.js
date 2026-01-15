@@ -224,6 +224,40 @@ function dedupe(existing = [], incoming = []) {
   return out;
 }
 
+function getReviewDedupeKey(r) {
+  return asString(r?._dedupe_key).trim() || reviewKey(r);
+}
+
+function reviewTimestampMs(r) {
+  const ts =
+    Date.parse(asString(r?.date || "")) ||
+    Date.parse(asString(r?.last_updated_at || "")) ||
+    Date.parse(asString(r?.created_at || "")) ||
+    0;
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function capCuratedReviews(reviews, max = 2) {
+  const n = Math.max(0, Math.trunc(Number(max) || 0));
+  if (!n) return [];
+
+  const list = (Array.isArray(reviews) ? reviews : []).filter((r) => r && typeof r === "object");
+  if (list.length <= n) return list;
+
+  const scored = list.map((r, idx) => ({
+    r,
+    idx,
+    ts: reviewTimestampMs(r),
+  }));
+
+  scored.sort((a, b) => {
+    if (a.ts !== b.ts) return b.ts - a.ts;
+    return b.idx - a.idx;
+  });
+
+  return scored.slice(0, n).map((x) => x.r);
+}
+
 function normalizeHttpUrlOrNull(input) {
   const raw = asString(input).trim();
   if (!raw) return null;
@@ -1126,13 +1160,28 @@ async function handler(req, context, opts) {
         const existing = Array.isArray(company.curated_reviews) ? company.curated_reviews : [];
         const toAdd = dedupe(existing, incoming);
 
-        const updatedCurated = toAdd.length ? existing.concat(toAdd) : existing;
+        const updatedCuratedRaw = toAdd.length ? existing.concat(toAdd) : existing;
 
-        saved_count_total += toAdd.length;
+        // Canonical rule: keep at most 2 curated reviews per company.
+        const cappedCurated = capCuratedReviews(updatedCuratedRaw, 2);
+
+        const existingKeys = new Set(existing.map(getReviewDedupeKey));
+        const additionsPersisted = cappedCurated.filter((r) => !existingKeys.has(getReviewDedupeKey(r)));
+
+        if (toAdd.length > additionsPersisted.length) {
+          warnings.push({
+            stage: "reviews_refresh",
+            root_cause: "curated_reviews_capped",
+            upstream_status: null,
+            message: `Capped curated reviews to 2; dropped ${toAdd.length - additionsPersisted.length} newly fetched review(s).`,
+          });
+        }
+
+        saved_count_total += additionsPersisted.length;
 
         // Make 0-review outcomes explainable (never silent).
         // If the company still has 0 imported reviews after this call, treat it as "no_valid_reviews_found".
-        const stageStatus = updatedCurated.length === 0 ? "no_valid_reviews_found" : "ok";
+        const stageStatus = cappedCurated.length === 0 ? "no_valid_reviews_found" : "ok";
 
         const nextOffset =
           typeof upstream?.next_offset === "number" && Number.isFinite(upstream.next_offset)
@@ -1143,10 +1192,10 @@ async function handler(req, context, opts) {
         cursor.last_offset = nextOffset;
 
         // Keep cursor.total_fetched aligned with "saved reviews" (not just upstream candidates).
-        cursor.total_fetched = Math.max(0, Math.trunc(Number(cursor.total_fetched) || 0)) + toAdd.length;
+        cursor.total_fetched = Math.max(0, Math.trunc(Number(cursor.total_fetched) || 0)) + additionsPersisted.length;
 
         // Only update last_success_at when we actually saved at least 1 new review.
-        if (toAdd.length > 0) {
+        if (additionsPersisted.length > 0) {
           cursor.last_success_at = nowIso();
         }
 
@@ -1186,24 +1235,24 @@ async function handler(req, context, opts) {
         };
         cursor.exhausted = Boolean(upstream?.exhausted) || incoming.length === 0;
 
-        const curatedCount = updatedCurated.length;
+        const curatedCount = cappedCurated.length;
         const publicCount = Math.max(0, Math.trunc(Number(company.public_review_count) || 0));
         const privateCount = Math.max(0, Math.trunc(Number(company.private_review_count) || 0));
         const derivedReviewCount = publicCount + privateCount + curatedCount;
 
         const starState = resolveReviewsStarState({
           ...company,
-          curated_reviews: updatedCurated,
+          curated_reviews: cappedCurated,
           review_count: derivedReviewCount,
           public_review_count: publicCount,
           private_review_count: privateCount,
         });
 
         const nextReviewsLastUpdatedAt =
-          toAdd.length > 0 ? nowIso() : asString(company.reviews_last_updated_at).trim() || null;
+          additionsPersisted.length > 0 ? nowIso() : asString(company.reviews_last_updated_at).trim() || null;
 
         const patchPayload = {
-          curated_reviews: updatedCurated,
+          curated_reviews: cappedCurated,
           review_cursor: cursor,
           reviews_fetch_lock_until: 0,
 
@@ -1235,7 +1284,7 @@ async function handler(req, context, opts) {
         // Keep local model in sync for subsequent steps.
         company = {
           ...company,
-          curated_reviews: updatedCurated,
+          curated_reviews: cappedCurated,
           review_cursor: cursor,
           reviews_fetch_lock_until: 0,
           review_count: derivedReviewCount,
@@ -1254,7 +1303,7 @@ async function handler(req, context, opts) {
           exhausted: Boolean(cursor.exhausted),
           warnings,
           attempts,
-          reviews: toAdd,
+          reviews: additionsPersisted,
           build_id,
           version_tag: VERSION_TAG,
         });
