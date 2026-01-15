@@ -952,6 +952,7 @@ async function handler(req, context) {
     let resume_doc_created = false;
     let resume_triggered = false;
     let resume_trigger_error = null;
+    let resume_trigger_error_details = null;
 
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
@@ -1552,6 +1553,7 @@ async function handler(req, context) {
     let resume_doc_created = false;
     let resume_triggered = false;
     let resume_trigger_error = null;
+    let resume_trigger_error_details = null;
 
     if (resume_needed) {
       try {
