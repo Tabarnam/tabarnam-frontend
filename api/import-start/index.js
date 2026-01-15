@@ -4908,7 +4908,7 @@ const importStartHandlerInner = async (req, context) => {
                 setTimeout(() => {
                   fetch(triggerUrl.toString(), {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: buildInternalFetchHeaders(),
                     body: JSON.stringify({ session_id: sessionId }),
                   }).catch(() => {});
                 }, 0);
@@ -6251,12 +6251,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
 
                   setTimeout(() => {
-                    fetch(triggerUrl.toString(), {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ session_id: sessionId }),
-                    }).catch(() => {});
-                  }, 0);
+                  fetch(triggerUrl.toString(), {
+                    method: "POST",
+                    headers: buildInternalFetchHeaders(),
+                    body: JSON.stringify({ session_id: sessionId }),
+                  }).catch(() => {});
+                }, 0);
                 }
               } catch {}
 
@@ -6727,7 +6727,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 setTimeout(() => {
                   fetch(triggerUrl.toString(), {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: buildInternalFetchHeaders(),
                     body: JSON.stringify({ session_id: sessionId }),
                   }).catch(() => {});
                 }, 0);
@@ -9018,7 +9018,7 @@ Return ONLY the JSON array, no other text.`,
                 setTimeout(() => {
                   fetch(triggerUrl.toString(), {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: buildInternalFetchHeaders(),
                     body: JSON.stringify({ session_id: sessionId }),
                   }).catch(() => {});
                 }, 0);
