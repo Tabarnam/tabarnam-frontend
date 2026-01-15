@@ -555,9 +555,10 @@ export default function AdminImport() {
           res.status === 404 && body && typeof body === "object" && body.ok === false && body.error === "Unknown session_id";
 
         const hasStructuredBody = body && typeof body === "object";
-        const treatAsOk = Boolean(hasStructuredBody && body.ok === true);
+        const hasStatus = Boolean(typeof body?.status === "string" && body.status.trim());
+        const treatAsOk = Boolean(hasStructuredBody && (body.ok === true || hasStatus));
 
-        if ((!res.ok && !treatAsOk) || (hasStructuredBody && body.ok === false)) {
+        if ((!res.ok && !treatAsOk) || (hasStructuredBody && body.ok === false && !treatAsOk)) {
           const bodyPreview = toPrettyJsonText(body);
           const configMsg = await getUserFacingConfigMessage(res);
           const baseMsg = toErrorString(
