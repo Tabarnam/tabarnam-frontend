@@ -3345,13 +3345,25 @@ export default function AdminImport() {
                     const savedCompanies = Array.isArray(r.saved_companies) ? r.saved_companies : [];
                     const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
-                    const verifiedCount = Number.isFinite(r.saved_verified_count) ? r.saved_verified_count : null;
+                    const verifiedCount =
+                      typeof r.saved_verified_count === "number" && Number.isFinite(r.saved_verified_count)
+                        ? r.saved_verified_count
+                        : null;
+
                     const verifiedIds = Array.isArray(r.saved_company_ids_verified)
                       ? r.saved_company_ids_verified
                       : Array.isArray(r.saved_company_ids)
                         ? r.saved_company_ids
                         : [];
-                    const savedCount = verifiedCount != null ? verifiedCount : verifiedIds.length;
+
+                    const savedCount =
+                      verifiedCount != null
+                        ? verifiedCount
+                        : verifiedIds.length > 0
+                          ? verifiedIds.length
+                          : Number.isFinite(Number(r.saved))
+                            ? Number(r.saved)
+                            : 0;
 
                     const companyId =
                       asString(primarySaved?.company_id).trim() ||
