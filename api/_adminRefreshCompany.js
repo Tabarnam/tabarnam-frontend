@@ -741,13 +741,18 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         !xaiModel ? "Set XAI_MODEL to a valid model name (example: grok-4-latest)." : null,
       ].filter(Boolean);
 
+      pushBreadcrumb("xai_config_error", { missing_env_count: missing_env.length, bad_base_url: Boolean(bad_base_url) });
       return json({
         ok: false,
-        stage,
+        stage: "refresh_company",
+        root_cause: "xai_config_error",
+        retryable: false,
         error: "xAI configuration error",
         missing_env: missing_env.length ? missing_env : undefined,
         bad_base_url: bad_base_url || undefined,
-        details: {
+        attempts,
+        breadcrumbs,
+        diagnostics: {
           hints,
           xai_endpoint: xaiEndpointRaw || null,
           resolved_xai_endpoint: xaiUrl || null,
@@ -757,6 +762,8 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         config,
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
       });
     }
 
