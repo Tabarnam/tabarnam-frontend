@@ -611,19 +611,35 @@ export default function AdminImport() {
         const items = normalizeItems(body?.items || body?.companies);
         const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
 
+        const incomingVerifiedIds = Array.isArray(body?.saved_company_ids_verified)
+          ? body.saved_company_ids_verified
+          : Array.isArray(body?.result?.saved_company_ids_verified)
+            ? body.result.saved_company_ids_verified
+            : [];
+
+        const incomingUnverifiedIds = Array.isArray(body?.saved_company_ids_unverified)
+          ? body.saved_company_ids_unverified
+          : Array.isArray(body?.result?.saved_company_ids_unverified)
+            ? body.result.saved_company_ids_unverified
+            : [];
+
         const savedVerifiedCount =
           typeof body?.saved_verified_count === "number" && Number.isFinite(body.saved_verified_count)
             ? body.saved_verified_count
             : typeof body?.result?.saved_verified_count === "number" && Number.isFinite(body.result.saved_verified_count)
               ? body.result.saved_verified_count
-              : null;
+              : incomingVerifiedIds.length > 0
+                ? incomingVerifiedIds.length
+                : null;
 
         const saved =
           savedVerifiedCount != null
             ? savedVerifiedCount
-            : savedCompanies.length > 0
-              ? savedCompanies.length
-              : 0;
+            : incomingVerifiedIds.length > 0
+              ? incomingVerifiedIds.length
+              : savedCompanies.length > 0
+                ? savedCompanies.length
+                : 0;
 
         const reconciled = Boolean(body?.reconciled);
         const reconcileStrategy = asString(body?.reconcile_strategy).trim();
