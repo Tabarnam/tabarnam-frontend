@@ -510,31 +510,8 @@ async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionC
   const domain = typeof normalizedDomain === "string" ? normalizedDomain.trim().toLowerCase() : "";
   const createdAfterIso = typeof createdAfter === "string" && createdAfter.trim() ? createdAfter.trim() : "";
 
-  // Prefer explicit session linking fields; only fall back to created_at/domain when the linking fields are missing.
-  const createdAtFallbackClause = createdAtIso
-    ? `
-        OR (
-          IS_DEFINED(c.created_at) AND c.created_at >= @createdAt
-          AND (NOT IS_DEFINED(c.session_id) OR c.session_id = "")
-          AND (NOT IS_DEFINED(c.import_session_id) OR c.import_session_id = "")
-          AND (NOT IS_DEFINED(c.import_session) OR c.import_session = "")
-          AND (NOT IS_DEFINED(c.source_session_id) OR c.source_session_id = "")
-          AND (NOT IS_DEFINED(c.source_session) OR c.source_session = "")
-          AND c.source = "xai_import"
-        )
-      `
-    : "";
-
-  const domainFallbackClause =
-    domain && createdAfterIso
-      ? `
-        OR (
-          IS_DEFINED(c.normalized_domain) AND c.normalized_domain = @domain
-          AND IS_DEFINED(c.created_at) AND c.created_at >= @createdAfter
-        )
-      `
-      : "";
-
+  // Truthfulness: only count companies that are explicitly linked to this session.
+  // Avoid domain/created_at fallbacks here because they can inflate saved counts.
   const q = {
     query: `
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
@@ -553,21 +530,10 @@ async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionC
           OR (IS_DEFINED(c.import_session) AND c.import_session = @sid)
           OR (IS_DEFINED(c.source_session_id) AND c.source_session_id = @sid)
           OR (IS_DEFINED(c.source_session) AND c.source_session = @sid)
-          ${createdAtFallbackClause}
-          ${domainFallbackClause}
         )
       ORDER BY c.created_at DESC
     `,
-    parameters: [
-      { name: "@sid", value: sessionId },
-      ...(createdAtIso ? [{ name: "@createdAt", value: createdAtIso }] : []),
-      ...(domain && createdAfterIso
-        ? [
-            { name: "@domain", value: domain },
-            { name: "@createdAfter", value: createdAfterIso },
-          ]
-        : []),
-    ],
+    parameters: [{ name: "@sid", value: sessionId }],
   };
 
   const { resources } = await container.items
@@ -1369,6 +1335,24 @@ async function handler(req, context) {
       (typeof acceptDoc?.stage_beacon === "string" && acceptDoc.stage_beacon.trim() ? acceptDoc.stage_beacon.trim() : null) ||
       (completed ? "complete" : timedOut ? "timeout" : stopped ? "stopped" : "running");
 
+    const cosmosTarget = (() => {
+      const pick = (key) =>
+        (sessionDoc && sessionDoc[key] != null ? sessionDoc[key] : null) ??
+        (completionDoc && completionDoc[key] != null ? completionDoc[key] : null) ??
+        (acceptDoc && acceptDoc[key] != null ? acceptDoc[key] : null) ??
+        null;
+
+      const diag = {
+        cosmos_account_host_redacted: pick("cosmos_account_host_redacted"),
+        cosmos_db_name: pick("cosmos_db_name"),
+        cosmos_container_name: pick("cosmos_container_name"),
+        cosmos_container_partition_key_path: pick("cosmos_container_partition_key_path"),
+      };
+
+      const hasAny = Object.values(diag).some((v) => typeof v === "string" ? v.trim() : v != null);
+      return hasAny ? diag : null;
+    })();
+
     const report = {
       session: sessionDoc
         ? {
@@ -1504,6 +1488,12 @@ async function handler(req, context) {
       ? sessionDoc.saved_company_ids_unverified
       : [];
 
+    const requestObj = sessionDoc?.request && typeof sessionDoc.request === "object" ? sessionDoc.request : null;
+    const requestQueryTypes = Array.isArray(requestObj?.queryTypes)
+      ? requestObj.queryTypes.map((t) => String(t || "").trim()).filter(Boolean)
+      : [];
+    const isCompanyUrlImport = requestQueryTypes.includes("company_url");
+
     if (errorPayload || timedOut || stopped) {
       const errorOut =
         errorPayload ||
@@ -1522,6 +1512,7 @@ async function handler(req, context) {
           job_state: null,
           stage_beacon,
           stage_beacon_values: stageBeaconValues,
+          ...(cosmosTarget ? cosmosTarget : {}),
           primary_job_state: null,
           elapsed_ms: null,
           remaining_budget_ms: null,
@@ -1562,6 +1553,94 @@ async function handler(req, context) {
       );
     }
 
+    if (isCompanyUrlImport && effectiveCompleted && saved_verified_count === 0) {
+      const failed_items =
+        Array.isArray(completionDoc?.failed_items)
+          ? completionDoc.failed_items
+          : Array.isArray(sessionDoc?.failed_items)
+            ? sessionDoc.failed_items
+            : [];
+
+      const skipped_ids = Array.isArray(completionDoc?.skipped_ids)
+        ? completionDoc.skipped_ids
+        : Array.isArray(sessionDoc?.skipped_ids)
+          ? sessionDoc.skipped_ids
+          : [];
+
+      const errorOut = {
+        code: "COSMOS_SAVE_FAILED",
+        message: "company_url import completed without a persisted seed company",
+      };
+
+      return jsonWithSessionId(
+        {
+          ok: false,
+          root_cause: "cosmos_save_failed",
+          session_id: sessionId,
+          status: "error",
+          state: "failed",
+          job_state: null,
+          stage_beacon: "cosmos_save_failed",
+          stage_beacon_values: stageBeaconValues,
+          ...(cosmosTarget ? cosmosTarget : {}),
+          primary_job_state: null,
+          elapsed_ms: null,
+          remaining_budget_ms: null,
+          upstream_calls_made: 0,
+          companies_candidates_found: 0,
+          early_exit_triggered: false,
+          last_heartbeat_at: null,
+          lock_until: null,
+          attempts: 0,
+          last_error: errorOut,
+          companies_count: 0,
+          error: errorOut,
+          items,
+          saved: 0,
+          saved_verified_count: 0,
+          saved_company_ids_verified: [],
+          saved_company_ids_unverified,
+          save_report: {
+            saved: 0,
+            saved_verified_count: 0,
+            skipped:
+              typeof completionDoc?.skipped === "number"
+                ? completionDoc.skipped
+                : typeof sessionDoc?.skipped === "number"
+                  ? sessionDoc.skipped
+                  : 0,
+            failed:
+              typeof completionDoc?.failed === "number"
+                ? completionDoc.failed
+                : typeof sessionDoc?.failed === "number"
+                  ? sessionDoc.failed
+                  : 0,
+            skipped_ids,
+            failed_items,
+          },
+          reconciled,
+          reconcile_strategy,
+          reconciled_saved_ids,
+          saved_companies,
+          resume_needed: false,
+          resume: {
+            needed: false,
+            doc_created: false,
+            triggered: false,
+            trigger_error: null,
+            missing_by_company: [],
+          },
+          enrichment_health_summary,
+          lastCreatedAt,
+          timedOut,
+          stopped,
+          report,
+        },
+        200,
+        req
+      );
+    }
+
     if (effectiveCompleted) {
       return jsonWithSessionId(
         {
@@ -1572,6 +1651,7 @@ async function handler(req, context) {
           job_state: null,
           stage_beacon,
           stage_beacon_values: stageBeaconValues,
+          ...(cosmosTarget ? cosmosTarget : {}),
           primary_job_state: null,
           elapsed_ms: null,
           remaining_budget_ms: null,
@@ -1628,6 +1708,7 @@ async function handler(req, context) {
         job_state: null,
         stage_beacon: resume_needed ? "enrichment_resume_pending" : stage_beacon,
         stage_beacon_values: stageBeaconValues,
+        ...(cosmosTarget ? cosmosTarget : {}),
         primary_job_state: null,
         elapsed_ms: null,
         remaining_budget_ms: null,

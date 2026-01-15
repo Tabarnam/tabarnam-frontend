@@ -555,9 +555,10 @@ export default function AdminImport() {
           res.status === 404 && body && typeof body === "object" && body.ok === false && body.error === "Unknown session_id";
 
         const hasStructuredBody = body && typeof body === "object";
-        const treatAsOk = Boolean(hasStructuredBody && body.ok === true);
+        const hasStatus = Boolean(typeof body?.status === "string" && body.status.trim());
+        const treatAsOk = Boolean(hasStructuredBody && (body.ok === true || hasStatus));
 
-        if ((!res.ok && !treatAsOk) || (hasStructuredBody && body.ok === false)) {
+        if ((!res.ok && !treatAsOk) || (hasStructuredBody && body.ok === false && !treatAsOk)) {
           const bodyPreview = toPrettyJsonText(body);
           const configMsg = await getUserFacingConfigMessage(res);
           const baseMsg = toErrorString(
@@ -3099,7 +3100,20 @@ export default function AdminImport() {
                     return items;
                   })().map((c) => {
                     const name = asString(c?.company_name || c?.name).trim() || "(unnamed)";
-                    const url = asString(c?.canonical_url || c?.website_url || c?.url).trim();
+                    const urlRaw = asString(c?.canonical_url || c?.website_url || c?.url).trim();
+                    const queryUrlRaw = asString(activeRun?.query).trim();
+                    const queryLooksLikeUrl = looksLikeUrlOrDomain(queryUrlRaw);
+                    const queryUrlNormalized = queryLooksLikeUrl
+                      ? /^https?:\/\//i.test(queryUrlRaw)
+                        ? queryUrlRaw
+                        : `https://${queryUrlRaw}`
+                      : "";
+
+                    const displayUrl = urlRaw || queryUrlNormalized;
+                    const seedMissingBug =
+                      Array.isArray(activeRun?.queryTypes) &&
+                      activeRun.queryTypes.includes("company_url") &&
+                      Boolean(queryUrlNormalized && !urlRaw);
 
                     const keywordsCanonical =
                       Array.isArray(c?.keywords) && c.keywords.length > 0
@@ -3112,7 +3126,8 @@ export default function AdminImport() {
                     const keywordsText = keywordsList.join(", ");
 
                     const issues = [];
-                    if (!url) issues.push("missing url");
+                    if (!displayUrl) issues.push("missing url");
+                    if (seedMissingBug) issues.push("seed missing (bug)");
 
                     // Truthfulness: do not flag missing keywords based on seed/pre-save items.
                     // Only evaluate keywords once we're rendering saved (persisted) company docs.
@@ -3124,15 +3139,22 @@ export default function AdminImport() {
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <div className="font-semibold text-slate-900">{name}</div>
-                            {url ? (
-                              <a
-                                className="text-sm text-blue-700 underline break-all"
-                                href={url}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                {url}
-                              </a>
+                            {displayUrl ? (
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                                <a
+                                  className="text-sm text-blue-700 underline break-all"
+                                  href={displayUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  {displayUrl}
+                                </a>
+                                {seedMissingBug ? (
+                                  <span className="rounded border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] text-rose-800">
+                                    Seed missing (bug)
+                                  </span>
+                                ) : null}
+                              </div>
                             ) : (
                               <div className="text-sm text-slate-500">No URL</div>
                             )}
@@ -3220,12 +3242,12 @@ export default function AdminImport() {
                     const primarySaved = savedCompanies.length > 0 ? savedCompanies[0] : null;
 
                     const verifiedCount = Number.isFinite(r.saved_verified_count) ? r.saved_verified_count : null;
-                    const savedCount =
-                      verifiedCount != null
-                        ? verifiedCount
-                        : savedCompanies.length > 0
-                          ? savedCompanies.length
-                          : 0;
+                    const verifiedIds = Array.isArray(r.saved_company_ids_verified)
+                      ? r.saved_company_ids_verified
+                      : Array.isArray(r.saved_company_ids)
+                        ? r.saved_company_ids
+                        : [];
+                    const savedCount = verifiedCount != null ? verifiedCount : verifiedIds.length;
 
                     const companyId =
                       asString(primarySaved?.company_id).trim() ||
@@ -3282,9 +3304,21 @@ export default function AdminImport() {
                           ? "Saved (verified) — company doc missing"
                           : "Company candidate";
 
-                    const websiteUrl = asString(
+                    const websiteUrlRaw = asString(
                       primaryCandidate?.canonical_url || primaryCandidate?.website_url || primaryCandidate?.url
                     ).trim();
+
+                    const queryUrlRaw = asString(r.query).trim();
+                    const queryLooksLikeUrl = looksLikeUrlOrDomain(queryUrlRaw);
+                    const queryUrlNormalized = queryLooksLikeUrl
+                      ? /^https?:\/\//i.test(queryUrlRaw)
+                        ? queryUrlRaw
+                        : `https://${queryUrlRaw}`
+                      : "";
+
+                    const websiteUrl = websiteUrlRaw || queryUrlNormalized;
+                    const isCompanyUrlRun = Array.isArray(r.queryTypes) ? r.queryTypes.includes("company_url") : false;
+                    const seedMissingBug = isCompanyUrlRun && Boolean(queryUrlNormalized && !websiteUrlRaw);
                     const isRefreshing = statusRefreshSessionId === r.session_id;
 
                     const jobState = asString(r.final_job_state || r.job_state).trim().toLowerCase();
@@ -3353,15 +3387,22 @@ export default function AdminImport() {
                           <div className="min-w-0">
                             <div className="font-semibold text-slate-900 truncate">{companyName}</div>
                             {websiteUrl ? (
-                              <a
-                                className="mt-1 block text-xs text-blue-700 underline break-all"
-                                href={websiteUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {websiteUrl}
-                              </a>
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                                <a
+                                  className="text-xs text-blue-700 underline break-all"
+                                  href={websiteUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {websiteUrl}
+                                </a>
+                                {seedMissingBug ? (
+                                  <span className="rounded border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] text-rose-800">
+                                    Seed missing (bug)
+                                  </span>
+                                ) : null}
+                              </div>
                             ) : (
                               <div className="mt-1 text-xs text-slate-500">No URL</div>
                             )}
@@ -3458,12 +3499,12 @@ export default function AdminImport() {
                           : null;
 
                       const verifiedCount = Number.isFinite(activeRun.saved_verified_count) ? activeRun.saved_verified_count : null;
-                      const savedCount =
-                        verifiedCount != null
-                          ? verifiedCount
-                          : savedCompanies.length > 0
-                            ? savedCompanies.length
-                            : 0;
+                      const verifiedIds = Array.isArray(activeRun.saved_company_ids_verified)
+                        ? activeRun.saved_company_ids_verified
+                        : Array.isArray(activeRun.saved_company_ids)
+                          ? activeRun.saved_company_ids
+                          : [];
+                      const savedCount = verifiedCount != null ? verifiedCount : verifiedIds.length;
 
                       const stageBeacon = asString(activeRun.final_stage_beacon || activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
                       const persistedDetected = savedCount > 0 || stageBeacon === "cosmos_write_done";
@@ -3504,13 +3545,25 @@ export default function AdminImport() {
                             : savedCount > 0
                               ? "Saved (verified) but cannot read company doc"
                               : "Company candidate");
-                      const websiteUrl = asString(
+                      const websiteUrlRaw = asString(
                         primaryDoc?.canonical_url ||
                           primaryDoc?.website_url ||
                           primaryCandidate?.canonical_url ||
                           primaryCandidate?.website_url ||
                           primaryCandidate?.url
                       ).trim();
+
+                      const queryUrlRaw = asString(activeRun.query).trim();
+                      const queryLooksLikeUrl = looksLikeUrlOrDomain(queryUrlRaw);
+                      const queryUrlNormalized = queryLooksLikeUrl
+                        ? /^https?:\/\//i.test(queryUrlRaw)
+                          ? queryUrlRaw
+                          : `https://${queryUrlRaw}`
+                        : "";
+
+                      const websiteUrl = websiteUrlRaw || queryUrlNormalized;
+                      const isCompanyUrlRun = Array.isArray(activeRun.queryTypes) ? activeRun.queryTypes.includes("company_url") : false;
+                      const seedMissingBug = isCompanyUrlRun && Boolean(queryUrlNormalized && !websiteUrlRaw);
 
                       const enrichmentMissingFields = (() => {
                         const missing = new Set();
@@ -3534,14 +3587,21 @@ export default function AdminImport() {
                             <div className="min-w-0">
                               <div className="font-semibold text-slate-900">{companyName}</div>
                               {websiteUrl ? (
-                                <a
-                                  className="mt-1 block text-sm text-blue-700 underline break-all"
-                                  href={websiteUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  {websiteUrl}
-                                </a>
+                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                  <a
+                                    className="text-sm text-blue-700 underline break-all"
+                                    href={websiteUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    {websiteUrl}
+                                  </a>
+                                  {seedMissingBug ? (
+                                    <span className="rounded border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] text-rose-800">
+                                      Seed missing (bug)
+                                    </span>
+                                  ) : null}
+                                </div>
                               ) : (
                                 <div className="mt-1 text-sm text-slate-600">No URL</div>
                               )}

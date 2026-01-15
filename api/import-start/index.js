@@ -6062,7 +6062,99 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               saveReport = saveResult;
             }
 
-            const canResume = canPersist && Number(saveResult.saved || 0) > 0;
+            const queryUrlForTelemetry = String(seed.company_url || seed.website_url || seed.url || "").trim();
+            const normalizedDomainForTelemetry = String(seed.normalized_domain || "").trim();
+
+            const getDuplicateOfId = (result) => {
+              const dup =
+                Array.isArray(result?.skipped_duplicates)
+                  ? result.skipped_duplicates
+                      .map((d) => String(d?.duplicate_of_id || "").trim())
+                      .find(Boolean)
+                  : "";
+              if (dup) return dup;
+
+              const fromSkippedIds =
+                Array.isArray(result?.skipped_ids)
+                  ? result.skipped_ids.map((id) => String(id || "").trim()).find(Boolean)
+                  : "";
+              return fromSkippedIds || "";
+            };
+
+            let save_outcome = "not_persisted";
+            if (dryRunRequested) save_outcome = "dry_run";
+
+            if (canPersist) {
+              const verifiedCountPre = Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0;
+              const writeCountPre = Number(saveResult.saved_write_count || 0) || 0;
+
+              if (verifiedCountPre > 0) {
+                save_outcome = "saved_verified";
+              } else if (getDuplicateOfId(saveResult)) {
+                save_outcome = "duplicate_detected";
+              } else if (writeCountPre > 0) {
+                save_outcome = "read_after_write_failed";
+              } else if (Number(saveResult.failed || 0) > 0) {
+                save_outcome = "cosmos_write_failed";
+              } else if (Number(saveResult.skipped || 0) > 0) {
+                save_outcome = "validation_failed_missing_required_fields";
+              } else {
+                save_outcome = "cosmos_write_failed";
+              }
+
+              // If we skipped due to duplicate, treat the existing company doc as a verified saved result.
+              if (
+                save_outcome === "duplicate_detected" &&
+                (Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0) === 0
+              ) {
+                const duplicateOfId = getDuplicateOfId(saveResult);
+                if (duplicateOfId) {
+                  try {
+                    const container = getCompaniesCosmosContainer();
+                    const existingDoc = container
+                      ? await readItemWithPkCandidates(container, duplicateOfId, {
+                          id: duplicateOfId,
+                          normalized_domain: normalizedDomainForTelemetry,
+                          partition_key: normalizedDomainForTelemetry,
+                        }).catch(() => null)
+                      : null;
+
+                    if (existingDoc) {
+                      saveResult = {
+                        ...saveResult,
+                        saved: 1,
+                        skipped: 0,
+                        failed: 0,
+                        saved_ids: [duplicateOfId],
+                        skipped_ids: [],
+                        failed_items: [],
+                        saved_company_ids_verified: [duplicateOfId],
+                        saved_company_ids_unverified: [],
+                        saved_verified_count: 1,
+                        saved_write_count: 0,
+                        saved_ids_write: [],
+                        duplicate_of_id: duplicateOfId,
+                      };
+                    } else {
+                      save_outcome = "read_after_write_failed";
+                    }
+                  } catch {
+                    save_outcome = "read_after_write_failed";
+                  }
+                }
+              }
+
+              if (saveResult && typeof saveResult === "object") {
+                saveResult.save_outcome = save_outcome;
+                saveResult.seed_url = queryUrlForTelemetry || null;
+                saveResult.seed_normalized_domain = normalizedDomainForTelemetry || null;
+              }
+
+              saveReport = saveResult;
+            }
+
+            const verifiedCount = Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0;
+            const canResume = canPersist && verifiedCount > 0;
 
             if (canResume) {
               if (cosmosEnabled) {
@@ -6110,6 +6202,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     patch: {
                       status: "running",
                       stage_beacon: "company_url_seed_fallback",
+                      save_outcome,
                       saved: verifiedCount,
                       skipped: Number(saveResult.skipped || 0),
                       failed: Number(saveResult.failed || 0),
@@ -6187,6 +6280,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     accepted_reason: typeof acceptedError?.reason === "string" ? acceptedError.reason : undefined,
                   },
                   ...(cosmosTarget ? cosmosTarget : {}),
+                  save_outcome,
                   saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
                   saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
                     ? saveResult.saved_company_ids_verified
@@ -6203,6 +6297,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
                     skipped: Number(saveResult.skipped || 0),
                     failed: Number(saveResult.failed || 0),
+                    save_outcome,
                     saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
                     saved_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
                     saved_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
@@ -6218,23 +6313,56 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               );
             }
 
-            const seedSaveFailed =
-              canPersist &&
-              (Number(saveResult.failed || 0) > 0 ||
-                (Number(saveResult.saved || 0) === 0 && Number(saveResult.skipped || 0) === 0));
+            const seedVerifiedCount = Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0;
+            const seedWriteCount = Number(saveResult.saved_write_count || 0) || 0;
+            const seedSaveFailed = canPersist && seedVerifiedCount === 0;
 
             if (seedSaveFailed) {
               const firstFailure = Array.isArray(saveResult.failed_items) && saveResult.failed_items.length > 0
                 ? saveResult.failed_items[0]
                 : null;
 
-              const errorMessage =
-                typeof firstFailure?.error === "string" && firstFailure.error.trim()
-                  ? firstFailure.error.trim()
-                  : "Failed to save company seed";
+              const firstSkipped =
+                Array.isArray(saveResult.skipped_duplicates) && saveResult.skipped_duplicates.length > 0
+                  ? saveResult.skipped_duplicates[0]
+                  : null;
+
+              const outcome = typeof saveResult?.save_outcome === "string" ? saveResult.save_outcome.trim() : "";
+
+              const errorMessage = (() => {
+                const failedMsg = typeof firstFailure?.error === "string" && firstFailure.error.trim() ? firstFailure.error.trim() : "";
+                if (failedMsg) return failedMsg;
+
+                if (seedWriteCount > 0) {
+                  return "Cosmos write reported success, but read-after-write verification could not confirm the saved document.";
+                }
+
+                if (outcome === "validation_failed_missing_required_fields") {
+                  return "Seed was rejected before persistence (missing required fields or enrichment markers).";
+                }
+
+                const dupId = String(firstSkipped?.duplicate_of_id || "").trim();
+                if (dupId) {
+                  return `Seed was treated as a duplicate of ${dupId}, but the existing company doc could not be verified.`;
+                }
+
+                return "Failed to save company seed";
+              })();
+
+              const failureStage =
+                seedWriteCount > 0
+                  ? "read_after_write_failed"
+                  : outcome === "validation_failed_missing_required_fields"
+                    ? "validation_failed_missing_required_fields"
+                    : "cosmos_write_failed";
 
               const last_error = {
-                code: "COSMOS_SAVE_FAILED",
+                code:
+                  failureStage === "read_after_write_failed"
+                    ? "READ_AFTER_WRITE_FAILED"
+                    : failureStage === "validation_failed_missing_required_fields"
+                      ? "VALIDATION_FAILED"
+                      : "COSMOS_SAVE_FAILED",
                 message: errorMessage,
               };
 
@@ -6246,7 +6374,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       id: `_import_error_${sessionId}`,
                       ...buildImportControlDocBase(sessionId),
                       request_id: requestId,
-                      stage: "cosmos_write_failed",
+                      stage: failureStage,
                       error: {
                         ...last_error,
                         request_id: requestId,
@@ -6265,8 +6393,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       requestId,
                       patch: {
                         status: "error",
-                        stage_beacon: "cosmos_write_failed",
+                        stage_beacon: failureStage,
                         last_error,
+                        save_outcome: outcome || failureStage,
                         saved: 0,
                         saved_verified_count: 0,
                         saved_company_ids_verified: [],
@@ -6291,7 +6420,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   session_id: sessionId,
                   request_id: requestId,
                   status: "error",
-                  stage_beacon: "cosmos_write_failed",
+                  stage_beacon: failureStage,
                   companies_count: companies.length,
                   resume_needed: false,
                   last_error,
@@ -6305,7 +6434,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   ok: false,
                   session_id: sessionId,
                   request_id: requestId,
-                  stage_beacon: "cosmos_write_failed",
+                  stage_beacon: failureStage,
                   status: "error",
                   resume_needed: false,
                   company_name: seed.company_name,
@@ -6319,6 +6448,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   },
                   ...(cosmosTarget ? cosmosTarget : {}),
                   last_error,
+                  save_outcome: outcome || failureStage,
                   saved_verified_count: 0,
                   saved_company_ids_verified: [],
                   saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
@@ -6333,6 +6463,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
                     skipped: Number(saveResult.skipped || 0),
                     failed: Number(saveResult.failed || 0),
+                    save_outcome: outcome || failureStage,
                     saved_ids: [],
                     saved_ids_verified: [],
                     saved_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
@@ -6458,7 +6589,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
           // Core rule: company_url imports must never spend the full request budget on inline enrichment.
           // Persist a deterministic seed immediately and let resume-worker do the heavy lifting.
-          if (isCompanyUrlImport && inputCompanies.length === 0 && !skipStages.has("primary")) {
+          if (isCompanyUrlImport && !skipStages.has("primary") && maxStage !== "primary") {
             mark("company_url_seed_short_circuit");
             return await respondWithCompanyUrlSeedFallback(null);
           }
