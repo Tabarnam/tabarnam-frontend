@@ -874,19 +874,26 @@ export default function AdminImport() {
       if (!sid) return;
 
       try {
-        const resumeUrl = join(API_BASE, "import/resume-worker");
-        const res = await fetch(`${resumeUrl}?session_id=${encodeURIComponent(sid)}`, {
-          method: "POST",
+        const statusUrl = join(API_BASE, "import/status");
+        const res = await fetch(`${statusUrl}?session_id=${encodeURIComponent(sid)}&force_resume=1`, {
+          method: "GET",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: sid }),
           keepalive: true,
         });
 
-        if (!res.ok) {
+        const body = await readJsonOrText(res);
+        const triggered = Boolean(body?.resume?.triggered);
+        const triggerError = asString(
+          body?.resume?.trigger_error || body?.resume_error || body?.error || body?.message || ""
+        ).trim();
+
+        if (triggered) {
+          toast.success("Resume requested");
+        } else if (triggerError) {
+          toast.error(triggerError);
+        } else {
           const msg = (await getUserFacingConfigMessage(res)) || `Retry resume failed (HTTP ${res.status})`;
           toast.error(msg);
-        } else {
-          toast.success("Resume requested");
         }
       } catch (e) {
         toast.error(toErrorString(e) || "Retry resume failed");

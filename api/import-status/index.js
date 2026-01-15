@@ -13,6 +13,7 @@ try {
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { getJob: getImportPrimaryJob, patchJob: patchImportPrimaryJob } = require("../_importPrimaryJobStore");
 const { runPrimaryJob } = require("../_importPrimaryWorker");
+const { buildInternalFetchHeaders } = require("../_internalJobAuth");
 const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
@@ -305,7 +306,8 @@ async function fetchRecentCompanies(container, { sessionId, take, normalizedDoma
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
         c.industries, c.product_keywords, c.keywords,
         c.headquarters_location, c.manufacturing_locations,
-        c.curated_reviews, c.review_count, c.review_cursor,
+        c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
+        c.tagline, c.logo_url, c.logo_stage_status,
         c.hq_unknown, c.hq_unknown_reason,
         c.mfg_unknown, c.mfg_unknown_reason,
         c.red_flag, c.red_flag_reason
@@ -350,7 +352,8 @@ async function fetchCompaniesByIds(container, ids) {
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
         c.industries, c.product_keywords, c.keywords,
         c.headquarters_location, c.manufacturing_locations,
-        c.curated_reviews, c.review_count, c.review_cursor,
+        c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
+        c.tagline, c.logo_url, c.logo_stage_status,
         c.hq_unknown, c.hq_unknown_reason,
         c.mfg_unknown, c.mfg_unknown_reason,
         c.red_flag, c.red_flag_reason
@@ -399,24 +402,52 @@ function computeEnrichmentHealth(company) {
   const mfgReason = String(c.mfg_unknown_reason || c.red_flag_reason || "").trim();
   const hasMfg = manufacturingLocations.length > 0 || Boolean(c.mfg_unknown && mfgReason);
 
+  const taglineRaw = typeof c.tagline === "string" ? c.tagline.trim() : "";
+  const taglineLower = taglineRaw.toLowerCase();
+  const hasTagline = Boolean(taglineRaw) && taglineLower !== "unknown" && taglineLower !== "n/a" && taglineLower !== "na" && taglineLower !== "none";
+
+  const logoStage = String(c.logo_stage_status || "").trim();
+  const logoUrl = String(c.logo_url || "").trim();
+  const hasLogo = logoStage === "ok" || Boolean(logoUrl);
+
   const hasReviewCount = typeof c.review_count === "number" && Number.isFinite(c.review_count);
-  const hasCuratedReviewsField = Array.isArray(c.curated_reviews);
+  const curatedReviews = Array.isArray(c.curated_reviews) ? c.curated_reviews : [];
+  const reviewCount = hasReviewCount ? Number(c.review_count) : curatedReviews.length;
   const hasReviewCursorField = Boolean(c.review_cursor && typeof c.review_cursor === "object");
-  const hasReviewsField = hasReviewCount && hasCuratedReviewsField && hasReviewCursorField;
+  const hasReviewsField = hasReviewCount && Array.isArray(c.curated_reviews) && hasReviewCursorField;
+
+  const reviewsStageRaw = String(
+    c.reviews_stage_status ||
+      (c.review_cursor && typeof c.review_cursor === "object" ? c.review_cursor.reviews_stage_status : "") ||
+      ""
+  ).trim();
+  const reviewsStage = reviewsStageRaw.toLowerCase();
+  const hasReviewsStageOk = reviewsStage === "ok";
+
+  const hasReviews = reviewsStageRaw
+    ? hasReviewsStageOk && reviewCount > 0
+    : hasReviewsField && reviewCount > 0;
 
   const missing_fields = [];
   if (!hasIndustries) missing_fields.push("industries");
   if (!hasKeywords) missing_fields.push("product_keywords");
+  if (!hasTagline) missing_fields.push("tagline");
   if (!hasHq) missing_fields.push("headquarters_location");
   if (!hasMfg) missing_fields.push("manufacturing_locations");
-  if (!hasReviewsField) missing_fields.push("reviews");
+  if (!hasLogo) missing_fields.push("logo");
+  if (!hasReviews) missing_fields.push("reviews");
 
   return {
     has_industries: hasIndustries,
     has_keywords: hasKeywords,
+    has_tagline: hasTagline,
     has_hq: hasHq,
     has_mfg: hasMfg,
+    has_logo: hasLogo,
+    has_reviews: hasReviews,
     has_reviews_field: hasReviewsField,
+    reviews_stage_status: reviewsStageRaw || null,
+    logo_stage_status: logoStage || null,
     missing_fields,
   };
 }
@@ -517,7 +548,8 @@ async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionC
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
         c.industries, c.product_keywords, c.keywords,
         c.headquarters_location, c.manufacturing_locations,
-        c.curated_reviews, c.review_count, c.review_cursor,
+        c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
+        c.tagline, c.logo_url, c.logo_stage_status,
         c.hq_unknown, c.hq_unknown_reason,
         c.mfg_unknown, c.mfg_unknown_reason,
         c.red_flag, c.red_flag_reason
@@ -551,6 +583,13 @@ async function handler(req, context) {
   const url = new URL(req.url);
   const sessionId = String(url.searchParams.get("session_id") || "").trim();
   const take = Number(url.searchParams.get("take") || "10") || 10;
+  const forceResume =
+    String(
+      url.searchParams.get("force_resume") ||
+        url.searchParams.get("forceResume") ||
+        url.searchParams.get("trigger_resume") ||
+        ""
+    ).trim() === "1";
 
   if (!sessionId) {
     return json({ ok: false, error: "Missing session_id" }, 400, req);
@@ -688,6 +727,7 @@ async function handler(req, context) {
     let saved_company_urls = [];
     let save_outcome = null;
     let resume_error = null;
+    let resume_error_details = null;
 
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
@@ -748,6 +788,11 @@ async function handler(req, context) {
 
         resume_error =
           typeof sessionDoc?.resume_error === "string" && sessionDoc.resume_error.trim() ? sessionDoc.resume_error.trim() : null;
+
+        resume_error_details =
+          sessionDoc?.resume_error_details && typeof sessionDoc.resume_error_details === "object"
+            ? sessionDoc.resume_error_details
+            : null;
 
         const completionSavedIds = Array.isArray(completionDoc?.saved_ids) ? completionDoc.saved_ids : [];
         const completionSaved = typeof completionDoc?.saved === "number" ? completionDoc.saved : null;
@@ -951,6 +996,7 @@ async function handler(req, context) {
     let resume_doc_created = false;
     let resume_triggered = false;
     let resume_trigger_error = null;
+    let resume_trigger_error_details = null;
 
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
@@ -986,21 +1032,36 @@ async function handler(req, context) {
         const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
         const canTrigger = !lockUntil || Date.now() >= lockUntil;
 
-        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "error")) {
+        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "error" || (forceResume && resumeStatus !== "running"))) {
           stageBeaconValues.status_trigger_resume_worker = nowIso();
 
           const base = new URL(req.url);
           const workerUrl = new URL("/api/import/resume-worker", base.origin);
 
+          const workerHeaders = buildInternalFetchHeaders();
+
           const workerRes = await fetch(workerUrl.toString(), {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: workerHeaders,
             body: JSON.stringify({ session_id: sessionId }),
           }).catch((e) => ({ ok: false, status: 0, _error: e }));
 
+          let workerText = "";
+          try {
+            if (workerRes && typeof workerRes.text === "function") workerText = await workerRes.text();
+          } catch {}
+
           resume_triggered = Boolean(workerRes?.ok);
           if (!resume_triggered) {
-            resume_trigger_error = workerRes?._error?.message || `resume_worker_http_${Number(workerRes?.status || 0)}`;
+            const statusCode = Number(workerRes?.status || 0) || 0;
+            const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
+
+            resume_trigger_error = workerRes?._error?.message || `resume_worker_http_${statusCode}`;
+            resume_trigger_error_details = {
+              http_status: statusCode,
+              used_url: workerUrl.toString(),
+              response_text_preview: preview || null,
+            };
           }
         }
       }
@@ -1061,6 +1122,7 @@ async function handler(req, context) {
         saved_company_urls,
         save_outcome,
         resume_error,
+        resume_error_details,
         reconciled,
         reconcile_strategy,
         reconciled_saved_ids,
@@ -1071,6 +1133,7 @@ async function handler(req, context) {
           doc_created: resume_doc_created,
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
+          trigger_error_details: resume_trigger_error_details,
           missing_by_company,
         },
         enrichment_health_summary,
@@ -1222,6 +1285,8 @@ async function handler(req, context) {
       const save_outcome = typeof mem.save_outcome === "string" && mem.save_outcome.trim() ? mem.save_outcome.trim() : null;
       const resume_needed = typeof mem.resume_needed === "boolean" ? mem.resume_needed : false;
       const resume_error = typeof mem.resume_error === "string" && mem.resume_error.trim() ? mem.resume_error.trim() : null;
+      const resume_error_details =
+        mem.resume_error_details && typeof mem.resume_error_details === "object" ? mem.resume_error_details : null;
 
       const saved = Number.isFinite(Number(mem.saved)) ? Number(mem.saved) : saved_verified_count;
 
@@ -1253,6 +1318,8 @@ async function handler(req, context) {
           save_outcome,
           resume_needed,
           resume_error,
+          resume_error_details,
+        resume_error_details,
           saved_companies: [],
         },
         200,
@@ -1279,6 +1346,8 @@ async function handler(req, context) {
         const save_outcome = typeof mem.save_outcome === "string" && mem.save_outcome.trim() ? mem.save_outcome.trim() : null;
         const resume_needed = typeof mem.resume_needed === "boolean" ? mem.resume_needed : false;
         const resume_error = typeof mem.resume_error === "string" && mem.resume_error.trim() ? mem.resume_error.trim() : null;
+      const resume_error_details =
+        mem.resume_error_details && typeof mem.resume_error_details === "object" ? mem.resume_error_details : null;
 
         const saved = Number.isFinite(Number(mem.saved)) ? Number(mem.saved) : saved_verified_count;
 
@@ -1310,6 +1379,8 @@ async function handler(req, context) {
             save_outcome,
             resume_needed,
             resume_error,
+          resume_error_details,
+        resume_error_details,
             saved_companies: [],
           },
           200,
@@ -1551,6 +1622,7 @@ async function handler(req, context) {
     let resume_doc_created = false;
     let resume_triggered = false;
     let resume_trigger_error = null;
+    let resume_trigger_error_details = null;
 
     if (resume_needed) {
       try {
@@ -1579,21 +1651,36 @@ async function handler(req, context) {
         const lockUntil = Date.parse(String(currentResume?.lock_expires_at || "")) || 0;
         const canTrigger = !lockUntil || Date.now() >= lockUntil;
 
-        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "error")) {
+        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "error" || (forceResume && resumeStatus !== "running"))) {
           stageBeaconValues.status_trigger_resume_worker = nowIso();
 
           const base = new URL(req.url);
           const workerUrl = new URL("/api/import/resume-worker", base.origin);
 
+          const workerHeaders = buildInternalFetchHeaders();
+
           const workerRes = await fetch(workerUrl.toString(), {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: workerHeaders,
             body: JSON.stringify({ session_id: sessionId }),
           }).catch((e) => ({ ok: false, status: 0, _error: e }));
 
+          let workerText = "";
+          try {
+            if (workerRes && typeof workerRes.text === "function") workerText = await workerRes.text();
+          } catch {}
+
           resume_triggered = Boolean(workerRes?.ok);
           if (!resume_triggered) {
-            resume_trigger_error = workerRes?._error?.message || `resume_worker_http_${Number(workerRes?.status || 0)}`;
+            const statusCode = Number(workerRes?.status || 0) || 0;
+            const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
+
+            resume_trigger_error = workerRes?._error?.message || `resume_worker_http_${statusCode}`;
+            resume_trigger_error_details = {
+              http_status: statusCode,
+              used_url: workerUrl.toString(),
+              response_text_preview: preview || null,
+            };
           }
         }
       } catch (e) {
@@ -1605,6 +1692,8 @@ async function handler(req, context) {
         await upsertDoc(container, {
           ...sessionDoc,
           resume_error: String(resume_trigger_error || "").trim(),
+          resume_error_details:
+            resume_trigger_error_details && typeof resume_trigger_error_details === "object" ? resume_trigger_error_details : null,
           resume_error_at: now,
           updated_at: now,
         }).catch(() => null);
@@ -1645,6 +1734,9 @@ async function handler(req, context) {
 
     const resume_error =
       typeof sessionDoc?.resume_error === "string" && sessionDoc.resume_error.trim() ? sessionDoc.resume_error.trim() : null;
+
+    const resume_error_details =
+      sessionDoc?.resume_error_details && typeof sessionDoc.resume_error_details === "object" ? sessionDoc.resume_error_details : null;
 
     const requestObj = sessionDoc?.request && typeof sessionDoc.request === "object" ? sessionDoc.request : null;
     const requestQueryTypes = Array.isArray(requestObj?.queryTypes)
@@ -1691,6 +1783,8 @@ async function handler(req, context) {
           saved_company_urls,
           save_outcome,
           resume_error,
+          resume_error_details,
+        resume_error_details,
           reconciled,
           reconcile_strategy,
           reconciled_saved_ids,
@@ -1701,6 +1795,7 @@ async function handler(req, context) {
             doc_created: resume_doc_created,
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
+          trigger_error_details: resume_trigger_error_details,
             missing_by_company,
           },
           enrichment_health_summary,
@@ -1764,6 +1859,8 @@ async function handler(req, context) {
           saved_company_urls,
           save_outcome,
           resume_error,
+          resume_error_details,
+        resume_error_details,
           save_report: {
             saved: 0,
             saved_verified_count: 0,
@@ -1845,6 +1942,8 @@ async function handler(req, context) {
           saved_company_urls,
           save_outcome,
           resume_error,
+          resume_error_details,
+        resume_error_details,
           reconciled,
           reconcile_strategy,
           reconciled_saved_ids,
@@ -1855,6 +1954,7 @@ async function handler(req, context) {
             doc_created: resume_doc_created,
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
+          trigger_error_details: resume_trigger_error_details,
             missing_by_company,
           },
           enrichment_health_summary,
@@ -1895,6 +1995,7 @@ async function handler(req, context) {
         saved_company_urls,
         save_outcome,
         resume_error,
+        resume_error_details,
         reconciled,
         reconcile_strategy,
         reconciled_saved_ids,
@@ -1905,6 +2006,7 @@ async function handler(req, context) {
           doc_created: resume_doc_created,
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
+          trigger_error_details: resume_trigger_error_details,
           missing_by_company,
         },
         enrichment_health_summary,
