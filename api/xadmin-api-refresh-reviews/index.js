@@ -1015,6 +1015,8 @@ async function handler(req, context, opts) {
       const lockWindowMs = Math.max(8000, Math.min(25000, budgetMs + 2000));
       const lockUntil = nowMs + lockWindowMs;
 
+      pushBreadcrumb("lock_set", { lock_until_ms: lockUntil });
+
       cursor.last_attempt_at = nowIso();
 
       await patchCompanyById(companiesContainer, company_id, company, {
