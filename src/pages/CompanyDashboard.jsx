@@ -4008,6 +4008,18 @@ export default function CompanyDashboard() {
           attempts,
           build_id: staticBuildId,
           debug: { error: "both refresh endpoints returned 404" },
+          debug_bundle: {
+            kind: "refresh_company",
+            endpoint_url: `/api${usedPath}`,
+            request_payload: requestPayload,
+            request_explain: attempts.length ? attempts[attempts.length - 1]?.request : null,
+            attempts,
+            response: null,
+            build: {
+              api_build_id: staticBuildId || null,
+              cached_build_id: getCachedBuildId() || null,
+            },
+          },
         };
 
         setRefreshError(errObj);
