@@ -6371,7 +6371,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       id: `_import_error_${sessionId}`,
                       ...buildImportControlDocBase(sessionId),
                       request_id: requestId,
-                      stage: "cosmos_write_failed",
+                      stage: failureStage,
                       error: {
                         ...last_error,
                         request_id: requestId,
@@ -6390,8 +6390,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       requestId,
                       patch: {
                         status: "error",
-                        stage_beacon: "cosmos_write_failed",
+                        stage_beacon: failureStage,
                         last_error,
+                        save_outcome: outcome || failureStage,
                         saved: 0,
                         saved_verified_count: 0,
                         saved_company_ids_verified: [],
