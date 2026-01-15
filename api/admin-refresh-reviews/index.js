@@ -1,4 +1,4 @@
-const { app } = require("../_app");
+const { app, hasRoute } = require("../_app");
 const { getBuildInfo } = require("../_buildInfo");
 
 const { adminRefreshReviewsHandler } = require("../_adminRefreshReviews");
@@ -7,9 +7,9 @@ const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "admin-refresh-reviews";
 const VERSION_TAG = `ded-${HANDLER_ID}-${String(BUILD_INFO.build_id || "unknown").slice(0, 12)}`;
 
-function jsonBody(obj, status = 200) {
+function jsonBody(obj) {
   return {
-    status,
+    status: 200,
     headers: {
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
@@ -130,13 +130,19 @@ async function safeHandler(req, context) {
   }
 }
 
-app.http("adminRefreshReviews", {
-  route: "admin-refresh-reviews",
-  methods: ["GET", "POST", "OPTIONS"],
-  authLevel: "anonymous",
-  handler: safeHandler,
-});
+// Avoid duplicate registrations if xadmin-api-refresh-reviews already created an alias.
+if (!hasRoute("admin-refresh-reviews")) {
+  app.http("adminRefreshReviews", {
+    route: "admin-refresh-reviews",
+    methods: ["GET", "POST", "OPTIONS"],
+    authLevel: "anonymous",
+    handler: safeHandler,
+  });
+}
+
+module.exports.handler = safeHandler;
 
 module.exports._test = {
+  handler: safeHandler,
   adminRefreshReviewsHandler,
 };
