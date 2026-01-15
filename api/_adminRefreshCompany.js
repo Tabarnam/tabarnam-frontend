@@ -751,6 +751,7 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         !xaiModel ? "Set XAI_MODEL to a valid model name (example: grok-4-latest)." : null,
       ].filter(Boolean);
 
+      await releaseRefreshLockBestEffort();
       pushBreadcrumb("xai_config_error", { missing_env_count: missing_env.length, bad_base_url: Boolean(bad_base_url) });
       return json({
         ok: false,
