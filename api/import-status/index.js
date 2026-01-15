@@ -1001,7 +1001,7 @@ async function handler(req, context) {
         const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
         const canTrigger = !lockUntil || Date.now() >= lockUntil;
 
-        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "error")) {
+        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "error" || (forceResume && resumeStatus !== "running"))) {
           stageBeaconValues.status_trigger_resume_worker = nowIso();
 
           const base = new URL(req.url);
@@ -1620,7 +1620,7 @@ async function handler(req, context) {
         const lockUntil = Date.parse(String(currentResume?.lock_expires_at || "")) || 0;
         const canTrigger = !lockUntil || Date.now() >= lockUntil;
 
-        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "error")) {
+        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "error" || (forceResume && resumeStatus !== "running"))) {
           stageBeaconValues.status_trigger_resume_worker = nowIso();
 
           const base = new URL(req.url);
