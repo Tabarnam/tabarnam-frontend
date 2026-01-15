@@ -3565,14 +3565,21 @@ export default function AdminImport() {
                             <div className="min-w-0">
                               <div className="font-semibold text-slate-900">{companyName}</div>
                               {websiteUrl ? (
-                                <a
-                                  className="mt-1 block text-sm text-blue-700 underline break-all"
-                                  href={websiteUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  {websiteUrl}
-                                </a>
+                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                  <a
+                                    className="text-sm text-blue-700 underline break-all"
+                                    href={websiteUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    {websiteUrl}
+                                  </a>
+                                  {seedMissingBug ? (
+                                    <span className="rounded border border-rose-200 bg-rose-50 px-2 py-0.5 text-[11px] text-rose-800">
+                                      Seed missing (bug)
+                                    </span>
+                                  ) : null}
+                                </div>
                               ) : (
                                 <div className="mt-1 text-sm text-slate-600">No URL</div>
                               )}
