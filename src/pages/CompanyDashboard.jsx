@@ -4266,6 +4266,8 @@ export default function CompanyDashboard() {
       const attemptsList = Array.isArray(e?.attempts) ? e.attempts : [];
       const attemptsForDisplay = attemptsList.length ? attemptsList : [];
 
+      const requestExplain = getLastApiRequestExplain();
+
       const errObj = {
         status: errStatus,
         message: asString(msg).trim() || "Refresh failed",
@@ -4273,6 +4275,24 @@ export default function CompanyDashboard() {
         attempts: attemptsForDisplay,
         build_id: normalizeBuildIdString(debugData?.build_id) || "",
         debug: debugPayload,
+        debug_bundle: {
+          kind: "refresh_company",
+          endpoint_url: asString(e?.url).trim() || asString(e?.usedPath).trim() || "(request failed)",
+          request_payload: requestPayload,
+          request_explain: requestExplain,
+          attempts: attemptsForDisplay,
+          response: {
+            status: errStatus,
+            ok: false,
+            headers: null,
+            body_json: debugData && typeof debugData === "object" ? debugData : null,
+            body_text: debugText || "",
+          },
+          build: {
+            api_build_id: normalizeBuildIdString(debugData?.build_id) || null,
+            cached_build_id: getCachedBuildId() || null,
+          },
+        },
       };
 
       setRefreshError(errObj);
