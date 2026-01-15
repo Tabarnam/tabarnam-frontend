@@ -26,7 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
-import { apiFetch, apiFetchParsed, getCachedBuildId, getUserFacingConfigMessage, toErrorString } from "@/lib/api";
+import { apiFetch, apiFetchParsed, getCachedBuildId, getLastApiRequestExplain, getUserFacingConfigMessage, toErrorString } from "@/lib/api";
 import { deleteLogoBlob, uploadLogoBlobFile } from "@/lib/blobStorage";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
 import { getAdminUser } from "@/lib/azureAuth";
