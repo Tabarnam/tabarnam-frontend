@@ -3523,13 +3523,25 @@ export default function AdminImport() {
                             : savedCount > 0
                               ? "Saved (verified) but cannot read company doc"
                               : "Company candidate");
-                      const websiteUrl = asString(
+                      const websiteUrlRaw = asString(
                         primaryDoc?.canonical_url ||
                           primaryDoc?.website_url ||
                           primaryCandidate?.canonical_url ||
                           primaryCandidate?.website_url ||
                           primaryCandidate?.url
                       ).trim();
+
+                      const queryUrlRaw = asString(activeRun.query).trim();
+                      const queryLooksLikeUrl = looksLikeUrlOrDomain(queryUrlRaw);
+                      const queryUrlNormalized = queryLooksLikeUrl
+                        ? /^https?:\/\//i.test(queryUrlRaw)
+                          ? queryUrlRaw
+                          : `https://${queryUrlRaw}`
+                        : "";
+
+                      const websiteUrl = websiteUrlRaw || queryUrlNormalized;
+                      const isCompanyUrlRun = Array.isArray(activeRun.queryTypes) ? activeRun.queryTypes.includes("company_url") : false;
+                      const seedMissingBug = isCompanyUrlRun && Boolean(queryUrlNormalized && !websiteUrlRaw);
 
                       const enrichmentMissingFields = (() => {
                         const missing = new Set();
