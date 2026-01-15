@@ -980,7 +980,7 @@ async function handler(req, context, opts) {
     try {
       // Keep this short so aborted requests don't block retries for a full minute.
       // (If SWA kills the request, we might not get a chance to clear the lock.)
-      const lockWindowMs = Math.max(8000, Math.min(30000, budgetMs + 5000));
+      const lockWindowMs = Math.max(8000, Math.min(25000, budgetMs + 2000));
       const lockUntil = nowMs + lockWindowMs;
 
       cursor.last_attempt_at = nowIso();
