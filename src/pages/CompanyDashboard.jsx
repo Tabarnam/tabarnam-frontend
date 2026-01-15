@@ -64,6 +64,28 @@ function prettyJson(value) {
   }
 }
 
+function getResponseHeadersForDebug(res) {
+  const headers = res?.headers;
+  const pick = (name) => {
+    try {
+      return asString(headers?.get?.(name)).trim();
+    } catch {
+      return "";
+    }
+  };
+
+  return {
+    "content-type": pick("content-type"),
+    "x-api-handler": pick("x-api-handler"),
+    "x-api-build-id": pick("x-api-build-id"),
+    "x-api-build-source": pick("x-api-build-source"),
+    "x-api-version": pick("x-api-version"),
+    "x-request-id": pick("x-request-id"),
+    "x-ms-request-id": pick("x-ms-request-id"),
+    "x-functions-execution-id": pick("x-functions-execution-id"),
+  };
+}
+
 function deepClone(value) {
   if (typeof structuredClone === "function") {
     try {
