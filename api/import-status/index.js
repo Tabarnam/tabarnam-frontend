@@ -1262,17 +1262,6 @@ async function handler(req, context) {
       normalizedDomain: domainMeta.normalizedDomain,
       createdAfter: domainMeta.createdAfter,
     }).catch(() => []);
-    const savedVerifiedCount =
-      (typeof completionDoc?.saved_verified_count === "number" ? completionDoc.saved_verified_count : null) ??
-      (typeof sessionDoc?.saved_verified_count === "number" ? sessionDoc.saved_verified_count : null) ??
-      null;
-
-    let saved =
-      (savedVerifiedCount != null ? savedVerifiedCount : null) ??
-      (typeof completionDoc?.saved === "number" ? completionDoc.saved : null) ??
-      (typeof sessionDoc?.saved === "number" ? sessionDoc.saved : null) ??
-      (Array.isArray(items) ? items.length : 0);
-
     const completionVerifiedIds = Array.isArray(completionDoc?.saved_company_ids_verified)
       ? completionDoc.saved_company_ids_verified
       : Array.isArray(completionDoc?.saved_ids)
@@ -1289,8 +1278,19 @@ async function handler(req, context) {
       .map((id) => String(id || "").trim())
       .filter(Boolean);
 
+    const derivedVerifiedCount = savedIds.length;
+
+    const savedVerifiedCount =
+      (typeof completionDoc?.saved_verified_count === "number" ? completionDoc.saved_verified_count : null) ??
+      (typeof sessionDoc?.saved_verified_count === "number" ? sessionDoc.saved_verified_count : null) ??
+      (derivedVerifiedCount > 0 ? derivedVerifiedCount : null);
+
+    // Truthfulness: `saved` must come from verified fields only.
+    // Never infer `saved` from candidate items or attempted writes.
+    let saved = Number.isFinite(Number(savedVerifiedCount)) ? Number(savedVerifiedCount) : 0;
+
     let savedDocs = savedIds.length > 0 ? await fetchCompaniesByIds(container, savedIds).catch(() => []) : [];
-    let saved_companies = savedDocs.length > 0 ? toSavedCompanies(savedDocs) : toSavedCompanies(items);
+    let saved_companies = savedDocs.length > 0 ? toSavedCompanies(savedDocs) : [];
     let completionReason = typeof completionDoc?.reason === "string" ? completionDoc.reason : null;
 
     let reconciled = false;
