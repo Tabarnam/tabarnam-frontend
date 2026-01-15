@@ -6280,6 +6280,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     accepted_reason: typeof acceptedError?.reason === "string" ? acceptedError.reason : undefined,
                   },
                   ...(cosmosTarget ? cosmosTarget : {}),
+                  save_outcome,
                   saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
                   saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
                     ? saveResult.saved_company_ids_verified
