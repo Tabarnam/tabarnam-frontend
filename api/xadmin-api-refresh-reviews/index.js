@@ -917,6 +917,8 @@ async function handler(req, context, opts) {
     const deadlineAtMs = startedAtMs + budgetMs;
     const getRemainingBudgetMs = () => Math.max(0, deadlineAtMs - Date.now());
 
+    pushBreadcrumb("parse_body", { budget_ms: budgetMs, requested_take: requestedTake });
+
     if (!company_id) {
       return respond({
         ok: false,
