@@ -6589,7 +6589,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
           // Core rule: company_url imports must never spend the full request budget on inline enrichment.
           // Persist a deterministic seed immediately and let resume-worker do the heavy lifting.
-          if (isCompanyUrlImport && !skipStages.has("primary")) {
+          if (isCompanyUrlImport && !skipStages.has("primary") && maxStage !== "primary") {
             mark("company_url_seed_short_circuit");
             return await respondWithCompanyUrlSeedFallback(null);
           }
