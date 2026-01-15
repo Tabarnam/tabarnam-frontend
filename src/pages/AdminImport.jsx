@@ -889,7 +889,7 @@ export default function AdminImport() {
             ? savedVerifiedCount
             : savedCompanies.length > 0
               ? savedCompanies.length
-              : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
+              : 0;
 
         const status = asString(body?.status).trim();
         const state = asString(body?.state).trim();
@@ -994,11 +994,11 @@ export default function AdminImport() {
                 : null;
 
           const savedCount =
-            savedVerifiedCount != null
-              ? savedVerifiedCount
-              : savedCompanies.length > 0
-                ? savedCompanies.length
-                : Number(body?.result?.saved ?? body?.saved ?? 0) || 0;
+          savedVerifiedCount != null
+            ? savedVerifiedCount
+            : savedCompanies.length > 0
+              ? savedCompanies.length
+              : 0;
 
           const status = asString(body?.status).trim();
           const state = asString(body?.state).trim();
