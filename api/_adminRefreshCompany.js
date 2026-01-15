@@ -578,17 +578,22 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     stage = "init_cosmos";
     const container = deps.companiesContainer || getCompaniesContainer();
     if (!container) {
-      return json(
-        {
-          ok: false,
-          stage,
-          error: "Cosmos not configured",
-          details: { message: "Set COSMOS_DB_ENDPOINT and COSMOS_DB_KEY" },
-          config,
-          elapsed_ms: Date.now() - startedAt,
-        },
-        500
-      );
+      pushBreadcrumb("missing_env", { env: "cosmos" });
+      return json({
+        ok: false,
+        stage: "refresh_company",
+        root_cause: "missing_env",
+        retryable: true,
+        error: "Cosmos not configured",
+        attempts,
+        breadcrumbs,
+        diagnostics: { message: "Set COSMOS_DB_ENDPOINT and COSMOS_DB_KEY" },
+        config,
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
+      });
     }
 
     stage = "load_company";
