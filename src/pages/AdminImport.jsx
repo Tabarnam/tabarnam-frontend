@@ -3282,9 +3282,21 @@ export default function AdminImport() {
                           ? "Saved (verified) — company doc missing"
                           : "Company candidate";
 
-                    const websiteUrl = asString(
+                    const websiteUrlRaw = asString(
                       primaryCandidate?.canonical_url || primaryCandidate?.website_url || primaryCandidate?.url
                     ).trim();
+
+                    const queryUrlRaw = asString(r.query).trim();
+                    const queryLooksLikeUrl = looksLikeUrlOrDomain(queryUrlRaw);
+                    const queryUrlNormalized = queryLooksLikeUrl
+                      ? /^https?:\/\//i.test(queryUrlRaw)
+                        ? queryUrlRaw
+                        : `https://${queryUrlRaw}`
+                      : "";
+
+                    const websiteUrl = websiteUrlRaw || queryUrlNormalized;
+                    const isCompanyUrlRun = Array.isArray(r.queryTypes) ? r.queryTypes.includes("company_url") : false;
+                    const seedMissingBug = isCompanyUrlRun && Boolean(queryUrlNormalized && !websiteUrlRaw);
                     const isRefreshing = statusRefreshSessionId === r.session_id;
 
                     const jobState = asString(r.final_job_state || r.job_state).trim().toLowerCase();
