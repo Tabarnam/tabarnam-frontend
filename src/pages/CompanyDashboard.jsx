@@ -3939,7 +3939,12 @@ export default function CompanyDashboard() {
         try {
           const r = await apiFetchParsed(path, {
             method: "POST",
-            body: { company_id: companyId },
+            body: {
+              company_id: companyId,
+              // Keep this below SWA gateway time budgets. The backend will further clamp.
+              timeout_ms: 20000,
+              deadline_ms: 20000,
+            },
           });
 
           attempts.push({ path, status: r.status });
