@@ -413,6 +413,36 @@ app.http("save-companies", {
       const failed_items = [];
       const errors = [];
 
+      // Canonical import completeness contract + session warnings.
+      // Keep the same shape as import-start so /import/status and admin UI can diagnose missing fields.
+      const warningKeys = new Set();
+      const warnings_detail = {};
+      const warnings_v2 = [];
+
+      const addWarning = (warningKey, detail) => {
+        const k = String(warningKey || "").trim();
+        if (!k) return;
+        warningKeys.add(k);
+
+        const d = detail && typeof detail === "object" ? detail : {};
+        if (!warnings_detail[k]) {
+          warnings_detail[k] = {
+            stage: String(d.stage || k),
+            root_cause: String(d.root_cause || k),
+            retryable: Boolean(d.retryable),
+            message: String(d.message || "warning"),
+            company_name: typeof d.company_name === "string" && d.company_name.trim() ? d.company_name.trim() : undefined,
+            website_url: typeof d.website_url === "string" && d.website_url.trim() ? d.website_url.trim() : undefined,
+          };
+        }
+
+        warnings_v2.push({
+          key: k,
+          at: new Date().toISOString(),
+          ...warnings_detail[k],
+        });
+      };
+
       let importCompanyLogo = null;
       try {
         importCompanyLogo = requireImportCompanyLogo();
@@ -428,7 +458,8 @@ app.http("save-companies", {
         return s.includes(".blob.core.windows.net") && s.includes("/company-logos/");
       };
 
-      for (const company of companies) {
+      for (let companyIndex = 0; companyIndex < companies.length; companyIndex += 1) {
+        const company = companies[companyIndex];
         const companyName = String(company?.company_name || company?.name || "").trim();
 
         try {
@@ -560,6 +591,7 @@ app.http("save-companies", {
             product_keywords: String(company?.product_keywords || ""),
             keywords: Array.isArray(company?.keywords) ? company.keywords : [],
             normalized_domain: normalizedDomain,
+            partition_key: normalizedDomain,
 
             logo_url: resolvedLogoUrl ? resolvedLogoUrl : null,
             logo_source_url: logoImport?.logo_source_url || (looksLikeCompanyLogoBlobUrl(existingLogoUrl) ? company?.logo_source_url || null : null),
@@ -589,10 +621,29 @@ app.http("save-companies", {
             headquarters_locations: headquarters.length > 0 ? headquarters : company?.headquarters_locations,
             headquarters,
 
-            manufacturing_locations: Array.isArray(manufacturing_geocodes) ? manufacturing_geocodes : [],
+            manufacturing_locations: Array.isArray(company?.manufacturing_locations)
+              ? company.manufacturing_locations
+              : Array.isArray(manufacturing_geocodes)
+                ? manufacturing_geocodes
+                : [],
             manufacturing_geocodes,
 
             curated_reviews: normalizeCuratedReviewsForSave(company),
+            review_count: Number.isFinite(Number(company?.review_count))
+              ? Number(company.review_count)
+              : Number.isFinite(Number(company?.editorial_review_count))
+                ? Number(company.editorial_review_count)
+                : normalizeCuratedReviewsForSave(company).length,
+            reviews_last_updated_at: String(company?.reviews_last_updated_at || nowIso),
+            reviews_stage_status:
+              typeof company?.reviews_stage_status === "string" && company.reviews_stage_status.trim()
+                ? company.reviews_stage_status.trim()
+                : null,
+
+            import_session_id: sessionId,
+            import_session: sessionId,
+            import_request_id: requestId,
+            import_created_at: nowIso,
             red_flag: Boolean(company?.red_flag),
             red_flag_reason: String(company?.red_flag_reason || ""),
             location_confidence: String(company?.location_confidence || "medium"),
@@ -620,6 +671,193 @@ app.http("save-companies", {
             doc.profile_completeness_version = completeness.profile_completeness_version;
             doc.profile_completeness_meta = completeness.profile_completeness_meta;
           } catch {}
+
+          // Save-companies is frequently used as the final step of an import session.
+          // Enforce the same canonical “usable import” contract as import-start:
+          // always persist deterministic placeholders + per-company diagnostics.
+          try {
+            const asMeaningful = (v) => {
+              const s = typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim();
+              if (!s) return "";
+              const lower = s.toLowerCase();
+              if (lower === "unknown" || lower === "n/a" || lower === "na" || lower === "none") return "";
+              return s;
+            };
+
+            const import_missing_fields = Array.isArray(doc.import_missing_fields)
+              ? doc.import_missing_fields.map((v) => String(v || "").trim()).filter(Boolean)
+              : [];
+
+            const import_missing_reason =
+              doc.import_missing_reason && typeof doc.import_missing_reason === "object" && !Array.isArray(doc.import_missing_reason)
+                ? { ...doc.import_missing_reason }
+                : {};
+
+            const import_warnings = Array.isArray(doc.import_warnings)
+              ? doc.import_warnings.filter((w) => w && typeof w === "object")
+              : [];
+
+            const ensureMissing = (field, reason, message, retryable = true) => {
+              const f = String(field || "").trim();
+              if (!f) return;
+              if (!import_missing_fields.includes(f)) import_missing_fields.push(f);
+              if (!import_missing_reason[f]) import_missing_reason[f] = String(reason || "missing");
+              import_warnings.push({
+                field: f,
+                root_cause: f,
+                retryable: Boolean(retryable),
+                message: String(message || "missing"),
+              });
+
+              addWarning(`import_missing_${f}_${companyIndex}`, {
+                stage: "save",
+                root_cause: `missing_${f}`,
+                retryable: Boolean(retryable),
+                message: String(message || "missing"),
+                company_name: String(doc.company_name || "").trim(),
+                website_url: String(doc.website_url || "").trim(),
+              });
+            };
+
+            // Compute missing_fields (used by import-status/progress) BEFORE placeholders.
+            try {
+              const missing_fields = [];
+
+              const industries = Array.isArray(doc.industries) ? doc.industries : [];
+              const industriesMeaningful = industries.filter((v) => asMeaningful(v));
+              if (industriesMeaningful.length === 0) missing_fields.push("industries");
+
+              const keywords = Array.isArray(doc.keywords) ? doc.keywords : [];
+              const pk = asMeaningful(doc.product_keywords);
+              const hasKeywords = pk || keywords.some((k) => asMeaningful(k));
+              if (!hasKeywords) missing_fields.push("product_keywords");
+
+              const hqMeaningful = asMeaningful(doc.headquarters_location);
+              if (!hqMeaningful) missing_fields.push("hq");
+
+              const mfgList = Array.isArray(doc.manufacturing_locations) ? doc.manufacturing_locations : [];
+              const mfgHas = mfgList.some((m) => {
+                if (typeof m === "string") return Boolean(asMeaningful(m));
+                if (m && typeof m === "object") {
+                  return Boolean(asMeaningful(m.formatted || m.address || m.location || m.full_address));
+                }
+                return false;
+              });
+              if (!mfgHas) missing_fields.push("mfg");
+
+              const curated = Array.isArray(doc.curated_reviews) ? doc.curated_reviews : [];
+              const reviewCount = Number.isFinite(Number(doc.review_count)) ? Number(doc.review_count) : curated.length;
+              const hasReviews = curated.length > 0 || reviewCount > 0;
+              if (!hasReviews) missing_fields.push("reviews");
+
+              if (!asMeaningful(doc.logo_url)) missing_fields.push("logo");
+
+              doc.missing_fields = missing_fields;
+              doc.missing_fields_updated_at = nowIso;
+            } catch {}
+
+            // company_name
+            if (!String(doc.company_name || "").trim()) {
+              doc.company_name = "Unknown";
+              doc.company_name_unknown = true;
+              ensureMissing("company_name", "missing", "company_name missing; set to placeholder 'Unknown'", false);
+            }
+
+            // website_url
+            if (!String(doc.website_url || "").trim()) {
+              doc.website_url = "Unknown";
+              doc.website_url_unknown = true;
+              if (!String(doc.normalized_domain || "").trim()) doc.normalized_domain = "unknown";
+              if (!String(doc.partition_key || "").trim()) doc.partition_key = doc.normalized_domain;
+              ensureMissing("website_url", "missing", "website_url missing; set to placeholder 'Unknown'", false);
+            }
+
+            // industries
+            if (!Array.isArray(doc.industries) || doc.industries.filter((v) => asMeaningful(v)).length === 0) {
+              doc.industries = ["Unknown"];
+              doc.industries_unknown = true;
+              ensureMissing("industries", "not_found", "Industries missing; set to placeholder ['Unknown']");
+            }
+
+            // product_keywords (ensure deterministic)
+            const kwList = Array.isArray(doc.keywords) ? doc.keywords.map((k) => String(k || "").trim()).filter(Boolean) : [];
+            const pkRaw = String(doc.product_keywords || "").trim();
+            if (!pkRaw && kwList.length > 0) {
+              doc.product_keywords = kwList.join(", ");
+            }
+
+            const pkFixed = String(doc.product_keywords || "").trim();
+            const hasAnyKeywords = Boolean(pkFixed) || kwList.length > 0;
+            if (!hasAnyKeywords) {
+              doc.product_keywords = "Unknown";
+              if (!Array.isArray(doc.keywords)) doc.keywords = [];
+              ensureMissing("product_keywords", "not_found", "product_keywords missing; set to placeholder 'Unknown'");
+            }
+
+            // headquarters
+            const hqExisting = String(doc.headquarters_location || "").trim();
+            const hqFromGeo = Array.isArray(headquarters) && headquarters[0]
+              ? String(headquarters[0].formatted || headquarters[0].address || headquarters[0].full_address || "").trim()
+              : "";
+            if (!hqExisting && hqFromGeo) {
+              doc.headquarters_location = hqFromGeo;
+            }
+
+            if (!String(doc.headquarters_location || "").trim()) {
+              doc.headquarters_location = "Unknown";
+              doc.hq_unknown = true;
+              doc.hq_unknown_reason = String(doc.hq_unknown_reason || "unknown");
+              ensureMissing(
+                "headquarters_location",
+                doc.hq_unknown_reason,
+                "headquarters_location missing; set to placeholder 'Unknown'"
+              );
+            }
+
+            // manufacturing
+            const mfgList = Array.isArray(doc.manufacturing_locations) ? doc.manufacturing_locations : [];
+            if (mfgList.length === 0) {
+              doc.manufacturing_locations = ["Unknown"];
+              doc.mfg_unknown = true;
+              doc.mfg_unknown_reason = String(doc.mfg_unknown_reason || "unknown");
+              ensureMissing(
+                "manufacturing_locations",
+                doc.mfg_unknown_reason,
+                "manufacturing_locations missing; set to placeholder ['Unknown']"
+              );
+            }
+
+            // logo
+            if (!String(doc.logo_url || "").trim()) {
+              doc.logo_url = null;
+              doc.logo_status = doc.logo_status || "not_found_on_site";
+              doc.logo_import_status = doc.logo_import_status || "missing";
+              doc.logo_stage_status = doc.logo_stage_status || "not_found_on_site";
+              ensureMissing("logo", doc.logo_stage_status, "logo_url missing or not imported");
+            }
+
+            // curated reviews
+            if (!Array.isArray(doc.curated_reviews)) doc.curated_reviews = [];
+            if (!Number.isFinite(Number(doc.review_count))) doc.review_count = doc.curated_reviews.length;
+            if (!String(doc.reviews_last_updated_at || "").trim()) doc.reviews_last_updated_at = nowIso;
+            if (!(typeof doc.reviews_stage_status === "string" && doc.reviews_stage_status.trim())) {
+              doc.reviews_stage_status = doc.curated_reviews.length > 0 || Number(doc.review_count) > 0 ? "ok" : "no_valid_reviews_found";
+            }
+
+            if (doc.curated_reviews.length === 0) {
+              ensureMissing(
+                "curated_reviews",
+                String(doc.reviews_stage_status || "none"),
+                "curated_reviews empty (persisted as empty list)"
+              );
+            }
+
+            doc.import_missing_fields = import_missing_fields;
+            doc.import_missing_reason = import_missing_reason;
+            doc.import_warnings = import_warnings;
+          } catch {
+            // Never block admin saves on completeness enforcement.
+          }
 
           if (!doc.company_name && !doc.url) {
             skipped += 1;
@@ -662,12 +900,15 @@ app.http("save-companies", {
         });
 
         if (!existingCompletion) {
+          const warningKeyList = Array.from(warningKeys);
+          const completionReason = warningKeyList.length ? "completed_with_warnings" : "saved_from_admin";
+
           const completionDoc = {
             id: completionId,
             ...buildImportControlDocBase(sessionId),
             completed_at: completedAt,
             elapsed_ms: null,
-            reason: "saved_from_admin",
+            reason: completionReason,
             saved,
             skipped,
             failed,
@@ -675,6 +916,13 @@ app.http("save-companies", {
             skipped_ids,
             skipped_duplicates,
             failed_items,
+            ...(warningKeyList.length
+              ? {
+                  warnings: warningKeyList,
+                  warnings_detail,
+                  warnings_v2,
+                }
+              : {}),
           };
 
           const upsertCompletion = await upsertItemWithPkCandidates(container, completionDoc);
@@ -684,6 +932,8 @@ app.http("save-companies", {
             );
           }
         }
+
+        const warningKeyListForSession = Array.from(warningKeys);
 
         await upsertCosmosImportSessionDoc({
           sessionId,
@@ -695,6 +945,13 @@ app.http("save-companies", {
             skipped,
             failed,
             completed_at: completedAt,
+            ...(warningKeyListForSession.length
+              ? {
+                  warnings: warningKeyListForSession,
+                  warnings_detail,
+                  warnings_v2,
+                }
+              : {}),
           },
         }).catch(() => null);
       }
