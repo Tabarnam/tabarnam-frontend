@@ -739,37 +739,90 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
     };
 
     stage = "call_xai";
+    pushBreadcrumb(stage, { company_id: companyId });
+
     const axiosPost = deps.axiosPost || (axios ? axios.post.bind(axios) : null);
     if (!axiosPost) {
-      return json(
-        {
-          ok: false,
-          stage,
-          error: "Axios not available",
+      return json({
+        ok: false,
+        stage: "refresh_company",
+        root_cause: "missing_dependency",
+        retryable: false,
+        company_id: companyId,
+        upstream_status: null,
+        attempts,
+        breadcrumbs,
+        diagnostics: {
+          message: "Axios not available",
           config,
-          elapsed_ms: Date.now() - startedAt,
         },
-        500
-      );
+        build_id: String(BUILD_INFO.build_id || ""),
+        elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
+      });
     }
-    let resp;
 
-    try {
+    let resp = null;
+
+    // Single retry (budget-aware): only for unreachable upstream or 5xx.
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
       const timeoutMsUsed = computeUpstreamTimeoutMs();
+      const attemptEntry = {
+        attempt,
+        timeout_ms: timeoutMsUsed,
+        ok: false,
+        root_cause: "",
+        upstream_status: null,
+      };
+      attempts.push(attemptEntry);
+
       if (timeoutMsUsed < 3500) {
-        const err = new Error("Total budget exhausted before calling upstream");
-        err.root_cause = "upstream_timeout_budget_exhausted";
-        err.retryable = true;
-        throw err;
+        attemptEntry.root_cause = "upstream_timeout_budget_exhausted";
+        attemptEntry.message = "Total budget exhausted before calling upstream";
+        break;
       }
 
-      resp = await axiosPost(xaiUrl, payload, {
-        headers: buildXaiHeaders(xaiUrl, xaiKey),
-        timeout: timeoutMsUsed,
-        validateStatus: () => true,
-      });
-    } catch (e) {
+      pushBreadcrumb(`call_xai_attempt_${attempt}`, { timeout_ms: timeoutMsUsed });
+
+      try {
+        const r = await axiosPost(xaiUrl, payload, {
+          headers: buildXaiHeaders(xaiUrl, xaiKey),
+          timeout: timeoutMsUsed,
+          validateStatus: () => true,
+        });
+
+        const status = Number(r?.status) || 0;
+        attemptEntry.upstream_status = status;
+
+        // Treat 5xx as retryable once if we still have budget.
+        if (status >= 500 && attempt === 1 && getRemainingBudgetMs() > 6500) {
+          attemptEntry.root_cause = `upstream_http_${status}`;
+          attemptEntry.message = `Upstream returned HTTP ${status}`;
+          continue;
+        }
+
+        attemptEntry.ok = status >= 200 && status < 300;
+        attemptEntry.root_cause = attemptEntry.ok ? "" : `upstream_http_${status || 0}`;
+
+        resp = r;
+        break;
+      } catch (e) {
+        attemptEntry.root_cause = asString(e?.root_cause).trim() || "upstream_unreachable";
+        attemptEntry.message = asString(e?.message || e).trim() || "Upstream request failed";
+
+        // Retry once for unreachable upstream if we still have time budget.
+        if (attempt === 1 && getRemainingBudgetMs() > 6500) {
+          continue;
+        }
+
+        break;
+      }
+    }
+
+    if (!resp) {
       stage = "upstream_error";
+      pushBreadcrumb(stage);
 
       try {
         await patchCompanyById(container, companyId, existing, {
@@ -779,19 +832,25 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
         // ignore
       }
 
+      const lastAttempt = attempts.length ? attempts[attempts.length - 1] : null;
+
       return json({
         ok: false,
         stage: "refresh_company",
-        root_cause: asString(e?.root_cause).trim() || "upstream_unreachable",
-        retryable: typeof e?.retryable === "boolean" ? e.retryable : true,
+        root_cause: asString(lastAttempt?.root_cause).trim() || "upstream_unreachable",
+        retryable: true,
         company_id: companyId,
         upstream_status: 0,
         xai_config_source,
         resolved_upstream_host: upstreamMeta.resolved_upstream_host,
         resolved_upstream_path: upstreamMeta.resolved_upstream_path,
-        details: {
-          message: asString(e?.message || e).trim() || "Request failed",
+        attempts,
+        breadcrumbs,
+        diagnostics: {
+          message: asString(lastAttempt?.message).trim() || "Request failed",
           resolved_xai_endpoint: xaiUrl || null,
+          budget_ms: budgetMs,
+          remaining_budget_ms: getRemainingBudgetMs(),
         },
         config,
         build_id: String(BUILD_INFO.build_id || ""),
