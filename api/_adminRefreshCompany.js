@@ -923,54 +923,77 @@ async function adminRefreshCompanyHandler(req, context, deps = {}) {
 
     if (normalized.error) {
       stage = "upstream_error";
+      pushBreadcrumb(stage, { upstream_status: Number(resp.status) || 0 });
       return json({
         ok: false,
-        stage,
+        stage: "refresh_company",
+        root_cause: "upstream_error_object",
+        retryable: false,
         error: "Upstream returned error",
         upstream_status: Number(resp.status) || 0,
-        upstream_code: normalized.error.code ?? null,
-        upstream_message: normalized.error.message || null,
-        upstream_preview,
         request_id: request_id || null,
+        attempts,
+        breadcrumbs,
+        diagnostics: {
+          upstream_code: normalized.error.code ?? null,
+          upstream_message: normalized.error.message || null,
+          upstream_preview,
+        },
         config,
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
       });
     }
 
     if (resp.status < 200 || resp.status >= 300) {
       stage = "upstream_error";
+      pushBreadcrumb(stage, { upstream_status: Number(resp.status) || 0 });
       return json({
         ok: false,
-        stage,
+        stage: "refresh_company",
+        root_cause: `upstream_http_${Number(resp.status) || 0}`,
+        retryable: Number(resp.status) >= 500,
         error: `Upstream enrichment failed (HTTP ${Number(resp.status) || "?"})`,
         upstream_status: Number(resp.status) || 0,
-        upstream_preview,
         request_id: request_id || null,
-        details: {
+        attempts,
+        breadcrumbs,
+        diagnostics: {
           parse_error: parse_error || null,
+          upstream_preview,
         },
         config,
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
       });
     }
 
     if (!normalized.company || typeof normalized.company !== "object") {
       stage = "parse_xai";
+      pushBreadcrumb(stage, { upstream_status: Number(resp.status) || 0 });
       return json({
         ok: false,
-        stage,
+        stage: "refresh_company",
+        root_cause: "upstream_bad_response",
+        retryable: true,
         error: "No proposed company returned",
         upstream_status: Number(resp.status) || 0,
-        upstream_preview,
         request_id: request_id || null,
-        details: {
+        attempts,
+        breadcrumbs,
+        diagnostics: {
           parse_error: parse_error || "No company object found",
+          upstream_preview,
         },
         config,
         build_id: String(BUILD_INFO.build_id || ""),
         elapsed_ms: Date.now() - startedAt,
+        budget_ms: budgetMs,
+        remaining_budget_ms: getRemainingBudgetMs(),
       });
     }
 
