@@ -689,6 +689,7 @@ async function handler(req, context) {
     let saved_company_urls = [];
     let save_outcome = null;
     let resume_error = null;
+    let resume_error_details = null;
 
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
