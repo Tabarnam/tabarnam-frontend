@@ -106,6 +106,12 @@ function upsertSession(input) {
         : typeof prev?.resume_error === "string" && prev.resume_error.trim()
           ? prev.resume_error.trim()
           : null,
+    resume_error_details:
+      input?.resume_error_details && typeof input.resume_error_details === "object"
+        ? input.resume_error_details
+        : prev?.resume_error_details && typeof prev.resume_error_details === "object"
+          ? prev.resume_error_details
+          : null,
 
     created_at: prev?.created_at || nowIso(),
     updated_at: nowIso(),
