@@ -39,6 +39,10 @@ function summarizeCompany(doc) {
     company_name: asString(doc.company_name || doc.name).trim() || null,
     website_url: asString(doc.website_url || doc.url).trim() || null,
 
+    // Session linkage
+    session_id: asString(doc.session_id).trim() || null,
+    import_session_id: asString(doc.import_session_id || doc.import_session).trim() || null,
+
     // Cosmos PK diagnostics
     normalized_domain: asString(doc.normalized_domain).trim() || null,
     partition_key_field: asString(doc.partition_key).trim() || null,
