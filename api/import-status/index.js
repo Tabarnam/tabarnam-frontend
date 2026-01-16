@@ -1184,6 +1184,10 @@ async function handler(req, context) {
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
+          internal_auth_configured: (() => {
+            const h = buildInternalFetchHeaders();
+            return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
+          })(),
           missing_by_company,
         },
         enrichment_health_summary,
@@ -1846,8 +1850,12 @@ async function handler(req, context) {
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
-            missing_by_company,
-          },
+          internal_auth_configured: (() => {
+            const h = buildInternalFetchHeaders();
+            return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
+          })(),
+          missing_by_company,
+        },
           enrichment_health_summary,
           lastCreatedAt,
           timedOut,
@@ -2005,8 +2013,12 @@ async function handler(req, context) {
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
-            missing_by_company,
-          },
+          internal_auth_configured: (() => {
+            const h = buildInternalFetchHeaders();
+            return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
+          })(),
+          missing_by_company,
+        },
           enrichment_health_summary,
           lastCreatedAt,
           report,
@@ -2057,6 +2069,10 @@ async function handler(req, context) {
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
+          internal_auth_configured: (() => {
+            const h = buildInternalFetchHeaders();
+            return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
+          })(),
           missing_by_company,
         },
         enrichment_health_summary,
