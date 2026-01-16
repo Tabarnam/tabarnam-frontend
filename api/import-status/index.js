@@ -1324,6 +1324,11 @@ async function handler(req, context) {
               last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
+              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_gateway_key_attached:
+                typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
+                  ? sessionDoc.resume_worker_last_gateway_key_attached
+                  : null,
               last_error: sessionDoc?.resume_worker_last_error || null,
               last_company_id: sessionDoc?.resume_worker_last_company_id || null,
               last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
@@ -2066,6 +2071,11 @@ async function handler(req, context) {
               last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
+              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_gateway_key_attached:
+                typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
+                  ? sessionDoc.resume_worker_last_gateway_key_attached
+                  : null,
               last_error: sessionDoc?.resume_worker_last_error || null,
               last_company_id: sessionDoc?.resume_worker_last_company_id || null,
               last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
@@ -2183,6 +2193,11 @@ async function handler(req, context) {
               last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
+              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_gateway_key_attached:
+                typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
+                  ? sessionDoc.resume_worker_last_gateway_key_attached
+                  : null,
               last_error: sessionDoc?.resume_worker_last_error || null,
               last_company_id: sessionDoc?.resume_worker_last_company_id || null,
               last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
@@ -2285,6 +2300,11 @@ async function handler(req, context) {
               last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
+              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_gateway_key_attached:
+                typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
+                  ? sessionDoc.resume_worker_last_gateway_key_attached
+                  : null,
               last_error: sessionDoc?.resume_worker_last_error || null,
               last_company_id: sessionDoc?.resume_worker_last_company_id || null,
               last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
@@ -2373,6 +2393,11 @@ async function handler(req, context) {
               last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
+              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_gateway_key_attached:
+                typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
+                  ? sessionDoc.resume_worker_last_gateway_key_attached
+                  : null,
               last_error: sessionDoc?.resume_worker_last_error || null,
               last_company_id: sessionDoc?.resume_worker_last_company_id || null,
               last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
