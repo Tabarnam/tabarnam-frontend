@@ -5,9 +5,7 @@ function asString(value) {
 function getInternalJobSecret() {
   // Prefer a dedicated internal secret, but fall back to other already-configured secrets
   // so internal workers (resume/primary) can't 401 due to missing config.
-  // IMPORTANT: this must be stable across all the runtimes that might call each other.
-  // In practice, FUNCTION_KEY is sometimes only configured in one environment, which can
-  // cause import-start -> resume-worker calls to 401 if each side selects a different fallback.
+  // IMPORTANT: this must be stable across all runtimes that might call each other.
   const secret = (
     process.env.X_INTERNAL_JOB_SECRET ||
     process.env.XAI_EXTERNAL_KEY ||
@@ -17,22 +15,49 @@ function getInternalJobSecret() {
   return secret;
 }
 
+function getAcceptableInternalSecrets() {
+  const candidates = [
+    process.env.X_INTERNAL_JOB_SECRET,
+    process.env.XAI_EXTERNAL_KEY,
+    process.env.FUNCTION_KEY,
+  ]
+    .map((v) => (typeof v === "string" ? v.trim() : ""))
+    .filter(Boolean);
+
+  // Dedupe while preserving order.
+  const seen = new Set();
+  const out = [];
+  for (const v of candidates) {
+    if (seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
+}
+
 function buildInternalFetchHeaders(extra) {
   const headers = {
     "Content-Type": "application/json",
   };
 
-  const secret = getInternalJobSecret();
+  const internalSecret = getInternalJobSecret();
+  const functionsKey = (process.env.FUNCTION_KEY || "").trim() || internalSecret;
 
-  // Use the same secret for both the internal gate and Azure Functions host key.
-  // This keeps configuration simple: set X_INTERNAL_JOB_SECRET if you want a dedicated secret,
-  // otherwise FUNCTION_KEY is used.
-  if (secret) {
+  // Some deployments are behind gateways that validate Azure Functions keys *before* the
+  // request reaches our JS handler. In those cases, x-functions-key must be FUNCTION_KEY.
+  // Separately, our own internal guard uses x-internal-secret / Authorization.
+  if (internalSecret || functionsKey) {
     headers["x-tabarnam-internal"] = "1";
-    headers["x-internal-secret"] = secret;
-    headers["x-functions-key"] = secret;
+  }
+
+  if (internalSecret) {
+    headers["x-internal-secret"] = internalSecret;
     // Some gateways are more likely to forward Authorization than custom x-* headers.
-    headers["Authorization"] = `Bearer ${secret}`;
+    headers["Authorization"] = `Bearer ${internalSecret}`;
+  }
+
+  if (functionsKey) {
+    headers["x-functions-key"] = functionsKey;
   }
 
   if (extra && typeof extra === "object") {
@@ -46,8 +71,8 @@ function buildInternalFetchHeaders(extra) {
 }
 
 function isInternalJobRequest(req) {
-  const expected = getInternalJobSecret();
-  if (!expected) return false;
+  const acceptable = getAcceptableInternalSecrets();
+  if (acceptable.length === 0) return false;
 
   const hdr = (name) => {
     try {
