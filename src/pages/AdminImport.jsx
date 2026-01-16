@@ -4064,6 +4064,124 @@ export default function AdminImport() {
                               </div>
                             </div>
                           ) : null}
+
+                          <div className="mt-3 rounded border border-slate-200 bg-white p-3 space-y-2">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div>
+                                <div className="text-sm font-medium text-slate-900">Resume Diagnostics</div>
+                                <div className="mt-0.5 text-[11px] text-slate-600">
+                                  Populated from <code className="rounded bg-slate-100 px-1 py-0.5">/api/import/status</code>. Click “View status” to refresh.
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  disabled={!activeRun?.last_status_body}
+                                  onClick={async () => {
+                                    const payload = activeRun?.last_status_body;
+                                    if (!payload) return;
+                                    try {
+                                      await navigator.clipboard.writeText(toPrettyJsonText(payload));
+                                      toast.success("Status JSON copied");
+                                    } catch {
+                                      toast.error("Could not copy");
+                                    }
+                                  }}
+                                >
+                                  <Copy className="h-4 w-4 mr-2" />
+                                  Copy status JSON
+                                </Button>
+                              </div>
+                            </div>
+
+                            {(() => {
+                              const statusBody = activeRun?.last_status_body && typeof activeRun.last_status_body === "object" ? activeRun.last_status_body : null;
+                              const resume = activeRun?.resume && typeof activeRun.resume === "object" ? activeRun.resume : null;
+                              const resumeWorker = activeRun?.resume_worker && typeof activeRun.resume_worker === "object" ? activeRun.resume_worker : null;
+                              const lastAuth = resumeWorker?.last_auth && typeof resumeWorker.last_auth === "object" ? resumeWorker.last_auth : null;
+
+                              const buildId = asString(statusBody?.build_id).trim();
+                              const handlerEnteredAt = asString(resumeWorker?.handler_entered_at).trim();
+                              const handlerBuildId = asString(resumeWorker?.handler_entered_build_id).trim();
+
+                              const lastHttpStatus =
+                                typeof resumeWorker?.last_http_status === "number" && Number.isFinite(resumeWorker.last_http_status)
+                                  ? resumeWorker.last_http_status
+                                  : null;
+
+                              const lastRejectLayer = asString(resumeWorker?.last_reject_layer).trim();
+
+                              const authOk =
+                                typeof lastAuth?.auth_ok === "boolean" ? String(lastAuth.auth_ok)
+                                : typeof lastAuth?.ok === "boolean" ? String(lastAuth.ok)
+                                : "";
+
+                              const authMethodUsed = asString(lastAuth?.auth_method_used || lastAuth?.auth_method).trim();
+                              const secretSource = asString(lastAuth?.secret_source).trim();
+
+                              return (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-700">
+                                  <div>
+                                    <span className="font-medium">build_id:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{buildId || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume.gateway_key_attached:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">{String(resume?.gateway_key_attached ?? "—")}</code>
+                                  </div>
+                                  <div className="md:col-span-2">
+                                    <span className="font-medium">resume.trigger_request_id:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{asString(resume?.trigger_request_id).trim() || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker_handler_entered_at:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{handlerEnteredAt || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker_handler_build_id:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{handlerBuildId || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker_last_http_status:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">{lastHttpStatus != null ? lastHttpStatus : "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker_last_reject_layer:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">{lastRejectLayer || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker_last_auth.auth_ok:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">{authOk || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker_last_auth.auth_method_used:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">{authMethodUsed || "—"}</code>
+                                  </div>
+                                  <div className="md:col-span-2">
+                                    <span className="font-medium">resume_worker_last_auth.secret_source:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{secretSource || "—"}</code>
+                                  </div>
+
+                                  {!statusBody ? (
+                                    <div className="md:col-span-2 text-[11px] text-slate-500">
+                                      No status payload captured yet — click “View status”.
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })()}
+
+                            <details className="rounded border border-slate-200 bg-slate-50 p-2">
+                              <summary className="cursor-pointer select-none text-xs font-medium text-slate-700">Raw status JSON</summary>
+                              <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words text-[11px] text-slate-800">
+                                {activeRun?.last_status_body ? toPrettyJsonText(activeRun.last_status_body) : "No status payload yet."}
+                              </pre>
+                            </details>
+                          </div>
                         </>
                       );
                     })()}
