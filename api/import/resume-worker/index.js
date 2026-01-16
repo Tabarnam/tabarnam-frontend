@@ -68,6 +68,39 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function looksLikeUuid(value) {
+  const s = String(value || "").trim();
+  if (!s) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
+async function bestEffortPatchSessionDoc({ container, sessionId, patch }) {
+  if (!container || !sessionId || !patch) return { ok: false, error: "missing_inputs" };
+
+  const sessionDocId = `_import_session_${sessionId}`;
+  const existing = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+
+  const base = existing && typeof existing === "object"
+    ? existing
+    : {
+        id: sessionDocId,
+        session_id: sessionId,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_session",
+        created_at: nowIso(),
+      };
+
+  const next = {
+    ...base,
+    ...(patch && typeof patch === "object" ? patch : {}),
+    updated_at: nowIso(),
+  };
+
+  await upsertDoc(container, next).catch(() => null);
+  return { ok: true };
+}
+
 let companiesPkPathPromise;
 async function getCompaniesPkPath(container) {
   if (!container) return "/normalized_domain";
