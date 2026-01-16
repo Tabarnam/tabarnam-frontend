@@ -381,9 +381,27 @@ async function handler(req, context) {
 
   // Lightweight telemetry on the session control doc so /admin/import Copy Debug has parity with refresh endpoints.
   if (sessionDoc && typeof sessionDoc === "object") {
+    const invokedAt = String(resumeDoc?.last_invoked_at || "").trim() || updatedAt;
+    const companyIdFromResponse = Array.isArray(startJson?.saved_company_ids_verified) && startJson.saved_company_ids_verified[0]
+      ? String(startJson.saved_company_ids_verified[0]).trim()
+      : Array.isArray(startJson?.saved_company_ids) && startJson.saved_company_ids[0]
+        ? String(startJson.saved_company_ids[0]).trim()
+        : companies && companies[0] && companies[0].id
+          ? String(companies[0].id).trim()
+          : null;
+
+    const derivedResult = (() => {
+      if (ok) return "ok";
+      const root = typeof startJson?.root_cause === "string" && startJson.root_cause.trim() ? startJson.root_cause.trim() : "import_start_failed";
+      const status = Number(startRes?.status || 0) || 0;
+      return status ? `${root}_http_${status}` : root;
+    })();
+
     await upsertDoc(container, {
       ...sessionDoc,
-      resume_worker_last_invoked_at: updatedAt,
+      resume_worker_last_invoked_at: invokedAt,
+      resume_worker_last_finished_at: updatedAt,
+      resume_worker_last_result: derivedResult,
       resume_worker_last_ok: Boolean(ok),
       resume_worker_last_http_status: Number(startRes?.status || 0) || 0,
       resume_worker_last_error: ok
@@ -391,6 +409,12 @@ async function handler(req, context) {
         : startRes?._error?.message || `import_start_http_${Number(startRes?.status || 0) || 0}`,
       resume_worker_last_stage_beacon: startJson?.stage_beacon || null,
       resume_worker_last_resume_needed: Boolean(startJson?.resume_needed),
+      resume_worker_last_company_id: companyIdFromResponse,
+      // Best-effort: import-start does not currently return a structured "fields written" list.
+      resume_worker_last_written_fields:
+        Array.isArray(startJson?.fields_written)
+          ? startJson.fields_written
+          : null,
       updated_at: updatedAt,
     }).catch(() => null);
   }
