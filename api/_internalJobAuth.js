@@ -87,16 +87,16 @@ function isInternalJobRequest(req) {
   const functionsKey = hdr("x-functions-key");
   const authorization = hdr("authorization");
 
-  if (internalFlag === "1" && providedSecret && providedSecret === expected) return true;
+  if (internalFlag === "1" && providedSecret && acceptable.includes(providedSecret)) return true;
 
   // Best-effort fallback for callers that only forward x-functions-key.
-  if (functionsKey && functionsKey === expected) return true;
+  if (functionsKey && acceptable.includes(functionsKey)) return true;
 
   // Additional fallback: Authorization: Bearer <secret>
   if (authorization) {
     const match = authorization.match(/^bearer\s+(.+)$/i);
     const token = match ? String(match[1] || "").trim() : "";
-    if (token && token === expected) return true;
+    if (token && acceptable.includes(token)) return true;
   }
 
   return false;
