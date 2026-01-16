@@ -39,6 +39,7 @@ const {
 const { fillCompanyBaselineFromWebsite } = require("../_websiteBaseline");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { mergeCompanyDocsForSession: mergeCompanyDocsForSessionExternal } = require("../_companyDocMerge");
+const { applyEnrichment } = require("../_applyEnrichment");
 const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { getBuildInfo } = require("../_buildInfo");
 const { getImportStartHandlerVersion } = require("../_handlerVersions");
