@@ -1196,6 +1196,36 @@ async function handler(req, context) {
               gateway_key_attached: Boolean(resume_gateway_key_attached),
               request_id: resume_trigger_request_id || null,
             };
+
+            // Persist deterministic diagnosis signals so AdminImport can render a concrete message.
+            try {
+              const sessionDocId = `_import_session_${sessionId}`;
+              const sessionDocAfter = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+
+              const enteredTs = Date.parse(String(sessionDocAfter?.resume_worker_handler_entered_at || "")) || 0;
+              const attemptTs = Date.parse(String(triggerAttemptAt || "")) || Date.now();
+
+              const rejectLayer =
+                statusCode === 401
+                  ? enteredTs && enteredTs >= attemptTs - 5000
+                    ? "handler"
+                    : "gateway"
+                  : null;
+
+              if (sessionDocAfter && typeof sessionDocAfter === "object") {
+                await upsertDoc(container, {
+                  ...sessionDocAfter,
+                  resume_error: resume_trigger_error,
+                  resume_error_details: resume_trigger_error_details,
+                  resume_needed: true,
+                  resume_worker_last_http_status: statusCode,
+                  resume_worker_last_reject_layer: rejectLayer,
+                  resume_worker_last_trigger_request_id: resume_trigger_request_id || null,
+                  resume_worker_last_gateway_key_attached: Boolean(resume_gateway_key_attached),
+                  updated_at: nowIso(),
+                }).catch(() => null);
+              }
+            } catch {}
           }
         }
       }
@@ -1865,6 +1895,36 @@ async function handler(req, context) {
               gateway_key_attached: Boolean(resume_gateway_key_attached),
               request_id: resume_trigger_request_id || null,
             };
+
+            // Persist deterministic diagnosis signals so AdminImport can render a concrete message.
+            try {
+              const sessionDocId = `_import_session_${sessionId}`;
+              const sessionDocAfter = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+
+              const enteredTs = Date.parse(String(sessionDocAfter?.resume_worker_handler_entered_at || "")) || 0;
+              const attemptTs = Date.parse(String(triggerAttemptAt || "")) || Date.now();
+
+              const rejectLayer =
+                statusCode === 401
+                  ? enteredTs && enteredTs >= attemptTs - 5000
+                    ? "handler"
+                    : "gateway"
+                  : null;
+
+              if (sessionDocAfter && typeof sessionDocAfter === "object") {
+                await upsertDoc(container, {
+                  ...sessionDocAfter,
+                  resume_error: resume_trigger_error,
+                  resume_error_details: resume_trigger_error_details,
+                  resume_needed: true,
+                  resume_worker_last_http_status: statusCode,
+                  resume_worker_last_reject_layer: rejectLayer,
+                  resume_worker_last_trigger_request_id: resume_trigger_request_id || null,
+                  resume_worker_last_gateway_key_attached: Boolean(resume_gateway_key_attached),
+                  updated_at: nowIso(),
+                }).catch(() => null);
+              }
+            } catch {}
           }
         }
       } catch (e) {
