@@ -813,6 +813,18 @@ export default function AdminImport() {
                   : r.resume && typeof r.resume === "object"
                     ? r.resume
                     : null,
+              resume_worker:
+                body?.resume_worker && typeof body.resume_worker === "object"
+                  ? body.resume_worker
+                  : r.resume_worker && typeof r.resume_worker === "object"
+                    ? r.resume_worker
+                    : null,
+              enrichment_last_write_error:
+                body?.enrichment_last_write_error && typeof body.enrichment_last_write_error === "object"
+                  ? body.enrichment_last_write_error
+                  : r.enrichment_last_write_error && typeof r.enrichment_last_write_error === "object"
+                    ? r.enrichment_last_write_error
+                    : null,
               start_error: nextStartError,
               start_error_details: nextStartErrorDetails,
               progress_error: nextProgressError,
