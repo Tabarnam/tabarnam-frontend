@@ -44,7 +44,7 @@ const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { getBuildInfo } = require("../_buildInfo");
 const { getImportStartHandlerVersion } = require("../_handlerVersions");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
-const { buildInternalFetchHeaders } = require("../_internalJobAuth");
+const { buildInternalFetchHeaders, buildInternalFetchRequest } = require("../_internalJobAuth");
 const {
   buildPrimaryJobId: buildImportPrimaryJobId,
   getJob: getImportPrimaryJob,
