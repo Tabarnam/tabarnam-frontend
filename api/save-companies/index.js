@@ -281,7 +281,10 @@ async function upsertCosmosImportSessionDoc({ sessionId, requestId, patch }) {
     const createdAt = existing?.created_at || new Date().toISOString();
     const existingRequest = existing?.request && typeof existing.request === "object" ? existing.request : null;
 
+    // IMPORTANT: This doc is upserted multiple times over the lifetime of an import.
+    // Preserve previously-written fields (saved ids, resume state, telemetry) when applying patches.
     const sessionDoc = {
+      ...(existing && typeof existing === "object" ? existing : {}),
       id,
       ...buildImportControlDocBase(sid),
       created_at: createdAt,
