@@ -3167,6 +3167,7 @@ async function saveCompaniesToCosmos({
               product_keywords: productKeywordsString,
               keywords: keywordsNormalized,
               normalized_domain: finalNormalizedDomain,
+              partition_key: finalNormalizedDomain,
               logo_url: logoImport.logo_url || null,
               logo_source_url: logoImport.logo_source_url || null,
               logo_source_location: logoImport.logo_source_location || null,
