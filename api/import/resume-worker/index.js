@@ -254,7 +254,7 @@ async function handler(req, context) {
     });
   } catch {}
 
-  let container = null;
+  let cosmosContainer = null;
   if (cosmosEnabled && looksLikeUuid(sessionId)) {
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
@@ -264,10 +264,10 @@ async function handler(req, context) {
 
       if (endpoint && key && CosmosClient) {
         const client = new CosmosClient({ endpoint, key });
-        container = client.database(databaseId).container(containerId);
+        cosmosContainer = client.database(databaseId).container(containerId);
 
         await bestEffortPatchSessionDoc({
-          container,
+          container: cosmosContainer,
           sessionId,
           patch: {
             resume_worker_handler_entered_at: enteredAt,
@@ -281,9 +281,9 @@ async function handler(req, context) {
   const authDecision = getInternalAuthDecision(req);
 
   if (!authDecision.auth_ok) {
-    if (container) {
+    if (cosmosContainer) {
       await bestEffortPatchSessionDoc({
-        container,
+        container: cosmosContainer,
         sessionId,
         patch: {
           resume_worker_last_http_status: 401,
