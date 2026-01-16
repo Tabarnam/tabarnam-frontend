@@ -1116,11 +1116,17 @@ async function handler(req, context) {
           const base = new URL(req.url);
           const workerUrl = new URL("/api/import/resume-worker", base.origin);
 
-          const workerHeaders = buildInternalFetchHeaders();
+          const workerRequest = buildInternalFetchRequest({
+            job_kind: "import_resume",
+            include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
+          });
+
+          resume_gateway_key_attached = workerRequest.gateway_key_attached;
+          resume_trigger_request_id = workerRequest.request_id;
 
           const workerRes = await fetch(workerUrl.toString(), {
             method: "POST",
-            headers: workerHeaders,
+            headers: workerRequest.headers,
             body: JSON.stringify({ session_id: sessionId }),
           }).catch((e) => ({ ok: false, status: 0, _error: e }));
 
@@ -1764,11 +1770,17 @@ async function handler(req, context) {
           const base = new URL(req.url);
           const workerUrl = new URL("/api/import/resume-worker", base.origin);
 
-          const workerHeaders = buildInternalFetchHeaders();
+          const workerRequest = buildInternalFetchRequest({
+            job_kind: "import_resume",
+            include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
+          });
+
+          resume_gateway_key_attached = workerRequest.gateway_key_attached;
+          resume_trigger_request_id = workerRequest.request_id;
 
           const workerRes = await fetch(workerUrl.toString(), {
             method: "POST",
-            headers: workerHeaders,
+            headers: workerRequest.headers,
             body: JSON.stringify({ session_id: sessionId }),
           }).catch((e) => ({ ok: false, status: 0, _error: e }));
 
