@@ -1464,6 +1464,15 @@ async function handler(req, context) {
           early_exit_triggered: Boolean(primaryJob?.early_exit_triggered),
           companies_count: Number.isFinite(Number(primaryJob.companies_count)) ? Number(primaryJob.companies_count) : 0,
           items: Array.isArray(primaryJob.companies) ? primaryJob.companies : [],
+          ...EMPTY_RESUME_DIAGNOSTICS,
+          resume_needed: false,
+          resume_error: null,
+          resume_error_details: null,
+          resume: {
+            ...EMPTY_RESUME_DIAGNOSTICS.resume,
+            needed: false,
+          },
+          resume_worker: EMPTY_RESUME_DIAGNOSTICS.resume_worker,
           primary_job: {
             id: primaryJob.id || null,
             job_state: jobState,
