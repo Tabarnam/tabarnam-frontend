@@ -13,7 +13,18 @@ try {
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { getJob: getImportPrimaryJob, patchJob: patchImportPrimaryJob } = require("../_importPrimaryJobStore");
 const { runPrimaryJob } = require("../_importPrimaryWorker");
-const { buildInternalFetchHeaders } = require("../_internalJobAuth");
+const { buildInternalFetchHeaders, buildInternalFetchRequest } = require("../_internalJobAuth");
+const { getBuildInfo } = require("../_buildInfo");
+
+const HANDLER_ID = "import-status";
+
+const BUILD_INFO = (() => {
+  try {
+    return getBuildInfo();
+  } catch {
+    return { build_id: "" };
+  }
+})();
 const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
