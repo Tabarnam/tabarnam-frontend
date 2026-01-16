@@ -1111,7 +1111,8 @@ async function handler(req, context) {
         const canTrigger = !lockUntil || Date.now() >= lockUntil;
 
         if (canTrigger && (resumeStatus === "queued" || resumeStatus === "error" || (forceResume && resumeStatus !== "running"))) {
-          stageBeaconValues.status_trigger_resume_worker = nowIso();
+          const triggerAttemptAt = nowIso();
+          stageBeaconValues.status_trigger_resume_worker = triggerAttemptAt;
 
           const base = new URL(req.url);
           const workerUrl = new URL("/api/import/resume-worker", base.origin);
@@ -1776,7 +1777,8 @@ async function handler(req, context) {
         const canTrigger = !lockUntil || Date.now() >= lockUntil;
 
         if (canTrigger && (resumeStatus === "queued" || resumeStatus === "error" || (forceResume && resumeStatus !== "running"))) {
-          stageBeaconValues.status_trigger_resume_worker = nowIso();
+          const triggerAttemptAt = nowIso();
+          stageBeaconValues.status_trigger_resume_worker = triggerAttemptAt;
 
           const base = new URL(req.url);
           const workerUrl = new URL("/api/import/resume-worker", base.origin);
