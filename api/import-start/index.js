@@ -6507,9 +6507,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                             requestId,
                             patch: {
                               resume_error,
-                              resume_error_details,
-                              resume_error_at: new Date().toISOString(),
-                              updated_at: new Date().toISOString(),
+                            resume_error_details,
+                            resume_worker_last_http_status: statusCode,
+                            resume_worker_last_trigger_request_id: workerRequest.request_id || null,
+                            resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
+                            resume_error_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString(),
                             },
                           }).catch(() => null);
                         } catch {}
@@ -9445,6 +9448,9 @@ Return ONLY the JSON array, no other text.`,
                           patch: {
                             resume_error,
                             resume_error_details,
+                            resume_worker_last_http_status: statusCode,
+                            resume_worker_last_trigger_request_id: workerRequest.request_id || null,
+                            resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
                             resume_error_at: new Date().toISOString(),
                             updated_at: new Date().toISOString(),
                           },
