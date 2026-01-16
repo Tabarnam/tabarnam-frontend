@@ -700,7 +700,7 @@ async function handler(req, context) {
     ).trim() === "1";
 
   if (!sessionId) {
-    return json({ ok: false, error: "Missing session_id" }, 400, req);
+    return json({ ok: false, error: "Missing session_id", ...EMPTY_RESUME_DIAGNOSTICS }, 400, req);
   }
 
   const extraHeaders = { "x-session-id": sessionId };
