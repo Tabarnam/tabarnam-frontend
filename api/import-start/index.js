@@ -6459,9 +6459,14 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
                   setTimeout(() => {
                     (async () => {
+                      const workerRequest = buildInternalFetchRequest({
+                        job_kind: "import_resume",
+                        include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
+                      });
+
                       const workerRes = await fetch(triggerUrl.toString(), {
                         method: "POST",
-                        headers: buildInternalFetchHeaders(),
+                        headers: workerRequest.headers,
                         body: JSON.stringify({ session_id: sessionId }),
                       }).catch((e) => ({ ok: false, status: 0, _error: e }));
 
