@@ -30,6 +30,38 @@ const {
   buildPartitionKeyCandidates,
 } = require("../_cosmosPartitionKey");
 
+const EMPTY_RESUME_DIAGNOSTICS = Object.freeze({
+  resume: {
+    needed: null,
+    doc_created: null,
+    triggered: null,
+    trigger_error: null,
+    trigger_error_details: null,
+    gateway_key_attached: null,
+    trigger_request_id: null,
+    internal_auth_configured: null,
+    missing_by_company: null,
+  },
+  resume_worker: {
+    last_invoked_at: null,
+    handler_entered_at: null,
+    handler_entered_build_id: null,
+    last_reject_layer: null,
+    last_auth: null,
+    last_finished_at: null,
+    last_result: null,
+    last_ok: null,
+    last_http_status: null,
+    last_trigger_request_id: null,
+    last_gateway_key_attached: null,
+    last_error: null,
+    last_company_id: null,
+    last_written_fields: null,
+    last_stage_beacon: null,
+    last_resume_needed: null,
+  },
+});
+
 function cors(req) {
   const origin = req?.headers?.get?.("origin") || "*";
   return {
