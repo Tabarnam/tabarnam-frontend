@@ -1145,6 +1145,8 @@ async function handler(req, context) {
               http_status: statusCode,
               used_url: workerUrl.toString(),
               response_text_preview: preview || null,
+              gateway_key_attached: Boolean(resume_gateway_key_attached),
+              request_id: resume_trigger_request_id || null,
             };
           }
         }
@@ -1799,6 +1801,8 @@ async function handler(req, context) {
               http_status: statusCode,
               used_url: workerUrl.toString(),
               response_text_preview: preview || null,
+              gateway_key_attached: Boolean(resume_gateway_key_attached),
+              request_id: resume_trigger_request_id || null,
             };
           }
         }
