@@ -1199,6 +1199,26 @@ async function handler(req, context) {
           })(),
           missing_by_company,
         },
+        resume_worker: sessionDoc
+          ? {
+              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
+              last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
+              last_result: sessionDoc?.resume_worker_last_result || null,
+              last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
+              last_http_status:
+                typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
+              last_error: sessionDoc?.resume_worker_last_error || null,
+              last_company_id: sessionDoc?.resume_worker_last_company_id || null,
+              last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
+                ? sessionDoc.resume_worker_last_written_fields
+                : null,
+              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || null,
+              last_resume_needed:
+                typeof sessionDoc?.resume_worker_last_resume_needed === "boolean"
+                  ? sessionDoc.resume_worker_last_resume_needed
+                  : null,
+            }
+          : null,
         enrichment_health_summary,
         primary_job: {
           id: primaryJob?.id || null,
@@ -1865,7 +1885,27 @@ async function handler(req, context) {
           })(),
           missing_by_company,
         },
-          enrichment_health_summary,
+        resume_worker: sessionDoc
+          ? {
+              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
+              last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
+              last_result: sessionDoc?.resume_worker_last_result || null,
+              last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
+              last_http_status:
+                typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
+              last_error: sessionDoc?.resume_worker_last_error || null,
+              last_company_id: sessionDoc?.resume_worker_last_company_id || null,
+              last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
+                ? sessionDoc.resume_worker_last_written_fields
+                : null,
+              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || null,
+              last_resume_needed:
+                typeof sessionDoc?.resume_worker_last_resume_needed === "boolean"
+                  ? sessionDoc.resume_worker_last_resume_needed
+                  : null,
+            }
+          : null,
+        enrichment_health_summary,
           lastCreatedAt,
           timedOut,
           stopped,
@@ -1958,7 +1998,27 @@ async function handler(req, context) {
             trigger_error: null,
             missing_by_company: [],
           },
-          enrichment_health_summary,
+        resume_worker: sessionDoc
+          ? {
+              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
+              last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
+              last_result: sessionDoc?.resume_worker_last_result || null,
+              last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
+              last_http_status:
+                typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
+              last_error: sessionDoc?.resume_worker_last_error || null,
+              last_company_id: sessionDoc?.resume_worker_last_company_id || null,
+              last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
+                ? sessionDoc.resume_worker_last_written_fields
+                : null,
+              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || null,
+              last_resume_needed:
+                typeof sessionDoc?.resume_worker_last_resume_needed === "boolean"
+                  ? sessionDoc.resume_worker_last_resume_needed
+                  : null,
+            }
+          : null,
+        enrichment_health_summary,
           lastCreatedAt,
           timedOut,
           stopped,
@@ -2028,7 +2088,27 @@ async function handler(req, context) {
           })(),
           missing_by_company,
         },
-          enrichment_health_summary,
+        resume_worker: sessionDoc
+          ? {
+              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
+              last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
+              last_result: sessionDoc?.resume_worker_last_result || null,
+              last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
+              last_http_status:
+                typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
+              last_error: sessionDoc?.resume_worker_last_error || null,
+              last_company_id: sessionDoc?.resume_worker_last_company_id || null,
+              last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
+                ? sessionDoc.resume_worker_last_written_fields
+                : null,
+              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || null,
+              last_resume_needed:
+                typeof sessionDoc?.resume_worker_last_resume_needed === "boolean"
+                  ? sessionDoc.resume_worker_last_resume_needed
+                  : null,
+            }
+          : null,
+        enrichment_health_summary,
           lastCreatedAt,
           report,
         },
@@ -2084,6 +2164,26 @@ async function handler(req, context) {
           })(),
           missing_by_company,
         },
+        resume_worker: sessionDoc
+          ? {
+              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
+              last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
+              last_result: sessionDoc?.resume_worker_last_result || null,
+              last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
+              last_http_status:
+                typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
+              last_error: sessionDoc?.resume_worker_last_error || null,
+              last_company_id: sessionDoc?.resume_worker_last_company_id || null,
+              last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
+                ? sessionDoc.resume_worker_last_written_fields
+                : null,
+              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || null,
+              last_resume_needed:
+                typeof sessionDoc?.resume_worker_last_resume_needed === "boolean"
+                  ? sessionDoc.resume_worker_last_resume_needed
+                  : null,
+            }
+          : null,
         enrichment_health_summary,
         lastCreatedAt,
         report,
