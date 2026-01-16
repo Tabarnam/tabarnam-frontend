@@ -3431,9 +3431,24 @@ async function saveCompaniesToCosmos({
                 finalNormalizedDomain,
               });
 
-              const upserted = await upsertItemWithPkCandidates(container, mergedDoc);
-              if (!upserted.ok) {
-                throw new Error(upserted.error || "upsert_failed");
+              const expectedPk = String(existingDoc?.normalized_domain || existingDoc?.partition_key || "").trim() || undefined;
+
+              const enriched = await applyEnrichment({
+                container,
+                company_id: String(existingDoc.id),
+                expected_partition_key: expectedPk,
+                patch: mergedDoc,
+                meta: {
+                  stage: "save_companies_merge",
+                  upstream: {
+                    provider: "import-start",
+                    summary: "mergeCompanyDocsForSession",
+                  },
+                },
+              });
+
+              if (!enriched?.ok) {
+                throw new Error(enriched?.error || enriched?.root_cause || "enrichment_write_failed");
               }
 
               return {
@@ -3441,9 +3456,38 @@ async function saveCompaniesToCosmos({
                 index: companyIndex,
                 id: String(existingDoc.id),
                 company_name: companyName,
-                normalized_domain: finalNormalizedDomain,
+                normalized_domain: String(existingDoc?.normalized_domain || finalNormalizedDomain || ""),
               };
             }
+
+            // Seed write: include an enrichment event so the persisted company doc always contains
+            // a durable trace even if later stages cannot run.
+            doc.enrichment_version = 1;
+            doc.enrichment_updated_at = nowIso;
+            doc.enrichment_events = [
+              {
+                stage: "seed_save",
+                started_at: nowIso,
+                ended_at: nowIso,
+                ok: true,
+                root_cause: null,
+                retryable: false,
+                fields_written: [
+                  "company_name",
+                  "website_url",
+                  "normalized_domain",
+                  "logo_url",
+                  "headquarters_location",
+                  "manufacturing_locations",
+                  "industries",
+                  "product_keywords",
+                  "tagline",
+                  "curated_reviews",
+                  "review_count",
+                  "import_missing_fields",
+                ],
+              },
+            ];
 
             await container.items.create(doc);
             return {
