@@ -1223,6 +1223,8 @@ async function handler(req, context) {
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
+          gateway_key_attached: Boolean(resume_gateway_key_attached),
+          trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: (() => {
             const h = buildInternalFetchHeaders();
             return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
@@ -1922,6 +1924,8 @@ async function handler(req, context) {
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
+          gateway_key_attached: Boolean(resume_gateway_key_attached),
+          trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: (() => {
             const h = buildInternalFetchHeaders();
             return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
@@ -2128,6 +2132,8 @@ async function handler(req, context) {
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
+          gateway_key_attached: Boolean(resume_gateway_key_attached),
+          trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: (() => {
             const h = buildInternalFetchHeaders();
             return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
@@ -2207,6 +2213,8 @@ async function handler(req, context) {
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
+          gateway_key_attached: Boolean(resume_gateway_key_attached),
+          trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: (() => {
             const h = buildInternalFetchHeaders();
             return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
