@@ -1580,7 +1580,7 @@ async function handler(req, context) {
       );
     }
 
-    return jsonWithSessionId({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404);
+    return jsonWithSessionId({ ok: false, error: "Unknown session_id", session_id: sessionId, ...EMPTY_RESUME_DIAGNOSTICS }, 404);
   }
 
   try {
@@ -1683,7 +1683,7 @@ async function handler(req, context) {
     if (!known) known = await hasAnyCompanyDocs(container, sessionId);
 
     if (!known) {
-      return jsonWithSessionId({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404);
+      return jsonWithSessionId({ ok: false, error: "Unknown session_id", session_id: sessionId, ...EMPTY_RESUME_DIAGNOSTICS }, 404);
     }
 
     stageBeaconValues.status_seen_control_docs = nowIso();
