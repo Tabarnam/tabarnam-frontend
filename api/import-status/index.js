@@ -13,7 +13,18 @@ try {
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { getJob: getImportPrimaryJob, patchJob: patchImportPrimaryJob } = require("../_importPrimaryJobStore");
 const { runPrimaryJob } = require("../_importPrimaryWorker");
-const { buildInternalFetchHeaders } = require("../_internalJobAuth");
+const { buildInternalFetchHeaders, buildInternalFetchRequest } = require("../_internalJobAuth");
+const { getBuildInfo } = require("../_buildInfo");
+
+const HANDLER_ID = "import-status";
+
+const BUILD_INFO = (() => {
+  try {
+    return getBuildInfo();
+  } catch {
+    return { build_id: "" };
+  }
+})();
 const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
@@ -30,15 +41,21 @@ function cors(req) {
 }
 
 function json(obj, status = 200, req, extraHeaders) {
+  const payload = obj && typeof obj === "object" && !Array.isArray(obj)
+    ? { ...obj, build_id: obj.build_id || String(BUILD_INFO.build_id || "") }
+    : obj;
+
   return {
     status,
     headers: {
       ...cors(req),
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
+      "X-Api-Handler": HANDLER_ID,
+      "X-Api-Build-Id": String(BUILD_INFO.build_id || ""),
       ...(extraHeaders && typeof extraHeaders === "object" ? extraHeaders : {}),
     },
-    body: JSON.stringify(obj),
+    body: JSON.stringify(payload),
   };
 }
 
@@ -1056,6 +1073,8 @@ async function handler(req, context) {
     let resume_triggered = false;
     let resume_trigger_error = null;
     let resume_trigger_error_details = null;
+    let resume_gateway_key_attached = null;
+    let resume_trigger_request_id = null;
 
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
@@ -1087,21 +1106,75 @@ async function handler(req, context) {
         }
 
         const resumeDoc = currentResume || (await readControlDoc(container, resumeDocId, sessionId).catch(() => null));
-        const resumeStatus = String(resumeDoc?.status || "").trim();
+        const resumeStatusRaw = String(resumeDoc?.status || "").trim();
         const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
+
+        let resumeStatus = resumeStatusRaw;
+        const resumeUpdatedTs = Date.parse(String(resumeDoc?.updated_at || "")) || 0;
+        const resumeAgeMs = resumeUpdatedTs ? Math.max(0, Date.now() - resumeUpdatedTs) : 0;
+
+        // Hard stall detector: queued forever with no handler entry marker => label stalled.
+        if (resumeDoc && resumeStatus === "queued" && resumeAgeMs > 90_000) {
+          const sessionDocId = `_import_session_${sessionId}`;
+          const sessionDocForStall = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+          const enteredTs = Date.parse(String(sessionDocForStall?.resume_worker_handler_entered_at || "")) || 0;
+
+          // If the worker never reached the handler after the resume doc was queued/updated, it's a gateway/host-key rejection.
+          if (!enteredTs || (resumeUpdatedTs && enteredTs < resumeUpdatedTs)) {
+            const stalledAt = nowIso();
+            resumeStatus = "stalled";
+
+            await upsertDoc(container, {
+              ...resumeDoc,
+              status: "stalled",
+              stalled_at: stalledAt,
+              last_error: {
+                code: "resume_stalled_no_worker_entry",
+                message: "Resume doc queued > 90s with no resume-worker handler entry marker",
+              },
+              updated_at: stalledAt,
+              lock_expires_at: null,
+            }).catch(() => null);
+
+            if (sessionDocForStall && typeof sessionDocForStall === "object") {
+              await upsertDoc(container, {
+                ...sessionDocForStall,
+                resume_error: "resume_stalled_no_worker_entry",
+                resume_error_details: {
+                  root_cause: "resume_stalled_no_worker_entry",
+                  message: "Resume doc queued > 90s and resume-worker handler entry marker never updated",
+                  updated_at: stalledAt,
+                },
+                resume_needed: true,
+                updated_at: stalledAt,
+              }).catch(() => null);
+            }
+          }
+        }
+
         const canTrigger = !lockUntil || Date.now() >= lockUntil;
 
-        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "error" || (forceResume && resumeStatus !== "running"))) {
-          stageBeaconValues.status_trigger_resume_worker = nowIso();
+        if (
+          canTrigger &&
+          (resumeStatus === "queued" || resumeStatus === "error" || resumeStatus === "stalled" || (forceResume && resumeStatus !== "running"))
+        ) {
+          const triggerAttemptAt = nowIso();
+          stageBeaconValues.status_trigger_resume_worker = triggerAttemptAt;
 
           const base = new URL(req.url);
           const workerUrl = new URL("/api/import/resume-worker", base.origin);
 
-          const workerHeaders = buildInternalFetchHeaders();
+          const workerRequest = buildInternalFetchRequest({
+            job_kind: "import_resume",
+            include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
+          });
+
+          resume_gateway_key_attached = workerRequest.gateway_key_attached;
+          resume_trigger_request_id = workerRequest.request_id;
 
           const workerRes = await fetch(workerUrl.toString(), {
             method: "POST",
-            headers: workerHeaders,
+            headers: workerRequest.headers,
             body: JSON.stringify({ session_id: sessionId }),
           }).catch((e) => ({ ok: false, status: 0, _error: e }));
 
@@ -1120,7 +1193,39 @@ async function handler(req, context) {
               http_status: statusCode,
               used_url: workerUrl.toString(),
               response_text_preview: preview || null,
+              gateway_key_attached: Boolean(resume_gateway_key_attached),
+              request_id: resume_trigger_request_id || null,
             };
+
+            // Persist deterministic diagnosis signals so AdminImport can render a concrete message.
+            try {
+              const sessionDocId = `_import_session_${sessionId}`;
+              const sessionDocAfter = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+
+              const enteredTs = Date.parse(String(sessionDocAfter?.resume_worker_handler_entered_at || "")) || 0;
+              const attemptTs = Date.parse(String(triggerAttemptAt || "")) || Date.now();
+
+              const rejectLayer =
+                statusCode === 401
+                  ? enteredTs && enteredTs >= attemptTs - 5000
+                    ? "handler"
+                    : "gateway"
+                  : null;
+
+              if (sessionDocAfter && typeof sessionDocAfter === "object") {
+                await upsertDoc(container, {
+                  ...sessionDocAfter,
+                  resume_error: resume_trigger_error,
+                  resume_error_details: resume_trigger_error_details,
+                  resume_needed: true,
+                  resume_worker_last_http_status: statusCode,
+                  resume_worker_last_reject_layer: rejectLayer,
+                  resume_worker_last_trigger_request_id: resume_trigger_request_id || null,
+                  resume_worker_last_gateway_key_attached: Boolean(resume_gateway_key_attached),
+                  updated_at: nowIso(),
+                }).catch(() => null);
+              }
+            } catch {}
           }
         }
       }
@@ -1196,20 +1301,34 @@ async function handler(req, context) {
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
+          gateway_key_attached: Boolean(resume_gateway_key_attached),
+          trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: (() => {
-            const h = buildInternalFetchHeaders();
-            return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
+            const h = buildInternalFetchRequest({
+              job_kind: "import_resume",
+              include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
+            }).headers;
+            return Boolean(h?.Authorization || h?.["x-internal-job-secret"] || h?.["x-internal-secret"] || h?.["x-functions-key"]);
           })(),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
+              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || null,
+              handler_entered_build_id: sessionDoc?.resume_worker_handler_entered_build_id || null,
+              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || null,
+              last_auth: sessionDoc?.resume_worker_last_auth || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
               last_result: sessionDoc?.resume_worker_last_result || null,
               last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
+              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_gateway_key_attached:
+                typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
+                  ? sessionDoc.resume_worker_last_gateway_key_attached
+                  : null,
               last_error: sessionDoc?.resume_worker_last_error || null,
               last_company_id: sessionDoc?.resume_worker_last_company_id || null,
               last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
@@ -1709,6 +1828,8 @@ async function handler(req, context) {
     let resume_triggered = false;
     let resume_trigger_error = null;
     let resume_trigger_error_details = null;
+    let resume_gateway_key_attached = null;
+    let resume_trigger_request_id = null;
 
     if (resume_needed) {
       try {
@@ -1737,17 +1858,27 @@ async function handler(req, context) {
         const lockUntil = Date.parse(String(currentResume?.lock_expires_at || "")) || 0;
         const canTrigger = !lockUntil || Date.now() >= lockUntil;
 
-        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "error" || (forceResume && resumeStatus !== "running"))) {
-          stageBeaconValues.status_trigger_resume_worker = nowIso();
+        if (
+          canTrigger &&
+          (resumeStatus === "queued" || resumeStatus === "error" || resumeStatus === "stalled" || (forceResume && resumeStatus !== "running"))
+        ) {
+          const triggerAttemptAt = nowIso();
+          stageBeaconValues.status_trigger_resume_worker = triggerAttemptAt;
 
           const base = new URL(req.url);
           const workerUrl = new URL("/api/import/resume-worker", base.origin);
 
-          const workerHeaders = buildInternalFetchHeaders();
+          const workerRequest = buildInternalFetchRequest({
+            job_kind: "import_resume",
+            include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
+          });
+
+          resume_gateway_key_attached = workerRequest.gateway_key_attached;
+          resume_trigger_request_id = workerRequest.request_id;
 
           const workerRes = await fetch(workerUrl.toString(), {
             method: "POST",
-            headers: workerHeaders,
+            headers: workerRequest.headers,
             body: JSON.stringify({ session_id: sessionId }),
           }).catch((e) => ({ ok: false, status: 0, _error: e }));
 
@@ -1766,7 +1897,39 @@ async function handler(req, context) {
               http_status: statusCode,
               used_url: workerUrl.toString(),
               response_text_preview: preview || null,
+              gateway_key_attached: Boolean(resume_gateway_key_attached),
+              request_id: resume_trigger_request_id || null,
             };
+
+            // Persist deterministic diagnosis signals so AdminImport can render a concrete message.
+            try {
+              const sessionDocId = `_import_session_${sessionId}`;
+              const sessionDocAfter = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+
+              const enteredTs = Date.parse(String(sessionDocAfter?.resume_worker_handler_entered_at || "")) || 0;
+              const attemptTs = Date.parse(String(triggerAttemptAt || "")) || Date.now();
+
+              const rejectLayer =
+                statusCode === 401
+                  ? enteredTs && enteredTs >= attemptTs - 5000
+                    ? "handler"
+                    : "gateway"
+                  : null;
+
+              if (sessionDocAfter && typeof sessionDocAfter === "object") {
+                await upsertDoc(container, {
+                  ...sessionDocAfter,
+                  resume_error: resume_trigger_error,
+                  resume_error_details: resume_trigger_error_details,
+                  resume_needed: true,
+                  resume_worker_last_http_status: statusCode,
+                  resume_worker_last_reject_layer: rejectLayer,
+                  resume_worker_last_trigger_request_id: resume_trigger_request_id || null,
+                  resume_worker_last_gateway_key_attached: Boolean(resume_gateway_key_attached),
+                  updated_at: nowIso(),
+                }).catch(() => null);
+              }
+            } catch {}
           }
         }
       } catch (e) {
@@ -1885,20 +2048,34 @@ async function handler(req, context) {
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
+          gateway_key_attached: Boolean(resume_gateway_key_attached),
+          trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: (() => {
-            const h = buildInternalFetchHeaders();
-            return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
+            const h = buildInternalFetchRequest({
+              job_kind: "import_resume",
+              include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
+            }).headers;
+            return Boolean(h?.Authorization || h?.["x-internal-job-secret"] || h?.["x-internal-secret"] || h?.["x-functions-key"]);
           })(),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
+              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || null,
+              handler_entered_build_id: sessionDoc?.resume_worker_handler_entered_build_id || null,
+              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || null,
+              last_auth: sessionDoc?.resume_worker_last_auth || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
               last_result: sessionDoc?.resume_worker_last_result || null,
               last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
+              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_gateway_key_attached:
+                typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
+                  ? sessionDoc.resume_worker_last_gateway_key_attached
+                  : null,
               last_error: sessionDoc?.resume_worker_last_error || null,
               last_company_id: sessionDoc?.resume_worker_last_company_id || null,
               last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
@@ -2007,11 +2184,20 @@ async function handler(req, context) {
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
+              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || null,
+              handler_entered_build_id: sessionDoc?.resume_worker_handler_entered_build_id || null,
+              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || null,
+              last_auth: sessionDoc?.resume_worker_last_auth || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
               last_result: sessionDoc?.resume_worker_last_result || null,
               last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
+              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_gateway_key_attached:
+                typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
+                  ? sessionDoc.resume_worker_last_gateway_key_attached
+                  : null,
               last_error: sessionDoc?.resume_worker_last_error || null,
               last_company_id: sessionDoc?.resume_worker_last_company_id || null,
               last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
@@ -2091,20 +2277,34 @@ async function handler(req, context) {
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
+          gateway_key_attached: Boolean(resume_gateway_key_attached),
+          trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: (() => {
-            const h = buildInternalFetchHeaders();
-            return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
+            const h = buildInternalFetchRequest({
+              job_kind: "import_resume",
+              include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
+            }).headers;
+            return Boolean(h?.Authorization || h?.["x-internal-job-secret"] || h?.["x-internal-secret"] || h?.["x-functions-key"]);
           })(),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
+              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || null,
+              handler_entered_build_id: sessionDoc?.resume_worker_handler_entered_build_id || null,
+              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || null,
+              last_auth: sessionDoc?.resume_worker_last_auth || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
               last_result: sessionDoc?.resume_worker_last_result || null,
               last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
+              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_gateway_key_attached:
+                typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
+                  ? sessionDoc.resume_worker_last_gateway_key_attached
+                  : null,
               last_error: sessionDoc?.resume_worker_last_error || null,
               last_company_id: sessionDoc?.resume_worker_last_company_id || null,
               last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
@@ -2170,20 +2370,34 @@ async function handler(req, context) {
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
+          gateway_key_attached: Boolean(resume_gateway_key_attached),
+          trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: (() => {
-            const h = buildInternalFetchHeaders();
-            return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
+            const h = buildInternalFetchRequest({
+              job_kind: "import_resume",
+              include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
+            }).headers;
+            return Boolean(h?.Authorization || h?.["x-internal-job-secret"] || h?.["x-internal-secret"] || h?.["x-functions-key"]);
           })(),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
+              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || null,
+              handler_entered_build_id: sessionDoc?.resume_worker_handler_entered_build_id || null,
+              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || null,
+              last_auth: sessionDoc?.resume_worker_last_auth || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
               last_result: sessionDoc?.resume_worker_last_result || null,
               last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
+              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_gateway_key_attached:
+                typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
+                  ? sessionDoc.resume_worker_last_gateway_key_attached
+                  : null,
               last_error: sessionDoc?.resume_worker_last_error || null,
               last_company_id: sessionDoc?.resume_worker_last_company_id || null,
               last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)

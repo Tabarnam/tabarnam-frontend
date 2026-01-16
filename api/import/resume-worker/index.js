@@ -17,7 +17,23 @@ const {
   buildPartitionKeyCandidates,
 } = require("../../_cosmosPartitionKey");
 
-const { buildInternalFetchHeaders, isInternalJobRequest } = require("../../_internalJobAuth");
+const {
+  buildInternalFetchRequest,
+  getInternalAuthDecision,
+  isInternalJobRequest,
+} = require("../../_internalJobAuth");
+
+const { getBuildInfo } = require("../../_buildInfo");
+
+const HANDLER_ID = "import-resume-worker";
+
+const BUILD_INFO = (() => {
+  try {
+    return getBuildInfo();
+  } catch {
+    return { build_id: "" };
+  }
+})();
 
 function cors(req) {
   const origin = req?.headers?.get?.("origin") || "*";
@@ -26,20 +42,63 @@ function cors(req) {
     Vary: "Origin",
     "Access-Control-Allow-Methods": "POST,OPTIONS",
     "Access-Control-Allow-Headers":
-      "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id,x-tabarnam-internal,x-internal-secret",
+      "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id,x-tabarnam-internal,x-internal-secret,x-internal-job-secret,x-job-kind",
   };
 }
 
 function json(obj, status = 200, req) {
+  const payload = obj && typeof obj === "object" && !Array.isArray(obj)
+    ? { ...obj, build_id: obj.build_id || String(BUILD_INFO.build_id || "") }
+    : obj;
+
   return {
     status,
-    headers: { ...cors(req), "Content-Type": "application/json", "Cache-Control": "no-store" },
-    body: JSON.stringify(obj),
+    headers: {
+      ...cors(req),
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "X-Api-Handler": HANDLER_ID,
+      "X-Api-Build-Id": String(BUILD_INFO.build_id || ""),
+    },
+    body: JSON.stringify(payload),
   };
 }
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function looksLikeUuid(value) {
+  const s = String(value || "").trim();
+  if (!s) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
+async function bestEffortPatchSessionDoc({ container, sessionId, patch }) {
+  if (!container || !sessionId || !patch) return { ok: false, error: "missing_inputs" };
+
+  const sessionDocId = `_import_session_${sessionId}`;
+  const existing = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+
+  const base = existing && typeof existing === "object"
+    ? existing
+    : {
+        id: sessionDocId,
+        session_id: sessionId,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_session",
+        created_at: nowIso(),
+      };
+
+  const next = {
+    ...base,
+    ...(patch && typeof patch === "object" ? patch : {}),
+    updated_at: nowIso(),
+  };
+
+  await upsertDoc(container, next).catch(() => null);
+  return { ok: true };
 }
 
 let companiesPkPathPromise;
@@ -167,10 +226,6 @@ async function handler(req, context) {
   if (method === "OPTIONS") return { status: 200, headers: cors(req) };
   if (method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405, req);
 
-  if (!isInternalJobRequest(req)) {
-    return json({ ok: false, error: "Unauthorized" }, 401, req);
-  }
-
   const url = new URL(req.url);
   const noCosmosMode = String(url.searchParams.get("no_cosmos") || "").trim() === "1";
   const cosmosEnabled = !noCosmosMode;
@@ -187,6 +242,70 @@ async function handler(req, context) {
 
   const sessionId = String(body?.session_id || body?.sessionId || url.searchParams.get("session_id") || "").trim();
   if (!sessionId) return json({ ok: false, error: "Missing session_id" }, 200, req);
+
+  // Deterministic diagnosis marker: if this never updates, the request never reached the handler
+  // (e.g. rejected at gateway/host key layer).
+  const enteredAt = nowIso();
+  try {
+    console.log(`[${HANDLER_ID}] handler_entered`, {
+      session_id: sessionId,
+      entered_at: enteredAt,
+      build_id: String(BUILD_INFO.build_id || ""),
+    });
+  } catch {}
+
+  let cosmosContainer = null;
+  if (cosmosEnabled && looksLikeUuid(sessionId)) {
+    try {
+      const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+      const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+      const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+      const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+
+      if (endpoint && key && CosmosClient) {
+        const client = new CosmosClient({ endpoint, key });
+        cosmosContainer = client.database(databaseId).container(containerId);
+
+        await bestEffortPatchSessionDoc({
+          container: cosmosContainer,
+          sessionId,
+          patch: {
+            resume_worker_handler_entered_at: enteredAt,
+            resume_worker_handler_entered_build_id: String(BUILD_INFO.build_id || ""),
+          },
+        });
+      }
+    } catch {}
+  }
+
+  const authDecision = getInternalAuthDecision(req);
+
+  if (!authDecision.auth_ok) {
+    if (cosmosContainer) {
+      await bestEffortPatchSessionDoc({
+        container: cosmosContainer,
+        sessionId,
+        patch: {
+          resume_worker_last_http_status: 401,
+          resume_worker_last_reject_layer: "handler",
+          resume_worker_last_auth: authDecision,
+          resume_worker_last_finished_at: enteredAt,
+          resume_worker_last_error: "unauthorized",
+        },
+      }).catch(() => null);
+    }
+
+    return json(
+      {
+        ok: false,
+        session_id: sessionId,
+        error: "Unauthorized",
+        auth: authDecision,
+      },
+      401,
+      req
+    );
+  }
 
   if (!cosmosEnabled) {
     return json({ ok: false, session_id: sessionId, root_cause: "no_cosmos", retryable: false }, 200, req);
@@ -341,9 +460,15 @@ async function handler(req, context) {
   startUrl.searchParams.set("resume_worker", "1");
   startUrl.searchParams.set("deadline_ms", "25000");
 
+  const startRequest = buildInternalFetchRequest({
+    job_kind: "import_resume",
+    // Attach x-functions-key only when FUNCTION_KEY is explicitly configured.
+    include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
+  });
+
   const startRes = await fetch(startUrl.toString(), {
     method: "POST",
-    headers: buildInternalFetchHeaders(),
+    headers: startRequest.headers,
     body: JSON.stringify(startBody),
   }).catch((e) => ({ ok: false, status: 0, _error: e }));
 

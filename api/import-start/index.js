@@ -44,7 +44,7 @@ const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { getBuildInfo } = require("../_buildInfo");
 const { getImportStartHandlerVersion } = require("../_handlerVersions");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
-const { buildInternalFetchHeaders } = require("../_internalJobAuth");
+const { buildInternalFetchHeaders, buildInternalFetchRequest } = require("../_internalJobAuth");
 const {
   buildPrimaryJobId: buildImportPrimaryJobId,
   getJob: getImportPrimaryJob,
@@ -123,7 +123,13 @@ if (!globalThis.__importStartProcessHandlersInstalled) {
   });
 }
 
+const HANDLER_ID = "import-start";
+
 function json(obj, status = 200, extraHeaders) {
+  const payload = obj && typeof obj === "object" && !Array.isArray(obj)
+    ? { ...obj, build_id: obj.build_id || String(__importStartModuleBuildInfo?.build_id || "") }
+    : obj;
+
   return {
     status,
     headers: {
@@ -131,11 +137,13 @@ function json(obj, status = 200, extraHeaders) {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
       "Access-Control-Allow-Headers":
-        "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id",
-      "Access-Control-Expose-Headers": "x-request-id,x-correlation-id,x-session-id",
+        "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id,x-tabarnam-internal,x-internal-secret,x-internal-job-secret,x-job-kind",
+      "Access-Control-Expose-Headers": "x-request-id,x-correlation-id,x-session-id,X-Api-Handler,X-Api-Build-Id",
+      "X-Api-Handler": HANDLER_ID,
+      "X-Api-Build-Id": String(__importStartModuleBuildInfo?.build_id || ""),
       ...(extraHeaders && typeof extraHeaders === "object" ? extraHeaders : {}),
     },
-    body: JSON.stringify(obj),
+    body: JSON.stringify(payload),
   };
 }
 
@@ -6451,9 +6459,14 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
                   setTimeout(() => {
                     (async () => {
+                      const workerRequest = buildInternalFetchRequest({
+                        job_kind: "import_resume",
+                        include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
+                      });
+
                       const workerRes = await fetch(triggerUrl.toString(), {
                         method: "POST",
-                        headers: buildInternalFetchHeaders(),
+                        headers: workerRequest.headers,
                         body: JSON.stringify({ session_id: sessionId }),
                       }).catch((e) => ({ ok: false, status: 0, _error: e }));
 
@@ -6471,6 +6484,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                         http_status: statusCode,
                         used_url: triggerUrl.toString(),
                         response_text_preview: preview || null,
+                        gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
+                        request_id: workerRequest.request_id || null,
                       };
 
                       try {
@@ -6492,9 +6507,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                             requestId,
                             patch: {
                               resume_error,
-                              resume_error_details,
-                              resume_error_at: new Date().toISOString(),
-                              updated_at: new Date().toISOString(),
+                            resume_error_details,
+                            resume_worker_last_http_status: statusCode,
+                            resume_worker_last_trigger_request_id: workerRequest.request_id || null,
+                            resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
+                            resume_error_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString(),
                             },
                           }).catch(() => null);
                         } catch {}
@@ -9381,9 +9399,14 @@ Return ONLY the JSON array, no other text.`,
 
                 setTimeout(() => {
                   (async () => {
+                    const workerRequest = buildInternalFetchRequest({
+                      job_kind: "import_resume",
+                      include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
+                    });
+
                     const workerRes = await fetch(triggerUrl.toString(), {
                       method: "POST",
-                      headers: buildInternalFetchHeaders(),
+                      headers: workerRequest.headers,
                       body: JSON.stringify({ session_id: sessionId }),
                     }).catch((e) => ({ ok: false, status: 0, _error: e }));
 
@@ -9401,6 +9424,8 @@ Return ONLY the JSON array, no other text.`,
                       http_status: statusCode,
                       used_url: triggerUrl.toString(),
                       response_text_preview: preview || null,
+                      gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
+                      request_id: workerRequest.request_id || null,
                     };
 
                     try {
@@ -9423,6 +9448,9 @@ Return ONLY the JSON array, no other text.`,
                           patch: {
                             resume_error,
                             resume_error_details,
+                            resume_worker_last_http_status: statusCode,
+                            resume_worker_last_trigger_request_id: workerRequest.request_id || null,
+                            resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
                             resume_error_at: new Date().toISOString(),
                             updated_at: new Date().toISOString(),
                           },
