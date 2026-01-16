@@ -10,6 +10,7 @@ import {
   API_BASE,
   FUNCTIONS_BASE,
   apiFetch,
+  apiFetchParsed,
   getCachedBuildId,
   getLastApiRequestExplain,
   getResponseBuildId,
