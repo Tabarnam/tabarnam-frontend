@@ -1119,8 +1119,8 @@ async function handler(req, context) {
       resume_trigger_error = e?.message || String(e);
     }
 
-    const effectiveStatus = status === "error" ? "error" : resume_needed ? "running" : status;
-    const effectiveState = status === "error" ? "failed" : resume_needed ? "running" : state;
+    const effectiveStatus = status === "error" ? "error" : status;
+    const effectiveState = status === "error" ? "failed" : state;
 
     const stageBeaconFromPrimary =
       typeof primaryJob?.stage_beacon === "string" && primaryJob.stage_beacon.trim()
@@ -1133,7 +1133,7 @@ async function handler(req, context) {
               ? "primary_search_started"
               : "primary_search_started";
 
-    const effectiveStageBeacon = resume_needed && effectiveStatus === "running" ? "enrichment_resume_pending" : stageBeaconFromPrimary;
+    const effectiveStageBeacon = resume_needed ? "enrichment_resume_pending" : stageBeaconFromPrimary;
 
     stageBeaconValues.status_enrichment_health_summary = nowIso();
     stageBeaconValues.status_enrichment_incomplete = enrichment_health_summary.incomplete;
