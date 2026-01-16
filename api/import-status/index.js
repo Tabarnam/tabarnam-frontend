@@ -308,6 +308,7 @@ async function fetchRecentCompanies(container, { sessionId, take, normalizedDoma
         c.headquarters_location, c.manufacturing_locations,
         c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
         c.tagline, c.logo_url, c.logo_stage_status,
+        c.import_missing_fields, c.import_missing_reason, c.import_warnings,
         c.hq_unknown, c.hq_unknown_reason,
         c.mfg_unknown, c.mfg_unknown_reason,
         c.red_flag, c.red_flag_reason
@@ -354,6 +355,7 @@ async function fetchCompaniesByIds(container, ids) {
         c.headquarters_location, c.manufacturing_locations,
         c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
         c.tagline, c.logo_url, c.logo_stage_status,
+        c.import_missing_fields, c.import_missing_reason, c.import_warnings,
         c.hq_unknown, c.hq_unknown_reason,
         c.mfg_unknown, c.mfg_unknown_reason,
         c.red_flag, c.red_flag_reason
@@ -380,62 +382,112 @@ function normalizeStringArray(value) {
 function computeEnrichmentHealth(company) {
   const c = company && typeof company === "object" ? company : {};
 
+  const asMeaningful = (value) => {
+    const s = typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
+    if (!s) return "";
+    const lower = s.toLowerCase();
+    if (lower === "unknown" || lower === "n/a" || lower === "na" || lower === "none") return "";
+    return s;
+  };
+
+  const importMissingFields = Array.isArray(c.import_missing_fields)
+    ? c.import_missing_fields.map((v) => String(v || "").trim()).filter(Boolean)
+    : [];
+
+  const hasImportMissing = (canonical) => {
+    const key = String(canonical || "").trim();
+    if (!key) return false;
+
+    const synonyms = {
+      headquarters_location: ["headquarters_location", "hq"],
+      manufacturing_locations: ["manufacturing_locations", "mfg"],
+      product_keywords: ["product_keywords"],
+      industries: ["industries"],
+      tagline: ["tagline"],
+      logo: ["logo"],
+      reviews: ["reviews", "curated_reviews"],
+    };
+
+    const targets = Array.isArray(synonyms[key]) ? synonyms[key] : [key];
+    for (const t of targets) {
+      if (importMissingFields.includes(t)) return true;
+    }
+    return false;
+  };
+
   const industries = normalizeStringArray(c.industries);
-  const hasIndustries = industries.length > 0;
+  const industriesMeaningful = industries.map(asMeaningful).filter(Boolean);
+  const hasIndustries = industriesMeaningful.length > 0;
 
   const productKeywordsRaw = c.product_keywords;
-  const productKeywords =
+  const productKeywordsJoined =
     typeof productKeywordsRaw === "string"
       ? productKeywordsRaw.trim()
       : Array.isArray(productKeywordsRaw)
         ? productKeywordsRaw.map((v) => String(v || "").trim()).filter(Boolean).join(", ").trim()
         : "";
+  const productKeywords = asMeaningful(productKeywordsJoined);
 
   const keywordList = normalizeStringArray(c.keywords);
-  const hasKeywords = productKeywords.length > 0 || keywordList.length > 0;
+  const keywordListMeaningful = keywordList.map(asMeaningful).filter(Boolean);
+  const hasKeywords = Boolean(productKeywords) || keywordListMeaningful.length > 0;
 
   const hq = typeof c.headquarters_location === "string" ? c.headquarters_location.trim() : "";
-  const hqReason = String(c.hq_unknown_reason || c.red_flag_reason || "").trim();
-  const hasHq = Boolean(hq) || Boolean(c.hq_unknown && hqReason);
+  const hqMeaningful = asMeaningful(hq);
+  const hasHq = Boolean(hqMeaningful) && !Boolean(c.hq_unknown);
 
   const manufacturingLocations = Array.isArray(c.manufacturing_locations) ? c.manufacturing_locations : [];
-  const mfgReason = String(c.mfg_unknown_reason || c.red_flag_reason || "").trim();
-  const hasMfg = manufacturingLocations.length > 0 || Boolean(c.mfg_unknown && mfgReason);
+  const manufacturingMeaningful = manufacturingLocations.some((loc) => {
+    if (typeof loc === "string") return Boolean(asMeaningful(loc));
+    if (loc && typeof loc === "object") {
+      return Boolean(asMeaningful(loc.formatted || loc.address || loc.location || loc.full_address));
+    }
+    return false;
+  });
+  const hasMfg = manufacturingMeaningful && !Boolean(c.mfg_unknown);
 
   const taglineRaw = typeof c.tagline === "string" ? c.tagline.trim() : "";
-  const taglineLower = taglineRaw.toLowerCase();
-  const hasTagline = Boolean(taglineRaw) && taglineLower !== "unknown" && taglineLower !== "n/a" && taglineLower !== "na" && taglineLower !== "none";
+  const hasTagline = Boolean(asMeaningful(taglineRaw));
 
   const logoStage = String(c.logo_stage_status || "").trim();
+  const logoStageLower = logoStage.toLowerCase();
   const logoUrl = String(c.logo_url || "").trim();
-  const hasLogo = logoStage === "ok" || Boolean(logoUrl);
+  const logoStatus = String(c.logo_status || "").trim().toLowerCase();
+
+  const explicitLogoNotFound =
+    logoStageLower === "not_found_on_site" ||
+    logoStageLower === "not_found" ||
+    logoStageLower === "missing" ||
+    logoStatus === "not_found_on_site" ||
+    logoStatus === "not_found" ||
+    logoStatus === "missing";
+
+  // Contract: logo is satisfied if it was imported (ok/url) OR we explicitly recorded not_found.
+  const hasLogo = logoStageLower === "ok" || Boolean(logoUrl) || explicitLogoNotFound;
 
   const hasReviewCount = typeof c.review_count === "number" && Number.isFinite(c.review_count);
-  const curatedReviews = Array.isArray(c.curated_reviews) ? c.curated_reviews : [];
-  const reviewCount = hasReviewCount ? Number(c.review_count) : curatedReviews.length;
   const hasReviewCursorField = Boolean(c.review_cursor && typeof c.review_cursor === "object");
-  const hasReviewsField = hasReviewCount && Array.isArray(c.curated_reviews) && hasReviewCursorField;
+  const hasCuratedReviewsField = Array.isArray(c.curated_reviews);
+  const hasReviewsField = hasReviewCount && hasCuratedReviewsField && hasReviewCursorField;
 
   const reviewsStageRaw = String(
     c.reviews_stage_status ||
       (c.review_cursor && typeof c.review_cursor === "object" ? c.review_cursor.reviews_stage_status : "") ||
       ""
   ).trim();
-  const reviewsStage = reviewsStageRaw.toLowerCase();
-  const hasReviewsStageOk = reviewsStage === "ok";
 
-  const hasReviews = reviewsStageRaw
-    ? hasReviewsStageOk && reviewCount > 0
-    : hasReviewsField && reviewCount > 0;
+  // Contract: reviews are satisfied if the required fields exist (count + array + cursor),
+  // even when count is 0.
+  const hasReviews = hasReviewsField;
 
   const missing_fields = [];
-  if (!hasIndustries) missing_fields.push("industries");
-  if (!hasKeywords) missing_fields.push("product_keywords");
-  if (!hasTagline) missing_fields.push("tagline");
-  if (!hasHq) missing_fields.push("headquarters_location");
-  if (!hasMfg) missing_fields.push("manufacturing_locations");
-  if (!hasLogo) missing_fields.push("logo");
-  if (!hasReviews) missing_fields.push("reviews");
+  if (!hasIndustries || hasImportMissing("industries")) missing_fields.push("industries");
+  if (!hasKeywords || hasImportMissing("product_keywords")) missing_fields.push("product_keywords");
+  if (!hasTagline || hasImportMissing("tagline")) missing_fields.push("tagline");
+  if (!hasHq || hasImportMissing("headquarters_location")) missing_fields.push("headquarters_location");
+  if (!hasMfg || hasImportMissing("manufacturing_locations")) missing_fields.push("manufacturing_locations");
+  if (!hasLogo || hasImportMissing("logo")) missing_fields.push("logo");
+  if (!hasReviews || hasImportMissing("reviews")) missing_fields.push("reviews");
 
   return {
     has_industries: hasIndustries,
@@ -488,6 +540,12 @@ function toSavedCompanies(docs) {
         canonical_url: canonicalUrl,
         website_url: websiteUrl || canonicalUrl,
         enrichment_health: computeEnrichmentHealth(doc),
+        import_missing_fields: Array.isArray(doc?.import_missing_fields) ? doc.import_missing_fields : [],
+        import_missing_reason:
+          doc?.import_missing_reason && typeof doc.import_missing_reason === "object" && !Array.isArray(doc.import_missing_reason)
+            ? doc.import_missing_reason
+            : null,
+        import_warnings: Array.isArray(doc?.import_warnings) ? doc.import_warnings.slice(0, 25) : [],
       };
     })
     .filter(Boolean);
@@ -550,6 +608,7 @@ async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionC
         c.headquarters_location, c.manufacturing_locations,
         c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
         c.tagline, c.logo_url, c.logo_stage_status,
+        c.import_missing_fields, c.import_missing_reason, c.import_warnings,
         c.hq_unknown, c.hq_unknown_reason,
         c.mfg_unknown, c.mfg_unknown_reason,
         c.red_flag, c.red_flag_reason
@@ -1069,8 +1128,8 @@ async function handler(req, context) {
       resume_trigger_error = e?.message || String(e);
     }
 
-    const effectiveStatus = status === "error" ? "error" : resume_needed ? "running" : status;
-    const effectiveState = status === "error" ? "failed" : resume_needed ? "running" : state;
+    const effectiveStatus = status === "error" ? "error" : status;
+    const effectiveState = status === "error" ? "failed" : state;
 
     const stageBeaconFromPrimary =
       typeof primaryJob?.stage_beacon === "string" && primaryJob.stage_beacon.trim()
@@ -1083,7 +1142,7 @@ async function handler(req, context) {
               ? "primary_search_started"
               : "primary_search_started";
 
-    const effectiveStageBeacon = resume_needed && effectiveStatus === "running" ? "enrichment_resume_pending" : stageBeaconFromPrimary;
+    const effectiveStageBeacon = resume_needed ? "enrichment_resume_pending" : stageBeaconFromPrimary;
 
     stageBeaconValues.status_enrichment_health_summary = nowIso();
     stageBeaconValues.status_enrichment_incomplete = enrichment_health_summary.incomplete;
@@ -1134,6 +1193,10 @@ async function handler(req, context) {
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
+          internal_auth_configured: (() => {
+            const h = buildInternalFetchHeaders();
+            return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
+          })(),
           missing_by_company,
         },
         enrichment_health_summary,
@@ -1796,8 +1859,12 @@ async function handler(req, context) {
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
-            missing_by_company,
-          },
+          internal_auth_configured: (() => {
+            const h = buildInternalFetchHeaders();
+            return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
+          })(),
+          missing_by_company,
+        },
           enrichment_health_summary,
           lastCreatedAt,
           timedOut,
@@ -1955,8 +2022,12 @@ async function handler(req, context) {
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
-            missing_by_company,
-          },
+          internal_auth_configured: (() => {
+            const h = buildInternalFetchHeaders();
+            return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
+          })(),
+          missing_by_company,
+        },
           enrichment_health_summary,
           lastCreatedAt,
           report,
@@ -2007,6 +2078,10 @@ async function handler(req, context) {
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
+          internal_auth_configured: (() => {
+            const h = buildInternalFetchHeaders();
+            return Boolean(h?.Authorization || h?.["x-functions-key"] || h?.["x-internal-secret"]);
+          })(),
           missing_by_company,
         },
         enrichment_health_summary,

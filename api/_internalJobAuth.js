@@ -3,7 +3,14 @@ function asString(value) {
 }
 
 function getInternalJobSecret() {
-  const secret = (process.env.X_INTERNAL_JOB_SECRET || process.env.FUNCTION_KEY || "").trim();
+  // Prefer a dedicated internal secret, but fall back to other already-configured secrets
+  // so internal workers (resume/primary) can't 401 due to missing config.
+  const secret = (
+    process.env.X_INTERNAL_JOB_SECRET ||
+    process.env.FUNCTION_KEY ||
+    process.env.XAI_EXTERNAL_KEY ||
+    ""
+  ).trim();
   return secret;
 }
 
@@ -21,6 +28,8 @@ function buildInternalFetchHeaders(extra) {
     headers["x-tabarnam-internal"] = "1";
     headers["x-internal-secret"] = secret;
     headers["x-functions-key"] = secret;
+    // Some gateways are more likely to forward Authorization than custom x-* headers.
+    headers["Authorization"] = `Bearer ${secret}`;
   }
 
   if (extra && typeof extra === "object") {
@@ -48,11 +57,19 @@ function isInternalJobRequest(req) {
   const internalFlag = hdr("x-tabarnam-internal");
   const providedSecret = hdr("x-internal-secret");
   const functionsKey = hdr("x-functions-key");
+  const authorization = hdr("authorization");
 
   if (internalFlag === "1" && providedSecret && providedSecret === expected) return true;
 
   // Best-effort fallback for callers that only forward x-functions-key.
   if (functionsKey && functionsKey === expected) return true;
+
+  // Additional fallback: Authorization: Bearer <secret>
+  if (authorization) {
+    const match = authorization.match(/^bearer\s+(.+)$/i);
+    const token = match ? String(match[1] || "").trim() : "";
+    if (token && token === expected) return true;
+  }
 
   return false;
 }

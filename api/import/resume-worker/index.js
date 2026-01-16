@@ -364,6 +364,8 @@ async function handler(req, context) {
 
   const ok = Boolean(startRes?.ok) && Boolean(startJson?.ok !== false);
 
+  const updatedAt = nowIso();
+
   await upsertDoc(container, {
     ...resumeDoc,
     status: ok ? "triggered" : "error",
@@ -374,8 +376,24 @@ async function handler(req, context) {
       resume_needed: Boolean(startJson?.resume_needed),
     },
     lock_expires_at: null,
-    updated_at: nowIso(),
+    updated_at: updatedAt,
   }).catch(() => null);
+
+  // Lightweight telemetry on the session control doc so /admin/import Copy Debug has parity with refresh endpoints.
+  if (sessionDoc && typeof sessionDoc === "object") {
+    await upsertDoc(container, {
+      ...sessionDoc,
+      resume_worker_last_invoked_at: updatedAt,
+      resume_worker_last_ok: Boolean(ok),
+      resume_worker_last_http_status: Number(startRes?.status || 0) || 0,
+      resume_worker_last_error: ok
+        ? null
+        : startRes?._error?.message || `import_start_http_${Number(startRes?.status || 0) || 0}`,
+      resume_worker_last_stage_beacon: startJson?.stage_beacon || null,
+      resume_worker_last_resume_needed: Boolean(startJson?.resume_needed),
+      updated_at: updatedAt,
+    }).catch(() => null);
+  }
 
   return json(
     {

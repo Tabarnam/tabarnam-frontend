@@ -3751,13 +3751,44 @@ export default function AdminImport() {
                                 </div>
                               ) : null}
                             </div>
-                            <div className="text-sm text-slate-700">Saved: {savedCount}</div>
+                            <div className="text-sm text-slate-700">Persisted (verified): {savedCount}</div>
                           </div>
 
                           {enrichmentMissingFields.length > 0 ? (
-                            <div className="mt-2 text-sm text-amber-900">
-                              Enrichment incomplete: {enrichmentMissingFields.slice(0, 4).join(", ")}
-                              {enrichmentMissingFields.length > 4 ? ` (+${enrichmentMissingFields.length - 4})` : ""}
+                            <div className="mt-2 text-sm text-amber-900 space-y-2">
+                              <div>
+                                Enrichment incomplete: {enrichmentMissingFields.slice(0, 4).join(", ")}
+                                {enrichmentMissingFields.length > 4 ? ` (+${enrichmentMissingFields.length - 4})` : ""}
+                              </div>
+
+                              {Array.isArray(primarySaved?.import_warnings) && primarySaved.import_warnings.length > 0 ? (
+                                <div className="rounded border border-amber-200 bg-amber-50 p-3">
+                                  <div className="text-xs font-medium text-amber-900">Required-fields checklist</div>
+                                  <div className="mt-1 text-[11px] text-amber-900/90">
+                                    Shows why each missing field was defaulted (placeholder) and which stage failed.
+                                  </div>
+
+                                  <ul className="mt-2 space-y-1 text-[11px] text-amber-950">
+                                    {primarySaved.import_warnings.slice(0, 8).map((w, idx) => {
+                                      const field = asString(w?.field).trim();
+                                      const stage = asString(w?.stage).trim();
+                                      const reason = asString(w?.missing_reason).trim();
+                                      const msg = asString(w?.message).trim();
+
+                                      return (
+                                        <li key={`${field || "field"}-${idx}`} className="flex flex-wrap items-start justify-between gap-2">
+                                          <span className="font-medium">{field || "(field)"}</span>
+                                          <span className="text-amber-900/90">
+                                            {reason || "missing"}
+                                            {stage ? ` · ${stage}` : ""}
+                                            {msg ? ` · ${msg}` : ""}
+                                          </span>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                </div>
+                              ) : null}
                             </div>
                           ) : null}
 
