@@ -813,6 +813,18 @@ export default function AdminImport() {
                   : r.resume && typeof r.resume === "object"
                     ? r.resume
                     : null,
+              resume_worker:
+                body?.resume_worker && typeof body.resume_worker === "object"
+                  ? body.resume_worker
+                  : r.resume_worker && typeof r.resume_worker === "object"
+                    ? r.resume_worker
+                    : null,
+              enrichment_last_write_error:
+                body?.enrichment_last_write_error && typeof body.enrichment_last_write_error === "object"
+                  ? body.enrichment_last_write_error
+                  : r.enrichment_last_write_error && typeof r.enrichment_last_write_error === "object"
+                    ? r.enrichment_last_write_error
+                    : null,
               start_error: nextStartError,
               start_error_details: nextStartErrorDetails,
               progress_error: nextProgressError,
@@ -978,10 +990,69 @@ export default function AdminImport() {
         pollAttemptsRef.current.set(session_id, nextAttempts);
 
         if (nextAttempts > POLL_MAX_ATTEMPTS) {
-          const msg =
-            `Polling paused after ${POLL_MAX_ATTEMPTS} attempts. ` +
-            `Import may still be processing or may have completed asynchronously. ` +
-            `Use "View status" (or "Poll now") to refresh.`;
+          let latestBody = null;
+          try {
+            const latest = await pollProgress({ session_id });
+            latestBody = latest?.body || null;
+          } catch {}
+
+          const resumeNeeded = Boolean(latestBody?.resume_needed);
+          const resumeWorker = latestBody?.resume_worker && typeof latestBody.resume_worker === "object" ? latestBody.resume_worker : null;
+          const invokedAt = asString(resumeWorker?.last_invoked_at).trim();
+          const finishedAt = asString(resumeWorker?.last_finished_at).trim();
+          const lastResult = asString(resumeWorker?.last_result).trim();
+
+          const triggerError = asString(
+            latestBody?.resume?.trigger_error || latestBody?.resume_error || latestBody?.error || latestBody?.message || ""
+          ).trim();
+
+          const writeError =
+            latestBody?.enrichment_last_write_error && typeof latestBody.enrichment_last_write_error === "object"
+              ? latestBody.enrichment_last_write_error
+              : null;
+
+          const msg = (() => {
+            if (resumeNeeded && !invokedAt) {
+              return (
+                `Polling paused after ${POLL_MAX_ATTEMPTS} attempts. ` +
+                `Resume is still needed, but the resume worker has not invoked yet. ` +
+                (triggerError ? `Last trigger error: ${triggerError}. ` : "") +
+                `Use "Retry resume" or "View status" for details.`
+              );
+            }
+
+            if (resumeNeeded && invokedAt && !finishedAt) {
+              return (
+                `Polling paused after ${POLL_MAX_ATTEMPTS} attempts. ` +
+                `Resume worker started at ${invokedAt} but has not finished yet. ` +
+                `Use "View status" to confirm progress.`
+              );
+            }
+
+            if (resumeNeeded && invokedAt && finishedAt && lastResult && lastResult !== "ok") {
+              return (
+                `Polling paused after ${POLL_MAX_ATTEMPTS} attempts. ` +
+                `Resume worker ran at ${invokedAt} and finished at ${finishedAt} with result: ${lastResult}. ` +
+                (triggerError ? `Error: ${triggerError}. ` : "") +
+                `Use "Retry resume" or "View status" for details.`
+              );
+            }
+
+            if (writeError && writeError.root_cause) {
+              return (
+                `Polling paused after ${POLL_MAX_ATTEMPTS} attempts. ` +
+                `Last enrichment write failed: ${asString(writeError.root_cause).trim()}. ` +
+                (writeError.error ? `Details: ${asString(writeError.error).trim()}. ` : "") +
+                `Use "View status" for the recorded failure.`
+              );
+            }
+
+            return (
+              `Polling paused after ${POLL_MAX_ATTEMPTS} attempts. ` +
+              `Use "View status" (or "Poll now") to refresh.`
+            );
+          })();
+
           toast.info(msg);
           try {
             setActiveStatus((prev) => (prev === "running" ? "done" : prev));

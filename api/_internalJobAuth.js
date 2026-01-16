@@ -5,10 +5,13 @@ function asString(value) {
 function getInternalJobSecret() {
   // Prefer a dedicated internal secret, but fall back to other already-configured secrets
   // so internal workers (resume/primary) can't 401 due to missing config.
+  // IMPORTANT: this must be stable across all the runtimes that might call each other.
+  // In practice, FUNCTION_KEY is sometimes only configured in one environment, which can
+  // cause import-start -> resume-worker calls to 401 if each side selects a different fallback.
   const secret = (
     process.env.X_INTERNAL_JOB_SECRET ||
-    process.env.FUNCTION_KEY ||
     process.env.XAI_EXTERNAL_KEY ||
+    process.env.FUNCTION_KEY ||
     ""
   ).trim();
   return secret;
