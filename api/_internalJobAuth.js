@@ -3,7 +3,14 @@ function asString(value) {
 }
 
 function getInternalJobSecret() {
-  const secret = (process.env.X_INTERNAL_JOB_SECRET || process.env.FUNCTION_KEY || "").trim();
+  // Prefer a dedicated internal secret, but fall back to other already-configured secrets
+  // so internal workers (resume/primary) can't 401 due to missing config.
+  const secret = (
+    process.env.X_INTERNAL_JOB_SECRET ||
+    process.env.FUNCTION_KEY ||
+    process.env.XAI_EXTERNAL_KEY ||
+    ""
+  ).trim();
   return secret;
 }
 
