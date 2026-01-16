@@ -3448,6 +3448,25 @@ async function saveCompaniesToCosmos({
               });
 
               if (!enriched?.ok) {
+                try {
+                  await upsertCosmosImportSessionDoc({
+                    sessionId: sid,
+                    requestId,
+                    patch: {
+                      enrichment_last_write_error: {
+                        at: new Date().toISOString(),
+                        company_id: String(existingDoc.id),
+                        stage: "save_companies_merge",
+                        root_cause: enriched?.root_cause || "enrichment_write_failed",
+                        retryable: Boolean(enriched?.retryable),
+                        expected_partition_key: enriched?.expected_partition_key || null,
+                        actual_partition_key: enriched?.actual_partition_key || null,
+                        error: enriched?.error || null,
+                      },
+                    },
+                  }).catch(() => null);
+                } catch {}
+
                 throw new Error(enriched?.error || enriched?.root_cause || "enrichment_write_failed");
               }
 
