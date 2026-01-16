@@ -2722,6 +2722,17 @@ export default function AdminImport() {
     return toPrettyJsonText(activeDebugPayload);
   }, [activeDebugPayload]);
 
+  const resumeDebugPayload = useMemo(() => {
+    if (!activeRun) return null;
+    const bundle = activeRun?.last_resume_debug_bundle;
+    return bundle && typeof bundle === "object" ? bundle : null;
+  }, [activeRun]);
+
+  const resumeDebugText = useMemo(() => {
+    if (!resumeDebugPayload) return "";
+    return toPrettyJsonText(resumeDebugPayload);
+  }, [resumeDebugPayload]);
+
   const startImportDisabled = !API_BASE || activeStatus === "running" || activeStatus === "stopping";
 
   useEffect(() => {
