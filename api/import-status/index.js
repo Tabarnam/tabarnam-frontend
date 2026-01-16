@@ -1654,6 +1654,7 @@ async function handler(req, context) {
           session_id: sessionId,
           error: "Cosmos client module unavailable",
           code: "COSMOS_MODULE_MISSING",
+          ...EMPTY_RESUME_DIAGNOSTICS,
         },
         200
       );
