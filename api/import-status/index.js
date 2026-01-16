@@ -1199,7 +1199,7 @@ async function handler(req, context) {
           })(),
           missing_by_company,
         },
-        resume_worker: sessionDoc
+        resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
@@ -1885,7 +1885,7 @@ async function handler(req, context) {
           })(),
           missing_by_company,
         },
-        resume_worker: sessionDoc
+        resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
@@ -1998,7 +1998,7 @@ async function handler(req, context) {
             trigger_error: null,
             missing_by_company: [],
           },
-        resume_worker: sessionDoc
+        resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
@@ -2088,7 +2088,7 @@ async function handler(req, context) {
           })(),
           missing_by_company,
         },
-        resume_worker: sessionDoc
+        resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
@@ -2164,7 +2164,7 @@ async function handler(req, context) {
           })(),
           missing_by_company,
         },
-        resume_worker: sessionDoc
+        resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
