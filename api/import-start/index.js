@@ -3249,27 +3249,157 @@ async function saveCompaniesToCosmos({
               updated_at: nowIso,
             };
 
+            // Canonical import contract:
+            // - No required field should be absent/undefined after persistence
+            // - If we cannot resolve a value, persist a deterministic placeholder + structured warning
             try {
-              const missing_fields = [];
+              const asMeaningful = (value) => {
+                const s = typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
+                if (!s) return "";
+                const lower = s.toLowerCase();
+                if (lower === "unknown" || lower === "n/a" || lower === "na" || lower === "none") return "";
+                return s;
+              };
 
-              if (!Array.isArray(doc.industries) || doc.industries.length === 0) missing_fields.push("industries");
-              if (!String(doc.product_keywords || "").trim()) missing_fields.push("product_keywords");
+              const import_missing_fields = [];
+              const import_missing_reason = {};
+              const import_warnings = [];
 
-              const hq = String(doc.headquarters_location || "").trim();
-              const hqLower = hq.toLowerCase();
-              const hasHq = Boolean(hq && hqLower !== "unknown" && hqLower !== "n/a" && hqLower !== "na" && hqLower !== "none");
-              if (!hasHq) missing_fields.push("hq");
+              const ensureMissing = (field, reason, stage, message, retryable = true, source_attempted = "xai") => {
+                const f = String(field || "").trim();
+                if (!f) return;
+                if (!import_missing_fields.includes(f)) import_missing_fields.push(f);
+                if (!import_missing_reason[f]) import_missing_reason[f] = String(reason || "missing");
 
-              if (!Array.isArray(doc.manufacturing_locations) || doc.manufacturing_locations.length === 0) missing_fields.push("mfg");
+                import_warnings.push({
+                  field: f,
+                  missing_reason: String(reason || "missing"),
+                  stage: String(stage || "unknown"),
+                  source_attempted: String(source_attempted || ""),
+                  retryable: Boolean(retryable),
+                  message: String(message || "missing"),
+                });
+              };
 
-              const hasReviews =
-                (Array.isArray(doc.curated_reviews) && doc.curated_reviews.length > 0) ||
-                (Number.isFinite(Number(doc.review_count)) && Number(doc.review_count) > 0);
-              if (!hasReviews) missing_fields.push("reviews");
+              // company_name (required)
+              if (!String(doc.company_name || "").trim()) {
+                doc.company_name = "Unknown";
+                doc.company_name_unknown = true;
+                ensureMissing("company_name", "missing", "primary", "company_name missing; set to placeholder 'Unknown'", false);
+              }
 
-              if (!String(doc.logo_url || "").trim()) missing_fields.push("logo");
+              // website_url (required)
+              if (!String(doc.website_url || "").trim()) {
+                doc.website_url = "Unknown";
+                doc.website_url_unknown = true;
+                if (!String(doc.normalized_domain || "").trim()) doc.normalized_domain = "unknown";
+                if (!String(doc.partition_key || "").trim()) doc.partition_key = doc.normalized_domain;
+                ensureMissing("website_url", "missing", "primary", "website_url missing; set to placeholder 'Unknown'", false);
+              }
 
-              doc.missing_fields = missing_fields;
+              // industries (required)
+              if (!Array.isArray(doc.industries)) doc.industries = [];
+              const industriesMeaningful = doc.industries.map(asMeaningful).filter(Boolean);
+              if (industriesMeaningful.length === 0) {
+                doc.industries = ["Unknown"];
+                doc.industries_unknown = true;
+                ensureMissing("industries", "not_found", "extract_industries", "Industries missing; set to placeholder ['Unknown']");
+              }
+
+              // keywords/product_keywords (required)
+              if (!Array.isArray(doc.keywords)) doc.keywords = [];
+              const keywordListMeaningful = doc.keywords.map(asMeaningful).filter(Boolean);
+              const pkRaw = String(doc.product_keywords || "").trim();
+
+              if (!pkRaw && keywordListMeaningful.length > 0) {
+                doc.product_keywords = keywordListMeaningful.join(", ");
+              }
+
+              const pkMeaningful = asMeaningful(String(doc.product_keywords || "").trim());
+              if (!pkMeaningful && keywordListMeaningful.length === 0) {
+                doc.product_keywords = "Unknown";
+                doc.product_keywords_unknown = true;
+                ensureMissing("product_keywords", "not_found", "extract_keywords", "product_keywords missing; set to placeholder 'Unknown'");
+              }
+
+              // tagline (required)
+              const taglineMeaningful = asMeaningful(doc.tagline);
+              if (!taglineMeaningful) {
+                doc.tagline = "Unknown";
+                doc.tagline_unknown = true;
+                ensureMissing("tagline", "not_found", "extract_tagline", "tagline missing; set to placeholder 'Unknown'");
+              }
+
+              // headquarters_location (required)
+              const hqMeaningful = asMeaningful(doc.headquarters_location);
+              if (!hqMeaningful) {
+                doc.headquarters_location = "Unknown";
+                doc.hq_unknown = true;
+                doc.hq_unknown_reason = String(doc.hq_unknown_reason || "unknown");
+                ensureMissing(
+                  "headquarters_location",
+                  doc.hq_unknown_reason,
+                  "extract_hq",
+                  "headquarters_location missing; set to placeholder 'Unknown'"
+                );
+              }
+
+              // manufacturing_locations (required)
+              const mfgList = Array.isArray(doc.manufacturing_locations) ? doc.manufacturing_locations : [];
+              const mfgMeaningful = mfgList.some((m) => {
+                if (typeof m === "string") return Boolean(asMeaningful(m));
+                if (m && typeof m === "object") {
+                  return Boolean(asMeaningful(m.formatted || m.address || m.location || m.full_address));
+                }
+                return false;
+              });
+
+              if (!mfgMeaningful) {
+                doc.manufacturing_locations = ["Unknown"];
+                doc.mfg_unknown = true;
+                doc.mfg_unknown_reason = String(doc.mfg_unknown_reason || "unknown");
+                ensureMissing(
+                  "manufacturing_locations",
+                  doc.mfg_unknown_reason,
+                  "extract_mfg",
+                  "manufacturing_locations missing; set to placeholder ['Unknown']"
+                );
+              }
+
+              // reviews (required fields can be empty, but must be explicitly set)
+              if (!Array.isArray(doc.curated_reviews)) doc.curated_reviews = [];
+              if (!Number.isFinite(Number(doc.review_count))) doc.review_count = doc.curated_reviews.length;
+              if (!(doc.review_cursor && typeof doc.review_cursor === "object")) {
+                doc.review_cursor = reviewCursorNormalized;
+              }
+              if (!String(doc.reviews_last_updated_at || "").trim()) doc.reviews_last_updated_at = nowIso;
+              if (!(typeof doc.reviews_stage_status === "string" && doc.reviews_stage_status.trim())) {
+                doc.reviews_stage_status = "pending";
+              }
+
+              // logo (required: ok OR explicit not_found)
+              if (!String(doc.logo_url || "").trim()) {
+                doc.logo_url = null;
+                if (!String(doc.logo_status || "").trim()) doc.logo_status = "not_found_on_site";
+                if (!String(doc.logo_import_status || "").trim()) doc.logo_import_status = "missing";
+                if (!String(doc.logo_stage_status || "").trim()) doc.logo_stage_status = "not_found_on_site";
+                ensureMissing("logo", String(doc.logo_status || "not_found"), "logo", "logo_url missing; persisted as explicit not_found");
+              }
+
+              // A compact checklist used by import-status (resume detection + UI).
+              doc.import_missing_fields = import_missing_fields;
+              doc.import_missing_reason = import_missing_reason;
+              doc.import_warnings = import_warnings;
+
+              // Back-compat field used by some tooling.
+              doc.missing_fields = import_missing_fields
+                .map((f) => {
+                  if (f === "headquarters_location") return "hq";
+                  if (f === "manufacturing_locations") return "mfg";
+                  if (f === "website_url") return "website_url";
+                  return f;
+                })
+                .filter(Boolean);
               doc.missing_fields_updated_at = nowIso;
             } catch {}
 
