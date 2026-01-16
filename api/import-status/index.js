@@ -308,6 +308,7 @@ async function fetchRecentCompanies(container, { sessionId, take, normalizedDoma
         c.headquarters_location, c.manufacturing_locations,
         c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
         c.tagline, c.logo_url, c.logo_stage_status,
+        c.import_missing_fields, c.import_missing_reason, c.import_warnings,
         c.hq_unknown, c.hq_unknown_reason,
         c.mfg_unknown, c.mfg_unknown_reason,
         c.red_flag, c.red_flag_reason
@@ -354,6 +355,7 @@ async function fetchCompaniesByIds(container, ids) {
         c.headquarters_location, c.manufacturing_locations,
         c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
         c.tagline, c.logo_url, c.logo_stage_status,
+        c.import_missing_fields, c.import_missing_reason, c.import_warnings,
         c.hq_unknown, c.hq_unknown_reason,
         c.mfg_unknown, c.mfg_unknown_reason,
         c.red_flag, c.red_flag_reason
@@ -600,6 +602,7 @@ async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionC
         c.headquarters_location, c.manufacturing_locations,
         c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
         c.tagline, c.logo_url, c.logo_stage_status,
+        c.import_missing_fields, c.import_missing_reason, c.import_warnings,
         c.hq_unknown, c.hq_unknown_reason,
         c.mfg_unknown, c.mfg_unknown_reason,
         c.red_flag, c.red_flag_reason
