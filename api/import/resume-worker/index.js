@@ -47,10 +47,20 @@ function cors(req) {
 }
 
 function json(obj, status = 200, req) {
+  const payload = obj && typeof obj === "object" && !Array.isArray(obj)
+    ? { ...obj, build_id: obj.build_id || String(BUILD_INFO.build_id || "") }
+    : obj;
+
   return {
     status,
-    headers: { ...cors(req), "Content-Type": "application/json", "Cache-Control": "no-store" },
-    body: JSON.stringify(obj),
+    headers: {
+      ...cors(req),
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "X-Api-Handler": HANDLER_ID,
+      "X-Api-Build-Id": String(BUILD_INFO.build_id || ""),
+    },
+    body: JSON.stringify(payload),
   };
 }
 
