@@ -28,6 +28,8 @@ function buildInternalFetchHeaders(extra) {
     headers["x-tabarnam-internal"] = "1";
     headers["x-internal-secret"] = secret;
     headers["x-functions-key"] = secret;
+    // Some gateways are more likely to forward Authorization than custom x-* headers.
+    headers["Authorization"] = `Bearer ${secret}`;
   }
 
   if (extra && typeof extra === "object") {
@@ -55,11 +57,19 @@ function isInternalJobRequest(req) {
   const internalFlag = hdr("x-tabarnam-internal");
   const providedSecret = hdr("x-internal-secret");
   const functionsKey = hdr("x-functions-key");
+  const authorization = hdr("authorization");
 
   if (internalFlag === "1" && providedSecret && providedSecret === expected) return true;
 
   // Best-effort fallback for callers that only forward x-functions-key.
   if (functionsKey && functionsKey === expected) return true;
+
+  // Additional fallback: Authorization: Bearer <secret>
+  if (authorization) {
+    const match = authorization.match(/^bearer\s+(.+)$/i);
+    const token = match ? String(match[1] || "").trim() : "";
+    if (token && token === expected) return true;
+  }
 
   return false;
 }
