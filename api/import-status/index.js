@@ -41,15 +41,21 @@ function cors(req) {
 }
 
 function json(obj, status = 200, req, extraHeaders) {
+  const payload = obj && typeof obj === "object" && !Array.isArray(obj)
+    ? { ...obj, build_id: obj.build_id || String(BUILD_INFO.build_id || "") }
+    : obj;
+
   return {
     status,
     headers: {
       ...cors(req),
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
+      "X-Api-Handler": HANDLER_ID,
+      "X-Api-Build-Id": String(BUILD_INFO.build_id || ""),
       ...(extraHeaders && typeof extraHeaders === "object" ? extraHeaders : {}),
     },
-    body: JSON.stringify(obj),
+    body: JSON.stringify(payload),
   };
 }
 
