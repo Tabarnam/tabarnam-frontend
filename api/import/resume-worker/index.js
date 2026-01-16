@@ -17,7 +17,23 @@ const {
   buildPartitionKeyCandidates,
 } = require("../../_cosmosPartitionKey");
 
-const { buildInternalFetchHeaders, isInternalJobRequest } = require("../../_internalJobAuth");
+const {
+  buildInternalFetchRequest,
+  getInternalAuthDecision,
+  isInternalJobRequest,
+} = require("../../_internalJobAuth");
+
+const { getBuildInfo } = require("../../_buildInfo");
+
+const HANDLER_ID = "import-resume-worker";
+
+const BUILD_INFO = (() => {
+  try {
+    return getBuildInfo();
+  } catch {
+    return { build_id: "" };
+  }
+})();
 
 function cors(req) {
   const origin = req?.headers?.get?.("origin") || "*";
