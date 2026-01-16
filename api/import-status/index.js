@@ -540,6 +540,12 @@ function toSavedCompanies(docs) {
         canonical_url: canonicalUrl,
         website_url: websiteUrl || canonicalUrl,
         enrichment_health: computeEnrichmentHealth(doc),
+        import_missing_fields: Array.isArray(doc?.import_missing_fields) ? doc.import_missing_fields : [],
+        import_missing_reason:
+          doc?.import_missing_reason && typeof doc.import_missing_reason === "object" && !Array.isArray(doc.import_missing_reason)
+            ? doc.import_missing_reason
+            : null,
+        import_warnings: Array.isArray(doc?.import_warnings) ? doc.import_warnings.slice(0, 25) : [],
       };
     })
     .filter(Boolean);
