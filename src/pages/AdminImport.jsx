@@ -886,15 +886,83 @@ export default function AdminImport() {
       const sid = asString(session_id).trim();
       if (!sid) return;
 
-      try {
-        const statusUrl = join(API_BASE, "import/status");
-        const res = await fetch(`${statusUrl}?session_id=${encodeURIComponent(sid)}&force_resume=1`, {
+      const encoded = encodeURIComponent(sid);
+      const path = `/import/status?session_id=${encoded}&force_resume=1`;
+      const endpointUrl = join(API_BASE, path);
+
+      const requestHeaders = { "Content-Type": "application/json" };
+
+      const initialBundle = {
+        kind: "retry_resume",
+        captured_at: new Date().toISOString(),
+        endpoint_url: endpointUrl,
+        request_payload: { session_id: sid, force_resume: true },
+        request_explain: {
+          url: endpointUrl,
           method: "GET",
-          headers: { "Content-Type": "application/json" },
+          headers: requestHeaders,
+          body_preview: "",
+        },
+        network_error: null,
+        exception_message: null,
+        response_status: null,
+        response_text_preview: null,
+        response: null,
+        build_headers: {
+          api_build_id: null,
+          request_id: null,
+          cached_build_id: getCachedBuildId() || null,
+        },
+      };
+
+      // Critical: persist a debug bundle synchronously, before awaiting any network call.
+      try {
+        setRuns((prev) => prev.map((r) => (r.session_id === sid ? { ...r, last_resume_debug_bundle: initialBundle } : r)));
+      } catch {}
+
+      let finalBundle = initialBundle;
+
+      try {
+        const r = await apiFetchParsed(path, {
+          method: "GET",
+          headers: requestHeaders,
           keepalive: true,
         });
 
-        const body = await readJsonOrText(res);
+        const res = r.response;
+        const body = r.data;
+        const textBody = typeof r.text === "string" ? r.text : "";
+
+        const requestExplain = getLastApiRequestExplain();
+        const apiBuildId = getResponseBuildId(res) || null;
+        const requestId = getResponseRequestId(res) || null;
+
+        finalBundle = {
+          ...initialBundle,
+          request_explain: requestExplain || initialBundle.request_explain,
+          response_status: res?.status ?? null,
+          response_text_preview: textBody ? textBody.slice(0, 2000) : null,
+          response: {
+            status: res.status,
+            ok: res.ok,
+            headers: {
+              "content-type": res.headers.get("content-type") || "",
+              "x-api-build-id": res.headers.get("x-api-build-id") || res.headers.get("X-Api-Build-Id") || "",
+              "x-request-id": res.headers.get("x-request-id") || res.headers.get("X-Request-ID") || "",
+              "x-ms-request-id": res.headers.get("x-ms-request-id") || "",
+            },
+            body_json: body && typeof body === "object" ? body : null,
+            body_text: textBody,
+            api_fetch_error: res && typeof res === "object" ? res.__api_fetch_error : null,
+            api_fetch_fallback: res && typeof res === "object" ? res.__api_fetch_fallback : null,
+          },
+          build_headers: {
+            api_build_id: apiBuildId,
+            request_id: requestId,
+            cached_build_id: getCachedBuildId() || null,
+          },
+        };
+
         const triggered = Boolean(body?.resume?.triggered);
         const triggerError = asString(
           body?.resume?.trigger_error || body?.resume_error || body?.error || body?.message || ""
@@ -909,8 +977,56 @@ export default function AdminImport() {
           toast.error(msg);
         }
       } catch (e) {
+        const maybeStatus = typeof e?.status === "number" ? e.status : Number(e?.status) || null;
+        const res = e?.response;
+        const body = e?.data;
+        const textBody = typeof e?.text === "string" ? e.text : "";
+
+        const requestExplain = getLastApiRequestExplain();
+        const apiBuildId = res ? getResponseBuildId(res) : null;
+        const requestId = res ? getResponseRequestId(res) : null;
+
+        const networkError =
+          body && typeof body === "object"
+            ? asString(body.error_message || body.error || body.message).trim()
+            : "";
+
+        finalBundle = {
+          ...initialBundle,
+          request_explain: requestExplain || initialBundle.request_explain,
+          network_error: networkError || null,
+          exception_message: toErrorString(e) || "Retry resume failed",
+          response_status: res ? res.status : maybeStatus,
+          response_text_preview: textBody ? textBody.slice(0, 2000) : null,
+          response: res
+            ? {
+                status: res.status,
+                ok: res.ok,
+                headers: {
+                  "content-type": res.headers.get("content-type") || "",
+                  "x-api-build-id": res.headers.get("x-api-build-id") || res.headers.get("X-Api-Build-Id") || "",
+                  "x-request-id": res.headers.get("x-request-id") || res.headers.get("X-Request-ID") || "",
+                  "x-ms-request-id": res.headers.get("x-ms-request-id") || "",
+                },
+                body_json: body && typeof body === "object" ? body : null,
+                body_text: textBody,
+                api_fetch_error: res && typeof res === "object" ? res.__api_fetch_error : null,
+                api_fetch_fallback: res && typeof res === "object" ? res.__api_fetch_fallback : null,
+              }
+            : null,
+          build_headers: {
+            api_build_id: apiBuildId,
+            request_id: requestId,
+            cached_build_id: getCachedBuildId() || null,
+          },
+        };
+
         toast.error(toErrorString(e) || "Retry resume failed");
       } finally {
+        try {
+          setRuns((prev) => prev.map((r) => (r.session_id === sid ? { ...r, last_resume_debug_bundle: finalBundle } : r)));
+        } catch {}
+
         await pollProgress({ session_id: sid });
       }
     },
