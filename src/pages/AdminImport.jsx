@@ -3751,7 +3751,7 @@ export default function AdminImport() {
                                 </div>
                               ) : null}
                             </div>
-                            <div className="text-sm text-slate-700">Saved: {savedCount}</div>
+                            <div className="text-sm text-slate-700">Persisted (verified): {savedCount}</div>
                           </div>
 
                           {enrichmentMissingFields.length > 0 ? (
