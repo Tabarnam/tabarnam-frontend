@@ -1182,6 +1182,9 @@ async function handler(req, context) {
         save_outcome,
         resume_error,
         resume_error_details,
+        enrichment_last_write_error: (typeof sessionDoc !== "undefined" && sessionDoc)
+          ? sessionDoc?.enrichment_last_write_error || null
+          : null,
         reconciled,
         reconcile_strategy,
         reconciled_saved_ids,
@@ -1868,7 +1871,10 @@ async function handler(req, context) {
           resume_error,
           resume_error_details,
         resume_error_details,
-          reconciled,
+        enrichment_last_write_error: (typeof sessionDoc !== "undefined" && sessionDoc)
+          ? sessionDoc?.enrichment_last_write_error || null
+          : null,
+        reconciled,
           reconcile_strategy,
           reconciled_saved_ids,
           saved_companies,
@@ -2071,7 +2077,10 @@ async function handler(req, context) {
           resume_error,
           resume_error_details,
         resume_error_details,
-          reconciled,
+        enrichment_last_write_error: (typeof sessionDoc !== "undefined" && sessionDoc)
+          ? sessionDoc?.enrichment_last_write_error || null
+          : null,
+        reconciled,
           reconcile_strategy,
           reconciled_saved_ids,
           saved_companies,
@@ -2147,6 +2156,9 @@ async function handler(req, context) {
         save_outcome,
         resume_error,
         resume_error_details,
+        enrichment_last_write_error: (typeof sessionDoc !== "undefined" && sessionDoc)
+          ? sessionDoc?.enrichment_last_write_error || null
+          : null,
         reconciled,
         reconcile_strategy,
         reconciled_saved_ids,
