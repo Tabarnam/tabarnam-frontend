@@ -1073,6 +1073,8 @@ async function handler(req, context) {
     let resume_triggered = false;
     let resume_trigger_error = null;
     let resume_trigger_error_details = null;
+    let resume_gateway_key_attached = null;
+    let resume_trigger_request_id = null;
 
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
@@ -1726,6 +1728,8 @@ async function handler(req, context) {
     let resume_triggered = false;
     let resume_trigger_error = null;
     let resume_trigger_error_details = null;
+    let resume_gateway_key_attached = null;
+    let resume_trigger_request_id = null;
 
     if (resume_needed) {
       try {
