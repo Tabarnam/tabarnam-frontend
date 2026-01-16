@@ -6484,6 +6484,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                         http_status: statusCode,
                         used_url: triggerUrl.toString(),
                         response_text_preview: preview || null,
+                        gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
+                        request_id: workerRequest.request_id || null,
                       };
 
                       try {
