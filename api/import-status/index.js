@@ -1237,6 +1237,10 @@ async function handler(req, context) {
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
+              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || null,
+              handler_entered_build_id: sessionDoc?.resume_worker_handler_entered_build_id || null,
+              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || null,
+              last_auth: sessionDoc?.resume_worker_last_auth || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
               last_result: sessionDoc?.resume_worker_last_result || null,
               last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
@@ -1941,6 +1945,10 @@ async function handler(req, context) {
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
+              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || null,
+              handler_entered_build_id: sessionDoc?.resume_worker_handler_entered_build_id || null,
+              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || null,
+              last_auth: sessionDoc?.resume_worker_last_auth || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
               last_result: sessionDoc?.resume_worker_last_result || null,
               last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
@@ -2054,6 +2062,10 @@ async function handler(req, context) {
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
+              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || null,
+              handler_entered_build_id: sessionDoc?.resume_worker_handler_entered_build_id || null,
+              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || null,
+              last_auth: sessionDoc?.resume_worker_last_auth || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
               last_result: sessionDoc?.resume_worker_last_result || null,
               last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
@@ -2152,6 +2164,10 @@ async function handler(req, context) {
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
+              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || null,
+              handler_entered_build_id: sessionDoc?.resume_worker_handler_entered_build_id || null,
+              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || null,
+              last_auth: sessionDoc?.resume_worker_last_auth || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
               last_result: sessionDoc?.resume_worker_last_result || null,
               last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
@@ -2236,6 +2252,10 @@ async function handler(req, context) {
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
+              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || null,
+              handler_entered_build_id: sessionDoc?.resume_worker_handler_entered_build_id || null,
+              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || null,
+              last_auth: sessionDoc?.resume_worker_last_auth || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
               last_result: sessionDoc?.resume_worker_last_result || null,
               last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
