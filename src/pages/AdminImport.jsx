@@ -4011,7 +4011,7 @@ export default function AdminImport() {
                                   Enrichment is still in progress (reviews/logos/location). You can retry the resume worker if it stalled.
                                 </div>
                               )}
-                              <div>
+                              <div className="flex flex-wrap items-center gap-2">
                                 <Button
                                   type="button"
                                   variant="outline"
@@ -4020,6 +4020,46 @@ export default function AdminImport() {
                                   onClick={() => retryResumeWorker({ session_id: activeRun.session_id })}
                                 >
                                   Retry resume
+                                </Button>
+
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  disabled={!resumeDebugText}
+                                  onClick={async () => {
+                                    if (!resumeDebugText) return;
+                                    try {
+                                      await navigator.clipboard.writeText(resumeDebugText);
+                                      toast.success("Resume debug copied");
+                                    } catch {
+                                      toast.error("Could not copy");
+                                    }
+                                  }}
+                                >
+                                  <Copy className="h-4 w-4 mr-2" />
+                                  Copy debug
+                                </Button>
+
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  disabled={!resumeDebugPayload}
+                                  onClick={() => {
+                                    if (!resumeDebugPayload) return;
+                                    try {
+                                      const sid = asString(activeRun?.session_id).trim() || "session";
+                                      downloadJsonFile({ filename: `resume-debug-${sid}.json`, value: resumeDebugPayload });
+                                    } catch {
+                                      toast.error("Download failed");
+                                    }
+                                  }}
+                                >
+                                  <Download className="h-4 w-4 mr-2" />
+                                  Download debug
                                 </Button>
                               </div>
                             </div>
