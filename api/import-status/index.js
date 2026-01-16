@@ -1106,8 +1106,52 @@ async function handler(req, context) {
         }
 
         const resumeDoc = currentResume || (await readControlDoc(container, resumeDocId, sessionId).catch(() => null));
-        const resumeStatus = String(resumeDoc?.status || "").trim();
+        const resumeStatusRaw = String(resumeDoc?.status || "").trim();
         const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
+
+        let resumeStatus = resumeStatusRaw;
+        const resumeUpdatedTs = Date.parse(String(resumeDoc?.updated_at || "")) || 0;
+        const resumeAgeMs = resumeUpdatedTs ? Math.max(0, Date.now() - resumeUpdatedTs) : 0;
+
+        // Hard stall detector: queued forever with no handler entry marker => label stalled.
+        if (resumeDoc && resumeStatus === "queued" && resumeAgeMs > 90_000) {
+          const sessionDocId = `_import_session_${sessionId}`;
+          const sessionDocForStall = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+          const enteredTs = Date.parse(String(sessionDocForStall?.resume_worker_handler_entered_at || "")) || 0;
+
+          // If the worker never reached the handler after the resume doc was queued/updated, it's a gateway/host-key rejection.
+          if (!enteredTs || (resumeUpdatedTs && enteredTs < resumeUpdatedTs)) {
+            const stalledAt = nowIso();
+            resumeStatus = "stalled";
+
+            await upsertDoc(container, {
+              ...resumeDoc,
+              status: "stalled",
+              stalled_at: stalledAt,
+              last_error: {
+                code: "resume_stalled_no_worker_entry",
+                message: "Resume doc queued > 90s with no resume-worker handler entry marker",
+              },
+              updated_at: stalledAt,
+              lock_expires_at: null,
+            }).catch(() => null);
+
+            if (sessionDocForStall && typeof sessionDocForStall === "object") {
+              await upsertDoc(container, {
+                ...sessionDocForStall,
+                resume_error: "resume_stalled_no_worker_entry",
+                resume_error_details: {
+                  root_cause: "resume_stalled_no_worker_entry",
+                  message: "Resume doc queued > 90s and resume-worker handler entry marker never updated",
+                  updated_at: stalledAt,
+                },
+                resume_needed: true,
+                updated_at: stalledAt,
+              }).catch(() => null);
+            }
+          }
+        }
+
         const canTrigger = !lockUntil || Date.now() >= lockUntil;
 
         if (
