@@ -226,10 +226,6 @@ async function handler(req, context) {
   if (method === "OPTIONS") return { status: 200, headers: cors(req) };
   if (method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405, req);
 
-  if (!isInternalJobRequest(req)) {
-    return json({ ok: false, error: "Unauthorized" }, 401, req);
-  }
-
   const url = new URL(req.url);
   const noCosmosMode = String(url.searchParams.get("no_cosmos") || "").trim() === "1";
   const cosmosEnabled = !noCosmosMode;
@@ -246,6 +242,70 @@ async function handler(req, context) {
 
   const sessionId = String(body?.session_id || body?.sessionId || url.searchParams.get("session_id") || "").trim();
   if (!sessionId) return json({ ok: false, error: "Missing session_id" }, 200, req);
+
+  // Deterministic diagnosis marker: if this never updates, the request never reached the handler
+  // (e.g. rejected at gateway/host key layer).
+  const enteredAt = nowIso();
+  try {
+    console.log(`[${HANDLER_ID}] handler_entered`, {
+      session_id: sessionId,
+      entered_at: enteredAt,
+      build_id: String(BUILD_INFO.build_id || ""),
+    });
+  } catch {}
+
+  let container = null;
+  if (cosmosEnabled && looksLikeUuid(sessionId)) {
+    try {
+      const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+      const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+      const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+      const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+
+      if (endpoint && key && CosmosClient) {
+        const client = new CosmosClient({ endpoint, key });
+        container = client.database(databaseId).container(containerId);
+
+        await bestEffortPatchSessionDoc({
+          container,
+          sessionId,
+          patch: {
+            resume_worker_handler_entered_at: enteredAt,
+            resume_worker_handler_entered_build_id: String(BUILD_INFO.build_id || ""),
+          },
+        });
+      }
+    } catch {}
+  }
+
+  const authDecision = getInternalAuthDecision(req);
+
+  if (!authDecision.auth_ok) {
+    if (container) {
+      await bestEffortPatchSessionDoc({
+        container,
+        sessionId,
+        patch: {
+          resume_worker_last_http_status: 401,
+          resume_worker_last_reject_layer: "handler",
+          resume_worker_last_auth: authDecision,
+          resume_worker_last_finished_at: enteredAt,
+          resume_worker_last_error: "unauthorized",
+        },
+      }).catch(() => null);
+    }
+
+    return json(
+      {
+        ok: false,
+        session_id: sessionId,
+        error: "Unauthorized",
+        auth: authDecision,
+      },
+      401,
+      req
+    );
+  }
 
   if (!cosmosEnabled) {
     return json({ ok: false, session_id: sessionId, root_cause: "no_cosmos", retryable: false }, 200, req);
