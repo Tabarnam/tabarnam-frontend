@@ -794,6 +794,13 @@ app.http("save-companies", {
               ensureMissing("product_keywords", "not_found", "product_keywords missing; set to placeholder 'Unknown'");
             }
 
+            // tagline (required)
+            if (!asMeaningful(doc.tagline)) {
+              doc.tagline = "Unknown";
+              doc.tagline_unknown = true;
+              ensureMissing("tagline", "not_found", "tagline missing; set to placeholder 'Unknown'");
+            }
+
             // headquarters
             const hqExisting = String(doc.headquarters_location || "").trim();
             const hqFromGeo = Array.isArray(headquarters) && headquarters[0]
