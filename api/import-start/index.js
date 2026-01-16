@@ -123,7 +123,13 @@ if (!globalThis.__importStartProcessHandlersInstalled) {
   });
 }
 
+const HANDLER_ID = "import-start";
+
 function json(obj, status = 200, extraHeaders) {
+  const payload = obj && typeof obj === "object" && !Array.isArray(obj)
+    ? { ...obj, build_id: obj.build_id || String(__importStartModuleBuildInfo?.build_id || "") }
+    : obj;
+
   return {
     status,
     headers: {
@@ -131,11 +137,13 @@ function json(obj, status = 200, extraHeaders) {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
       "Access-Control-Allow-Headers":
-        "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id",
-      "Access-Control-Expose-Headers": "x-request-id,x-correlation-id,x-session-id",
+        "content-type,authorization,x-functions-key,x-request-id,x-correlation-id,x-session-id,x-client-request-id,x-tabarnam-internal,x-internal-secret,x-internal-job-secret,x-job-kind",
+      "Access-Control-Expose-Headers": "x-request-id,x-correlation-id,x-session-id,X-Api-Handler,X-Api-Build-Id",
+      "X-Api-Handler": HANDLER_ID,
+      "X-Api-Build-Id": String(__importStartModuleBuildInfo?.build_id || ""),
       ...(extraHeaders && typeof extraHeaders === "object" ? extraHeaders : {}),
     },
-    body: JSON.stringify(obj),
+    body: JSON.stringify(payload),
   };
 }
 
