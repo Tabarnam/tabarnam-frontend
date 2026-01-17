@@ -9551,7 +9551,11 @@ Return ONLY the JSON array, no other text.`,
                       .filter(Boolean)
                       .slice(0, 50),
                     deferred_stages: Array.from(deferredStages),
-                    saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                    saved_ids: Array.isArray(saveResult.saved_ids_write)
+                      ? saveResult.saved_ids_write
+                      : Array.isArray(saveResult.saved_ids)
+                        ? saveResult.saved_ids
+                        : [],
                     skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
                     failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
                     resume_needed: true,
