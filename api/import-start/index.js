@@ -6536,7 +6536,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   triggerUrl.searchParams.set("session_id", sessionId);
                   if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
 
-                  if (!internalAuthConfigured) {
+                  if (!gatewayKeyConfigured) {
                     const stalledAt = new Date().toISOString();
                     const stall = buildResumeStallError();
 
@@ -9577,7 +9577,7 @@ Return ONLY the JSON array, no other text.`,
                 triggerUrl.searchParams.set("session_id", sessionId);
                 if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
 
-                if (!internalAuthConfigured) {
+                if (!gatewayKeyConfigured) {
                   const stalledAt = new Date().toISOString();
                   const stall = buildResumeStallError();
 
