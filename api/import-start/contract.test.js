@@ -750,8 +750,8 @@ test("/api/import/status surfaces verified save fields while running (memory fal
       resume_needed: true,
       resume_error: "resume_worker_http_401",
       resume_error_details: {
+        invocation: "in_process",
         http_status: 401,
-        used_url: "https://example.test/api/import/resume-worker",
         response_text_preview: "Unauthorized",
       },
     });
@@ -1062,8 +1062,7 @@ test("/api/import/start company_url_seed_fallback persists and verifies seed com
 });
 
 test("/api/import/start company_url_seed_fallback duplicate_detected returns verified existing company", async (t) => {
-  t.skip("Flaky against shared Cosmos (duplicate seed-fallback)");
-  return;
+  // Previously skipped due to seed-fallback duplicate behavior; should be stable now.
   const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
   const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
 

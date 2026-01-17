@@ -50,6 +50,10 @@ const {
   getInternalJobSecretInfo,
   getAcceptableInternalSecretsInfo,
 } = require("../_internalJobAuth");
+
+// IMPORTANT: pure handler module only (no app.http registrations). Loaded at cold start.
+const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
+
 const {
   buildPrimaryJobId: buildImportPrimaryJobId,
   getJob: getImportPrimaryJob,
@@ -6653,6 +6657,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             const canResume = canPersist && resumeCompanyIds.length > 0;
 
             if (canResume) {
+              let resumeDocPersisted = false;
+
               if (cosmosEnabled) {
                 try {
                   const container = getCompaniesCosmosContainer();
@@ -6677,7 +6683,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       location_stage_completed: false,
                     };
 
-                    await upsertItemWithPkCandidates(container, resumeDoc).catch(() => null);
+                    const resumeUpsert = await upsertItemWithPkCandidates(container, resumeDoc).catch(() => ({ ok: false }));
+                  resumeDocPersisted = Boolean(resumeUpsert && resumeUpsert.ok);
                   }
 
                   const cosmosTarget = await getCompaniesCosmosTargetDiagnostics().catch(() => null);
@@ -6736,11 +6743,15 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 const resumeWorkerRequested = !(bodyObj?.auto_resume === false || bodyObj?.autoResume === false);
                 const invocationIsResumeWorker = String(new URL(req.url).searchParams.get("resume_worker") || "") === "1";
 
-                if (resumeWorkerRequested && !invocationIsResumeWorker) {
-                  const base = new URL(req.url);
-                  const triggerUrl = new URL("/api/import/resume-worker", base.origin);
-                  triggerUrl.searchParams.set("session_id", sessionId);
-                  if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
+                if (resumeWorkerRequested && !invocationIsResumeWorker && resumeDocPersisted) {
+                  const deadlineMs = Math.max(
+                    1000,
+                    Math.min(Number(process.env.RESUME_WORKER_DEADLINE_MS || 20000) || 20000, 60000)
+                  );
+                  const batchLimit = Math.max(
+                    1,
+                    Math.min(Number(process.env.RESUME_WORKER_BATCH_LIMIT || 8) || 8, 50)
+                  );
 
                   setTimeout(() => {
                     (async () => {
@@ -6753,32 +6764,26 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       let workerText = "";
                       let workerError = null;
 
+                      let invokeRequestId = workerRequest.request_id || null;
+                      let invokeGatewayKeyAttached = Boolean(workerRequest.gateway_key_attached);
+
                       try {
-                        const { handler: resumeWorkerHandler } = require("../import/resume-worker/index.js");
+                        const invokeRes = await invokeResumeWorkerInProcess({
+                          session_id: sessionId,
+                          context,
+                          workerRequest,
+                          no_cosmos: !cosmosEnabled,
+                          batch_limit: batchLimit,
+                          deadline_ms: deadlineMs,
+                        });
 
-                        const hdrs = new Headers();
-                        for (const [k, v] of Object.entries(workerRequest.headers || {})) {
-                          if (v === undefined || v === null) continue;
-                          hdrs.set(k, String(v));
-                        }
+                        invokeRequestId = invokeRes.request_id || invokeRequestId;
+                        invokeGatewayKeyAttached = Boolean(invokeRes.gateway_key_attached);
 
-                        const internalReq = {
-                          method: "POST",
-                          url: triggerUrl.toString(),
-                          headers: hdrs,
-                          __in_process: true,
-                          json: async () => ({ session_id: sessionId }),
-                          text: async () => JSON.stringify({ session_id: sessionId }),
-                        };
-
-                        const res = await resumeWorkerHandler(internalReq, context).catch((e) => ({ status: 0, _error: e }));
-                        statusCode = Number(res?.status || 0) || 0;
-                        workerOk = statusCode >= 200 && statusCode < 300;
-
-                        if (typeof res?.body === "string") workerText = res.body;
-                        else if (res?.body != null) workerText = JSON.stringify(res.body);
-
-                        if (res && res._error) workerError = res._error;
+                        statusCode = Number(invokeRes.status || 0) || 0;
+                        workerOk = Boolean(invokeRes.ok);
+                        workerText = typeof invokeRes.bodyText === "string" ? invokeRes.bodyText : "";
+                        workerError = invokeRes.error;
                       } catch (e) {
                         workerError = e;
                       }
@@ -6788,11 +6793,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
                       const resume_error = workerError?.message || (statusCode ? `resume_worker_in_process_${statusCode}` : "resume_worker_in_process_error");
                       const resume_error_details = {
+                        invocation: "in_process",
                         http_status: statusCode,
-                        used_url: triggerUrl.toString(),
                         response_text_preview: preview || null,
-                        gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
-                        request_id: workerRequest.request_id || null,
+                        gateway_key_attached: Boolean(invokeGatewayKeyAttached),
+                        request_id: invokeRequestId,
                       };
 
                       try {
@@ -6846,7 +6851,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   resume: {
                     status: "queued",
                     internal_auth_configured: Boolean(internalAuthConfigured),
-                    triggered_in_process: true,
+                    triggered_in_process: Boolean(resumeDocPersisted),
                     ...buildResumeAuthDiagnostics(),
                   },
                   missing_by_company,
@@ -9628,10 +9633,16 @@ Return ONLY the JSON array, no other text.`,
             })
             .filter(Boolean);
 
-          const allowResumeWorker =
-            Boolean(bodyObj?.allow_resume_worker || bodyObj?.allowResumeWorker) ||
-            String(readQueryParam(req, "allow_resume_worker") || "").trim() === "1" ||
-            String(readQueryParam(req, "allowResumeWorker") || "").trim() === "1";
+          // Default to allowing the resume-worker (so required fields complete automatically)
+          // unless the caller explicitly disables it.
+          const allowResumeWorker = !(
+            bodyObj?.allow_resume_worker === false ||
+            bodyObj?.allowResumeWorker === false ||
+            bodyObj?.allowResume === false ||
+            String(readQueryParam(req, "allow_resume_worker") || "").trim() === "0" ||
+            String(readQueryParam(req, "allowResumeWorker") || "").trim() === "0" ||
+            String(readQueryParam(req, "allowResume") || "").trim() === "0"
+          );
 
           const hasPersistedWrite =
             Number(saveResult.saved_write_count || 0) > 0 ||
@@ -9794,6 +9805,7 @@ Return ONLY the JSON array, no other text.`,
             allowResumeWorker;
 
           if (needsResume) {
+            let resumeDocPersisted = false;
             mark("enrichment_incomplete");
 
             if (cosmosEnabled) {
@@ -9834,7 +9846,8 @@ Return ONLY the JSON array, no other text.`,
                     location_stage_completed: Boolean(geocodeStageCompleted),
                   };
 
-                  await upsertItemWithPkCandidates(container, resumeDoc).catch(() => null);
+                  const resumeUpsert = await upsertItemWithPkCandidates(container, resumeDoc).catch(() => ({ ok: false }));
+                  resumeDocPersisted = Boolean(resumeUpsert && resumeUpsert.ok);
                 }
 
                 await upsertCosmosImportSessionDoc({
@@ -9884,11 +9897,15 @@ Return ONLY the JSON array, no other text.`,
               const resumeWorkerRequested = !(bodyObj?.auto_resume === false || bodyObj?.autoResume === false);
               const invocationIsResumeWorker = String(new URL(req.url).searchParams.get("resume_worker") || "") === "1";
 
-              if (resumeWorkerRequested && !invocationIsResumeWorker) {
-                const base = new URL(req.url);
-                const triggerUrl = new URL("/api/import/resume-worker", base.origin);
-                triggerUrl.searchParams.set("session_id", sessionId);
-                if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
+              if (resumeWorkerRequested && !invocationIsResumeWorker && resumeDocPersisted) {
+                const deadlineMs = Math.max(
+                  1000,
+                  Math.min(Number(process.env.RESUME_WORKER_DEADLINE_MS || 20000) || 20000, 60000)
+                );
+                const batchLimit = Math.max(
+                  1,
+                  Math.min(Number(process.env.RESUME_WORKER_BATCH_LIMIT || 8) || 8, 50)
+                );
 
                 setTimeout(() => {
                   (async () => {
@@ -9901,32 +9918,26 @@ Return ONLY the JSON array, no other text.`,
                     let workerText = "";
                     let workerError = null;
 
+                    let invokeRequestId = workerRequest.request_id || null;
+                    let invokeGatewayKeyAttached = Boolean(workerRequest.gateway_key_attached);
+
                     try {
-                      const { handler: resumeWorkerHandler } = require("../import/resume-worker/index.js");
+                      const invokeRes = await invokeResumeWorkerInProcess({
+                        session_id: sessionId,
+                        context,
+                        workerRequest,
+                        no_cosmos: !cosmosEnabled,
+                        batch_limit: batchLimit,
+                        deadline_ms: deadlineMs,
+                      });
 
-                      const hdrs = new Headers();
-                      for (const [k, v] of Object.entries(workerRequest.headers || {})) {
-                        if (v === undefined || v === null) continue;
-                        hdrs.set(k, String(v));
-                      }
+                      invokeRequestId = invokeRes.request_id || invokeRequestId;
+                      invokeGatewayKeyAttached = Boolean(invokeRes.gateway_key_attached);
 
-                      const internalReq = {
-                        method: "POST",
-                        url: triggerUrl.toString(),
-                        headers: hdrs,
-                        __in_process: true,
-                        json: async () => ({ session_id: sessionId }),
-                        text: async () => JSON.stringify({ session_id: sessionId }),
-                      };
-
-                      const res = await resumeWorkerHandler(internalReq, context).catch((e) => ({ status: 0, _error: e }));
-                      statusCode = Number(res?.status || 0) || 0;
-                      workerOk = statusCode >= 200 && statusCode < 300;
-
-                      if (typeof res?.body === "string") workerText = res.body;
-                      else if (res?.body != null) workerText = JSON.stringify(res.body);
-
-                      if (res && res._error) workerError = res._error;
+                      statusCode = Number(invokeRes.status || 0) || 0;
+                      workerOk = Boolean(invokeRes.ok);
+                      workerText = typeof invokeRes.bodyText === "string" ? invokeRes.bodyText : "";
+                      workerError = invokeRes.error;
                     } catch (e) {
                       workerError = e;
                     }
@@ -9936,11 +9947,11 @@ Return ONLY the JSON array, no other text.`,
                     const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
                     const resume_error = workerError?.message || (statusCode ? `resume_worker_in_process_${statusCode}` : "resume_worker_in_process_error");
                     const resume_error_details = {
+                      invocation: "in_process",
                       http_status: statusCode,
-                      used_url: triggerUrl.toString(),
                       response_text_preview: preview || null,
-                      gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
-                      request_id: workerRequest.request_id || null,
+                      gateway_key_attached: Boolean(invokeGatewayKeyAttached),
+                      request_id: invokeRequestId,
                     };
 
                     try {
