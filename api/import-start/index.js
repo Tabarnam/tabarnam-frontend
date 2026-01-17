@@ -6365,6 +6365,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 save_outcome = "saved_verified";
               } else if (getDuplicateOfId(saveResult)) {
                 save_outcome = "duplicate_detected";
+              } else if (
+                writeCountPre > 0 &&
+                Array.isArray(saveResult.saved_company_ids_unverified) &&
+                saveResult.saved_company_ids_unverified.length > 0
+              ) {
+                save_outcome = "saved_unverified_missing_required_fields";
               } else if (writeCountPre > 0) {
                 save_outcome = "read_after_write_failed";
               } else if (Number(saveResult.failed || 0) > 0) {
