@@ -1919,6 +1919,9 @@ async function handler(req, context) {
     let resume_gateway_key_attached = null;
     let resume_trigger_request_id = null;
 
+    let resume_status = null;
+    const resumeMissingInternalSecret = Boolean(resume_needed && !internalAuthConfigured);
+
     if (resume_needed) {
       try {
         const resumeDocId = `_import_resume_${sessionId}`;
