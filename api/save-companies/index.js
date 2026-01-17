@@ -22,6 +22,8 @@ const {
   getValueAtPath,
 } = require("../_cosmosPartitionKey");
 
+const { asMeaningfulString } = require("../_requiredFields");
+
 function requireImportCompanyLogo() {
   const mod = require("../_logoImport");
   if (!mod || typeof mod.importCompanyLogo !== "function") {
@@ -722,13 +724,7 @@ app.http("save-companies", {
           // Enforce the same canonical “usable import” contract as import-start:
           // always persist deterministic placeholders + per-company diagnostics.
           try {
-            const asMeaningful = (v) => {
-              const s = typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim();
-              if (!s) return "";
-              const lower = s.toLowerCase();
-              if (lower === "unknown" || lower === "n/a" || lower === "na" || lower === "none") return "";
-              return s;
-            };
+            const asMeaningful = asMeaningfulString;
 
             const import_missing_fields = Array.isArray(doc.import_missing_fields)
               ? doc.import_missing_fields.map((v) => String(v || "").trim()).filter(Boolean)
@@ -856,7 +852,7 @@ app.http("save-companies", {
               doc.headquarters_location = hqFromGeo;
             }
 
-            if (!String(doc.headquarters_location || "").trim()) {
+            if (!asMeaningful(doc.headquarters_location)) {
               doc.headquarters_location = "Unknown";
               doc.hq_unknown = true;
               doc.hq_unknown_reason = String(doc.hq_unknown_reason || "unknown");
@@ -869,7 +865,15 @@ app.http("save-companies", {
 
             // manufacturing
             const mfgList = Array.isArray(doc.manufacturing_locations) ? doc.manufacturing_locations : [];
-            if (mfgList.length === 0) {
+            const mfgHas = mfgList.some((m) => {
+              if (typeof m === "string") return Boolean(asMeaningful(m));
+              if (m && typeof m === "object") {
+                return Boolean(asMeaningful(m.formatted || m.address || m.location || m.full_address));
+              }
+              return false;
+            });
+
+            if (!mfgHas) {
               doc.manufacturing_locations = ["Unknown"];
               doc.mfg_unknown = true;
               doc.mfg_unknown_reason = String(doc.mfg_unknown_reason || "unknown");
@@ -881,7 +885,7 @@ app.http("save-companies", {
             }
 
             // logo
-            if (!String(doc.logo_url || "").trim()) {
+            if (!asMeaningful(doc.logo_url)) {
               doc.logo_url = null;
               doc.logo_status = doc.logo_status || "not_found_on_site";
               doc.logo_import_status = doc.logo_import_status || "missing";
