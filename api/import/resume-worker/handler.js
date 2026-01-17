@@ -932,7 +932,7 @@ async function resumeWorkerHandler(req, context) {
         ? {}
         : {
             status: "complete",
-            stage_beacon: exhausted ? "enrichment_exhausted" : "enrichment_complete",
+            stage_beacon: completion_beacon,
             ...(exhausted ? { resume_exhausted: true } : {}),
             completed_at: updatedAt,
           }),
