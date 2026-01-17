@@ -13,7 +13,11 @@ try {
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { getJob: getImportPrimaryJob, patchJob: patchImportPrimaryJob } = require("../_importPrimaryJobStore");
 const { runPrimaryJob } = require("../_importPrimaryWorker");
-const { buildInternalFetchHeaders, buildInternalFetchRequest } = require("../_internalJobAuth");
+const {
+  buildInternalFetchHeaders,
+  buildInternalFetchRequest,
+  getInternalJobSecretInfo,
+} = require("../_internalJobAuth");
 const { getBuildInfo } = require("../_buildInfo");
 
 const HANDLER_ID = "import-status";
@@ -33,6 +37,7 @@ const {
 const EMPTY_RESUME_DIAGNOSTICS = Object.freeze({
   resume: {
     needed: null,
+    status: null,
     doc_created: null,
     triggered: null,
     trigger_error: null,
@@ -711,6 +716,24 @@ async function handler(req, context) {
     status_checked_at: statusCheckedAt,
   };
 
+  const internalSecretInfo = (() => {
+    try {
+      return getInternalJobSecretInfo();
+    } catch {
+      return { secret: "", secret_source: null };
+    }
+  })();
+
+  const internalAuthConfigured = Boolean(
+    internalSecretInfo &&
+      typeof internalSecretInfo === "object" &&
+      String(internalSecretInfo.secret || "").trim() &&
+      internalSecretInfo.secret_source === "X_INTERNAL_JOB_SECRET"
+  );
+
+  // Used for response shaping across all branches (memory-only, primary-job, cosmos-backed).
+  let resume_status = null;
+
   let primaryJob = await getImportPrimaryJob({ sessionId, cosmosEnabled: true }).catch(() => null);
 
   if (primaryJob && primaryJob.job_state) {
@@ -1108,6 +1131,9 @@ async function handler(req, context) {
     let resume_gateway_key_attached = null;
     let resume_trigger_request_id = null;
 
+    let resume_status = null;
+    const resumeMissingInternalSecret = Boolean(resume_needed && !internalAuthConfigured);
+
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
       const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
@@ -1131,7 +1157,16 @@ async function handler(req, context) {
             type: "import_control",
             created_at: now,
             updated_at: now,
-            status: "queued",
+            status: resumeMissingInternalSecret ? "stalled" : "queued",
+            ...(resumeMissingInternalSecret
+              ? {
+                  stalled_at: now,
+                  last_error: {
+                    code: "resume_worker_gateway_401_missing_internal_secret",
+                    message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                  },
+                }
+              : {}),
             missing_by_company,
           }).catch(() => null);
           resume_doc_created = true;
@@ -1142,6 +1177,45 @@ async function handler(req, context) {
         const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
 
         let resumeStatus = resumeStatusRaw;
+
+        if (resumeMissingInternalSecret) {
+          const stalledAt = nowIso();
+          resumeStatus = "stalled";
+
+          await upsertDoc(container, {
+            ...resumeDoc,
+            status: "stalled",
+            stalled_at: stalledAt,
+            last_error: {
+              code: "resume_worker_gateway_401_missing_internal_secret",
+              message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+            },
+            updated_at: stalledAt,
+            lock_expires_at: null,
+          }).catch(() => null);
+
+          try {
+            const sessionDocId = `_import_session_${sessionId}`;
+            const sessionDocForStall = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+            if (sessionDocForStall && typeof sessionDocForStall === "object") {
+              await upsertDoc(container, {
+                ...sessionDocForStall,
+                resume_error: "resume_worker_gateway_401_missing_internal_secret",
+                resume_error_details: {
+                  root_cause: "resume_worker_gateway_401_missing_internal_secret",
+                  message: "Missing X_INTERNAL_JOB_SECRET; internal resume-worker calls will be rejected before handler runs",
+                  updated_at: stalledAt,
+                },
+                resume_needed: true,
+                resume_worker_last_http_status: 401,
+                resume_worker_last_reject_layer: "gateway",
+                updated_at: stalledAt,
+              }).catch(() => null);
+            }
+          } catch {}
+        }
+
+        resume_status = resumeStatus;
         const resumeUpdatedTs = Date.parse(String(resumeDoc?.updated_at || "")) || 0;
         const resumeAgeMs = resumeUpdatedTs ? Math.max(0, Date.now() - resumeUpdatedTs) : 0;
 
@@ -1184,7 +1258,7 @@ async function handler(req, context) {
           }
         }
 
-        const canTrigger = !lockUntil || Date.now() >= lockUntil;
+        const canTrigger = !resumeMissingInternalSecret && (!lockUntil || Date.now() >= lockUntil);
 
         if (
           canTrigger &&
@@ -1284,6 +1358,29 @@ async function handler(req, context) {
     stageBeaconValues.status_enrichment_health_summary = nowIso();
     stageBeaconValues.status_enrichment_incomplete = enrichment_health_summary.incomplete;
 
+    if (resumeMissingInternalSecret) {
+      resume_status ||= "stalled";
+
+      // Ensure status does not look like "running forever" when the environment cannot
+      // authenticate internal resume-worker calls.
+      if (!resume_error) resume_error = "resume_worker_gateway_401_missing_internal_secret";
+      if (!resume_error_details) {
+        resume_error_details = {
+          root_cause: "resume_worker_gateway_401_missing_internal_secret",
+          message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+          updated_at: nowIso(),
+        };
+      }
+
+      // Mirror deterministic 'gateway' rejection semantics for UI rendering.
+      if (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object") {
+        sessionDoc.resume_worker_last_reject_layer = "gateway";
+        if (typeof sessionDoc.resume_worker_last_http_status !== "number") {
+          sessionDoc.resume_worker_last_http_status = 401;
+        }
+      }
+    }
+
     return jsonWithSessionId(
       {
         ok: true,
@@ -1329,19 +1426,14 @@ async function handler(req, context) {
         resume_needed,
         resume: {
           needed: resume_needed,
+          status: resume_status || null,
           doc_created: resume_doc_created,
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
-          internal_auth_configured: (() => {
-            const h = buildInternalFetchRequest({
-              job_kind: "import_resume",
-              include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
-            }).headers;
-            return Boolean(h?.Authorization || h?.["x-internal-job-secret"] || h?.["x-internal-secret"] || h?.["x-functions-key"]);
-          })(),
+          internal_auth_configured: Boolean(internalAuthConfigured),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
@@ -1564,15 +1656,43 @@ async function handler(req, context) {
           save_outcome,
           ...EMPTY_RESUME_DIAGNOSTICS,
           resume_needed,
-          resume_error,
-          resume_error_details,
+          resume_error:
+            resume_needed && !internalAuthConfigured
+              ? "resume_worker_gateway_401_missing_internal_secret"
+              : resume_error,
+          resume_error_details:
+            resume_needed && !internalAuthConfigured
+              ? {
+                  root_cause: "resume_worker_gateway_401_missing_internal_secret",
+                  http_status: 401,
+                  message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                  updated_at: nowIso(),
+                }
+              : resume_error_details,
           resume: {
             ...EMPTY_RESUME_DIAGNOSTICS.resume,
             needed: resume_needed,
-            trigger_error: resume_error,
-            trigger_error_details: resume_error_details,
+            status: resume_needed && !internalAuthConfigured ? "stalled" : null,
+            trigger_error:
+              resume_needed && !internalAuthConfigured
+                ? "resume_worker_gateway_401_missing_internal_secret"
+                : resume_error,
+            trigger_error_details:
+              resume_needed && !internalAuthConfigured
+                ? {
+                    root_cause: "resume_worker_gateway_401_missing_internal_secret",
+                  http_status: 401,
+                  message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                    updated_at: nowIso(),
+                  }
+                : resume_error_details,
+            internal_auth_configured: Boolean(internalAuthConfigured),
           },
-          resume_worker: EMPTY_RESUME_DIAGNOSTICS.resume_worker,
+          resume_worker: {
+            ...EMPTY_RESUME_DIAGNOSTICS.resume_worker,
+            last_reject_layer: resume_needed && !internalAuthConfigured ? "gateway" : null,
+            last_http_status: resume_needed && !internalAuthConfigured ? 401 : null,
+          },
           saved_companies: [],
         },
         200,
@@ -1632,15 +1752,43 @@ async function handler(req, context) {
             save_outcome,
           ...EMPTY_RESUME_DIAGNOSTICS,
           resume_needed,
-          resume_error,
-          resume_error_details,
+          resume_error:
+            resume_needed && !internalAuthConfigured
+              ? "resume_worker_gateway_401_missing_internal_secret"
+              : resume_error,
+          resume_error_details:
+            resume_needed && !internalAuthConfigured
+              ? {
+                  root_cause: "resume_worker_gateway_401_missing_internal_secret",
+                  http_status: 401,
+                  message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                  updated_at: nowIso(),
+                }
+              : resume_error_details,
           resume: {
             ...EMPTY_RESUME_DIAGNOSTICS.resume,
             needed: resume_needed,
-            trigger_error: resume_error,
-            trigger_error_details: resume_error_details,
+            status: resume_needed && !internalAuthConfigured ? "stalled" : null,
+            trigger_error:
+              resume_needed && !internalAuthConfigured
+                ? "resume_worker_gateway_401_missing_internal_secret"
+                : resume_error,
+            trigger_error_details:
+              resume_needed && !internalAuthConfigured
+                ? {
+                    root_cause: "resume_worker_gateway_401_missing_internal_secret",
+                  http_status: 401,
+                  message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                    updated_at: nowIso(),
+                  }
+                : resume_error_details,
+            internal_auth_configured: Boolean(internalAuthConfigured),
           },
-          resume_worker: EMPTY_RESUME_DIAGNOSTICS.resume_worker,
+          resume_worker: {
+            ...EMPTY_RESUME_DIAGNOSTICS.resume_worker,
+            last_reject_layer: resume_needed && !internalAuthConfigured ? "gateway" : null,
+            last_http_status: resume_needed && !internalAuthConfigured ? 401 : null,
+          },
           saved_companies: [],
           },
           200,
@@ -1887,6 +2035,9 @@ async function handler(req, context) {
     let resume_gateway_key_attached = null;
     let resume_trigger_request_id = null;
 
+    let resume_status = null;
+    const resumeMissingInternalSecret = Boolean(resume_needed && !internalAuthConfigured);
+
     if (resume_needed) {
       try {
         const resumeDocId = `_import_resume_${sessionId}`;
@@ -1902,7 +2053,16 @@ async function handler(req, context) {
             type: "import_control",
             created_at: now,
             updated_at: now,
-            status: "queued",
+            status: resumeMissingInternalSecret ? "stalled" : "queued",
+            ...(resumeMissingInternalSecret
+              ? {
+                  stalled_at: now,
+                  last_error: {
+                    code: "resume_worker_gateway_401_missing_internal_secret",
+                    message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                  },
+                }
+              : {}),
             missing_by_company,
           }).catch(() => null);
           resume_doc_created = true;
@@ -1910,9 +2070,53 @@ async function handler(req, context) {
           currentResume = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
         }
 
-        const resumeStatus = String(currentResume?.status || "").trim();
+        let resumeStatus = String(currentResume?.status || "").trim();
         const lockUntil = Date.parse(String(currentResume?.lock_expires_at || "")) || 0;
-        const canTrigger = !lockUntil || Date.now() >= lockUntil;
+
+        if (resumeMissingInternalSecret) {
+          const stalledAt = nowIso();
+          resumeStatus = "stalled";
+
+          await upsertDoc(container, {
+            ...currentResume,
+            status: "stalled",
+            stalled_at: stalledAt,
+            last_error: {
+              code: "resume_worker_gateway_401_missing_internal_secret",
+              message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+            },
+            lock_expires_at: null,
+            updated_at: stalledAt,
+          }).catch(() => null);
+
+          if (sessionDoc && typeof sessionDoc === "object") {
+            const details = {
+              root_cause: "resume_worker_gateway_401_missing_internal_secret",
+              message: "Missing X_INTERNAL_JOB_SECRET; internal resume-worker calls will be rejected before handler runs",
+              updated_at: stalledAt,
+            };
+
+            // Ensure subsequent response shaping reads the deterministic failure signals.
+            sessionDoc.resume_error = "resume_worker_gateway_401_missing_internal_secret";
+            sessionDoc.resume_error_details = details;
+            sessionDoc.resume_worker_last_http_status = 401;
+            sessionDoc.resume_worker_last_reject_layer = "gateway";
+
+            await upsertDoc(container, {
+              ...sessionDoc,
+              resume_error: "resume_worker_gateway_401_missing_internal_secret",
+              resume_error_details: details,
+              resume_needed: true,
+              resume_worker_last_http_status: 401,
+              resume_worker_last_reject_layer: "gateway",
+              updated_at: stalledAt,
+            }).catch(() => null);
+          }
+        }
+
+        resume_status = resumeStatus;
+
+        const canTrigger = !resumeMissingInternalSecret && (!lockUntil || Date.now() >= lockUntil);
 
         if (
           canTrigger &&
@@ -2099,20 +2303,15 @@ async function handler(req, context) {
           saved_companies,
           resume_needed,
           resume: {
-            needed: resume_needed,
+          needed: resume_needed,
+          status: resume_status || null,
             doc_created: resume_doc_created,
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
-          internal_auth_configured: (() => {
-            const h = buildInternalFetchRequest({
-              job_kind: "import_resume",
-              include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
-            }).headers;
-            return Boolean(h?.Authorization || h?.["x-internal-job-secret"] || h?.["x-internal-secret"] || h?.["x-functions-key"]);
-          })(),
+          internal_auth_configured: Boolean(internalAuthConfigured),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
@@ -2328,20 +2527,15 @@ async function handler(req, context) {
           saved_companies,
           resume_needed,
           resume: {
-            needed: resume_needed,
+          needed: resume_needed,
+          status: resume_status || null,
             doc_created: resume_doc_created,
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
-          internal_auth_configured: (() => {
-            const h = buildInternalFetchRequest({
-              job_kind: "import_resume",
-              include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
-            }).headers;
-            return Boolean(h?.Authorization || h?.["x-internal-job-secret"] || h?.["x-internal-secret"] || h?.["x-functions-key"]);
-          })(),
+          internal_auth_configured: Boolean(internalAuthConfigured),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
@@ -2422,19 +2616,14 @@ async function handler(req, context) {
         resume_needed,
         resume: {
           needed: resume_needed,
+          status: resume_status || null,
           doc_created: resume_doc_created,
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
-          internal_auth_configured: (() => {
-            const h = buildInternalFetchRequest({
-              job_kind: "import_resume",
-              include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
-            }).headers;
-            return Boolean(h?.Authorization || h?.["x-internal-job-secret"] || h?.["x-internal-secret"] || h?.["x-functions-key"]);
-          })(),
+          internal_auth_configured: Boolean(internalAuthConfigured),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
