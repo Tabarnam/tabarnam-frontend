@@ -598,6 +598,11 @@ async function resumeWorkerHandler(req, context) {
   let lastStartHttpStatus = 0;
   let lastStartOk = false;
 
+  let lastImportStartRequestPayload = null;
+  let lastImportStartRequestUrl = null;
+  let lastImportStartResponse = null;
+  let last_error_details = null;
+
   let missing_by_company = [];
 
   while (iteration < maxIterations) {
