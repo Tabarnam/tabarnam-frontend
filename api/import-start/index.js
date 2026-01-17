@@ -6621,117 +6621,94 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   triggerUrl.searchParams.set("session_id", sessionId);
                   if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
 
-                  if (!gatewayKeyConfigured) {
-                    const stalledAt = new Date().toISOString();
-                    const stall = buildResumeStallError();
-
-                    const resume_error = stall.code;
-                    const resume_error_details = {
-                      root_cause: stall.root_cause,
-                      http_status: 401,
-                      used_url: triggerUrl.toString(),
-                      message: stall.message,
-                      missing_gateway_key: Boolean(stall.missing_gateway_key),
-                      missing_internal_secret: Boolean(stall.missing_internal_secret),
-                      ...buildResumeAuthDiagnostics(),
-                      updated_at: stalledAt,
-                    };
-
-                    try {
-                      upsertImportSession({
-                        session_id: sessionId,
-                        request_id: requestId,
-                        status: "running",
-                        stage_beacon: "company_url_seed_fallback",
-                        resume_needed: true,
-                        resume_error,
-                        resume_error_details,
-                        resume_worker_last_http_status: 401,
-                        resume_worker_last_reject_layer: "gateway",
-                        resume_error_at: stalledAt,
+                  setTimeout(() => {
+                    (async () => {
+                      const workerRequest = buildInternalFetchRequest({
+                        job_kind: "import_resume",
                       });
-                    } catch {}
 
-                    if (cosmosEnabled) {
+                      let statusCode = 0;
+                      let workerOk = false;
+                      let workerText = "";
+                      let workerError = null;
+
                       try {
-                        await upsertCosmosImportSessionDoc({
-                          sessionId,
-                          requestId,
-                          patch: {
-                            resume_error,
-                            resume_error_details,
-                            resume_worker_last_http_status: 401,
-                            resume_worker_last_reject_layer: "gateway",
-                            resume_worker_last_gateway_key_attached: false,
-                            resume_error_at: stalledAt,
-                            updated_at: stalledAt,
-                          },
-                        }).catch(() => null);
-                      } catch {}
-                    }
-                  } else {
-                    setTimeout(() => {
-                      (async () => {
-                        const workerRequest = buildInternalFetchRequest({
-                          job_kind: "import_resume",
-                        });
+                        const { handler: resumeWorkerHandler } = require("../import/resume-worker/index.js");
 
-                        const workerRes = await fetch(triggerUrl.toString(), {
+                        const hdrs = new Headers();
+                        for (const [k, v] of Object.entries(workerRequest.headers || {})) {
+                          if (v === undefined || v === null) continue;
+                          hdrs.set(k, String(v));
+                        }
+
+                        const internalReq = {
                           method: "POST",
-                          headers: workerRequest.headers,
-                          body: JSON.stringify({ session_id: sessionId }),
-                        }).catch((e) => ({ ok: false, status: 0, _error: e }));
-
-                        if (workerRes?.ok) return;
-
-                        let workerText = "";
-                        try {
-                          if (workerRes && typeof workerRes.text === "function") workerText = await workerRes.text();
-                        } catch {}
-
-                        const statusCode = Number(workerRes?.status || 0) || 0;
-                        const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
-                        const resume_error = workerRes?._error?.message || `resume_worker_http_${statusCode}`;
-                        const resume_error_details = {
-                          http_status: statusCode,
-                          used_url: triggerUrl.toString(),
-                          response_text_preview: preview || null,
-                          gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
-                          request_id: workerRequest.request_id || null,
+                          url: triggerUrl.toString(),
+                          headers: hdrs,
+                          __in_process: true,
+                          json: async () => ({ session_id: sessionId }),
+                          text: async () => JSON.stringify({ session_id: sessionId }),
                         };
 
-                        try {
-                          upsertImportSession({
-                            session_id: sessionId,
-                            request_id: requestId,
-                            status: "running",
-                            stage_beacon: "company_url_seed_fallback",
-                            resume_needed: true,
-                            resume_error,
-                            resume_error_details,
-                          });
-                        } catch {}
+                        const res = await resumeWorkerHandler(internalReq, context).catch((e) => ({ status: 0, _error: e }));
+                        statusCode = Number(res?.status || 0) || 0;
+                        workerOk = statusCode >= 200 && statusCode < 300;
 
-                        if (cosmosEnabled) {
-                          try {
-                            await upsertCosmosImportSessionDoc({
-                              sessionId,
-                              requestId,
-                              patch: {
-                                resume_error,
-                                resume_error_details,
-                                resume_worker_last_http_status: statusCode,
-                                resume_worker_last_trigger_request_id: workerRequest.request_id || null,
-                                resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
-                                resume_error_at: new Date().toISOString(),
-                                updated_at: new Date().toISOString(),
-                              },
-                            }).catch(() => null);
-                          } catch {}
-                        }
-                      })().catch(() => {});
-                    }, 0);
-                  }
+                        if (typeof res?.body === "string") workerText = res.body;
+                        else if (res?.body != null) workerText = JSON.stringify(res.body);
+
+                        if (res && res._error) workerError = res._error;
+                      } catch (e) {
+                        workerError = e;
+                      }
+
+                      if (workerOk) return;
+
+                      const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
+                      const resume_error = workerError?.message || (statusCode ? `resume_worker_in_process_${statusCode}` : "resume_worker_in_process_error");
+                      const resume_error_details = {
+                        http_status: statusCode,
+                        used_url: triggerUrl.toString(),
+                        response_text_preview: preview || null,
+                        gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
+                        request_id: workerRequest.request_id || null,
+                      };
+
+                      try {
+                        upsertImportSession({
+                          session_id: sessionId,
+                          request_id: requestId,
+                          status: "running",
+                          stage_beacon: "company_url_seed_fallback",
+                          resume_needed: true,
+                          resume_error,
+                          resume_error_details,
+                          resume_worker_last_http_status: statusCode,
+                          resume_worker_last_reject_layer: "in_process",
+                        });
+                      } catch {}
+
+                      if (cosmosEnabled) {
+                        const now = new Date().toISOString();
+                        try {
+                          await upsertCosmosImportSessionDoc({
+                            sessionId,
+                            requestId,
+                            patch: {
+                              resume_error,
+                              resume_error_details,
+                              resume_worker_last_http_status: statusCode,
+                              resume_worker_last_reject_layer: "in_process",
+                              resume_worker_last_trigger_request_id: workerRequest.request_id || null,
+                              resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
+                              resume_error_at: now,
+                              updated_at: now,
+                            },
+                          }).catch(() => null);
+                        } catch {}
+                      }
+                    })().catch(() => {});
+                  }, 0);
                 }
               } catch {}
 
