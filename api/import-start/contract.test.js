@@ -1130,7 +1130,7 @@ test("/api/import/start company_url_seed_fallback duplicate_detected returns ver
       const body2 = parseJsonResponse(res2);
 
       assert.equal(res2.status, 200);
-      assert.equal(body2.ok, true);
+      assert.equal(body2.ok, true, JSON.stringify(body2));
       assert.equal(body2.stage_beacon, "company_url_seed_fallback");
       assert.equal(body2.company_url, seedUrl);
       assert.equal(Number(body2?.save_report?.failed ?? 0), 0);
