@@ -1,5 +1,6 @@
 const { app } = require("@azure/functions");
 const { getBuildInfo } = require("../_buildInfo");
+const { getInternalJobSecretInfo, getAcceptableInternalSecretsInfo } = require("../_internalJobAuth");
 
 function detectSource() {
   const env = process.env || {};
