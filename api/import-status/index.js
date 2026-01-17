@@ -1128,6 +1128,9 @@ async function handler(req, context) {
     let resume_gateway_key_attached = null;
     let resume_trigger_request_id = null;
 
+    let resume_status = null;
+    const resumeMissingInternalSecret = Boolean(resume_needed && !internalAuthConfigured);
+
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
       const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
