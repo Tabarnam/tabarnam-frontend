@@ -6744,11 +6744,6 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 const invocationIsResumeWorker = String(new URL(req.url).searchParams.get("resume_worker") || "") === "1";
 
                 if (resumeWorkerRequested && !invocationIsResumeWorker && resumeDocPersisted) {
-                  const base = new URL(req.url);
-                  const triggerUrl = new URL("/api/import/resume-worker", base.origin);
-                  triggerUrl.searchParams.set("session_id", sessionId);
-                  if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
-
                   const deadlineMs = Math.max(
                     1000,
                     Math.min(Number(process.env.RESUME_WORKER_DEADLINE_MS || 20000) || 20000, 60000)
@@ -6757,8 +6752,6 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     1,
                     Math.min(Number(process.env.RESUME_WORKER_BATCH_LIMIT || 8) || 8, 50)
                   );
-                  triggerUrl.searchParams.set("deadline_ms", String(deadlineMs));
-                  triggerUrl.searchParams.set("batch_limit", String(batchLimit));
 
                   setTimeout(() => {
                     (async () => {
@@ -9904,11 +9897,15 @@ Return ONLY the JSON array, no other text.`,
               const resumeWorkerRequested = !(bodyObj?.auto_resume === false || bodyObj?.autoResume === false);
               const invocationIsResumeWorker = String(new URL(req.url).searchParams.get("resume_worker") || "") === "1";
 
-              if (resumeWorkerRequested && !invocationIsResumeWorker) {
-                const base = new URL(req.url);
-                const triggerUrl = new URL("/api/import/resume-worker", base.origin);
-                triggerUrl.searchParams.set("session_id", sessionId);
-                if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
+              if (resumeWorkerRequested && !invocationIsResumeWorker && resumeDocPersisted) {
+                const deadlineMs = Math.max(
+                  1000,
+                  Math.min(Number(process.env.RESUME_WORKER_DEADLINE_MS || 20000) || 20000, 60000)
+                );
+                const batchLimit = Math.max(
+                  1,
+                  Math.min(Number(process.env.RESUME_WORKER_BATCH_LIMIT || 8) || 8, 50)
+                );
 
                 setTimeout(() => {
                   (async () => {
