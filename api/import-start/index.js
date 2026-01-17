@@ -3240,6 +3240,10 @@ async function saveCompaniesToCosmos({
               name: company.name || companyName,
               url: company.url || company.website_url || company.canonical_url || "",
               website_url: company.website_url || company.canonical_url || company.url || "",
+              canonical_url:
+                finalNormalizedDomain && finalNormalizedDomain !== "unknown"
+                  ? `https://${finalNormalizedDomain}/`
+                  : company.canonical_url || company.website_url || company.url || "",
               industries: industriesNormalized,
               product_keywords: productKeywordsString,
               keywords: keywordsNormalized,
