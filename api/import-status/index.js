@@ -1371,7 +1371,7 @@ async function handler(req, context) {
         resume: {
           needed: resume_needed,
           status: resume_status || null,
-          doc_created: resume_doc_created,
+          doc_created: Boolean(report?.resume) || resume_doc_created,
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
@@ -2287,7 +2287,7 @@ async function handler(req, context) {
           resume: {
           needed: resume_needed,
           status: resume_status || null,
-            doc_created: resume_doc_created,
+            doc_created: Boolean(report?.resume) || resume_doc_created,
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
@@ -2512,7 +2512,7 @@ async function handler(req, context) {
           resume: {
           needed: resume_needed,
           status: resume_status || null,
-            doc_created: resume_doc_created,
+            doc_created: Boolean(report?.resume) || resume_doc_created,
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
@@ -2601,7 +2601,7 @@ async function handler(req, context) {
         resume: {
           needed: resume_needed,
           status: resume_status || null,
-          doc_created: resume_doc_created,
+          doc_created: Boolean(report?.resume) || resume_doc_created,
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
