@@ -1423,19 +1423,14 @@ async function handler(req, context) {
         resume_needed,
         resume: {
           needed: resume_needed,
+          status: resume_status || null,
           doc_created: resume_doc_created,
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
-          internal_auth_configured: (() => {
-            const h = buildInternalFetchRequest({
-              job_kind: "import_resume",
-              include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
-            }).headers;
-            return Boolean(h?.Authorization || h?.["x-internal-job-secret"] || h?.["x-internal-secret"] || h?.["x-functions-key"]);
-          })(),
+          internal_auth_configured: Boolean(internalAuthConfigured),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
@@ -2241,20 +2236,15 @@ async function handler(req, context) {
           saved_companies,
           resume_needed,
           resume: {
-            needed: resume_needed,
+          needed: resume_needed,
+          status: resume_status || null,
             doc_created: resume_doc_created,
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
-          internal_auth_configured: (() => {
-            const h = buildInternalFetchRequest({
-              job_kind: "import_resume",
-              include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
-            }).headers;
-            return Boolean(h?.Authorization || h?.["x-internal-job-secret"] || h?.["x-internal-secret"] || h?.["x-functions-key"]);
-          })(),
+          internal_auth_configured: Boolean(internalAuthConfigured),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
@@ -2470,20 +2460,15 @@ async function handler(req, context) {
           saved_companies,
           resume_needed,
           resume: {
-            needed: resume_needed,
+          needed: resume_needed,
+          status: resume_status || null,
             doc_created: resume_doc_created,
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
-          internal_auth_configured: (() => {
-            const h = buildInternalFetchRequest({
-              job_kind: "import_resume",
-              include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
-            }).headers;
-            return Boolean(h?.Authorization || h?.["x-internal-job-secret"] || h?.["x-internal-secret"] || h?.["x-functions-key"]);
-          })(),
+          internal_auth_configured: Boolean(internalAuthConfigured),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
@@ -2564,19 +2549,14 @@ async function handler(req, context) {
         resume_needed,
         resume: {
           needed: resume_needed,
+          status: resume_status || null,
           doc_created: resume_doc_created,
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
-          internal_auth_configured: (() => {
-            const h = buildInternalFetchRequest({
-              job_kind: "import_resume",
-              include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
-            }).headers;
-            return Boolean(h?.Authorization || h?.["x-internal-job-secret"] || h?.["x-internal-secret"] || h?.["x-functions-key"]);
-          })(),
+          internal_auth_configured: Boolean(internalAuthConfigured),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
