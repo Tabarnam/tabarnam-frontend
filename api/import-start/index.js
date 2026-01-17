@@ -9553,13 +9553,170 @@ Return ONLY the JSON array, no other text.`,
             })
             .filter(Boolean);
 
+          const allowResumeWorker =
+            Boolean(bodyObj?.allow_resume_worker || bodyObj?.allowResumeWorker) ||
+            String(readQueryParam(req, "allow_resume_worker") || "").trim() === "1" ||
+            String(readQueryParam(req, "allowResumeWorker") || "").trim() === "1";
+
+          const hasPersistedWrite =
+            Number(saveResult.saved_write_count || 0) > 0 ||
+            (Array.isArray(saveResult.saved_ids_write) && saveResult.saved_ids_write.length > 0);
+
+          const hasMissingRequired = enrichmentMissingByCompany.length > 0;
+
+          // Default (single-path) behavior: if we persisted anything but required enrichment fields are still missing,
+          // fail deterministically rather than relying on a separate resume-worker invocation.
+          if (!dryRunRequested && cosmosEnabled && hasPersistedWrite && hasMissingRequired && !allowResumeWorker) {
+            mark("required_fields_missing_single_path");
+
+            const failedAt = new Date().toISOString();
+
+            const last_error = {
+              code: "REQUIRED_FIELDS_MISSING",
+              message:
+                "Import incomplete: required fields missing after inline stages. Resume-worker is disabled (single-path), so failing deterministically.",
+            };
+
+            if (cosmosEnabled) {
+              try {
+                const container = getCompaniesCosmosContainer();
+                if (container) {
+                  const errorDoc = {
+                    id: `_import_error_${sessionId}`,
+                    ...buildImportControlDocBase(sessionId),
+                    request_id: requestId,
+                    stage: "required_fields_missing",
+                    error: last_error,
+                    details: {
+                      stage_beacon,
+                      deferred_stages: Array.from(deferredStages),
+                      missing_by_company: enrichmentMissingByCompany,
+                      saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
+                      saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
+                      saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+                      saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
+                        ? saveResult.saved_company_ids_verified
+                        : [],
+                      saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
+                        ? saveResult.saved_company_ids_unverified
+                        : [],
+                    },
+                    failed_at: failedAt,
+                  };
+
+                  await upsertItemWithPkCandidates(container, errorDoc).catch(() => null);
+
+                  await upsertCosmosImportSessionDoc({
+                    sessionId,
+                    requestId,
+                    patch: {
+                      status: "error",
+                      stage_beacon: "required_fields_missing",
+                      last_error,
+                      save_outcome: typeof saveResult?.save_outcome === "string" ? saveResult.save_outcome : null,
+                      saved: Number(saveResult.saved || 0) || 0,
+                      skipped: Number(saveResult.skipped || 0) || 0,
+                      failed: Number(saveResult.failed || 0) || 0,
+                      saved_count: Number(saveResult.saved_write_count || 0) || Number(saveResult.saved || 0) || 0,
+                      saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+                      saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
+                        ? saveResult.saved_company_ids_verified
+                        : [],
+                      saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
+                        ? saveResult.saved_company_ids_unverified
+                        : [],
+                      saved_company_ids: Array.isArray(saveResult.saved_ids_write)
+                        ? saveResult.saved_ids_write
+                        : Array.isArray(saveResult.saved_ids)
+                          ? saveResult.saved_ids
+                          : [],
+                      saved_company_urls: (Array.isArray(enriched) ? enriched : [])
+                        .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
+                        .filter(Boolean)
+                        .slice(0, 50),
+                      deferred_stages: Array.from(deferredStages),
+                      resume_needed: false,
+                      resume_updated_at: failedAt,
+                      updated_at: failedAt,
+                    },
+                  }).catch(() => null);
+                }
+              } catch {}
+            }
+
+            try {
+              upsertImportSession({
+                session_id: sessionId,
+                request_id: requestId,
+                status: "error",
+                stage_beacon: "required_fields_missing",
+                companies_count: Array.isArray(enriched) ? enriched.length : 0,
+                resume_needed: false,
+                last_error,
+                saved: Number(saveResult.saved || 0) || 0,
+                saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+                saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
+                  ? saveResult.saved_company_ids_verified
+                  : [],
+                saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
+                  ? saveResult.saved_company_ids_unverified
+                  : [],
+              });
+            } catch {}
+
+            const cosmosTarget = cosmosEnabled ? await getCompaniesCosmosTargetDiagnostics().catch(() => null) : null;
+
+            return jsonWithRequestId(
+              {
+                ok: false,
+                session_id: sessionId,
+                request_id: requestId,
+                status: "error",
+                stage_beacon: "required_fields_missing",
+                resume_needed: false,
+                last_error,
+                deferred_stages: Array.from(deferredStages),
+                missing_by_company: enrichmentMissingByCompany,
+                ...(cosmosTarget ? cosmosTarget : {}),
+                saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+                saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
+                  ? saveResult.saved_company_ids_verified
+                  : Array.isArray(saveResult.saved_ids)
+                    ? saveResult.saved_ids
+                    : [],
+                saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
+                  ? saveResult.saved_company_ids_unverified
+                  : [],
+                saved: saveResult.saved,
+                skipped: saveResult.skipped,
+                failed: saveResult.failed,
+                save_report: {
+                  saved: saveResult.saved,
+                  saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+                  saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
+                  skipped: saveResult.skipped,
+                  failed: saveResult.failed,
+                  saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                  saved_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
+                  saved_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
+                  saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
+                  skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                  skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
+                  failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
+                },
+              },
+              200
+            );
+          }
+
           // Only mark the session as resume-needed if we successfully persisted at least one company.
           // Otherwise we can get stuck in "running" forever because resume-worker has nothing to load.
           const needsResume =
             !dryRunRequested &&
             cosmosEnabled &&
-            enrichmentMissingByCompany.length > 0 &&
-            (Number(saveResult.saved_write_count || 0) > 0 || (Array.isArray(saveResult.saved_ids_write) && saveResult.saved_ids_write.length > 0));
+            hasMissingRequired &&
+            hasPersistedWrite &&
+            allowResumeWorker;
 
           if (needsResume) {
             mark("enrichment_incomplete");
