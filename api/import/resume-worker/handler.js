@@ -589,7 +589,7 @@ async function resumeWorkerHandler(req, context) {
   };
 
   const startTime = Date.now();
-  const maxIterations = stagePlan.length;
+  const maxIterations = 1;
 
   let iteration = 0;
   let lastStartRes = null;
