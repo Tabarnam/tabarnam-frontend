@@ -101,7 +101,7 @@ function isTrueish(value) {
 }
 
 function hasNonPlaceholderLocationEntry(list) {
-  const arr = Array.isArray(list) ? list : [];
+  const arr = Array.isArray(list) ? list : list == null ? [] : [list];
   for (const loc of arr) {
     if (typeof loc === "string") {
       const key = normalizeKey(loc);
