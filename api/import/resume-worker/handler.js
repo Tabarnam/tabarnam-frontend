@@ -492,16 +492,37 @@ async function resumeWorkerHandler(req, context) {
 
   const request = sessionDoc?.request && typeof sessionDoc.request === "object" ? sessionDoc.request : {};
 
+  const initialMissing = seedDocs.length === 1 && seedDocs[0] ? computeMissingFields(seedDocs[0]) : [];
+  const forceStages =
+    seedDocs.length === 1 &&
+    initialMissing.some(
+      (f) => f === "industries" || f === "headquarters_location" || f === "manufacturing_locations" || f === "reviews"
+    );
+
+  // Deterministic "force run stages" pass for single-company URL imports.
+  // If the doc is missing core fields, run primary -> keywords -> reviews -> location in order.
+  const stagePlan = forceStages ? ["primary", "keywords", "reviews", "location"] : [null];
+
   const base = new URL(req.url);
-  const startUrl = new URL("/api/import-start", base.origin);
-  startUrl.searchParams.set("skip_stages", "primary");
-  startUrl.searchParams.set("resume_worker", "1");
-  startUrl.searchParams.set("deadline_ms", String(deadlineMs));
+  const startUrlBase = new URL("/api/import-start", base.origin);
+  startUrlBase.searchParams.set("resume_worker", "1");
+  startUrlBase.searchParams.set("deadline_ms", String(deadlineMs));
+
+  const buildStartUrlForIteration = (iterationIndex) => {
+    const u = new URL(startUrlBase);
+    const stage = stagePlan[iterationIndex] || null;
+    if (stage) u.searchParams.set("max_stage", stage);
+
+    const skip = stagePlan.slice(0, iterationIndex).filter(Boolean);
+    if (skip.length > 0) u.searchParams.set("skip_stages", skip.join(","));
+
+    return u;
+  };
 
   // IMPORTANT: We invoke import-start directly in-process to avoid an internal HTTP round-trip.
   const startRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
 
-  const invokeImportStartDirect = async (startBody) => {
+  const invokeImportStartDirect = async (startBody, urlOverride) => {
     const { handler: importStartHandler } = require("../../import-start/index.js");
 
     const hdrs = new Headers();
@@ -512,7 +533,7 @@ async function resumeWorkerHandler(req, context) {
 
     const internalReq = {
       method: "POST",
-      url: startUrl.toString(),
+      url: String(urlOverride || startUrlBase).toString(),
       headers: hdrs,
       json: async () => startBody,
       text: async () => JSON.stringify(startBody),
@@ -522,7 +543,7 @@ async function resumeWorkerHandler(req, context) {
   };
 
   const startTime = Date.now();
-  const maxIterations = seedDocs.length === 1 ? 4 : 1;
+  const maxIterations = stagePlan.length;
 
   let iteration = 0;
   let lastStartRes = null;
@@ -568,8 +589,10 @@ async function resumeWorkerHandler(req, context) {
       companies,
     };
 
+    const urlForThisPass = buildStartUrlForIteration(iteration);
+
     try {
-      lastStartRes = await invokeImportStartDirect(startBody);
+      lastStartRes = await invokeImportStartDirect(startBody, urlForThisPass);
       if (lastStartRes?.body && typeof lastStartRes.body === "string") lastStartText = lastStartRes.body;
       else if (lastStartRes?.body && typeof lastStartRes.body === "object") lastStartText = JSON.stringify(lastStartRes.body);
       else lastStartText = "";
@@ -619,7 +642,99 @@ async function resumeWorkerHandler(req, context) {
   }
 
   const updatedAt = nowIso();
-  const resumeNeeded = missing_by_company.length > 0;
+
+  let exhausted = false;
+
+  // Terminal behavior: after a full forced pass for a single-company import,
+  // if we're still missing core fields, write explicit terminal markers so the session completes cleanly.
+  if (forceStages && seedDocs.length === 1 && missing_by_company.length > 0) {
+    const shouldExhaust = iteration >= maxIterations || Date.now() - startTime > Math.max(0, deadlineMs - 1500);
+
+    if (shouldExhaust) {
+      exhausted = true;
+      const doc = seedDocs[0];
+
+      if (doc && typeof doc === "object" && String(doc.id || "").trim()) {
+        const missing = computeMissingFields(doc);
+
+        const import_missing_reason =
+          doc.import_missing_reason && typeof doc.import_missing_reason === "object"
+            ? { ...doc.import_missing_reason }
+            : {};
+
+        const patch = {};
+
+        if (missing.includes("headquarters_location")) {
+          patch.headquarters_location = "Not disclosed";
+          patch.hq_unknown = true;
+          patch.hq_unknown_reason = "not_disclosed";
+          import_missing_reason.headquarters_location = "not_disclosed";
+        }
+
+        if (missing.includes("manufacturing_locations")) {
+          patch.manufacturing_locations = ["Not disclosed"];
+          patch.manufacturing_locations_reason = "not_disclosed";
+          patch.mfg_unknown = true;
+          patch.mfg_unknown_reason = "not_disclosed";
+          import_missing_reason.manufacturing_locations = "not_disclosed";
+        }
+
+        if (missing.includes("reviews")) {
+          patch.reviews_stage_status = "exhausted";
+          const cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
+          patch.review_cursor = {
+            ...cursor,
+            exhausted: true,
+            reviews_stage_status: cursor.reviews_stage_status || "exhausted",
+            exhausted_at: nowIso(),
+          };
+          import_missing_reason.reviews = "exhausted";
+        }
+
+        if (missing.includes("industries")) {
+          import_missing_reason.industries ||= "not_found";
+        }
+
+        const next = {
+          ...doc,
+          ...patch,
+          import_missing_reason,
+          import_missing_fields: missing,
+          red_flag: Boolean(doc.red_flag) || missing.some((f) => f === "headquarters_location" || f === "manufacturing_locations"),
+          red_flag_reason:
+            String(doc.red_flag_reason || "").trim() ||
+            (missing.includes("manufacturing_locations")
+              ? "Manufacturing not disclosed"
+              : missing.includes("headquarters_location")
+                ? "Headquarters not disclosed"
+                : "Required fields missing"),
+          resume_exhausted: true,
+          updated_at: updatedAt,
+        };
+
+        await upsertDoc(container, next).catch(() => null);
+
+        const refreshedFinal = await fetchCompaniesByIds(container, [String(doc.id).trim()]).catch(() => []);
+        if (Array.isArray(refreshedFinal) && refreshedFinal.length > 0) {
+          seedDocs = refreshedFinal;
+          missing_by_company = seedDocs
+            .map((d) => {
+              const missing = computeMissingFields(d);
+              if (missing.length === 0) return null;
+              return {
+                company_id: String(d?.id || "").trim(),
+                company_name: String(d?.company_name || d?.name || "").trim(),
+                website_url: String(d?.website_url || d?.url || "").trim(),
+                missing_fields: missing,
+              };
+            })
+            .filter(Boolean);
+        }
+      }
+    }
+  }
+
+  const resumeNeeded = exhausted ? false : missing_by_company.length > 0;
 
   await upsertDoc(container, {
     ...resumeDoc,
@@ -628,7 +743,7 @@ async function resumeWorkerHandler(req, context) {
     last_trigger_result: {
       ok: Boolean(lastStartOk),
       status: lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0),
-      stage_beacon: lastStartJson?.stage_beacon || null,
+      stage_beacon: resumeNeeded ? lastStartJson?.stage_beacon || null : exhausted ? "enrichment_exhausted" : lastStartJson?.stage_beacon || null,
       resume_needed: resumeNeeded,
       iterations: iteration + 1,
     },
@@ -646,7 +761,8 @@ async function resumeWorkerHandler(req, context) {
         ? {}
         : {
             status: "complete",
-            stage_beacon: "enrichment_complete",
+            stage_beacon: exhausted ? "enrichment_exhausted" : "enrichment_complete",
+            ...(exhausted ? { resume_exhausted: true } : {}),
             completed_at: updatedAt,
           }),
       updated_at: updatedAt,
