@@ -3632,6 +3632,21 @@ const importStartHandlerInner = async (req, context) => {
     const buildInfo = getBuildInfo();
     const handlerVersion = getImportStartHandlerVersion(buildInfo);
 
+    const internalSecretInfo = (() => {
+      try {
+        return getInternalJobSecretInfo();
+      } catch {
+        return { secret: "", secret_source: null };
+      }
+    })();
+
+    const internalAuthConfigured = Boolean(
+      internalSecretInfo &&
+        typeof internalSecretInfo === "object" &&
+        String(internalSecretInfo.secret || "").trim() &&
+        internalSecretInfo.secret_source === "X_INTERNAL_JOB_SECRET"
+    );
+
     const jsonWithRequestId = (obj, status = 200) => {
       const payload =
         obj && typeof obj === "object" && !Array.isArray(obj)
