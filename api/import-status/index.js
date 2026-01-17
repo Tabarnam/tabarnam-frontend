@@ -1319,11 +1319,36 @@ async function handler(req, context) {
           resume_gateway_key_attached = workerRequest.gateway_key_attached;
           resume_trigger_request_id = workerRequest.request_id;
 
-          const workerRes = await fetch(workerUrl.toString(), {
-            method: "POST",
-            headers: workerRequest.headers,
-            body: JSON.stringify({ session_id: sessionId }),
-          }).catch((e) => ({ ok: false, status: 0, _error: e }));
+          const workerRes = await (async () => {
+            try {
+              const { handler: resumeWorkerHandler } = require("../import/resume-worker/index.js");
+
+              const hdrs = new Headers();
+              for (const [k, v] of Object.entries(workerRequest.headers || {})) {
+                if (v === undefined || v === null) continue;
+                hdrs.set(k, String(v));
+              }
+
+              const internalReq = {
+                method: "POST",
+                url: workerUrl.toString(),
+                headers: hdrs,
+                __in_process: true,
+                json: async () => ({ session_id: sessionId }),
+                text: async () => JSON.stringify({ session_id: sessionId }),
+              };
+
+              const res = await resumeWorkerHandler(internalReq, context).catch((e) => ({ status: 0, _error: e }));
+              const status = Number(res?.status || 0) || 0;
+              const ok = status >= 200 && status < 300;
+              const bodyText =
+                typeof res?.body === "string" ? res.body : res?.body != null ? JSON.stringify(res.body) : "";
+
+              return { ok, status, text: async () => bodyText, _error: res?._error };
+            } catch (e) {
+              return { ok: false, status: 0, text: async () => "", _error: e };
+            }
+          })();
 
           let workerText = "";
           try {
@@ -2207,11 +2232,36 @@ async function handler(req, context) {
           resume_gateway_key_attached = workerRequest.gateway_key_attached;
           resume_trigger_request_id = workerRequest.request_id;
 
-          const workerRes = await fetch(workerUrl.toString(), {
-            method: "POST",
-            headers: workerRequest.headers,
-            body: JSON.stringify({ session_id: sessionId }),
-          }).catch((e) => ({ ok: false, status: 0, _error: e }));
+          const workerRes = await (async () => {
+            try {
+              const { handler: resumeWorkerHandler } = require("../import/resume-worker/index.js");
+
+              const hdrs = new Headers();
+              for (const [k, v] of Object.entries(workerRequest.headers || {})) {
+                if (v === undefined || v === null) continue;
+                hdrs.set(k, String(v));
+              }
+
+              const internalReq = {
+                method: "POST",
+                url: workerUrl.toString(),
+                headers: hdrs,
+                __in_process: true,
+                json: async () => ({ session_id: sessionId }),
+                text: async () => JSON.stringify({ session_id: sessionId }),
+              };
+
+              const res = await resumeWorkerHandler(internalReq, context).catch((e) => ({ status: 0, _error: e }));
+              const status = Number(res?.status || 0) || 0;
+              const ok = status >= 200 && status < 300;
+              const bodyText =
+                typeof res?.body === "string" ? res.body : res?.body != null ? JSON.stringify(res.body) : "";
+
+              return { ok, status, text: async () => bodyText, _error: res?._error };
+            } catch (e) {
+              return { ok: false, status: 0, text: async () => "", _error: e };
+            }
+          })();
 
           let workerText = "";
           try {
