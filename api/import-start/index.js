@@ -6613,7 +6613,27 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
             const verifiedCount = Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0;
             const writeCount = Number(saveResult.saved_write_count || 0) || 0;
-            const canResume = canPersist && writeCount > 0;
+
+            const resumeCompanyIds = (() => {
+              const ids = [];
+              if (Array.isArray(saveResult?.saved_ids_write)) ids.push(...saveResult.saved_ids_write);
+              if (Array.isArray(saveResult?.saved_company_ids_verified)) ids.push(...saveResult.saved_company_ids_verified);
+              if (Array.isArray(saveResult?.saved_company_ids_unverified)) ids.push(...saveResult.saved_company_ids_unverified);
+              if (Array.isArray(saveResult?.saved_ids)) ids.push(...saveResult.saved_ids);
+
+              return Array.from(
+                new Set(
+                  ids
+                    .map((v) => String(v || "").trim())
+                    .filter(Boolean)
+                    .slice(0, 50)
+                )
+              );
+            })();
+
+            // We must resume even when we dedupe to an existing company (saved_write_count === 0)
+            // because the record may still be missing required fields.
+            const canResume = canPersist && resumeCompanyIds.length > 0;
 
             if (canResume) {
               if (cosmosEnabled) {
