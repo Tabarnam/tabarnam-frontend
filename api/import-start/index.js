@@ -3041,7 +3041,9 @@ async function saveCompaniesToCosmos({
 
             // If a stub company was saved earlier in the same session, we must UPDATE it (not skip)
             // so enrichment fields get persisted atomically.
-            const existing = await findExistingCompany(container, normalizedDomain, companyName);
+            const canonicalUrlForDedupe = String(company.canonical_url || company.website_url || company.url || "").trim();
+
+            const existing = await findExistingCompany(container, normalizedDomain, companyName, canonicalUrlForDedupe);
             let existingDoc = null;
             let shouldUpdateExisting = false;
 
