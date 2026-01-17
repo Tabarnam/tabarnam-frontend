@@ -171,7 +171,9 @@ function isRealValue(field, value, doc) {
   }
 
   if (f === "reviews" || f === "curated_reviews") {
-    const curated = Array.isArray(doc?.curated_reviews) ? doc.curated_reviews.filter((r) => r && typeof r === "object") : [];
+    const curated = Array.isArray(doc?.curated_reviews)
+      ? doc.curated_reviews.filter((r) => r && typeof r === "object")
+      : [];
     if (curated.length > 0) return true;
 
     const reviewCount = Number.isFinite(Number(doc?.review_count)) ? Number(doc.review_count) : 0;
@@ -179,6 +181,13 @@ function isRealValue(field, value, doc) {
 
     // Count-only is only acceptable once the stage is actually complete.
     if (reviewCount > 0 && status === "ok") return true;
+
+    // Explicit terminal states: no reviews exist / exhausted.
+    // These clear missing_fields while still allowing has_reviews=false.
+    const exhausted = Boolean(doc?.review_cursor?.exhausted);
+    if (status === "no_valid_reviews_found" || status === "exhausted" || status === "no_reviews_found") {
+      return exhausted || status !== "no_reviews_found";
+    }
 
     return false;
   }
@@ -220,6 +229,13 @@ function computeEnrichmentHealth(company) {
     c.reviews_stage_status || (c.review_cursor && typeof c.review_cursor === "object" ? c.review_cursor.reviews_stage_status : "") || ""
   ).trim();
 
+  const curated = Array.isArray(c.curated_reviews) ? c.curated_reviews.filter((r) => r && typeof r === "object") : [];
+  const reviewCount = Number.isFinite(Number(c.review_count)) ? Number(c.review_count) : curated.length;
+  const reviewsStageNormalized = normalizeKey(reviewsStageRaw);
+
+  const hasReviewsActual = curated.length > 0 || (reviewCount > 0 && reviewsStageNormalized === "ok");
+  const reviewsSatisfied = isRealValue("reviews", c.curated_reviews, c);
+
   return {
     has_industries: isRealValue("industries", c.industries, c),
     has_keywords: isRealValue("product_keywords", c.product_keywords, c),
@@ -227,7 +243,8 @@ function computeEnrichmentHealth(company) {
     has_hq: isRealValue("headquarters_location", c.headquarters_location, c),
     has_mfg: isRealValue("manufacturing_locations", c.manufacturing_locations, c),
     has_logo: isRealValue("logo", c.logo_url, c),
-    has_reviews: isRealValue("reviews", c.curated_reviews, c),
+    has_reviews: hasReviewsActual,
+    reviews_satisfied: reviewsSatisfied,
     has_reviews_field: hasReviewsField,
     reviews_stage_status: reviewsStageRaw || null,
     logo_stage_status: asString(c.logo_stage_status).trim() || null,
