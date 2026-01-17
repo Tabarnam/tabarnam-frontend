@@ -1272,7 +1272,6 @@ async function handler(req, context) {
 
           const workerRequest = buildInternalFetchRequest({
             job_kind: "import_resume",
-            include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
           });
 
           resume_gateway_key_attached = workerRequest.gateway_key_attached;
@@ -2130,7 +2129,6 @@ async function handler(req, context) {
 
           const workerRequest = buildInternalFetchRequest({
             job_kind: "import_resume",
-            include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
           });
 
           resume_gateway_key_attached = workerRequest.gateway_key_attached;
