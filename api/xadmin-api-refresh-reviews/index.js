@@ -1181,7 +1181,11 @@ async function handler(req, context, opts) {
 
         // Make 0-review outcomes explainable (never silent).
         // If the company still has 0 imported reviews after this call, treat it as "no_valid_reviews_found".
-        const stageStatus = cappedCurated.length === 0 ? "no_valid_reviews_found" : "ok";
+        const stageStatus = cappedCurated.length === 0
+          ? incoming.length === 0
+            ? "exhausted"
+            : "no_valid_reviews_found"
+          : "ok";
 
         const nextOffset =
           typeof upstream?.next_offset === "number" && Number.isFinite(upstream.next_offset)
