@@ -1300,7 +1300,7 @@ async function handler(req, context) {
           }
         }
 
-        const canTrigger = !resumeMissingInternalSecret && (!lockUntil || Date.now() >= lockUntil);
+        const canTrigger = !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil);
 
         if (
           canTrigger &&
@@ -2157,7 +2157,7 @@ async function handler(req, context) {
 
         resume_status = resumeStatus;
 
-        const canTrigger = !resumeMissingInternalSecret && (!lockUntil || Date.now() >= lockUntil);
+        const canTrigger = !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil);
 
         if (
           canTrigger &&
