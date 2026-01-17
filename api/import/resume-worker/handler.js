@@ -635,7 +635,7 @@ async function resumeWorkerHandler(req, context) {
       companies,
     };
 
-    const urlForThisPass = buildStartUrlForIteration(iteration);
+    const urlForThisPass = startUrlBase;
 
     try {
       lastStartRes = await invokeImportStartDirect(startBody, urlForThisPass);
