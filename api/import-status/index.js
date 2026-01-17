@@ -716,6 +716,21 @@ async function handler(req, context) {
     status_checked_at: statusCheckedAt,
   };
 
+  const internalSecretInfo = (() => {
+    try {
+      return getInternalJobSecretInfo();
+    } catch {
+      return { secret: "", secret_source: null };
+    }
+  })();
+
+  const internalAuthConfigured = Boolean(
+    internalSecretInfo &&
+      typeof internalSecretInfo === "object" &&
+      String(internalSecretInfo.secret || "").trim() &&
+      internalSecretInfo.secret_source === "X_INTERNAL_JOB_SECRET"
+  );
+
   let primaryJob = await getImportPrimaryJob({ sessionId, cosmosEnabled: true }).catch(() => null);
 
   if (primaryJob && primaryJob.job_state) {
