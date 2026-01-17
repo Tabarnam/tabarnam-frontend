@@ -24,6 +24,26 @@ function decodeHtmlEntities(s) {
     .trim();
 }
 
+function looksLikeMarketingSentence(value) {
+  const s = asString(value).trim();
+  if (!s) return false;
+
+  if (s.length > 60) return true;
+  if (/[.!?]/.test(s)) return true;
+
+  const words = s.split(/\s+/).filter(Boolean);
+  if (words.length > 10) return true;
+
+  if (/[,:;]\s/.test(s) && words.length > 6) return true;
+
+  // A light heuristic to avoid "Premium ..." style sentences.
+  if (/\b(premium|trusted|quality|since|discover|shop|buy|world|leading|supplements|nutrition)\b/i.test(s) && words.length > 4) {
+    return true;
+  }
+
+  return false;
+}
+
 function cleanNameCandidate(raw) {
   const s = decodeHtmlEntities(raw);
   if (!s) return "";
@@ -36,6 +56,7 @@ function cleanNameCandidate(raw) {
   const first = parts[0] || s;
   const cleaned = first.replace(/\s+/g, " ").trim();
   if (cleaned.length < 2) return "";
+  if (looksLikeMarketingSentence(cleaned)) return "";
   if (cleaned.length > 80) return cleaned.slice(0, 80).trim();
   return cleaned;
 }
@@ -323,9 +344,11 @@ async function fillCompanyBaselineFromWebsite(company, { timeoutMs = 6000, extra
 
   const inferredIndustries = inferIndustriesFromText(combinedText);
 
-  const taglineCandidate = truncate(ogDescription || metaDescription || "", 180);
-
   const nameCandidate = cleanNameCandidate(ogSiteName || ogTitle || title);
+
+  // If the "name" candidate looks like a sentence, treat it as tagline fallback.
+  const taglineFallbackFromTitle = truncate(nameCandidate ? "" : cleanNameCandidate("") , 180);
+  const taglineCandidate = truncate(ogDescription || metaDescription || "", 180) || truncate(ogTitle || title || "", 180);
 
   const patch = { ...base };
 
