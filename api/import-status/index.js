@@ -1656,15 +1656,41 @@ async function handler(req, context) {
           save_outcome,
           ...EMPTY_RESUME_DIAGNOSTICS,
           resume_needed,
-          resume_error,
-          resume_error_details,
+          resume_error:
+            resume_needed && !internalAuthConfigured
+              ? "resume_worker_gateway_401_missing_internal_secret"
+              : resume_error,
+          resume_error_details:
+            resume_needed && !internalAuthConfigured
+              ? {
+                  root_cause: "resume_worker_gateway_401_missing_internal_secret",
+                  message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                  updated_at: nowIso(),
+                }
+              : resume_error_details,
           resume: {
             ...EMPTY_RESUME_DIAGNOSTICS.resume,
             needed: resume_needed,
-            trigger_error: resume_error,
-            trigger_error_details: resume_error_details,
+            status: resume_needed && !internalAuthConfigured ? "stalled" : null,
+            trigger_error:
+              resume_needed && !internalAuthConfigured
+                ? "resume_worker_gateway_401_missing_internal_secret"
+                : resume_error,
+            trigger_error_details:
+              resume_needed && !internalAuthConfigured
+                ? {
+                    root_cause: "resume_worker_gateway_401_missing_internal_secret",
+                    message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                    updated_at: nowIso(),
+                  }
+                : resume_error_details,
+            internal_auth_configured: Boolean(internalAuthConfigured),
           },
-          resume_worker: EMPTY_RESUME_DIAGNOSTICS.resume_worker,
+          resume_worker: {
+            ...EMPTY_RESUME_DIAGNOSTICS.resume_worker,
+            last_reject_layer: resume_needed && !internalAuthConfigured ? "gateway" : null,
+            last_http_status: resume_needed && !internalAuthConfigured ? 401 : null,
+          },
           saved_companies: [],
         },
         200,
@@ -1724,15 +1750,41 @@ async function handler(req, context) {
             save_outcome,
           ...EMPTY_RESUME_DIAGNOSTICS,
           resume_needed,
-          resume_error,
-          resume_error_details,
+          resume_error:
+            resume_needed && !internalAuthConfigured
+              ? "resume_worker_gateway_401_missing_internal_secret"
+              : resume_error,
+          resume_error_details:
+            resume_needed && !internalAuthConfigured
+              ? {
+                  root_cause: "resume_worker_gateway_401_missing_internal_secret",
+                  message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                  updated_at: nowIso(),
+                }
+              : resume_error_details,
           resume: {
             ...EMPTY_RESUME_DIAGNOSTICS.resume,
             needed: resume_needed,
-            trigger_error: resume_error,
-            trigger_error_details: resume_error_details,
+            status: resume_needed && !internalAuthConfigured ? "stalled" : null,
+            trigger_error:
+              resume_needed && !internalAuthConfigured
+                ? "resume_worker_gateway_401_missing_internal_secret"
+                : resume_error,
+            trigger_error_details:
+              resume_needed && !internalAuthConfigured
+                ? {
+                    root_cause: "resume_worker_gateway_401_missing_internal_secret",
+                    message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                    updated_at: nowIso(),
+                  }
+                : resume_error_details,
+            internal_auth_configured: Boolean(internalAuthConfigured),
           },
-          resume_worker: EMPTY_RESUME_DIAGNOSTICS.resume_worker,
+          resume_worker: {
+            ...EMPTY_RESUME_DIAGNOSTICS.resume_worker,
+            last_reject_layer: resume_needed && !internalAuthConfigured ? "gateway" : null,
+            last_http_status: resume_needed && !internalAuthConfigured ? 401 : null,
+          },
           saved_companies: [],
           },
           200,
