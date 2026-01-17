@@ -9628,10 +9628,16 @@ Return ONLY the JSON array, no other text.`,
             })
             .filter(Boolean);
 
-          const allowResumeWorker =
-            Boolean(bodyObj?.allow_resume_worker || bodyObj?.allowResumeWorker) ||
-            String(readQueryParam(req, "allow_resume_worker") || "").trim() === "1" ||
-            String(readQueryParam(req, "allowResumeWorker") || "").trim() === "1";
+          // Default to allowing the resume-worker (so required fields complete automatically)
+          // unless the caller explicitly disables it.
+          const allowResumeWorker = !(
+            bodyObj?.allow_resume_worker === false ||
+            bodyObj?.allowResumeWorker === false ||
+            bodyObj?.allowResume === false ||
+            String(readQueryParam(req, "allow_resume_worker") || "").trim() === "0" ||
+            String(readQueryParam(req, "allowResumeWorker") || "").trim() === "0" ||
+            String(readQueryParam(req, "allowResume") || "").trim() === "0"
+          );
 
           const hasPersistedWrite =
             Number(saveResult.saved_write_count || 0) > 0 ||
