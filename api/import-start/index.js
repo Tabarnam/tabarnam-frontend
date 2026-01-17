@@ -6450,9 +6450,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       created_at: nowResumeIso,
                       updated_at: nowResumeIso,
                       request_id: requestId,
-                      status: internalAuthConfigured ? "queued" : "stalled",
+                      status: gatewayKeyConfigured ? "queued" : "stalled",
                       resume_auth: buildResumeAuthDiagnostics(),
-                      ...(internalAuthConfigured
+                      ...(gatewayKeyConfigured
                         ? {}
                         : {
                             stalled_at: nowResumeIso,
@@ -6661,11 +6661,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   status: "running",
                   resume_needed: true,
                   resume: {
-                    status: internalAuthConfigured ? "queued" : "stalled",
+                    status: gatewayKeyConfigured ? "queued" : "stalled",
                     internal_auth_configured: Boolean(internalAuthConfigured),
                     ...buildResumeAuthDiagnostics(),
                   },
-                  ...(internalAuthConfigured
+                  ...(gatewayKeyConfigured
                     ? {}
                     : (() => {
                         const stall = buildResumeStallError();
@@ -9496,9 +9496,9 @@ Return ONLY the JSON array, no other text.`,
                     created_at: nowResumeIso,
                     updated_at: nowResumeIso,
                     request_id: requestId,
-                    status: internalAuthConfigured ? "queued" : "stalled",
+                    status: gatewayKeyConfigured ? "queued" : "stalled",
                     resume_auth: buildResumeAuthDiagnostics(),
-                    ...(internalAuthConfigured
+                    ...(gatewayKeyConfigured
                       ? {}
                       : {
                           stalled_at: nowResumeIso,
@@ -9700,11 +9700,11 @@ Return ONLY the JSON array, no other text.`,
                 status: "running",
                 resume_needed: true,
                 resume: {
-                  status: internalAuthConfigured ? "queued" : "stalled",
+                  status: gatewayKeyConfigured ? "queued" : "stalled",
                   internal_auth_configured: Boolean(internalAuthConfigured),
                   ...buildResumeAuthDiagnostics(),
                 },
-                ...(internalAuthConfigured
+                ...(gatewayKeyConfigured
                   ? {}
                   : (() => {
                       const stall = buildResumeStallError();
