@@ -13,7 +13,11 @@ try {
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { getJob: getImportPrimaryJob, patchJob: patchImportPrimaryJob } = require("../_importPrimaryJobStore");
 const { runPrimaryJob } = require("../_importPrimaryWorker");
-const { buildInternalFetchHeaders, buildInternalFetchRequest } = require("../_internalJobAuth");
+const {
+  buildInternalFetchHeaders,
+  buildInternalFetchRequest,
+  getInternalJobSecretInfo,
+} = require("../_internalJobAuth");
 const { getBuildInfo } = require("../_buildInfo");
 
 const HANDLER_ID = "import-status";
@@ -33,6 +37,7 @@ const {
 const EMPTY_RESUME_DIAGNOSTICS = Object.freeze({
   resume: {
     needed: null,
+    status: null,
     doc_created: null,
     triggered: null,
     trigger_error: null,
