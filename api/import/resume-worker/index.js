@@ -595,4 +595,4 @@ app.http("import-resume-worker", {
   handler,
 });
 
-module.exports = { _test: { handler } };
+module.exports = { handler, _test: { handler } };
