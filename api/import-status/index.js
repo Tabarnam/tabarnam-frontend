@@ -2031,14 +2031,22 @@ async function handler(req, context) {
           }).catch(() => null);
 
           if (sessionDoc && typeof sessionDoc === "object") {
+            const details = {
+              root_cause: "resume_worker_gateway_401_missing_internal_secret",
+              message: "Missing X_INTERNAL_JOB_SECRET; internal resume-worker calls will be rejected before handler runs",
+              updated_at: stalledAt,
+            };
+
+            // Ensure subsequent response shaping reads the deterministic failure signals.
+            sessionDoc.resume_error = "resume_worker_gateway_401_missing_internal_secret";
+            sessionDoc.resume_error_details = details;
+            sessionDoc.resume_worker_last_http_status = 401;
+            sessionDoc.resume_worker_last_reject_layer = "gateway";
+
             await upsertDoc(container, {
               ...sessionDoc,
               resume_error: "resume_worker_gateway_401_missing_internal_secret",
-              resume_error_details: {
-                root_cause: "resume_worker_gateway_401_missing_internal_secret",
-                message: "Missing X_INTERNAL_JOB_SECRET; internal resume-worker calls will be rejected before handler runs",
-                updated_at: stalledAt,
-              },
+              resume_error_details: details,
               resume_needed: true,
               resume_worker_last_http_status: 401,
               resume_worker_last_reject_layer: "gateway",
