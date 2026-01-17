@@ -6293,21 +6293,33 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 const container = getCompaniesCosmosContainer();
 
                 // Prevent flaky/conflicting Cosmos writes on seed-fallback duplicates by checking first.
-                const existingHit = container
-                  ? await findExistingCompany(container, seed.normalized_domain, seed.company_name).catch(() => null)
-                  : null;
+                // Query by website_url since normalized_domain can be "unknown" for some records.
+                const urlToMatch = String(seed.website_url || seed.url || "").trim();
 
-                const duplicateOfId = existingHit && existingHit.id ? String(existingHit.id).trim() : "";
+                const existingHit = (() => {
+                  if (!container || !urlToMatch) return null;
+                  return container.items
+                    .query(
+                      {
+                        query: `
+                          SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.import_missing_fields
+                          FROM c
+                          WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
+                            AND (c.website_url = @url OR c.url = @url)
+                        `,
+                        parameters: [{ name: "@url", value: urlToMatch }],
+                      },
+                      { enableCrossPartitionQuery: true }
+                    )
+                    .fetchAll();
+                })();
+
+                const existingRows = existingHit ? (await existingHit).resources : null;
+                const existingRow = Array.isArray(existingRows) && existingRows[0] ? existingRows[0] : null;
+                const duplicateOfId = existingRow && existingRow.id ? String(existingRow.id).trim() : "";
 
                 if (duplicateOfId && container) {
-                  const normalizedDomainForTelemetry = String(seed.normalized_domain || "").trim();
-                  const existingDoc = await readItemWithPkCandidates(container, duplicateOfId, {
-                    id: duplicateOfId,
-                    normalized_domain: normalizedDomainForTelemetry,
-                    partition_key: normalizedDomainForTelemetry,
-                  }).catch(() => null);
-
-                  const existingMissing = Array.isArray(existingDoc?.import_missing_fields) ? existingDoc.import_missing_fields : [];
+                  const existingMissing = Array.isArray(existingRow?.import_missing_fields) ? existingRow.import_missing_fields : [];
                   const existingComplete = existingMissing.length === 0;
 
                   const outcome = existingComplete
@@ -6323,8 +6335,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     skipped_duplicates: [
                       {
                         duplicate_of_id: duplicateOfId,
-                        match_key: existingHit?.duplicate_match_key || null,
-                        match_value: existingHit?.duplicate_match_value || null,
+                        match_key: "website_url",
+                        match_value: urlToMatch,
                       },
                     ],
                     failed_items: [],
