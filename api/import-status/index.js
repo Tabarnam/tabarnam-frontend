@@ -1399,16 +1399,20 @@ async function handler(req, context) {
     stageBeaconValues.status_enrichment_health_summary = nowIso();
     stageBeaconValues.status_enrichment_incomplete = enrichment_health_summary.incomplete;
 
-    if (resumeMissingInternalSecret) {
+    if (resumeStalledByGatewayAuth) {
+      const stall = buildResumeStallError();
       resume_status ||= "stalled";
 
       // Ensure status does not look like "running forever" when the environment cannot
       // authenticate internal resume-worker calls.
-      if (!resume_error) resume_error = "resume_worker_gateway_401_missing_internal_secret";
+      if (!resume_error) resume_error = stall.code;
       if (!resume_error_details) {
         resume_error_details = {
-          root_cause: "resume_worker_gateway_401_missing_internal_secret",
-          message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+          root_cause: stall.root_cause,
+          message: stall.message,
+          missing_gateway_key: Boolean(stall.missing_gateway_key),
+          missing_internal_secret: Boolean(stall.missing_internal_secret),
+          ...buildResumeAuthDiagnostics(),
           updated_at: nowIso(),
         };
       }
