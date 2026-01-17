@@ -67,6 +67,60 @@ function looksLikeUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 }
 
+function normalizeKey(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function isTrueish(value) {
+  if (value === true) return true;
+  if (value === false) return false;
+  const s = String(value ?? "").trim().toLowerCase();
+  return s === "true" || s === "1" || s === "yes" || s === "y";
+}
+
+function isTerminalMissingField(doc, field) {
+  const d = doc && typeof doc === "object" ? doc : {};
+  const f = String(field || "").trim();
+
+  if (f === "headquarters_location") {
+    if (isTrueish(d.hq_unknown)) return true;
+    const val = normalizeKey(d.headquarters_location);
+    return val === "not disclosed" || val === "not_disclosed" || val === "unknown";
+  }
+
+  if (f === "manufacturing_locations") {
+    if (isTrueish(d.mfg_unknown)) return true;
+
+    const rawList = Array.isArray(d.manufacturing_locations)
+      ? d.manufacturing_locations
+      : d.manufacturing_locations == null
+        ? []
+        : [d.manufacturing_locations];
+
+    const normalized = rawList
+      .map((loc) => {
+        if (typeof loc === "string") return normalizeKey(loc);
+        if (loc && typeof loc === "object") {
+          return normalizeKey(loc.formatted || loc.full_address || loc.address || loc.location);
+        }
+        return "";
+      })
+      .filter(Boolean);
+
+    if (normalized.length === 0) return false;
+
+    return normalized.every((v) => v === "unknown" || v === "not disclosed" || v === "not_disclosed");
+  }
+
+  if (f === "reviews") {
+    const stage = normalizeKey(d.reviews_stage_status || d.review_cursor?.reviews_stage_status);
+    if (stage === "exhausted") return true;
+    return Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true);
+  }
+
+  return false;
+}
+
 async function bestEffortPatchSessionDoc({ container, sessionId, patch }) {
   if (!container || !sessionId || !patch) return { ok: false, error: "missing_inputs" };
 
@@ -361,13 +415,45 @@ async function resumeWorkerHandler(req, context) {
   const resumeDocId = `_import_resume_${sessionId}`;
   const sessionDocId = `_import_session_${sessionId}`;
 
-  const [resumeDoc, sessionDoc] = await Promise.all([
-    readControlDoc(container, resumeDocId, sessionId),
-    readControlDoc(container, sessionDocId, sessionId),
+  let [resumeDoc, sessionDoc] = await Promise.all([
+    readControlDoc(container, resumeDocId, sessionId).catch(() => null),
+    readControlDoc(container, sessionDocId, sessionId).catch(() => null),
   ]);
 
+  // Required: resume worker must always upsert a resume control doc every run.
   if (!resumeDoc) {
-    return json({ ok: false, session_id: sessionId, root_cause: "missing_resume_doc", retryable: false }, 200, req);
+    const now = nowIso();
+    const savedIds = Array.isArray(sessionDoc?.saved_company_ids)
+      ? sessionDoc.saved_company_ids
+      : Array.isArray(sessionDoc?.saved_ids)
+        ? sessionDoc.saved_ids
+        : Array.isArray(sessionDoc?.saved_company_ids_verified)
+          ? sessionDoc.saved_company_ids_verified
+          : [];
+
+    const created = {
+      id: resumeDocId,
+      session_id: sessionId,
+      normalized_domain: "import",
+      partition_key: "import",
+      type: "import_control",
+      created_at: now,
+      updated_at: now,
+      status: "queued",
+      doc_created: false,
+      saved_company_ids: savedIds.map((v) => String(v || "").trim()).filter(Boolean).slice(0, 50),
+      missing_by_company: [],
+    };
+
+    const upsertResult = await upsertDoc(container, created).catch(() => ({ ok: false }));
+    const doc_created = Boolean(upsertResult && upsertResult.ok);
+
+    resumeDoc = { ...created, doc_created };
+
+    if (doc_created) {
+      // Refresh from Cosmos so we always operate on the authoritative doc.
+      resumeDoc = (await readControlDoc(container, resumeDocId, sessionId).catch(() => null)) || resumeDoc;
+    }
   }
 
   const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
@@ -388,14 +474,25 @@ async function resumeWorkerHandler(req, context) {
   const attempt = Number.isFinite(Number(resumeDoc?.attempt)) ? Number(resumeDoc.attempt) : 0;
   const thisLockExpiresAt = new Date(Date.now() + 60_000).toISOString();
 
-  await upsertDoc(container, {
-    ...resumeDoc,
+  const resumeControlUpsert = await upsertDoc(container, {
+    ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+    id: resumeDocId,
+    session_id: sessionId,
+    normalized_domain: "import",
+    partition_key: "import",
+    type: "import_control",
+    doc_created: true,
     status: "running",
     attempt: attempt + 1,
     last_invoked_at: nowIso(),
     lock_expires_at: thisLockExpiresAt,
     updated_at: nowIso(),
-  }).catch(() => null);
+  }).catch(() => ({ ok: false }));
+
+  const resume_control_doc_upsert_ok = Boolean(resumeControlUpsert && resumeControlUpsert.ok);
+  if (resume_control_doc_upsert_ok && resumeDoc && typeof resumeDoc === "object") {
+    resumeDoc.doc_created = true;
+  }
 
   let seedDocs = await fetchSeedCompanies(container, sessionId, batchLimit).catch(() => []);
 
@@ -499,25 +596,28 @@ async function resumeWorkerHandler(req, context) {
       (f) => f === "industries" || f === "headquarters_location" || f === "manufacturing_locations" || f === "reviews"
     );
 
-  // Deterministic "force run stages" pass for single-company URL imports.
-  // If the doc is missing core fields, run primary -> keywords -> reviews -> location in order.
-  const stagePlan = forceStages ? ["primary", "keywords", "reviews", "location"] : [null];
+  // Resume behavior: call /api/import/start once, skipping only what is already satisfied.
+  const missingUnion = new Set();
+  for (const doc of seedDocs) {
+    for (const field of computeMissingFields(doc)) missingUnion.add(field);
+  }
+
+  const needsKeywords = missingUnion.has("industries") || missingUnion.has("product_keywords");
+  const needsReviews = missingUnion.has("reviews");
+  const needsLocation = missingUnion.has("headquarters_location") || missingUnion.has("manufacturing_locations");
+
+  const skipStages = new Set(["primary", "expand"]);
+  if (!needsKeywords) skipStages.add("keywords");
+  if (!needsReviews) skipStages.add("reviews");
+  if (!needsLocation) skipStages.add("location");
 
   const base = new URL(req.url);
-  const startUrlBase = new URL("/api/import-start", base.origin);
+  const startUrlBase = new URL("/api/import/start", base.origin);
   startUrlBase.searchParams.set("resume_worker", "1");
   startUrlBase.searchParams.set("deadline_ms", String(deadlineMs));
-
-  const buildStartUrlForIteration = (iterationIndex) => {
-    const u = new URL(startUrlBase);
-    const stage = stagePlan[iterationIndex] || null;
-    if (stage) u.searchParams.set("max_stage", stage);
-
-    const skip = stagePlan.slice(0, iterationIndex).filter(Boolean);
-    if (skip.length > 0) u.searchParams.set("skip_stages", skip.join(","));
-
-    return u;
-  };
+  if (skipStages.size > 0) {
+    startUrlBase.searchParams.set("skip_stages", Array.from(skipStages).join(","));
+  }
 
   // IMPORTANT: We invoke import-start directly in-process to avoid an internal HTTP round-trip.
   const startRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
@@ -543,7 +643,7 @@ async function resumeWorkerHandler(req, context) {
   };
 
   const startTime = Date.now();
-  const maxIterations = stagePlan.length;
+  const maxIterations = 1;
 
   let iteration = 0;
   let lastStartRes = null;
@@ -551,6 +651,11 @@ async function resumeWorkerHandler(req, context) {
   let lastStartJson = null;
   let lastStartHttpStatus = 0;
   let lastStartOk = false;
+
+  let lastImportStartRequestPayload = null;
+  let lastImportStartRequestUrl = null;
+  let lastImportStartResponse = null;
+  let last_error_details = null;
 
   let missing_by_company = [];
 
@@ -589,7 +694,10 @@ async function resumeWorkerHandler(req, context) {
       companies,
     };
 
-    const urlForThisPass = buildStartUrlForIteration(iteration);
+    const urlForThisPass = startUrlBase;
+
+    lastImportStartRequestPayload = startBody;
+    lastImportStartRequestUrl = String(urlForThisPass);
 
     try {
       lastStartRes = await invokeImportStartDirect(startBody, urlForThisPass);
@@ -610,6 +718,20 @@ async function resumeWorkerHandler(req, context) {
 
     lastStartHttpStatus = Number(lastStartJson?.http_status || lastStartRes?.status || 0) || 0;
     lastStartOk = Boolean(lastStartJson) ? lastStartJson.ok !== false : false;
+
+    lastImportStartResponse = lastStartJson || (lastStartText ? { text: lastStartText.slice(0, 8000) } : null);
+
+    if (!lastStartOk || lastStartHttpStatus >= 400) {
+      const msg =
+        typeof lastStartJson?.error_message === "string" && lastStartJson.error_message.trim()
+          ? lastStartJson.error_message.trim()
+          : typeof lastStartJson?.root_cause === "string" && lastStartJson.root_cause.trim()
+            ? lastStartJson.root_cause.trim()
+            : lastStartHttpStatus
+              ? `import_start_http_${lastStartHttpStatus}`
+              : "import_start_failed";
+      last_error_details = String(msg).slice(0, 240);
+    }
 
     // Re-load docs and re-check contract.
     const ids = companies.map((c) => String(c?.id || "").trim()).filter(Boolean).slice(0, 25);
@@ -642,6 +764,35 @@ async function resumeWorkerHandler(req, context) {
   }
 
   const updatedAt = nowIso();
+
+  const importStartRequestSummary = lastImportStartRequestPayload && typeof lastImportStartRequestPayload === "object"
+    ? {
+        session_id: lastImportStartRequestPayload.session_id,
+        query: lastImportStartRequestPayload.query,
+        queryTypes: Array.isArray(lastImportStartRequestPayload.queryTypes)
+          ? lastImportStartRequestPayload.queryTypes
+          : null,
+        limit: lastImportStartRequestPayload.limit,
+        expand_if_few: Boolean(lastImportStartRequestPayload.expand_if_few),
+        dry_run: Boolean(lastImportStartRequestPayload.dry_run),
+        companies_count: Array.isArray(lastImportStartRequestPayload.companies)
+          ? lastImportStartRequestPayload.companies.length
+          : 0,
+        company_ids: Array.isArray(lastImportStartRequestPayload.companies)
+          ? lastImportStartRequestPayload.companies
+              .map((c) => String(c?.id || c?.company_id || "").trim())
+              .filter(Boolean)
+              .slice(0, 25)
+          : [],
+      }
+    : null;
+
+  const importStartDebug = {
+    url: lastImportStartRequestUrl,
+    request: importStartRequestSummary,
+    response: lastImportStartResponse,
+    last_error_details,
+  };
 
   let exhausted = false;
 
@@ -734,7 +885,25 @@ async function resumeWorkerHandler(req, context) {
     }
   }
 
-  const resumeNeeded = exhausted ? false : missing_by_company.length > 0;
+  const docsById = new Map(
+    (Array.isArray(seedDocs) ? seedDocs : [])
+      .map((d) => [String(d?.id || "").trim(), d])
+      .filter((pair) => Boolean(pair[0]))
+  );
+
+  const terminalOnly =
+    missing_by_company.length > 0 &&
+    missing_by_company.every((entry) => {
+      const doc = docsById.get(String(entry?.company_id || "").trim());
+      if (!doc) return false;
+      const fields = Array.isArray(entry?.missing_fields) ? entry.missing_fields : [];
+      if (fields.length === 0) return false;
+      return fields.every((f) => isTerminalMissingField(doc, f));
+    });
+
+  const completion_beacon = terminalOnly ? "complete" : exhausted ? "enrichment_exhausted" : "enrichment_complete";
+
+  const resumeNeeded = exhausted ? false : terminalOnly ? false : missing_by_company.length > 0;
 
   await upsertDoc(container, {
     ...resumeDoc,
@@ -743,9 +912,11 @@ async function resumeWorkerHandler(req, context) {
     last_trigger_result: {
       ok: Boolean(lastStartOk),
       status: lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0),
-      stage_beacon: resumeNeeded ? lastStartJson?.stage_beacon || null : exhausted ? "enrichment_exhausted" : lastStartJson?.stage_beacon || null,
+      stage_beacon: resumeNeeded ? lastStartJson?.stage_beacon || null : completion_beacon,
       resume_needed: resumeNeeded,
       iterations: iteration + 1,
+      resume_control_doc_upsert_ok: resume_control_doc_upsert_ok,
+      ...(lastStartHttpStatus === 400 || !lastStartOk ? { import_start_debug: importStartDebug } : {}),
     },
     lock_expires_at: null,
     updated_at: updatedAt,
@@ -761,7 +932,7 @@ async function resumeWorkerHandler(req, context) {
         ? {}
         : {
             status: "complete",
-            stage_beacon: exhausted ? "enrichment_exhausted" : "enrichment_complete",
+            stage_beacon: completion_beacon,
             ...(exhausted ? { resume_exhausted: true } : {}),
             completed_at: updatedAt,
           }),
@@ -800,9 +971,18 @@ async function resumeWorkerHandler(req, context) {
       resume_worker_last_error: lastStartOk
         ? null
         : lastStartRes?._error?.message || `import_start_http_${lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0)}`,
+      resume_worker_last_error_details: last_error_details || null,
       resume_worker_last_stage_beacon: lastStartJson?.stage_beacon || null,
       resume_worker_last_resume_needed: resumeNeeded,
       resume_worker_last_company_id: companyIdFromResponse,
+      resume_worker_last_resume_doc_upsert_ok: resume_control_doc_upsert_ok,
+      ...(lastStartHttpStatus === 400
+        ? {
+            resume_worker_last_import_start_url: lastImportStartRequestUrl,
+            resume_worker_last_import_start_request: importStartRequestSummary,
+            resume_worker_last_import_start_response: lastImportStartResponse,
+          }
+        : {}),
       updated_at: updatedAt,
     }).catch(() => null);
   }

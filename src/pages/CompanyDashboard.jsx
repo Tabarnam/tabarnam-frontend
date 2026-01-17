@@ -5096,35 +5096,27 @@ export default function CompanyDashboard() {
 
           if (tags.length === 0) return <span className="text-xs text-emerald-700">OK</span>;
 
-          const shown = tags.slice(0, 3);
-          const more = tags.length - shown.length;
-
           return (
-            <div className="flex flex-wrap gap-1">
-              {shown.map((t) => {
+            <div className="flex flex-wrap gap-[6px]">
+              {tags.map((t, idx) => {
                 const label = contractMissing !== null ? formatContractMissingField(t) : t;
+                const key = `${t}-${idx}`;
+
+                const stageRaw =
+                  asString(row?.enrichment_health?.reviews_stage_status || row?.reviews_stage_status).trim().toLowerCase();
+                const reviewsTerminal = Boolean(row?.enrichment_health?.reviews_terminal) || stageRaw === "exhausted";
+                const titleSuffix = t === "reviews" && reviewsTerminal ? " (exhausted)" : "";
+
                 return (
                   <span
-                    key={t}
-                    title={contractMissing !== null ? `Missing: ${t}` : t}
+                    key={key}
+                    title={contractMissing !== null ? `Missing: ${t}${titleSuffix}` : t}
                     className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] text-amber-900"
                   >
                     {label}
                   </span>
                 );
               })}
-              {more > 0 ? (
-                <span
-                  title={
-                    contractMissing !== null
-                      ? `Missing: ${tags.map((t) => formatContractMissingField(t)).join(", ")}`
-                      : tags.join(", ")
-                  }
-                  className="rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-[11px] text-slate-700"
-                >
-                  +{more}
-                </span>
-              ) : null}
             </div>
           );
         },

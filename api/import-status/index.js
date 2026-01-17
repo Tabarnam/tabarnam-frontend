@@ -1288,7 +1288,12 @@ async function handler(req, context) {
               ? "primary_search_started"
               : "primary_search_started";
 
-    const effectiveStageBeacon = resume_needed ? "enrichment_resume_pending" : stageBeaconFromPrimary;
+    const sessionStageBeacon =
+      typeof report?.session?.stage_beacon === "string" && report.session.stage_beacon.trim()
+        ? report.session.stage_beacon.trim()
+        : "";
+
+    const effectiveStageBeacon = resume_needed ? "enrichment_resume_pending" : sessionStageBeacon || stageBeaconFromPrimary;
 
     stageBeaconValues.status_enrichment_health_summary = nowIso();
     stageBeaconValues.status_enrichment_incomplete = enrichment_health_summary.incomplete;
@@ -1366,7 +1371,7 @@ async function handler(req, context) {
         resume: {
           needed: resume_needed,
           status: resume_status || null,
-          doc_created: resume_doc_created,
+          doc_created: Boolean(report?.resume) || resume_doc_created,
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
@@ -2282,7 +2287,7 @@ async function handler(req, context) {
           resume: {
           needed: resume_needed,
           status: resume_status || null,
-            doc_created: resume_doc_created,
+            doc_created: Boolean(report?.resume) || resume_doc_created,
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
@@ -2507,7 +2512,7 @@ async function handler(req, context) {
           resume: {
           needed: resume_needed,
           status: resume_status || null,
-            doc_created: resume_doc_created,
+            doc_created: Boolean(report?.resume) || resume_doc_created,
             triggered: resume_triggered,
             trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,
@@ -2596,7 +2601,7 @@ async function handler(req, context) {
         resume: {
           needed: resume_needed,
           status: resume_status || null,
-          doc_created: resume_doc_created,
+          doc_created: Boolean(report?.resume) || resume_doc_created,
           triggered: resume_triggered,
           trigger_error: resume_trigger_error,
           trigger_error_details: resume_trigger_error_details,

@@ -3427,28 +3427,84 @@ async function saveCompaniesToCosmos({
 
               // headquarters_location (required)
               if (!isRealValue("headquarters_location", doc.headquarters_location, doc)) {
-                doc.headquarters_location = "Unknown";
+                const hqReasonRaw = String(doc.hq_unknown_reason || "unknown").trim().toLowerCase();
+                const hqValueRaw = String(doc.headquarters_location || "").trim().toLowerCase();
+                const hqNotDisclosed =
+                  hqReasonRaw === "not_disclosed" || hqValueRaw === "not disclosed" || hqValueRaw === "not_disclosed";
+
                 doc.hq_unknown = true;
-                doc.hq_unknown_reason = String(doc.hq_unknown_reason || "unknown");
-                ensureMissing(
-                  "headquarters_location",
-                  doc.hq_unknown_reason,
-                  "extract_hq",
-                  "headquarters_location missing; set to placeholder 'Unknown'"
-                );
+
+                if (hqNotDisclosed) {
+                  doc.headquarters_location = "Not disclosed";
+                  doc.hq_unknown_reason = "not_disclosed";
+                  ensureMissing(
+                    "headquarters_location",
+                    "not_disclosed",
+                    "extract_hq",
+                    "headquarters_location missing; recorded as terminal sentinel 'Not disclosed'"
+                  );
+                } else {
+                  doc.headquarters_location = "Unknown";
+                  doc.hq_unknown_reason = hqReasonRaw || "unknown";
+                  ensureMissing(
+                    "headquarters_location",
+                    doc.hq_unknown_reason,
+                    "extract_hq",
+                    "headquarters_location missing; set to placeholder 'Unknown'"
+                  );
+                }
               }
 
               // manufacturing_locations (required)
               if (!isRealValue("manufacturing_locations", doc.manufacturing_locations, doc)) {
-                doc.manufacturing_locations = ["Unknown"];
+                const mfgReasonRaw = String(doc.mfg_unknown_reason || doc.manufacturing_locations_reason || "unknown")
+                  .trim()
+                  .toLowerCase();
+
+                const listRaw = Array.isArray(doc.manufacturing_locations)
+                  ? doc.manufacturing_locations
+                  : doc.manufacturing_locations == null
+                    ? []
+                    : [doc.manufacturing_locations];
+
+                const normalized = listRaw
+                  .map((loc) => {
+                    if (typeof loc === "string") return String(loc).trim().toLowerCase();
+                    if (loc && typeof loc === "object") {
+                      return String(loc.formatted || loc.full_address || loc.address || loc.location || "")
+                        .trim()
+                        .toLowerCase();
+                    }
+                    return "";
+                  })
+                  .filter(Boolean);
+
+                const mfgNotDisclosed =
+                  mfgReasonRaw === "not_disclosed" ||
+                  (normalized.length > 0 && normalized.every((v) => v === "not disclosed" || v === "not_disclosed"));
+
                 doc.mfg_unknown = true;
-                doc.mfg_unknown_reason = String(doc.mfg_unknown_reason || "unknown");
-                ensureMissing(
-                  "manufacturing_locations",
-                  doc.mfg_unknown_reason,
-                  "extract_mfg",
-                  "manufacturing_locations missing; set to placeholder ['Unknown']"
-                );
+
+                if (mfgNotDisclosed) {
+                  doc.manufacturing_locations = ["Not disclosed"];
+                  doc.manufacturing_locations_reason = "not_disclosed";
+                  doc.mfg_unknown_reason = "not_disclosed";
+                  ensureMissing(
+                    "manufacturing_locations",
+                    "not_disclosed",
+                    "extract_mfg",
+                    "manufacturing_locations missing; recorded as terminal sentinel ['Not disclosed']"
+                  );
+                } else {
+                  doc.manufacturing_locations = ["Unknown"];
+                  doc.mfg_unknown_reason = mfgReasonRaw || "unknown";
+                  ensureMissing(
+                    "manufacturing_locations",
+                    doc.mfg_unknown_reason,
+                    "extract_mfg",
+                    "manufacturing_locations missing; set to placeholder ['Unknown']"
+                  );
+                }
               }
 
               // reviews (required fields can be empty, but must be explicitly set)
@@ -8684,20 +8740,23 @@ Return ONLY the JSON array, no other text.`,
               const hqMeaningful = asMeaningfulString(c?.headquarters_location);
               const hasMfg = isRealValue("manufacturing_locations", c?.manufacturing_locations, c);
 
-              if (!hqMeaningful && !c?.hq_unknown) {
+              if (!hqMeaningful) {
+                // Terminal sentinel: we have attempted location enrichment and still found no HQ.
                 const existingDebug = c?.enrichment_debug && typeof c.enrichment_debug === "object" ? c.enrichment_debug : {};
                 const sources = Array.isArray(c?.location_sources) ? c.location_sources.slice(0, 10) : [];
 
                 enriched[i] = {
                   ...c,
+                  headquarters_location: "Not disclosed",
                   hq_unknown: true,
-                  hq_unknown_reason: String(c?.hq_unknown_reason || "not_found_after_location_enrichment"),
-                  red_flag_reason: String(c?.red_flag_reason || "HQ not found after location enrichment").trim(),
+                  hq_unknown_reason: "not_disclosed",
+                  red_flag: true,
+                  red_flag_reason: String(c?.red_flag_reason || "Headquarters not disclosed").trim(),
                   enrichment_debug: {
                     ...existingDebug,
                     location: {
                       at: new Date().toISOString(),
-                      outcome: "not_found",
+                      outcome: "not_disclosed",
                       missing_hq: true,
                       missing_mfg: !hasMfg,
                       location_sources_count: Array.isArray(c?.location_sources) ? c.location_sources.length : 0,
