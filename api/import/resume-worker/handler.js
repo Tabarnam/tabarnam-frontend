@@ -711,6 +711,35 @@ async function resumeWorkerHandler(req, context) {
 
   const updatedAt = nowIso();
 
+  const importStartRequestSummary = lastImportStartRequestPayload && typeof lastImportStartRequestPayload === "object"
+    ? {
+        session_id: lastImportStartRequestPayload.session_id,
+        query: lastImportStartRequestPayload.query,
+        queryTypes: Array.isArray(lastImportStartRequestPayload.queryTypes)
+          ? lastImportStartRequestPayload.queryTypes
+          : null,
+        limit: lastImportStartRequestPayload.limit,
+        expand_if_few: Boolean(lastImportStartRequestPayload.expand_if_few),
+        dry_run: Boolean(lastImportStartRequestPayload.dry_run),
+        companies_count: Array.isArray(lastImportStartRequestPayload.companies)
+          ? lastImportStartRequestPayload.companies.length
+          : 0,
+        company_ids: Array.isArray(lastImportStartRequestPayload.companies)
+          ? lastImportStartRequestPayload.companies
+              .map((c) => String(c?.id || c?.company_id || "").trim())
+              .filter(Boolean)
+              .slice(0, 25)
+          : [],
+      }
+    : null;
+
+  const importStartDebug = {
+    url: lastImportStartRequestUrl,
+    request: importStartRequestSummary,
+    response: lastImportStartResponse,
+    last_error_details,
+  };
+
   let exhausted = false;
 
   // Terminal behavior: after a full forced pass for a single-company import,
