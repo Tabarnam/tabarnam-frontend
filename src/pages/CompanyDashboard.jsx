@@ -5101,10 +5101,16 @@ export default function CompanyDashboard() {
               {tags.map((t, idx) => {
                 const label = contractMissing !== null ? formatContractMissingField(t) : t;
                 const key = `${t}-${idx}`;
+
+                const stageRaw =
+                  asString(row?.enrichment_health?.reviews_stage_status || row?.reviews_stage_status).trim().toLowerCase();
+                const reviewsTerminal = Boolean(row?.enrichment_health?.reviews_terminal) || stageRaw === "exhausted";
+                const titleSuffix = t === "reviews" && reviewsTerminal ? " (exhausted)" : "";
+
                 return (
                   <span
                     key={key}
-                    title={contractMissing !== null ? `Missing: ${t}` : t}
+                    title={contractMissing !== null ? `Missing: ${t}${titleSuffix}` : t}
                     className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] text-amber-900"
                   >
                     {label}
