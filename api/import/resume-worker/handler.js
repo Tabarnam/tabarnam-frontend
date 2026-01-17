@@ -542,25 +542,28 @@ async function resumeWorkerHandler(req, context) {
       (f) => f === "industries" || f === "headquarters_location" || f === "manufacturing_locations" || f === "reviews"
     );
 
-  // Deterministic "force run stages" pass for single-company URL imports.
-  // If the doc is missing core fields, run primary -> keywords -> reviews -> location in order.
-  const stagePlan = forceStages ? ["primary", "keywords", "reviews", "location"] : [null];
+  // Resume behavior: call /api/import/start once, skipping only what is already satisfied.
+  const missingUnion = new Set();
+  for (const doc of seedDocs) {
+    for (const field of computeMissingFields(doc)) missingUnion.add(field);
+  }
+
+  const needsKeywords = missingUnion.has("industries") || missingUnion.has("product_keywords");
+  const needsReviews = missingUnion.has("reviews");
+  const needsLocation = missingUnion.has("headquarters_location") || missingUnion.has("manufacturing_locations");
+
+  const skipStages = new Set(["primary", "expand"]);
+  if (!needsKeywords) skipStages.add("keywords");
+  if (!needsReviews) skipStages.add("reviews");
+  if (!needsLocation) skipStages.add("location");
 
   const base = new URL(req.url);
-  const startUrlBase = new URL("/api/import-start", base.origin);
+  const startUrlBase = new URL("/api/import/start", base.origin);
   startUrlBase.searchParams.set("resume_worker", "1");
   startUrlBase.searchParams.set("deadline_ms", String(deadlineMs));
-
-  const buildStartUrlForIteration = (iterationIndex) => {
-    const u = new URL(startUrlBase);
-    const stage = stagePlan[iterationIndex] || null;
-    if (stage) u.searchParams.set("max_stage", stage);
-
-    const skip = stagePlan.slice(0, iterationIndex).filter(Boolean);
-    if (skip.length > 0) u.searchParams.set("skip_stages", skip.join(","));
-
-    return u;
-  };
+  if (skipStages.size > 0) {
+    startUrlBase.searchParams.set("skip_stages", Array.from(skipStages).join(","));
+  }
 
   // IMPORTANT: We invoke import-start directly in-process to avoid an internal HTTP round-trip.
   const startRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
