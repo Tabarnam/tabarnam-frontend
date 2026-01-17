@@ -3426,8 +3426,7 @@ async function saveCompaniesToCosmos({
               }
 
               // headquarters_location (required)
-              const hqMeaningful = asMeaningful(doc.headquarters_location);
-              if (!hqMeaningful) {
+              if (!isRealValue("headquarters_location", doc.headquarters_location, doc)) {
                 doc.headquarters_location = "Unknown";
                 doc.hq_unknown = true;
                 doc.hq_unknown_reason = String(doc.hq_unknown_reason || "unknown");
@@ -3440,16 +3439,7 @@ async function saveCompaniesToCosmos({
               }
 
               // manufacturing_locations (required)
-              const mfgList = Array.isArray(doc.manufacturing_locations) ? doc.manufacturing_locations : [];
-              const mfgMeaningful = mfgList.some((m) => {
-                if (typeof m === "string") return Boolean(asMeaningful(m));
-                if (m && typeof m === "object") {
-                  return Boolean(asMeaningful(m.formatted || m.address || m.location || m.full_address));
-                }
-                return false;
-              });
-
-              if (!mfgMeaningful) {
+              if (!isRealValue("manufacturing_locations", doc.manufacturing_locations, doc)) {
                 doc.manufacturing_locations = ["Unknown"];
                 doc.mfg_unknown = true;
                 doc.mfg_unknown_reason = String(doc.mfg_unknown_reason || "unknown");
@@ -8848,7 +8838,7 @@ Return ONLY the JSON array, no other text.`,
                 }
 
                 // headquarters
-                if (!asMeaningfulString(base.headquarters_location)) {
+                if (!isRealValue("headquarters_location", base.headquarters_location, base)) {
                   base.headquarters_location = "Unknown";
                   base.hq_unknown = true;
                   base.hq_unknown_reason = String(base.hq_unknown_reason || "unknown");
