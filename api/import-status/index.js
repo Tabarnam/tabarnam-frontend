@@ -1199,14 +1199,12 @@ async function handler(req, context) {
             type: "import_control",
             created_at: now,
             updated_at: now,
-            status: resumeMissingInternalSecret ? "stalled" : "queued",
-            ...(resumeMissingInternalSecret
+            status: resumeStalledByGatewayAuth ? "stalled" : "queued",
+            resume_auth: buildResumeAuthDiagnostics(),
+            ...(resumeStalledByGatewayAuth
               ? {
                   stalled_at: now,
-                  last_error: {
-                    code: "resume_worker_gateway_401_missing_internal_secret",
-                    message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
-                  },
+                  last_error: buildResumeStallError(),
                 }
               : {}),
             missing_by_company,
@@ -2094,14 +2092,12 @@ async function handler(req, context) {
             type: "import_control",
             created_at: now,
             updated_at: now,
-            status: resumeMissingInternalSecret ? "stalled" : "queued",
-            ...(resumeMissingInternalSecret
+            status: resumeStalledByGatewayAuth ? "stalled" : "queued",
+            resume_auth: buildResumeAuthDiagnostics(),
+            ...(resumeStalledByGatewayAuth
               ? {
                   stalled_at: now,
-                  last_error: {
-                    code: "resume_worker_gateway_401_missing_internal_secret",
-                    message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
-                  },
+                  last_error: buildResumeStallError(),
                 }
               : {}),
             missing_by_company,
