@@ -346,8 +346,7 @@ async function fillCompanyBaselineFromWebsite(company, { timeoutMs = 6000, extra
 
   const nameCandidate = cleanNameCandidate(ogSiteName || ogTitle || title);
 
-  // If the "name" candidate looks like a sentence, treat it as tagline fallback.
-  const taglineFallbackFromTitle = truncate(nameCandidate ? "" : cleanNameCandidate("") , 180);
+  // If og:description/meta description are missing, fall back to og:title/title for tagline.
   const taglineCandidate = truncate(ogDescription || metaDescription || "", 180) || truncate(ogTitle || title || "", 180);
 
   const patch = { ...base };
