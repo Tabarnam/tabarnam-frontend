@@ -44,6 +44,9 @@ function looksLikeHqLocationString(value) {
   const s = asMeaningfulString(value);
   if (!s) return false;
 
+  // Treat explicit sentinels like "Not disclosed" as missing for HQ.
+  if (SENTINEL_STRINGS.has(normalizeKey(s))) return false;
+
   // Basic minimum: looks like "City, State/Country".
   // (We intentionally keep this simple + deterministic.)
   const parts = s
@@ -80,6 +83,46 @@ function hasMeaningfulLocationEntry(list) {
         asMeaningfulString(loc.location);
 
       if (candidate) return true;
+    }
+  }
+  return false;
+}
+
+function isSentinelString(value) {
+  const key = normalizeKey(value);
+  return Boolean(key && SENTINEL_STRINGS.has(key));
+}
+
+function isTrueish(value) {
+  if (value === true) return true;
+  if (value === false) return false;
+  const s = asString(value).trim().toLowerCase();
+  return s === "true" || s === "1" || s === "yes" || s === "y";
+}
+
+function hasNonPlaceholderLocationEntry(list) {
+  const arr = Array.isArray(list) ? list : [];
+  for (const loc of arr) {
+    if (typeof loc === "string") {
+      const key = normalizeKey(loc);
+      if (!key) continue;
+      if (PLACEHOLDER_STRINGS.has(key)) continue;
+      if (SENTINEL_STRINGS.has(key)) continue;
+      return true;
+    }
+
+    if (loc && typeof loc === "object") {
+      const raw =
+        asString(loc.formatted).trim() ||
+        asString(loc.full_address).trim() ||
+        asString(loc.address).trim() ||
+        asString(loc.location).trim();
+
+      const key = normalizeKey(raw);
+      if (!key) continue;
+      if (PLACEHOLDER_STRINGS.has(key)) continue;
+      if (SENTINEL_STRINGS.has(key)) continue;
+      return true;
     }
   }
   return false;
@@ -138,8 +181,13 @@ function isRealValue(field, value, doc) {
   }
 
   if (f === "headquarters_location" || f === "hq") {
+    if (isTrueish(doc?.hq_unknown)) return false;
+
     if (value && typeof value === "object" && !Array.isArray(value)) {
-      const formatted = asMeaningfulString(value.formatted || value.full_address || value.address || value.location);
+      const formattedRaw = asString(value.formatted || value.full_address || value.address || value.location).trim();
+      if (isSentinelString(formattedRaw)) return false;
+
+      const formatted = asMeaningfulString(formattedRaw);
       if (formatted && looksLikeHqLocationString(formatted)) return true;
 
       const city = asMeaningfulString(value.city || value.locality);
@@ -148,12 +196,13 @@ function isRealValue(field, value, doc) {
       return Boolean(city && (region || country));
     }
 
+    if (isSentinelString(value)) return false;
     return looksLikeHqLocationString(value);
   }
 
   if (f === "manufacturing_locations" || f === "mfg") {
-    if (isAcceptableSentinel(f, value, doc)) return true;
-    return hasMeaningfulLocationEntry(value);
+    if (isTrueish(doc?.mfg_unknown)) return false;
+    return hasNonPlaceholderLocationEntry(value);
   }
 
   if (f === "logo") {
@@ -174,22 +223,12 @@ function isRealValue(field, value, doc) {
     const curated = Array.isArray(doc?.curated_reviews)
       ? doc.curated_reviews.filter((r) => r && typeof r === "object")
       : [];
-    if (curated.length > 0) return true;
 
     const reviewCount = Number.isFinite(Number(doc?.review_count)) ? Number(doc.review_count) : 0;
-    const status = normalizeKey(doc?.reviews_stage_status || doc?.review_cursor?.reviews_stage_status);
 
-    // Count-only is only acceptable once the stage is actually complete.
-    if (reviewCount > 0 && status === "ok") return true;
-
-    // Explicit terminal states: no reviews exist / exhausted.
-    // These clear missing_fields while still allowing has_reviews=false.
-    const exhausted = Boolean(doc?.review_cursor?.exhausted);
-    if (status === "no_valid_reviews_found" || status === "exhausted" || status === "no_reviews_found") {
-      return exhausted || status !== "no_reviews_found";
-    }
-
-    return false;
+    // Data completeness (separate from retry/terminal state): we only treat reviews as present
+    // when we actually have review data.
+    return curated.length > 0 || reviewCount > 0;
   }
 
   // default scalar/string check
@@ -229,11 +268,12 @@ function computeEnrichmentHealth(company) {
   ).trim();
 
   const curated = Array.isArray(c.curated_reviews) ? c.curated_reviews.filter((r) => r && typeof r === "object") : [];
-  const reviewCount = Number.isFinite(Number(c.review_count)) ? Number(c.review_count) : curated.length;
+  const reviewCount = Number.isFinite(Number(c.review_count)) ? Number(c.review_count) : 0;
   const reviewsStageNormalized = normalizeKey(reviewsStageRaw);
 
-  const hasReviewsActual = curated.length > 0 || (reviewCount > 0 && reviewsStageNormalized === "ok");
-  const reviewsSatisfied = isRealValue("reviews", c.curated_reviews, c);
+  const reviews_terminal = reviewsStageNormalized === "exhausted";
+  const has_reviews_data = curated.length > 0 || reviewCount > 0;
+  const reviewsSatisfied = has_reviews_data;
 
   return {
     has_industries: isRealValue("industries", c.industries, c),
@@ -242,7 +282,9 @@ function computeEnrichmentHealth(company) {
     has_hq: isRealValue("headquarters_location", c.headquarters_location, c),
     has_mfg: isRealValue("manufacturing_locations", c.manufacturing_locations, c),
     has_logo: isRealValue("logo", c.logo_url, c),
-    has_reviews: hasReviewsActual,
+    has_reviews: has_reviews_data,
+    has_reviews_data,
+    reviews_terminal,
     reviews_satisfied: reviewsSatisfied,
     has_reviews_field: hasReviewsField,
     reviews_stage_status: reviewsStageRaw || null,
