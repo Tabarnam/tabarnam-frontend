@@ -16,6 +16,7 @@ const {
 } = require("../../_internalJobAuth");
 
 const { getBuildInfo } = require("../../_buildInfo");
+const { computeMissingFields } = require("../../_requiredFields");
 
 const HANDLER_ID = "import-resume-worker";
 
@@ -407,12 +408,10 @@ async function resumeWorkerHandler(req, context) {
     }
   }
 
-  // Idempotency: only attempt resume on company docs that still report missing required fields.
-  // This prevents repeated resume invocations from rewriting already-complete docs.
+  // Idempotency: only attempt resume on company docs that still violate the required-fields contract.
+  // Placeholders like "Unknown" do NOT count as present.
   if (seedDocs.length > 0) {
-    const withMissing = seedDocs.filter(
-      (d) => Array.isArray(d?.import_missing_fields) && d.import_missing_fields.length > 0
-    );
+    const withMissing = seedDocs.filter((d) => computeMissingFields(d).length > 0);
 
     if (withMissing.length > 0) {
       seedDocs = withMissing;
@@ -422,6 +421,7 @@ async function resumeWorkerHandler(req, context) {
       await upsertDoc(container, {
         ...resumeDoc,
         status: "complete",
+        missing_by_company: [],
         last_trigger_result: {
           ok: true,
           status: 200,
@@ -456,88 +456,52 @@ async function resumeWorkerHandler(req, context) {
     }
   }
 
-  const companies = seedDocs
-    .map((d) => {
-      const company_name = String(d?.company_name || d?.name || "").trim();
-      const website_url = String(d?.website_url || d?.url || "").trim();
-      const normalized_domain = String(d?.normalized_domain || "").trim();
-      if (!company_name && !website_url) return null;
+  const buildSeedCompanyPayload = (d) => {
+    const company_name = String(d?.company_name || d?.name || "").trim();
+    const website_url = String(d?.website_url || d?.url || "").trim();
+    const normalized_domain = String(d?.normalized_domain || "").trim();
+    if (!company_name && !website_url) return null;
 
-      return {
-        id: d.id,
-        company_name,
-        website_url,
-        url: String(d?.url || website_url).trim(),
-        normalized_domain,
-        industries: Array.isArray(d?.industries) ? d.industries : [],
-        product_keywords: typeof d?.product_keywords === "string" ? d.product_keywords : "",
-        keywords: Array.isArray(d?.keywords) ? d.keywords : [],
-        headquarters_location: typeof d?.headquarters_location === "string" ? d.headquarters_location : "",
-        manufacturing_locations: Array.isArray(d?.manufacturing_locations) ? d.manufacturing_locations : [],
-        curated_reviews: Array.isArray(d?.curated_reviews) ? d.curated_reviews : [],
-        review_count: typeof d?.review_count === "number" ? d.review_count : 0,
-        review_cursor: d?.review_cursor && typeof d.review_cursor === "object" ? d.review_cursor : undefined,
-        red_flag: Boolean(d?.red_flag),
-        red_flag_reason: String(d?.red_flag_reason || "").trim(),
-        hq_unknown: Boolean(d?.hq_unknown),
-        hq_unknown_reason: String(d?.hq_unknown_reason || "").trim(),
-        mfg_unknown: Boolean(d?.mfg_unknown),
-        mfg_unknown_reason: String(d?.mfg_unknown_reason || "").trim(),
-        source: String(d?.source || "").trim(),
-        source_stage: String(d?.source_stage || "").trim(),
-        seed_ready: Boolean(d?.seed_ready),
-        primary_candidate: Boolean(d?.primary_candidate),
-        seed: Boolean(d?.seed),
-      };
-    })
-    .filter(Boolean);
-
-  if (companies.length === 0) {
-    await upsertDoc(container, {
-      ...resumeDoc,
-      status: "error",
-      last_error: { code: "missing_seed_companies", message: "No saved company docs found for session" },
-      lock_expires_at: null,
-      updated_at: nowIso(),
-    }).catch(() => null);
-
-    return json(
-      {
-        ok: false,
-        session_id: sessionId,
-        root_cause: "missing_seed_companies",
-        retryable: true,
-      },
-      200,
-      req
-    );
-  }
+    return {
+      id: d.id,
+      company_name,
+      website_url,
+      url: String(d?.url || website_url).trim(),
+      normalized_domain,
+      industries: Array.isArray(d?.industries) ? d.industries : [],
+      product_keywords: typeof d?.product_keywords === "string" ? d.product_keywords : "",
+      keywords: Array.isArray(d?.keywords) ? d.keywords : [],
+      headquarters_location: typeof d?.headquarters_location === "string" ? d.headquarters_location : d?.headquarters_location || "",
+      manufacturing_locations: Array.isArray(d?.manufacturing_locations) ? d.manufacturing_locations : [],
+      curated_reviews: Array.isArray(d?.curated_reviews) ? d.curated_reviews : [],
+      review_count: typeof d?.review_count === "number" ? d.review_count : 0,
+      review_cursor: d?.review_cursor && typeof d.review_cursor === "object" ? d.review_cursor : undefined,
+      red_flag: Boolean(d?.red_flag),
+      red_flag_reason: String(d?.red_flag_reason || "").trim(),
+      hq_unknown: Boolean(d?.hq_unknown),
+      hq_unknown_reason: String(d?.hq_unknown_reason || "").trim(),
+      mfg_unknown: Boolean(d?.mfg_unknown),
+      mfg_unknown_reason: String(d?.mfg_unknown_reason || "").trim(),
+      source: String(d?.source || "").trim(),
+      source_stage: String(d?.source_stage || "").trim(),
+      seed_ready: Boolean(d?.seed_ready),
+      primary_candidate: Boolean(d?.primary_candidate),
+      seed: Boolean(d?.seed),
+    };
+  };
 
   const request = sessionDoc?.request && typeof sessionDoc.request === "object" ? sessionDoc.request : {};
-
-  const startBody = {
-    session_id: sessionId,
-    query: String(request?.query || "resume").trim() || "resume",
-    queryTypes: Array.isArray(request?.queryTypes) ? request.queryTypes : [String(request?.queryType || "product_keyword")],
-    location: typeof request?.location === "string" && request.location.trim() ? request.location.trim() : undefined,
-    limit: Number.isFinite(Number(request?.limit)) ? Number(request.limit) : Math.min(batchLimit, companies.length),
-    expand_if_few: true,
-    dry_run: false,
-    companies,
-  };
 
   const base = new URL(req.url);
   const startUrl = new URL("/api/import-start", base.origin);
   startUrl.searchParams.set("skip_stages", "primary");
-  startUrl.searchParams.set("max_stage", "expand");
   startUrl.searchParams.set("resume_worker", "1");
   startUrl.searchParams.set("deadline_ms", String(deadlineMs));
 
   // IMPORTANT: We invoke import-start directly in-process to avoid an internal HTTP round-trip.
-  // This removes reliance on SWA gateway host key behavior for resume-worker -> import-start.
   const startRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
 
-  const invokeImportStartDirect = async () => {
+  const invokeImportStartDirect = async (startBody) => {
     const { handler: importStartHandler } = require("../../import-start/index.js");
 
     const hdrs = new Headers();
@@ -546,7 +510,6 @@ async function resumeWorkerHandler(req, context) {
       hdrs.set(k, String(v));
     }
 
-    // Minimal Request-like object expected by import-start.
     const internalReq = {
       method: "POST",
       url: startUrl.toString(),
@@ -558,61 +521,156 @@ async function resumeWorkerHandler(req, context) {
     return await importStartHandler(internalReq, context);
   };
 
-  let startRes = null;
-  let startText = "";
-  let startJson = null;
+  const startTime = Date.now();
+  const maxIterations = seedDocs.length === 1 ? 4 : 1;
 
-  try {
-    startRes = await invokeImportStartDirect();
-    if (startRes?.body && typeof startRes.body === "string") startText = startRes.body;
-    else if (startRes?.body && typeof startRes.body === "object") startText = JSON.stringify(startRes.body);
-    else startText = "";
+  let iteration = 0;
+  let lastStartRes = null;
+  let lastStartText = "";
+  let lastStartJson = null;
+  let lastStartHttpStatus = 0;
+  let lastStartOk = false;
+
+  let missing_by_company = [];
+
+  while (iteration < maxIterations) {
+    const companies = seedDocs.map(buildSeedCompanyPayload).filter(Boolean);
+
+    if (companies.length === 0) {
+      await upsertDoc(container, {
+        ...resumeDoc,
+        status: "error",
+        last_error: { code: "missing_seed_companies", message: "No saved company docs found for session" },
+        lock_expires_at: null,
+        updated_at: nowIso(),
+      }).catch(() => null);
+
+      return json(
+        {
+          ok: false,
+          session_id: sessionId,
+          root_cause: "missing_seed_companies",
+          retryable: true,
+        },
+        200,
+        req
+      );
+    }
+
+    const startBody = {
+      session_id: sessionId,
+      query: String(request?.query || "resume").trim() || "resume",
+      queryTypes: Array.isArray(request?.queryTypes) ? request.queryTypes : [String(request?.queryType || "product_keyword")],
+      location: typeof request?.location === "string" && request.location.trim() ? request.location.trim() : undefined,
+      limit: Number.isFinite(Number(request?.limit)) ? Number(request.limit) : Math.min(batchLimit, companies.length),
+      expand_if_few: true,
+      dry_run: false,
+      companies,
+    };
 
     try {
-      startJson = startText ? JSON.parse(startText) : null;
-    } catch {
-      startJson = null;
+      lastStartRes = await invokeImportStartDirect(startBody);
+      if (lastStartRes?.body && typeof lastStartRes.body === "string") lastStartText = lastStartRes.body;
+      else if (lastStartRes?.body && typeof lastStartRes.body === "object") lastStartText = JSON.stringify(lastStartRes.body);
+      else lastStartText = "";
+
+      try {
+        lastStartJson = lastStartText ? JSON.parse(lastStartText) : null;
+      } catch {
+        lastStartJson = null;
+      }
+    } catch (e) {
+      lastStartRes = { ok: false, status: 0, _error: e };
+      lastStartText = "";
+      lastStartJson = null;
     }
-  } catch (e) {
-    startRes = { ok: false, status: 0, _error: e };
-    startText = "";
-    startJson = null;
+
+    lastStartHttpStatus = Number(lastStartJson?.http_status || lastStartRes?.status || 0) || 0;
+    lastStartOk = Boolean(lastStartJson) ? lastStartJson.ok !== false : false;
+
+    // Re-load docs and re-check contract.
+    const ids = companies.map((c) => String(c?.id || "").trim()).filter(Boolean).slice(0, 25);
+    const refreshed = ids.length > 0 ? await fetchCompaniesByIds(container, ids).catch(() => []) : [];
+
+    const refreshedById = new Map(
+      (Array.isArray(refreshed) ? refreshed : []).map((d) => [String(d?.id || "").trim(), d])
+    );
+
+    seedDocs = ids.map((id) => refreshedById.get(id)).filter(Boolean);
+
+    missing_by_company = seedDocs
+      .map((d) => {
+        const missing = computeMissingFields(d);
+        if (missing.length === 0) return null;
+        return {
+          company_id: String(d?.id || "").trim(),
+          company_name: String(d?.company_name || d?.name || "").trim(),
+          website_url: String(d?.website_url || d?.url || "").trim(),
+          missing_fields: missing,
+        };
+      })
+      .filter(Boolean);
+
+    if (missing_by_company.length === 0) break;
+
+    iteration += 1;
+    const elapsed = Date.now() - startTime;
+    if (elapsed > Math.max(0, deadlineMs - 1500)) break;
   }
 
-  const startHttpStatus = Number(startJson?.http_status || startRes?.status || 0) || 0;
-  const startOk = Boolean(startJson) ? startJson.ok !== false : false;
-  const ok = Boolean(startOk);
-
   const updatedAt = nowIso();
+  const resumeNeeded = missing_by_company.length > 0;
 
   await upsertDoc(container, {
     ...resumeDoc,
-    status: ok ? "triggered" : "error",
+    status: resumeNeeded ? (lastStartOk ? "queued" : "error") : "complete",
+    missing_by_company,
     last_trigger_result: {
-      ok: Boolean(ok),
-      status: startHttpStatus || (Number(startRes?.status || 0) || 0),
-      stage_beacon: startJson?.stage_beacon || null,
-      resume_needed: Boolean(startJson?.resume_needed),
+      ok: Boolean(lastStartOk),
+      status: lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0),
+      stage_beacon: lastStartJson?.stage_beacon || null,
+      resume_needed: resumeNeeded,
+      iterations: iteration + 1,
     },
     lock_expires_at: null,
     updated_at: updatedAt,
   }).catch(() => null);
 
-  // Lightweight telemetry on the session control doc so /admin/import Copy Debug has parity with refresh endpoints.
+  await bestEffortPatchSessionDoc({
+    container,
+    sessionId,
+    patch: {
+      resume_needed: resumeNeeded,
+      resume_updated_at: updatedAt,
+      ...(resumeNeeded
+        ? {}
+        : {
+            status: "complete",
+            stage_beacon: "enrichment_complete",
+            completed_at: updatedAt,
+          }),
+      updated_at: updatedAt,
+    },
+  }).catch(() => null);
+
+  // Lightweight telemetry on the session control doc.
   if (sessionDoc && typeof sessionDoc === "object") {
     const invokedAt = String(resumeDoc?.last_invoked_at || "").trim() || updatedAt;
-    const companyIdFromResponse = Array.isArray(startJson?.saved_company_ids_verified) && startJson.saved_company_ids_verified[0]
-      ? String(startJson.saved_company_ids_verified[0]).trim()
-      : Array.isArray(startJson?.saved_company_ids) && startJson.saved_company_ids[0]
-        ? String(startJson.saved_company_ids[0]).trim()
-        : companies && companies[0] && companies[0].id
-          ? String(companies[0].id).trim()
+
+    const companyIdFromResponse = Array.isArray(lastStartJson?.saved_company_ids_verified) && lastStartJson.saved_company_ids_verified[0]
+      ? String(lastStartJson.saved_company_ids_verified[0]).trim()
+      : Array.isArray(lastStartJson?.saved_company_ids) && lastStartJson.saved_company_ids[0]
+        ? String(lastStartJson.saved_company_ids[0]).trim()
+        : seedDocs && seedDocs[0] && seedDocs[0].id
+          ? String(seedDocs[0].id).trim()
           : null;
 
     const derivedResult = (() => {
-      if (ok) return "ok";
-      const root = typeof startJson?.root_cause === "string" && startJson.root_cause.trim() ? startJson.root_cause.trim() : "import_start_failed";
-      const status = startHttpStatus || (Number(startRes?.status || 0) || 0);
+      if (lastStartOk) return resumeNeeded ? "ok_incomplete" : "ok_complete";
+      const root = typeof lastStartJson?.root_cause === "string" && lastStartJson.root_cause.trim()
+        ? lastStartJson.root_cause.trim()
+        : "import_start_failed";
+      const status = lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0);
       return status ? `${root}_http_${status}` : root;
     })();
 
@@ -621,19 +679,14 @@ async function resumeWorkerHandler(req, context) {
       resume_worker_last_invoked_at: invokedAt,
       resume_worker_last_finished_at: updatedAt,
       resume_worker_last_result: derivedResult,
-      resume_worker_last_ok: Boolean(ok),
-      resume_worker_last_http_status: startHttpStatus || (Number(startRes?.status || 0) || 0),
-      resume_worker_last_error: ok
+      resume_worker_last_ok: Boolean(lastStartOk),
+      resume_worker_last_http_status: lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0),
+      resume_worker_last_error: lastStartOk
         ? null
-        : startRes?._error?.message || `import_start_http_${startHttpStatus || (Number(startRes?.status || 0) || 0)}`,
-      resume_worker_last_stage_beacon: startJson?.stage_beacon || null,
-      resume_worker_last_resume_needed: Boolean(startJson?.resume_needed),
+        : lastStartRes?._error?.message || `import_start_http_${lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0)}`,
+      resume_worker_last_stage_beacon: lastStartJson?.stage_beacon || null,
+      resume_worker_last_resume_needed: resumeNeeded,
       resume_worker_last_company_id: companyIdFromResponse,
-      // Best-effort: import-start does not currently return a structured "fields written" list.
-      resume_worker_last_written_fields:
-        Array.isArray(startJson?.fields_written)
-          ? startJson.fields_written
-          : null,
       updated_at: updatedAt,
     }).catch(() => null);
   }
@@ -643,10 +696,12 @@ async function resumeWorkerHandler(req, context) {
       ok: true,
       session_id: sessionId,
       triggered: true,
-      companies_seeded: companies.length,
-      import_start_status: startHttpStatus || (Number(startRes?.status || 0) || 0),
-      import_start_ok: Boolean(startOk),
-      import_start_body: startJson || (startText ? { text: startText.slice(0, 2000) } : null),
+      import_start_status: lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0),
+      import_start_ok: Boolean(lastStartOk),
+      resume_needed: resumeNeeded,
+      iterations: iteration + 1,
+      missing_by_company,
+      import_start_body: lastStartJson || (lastStartText ? { text: lastStartText.slice(0, 2000) } : null),
     },
     200,
     req

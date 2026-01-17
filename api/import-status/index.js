@@ -39,6 +39,8 @@ const {
   buildPartitionKeyCandidates,
 } = require("../_cosmosPartitionKey");
 
+const { computeEnrichmentHealth: computeEnrichmentHealthContract } = require("../_requiredFields");
+
 const EMPTY_RESUME_DIAGNOSTICS = Object.freeze({
   resume: {
     needed: null,
@@ -433,134 +435,9 @@ async function fetchCompaniesByIds(container, ids) {
   return list.map((id) => byId.get(id)).filter(Boolean);
 }
 
-function normalizeStringArray(value) {
-  if (!Array.isArray(value)) return [];
-  return value.map((v) => (typeof v === "string" ? v.trim() : "")).filter(Boolean);
-}
-
 function computeEnrichmentHealth(company) {
-  const c = company && typeof company === "object" ? company : {};
-
-  const asMeaningful = (value) => {
-    const s = typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
-    if (!s) return "";
-    const lower = s.toLowerCase();
-    if (lower === "unknown" || lower === "n/a" || lower === "na" || lower === "none") return "";
-    return s;
-  };
-
-  const importMissingFields = Array.isArray(c.import_missing_fields)
-    ? c.import_missing_fields.map((v) => String(v || "").trim()).filter(Boolean)
-    : [];
-
-  const hasImportMissing = (canonical) => {
-    const key = String(canonical || "").trim();
-    if (!key) return false;
-
-    const synonyms = {
-      headquarters_location: ["headquarters_location", "hq"],
-      manufacturing_locations: ["manufacturing_locations", "mfg"],
-      product_keywords: ["product_keywords"],
-      industries: ["industries"],
-      tagline: ["tagline"],
-      logo: ["logo"],
-      reviews: ["reviews", "curated_reviews"],
-    };
-
-    const targets = Array.isArray(synonyms[key]) ? synonyms[key] : [key];
-    for (const t of targets) {
-      if (importMissingFields.includes(t)) return true;
-    }
-    return false;
-  };
-
-  const industries = normalizeStringArray(c.industries);
-  const industriesMeaningful = industries.map(asMeaningful).filter(Boolean);
-  const hasIndustries = industriesMeaningful.length > 0;
-
-  const productKeywordsRaw = c.product_keywords;
-  const productKeywordsJoined =
-    typeof productKeywordsRaw === "string"
-      ? productKeywordsRaw.trim()
-      : Array.isArray(productKeywordsRaw)
-        ? productKeywordsRaw.map((v) => String(v || "").trim()).filter(Boolean).join(", ").trim()
-        : "";
-  const productKeywords = asMeaningful(productKeywordsJoined);
-
-  const keywordList = normalizeStringArray(c.keywords);
-  const keywordListMeaningful = keywordList.map(asMeaningful).filter(Boolean);
-  const hasKeywords = Boolean(productKeywords) || keywordListMeaningful.length > 0;
-
-  const hq = typeof c.headquarters_location === "string" ? c.headquarters_location.trim() : "";
-  const hqMeaningful = asMeaningful(hq);
-  const hasHq = Boolean(hqMeaningful) && !Boolean(c.hq_unknown);
-
-  const manufacturingLocations = Array.isArray(c.manufacturing_locations) ? c.manufacturing_locations : [];
-  const manufacturingMeaningful = manufacturingLocations.some((loc) => {
-    if (typeof loc === "string") return Boolean(asMeaningful(loc));
-    if (loc && typeof loc === "object") {
-      return Boolean(asMeaningful(loc.formatted || loc.address || loc.location || loc.full_address));
-    }
-    return false;
-  });
-  const hasMfg = manufacturingMeaningful && !Boolean(c.mfg_unknown);
-
-  const taglineRaw = typeof c.tagline === "string" ? c.tagline.trim() : "";
-  const hasTagline = Boolean(asMeaningful(taglineRaw));
-
-  const logoStage = String(c.logo_stage_status || "").trim();
-  const logoStageLower = logoStage.toLowerCase();
-  const logoUrl = String(c.logo_url || "").trim();
-  const logoStatus = String(c.logo_status || "").trim().toLowerCase();
-
-  const explicitLogoNotFound =
-    logoStageLower === "not_found_on_site" ||
-    logoStageLower === "not_found" ||
-    logoStageLower === "missing" ||
-    logoStatus === "not_found_on_site" ||
-    logoStatus === "not_found" ||
-    logoStatus === "missing";
-
-  // Contract: logo is satisfied if it was imported (ok/url) OR we explicitly recorded not_found.
-  const hasLogo = logoStageLower === "ok" || Boolean(logoUrl) || explicitLogoNotFound;
-
-  const hasReviewCount = typeof c.review_count === "number" && Number.isFinite(c.review_count);
-  const hasReviewCursorField = Boolean(c.review_cursor && typeof c.review_cursor === "object");
-  const hasCuratedReviewsField = Array.isArray(c.curated_reviews);
-  const hasReviewsField = hasReviewCount && hasCuratedReviewsField && hasReviewCursorField;
-
-  const reviewsStageRaw = String(
-    c.reviews_stage_status ||
-      (c.review_cursor && typeof c.review_cursor === "object" ? c.review_cursor.reviews_stage_status : "") ||
-      ""
-  ).trim();
-
-  // Contract: reviews are satisfied if the required fields exist (count + array + cursor),
-  // even when count is 0.
-  const hasReviews = hasReviewsField;
-
-  const missing_fields = [];
-  if (!hasIndustries || hasImportMissing("industries")) missing_fields.push("industries");
-  if (!hasKeywords || hasImportMissing("product_keywords")) missing_fields.push("product_keywords");
-  if (!hasTagline || hasImportMissing("tagline")) missing_fields.push("tagline");
-  if (!hasHq || hasImportMissing("headquarters_location")) missing_fields.push("headquarters_location");
-  if (!hasMfg || hasImportMissing("manufacturing_locations")) missing_fields.push("manufacturing_locations");
-  if (!hasLogo || hasImportMissing("logo")) missing_fields.push("logo");
-  if (!hasReviews || hasImportMissing("reviews")) missing_fields.push("reviews");
-
-  return {
-    has_industries: hasIndustries,
-    has_keywords: hasKeywords,
-    has_tagline: hasTagline,
-    has_hq: hasHq,
-    has_mfg: hasMfg,
-    has_logo: hasLogo,
-    has_reviews: hasReviews,
-    has_reviews_field: hasReviewsField,
-    reviews_stage_status: reviewsStageRaw || null,
-    logo_stage_status: logoStage || null,
-    missing_fields,
-  };
+  // Single source of truth: required-fields contract.
+  return computeEnrichmentHealthContract(company);
 }
 
 function summarizeEnrichmentHealth(savedCompanies) {

@@ -12,10 +12,12 @@ try {
   CosmosClient = null;
 }
 let randomUUID;
+let createHash;
 try {
-  ({ randomUUID } = require("crypto"));
+  ({ randomUUID, createHash } = require("crypto"));
 } catch {
   randomUUID = null;
+  createHash = null;
 }
 const {
   getContainerPartitionKeyPath,
@@ -40,6 +42,7 @@ const { fillCompanyBaselineFromWebsite } = require("../_websiteBaseline");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { mergeCompanyDocsForSession: mergeCompanyDocsForSessionExternal } = require("../_companyDocMerge");
 const { applyEnrichment } = require("../_applyEnrichment");
+const { asMeaningfulString, isRealValue } = require("../_requiredFields");
 const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { getBuildInfo } = require("../_buildInfo");
 const { getImportStartHandlerVersion } = require("../_handlerVersions");
@@ -3351,13 +3354,7 @@ async function saveCompaniesToCosmos({
             // - No required field should be absent/undefined after persistence
             // - If we cannot resolve a value, persist a deterministic placeholder + structured warning
             try {
-              const asMeaningful = (value) => {
-                const s = typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
-                if (!s) return "";
-                const lower = s.toLowerCase();
-                if (lower === "unknown" || lower === "n/a" || lower === "na" || lower === "none") return "";
-                return s;
-              };
+              const asMeaningful = asMeaningfulString;
 
               const import_missing_fields = [];
               const import_missing_reason = {};
@@ -3429,8 +3426,7 @@ async function saveCompaniesToCosmos({
               }
 
               // headquarters_location (required)
-              const hqMeaningful = asMeaningful(doc.headquarters_location);
-              if (!hqMeaningful) {
+              if (!isRealValue("headquarters_location", doc.headquarters_location, doc)) {
                 doc.headquarters_location = "Unknown";
                 doc.hq_unknown = true;
                 doc.hq_unknown_reason = String(doc.hq_unknown_reason || "unknown");
@@ -3443,16 +3439,7 @@ async function saveCompaniesToCosmos({
               }
 
               // manufacturing_locations (required)
-              const mfgList = Array.isArray(doc.manufacturing_locations) ? doc.manufacturing_locations : [];
-              const mfgMeaningful = mfgList.some((m) => {
-                if (typeof m === "string") return Boolean(asMeaningful(m));
-                if (m && typeof m === "object") {
-                  return Boolean(asMeaningful(m.formatted || m.address || m.location || m.full_address));
-                }
-                return false;
-              });
-
-              if (!mfgMeaningful) {
+              if (!isRealValue("manufacturing_locations", doc.manufacturing_locations, doc)) {
                 doc.manufacturing_locations = ["Unknown"];
                 doc.mfg_unknown = true;
                 doc.mfg_unknown_reason = String(doc.mfg_unknown_reason || "unknown");
@@ -7713,8 +7700,20 @@ Output JSON only:
               websiteUrl,
             });
 
+            const prompt_hash = (() => {
+              try {
+                if (!createHash) return null;
+                return createHash("sha256").update(prompt).digest("hex").slice(0, 16);
+              } catch {
+                return null;
+              }
+            })();
+
             return {
               prompt,
+              prompt_hash,
+              source_url: websiteUrl || null,
+              source_text_preview: websiteText ? websiteText.slice(0, 800) : "",
               raw_response: text.length > 20000 ? text.slice(0, 20000) : text,
               keywords,
             };
@@ -7769,8 +7768,19 @@ Output JSON only:
 
             const industries = normalizeIndustries(obj?.industries).slice(0, 6);
 
+            const prompt_hash = (() => {
+              try {
+                if (!createHash) return null;
+                return createHash("sha256").update(prompt).digest("hex").slice(0, 16);
+              } catch {
+                return null;
+              }
+            })();
+
             return {
               prompt,
+              prompt_hash,
+              source_url: websiteUrl || null,
               raw_response: text.length > 20000 ? text.slice(0, 20000) : text,
               industries,
             };
@@ -7807,12 +7817,30 @@ Output JSON only:
                 debugEntry.raw_response = gen.raw_response;
                 debugEntry.generated_count = gen.keywords.length;
 
+                company.enrichment_debug = company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+                company.enrichment_debug.keywords = {
+                  prompt_hash: gen.prompt_hash || null,
+                  source_url: gen.source_url || websiteUrl || null,
+                  source_text_preview: typeof gen.source_text_preview === "string" ? gen.source_text_preview : null,
+                  raw_response_preview: typeof gen.raw_response === "string" ? gen.raw_response.slice(0, 1200) : null,
+                  error: null,
+                };
+
                 const merged = [...finalList, ...gen.keywords];
                 finalList = normalizeProductKeywords(merged, { companyName, websiteUrl }).slice(0, 25);
               } catch (e) {
                 if (e instanceof AcceptedResponseError) throw e;
                 debugEntry.generated = true;
                 debugEntry.raw_response = e?.message || String(e);
+
+                company.enrichment_debug = company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+                company.enrichment_debug.keywords = {
+                  prompt_hash: null,
+                  source_url: websiteUrl || null,
+                  source_text_preview: null,
+                  raw_response_preview: null,
+                  error: e?.message || String(e),
+                };
               }
             }
 
@@ -7828,6 +7856,15 @@ Output JSON only:
                 const inferred = await generateIndustries(company, { timeoutMs: Math.min(timeout, 15000) });
                 industriesFinal = normalizeIndustries(inferred.industries);
 
+                company.enrichment_debug = company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+                company.enrichment_debug.industries = {
+                  prompt_hash: inferred.prompt_hash || null,
+                  source_url: inferred.source_url || websiteUrl || null,
+                  raw_response_preview: typeof inferred.raw_response === "string" ? inferred.raw_response.slice(0, 1200) : null,
+                  industries: industriesFinal,
+                  error: null,
+                };
+
                 if (debugOutput) {
                   debugOutput.keywords_debug.push({
                     company_name: companyName,
@@ -7840,6 +7877,16 @@ Output JSON only:
                 }
               } catch (e) {
                 if (e instanceof AcceptedResponseError) throw e;
+
+                company.enrichment_debug = company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+                company.enrichment_debug.industries = {
+                  prompt_hash: null,
+                  source_url: websiteUrl || null,
+                  raw_response_preview: null,
+                  industries: [],
+                  error: e?.message || String(e),
+                };
+
                 if (debugOutput) {
                   debugOutput.keywords_debug.push({
                     company_name: companyName,
@@ -8186,9 +8233,11 @@ Output JSON only:
                   typeof editorialReviews?._stage_status === "string" && editorialReviews._stage_status.trim()
                     ? editorialReviews._stage_status.trim()
                     : fetchOk
-                      ? curated.length === 0 && candidateCount > 0
-                        ? "no_valid_reviews_found"
-                        : "ok"
+                      ? candidateCount === 0
+                        ? "exhausted"
+                        : curated.length === 0 && candidateCount > 0
+                          ? "no_valid_reviews_found"
+                          : "ok"
                       : "upstream_unreachable";
 
                 const reviewsTelemetry = editorialReviews?._telemetry && typeof editorialReviews._telemetry === "object" ? editorialReviews._telemetry : null;
@@ -8196,7 +8245,7 @@ Output JSON only:
 
                 // Only mark reviews "exhausted" when upstream returned *no candidates*.
                 // If we timed out or validation rejected candidates, leave the cursor open.
-                const cursorExhausted = fetchOk && reviewsStageStatus === "ok" && candidateCount === 0;
+                const cursorExhausted = fetchOk && reviewsStageStatus === "exhausted";
 
                 const fetchErrorDetail =
                   editorialReviews && typeof editorialReviews === "object" ? editorialReviews._fetch_error_detail : null;
@@ -8632,25 +8681,58 @@ Return ONLY the JSON array, no other text.`,
             for (let i = 0; i < enriched.length; i += 1) {
               const c = enriched[i];
 
-              const hq = String(c?.headquarters_location || "").trim();
-              const mfgList = Array.isArray(c?.manufacturing_locations) ? c.manufacturing_locations : [];
-              const hasMfg = mfgList.length > 0;
+              const hqMeaningful = asMeaningfulString(c?.headquarters_location);
+              const hasMfg = isRealValue("manufacturing_locations", c?.manufacturing_locations, c);
 
-              if (!hq && !c?.hq_unknown) {
+              if (!hqMeaningful && !c?.hq_unknown) {
+                const existingDebug = c?.enrichment_debug && typeof c.enrichment_debug === "object" ? c.enrichment_debug : {};
+                const sources = Array.isArray(c?.location_sources) ? c.location_sources.slice(0, 10) : [];
+
                 enriched[i] = {
                   ...c,
                   hq_unknown: true,
                   hq_unknown_reason: String(c?.hq_unknown_reason || "not_found_after_location_enrichment"),
                   red_flag_reason: String(c?.red_flag_reason || "HQ not found after location enrichment").trim(),
+                  enrichment_debug: {
+                    ...existingDebug,
+                    location: {
+                      at: new Date().toISOString(),
+                      outcome: "not_found",
+                      missing_hq: true,
+                      missing_mfg: !hasMfg,
+                      location_sources_count: Array.isArray(c?.location_sources) ? c.location_sources.length : 0,
+                      location_sources: sources,
+                    },
+                  },
                 };
               }
 
               if (!hasMfg && !c?.mfg_unknown) {
+                // Non-retryable terminal sentinel (explicit + typed).
+                const existingDebug = c?.enrichment_debug && typeof c.enrichment_debug === "object" ? c.enrichment_debug : {};
+                const sources = Array.isArray(c?.location_sources) ? c.location_sources.slice(0, 10) : [];
+
                 enriched[i] = {
                   ...(enriched[i] || c),
+                  manufacturing_locations: ["Not disclosed"],
+                  manufacturing_locations_reason: "not_disclosed",
                   mfg_unknown: true,
-                  mfg_unknown_reason: String(c?.mfg_unknown_reason || "not_found_after_location_enrichment"),
-                  red_flag_reason: String((enriched[i] || c)?.red_flag_reason || "Manufacturing location not found after location enrichment").trim(),
+                  mfg_unknown_reason: "not_disclosed",
+                  red_flag: true,
+                  red_flag_reason: String(
+                    (enriched[i] || c)?.red_flag_reason || "Manufacturing locations not disclosed"
+                  ).trim(),
+                  enrichment_debug: {
+                    ...existingDebug,
+                    location: {
+                      at: new Date().toISOString(),
+                      outcome: "not_disclosed",
+                      missing_hq: !hqMeaningful,
+                      missing_mfg: true,
+                      location_sources_count: Array.isArray(c?.location_sources) ? c.location_sources.length : 0,
+                      location_sources: sources,
+                    },
+                  },
                 };
               }
             }
@@ -8763,7 +8845,10 @@ Return ONLY the JSON array, no other text.`,
                 }
 
                 // industries
-                if (!Array.isArray(base.industries) || base.industries.length === 0) {
+                const industriesMeaningful = Array.isArray(base.industries)
+                  ? base.industries.map(asMeaningfulString).filter(Boolean)
+                  : [];
+                if (industriesMeaningful.length === 0) {
                   base.industries = ["Unknown"];
                   base.industries_unknown = true;
                   ensureMissing("industries", "not_found", "Industries missing; set to placeholder ['Unknown']");
@@ -8771,7 +8856,11 @@ Return ONLY the JSON array, no other text.`,
 
                 // product keywords
                 const pkRaw = typeof base.product_keywords === "string" ? base.product_keywords.trim() : "";
-                const hasKeywords = pkRaw.length > 0 || (Array.isArray(base.keywords) && base.keywords.length > 0);
+                const pkMeaningful = asMeaningfulString(pkRaw);
+                const keywordListMeaningful = Array.isArray(base.keywords)
+                  ? base.keywords.map(asMeaningfulString).filter(Boolean)
+                  : [];
+                const hasKeywords = Boolean(pkMeaningful) || keywordListMeaningful.length > 0;
                 if (!hasKeywords) {
                   base.product_keywords = "Unknown";
                   if (!Array.isArray(base.keywords)) base.keywords = [];
@@ -8779,7 +8868,7 @@ Return ONLY the JSON array, no other text.`,
                 }
 
                 // headquarters
-                if (!String(base.headquarters_location || "").trim()) {
+                if (!isRealValue("headquarters_location", base.headquarters_location, base)) {
                   base.headquarters_location = "Unknown";
                   base.hq_unknown = true;
                   base.hq_unknown_reason = String(base.hq_unknown_reason || "unknown");
@@ -8787,8 +8876,7 @@ Return ONLY the JSON array, no other text.`,
                 }
 
                 // manufacturing
-                const mfgList = Array.isArray(base.manufacturing_locations) ? base.manufacturing_locations : [];
-                if (mfgList.length === 0) {
+                if (!isRealValue("manufacturing_locations", base.manufacturing_locations, base)) {
                   base.manufacturing_locations = ["Unknown"];
                   base.mfg_unknown = true;
                   base.mfg_unknown_reason = String(base.mfg_unknown_reason || "unknown");
@@ -8800,7 +8888,7 @@ Return ONLY the JSON array, no other text.`,
                 }
 
                 // logo
-                if (!String(base.logo_url || "").trim()) {
+                if (!asMeaningfulString(base.logo_url)) {
                   base.logo_url = null;
                   base.logo_status = base.logo_status || "not_found_on_site";
                   base.logo_import_status = base.logo_import_status || "missing";
@@ -9357,18 +9445,20 @@ Return ONLY the JSON array, no other text.`,
                           : null;
 
                       const reviewsStageStatus =
-                        typeof editorialReviews?._stage_status === "string" && editorialReviews._stage_status.trim()
-                          ? editorialReviews._stage_status.trim()
-                          : fetchOk
-                            ? curated.length === 0 && candidateCount > 0
-                              ? "no_valid_reviews_found"
-                              : "ok"
-                            : "upstream_unreachable";
+                  typeof editorialReviews?._stage_status === "string" && editorialReviews._stage_status.trim()
+                    ? editorialReviews._stage_status.trim()
+                    : fetchOk
+                      ? candidateCount === 0
+                        ? "exhausted"
+                        : curated.length === 0 && candidateCount > 0
+                          ? "no_valid_reviews_found"
+                          : "ok"
+                      : "upstream_unreachable";
 
                       const reviewsTelemetry = editorialReviews?._telemetry && typeof editorialReviews._telemetry === "object" ? editorialReviews._telemetry : null;
                       const candidatesDebug = Array.isArray(editorialReviews?._candidates_debug) ? editorialReviews._candidates_debug : [];
 
-                      const cursorExhausted = fetchOk && reviewsStageStatus === "ok" && candidateCount === 0;
+                      const cursorExhausted = fetchOk && reviewsStageStatus === "exhausted";
 
                       const fetchErrorDetail =
                   editorialReviews && typeof editorialReviews === "object" ? editorialReviews._fetch_error_detail : null;
@@ -9589,33 +9679,13 @@ Return ONLY the JSON array, no other text.`,
           const computeEnrichmentMissingFields = (company) => {
             const c = company && typeof company === "object" ? company : {};
 
-            const industries = Array.isArray(c.industries) ? c.industries : normalizeIndustries(c.industries);
-            const hasIndustries = industries.length > 0;
-
-            const productKeywordsRaw = c.product_keywords;
-            const keywordString =
-              typeof productKeywordsRaw === "string"
-                ? productKeywordsRaw.trim()
-                : Array.isArray(productKeywordsRaw)
-                  ? productKeywordsRaw.join(", ").trim()
-                  : "";
-            const keywordList = Array.isArray(c.keywords) ? c.keywords : [];
-            const hasKeywords = keywordString.length > 0 || keywordList.length > 0;
-
-            const hq = String(c.headquarters_location || "").trim();
-            const hasHq = Boolean(hq) || Boolean(c.hq_unknown && String(c.hq_unknown_reason || c.red_flag_reason || "").trim());
-
-            const mfgList = Array.isArray(c.manufacturing_locations) ? c.manufacturing_locations : [];
-            const hasMfg = mfgList.length > 0 || Boolean(c.mfg_unknown && String(c.mfg_unknown_reason || c.red_flag_reason || "").trim());
-
-            // NOTE: Reviews are *not* treated as required for session completeness.
-            // Required fields here are the ones that gate the "verified" UX: industries, keywords, HQ, and manufacturing.
-
+            // Required fields here are the ones that gate the "verified" UX.
+            // Use the centralized contract (placeholders like "Unknown" do NOT count as present).
             const missing = [];
-            if (!hasIndustries) missing.push("industries");
-            if (!hasKeywords) missing.push("product_keywords");
-            if (!hasHq) missing.push("headquarters_location");
-            if (!hasMfg) missing.push("manufacturing_locations");
+            if (!isRealValue("industries", c.industries, c)) missing.push("industries");
+            if (!isRealValue("product_keywords", c.product_keywords, c)) missing.push("product_keywords");
+            if (!isRealValue("headquarters_location", c.headquarters_location, c)) missing.push("headquarters_location");
+            if (!isRealValue("manufacturing_locations", c.manufacturing_locations, c)) missing.push("manufacturing_locations");
 
             return missing;
           };
