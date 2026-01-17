@@ -3055,7 +3055,18 @@ async function saveCompaniesToCosmos({
               }).catch(() => null);
 
               const existingSessionId = String(existingDoc?.import_session_id || existingDoc?.session_id || "").trim();
-              shouldUpdateExisting = Boolean(existingSessionId && existingSessionId === sid);
+
+              const existingMissingFields = Array.isArray(existingDoc?.import_missing_fields) ? existingDoc.import_missing_fields : [];
+              const existingLooksLikeSeed =
+                Boolean(existingDoc?.seed_ready) ||
+                String(existingDoc?.source || "").trim() === "company_url_shortcut" ||
+                String(existingDoc?.source_stage || "").trim() === "seed";
+
+              const existingIncomplete = existingLooksLikeSeed || existingMissingFields.length > 0;
+
+              // Reconcile: if the existing record is incomplete (common for seed_fallback), update it instead of creating
+              // or leaving behind additional seed rows.
+              shouldUpdateExisting = Boolean((existingSessionId && existingSessionId === sid) || existingIncomplete);
 
               if (!shouldUpdateExisting) {
                 console.log(`[import-start] Skipping duplicate company: ${companyName} (${normalizedDomain})`);
