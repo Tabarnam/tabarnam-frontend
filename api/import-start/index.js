@@ -6427,7 +6427,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             }
 
             const verifiedCount = Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0;
-            const canResume = canPersist && verifiedCount > 0;
+            const writeCount = Number(saveResult.saved_write_count || 0) || 0;
+            const canResume = canPersist && writeCount > 0;
 
             if (canResume) {
               if (cosmosEnabled) {
