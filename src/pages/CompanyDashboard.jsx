@@ -770,7 +770,7 @@ function getComputedReviewCount(company) {
   return Math.max(0, publicPrivateTotal, bestNumericFallback, embeddedTotal);
 }
 
-function toIssueTags(company) {
+function toLegacyIssueTags(company) {
   const issues = [];
 
   const name = asString(company?.company_name).trim();
@@ -800,6 +800,37 @@ function toIssueTags(company) {
   if (getComputedReviewCount(company) === 0) issues.push("reviews");
 
   return issues;
+}
+
+function getContractMissingFields(company) {
+  const raw = company?.enrichment_health?.missing_fields;
+  if (!Array.isArray(raw)) return null;
+  return raw
+    .filter((v) => typeof v === "string")
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+function formatContractMissingField(field) {
+  const f = asString(field).trim();
+  if (!f) return "";
+
+  switch (f) {
+    case "headquarters_location":
+      return "HQ";
+    case "manufacturing_locations":
+      return "MFG";
+    case "product_keywords":
+      return "keywords";
+    default:
+      return f.replace(/_/g, " ");
+  }
+}
+
+function toIssueTags(company) {
+  const contract = getContractMissingFields(company);
+  if (contract !== null) return contract;
+  return toLegacyIssueTags(company);
 }
 
 function toDisplayDate(value) {
@@ -5060,23 +5091,37 @@ export default function CompanyDashboard() {
         selector: (row) => toIssueTags(row).length,
         sortable: true,
         cell: (row) => {
-          const tags = toIssueTags(row);
+          const contractMissing = getContractMissingFields(row);
+          const tags = contractMissing !== null ? contractMissing : toLegacyIssueTags(row);
+
           if (tags.length === 0) return <span className="text-xs text-emerald-700">OK</span>;
 
           const shown = tags.slice(0, 3);
           const more = tags.length - shown.length;
+
           return (
             <div className="flex flex-wrap gap-1">
-              {shown.map((t) => (
-                <span
-                  key={t}
-                  className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] text-amber-900"
-                >
-                  {t}
-                </span>
-              ))}
+              {shown.map((t) => {
+                const label = contractMissing !== null ? formatContractMissingField(t) : t;
+                return (
+                  <span
+                    key={t}
+                    title={contractMissing !== null ? `Missing: ${t}` : t}
+                    className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] text-amber-900"
+                  >
+                    {label}
+                  </span>
+                );
+              })}
               {more > 0 ? (
-                <span className="rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-[11px] text-slate-700">
+                <span
+                  title={
+                    contractMissing !== null
+                      ? `Missing: ${tags.map((t) => formatContractMissingField(t)).join(", ")}`
+                      : tags.join(", ")
+                  }
+                  className="rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5 text-[11px] text-slate-700"
+                >
                   +{more}
                 </span>
               ) : null}
