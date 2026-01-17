@@ -8233,9 +8233,11 @@ Output JSON only:
                   typeof editorialReviews?._stage_status === "string" && editorialReviews._stage_status.trim()
                     ? editorialReviews._stage_status.trim()
                     : fetchOk
-                      ? curated.length === 0 && candidateCount > 0
-                        ? "no_valid_reviews_found"
-                        : "ok"
+                      ? candidateCount === 0
+                        ? "exhausted"
+                        : curated.length === 0 && candidateCount > 0
+                          ? "no_valid_reviews_found"
+                          : "ok"
                       : "upstream_unreachable";
 
                 const reviewsTelemetry = editorialReviews?._telemetry && typeof editorialReviews._telemetry === "object" ? editorialReviews._telemetry : null;
@@ -8243,7 +8245,7 @@ Output JSON only:
 
                 // Only mark reviews "exhausted" when upstream returned *no candidates*.
                 // If we timed out or validation rejected candidates, leave the cursor open.
-                const cursorExhausted = fetchOk && reviewsStageStatus === "ok" && candidateCount === 0;
+                const cursorExhausted = fetchOk && reviewsStageStatus === "exhausted";
 
                 const fetchErrorDetail =
                   editorialReviews && typeof editorialReviews === "object" ? editorialReviews._fetch_error_detail : null;
@@ -9415,18 +9417,20 @@ Return ONLY the JSON array, no other text.`,
                           : null;
 
                       const reviewsStageStatus =
-                        typeof editorialReviews?._stage_status === "string" && editorialReviews._stage_status.trim()
-                          ? editorialReviews._stage_status.trim()
-                          : fetchOk
-                            ? curated.length === 0 && candidateCount > 0
-                              ? "no_valid_reviews_found"
-                              : "ok"
-                            : "upstream_unreachable";
+                  typeof editorialReviews?._stage_status === "string" && editorialReviews._stage_status.trim()
+                    ? editorialReviews._stage_status.trim()
+                    : fetchOk
+                      ? candidateCount === 0
+                        ? "exhausted"
+                        : curated.length === 0 && candidateCount > 0
+                          ? "no_valid_reviews_found"
+                          : "ok"
+                      : "upstream_unreachable";
 
                       const reviewsTelemetry = editorialReviews?._telemetry && typeof editorialReviews._telemetry === "object" ? editorialReviews._telemetry : null;
                       const candidatesDebug = Array.isArray(editorialReviews?._candidates_debug) ? editorialReviews._candidates_debug : [];
 
-                      const cursorExhausted = fetchOk && reviewsStageStatus === "ok" && candidateCount === 0;
+                      const cursorExhausted = fetchOk && reviewsStageStatus === "exhausted";
 
                       const fetchErrorDetail =
                   editorialReviews && typeof editorialReviews === "object" ? editorialReviews._fetch_error_detail : null;
