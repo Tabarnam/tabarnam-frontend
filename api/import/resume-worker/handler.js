@@ -899,9 +899,18 @@ async function resumeWorkerHandler(req, context) {
       resume_worker_last_error: lastStartOk
         ? null
         : lastStartRes?._error?.message || `import_start_http_${lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0)}`,
+      resume_worker_last_error_details: last_error_details || null,
       resume_worker_last_stage_beacon: lastStartJson?.stage_beacon || null,
       resume_worker_last_resume_needed: resumeNeeded,
       resume_worker_last_company_id: companyIdFromResponse,
+      resume_worker_last_resume_doc_upsert_ok: resume_control_doc_upsert_ok,
+      ...(lastStartHttpStatus === 400
+        ? {
+            resume_worker_last_import_start_url: lastImportStartRequestUrl,
+            resume_worker_last_import_start_request: importStartRequestSummary,
+            resume_worker_last_import_start_response: lastImportStartResponse,
+          }
+        : {}),
       updated_at: updatedAt,
     }).catch(() => null);
   }
