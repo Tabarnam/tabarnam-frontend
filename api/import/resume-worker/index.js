@@ -460,10 +460,11 @@ async function handler(req, context) {
   startUrl.searchParams.set("resume_worker", "1");
   startUrl.searchParams.set("deadline_ms", "25000");
 
+  // IMPORTANT: Azure gateways may require x-functions-key *before* our handler runs.
+  // buildInternalFetchRequest defaults to including x-functions-key (using FUNCTION_KEY when present,
+  // otherwise falling back to the internal secret).
   const startRequest = buildInternalFetchRequest({
     job_kind: "import_resume",
-    // Attach x-functions-key only when FUNCTION_KEY is explicitly configured.
-    include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
   });
 
   const startRes = await fetch(startUrl.toString(), {
