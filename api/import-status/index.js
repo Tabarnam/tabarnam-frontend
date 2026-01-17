@@ -1216,7 +1216,7 @@ async function handler(req, context) {
           }
         }
 
-        const canTrigger = !lockUntil || Date.now() >= lockUntil;
+        const canTrigger = !resumeMissingInternalSecret && (!lockUntil || Date.now() >= lockUntil);
 
         if (
           canTrigger &&
@@ -1956,7 +1956,7 @@ async function handler(req, context) {
 
         const resumeStatus = String(currentResume?.status || "").trim();
         const lockUntil = Date.parse(String(currentResume?.lock_expires_at || "")) || 0;
-        const canTrigger = !lockUntil || Date.now() >= lockUntil;
+        const canTrigger = !resumeMissingInternalSecret && (!lockUntil || Date.now() >= lockUntil);
 
         if (
           canTrigger &&
