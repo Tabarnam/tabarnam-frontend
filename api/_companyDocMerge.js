@@ -1,9 +1,34 @@
-function isMeaningfulString(value) {
-  const s = typeof value === "string" ? value.trim() : "";
+const { asMeaningfulString, isMeaningfulString, isRealValue } = require("./_requiredFields");
+
+function looksLikeTaglineInsteadOfName(value) {
+  const s = asMeaningfulString(value);
   if (!s) return false;
-  const lower = s.toLowerCase();
-  if (lower === "unknown" || lower === "n/a" || lower === "na" || lower === "none") return false;
-  return true;
+
+  if (s.length > 60) return true;
+  if (/[.!?]/.test(s)) return true;
+
+  const words = s.split(/\s+/).filter(Boolean);
+  if (words.length > 10) return true;
+
+  if (/[,:;]\s/.test(s) && words.length > 6) return true;
+
+  if (/\b(premium|trusted|quality|since|discover|shop|buy|world|leading|supplements|nutrition)\b/i.test(s) && words.length > 4) {
+    return true;
+  }
+
+  return false;
+}
+
+function preferCompanyName(incoming, existing) {
+  const inc = asMeaningfulString(incoming);
+  const ex = asMeaningfulString(existing);
+
+  if (inc && !looksLikeTaglineInsteadOfName(inc)) return inc;
+  if (ex && !looksLikeTaglineInsteadOfName(ex)) return ex;
+
+  // Avoid promoting a marketing sentence into company_name.
+  if (ex) return ex;
+  return inc;
 }
 
 function preferString(incoming, existing) {
@@ -70,7 +95,7 @@ function mergeCompanyDocsForSession({ existingDoc, incomingDoc, finalNormalizedD
     normalized_domain: String(existingDoc.normalized_domain || incomingDoc.normalized_domain || finalNormalizedDomain),
   };
 
-  merged.company_name = preferString(incomingDoc.company_name, existingDoc.company_name);
+  merged.company_name = preferCompanyName(incomingDoc.company_name, existingDoc.company_name);
   merged.name = preferString(incomingDoc.name, existingDoc.name);
 
   merged.url = preferString(incomingDoc.url, existingDoc.url);
@@ -81,6 +106,12 @@ function mergeCompanyDocsForSession({ existingDoc, incomingDoc, finalNormalizedD
   merged.product_keywords = preferString(incomingDoc.product_keywords, existingDoc.product_keywords);
 
   merged.tagline = preferString(incomingDoc.tagline, existingDoc.tagline);
+
+  // Guard: some sites put marketing sentences into og:title/og:site_name.
+  // If incoming company_name looks like a tagline and we don't already have a tagline, keep it as tagline.
+  if (!isMeaningfulString(merged.tagline) && looksLikeTaglineInsteadOfName(incomingDoc.company_name)) {
+    merged.tagline = asMeaningfulString(incomingDoc.company_name) || merged.tagline;
+  }
 
   merged.logo_url = preferString(incomingDoc.logo_url, existingDoc.logo_url) || null;
   merged.logo_source_url = preferString(incomingDoc.logo_source_url, existingDoc.logo_source_url) || null;
@@ -101,7 +132,7 @@ function mergeCompanyDocsForSession({ existingDoc, incomingDoc, finalNormalizedD
   const existingHq = preferString(existingDoc.headquarters_location, "");
   merged.headquarters_location = incomingHq || existingHq;
 
-  const mergedHqHasValue = Boolean(merged.headquarters_location && merged.headquarters_location.trim());
+  const mergedHqHasValue = Boolean(asMeaningfulString(merged.headquarters_location));
   merged.hq_unknown = mergedHqHasValue ? false : Boolean(existingDoc.hq_unknown) || Boolean(incomingDoc.hq_unknown);
   merged.hq_unknown_reason = mergedHqHasValue ? "" : preferString(incomingDoc.hq_unknown_reason, existingDoc.hq_unknown_reason);
 
@@ -112,7 +143,7 @@ function mergeCompanyDocsForSession({ existingDoc, incomingDoc, finalNormalizedD
   merged.hq_lng = preferFinite(incomingDoc.hq_lng, existingDoc.hq_lng);
 
   merged.manufacturing_locations = preferArray(incomingDoc.manufacturing_locations, existingDoc.manufacturing_locations);
-  const mergedMfgHasValue = Array.isArray(merged.manufacturing_locations) && merged.manufacturing_locations.length > 0;
+  const mergedMfgHasValue = isRealValue("manufacturing_locations", merged.manufacturing_locations, merged);
 
   merged.mfg_unknown = mergedMfgHasValue ? false : Boolean(existingDoc.mfg_unknown) || Boolean(incomingDoc.mfg_unknown);
   merged.mfg_unknown_reason = mergedMfgHasValue ? "" : preferString(incomingDoc.mfg_unknown_reason, existingDoc.mfg_unknown_reason);
