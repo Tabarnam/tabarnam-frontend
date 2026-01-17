@@ -1993,8 +1993,44 @@ async function handler(req, context) {
           currentResume = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
         }
 
-        const resumeStatus = String(currentResume?.status || "").trim();
+        let resumeStatus = String(currentResume?.status || "").trim();
         const lockUntil = Date.parse(String(currentResume?.lock_expires_at || "")) || 0;
+
+        if (resumeMissingInternalSecret) {
+          const stalledAt = nowIso();
+          resumeStatus = "stalled";
+
+          await upsertDoc(container, {
+            ...currentResume,
+            status: "stalled",
+            stalled_at: stalledAt,
+            last_error: {
+              code: "resume_worker_gateway_401_missing_internal_secret",
+              message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+            },
+            lock_expires_at: null,
+            updated_at: stalledAt,
+          }).catch(() => null);
+
+          if (sessionDoc && typeof sessionDoc === "object") {
+            await upsertDoc(container, {
+              ...sessionDoc,
+              resume_error: "resume_worker_gateway_401_missing_internal_secret",
+              resume_error_details: {
+                root_cause: "resume_worker_gateway_401_missing_internal_secret",
+                message: "Missing X_INTERNAL_JOB_SECRET; internal resume-worker calls will be rejected before handler runs",
+                updated_at: stalledAt,
+              },
+              resume_needed: true,
+              resume_worker_last_http_status: 401,
+              resume_worker_last_reject_layer: "gateway",
+              updated_at: stalledAt,
+            }).catch(() => null);
+          }
+        }
+
+        resume_status = resumeStatus;
+
         const canTrigger = !resumeMissingInternalSecret && (!lockUntil || Date.now() >= lockUntil);
 
         if (
