@@ -3524,7 +3524,11 @@ async function saveCompaniesToCosmos({
               },
             ];
 
-            await container.items.create(doc);
+            const upsertRes = await upsertItemWithPkCandidates(container, doc);
+            if (!upsertRes?.ok) {
+              throw new Error(upsertRes?.error || "upsert_failed");
+            }
+
             return {
               type: "saved",
               index: companyIndex,
