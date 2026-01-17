@@ -1,5 +1,6 @@
 const { app } = require("@azure/functions");
 const { getBuildInfo } = require("../_buildInfo");
+const { getInternalJobSecretInfo, getAcceptableInternalSecretsInfo } = require("../_internalJobAuth");
 
 function detectSource() {
   const env = process.env || {};
@@ -31,6 +32,13 @@ app.http("version", {
 
     const env = process.env || {};
 
+    const buildInfo = getBuildInfo();
+    const internalSecretInfo = getInternalJobSecretInfo();
+    const acceptableSecretsInfo = getAcceptableInternalSecretsInfo();
+
+    const functionKeyConfigured = Boolean(String(env.FUNCTION_KEY || "").trim());
+    const internalJobSecretConfigured = Boolean(String(env.X_INTERNAL_JOB_SECRET || "").trim());
+
     return {
       status: 200,
       headers: {
@@ -41,8 +49,9 @@ app.http("version", {
         ok: true,
         source: detectSource(),
         ts: new Date().toISOString(),
-        ...getBuildInfo(),
+        ...buildInfo,
         runtime: {
+          ...(buildInfo && buildInfo.runtime ? buildInfo.runtime : null),
           website_site_name: String(env.WEBSITE_SITE_NAME || ""),
           website_slot_name: String(env.WEBSITE_SLOT_NAME || ""),
           website_hostname: String(env.WEBSITE_HOSTNAME || ""),
@@ -53,8 +62,10 @@ app.http("version", {
           swa_deployment_id: String(env.SWA_DEPLOYMENT_ID || ""),
         },
         config: {
-          function_key_configured: Boolean(String(env.FUNCTION_KEY || "").trim()),
-          internal_job_secret_configured: Boolean(String(env.X_INTERNAL_JOB_SECRET || "").trim()),
+          function_key_configured: functionKeyConfigured,
+          internal_job_secret_configured: internalJobSecretConfigured,
+          acceptable_secret_sources: acceptableSecretsInfo.map((c) => c.source),
+          internal_secret_source: internalSecretInfo ? internalSecretInfo.secret_source : null,
         },
       }),
     };

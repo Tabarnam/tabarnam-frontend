@@ -1543,7 +1543,7 @@ async function geocodeHQLocation(address, { timeoutMs = 5000 } = {}) {
 
 // Check if company already exists by normalized domain / company name.
 // IMPORTANT: Dedupe only against active companies (ignore soft-deleted rows).
-async function findExistingCompany(container, normalizedDomain, companyName) {
+async function findExistingCompany(container, normalizedDomain, companyName, canonicalUrl) {
   if (!container) return null;
 
   const domain = String(normalizedDomain || "").trim();
@@ -1554,7 +1554,7 @@ async function findExistingCompany(container, normalizedDomain, companyName) {
   try {
     if (domain && domain !== "unknown") {
       const query = `
-        SELECT TOP 1 c.id
+        SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.canonical_url, c.website_url, c.url, c.import_missing_fields, c.seed_ready, c.source, c.source_stage
         FROM c
         WHERE ${notDeletedClause}
           AND c.normalized_domain = @domain
@@ -1575,9 +1575,63 @@ async function findExistingCompany(container, normalizedDomain, companyName) {
       }
     }
 
+    const canonicalRaw = String(canonicalUrl || "").trim();
+    const canonicalTrimmed = canonicalRaw.replace(/\/+$/, "");
+
+    let canonicalHost = "";
+    try {
+      const parsed = canonicalTrimmed
+        ? canonicalTrimmed.includes("://")
+          ? new URL(canonicalTrimmed)
+          : new URL(`https://${canonicalTrimmed}`)
+        : null;
+      canonicalHost = parsed ? String(parsed.hostname || "").toLowerCase().replace(/^www\./, "") : "";
+    } catch {
+      canonicalHost = "";
+    }
+
+    const canonicalVariants = (() => {
+      if (!canonicalHost) return [];
+      const variants = [
+        `https://${canonicalHost}/`,
+        `https://${canonicalHost}`,
+        `http://${canonicalHost}/`,
+        `http://${canonicalHost}`,
+      ];
+      return Array.from(new Set(variants.map((v) => String(v).trim()).filter(Boolean)));
+    })();
+
+    if (canonicalVariants.length > 0) {
+      const params = canonicalVariants.map((value, idx) => ({ name: `@canon${idx}`, value }));
+      const clause = canonicalVariants.map((_, idx) => `@canon${idx}`).join(", ");
+
+      const query = `
+        SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.canonical_url, c.website_url, c.url, c.import_missing_fields, c.seed_ready, c.source, c.source_stage
+        FROM c
+        WHERE ${notDeletedClause}
+          AND (
+            c.canonical_url IN (${clause})
+            OR c.website_url IN (${clause})
+            OR c.url IN (${clause})
+          )
+      `;
+
+      const { resources } = await container.items
+        .query({ query, parameters: params }, { enableCrossPartitionQuery: true })
+        .fetchAll();
+
+      if (Array.isArray(resources) && resources[0]) {
+        return {
+          ...resources[0],
+          duplicate_match_key: "canonical_url",
+          duplicate_match_value: canonicalVariants[0],
+        };
+      }
+    }
+
     if (nameValue) {
       const query = `
-        SELECT TOP 1 c.id
+        SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.canonical_url, c.website_url, c.url, c.import_missing_fields, c.seed_ready, c.source, c.source_stage
         FROM c
         WHERE ${notDeletedClause}
           AND LOWER(c.company_name) = @name
@@ -2987,19 +3041,34 @@ async function saveCompaniesToCosmos({
 
             // If a stub company was saved earlier in the same session, we must UPDATE it (not skip)
             // so enrichment fields get persisted atomically.
-            const existing = await findExistingCompany(container, normalizedDomain, companyName);
+            const canonicalUrlForDedupe = String(company.canonical_url || company.website_url || company.url || "").trim();
+
+            const existing = await findExistingCompany(container, normalizedDomain, companyName, canonicalUrlForDedupe);
             let existingDoc = null;
             let shouldUpdateExisting = false;
 
             if (existing && existing.id) {
+              const existingPkCandidate = String(existing.partition_key || existing.normalized_domain || finalNormalizedDomain || "").trim();
+
               existingDoc = await readItemWithPkCandidates(container, existing.id, {
                 id: existing.id,
-                normalized_domain: finalNormalizedDomain,
-                partition_key: finalNormalizedDomain,
+                normalized_domain: existingPkCandidate || finalNormalizedDomain,
+                partition_key: existingPkCandidate || finalNormalizedDomain,
               }).catch(() => null);
 
               const existingSessionId = String(existingDoc?.import_session_id || existingDoc?.session_id || "").trim();
-              shouldUpdateExisting = Boolean(existingSessionId && existingSessionId === sid);
+
+              const existingMissingFields = Array.isArray(existingDoc?.import_missing_fields) ? existingDoc.import_missing_fields : [];
+              const existingLooksLikeSeed =
+                Boolean(existingDoc?.seed_ready) ||
+                String(existingDoc?.source || "").trim() === "company_url_shortcut" ||
+                String(existingDoc?.source_stage || "").trim() === "seed";
+
+              const existingIncomplete = existingLooksLikeSeed || existingMissingFields.length > 0;
+
+              // Reconcile: if the existing record is incomplete (common for seed_fallback), update it instead of creating
+              // or leaving behind additional seed rows.
+              shouldUpdateExisting = Boolean((existingSessionId && existingSessionId === sid) || existingIncomplete);
 
               if (!shouldUpdateExisting) {
                 console.log(`[import-start] Skipping duplicate company: ${companyName} (${normalizedDomain})`);
@@ -3184,6 +3253,10 @@ async function saveCompaniesToCosmos({
               name: company.name || companyName,
               url: company.url || company.website_url || company.canonical_url || "",
               website_url: company.website_url || company.canonical_url || company.url || "",
+              canonical_url:
+                finalNormalizedDomain && finalNormalizedDomain !== "unknown"
+                  ? `https://${finalNormalizedDomain}/`
+                  : company.canonical_url || company.website_url || company.url || "",
               industries: industriesNormalized,
               product_keywords: productKeywordsString,
               keywords: keywordsNormalized,
@@ -6203,6 +6276,10 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
             const cleanHost = String(hostname || "").toLowerCase().replace(/^www\./, "");
 
+            // If we cannot extract a hostname, do NOT seed a company doc.
+            // This prevents accumulating "seed-fallback" junk rows with normalized_domain="unknown".
+            if (!cleanHost) return null;
+
             // Required semantics:
             // - company_url + website_url should reflect the input URL (normalized to include protocol).
             // - canonical_url should be the normalized canonical host URL.
@@ -6258,6 +6335,59 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
           async function respondWithCompanyUrlSeedFallback(acceptedError) {
             const seed = buildCompanyUrlSeedFromQuery(query);
+            if (!seed || typeof seed !== "object") {
+              const errorAt = new Date().toISOString();
+              try {
+                upsertImportSession({
+                  session_id: sessionId,
+                  request_id: requestId,
+                  status: "error",
+                  stage_beacon: "company_url_seed_invalid",
+                  resume_needed: false,
+                  resume_error: "invalid_company_url",
+                  resume_error_details: {
+                    root_cause: "invalid_company_url",
+                    message: "company_url query did not contain a valid hostname; refusing to seed a company doc",
+                    updated_at: errorAt,
+                  },
+                });
+              } catch {}
+
+              if (cosmosEnabled) {
+                try {
+                  await upsertCosmosImportSessionDoc({
+                    sessionId,
+                    requestId,
+                    patch: {
+                      status: "error",
+                      stage_beacon: "company_url_seed_invalid",
+                      resume_needed: false,
+                      resume_error: "invalid_company_url",
+                      resume_error_details: {
+                        root_cause: "invalid_company_url",
+                        message: "company_url query did not contain a valid hostname; refusing to seed a company doc",
+                        updated_at: errorAt,
+                      },
+                      updated_at: errorAt,
+                    },
+                  }).catch(() => null);
+                } catch {}
+              }
+
+              return jsonWithRequestId(
+                {
+                  ok: false,
+                  session_id: sessionId,
+                  request_id: requestId,
+                  stage_beacon: "company_url_seed_invalid",
+                  status: "error",
+                  error: "invalid_company_url",
+                  message: "company_url query did not contain a valid hostname; refusing to seed a company doc",
+                },
+                200
+              );
+            }
+
             const companies = [seed];
 
             const dryRunRequested = Boolean(bodyObj?.dry_run || bodyObj?.dryRun);
@@ -6296,38 +6426,15 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               try {
                 const container = getCompaniesCosmosContainer();
 
-                // Prevent flaky/conflicting Cosmos writes on seed-fallback duplicates by checking first.
-                // Query by website_url since normalized_domain can be "unknown" for some records.
-                const urlToMatch = String(seed.website_url || seed.url || "").trim();
-                const urlTrimmed = urlToMatch.replace(/\/+$/, "");
-                const urlWithSlash = urlTrimmed ? `${urlTrimmed}/` : urlToMatch;
+                // Dedupe rule (imports): normalized_domain is the primary key; canonical_url is a secondary matcher.
+                // This prevents "seed-fallback" duplicates accumulating when URL formatting differs.
+                const existingRow = await findExistingCompany(
+                  container,
+                  seed.normalized_domain,
+                  seed.company_name,
+                  seed.canonical_url
+                ).catch(() => null);
 
-                const existingHit = (() => {
-                  if (!container || !urlTrimmed) return null;
-                  return container.items
-                    .query(
-                      {
-                        query: `
-                          SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.import_missing_fields
-                          FROM c
-                          WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
-                            AND (
-                              c.website_url = @url1 OR c.website_url = @url2
-                              OR c.url = @url1 OR c.url = @url2
-                            )
-                        `,
-                        parameters: [
-                          { name: "@url1", value: urlTrimmed },
-                          { name: "@url2", value: urlWithSlash },
-                        ],
-                      },
-                      { enableCrossPartitionQuery: true }
-                    )
-                    .fetchAll();
-                })();
-
-                const existingRows = existingHit ? (await existingHit).resources : null;
-                const existingRow = Array.isArray(existingRows) && existingRows[0] ? existingRows[0] : null;
                 const duplicateOfId = existingRow && existingRow.id ? String(existingRow.id).trim() : "";
 
                 if (duplicateOfId && container) {
@@ -6347,8 +6454,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     skipped_duplicates: [
                       {
                         duplicate_of_id: duplicateOfId,
-                        match_key: "website_url",
-                        match_value: urlToMatch,
+                        match_key: existingRow?.duplicate_match_key || "normalized_domain",
+                        match_value:
+                          existingRow?.duplicate_match_value ||
+                          String(seed.normalized_domain || "").trim() ||
+                          String(seed.canonical_url || "").trim() ||
+                          null,
                       },
                     ],
                     failed_items: [],
@@ -6519,7 +6630,27 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
             const verifiedCount = Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0;
             const writeCount = Number(saveResult.saved_write_count || 0) || 0;
-            const canResume = canPersist && writeCount > 0;
+
+            const resumeCompanyIds = (() => {
+              const ids = [];
+              if (Array.isArray(saveResult?.saved_ids_write)) ids.push(...saveResult.saved_ids_write);
+              if (Array.isArray(saveResult?.saved_company_ids_verified)) ids.push(...saveResult.saved_company_ids_verified);
+              if (Array.isArray(saveResult?.saved_company_ids_unverified)) ids.push(...saveResult.saved_company_ids_unverified);
+              if (Array.isArray(saveResult?.saved_ids)) ids.push(...saveResult.saved_ids);
+
+              return Array.from(
+                new Set(
+                  ids
+                    .map((v) => String(v || "").trim())
+                    .filter(Boolean)
+                    .slice(0, 50)
+                )
+              );
+            })();
+
+            // We must resume even when we dedupe to an existing company (saved_write_count === 0)
+            // because the record may still be missing required fields.
+            const canResume = canPersist && resumeCompanyIds.length > 0;
 
             if (canResume) {
               if (cosmosEnabled) {
@@ -6535,20 +6666,10 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       created_at: nowResumeIso,
                       updated_at: nowResumeIso,
                       request_id: requestId,
-                      status: gatewayKeyConfigured ? "queued" : "stalled",
+                      status: "queued",
                       resume_auth: buildResumeAuthDiagnostics(),
-                      ...(gatewayKeyConfigured
-                        ? {}
-                        : {
-                            stalled_at: nowResumeIso,
-                            last_error: buildResumeStallError(),
-                          }),
-                      saved_count: Number(saveResult.saved_write_count || 0) || 0,
-                      saved_company_ids: Array.isArray(saveResult.saved_ids_write)
-                        ? saveResult.saved_ids_write
-                        : Array.isArray(saveResult.saved_ids)
-                          ? saveResult.saved_ids
-                          : [],
+                      saved_count: resumeCompanyIds.length,
+                      saved_company_ids: resumeCompanyIds,
                       saved_company_urls: [String(seed.company_url || seed.website_url || seed.url || "").trim()].filter(Boolean),
                       missing_by_company,
                       keywords_stage_completed: false,
@@ -6582,9 +6703,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       saved_verified_count: verifiedCount,
                       saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : verifiedIds,
                       saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
-                      saved_company_ids: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : verifiedIds,
+                      saved_company_ids: resumeCompanyIds,
                       saved_company_urls: [String(seed.company_url || seed.website_url || seed.url || "").trim()].filter(Boolean),
-                      saved_ids: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : verifiedIds,
+                      saved_ids: resumeCompanyIds,
                       saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
                       saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
                       skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
@@ -6621,117 +6742,94 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   triggerUrl.searchParams.set("session_id", sessionId);
                   if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
 
-                  if (!gatewayKeyConfigured) {
-                    const stalledAt = new Date().toISOString();
-                    const stall = buildResumeStallError();
-
-                    const resume_error = stall.code;
-                    const resume_error_details = {
-                      root_cause: stall.root_cause,
-                      http_status: 401,
-                      used_url: triggerUrl.toString(),
-                      message: stall.message,
-                      missing_gateway_key: Boolean(stall.missing_gateway_key),
-                      missing_internal_secret: Boolean(stall.missing_internal_secret),
-                      ...buildResumeAuthDiagnostics(),
-                      updated_at: stalledAt,
-                    };
-
-                    try {
-                      upsertImportSession({
-                        session_id: sessionId,
-                        request_id: requestId,
-                        status: "running",
-                        stage_beacon: "company_url_seed_fallback",
-                        resume_needed: true,
-                        resume_error,
-                        resume_error_details,
-                        resume_worker_last_http_status: 401,
-                        resume_worker_last_reject_layer: "gateway",
-                        resume_error_at: stalledAt,
+                  setTimeout(() => {
+                    (async () => {
+                      const workerRequest = buildInternalFetchRequest({
+                        job_kind: "import_resume",
                       });
-                    } catch {}
 
-                    if (cosmosEnabled) {
+                      let statusCode = 0;
+                      let workerOk = false;
+                      let workerText = "";
+                      let workerError = null;
+
                       try {
-                        await upsertCosmosImportSessionDoc({
-                          sessionId,
-                          requestId,
-                          patch: {
-                            resume_error,
-                            resume_error_details,
-                            resume_worker_last_http_status: 401,
-                            resume_worker_last_reject_layer: "gateway",
-                            resume_worker_last_gateway_key_attached: false,
-                            resume_error_at: stalledAt,
-                            updated_at: stalledAt,
-                          },
-                        }).catch(() => null);
-                      } catch {}
-                    }
-                  } else {
-                    setTimeout(() => {
-                      (async () => {
-                        const workerRequest = buildInternalFetchRequest({
-                          job_kind: "import_resume",
-                        });
+                        const { handler: resumeWorkerHandler } = require("../import/resume-worker/index.js");
 
-                        const workerRes = await fetch(triggerUrl.toString(), {
+                        const hdrs = new Headers();
+                        for (const [k, v] of Object.entries(workerRequest.headers || {})) {
+                          if (v === undefined || v === null) continue;
+                          hdrs.set(k, String(v));
+                        }
+
+                        const internalReq = {
                           method: "POST",
-                          headers: workerRequest.headers,
-                          body: JSON.stringify({ session_id: sessionId }),
-                        }).catch((e) => ({ ok: false, status: 0, _error: e }));
-
-                        if (workerRes?.ok) return;
-
-                        let workerText = "";
-                        try {
-                          if (workerRes && typeof workerRes.text === "function") workerText = await workerRes.text();
-                        } catch {}
-
-                        const statusCode = Number(workerRes?.status || 0) || 0;
-                        const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
-                        const resume_error = workerRes?._error?.message || `resume_worker_http_${statusCode}`;
-                        const resume_error_details = {
-                          http_status: statusCode,
-                          used_url: triggerUrl.toString(),
-                          response_text_preview: preview || null,
-                          gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
-                          request_id: workerRequest.request_id || null,
+                          url: triggerUrl.toString(),
+                          headers: hdrs,
+                          __in_process: true,
+                          json: async () => ({ session_id: sessionId }),
+                          text: async () => JSON.stringify({ session_id: sessionId }),
                         };
 
-                        try {
-                          upsertImportSession({
-                            session_id: sessionId,
-                            request_id: requestId,
-                            status: "running",
-                            stage_beacon: "company_url_seed_fallback",
-                            resume_needed: true,
-                            resume_error,
-                            resume_error_details,
-                          });
-                        } catch {}
+                        const res = await resumeWorkerHandler(internalReq, context).catch((e) => ({ status: 0, _error: e }));
+                        statusCode = Number(res?.status || 0) || 0;
+                        workerOk = statusCode >= 200 && statusCode < 300;
 
-                        if (cosmosEnabled) {
-                          try {
-                            await upsertCosmosImportSessionDoc({
-                              sessionId,
-                              requestId,
-                              patch: {
-                                resume_error,
-                                resume_error_details,
-                                resume_worker_last_http_status: statusCode,
-                                resume_worker_last_trigger_request_id: workerRequest.request_id || null,
-                                resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
-                                resume_error_at: new Date().toISOString(),
-                                updated_at: new Date().toISOString(),
-                              },
-                            }).catch(() => null);
-                          } catch {}
-                        }
-                      })().catch(() => {});
-                    }, 0);
-                  }
+                        if (typeof res?.body === "string") workerText = res.body;
+                        else if (res?.body != null) workerText = JSON.stringify(res.body);
+
+                        if (res && res._error) workerError = res._error;
+                      } catch (e) {
+                        workerError = e;
+                      }
+
+                      if (workerOk) return;
+
+                      const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
+                      const resume_error = workerError?.message || (statusCode ? `resume_worker_in_process_${statusCode}` : "resume_worker_in_process_error");
+                      const resume_error_details = {
+                        http_status: statusCode,
+                        used_url: triggerUrl.toString(),
+                        response_text_preview: preview || null,
+                        gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
+                        request_id: workerRequest.request_id || null,
+                      };
+
+                      try {
+                        upsertImportSession({
+                          session_id: sessionId,
+                          request_id: requestId,
+                          status: "running",
+                          stage_beacon: "company_url_seed_fallback",
+                          resume_needed: true,
+                          resume_error,
+                          resume_error_details,
+                          resume_worker_last_http_status: statusCode,
+                          resume_worker_last_reject_layer: "in_process",
+                        });
+                      } catch {}
+
+                      if (cosmosEnabled) {
+                        const now = new Date().toISOString();
+                        try {
+                          await upsertCosmosImportSessionDoc({
+                            sessionId,
+                            requestId,
+                            patch: {
+                              resume_error,
+                              resume_error_details,
+                              resume_worker_last_http_status: statusCode,
+                              resume_worker_last_reject_layer: "in_process",
+                              resume_worker_last_trigger_request_id: workerRequest.request_id || null,
+                              resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
+                              resume_error_at: now,
+                              updated_at: now,
+                            },
+                          }).catch(() => null);
+                        } catch {}
+                      }
+                    })().catch(() => {});
+                  }, 0);
                 }
               } catch {}
 
@@ -6746,27 +6844,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   status: "running",
                   resume_needed: true,
                   resume: {
-                    status: gatewayKeyConfigured ? "queued" : "stalled",
+                    status: "queued",
                     internal_auth_configured: Boolean(internalAuthConfigured),
+                    triggered_in_process: true,
                     ...buildResumeAuthDiagnostics(),
                   },
-                  ...(gatewayKeyConfigured
-                    ? {}
-                    : (() => {
-                        const stall = buildResumeStallError();
-                        return {
-                          resume_error: stall.code,
-                          resume_error_details: {
-                            root_cause: stall.root_cause,
-                            message: stall.message,
-                            missing_gateway_key: Boolean(stall.missing_gateway_key),
-                            missing_internal_secret: Boolean(stall.missing_internal_secret),
-                            ...buildResumeAuthDiagnostics(),
-                            updated_at: new Date().toISOString(),
-                          },
-                          resume_worker_last_reject_layer: "gateway",
-                        };
-                      })()),
                   missing_by_company,
                   company_name: seed.company_name,
                   company_url: seed.company_url || seed.website_url,
@@ -9808,117 +9890,94 @@ Return ONLY the JSON array, no other text.`,
                 triggerUrl.searchParams.set("session_id", sessionId);
                 if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
 
-                if (!gatewayKeyConfigured) {
-                  const stalledAt = new Date().toISOString();
-                  const stall = buildResumeStallError();
-
-                  const resume_error = stall.code;
-                  const resume_error_details = {
-                    root_cause: stall.root_cause,
-                    http_status: 401,
-                    used_url: triggerUrl.toString(),
-                    message: stall.message,
-                    missing_gateway_key: Boolean(stall.missing_gateway_key),
-                    missing_internal_secret: Boolean(stall.missing_internal_secret),
-                    ...buildResumeAuthDiagnostics(),
-                    updated_at: stalledAt,
-                  };
-
-                  try {
-                    upsertImportSession({
-                      session_id: sessionId,
-                      request_id: requestId,
-                      status: "running",
-                      stage_beacon,
-                      resume_needed: true,
-                      resume_error,
-                      resume_error_details,
-                      resume_worker_last_http_status: 401,
-                      resume_worker_last_reject_layer: "gateway",
-                      resume_error_at: stalledAt,
+                setTimeout(() => {
+                  (async () => {
+                    const workerRequest = buildInternalFetchRequest({
+                      job_kind: "import_resume",
                     });
-                  } catch {}
 
-                  if (cosmosEnabled) {
+                    let statusCode = 0;
+                    let workerOk = false;
+                    let workerText = "";
+                    let workerError = null;
+
                     try {
-                      await upsertCosmosImportSessionDoc({
-                        sessionId,
-                        requestId,
-                        patch: {
-                          resume_error,
-                          resume_error_details,
-                          resume_worker_last_http_status: 401,
-                          resume_worker_last_reject_layer: "gateway",
-                          resume_worker_last_gateway_key_attached: false,
-                          resume_error_at: stalledAt,
-                          updated_at: stalledAt,
-                        },
-                      }).catch(() => null);
-                    } catch {}
-                  }
-                } else {
-                  setTimeout(() => {
-                    (async () => {
-                      const workerRequest = buildInternalFetchRequest({
-                        job_kind: "import_resume",
-                      });
+                      const { handler: resumeWorkerHandler } = require("../import/resume-worker/index.js");
 
-                      const workerRes = await fetch(triggerUrl.toString(), {
+                      const hdrs = new Headers();
+                      for (const [k, v] of Object.entries(workerRequest.headers || {})) {
+                        if (v === undefined || v === null) continue;
+                        hdrs.set(k, String(v));
+                      }
+
+                      const internalReq = {
                         method: "POST",
-                        headers: workerRequest.headers,
-                        body: JSON.stringify({ session_id: sessionId }),
-                      }).catch((e) => ({ ok: false, status: 0, _error: e }));
-
-                      if (workerRes?.ok) return;
-
-                      let workerText = "";
-                      try {
-                        if (workerRes && typeof workerRes.text === "function") workerText = await workerRes.text();
-                      } catch {}
-
-                      const statusCode = Number(workerRes?.status || 0) || 0;
-                      const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
-                      const resume_error = workerRes?._error?.message || `resume_worker_http_${statusCode}`;
-                      const resume_error_details = {
-                        http_status: statusCode,
-                        used_url: triggerUrl.toString(),
-                        response_text_preview: preview || null,
-                        gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
-                        request_id: workerRequest.request_id || null,
+                        url: triggerUrl.toString(),
+                        headers: hdrs,
+                        __in_process: true,
+                        json: async () => ({ session_id: sessionId }),
+                        text: async () => JSON.stringify({ session_id: sessionId }),
                       };
 
-                      try {
-                        upsertImportSession({
-                          session_id: sessionId,
-                          request_id: requestId,
-                          status: "running",
-                          stage_beacon,
-                          resume_needed: true,
-                          resume_error,
-                          resume_error_details,
-                        });
-                      } catch {}
+                      const res = await resumeWorkerHandler(internalReq, context).catch((e) => ({ status: 0, _error: e }));
+                      statusCode = Number(res?.status || 0) || 0;
+                      workerOk = statusCode >= 200 && statusCode < 300;
 
-                      if (cosmosEnabled) {
-                        try {
-                          await upsertCosmosImportSessionDoc({
-                            sessionId,
-                            requestId,
-                            patch: {
-                              resume_error,
-                              resume_error_details,
-                              resume_worker_last_http_status: statusCode,
-                              resume_worker_last_trigger_request_id: workerRequest.request_id || null,
-                              resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
-                              resume_error_at: new Date().toISOString(),
-                              updated_at: new Date().toISOString(),
-                            },
-                          }).catch(() => null);
-                        } catch {}
-                      }
-                    })().catch(() => {});
-                  }, 0);
-                }
+                      if (typeof res?.body === "string") workerText = res.body;
+                      else if (res?.body != null) workerText = JSON.stringify(res.body);
+
+                      if (res && res._error) workerError = res._error;
+                    } catch (e) {
+                      workerError = e;
+                    }
+
+                    if (workerOk) return;
+
+                    const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
+                    const resume_error = workerError?.message || (statusCode ? `resume_worker_in_process_${statusCode}` : "resume_worker_in_process_error");
+                    const resume_error_details = {
+                      http_status: statusCode,
+                      used_url: triggerUrl.toString(),
+                      response_text_preview: preview || null,
+                      gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
+                      request_id: workerRequest.request_id || null,
+                    };
+
+                    try {
+                      upsertImportSession({
+                        session_id: sessionId,
+                        request_id: requestId,
+                        status: "running",
+                        stage_beacon,
+                        resume_needed: true,
+                        resume_error,
+                        resume_error_details,
+                        resume_worker_last_http_status: statusCode,
+                        resume_worker_last_reject_layer: "in_process",
+                      });
+                    } catch {}
+
+                    if (cosmosEnabled) {
+                      const now = new Date().toISOString();
+                      try {
+                        await upsertCosmosImportSessionDoc({
+                          sessionId,
+                          requestId,
+                          patch: {
+                            resume_error,
+                            resume_error_details,
+                            resume_worker_last_http_status: statusCode,
+                            resume_worker_last_reject_layer: "in_process",
+                            resume_worker_last_trigger_request_id: workerRequest.request_id || null,
+                            resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
+                            resume_error_at: now,
+                            updated_at: now,
+                          },
+                        }).catch(() => null);
+                      } catch {}
+                    }
+                  })().catch(() => {});
+                }, 0);
               }
             } catch {}
 
@@ -9931,27 +9990,11 @@ Return ONLY the JSON array, no other text.`,
                 status: "running",
                 resume_needed: true,
                 resume: {
-                  status: gatewayKeyConfigured ? "queued" : "stalled",
+                  status: "queued",
                   internal_auth_configured: Boolean(internalAuthConfigured),
+                  triggered_in_process: true,
                   ...buildResumeAuthDiagnostics(),
                 },
-                ...(gatewayKeyConfigured
-                  ? {}
-                  : (() => {
-                      const stall = buildResumeStallError();
-                      return {
-                        resume_error: stall.code,
-                        resume_error_details: {
-                          root_cause: stall.root_cause,
-                          message: stall.message,
-                          missing_gateway_key: Boolean(stall.missing_gateway_key),
-                          missing_internal_secret: Boolean(stall.missing_internal_secret),
-                          ...buildResumeAuthDiagnostics(),
-                          updated_at: new Date().toISOString(),
-                        },
-                        resume_worker_last_reject_layer: "gateway",
-                      };
-                    })()),
                 deferred_stages: Array.from(deferredStages),
                 saved_count: Number(saveResult.saved_write_count || 0) || Number(saveResult.saved || 0) || 0,
                 saved_company_ids: Array.isArray(saveResult.saved_ids_write)
