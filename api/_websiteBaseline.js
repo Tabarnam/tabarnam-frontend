@@ -1,5 +1,7 @@
 const DEFAULT_USER_AGENT = "Mozilla/5.0 (compatible; TabarnamBot/1.0; +https://tabarnam.com)";
 
+const { PLACEHOLDER_STRINGS, SENTINEL_STRINGS } = require("./_requiredFields");
+
 function asString(v) {
   return typeof v === "string" ? v : v == null ? "" : String(v);
 }
@@ -269,12 +271,96 @@ function resolveUrl(baseUrl, path) {
   }
 }
 
+function normalizeKey(value) {
+  return asString(value).trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function isPlaceholderOrSentinelString(value) {
+  const key = normalizeKey(value);
+  if (!key) return true;
+  return PLACEHOLDER_STRINGS.has(key) || SENTINEL_STRINGS.has(key);
+}
+
 function shouldFillString(value) {
-  return !asString(value).trim();
+  // Treat explicit placeholders/sentinels as "empty" so real website-derived signals can overwrite them.
+  return isPlaceholderOrSentinelString(value);
 }
 
 function shouldFillArray(value) {
-  return !Array.isArray(value) || value.length === 0;
+  if (!Array.isArray(value) || value.length === 0) return true;
+
+  const hasMeaningful = value.some((entry) => {
+    if (typeof entry === "string") return !isPlaceholderOrSentinelString(entry);
+
+    if (entry && typeof entry === "object") {
+      const raw =
+        asString(entry.formatted).trim() ||
+        asString(entry.full_address).trim() ||
+        asString(entry.address).trim() ||
+        asString(entry.location).trim();
+
+      return raw ? !isPlaceholderOrSentinelString(raw) : false;
+    }
+
+    return false;
+  });
+
+  return !hasMeaningful;
+}
+
+function extractJsonLdKeywordSignals(html, { max = 30 } = {}) {
+  const out = [];
+  const push = (v) => {
+    const s = asString(v).trim();
+    if (!s) return;
+    out.push(s);
+  };
+
+  const addFromNode = (node) => {
+    if (!node) return;
+
+    if (typeof node === "string" || typeof node === "number" || typeof node === "boolean") {
+      push(node);
+      return;
+    }
+
+    if (Array.isArray(node)) {
+      for (const item of node) addFromNode(item);
+      return;
+    }
+
+    if (typeof node !== "object") return;
+
+    // Common schema.org fields that often contain useful product/category signals.
+    const keysToMine = ["keywords", "knowsAbout", "category", "about", "description", "name"];
+
+    for (const key of keysToMine) {
+      if (Object.prototype.hasOwnProperty.call(node, key)) addFromNode(node[key]);
+    }
+
+    for (const value of Object.values(node)) {
+      if (value && typeof value === "object") addFromNode(value);
+    }
+  };
+
+  const re = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match;
+
+  while ((match = re.exec(String(html || ""))) !== null) {
+    const raw = asString(match[1]).trim();
+    if (!raw) continue;
+
+    try {
+      const parsed = JSON.parse(raw);
+      addFromNode(parsed);
+    } catch {
+      // ignore malformed JSON-LD
+    }
+
+    if (out.length >= max) break;
+  }
+
+  return normalizeKeywordCandidates(out).slice(0, max);
 }
 
 function normalizeKeywordList(value) {
@@ -301,9 +387,25 @@ async function fillCompanyBaselineFromWebsite(company, { timeoutMs = 6000, extra
     { url: websiteUrl, html: first.text },
   ];
 
-  const extraPaths = ["/about", "/contact", "/faq", "/pages/about", "/pages/contact", "/about-us", "/contact-us"];
+  // Pull a few high-signal pages (HQ/contact + product/category pages) to improve industries/keywords.
+  const extraPaths = [
+    "/contact",
+    "/about",
+    "/products",
+    "/collections",
+    "/shop",
+    "/our-products",
+    "/sustainability",
+    "/manufacturing",
+    "/our-story",
+    "/faq",
+    "/pages/contact",
+    "/pages/about",
+    "/about-us",
+    "/contact-us",
+  ];
   for (const path of extraPaths) {
-    if (pages.length >= 3) break;
+    if (pages.length >= 4) break;
     const nextUrl = resolveUrl(websiteUrl, path);
     if (!nextUrl) continue;
     const r = await fetchText(nextUrl, { timeoutMs: extraPageTimeoutMs });
@@ -332,9 +434,12 @@ async function fillCompanyBaselineFromWebsite(company, { timeoutMs = 6000, extra
 
   const navPhrases = extractNavCategoryPhrases(homeHtml, { max: 50 });
 
+  const jsonLdSignals = extractJsonLdKeywordSignals(homeHtml, { max: 25 });
+
   const keywordSeeds = normalizeKeywordCandidates([
     ...navPhrases,
     ...headings,
+    ...jsonLdSignals,
     title,
     ogSiteName,
   ]);
