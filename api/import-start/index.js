@@ -1575,6 +1575,60 @@ async function findExistingCompany(container, normalizedDomain, companyName, can
       }
     }
 
+    const canonicalRaw = String(canonicalUrl || "").trim();
+    const canonicalTrimmed = canonicalRaw.replace(/\/+$/, "");
+
+    let canonicalHost = "";
+    try {
+      const parsed = canonicalTrimmed
+        ? canonicalTrimmed.includes("://")
+          ? new URL(canonicalTrimmed)
+          : new URL(`https://${canonicalTrimmed}`)
+        : null;
+      canonicalHost = parsed ? String(parsed.hostname || "").toLowerCase().replace(/^www\./, "") : "";
+    } catch {
+      canonicalHost = "";
+    }
+
+    const canonicalVariants = (() => {
+      if (!canonicalHost) return [];
+      const variants = [
+        `https://${canonicalHost}/`,
+        `https://${canonicalHost}`,
+        `http://${canonicalHost}/`,
+        `http://${canonicalHost}`,
+      ];
+      return Array.from(new Set(variants.map((v) => String(v).trim()).filter(Boolean)));
+    })();
+
+    if (canonicalVariants.length > 0) {
+      const params = canonicalVariants.map((value, idx) => ({ name: `@canon${idx}`, value }));
+      const clause = canonicalVariants.map((_, idx) => `@canon${idx}`).join(", ");
+
+      const query = `
+        SELECT TOP 1 c.id
+        FROM c
+        WHERE ${notDeletedClause}
+          AND (
+            c.canonical_url IN (${clause})
+            OR c.website_url IN (${clause})
+            OR c.url IN (${clause})
+          )
+      `;
+
+      const { resources } = await container.items
+        .query({ query, parameters: params }, { enableCrossPartitionQuery: true })
+        .fetchAll();
+
+      if (Array.isArray(resources) && resources[0]) {
+        return {
+          ...resources[0],
+          duplicate_match_key: "canonical_url",
+          duplicate_match_value: canonicalVariants[0],
+        };
+      }
+    }
+
     if (nameValue) {
       const query = `
         SELECT TOP 1 c.id
