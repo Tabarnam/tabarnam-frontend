@@ -48,6 +48,7 @@ const {
   buildInternalFetchHeaders,
   buildInternalFetchRequest,
   getInternalJobSecretInfo,
+  getAcceptableInternalSecretsInfo,
 } = require("../_internalJobAuth");
 const {
   buildPrimaryJobId: buildImportPrimaryJobId,
@@ -3640,12 +3641,20 @@ const importStartHandlerInner = async (req, context) => {
       }
     })();
 
-    const internalAuthConfigured = Boolean(
-      internalSecretInfo &&
-        typeof internalSecretInfo === "object" &&
-        String(internalSecretInfo.secret || "").trim() &&
-        internalSecretInfo.secret_source === "X_INTERNAL_JOB_SECRET"
-    );
+    const acceptableSecretsInfo = (() => {
+      try {
+        return getAcceptableInternalSecretsInfo();
+      } catch {
+        return [];
+      }
+    })();
+
+    // internal_auth_configured should be true if ANY accepted secret exists
+    // (e.g. X_INTERNAL_JOB_SECRET OR FUNCTION_KEY), not only when the secret source is X_INTERNAL_JOB_SECRET.
+    const internalAuthConfigured = Array.isArray(acceptableSecretsInfo) && acceptableSecretsInfo.length > 0;
+
+    const gatewayKeyConfigured = Boolean(String(process.env.FUNCTION_KEY || "").trim());
+    const internalJobSecretConfigured = Boolean(String(process.env.X_INTERNAL_JOB_SECRET || "").trim());
 
     const jsonWithRequestId = (obj, status = 200) => {
       const payload =
