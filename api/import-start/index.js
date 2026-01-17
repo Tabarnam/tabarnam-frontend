@@ -6409,38 +6409,15 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               try {
                 const container = getCompaniesCosmosContainer();
 
-                // Prevent flaky/conflicting Cosmos writes on seed-fallback duplicates by checking first.
-                // Query by website_url since normalized_domain can be "unknown" for some records.
-                const urlToMatch = String(seed.website_url || seed.url || "").trim();
-                const urlTrimmed = urlToMatch.replace(/\/+$/, "");
-                const urlWithSlash = urlTrimmed ? `${urlTrimmed}/` : urlToMatch;
+                // Dedupe rule (imports): normalized_domain is the primary key; canonical_url is a secondary matcher.
+                // This prevents "seed-fallback" duplicates accumulating when URL formatting differs.
+                const existingRow = await findExistingCompany(
+                  container,
+                  seed.normalized_domain,
+                  seed.company_name,
+                  seed.canonical_url
+                ).catch(() => null);
 
-                const existingHit = (() => {
-                  if (!container || !urlTrimmed) return null;
-                  return container.items
-                    .query(
-                      {
-                        query: `
-                          SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.import_missing_fields
-                          FROM c
-                          WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
-                            AND (
-                              c.website_url = @url1 OR c.website_url = @url2
-                              OR c.url = @url1 OR c.url = @url2
-                            )
-                        `,
-                        parameters: [
-                          { name: "@url1", value: urlTrimmed },
-                          { name: "@url2", value: urlWithSlash },
-                        ],
-                      },
-                      { enableCrossPartitionQuery: true }
-                    )
-                    .fetchAll();
-                })();
-
-                const existingRows = existingHit ? (await existingHit).resources : null;
-                const existingRow = Array.isArray(existingRows) && existingRows[0] ? existingRows[0] : null;
                 const duplicateOfId = existingRow && existingRow.id ? String(existingRow.id).trim() : "";
 
                 if (duplicateOfId && container) {
@@ -6460,8 +6437,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     skipped_duplicates: [
                       {
                         duplicate_of_id: duplicateOfId,
-                        match_key: "website_url",
-                        match_value: urlToMatch,
+                        match_key: existingRow?.duplicate_match_key || "normalized_domain",
+                        match_value:
+                          existingRow?.duplicate_match_value ||
+                          String(seed.normalized_domain || "").trim() ||
+                          String(seed.canonical_url || "").trim() ||
+                          null,
                       },
                     ],
                     failed_items: [],
