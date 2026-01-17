@@ -10,6 +10,7 @@ const { computeTopLevelDiff, writeCompanyEditHistoryEntry, getCompanyEditHistory
 const { geocodeLocationArray, pickPrimaryLatLng, extractLatLng } = require("../_geocode");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { resolveReviewsStarState } = require("../_reviewsStarState");
+const { computeEnrichmentHealth } = require("../_requiredFields");
 
 const BUILD_INFO = getBuildInfo();
 const HANDLER_ID = "admin-companies-v2";
@@ -318,6 +319,60 @@ function normalizeCompanyForResponse(doc) {
   };
 }
 
+function computeContractEnrichmentHealth(company) {
+  const c = company && typeof company === "object" ? company : {};
+
+  const inferredHq =
+    c.headquarters_location ??
+    (Array.isArray(c.headquarters_locations) ? c.headquarters_locations[0] : c.headquarters_locations) ??
+    (Array.isArray(c.headquarters) ? c.headquarters[0] : c.headquarters);
+
+  const inferredMfg =
+    c.manufacturing_locations ??
+    (Array.isArray(c.manufacturing_geocodes) && c.manufacturing_geocodes.length > 0
+      ? c.manufacturing_geocodes
+      : c.manufacturing_locations);
+
+  const contractInput = {
+    ...c,
+    headquarters_location: c.headquarters_location ?? inferredHq,
+    manufacturing_locations: c.manufacturing_locations ?? inferredMfg,
+    industries: c.industries ?? c.industry ?? [],
+    product_keywords: c.product_keywords ?? "",
+  };
+
+  return computeEnrichmentHealth(contractInput);
+}
+
+function normalizeCompanyForResponseWithContractIssues(doc) {
+  const base = normalizeCompanyForResponse(doc);
+  if (!base || typeof base !== "object") return base;
+
+  let health = null;
+  try {
+    health = computeContractEnrichmentHealth(base);
+  } catch {
+    health = null;
+  }
+
+  const safeHealth =
+    health && typeof health === "object"
+      ? health
+      : base.enrichment_health && typeof base.enrichment_health === "object"
+        ? base.enrichment_health
+        : { missing_fields: [] };
+
+  const missing = Array.isArray(safeHealth.missing_fields)
+    ? safeHealth.missing_fields.filter((v) => typeof v === "string" && v.trim())
+    : [];
+
+  return {
+    ...base,
+    enrichment_health: { ...safeHealth, missing_fields: missing },
+    issues: missing,
+  };
+}
+
 async function getJson(req) {
   if (!req) return {};
 
@@ -599,7 +654,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             return json({ ok: false, error: "not_found" }, 404);
           }
 
-          const company = normalizeCompanyForResponse(found);
+          const company = normalizeCompanyForResponseWithContractIssues(found);
 
           return json({ ok: true, company, ...(cosmosTarget ? cosmosTarget : {}) }, 200);
         }
@@ -629,7 +684,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
         const raw = resources || [];
         const items = raw
           .filter((d) => d && typeof d === "object")
-          .map((d) => normalizeCompanyForResponse(d));
+          .map((d) => normalizeCompanyForResponseWithContractIssues(d));
 
         context.log("[admin-companies-v2] GET count after soft-delete filter:", items.length);
         return json({ items, count: items.length, ...(cosmosTarget ? cosmosTarget : {}) }, 200);
@@ -890,7 +945,7 @@ async function adminCompaniesHandler(req, context, deps = {}) {
             context.log("[admin-companies-v2] Audit log write failed", { error: e?.message });
           }
 
-          return json({ ok: true, company: normalizeCompanyForResponse(doc) }, 200);
+          return json({ ok: true, company: normalizeCompanyForResponseWithContractIssues(doc) }, 200);
         } catch (e) {
           context.log("[admin-companies-v2] Upsert failed completely", {
             id: partitionKeyValue,
