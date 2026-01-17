@@ -12,10 +12,12 @@ try {
   CosmosClient = null;
 }
 let randomUUID;
+let createHash;
 try {
-  ({ randomUUID } = require("crypto"));
+  ({ randomUUID, createHash } = require("crypto"));
 } catch {
   randomUUID = null;
+  createHash = null;
 }
 const {
   getContainerPartitionKeyPath,
@@ -7708,8 +7710,20 @@ Output JSON only:
               websiteUrl,
             });
 
+            const prompt_hash = (() => {
+              try {
+                if (!createHash) return null;
+                return createHash("sha256").update(prompt).digest("hex").slice(0, 16);
+              } catch {
+                return null;
+              }
+            })();
+
             return {
               prompt,
+              prompt_hash,
+              source_url: websiteUrl || null,
+              source_text_preview: websiteText ? websiteText.slice(0, 800) : "",
               raw_response: text.length > 20000 ? text.slice(0, 20000) : text,
               keywords,
             };
@@ -7764,8 +7778,19 @@ Output JSON only:
 
             const industries = normalizeIndustries(obj?.industries).slice(0, 6);
 
+            const prompt_hash = (() => {
+              try {
+                if (!createHash) return null;
+                return createHash("sha256").update(prompt).digest("hex").slice(0, 16);
+              } catch {
+                return null;
+              }
+            })();
+
             return {
               prompt,
+              prompt_hash,
+              source_url: websiteUrl || null,
               raw_response: text.length > 20000 ? text.slice(0, 20000) : text,
               industries,
             };
@@ -7802,12 +7827,30 @@ Output JSON only:
                 debugEntry.raw_response = gen.raw_response;
                 debugEntry.generated_count = gen.keywords.length;
 
+                company.enrichment_debug = company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+                company.enrichment_debug.keywords = {
+                  prompt_hash: gen.prompt_hash || null,
+                  source_url: gen.source_url || websiteUrl || null,
+                  source_text_preview: typeof gen.source_text_preview === "string" ? gen.source_text_preview : null,
+                  raw_response_preview: typeof gen.raw_response === "string" ? gen.raw_response.slice(0, 1200) : null,
+                  error: null,
+                };
+
                 const merged = [...finalList, ...gen.keywords];
                 finalList = normalizeProductKeywords(merged, { companyName, websiteUrl }).slice(0, 25);
               } catch (e) {
                 if (e instanceof AcceptedResponseError) throw e;
                 debugEntry.generated = true;
                 debugEntry.raw_response = e?.message || String(e);
+
+                company.enrichment_debug = company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+                company.enrichment_debug.keywords = {
+                  prompt_hash: null,
+                  source_url: websiteUrl || null,
+                  source_text_preview: null,
+                  raw_response_preview: null,
+                  error: e?.message || String(e),
+                };
               }
             }
 
@@ -7823,6 +7866,15 @@ Output JSON only:
                 const inferred = await generateIndustries(company, { timeoutMs: Math.min(timeout, 15000) });
                 industriesFinal = normalizeIndustries(inferred.industries);
 
+                company.enrichment_debug = company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+                company.enrichment_debug.industries = {
+                  prompt_hash: inferred.prompt_hash || null,
+                  source_url: inferred.source_url || websiteUrl || null,
+                  raw_response_preview: typeof inferred.raw_response === "string" ? inferred.raw_response.slice(0, 1200) : null,
+                  industries: industriesFinal,
+                  error: null,
+                };
+
                 if (debugOutput) {
                   debugOutput.keywords_debug.push({
                     company_name: companyName,
@@ -7835,6 +7887,16 @@ Output JSON only:
                 }
               } catch (e) {
                 if (e instanceof AcceptedResponseError) throw e;
+
+                company.enrichment_debug = company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+                company.enrichment_debug.industries = {
+                  prompt_hash: null,
+                  source_url: websiteUrl || null,
+                  raw_response_preview: null,
+                  industries: [],
+                  error: e?.message || String(e),
+                };
+
                 if (debugOutput) {
                   debugOutput.keywords_debug.push({
                     company_name: companyName,
