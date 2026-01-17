@@ -3048,10 +3048,12 @@ async function saveCompaniesToCosmos({
             let shouldUpdateExisting = false;
 
             if (existing && existing.id) {
+              const existingPkCandidate = String(existing.partition_key || existing.normalized_domain || finalNormalizedDomain || "").trim();
+
               existingDoc = await readItemWithPkCandidates(container, existing.id, {
                 id: existing.id,
-                normalized_domain: finalNormalizedDomain,
-                partition_key: finalNormalizedDomain,
+                normalized_domain: existingPkCandidate || finalNormalizedDomain,
+                partition_key: existingPkCandidate || finalNormalizedDomain,
               }).catch(() => null);
 
               const existingSessionId = String(existingDoc?.import_session_id || existingDoc?.session_id || "").trim();
