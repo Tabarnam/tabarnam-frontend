@@ -6397,7 +6397,16 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       created_at: nowResumeIso,
                       updated_at: nowResumeIso,
                       request_id: requestId,
-                      status: "queued",
+                      status: internalAuthConfigured ? "queued" : "stalled",
+                      ...(internalAuthConfigured
+                        ? {}
+                        : {
+                            stalled_at: nowResumeIso,
+                            last_error: {
+                              code: "resume_worker_gateway_401_missing_internal_secret",
+                              message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                            },
+                          }),
                       saved_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
                       saved_company_ids: Array.isArray(saveResult.saved_company_ids_verified)
                         ? saveResult.saved_company_ids_verified
@@ -9361,7 +9370,16 @@ Return ONLY the JSON array, no other text.`,
                     created_at: nowResumeIso,
                     updated_at: nowResumeIso,
                     request_id: requestId,
-                    status: "queued",
+                    status: internalAuthConfigured ? "queued" : "stalled",
+                    ...(internalAuthConfigured
+                      ? {}
+                      : {
+                          stalled_at: nowResumeIso,
+                          last_error: {
+                            code: "resume_worker_gateway_401_missing_internal_secret",
+                            message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                          },
+                        }),
                     saved_count: Number(saveResult.saved || 0),
                     saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
                     saved_company_urls: (Array.isArray(enriched) ? enriched : [])
