@@ -1702,41 +1702,54 @@ async function handler(req, context) {
           ...EMPTY_RESUME_DIAGNOSTICS,
           resume_needed,
           resume_error:
-            resume_needed && !internalAuthConfigured
-              ? "resume_worker_gateway_401_missing_internal_secret"
+            resume_needed && !gatewayKeyConfigured
+              ? buildResumeStallError().code
               : resume_error,
           resume_error_details:
-            resume_needed && !internalAuthConfigured
-              ? {
-                  root_cause: "resume_worker_gateway_401_missing_internal_secret",
-                  http_status: 401,
-                  message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
-                  updated_at: nowIso(),
-                }
+            resume_needed && !gatewayKeyConfigured
+              ? (() => {
+                  const stall = buildResumeStallError();
+                  return {
+                    root_cause: stall.root_cause,
+                    http_status: 401,
+                    message: stall.message,
+                    missing_gateway_key: Boolean(stall.missing_gateway_key),
+                    missing_internal_secret: Boolean(stall.missing_internal_secret),
+                    ...buildResumeAuthDiagnostics(),
+                    updated_at: nowIso(),
+                  };
+                })()
               : resume_error_details,
           resume: {
             ...EMPTY_RESUME_DIAGNOSTICS.resume,
             needed: resume_needed,
-            status: resume_needed && !internalAuthConfigured ? "stalled" : null,
+            status: resume_needed && !gatewayKeyConfigured ? "stalled" : null,
             trigger_error:
-              resume_needed && !internalAuthConfigured
-                ? "resume_worker_gateway_401_missing_internal_secret"
+              resume_needed && !gatewayKeyConfigured
+                ? buildResumeStallError().code
                 : resume_error,
             trigger_error_details:
-              resume_needed && !internalAuthConfigured
-                ? {
-                    root_cause: "resume_worker_gateway_401_missing_internal_secret",
-                  http_status: 401,
-                  message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
-                    updated_at: nowIso(),
-                  }
+              resume_needed && !gatewayKeyConfigured
+                ? (() => {
+                    const stall = buildResumeStallError();
+                    return {
+                      root_cause: stall.root_cause,
+                      http_status: 401,
+                      message: stall.message,
+                      missing_gateway_key: Boolean(stall.missing_gateway_key),
+                      missing_internal_secret: Boolean(stall.missing_internal_secret),
+                      ...buildResumeAuthDiagnostics(),
+                      updated_at: nowIso(),
+                    };
+                  })()
                 : resume_error_details,
             internal_auth_configured: Boolean(internalAuthConfigured),
+            ...buildResumeAuthDiagnostics(),
           },
           resume_worker: {
             ...EMPTY_RESUME_DIAGNOSTICS.resume_worker,
-            last_reject_layer: resume_needed && !internalAuthConfigured ? "gateway" : null,
-            last_http_status: resume_needed && !internalAuthConfigured ? 401 : null,
+            last_reject_layer: resume_needed && !gatewayKeyConfigured ? "gateway" : null,
+            last_http_status: resume_needed && !gatewayKeyConfigured ? 401 : null,
           },
           saved_companies: [],
         },
@@ -1798,41 +1811,54 @@ async function handler(req, context) {
           ...EMPTY_RESUME_DIAGNOSTICS,
           resume_needed,
           resume_error:
-            resume_needed && !internalAuthConfigured
-              ? "resume_worker_gateway_401_missing_internal_secret"
+            resume_needed && !gatewayKeyConfigured
+              ? buildResumeStallError().code
               : resume_error,
           resume_error_details:
-            resume_needed && !internalAuthConfigured
-              ? {
-                  root_cause: "resume_worker_gateway_401_missing_internal_secret",
-                  http_status: 401,
-                  message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
-                  updated_at: nowIso(),
-                }
+            resume_needed && !gatewayKeyConfigured
+              ? (() => {
+                  const stall = buildResumeStallError();
+                  return {
+                    root_cause: stall.root_cause,
+                    http_status: 401,
+                    message: stall.message,
+                    missing_gateway_key: Boolean(stall.missing_gateway_key),
+                    missing_internal_secret: Boolean(stall.missing_internal_secret),
+                    ...buildResumeAuthDiagnostics(),
+                    updated_at: nowIso(),
+                  };
+                })()
               : resume_error_details,
           resume: {
             ...EMPTY_RESUME_DIAGNOSTICS.resume,
             needed: resume_needed,
-            status: resume_needed && !internalAuthConfigured ? "stalled" : null,
+            status: resume_needed && !gatewayKeyConfigured ? "stalled" : null,
             trigger_error:
-              resume_needed && !internalAuthConfigured
-                ? "resume_worker_gateway_401_missing_internal_secret"
+              resume_needed && !gatewayKeyConfigured
+                ? buildResumeStallError().code
                 : resume_error,
             trigger_error_details:
-              resume_needed && !internalAuthConfigured
-                ? {
-                    root_cause: "resume_worker_gateway_401_missing_internal_secret",
-                  http_status: 401,
-                  message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
-                    updated_at: nowIso(),
-                  }
+              resume_needed && !gatewayKeyConfigured
+                ? (() => {
+                    const stall = buildResumeStallError();
+                    return {
+                      root_cause: stall.root_cause,
+                      http_status: 401,
+                      message: stall.message,
+                      missing_gateway_key: Boolean(stall.missing_gateway_key),
+                      missing_internal_secret: Boolean(stall.missing_internal_secret),
+                      ...buildResumeAuthDiagnostics(),
+                      updated_at: nowIso(),
+                    };
+                  })()
                 : resume_error_details,
             internal_auth_configured: Boolean(internalAuthConfigured),
+            ...buildResumeAuthDiagnostics(),
           },
           resume_worker: {
             ...EMPTY_RESUME_DIAGNOSTICS.resume_worker,
-            last_reject_layer: resume_needed && !internalAuthConfigured ? "gateway" : null,
-            last_http_status: resume_needed && !internalAuthConfigured ? 401 : null,
+            last_reject_layer: resume_needed && !gatewayKeyConfigured ? "gateway" : null,
+            last_http_status: resume_needed && !gatewayKeyConfigured ? 401 : null,
           },
           saved_companies: [],
           },
