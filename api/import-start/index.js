@@ -6295,9 +6295,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 // Prevent flaky/conflicting Cosmos writes on seed-fallback duplicates by checking first.
                 // Query by website_url since normalized_domain can be "unknown" for some records.
                 const urlToMatch = String(seed.website_url || seed.url || "").trim();
+                const urlTrimmed = urlToMatch.replace(/\/+$/, "");
+                const urlWithSlash = urlTrimmed ? `${urlTrimmed}/` : urlToMatch;
 
                 const existingHit = (() => {
-                  if (!container || !urlToMatch) return null;
+                  if (!container || !urlTrimmed) return null;
                   return container.items
                     .query(
                       {
@@ -6305,9 +6307,15 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                           SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.import_missing_fields
                           FROM c
                           WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
-                            AND (c.website_url = @url OR c.url = @url)
+                            AND (
+                              c.website_url = @url1 OR c.website_url = @url2
+                              OR c.url = @url1 OR c.url = @url2
+                            )
                         `,
-                        parameters: [{ name: "@url", value: urlToMatch }],
+                        parameters: [
+                          { name: "@url1", value: urlTrimmed },
+                          { name: "@url2", value: urlWithSlash },
+                        ],
                       },
                       { enableCrossPartitionQuery: true }
                     )
