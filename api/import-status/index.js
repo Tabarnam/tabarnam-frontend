@@ -1218,18 +1218,17 @@ async function handler(req, context) {
 
         let resumeStatus = resumeStatusRaw;
 
-        if (resumeMissingInternalSecret) {
+        if (resumeStalledByGatewayAuth) {
           const stalledAt = nowIso();
+          const stall = buildResumeStallError();
           resumeStatus = "stalled";
 
           await upsertDoc(container, {
             ...resumeDoc,
             status: "stalled",
             stalled_at: stalledAt,
-            last_error: {
-              code: "resume_worker_gateway_401_missing_internal_secret",
-              message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
-            },
+            resume_auth: buildResumeAuthDiagnostics(),
+            last_error: buildResumeStallError(),
             updated_at: stalledAt,
             lock_expires_at: null,
           }).catch(() => null);
@@ -1240,10 +1239,13 @@ async function handler(req, context) {
             if (sessionDocForStall && typeof sessionDocForStall === "object") {
               await upsertDoc(container, {
                 ...sessionDocForStall,
-                resume_error: "resume_worker_gateway_401_missing_internal_secret",
+                resume_error: stall.code,
                 resume_error_details: {
-                  root_cause: "resume_worker_gateway_401_missing_internal_secret",
-                  message: "Missing X_INTERNAL_JOB_SECRET; internal resume-worker calls will be rejected before handler runs",
+                  root_cause: stall.root_cause,
+                  message: stall.message,
+                  missing_gateway_key: Boolean(stall.missing_gateway_key),
+                  missing_internal_secret: Boolean(stall.missing_internal_secret),
+                  ...buildResumeAuthDiagnostics(),
                   updated_at: stalledAt,
                 },
                 resume_needed: true,
