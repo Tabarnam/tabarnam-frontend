@@ -2728,12 +2728,15 @@ async function verifySavedCompaniesReadAfterWrite(saveResult) {
           partition_key: normalizedDomain,
         }).catch(() => null);
 
-        return { companyId, ok: Boolean(doc) };
+        const missingFields = Array.isArray(doc?.import_missing_fields) ? doc.import_missing_fields : [];
+        const complete = Boolean(doc) && missingFields.length === 0;
+
+        return { companyId, ok: Boolean(doc), complete };
       })
     );
 
     for (const r of reads) {
-      if (r.ok) verified.push(r.companyId);
+      if (r.complete) verified.push(r.companyId);
       else unverified.push(r.companyId);
     }
   }
