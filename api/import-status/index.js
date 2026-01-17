@@ -1154,7 +1154,16 @@ async function handler(req, context) {
             type: "import_control",
             created_at: now,
             updated_at: now,
-            status: "queued",
+            status: resumeMissingInternalSecret ? "stalled" : "queued",
+            ...(resumeMissingInternalSecret
+              ? {
+                  stalled_at: now,
+                  last_error: {
+                    code: "resume_worker_gateway_401_missing_internal_secret",
+                    message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                  },
+                }
+              : {}),
             missing_by_company,
           }).catch(() => null);
           resume_doc_created = true;
@@ -1925,7 +1934,16 @@ async function handler(req, context) {
             type: "import_control",
             created_at: now,
             updated_at: now,
-            status: "queued",
+            status: resumeMissingInternalSecret ? "stalled" : "queued",
+            ...(resumeMissingInternalSecret
+              ? {
+                  stalled_at: now,
+                  last_error: {
+                    code: "resume_worker_gateway_401_missing_internal_secret",
+                    message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                  },
+                }
+              : {}),
             missing_by_company,
           }).catch(() => null);
           resume_doc_created = true;
