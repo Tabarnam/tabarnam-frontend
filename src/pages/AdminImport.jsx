@@ -10,6 +10,7 @@ import {
   API_BASE,
   FUNCTIONS_BASE,
   apiFetch,
+  apiFetchParsed,
   getCachedBuildId,
   getLastApiRequestExplain,
   getResponseBuildId,
@@ -885,15 +886,83 @@ export default function AdminImport() {
       const sid = asString(session_id).trim();
       if (!sid) return;
 
-      try {
-        const statusUrl = join(API_BASE, "import/status");
-        const res = await fetch(`${statusUrl}?session_id=${encodeURIComponent(sid)}&force_resume=1`, {
+      const encoded = encodeURIComponent(sid);
+      const path = `/import/status?session_id=${encoded}&force_resume=1`;
+      const endpointUrl = join(API_BASE, path);
+
+      const requestHeaders = { "Content-Type": "application/json" };
+
+      const initialBundle = {
+        kind: "retry_resume",
+        captured_at: new Date().toISOString(),
+        endpoint_url: endpointUrl,
+        request_payload: { session_id: sid, force_resume: true },
+        request_explain: {
+          url: endpointUrl,
           method: "GET",
-          headers: { "Content-Type": "application/json" },
+          headers: requestHeaders,
+          body_preview: "",
+        },
+        network_error: null,
+        exception_message: null,
+        response_status: null,
+        response_text_preview: null,
+        response: null,
+        build_headers: {
+          api_build_id: null,
+          request_id: null,
+          cached_build_id: getCachedBuildId() || null,
+        },
+      };
+
+      // Critical: persist a debug bundle synchronously, before awaiting any network call.
+      try {
+        setRuns((prev) => prev.map((r) => (r.session_id === sid ? { ...r, last_resume_debug_bundle: initialBundle } : r)));
+      } catch {}
+
+      let finalBundle = initialBundle;
+
+      try {
+        const r = await apiFetchParsed(path, {
+          method: "GET",
+          headers: requestHeaders,
           keepalive: true,
         });
 
-        const body = await readJsonOrText(res);
+        const res = r.response;
+        const body = r.data;
+        const textBody = typeof r.text === "string" ? r.text : "";
+
+        const requestExplain = getLastApiRequestExplain();
+        const apiBuildId = getResponseBuildId(res) || null;
+        const requestId = getResponseRequestId(res) || null;
+
+        finalBundle = {
+          ...initialBundle,
+          request_explain: requestExplain || initialBundle.request_explain,
+          response_status: res?.status ?? null,
+          response_text_preview: textBody ? textBody.slice(0, 2000) : null,
+          response: {
+            status: res.status,
+            ok: res.ok,
+            headers: {
+              "content-type": res.headers.get("content-type") || "",
+              "x-api-build-id": res.headers.get("x-api-build-id") || res.headers.get("X-Api-Build-Id") || "",
+              "x-request-id": res.headers.get("x-request-id") || res.headers.get("X-Request-ID") || "",
+              "x-ms-request-id": res.headers.get("x-ms-request-id") || "",
+            },
+            body_json: body && typeof body === "object" ? body : null,
+            body_text: textBody,
+            api_fetch_error: res && typeof res === "object" ? res.__api_fetch_error : null,
+            api_fetch_fallback: res && typeof res === "object" ? res.__api_fetch_fallback : null,
+          },
+          build_headers: {
+            api_build_id: apiBuildId,
+            request_id: requestId,
+            cached_build_id: getCachedBuildId() || null,
+          },
+        };
+
         const triggered = Boolean(body?.resume?.triggered);
         const triggerError = asString(
           body?.resume?.trigger_error || body?.resume_error || body?.error || body?.message || ""
@@ -908,8 +977,56 @@ export default function AdminImport() {
           toast.error(msg);
         }
       } catch (e) {
+        const maybeStatus = typeof e?.status === "number" ? e.status : Number(e?.status) || null;
+        const res = e?.response;
+        const body = e?.data;
+        const textBody = typeof e?.text === "string" ? e.text : "";
+
+        const requestExplain = getLastApiRequestExplain();
+        const apiBuildId = res ? getResponseBuildId(res) : null;
+        const requestId = res ? getResponseRequestId(res) : null;
+
+        const networkError =
+          body && typeof body === "object"
+            ? asString(body.error_message || body.error || body.message).trim()
+            : "";
+
+        finalBundle = {
+          ...initialBundle,
+          request_explain: requestExplain || initialBundle.request_explain,
+          network_error: networkError || null,
+          exception_message: toErrorString(e) || "Retry resume failed",
+          response_status: res ? res.status : maybeStatus,
+          response_text_preview: textBody ? textBody.slice(0, 2000) : null,
+          response: res
+            ? {
+                status: res.status,
+                ok: res.ok,
+                headers: {
+                  "content-type": res.headers.get("content-type") || "",
+                  "x-api-build-id": res.headers.get("x-api-build-id") || res.headers.get("X-Api-Build-Id") || "",
+                  "x-request-id": res.headers.get("x-request-id") || res.headers.get("X-Request-ID") || "",
+                  "x-ms-request-id": res.headers.get("x-ms-request-id") || "",
+                },
+                body_json: body && typeof body === "object" ? body : null,
+                body_text: textBody,
+                api_fetch_error: res && typeof res === "object" ? res.__api_fetch_error : null,
+                api_fetch_fallback: res && typeof res === "object" ? res.__api_fetch_fallback : null,
+              }
+            : null,
+          build_headers: {
+            api_build_id: apiBuildId,
+            request_id: requestId,
+            cached_build_id: getCachedBuildId() || null,
+          },
+        };
+
         toast.error(toErrorString(e) || "Retry resume failed");
       } finally {
+        try {
+          setRuns((prev) => prev.map((r) => (r.session_id === sid ? { ...r, last_resume_debug_bundle: finalBundle } : r)));
+        } catch {}
+
         await pollProgress({ session_id: sid });
       }
     },
@@ -2605,6 +2722,17 @@ export default function AdminImport() {
     return toPrettyJsonText(activeDebugPayload);
   }, [activeDebugPayload]);
 
+  const resumeDebugPayload = useMemo(() => {
+    if (!activeRun) return null;
+    const bundle = activeRun?.last_resume_debug_bundle;
+    return bundle && typeof bundle === "object" ? bundle : null;
+  }, [activeRun]);
+
+  const resumeDebugText = useMemo(() => {
+    if (!resumeDebugPayload) return "";
+    return toPrettyJsonText(resumeDebugPayload);
+  }, [resumeDebugPayload]);
+
   const startImportDisabled = !API_BASE || activeStatus === "running" || activeStatus === "stopping";
 
   useEffect(() => {
@@ -3883,7 +4011,7 @@ export default function AdminImport() {
                                   Enrichment is still in progress (reviews/logos/location). You can retry the resume worker if it stalled.
                                 </div>
                               )}
-                              <div>
+                              <div className="flex flex-wrap items-center gap-2">
                                 <Button
                                   type="button"
                                   variant="outline"
@@ -3893,9 +4021,167 @@ export default function AdminImport() {
                                 >
                                   Retry resume
                                 </Button>
+
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  disabled={!resumeDebugText}
+                                  onClick={async () => {
+                                    if (!resumeDebugText) return;
+                                    try {
+                                      await navigator.clipboard.writeText(resumeDebugText);
+                                      toast.success("Resume debug copied");
+                                    } catch {
+                                      toast.error("Could not copy");
+                                    }
+                                  }}
+                                >
+                                  <Copy className="h-4 w-4 mr-2" />
+                                  Copy debug
+                                </Button>
+
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  disabled={!resumeDebugPayload}
+                                  onClick={() => {
+                                    if (!resumeDebugPayload) return;
+                                    try {
+                                      const sid = asString(activeRun?.session_id).trim() || "session";
+                                      downloadJsonFile({ filename: `resume-debug-${sid}.json`, value: resumeDebugPayload });
+                                    } catch {
+                                      toast.error("Download failed");
+                                    }
+                                  }}
+                                >
+                                  <Download className="h-4 w-4 mr-2" />
+                                  Download debug
+                                </Button>
                               </div>
                             </div>
                           ) : null}
+
+                          <div className="mt-3 rounded border border-slate-200 bg-white p-3 space-y-2">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div>
+                                <div className="text-sm font-medium text-slate-900">Resume Diagnostics</div>
+                                <div className="mt-0.5 text-[11px] text-slate-600">
+                                  Populated from <code className="rounded bg-slate-100 px-1 py-0.5">/api/import/status</code>. Click “View status” to refresh.
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  disabled={!activeRun?.last_status_body}
+                                  onClick={async () => {
+                                    const payload = activeRun?.last_status_body;
+                                    if (!payload) return;
+                                    try {
+                                      await navigator.clipboard.writeText(toPrettyJsonText(payload));
+                                      toast.success("Status JSON copied");
+                                    } catch {
+                                      toast.error("Could not copy");
+                                    }
+                                  }}
+                                >
+                                  <Copy className="h-4 w-4 mr-2" />
+                                  Copy status JSON
+                                </Button>
+                              </div>
+                            </div>
+
+                            {(() => {
+                              const statusBody = activeRun?.last_status_body && typeof activeRun.last_status_body === "object" ? activeRun.last_status_body : null;
+                              const resume = activeRun?.resume && typeof activeRun.resume === "object" ? activeRun.resume : null;
+                              const resumeWorker = activeRun?.resume_worker && typeof activeRun.resume_worker === "object" ? activeRun.resume_worker : null;
+                              const lastAuth = resumeWorker?.last_auth && typeof resumeWorker.last_auth === "object" ? resumeWorker.last_auth : null;
+
+                              const buildId = asString(statusBody?.build_id).trim();
+                              const handlerEnteredAt = asString(resumeWorker?.handler_entered_at).trim();
+                              const handlerBuildId = asString(resumeWorker?.handler_entered_build_id).trim();
+
+                              const lastHttpStatus =
+                                typeof resumeWorker?.last_http_status === "number" && Number.isFinite(resumeWorker.last_http_status)
+                                  ? resumeWorker.last_http_status
+                                  : null;
+
+                              const lastRejectLayer = asString(resumeWorker?.last_reject_layer).trim();
+
+                              const authOk =
+                                typeof lastAuth?.auth_ok === "boolean" ? String(lastAuth.auth_ok)
+                                : typeof lastAuth?.ok === "boolean" ? String(lastAuth.ok)
+                                : "";
+
+                              const authMethodUsed = asString(lastAuth?.auth_method_used || lastAuth?.auth_method).trim();
+                              const secretSource = asString(lastAuth?.secret_source).trim();
+
+                              return (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-700">
+                                  <div>
+                                    <span className="font-medium">build_id:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{buildId || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume.gateway_key_attached:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">{String(resume?.gateway_key_attached ?? "—")}</code>
+                                  </div>
+                                  <div className="md:col-span-2">
+                                    <span className="font-medium">resume.trigger_request_id:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{asString(resume?.trigger_request_id).trim() || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker_handler_entered_at:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{handlerEnteredAt || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker_handler_build_id:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{handlerBuildId || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker_last_http_status:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">{lastHttpStatus != null ? lastHttpStatus : "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker_last_reject_layer:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">{lastRejectLayer || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker_last_auth.auth_ok:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">{authOk || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker_last_auth.auth_method_used:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">{authMethodUsed || "—"}</code>
+                                  </div>
+                                  <div className="md:col-span-2">
+                                    <span className="font-medium">resume_worker_last_auth.secret_source:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{secretSource || "—"}</code>
+                                  </div>
+
+                                  {!statusBody ? (
+                                    <div className="md:col-span-2 text-[11px] text-slate-500">
+                                      No status payload captured yet — click “View status”.
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })()}
+
+                            <details className="rounded border border-slate-200 bg-slate-50 p-2">
+                              <summary className="cursor-pointer select-none text-xs font-medium text-slate-700">Raw status JSON</summary>
+                              <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words text-[11px] text-slate-800">
+                                {activeRun?.last_status_body ? toPrettyJsonText(activeRun.last_status_body) : "No status payload yet."}
+                              </pre>
+                            </details>
+                          </div>
                         </>
                       );
                     })()}

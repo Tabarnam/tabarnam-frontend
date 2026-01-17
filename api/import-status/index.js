@@ -30,6 +30,38 @@ const {
   buildPartitionKeyCandidates,
 } = require("../_cosmosPartitionKey");
 
+const EMPTY_RESUME_DIAGNOSTICS = Object.freeze({
+  resume: {
+    needed: null,
+    doc_created: null,
+    triggered: null,
+    trigger_error: null,
+    trigger_error_details: null,
+    gateway_key_attached: null,
+    trigger_request_id: null,
+    internal_auth_configured: null,
+    missing_by_company: null,
+  },
+  resume_worker: {
+    last_invoked_at: null,
+    handler_entered_at: null,
+    handler_entered_build_id: null,
+    last_reject_layer: null,
+    last_auth: null,
+    last_finished_at: null,
+    last_result: null,
+    last_ok: null,
+    last_http_status: null,
+    last_trigger_request_id: null,
+    last_gateway_key_attached: null,
+    last_error: null,
+    last_company_id: null,
+    last_written_fields: null,
+    last_stage_beacon: null,
+    last_resume_needed: null,
+  },
+});
+
 function cors(req) {
   const origin = req?.headers?.get?.("origin") || "*";
   return {
@@ -668,7 +700,7 @@ async function handler(req, context) {
     ).trim() === "1";
 
   if (!sessionId) {
-    return json({ ok: false, error: "Missing session_id" }, 400, req);
+    return json({ ok: false, error: "Missing session_id", ...EMPTY_RESUME_DIAGNOSTICS }, 400, req);
   }
 
   const extraHeaders = { "x-session-id": sessionId };
@@ -1432,6 +1464,15 @@ async function handler(req, context) {
           early_exit_triggered: Boolean(primaryJob?.early_exit_triggered),
           companies_count: Number.isFinite(Number(primaryJob.companies_count)) ? Number(primaryJob.companies_count) : 0,
           items: Array.isArray(primaryJob.companies) ? primaryJob.companies : [],
+          ...EMPTY_RESUME_DIAGNOSTICS,
+          resume_needed: false,
+          resume_error: null,
+          resume_error_details: null,
+          resume: {
+            ...EMPTY_RESUME_DIAGNOSTICS.resume,
+            needed: false,
+          },
+          resume_worker: EMPTY_RESUME_DIAGNOSTICS.resume_worker,
           primary_job: {
             id: primaryJob.id || null,
             job_state: jobState,
@@ -1521,10 +1562,17 @@ async function handler(req, context) {
           saved_company_ids_unverified,
           saved_company_urls,
           save_outcome,
+          ...EMPTY_RESUME_DIAGNOSTICS,
           resume_needed,
           resume_error,
           resume_error_details,
-        resume_error_details,
+          resume: {
+            ...EMPTY_RESUME_DIAGNOSTICS.resume,
+            needed: resume_needed,
+            trigger_error: resume_error,
+            trigger_error_details: resume_error_details,
+          },
+          resume_worker: EMPTY_RESUME_DIAGNOSTICS.resume_worker,
           saved_companies: [],
         },
         200,
@@ -1532,7 +1580,7 @@ async function handler(req, context) {
       );
     }
 
-    return jsonWithSessionId({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404);
+    return jsonWithSessionId({ ok: false, error: "Unknown session_id", session_id: sessionId, ...EMPTY_RESUME_DIAGNOSTICS }, 404);
   }
 
   try {
@@ -1582,11 +1630,18 @@ async function handler(req, context) {
             saved_company_ids_unverified,
             saved_company_urls,
             save_outcome,
-            resume_needed,
-            resume_error,
+          ...EMPTY_RESUME_DIAGNOSTICS,
+          resume_needed,
+          resume_error,
           resume_error_details,
-        resume_error_details,
-            saved_companies: [],
+          resume: {
+            ...EMPTY_RESUME_DIAGNOSTICS.resume,
+            needed: resume_needed,
+            trigger_error: resume_error,
+            trigger_error_details: resume_error_details,
+          },
+          resume_worker: EMPTY_RESUME_DIAGNOSTICS.resume_worker,
+          saved_companies: [],
           },
           200,
           req
@@ -1599,6 +1654,7 @@ async function handler(req, context) {
           session_id: sessionId,
           error: "Cosmos client module unavailable",
           code: "COSMOS_MODULE_MISSING",
+          ...EMPTY_RESUME_DIAGNOSTICS,
         },
         200
       );
@@ -1628,7 +1684,7 @@ async function handler(req, context) {
     if (!known) known = await hasAnyCompanyDocs(container, sessionId);
 
     if (!known) {
-      return jsonWithSessionId({ ok: false, error: "Unknown session_id", session_id: sessionId }, 404);
+      return jsonWithSessionId({ ok: false, error: "Unknown session_id", session_id: sessionId, ...EMPTY_RESUME_DIAGNOSTICS }, 404);
     }
 
     stageBeaconValues.status_seen_control_docs = nowIso();

@@ -475,7 +475,23 @@ export async function apiFetchParsed(path: string, init?: RequestInit): Promise<
   const method = getMethodFromInit(normalizedInit);
 
   const response = await apiFetch(path, init);
-  const { data, text } = await readJsonIfLooksJson(response);
+  const parsed = await readJsonIfLooksJson(response);
+
+  let data = parsed.data;
+  let text = parsed.text;
+
+  // Debuggability guarantee: always provide a best-effort response text preview.
+  // Many admin debug UIs rely on `text` even when the response is JSON.
+  if ((!text || !text.trim()) && data != null) {
+    try {
+      const jsonText = JSON.stringify(data);
+      if (typeof jsonText === "string") {
+        text = jsonText.length > 20_000 ? `${jsonText.slice(0, 20_000)}…<truncated>` : jsonText;
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   const result: ApiFetchParsedResult = {
     ok: response.ok,
@@ -483,7 +499,7 @@ export async function apiFetchParsed(path: string, init?: RequestInit): Promise<
     url,
     method,
     data,
-    text,
+    text: typeof text === "string" ? text : "",
     response,
   };
 
@@ -493,7 +509,7 @@ export async function apiFetchParsed(path: string, init?: RequestInit): Promise<
       url,
       method,
       data,
-      text,
+      text: result.text,
       response,
     };
     throw err;
