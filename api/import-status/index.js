@@ -1173,8 +1173,9 @@ async function handler(req, context) {
     let resume_trigger_request_id = null;
 
     let resume_status = null;
-    // Azure gateways may require x-functions-key before JS runs. If FUNCTION_KEY is missing, treat resume as stalled.
-    const resumeStalledByGatewayAuth = Boolean(resume_needed && !gatewayKeyConfigured);
+    // Resume-worker is invoked in-process (no internal HTTP call), so Azure gateway/host-key requirements
+    // do not gate the resume trigger.
+    const resumeStalledByGatewayAuth = false;
 
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
