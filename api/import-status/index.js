@@ -1173,7 +1173,8 @@ async function handler(req, context) {
     let resume_trigger_request_id = null;
 
     let resume_status = null;
-    const resumeMissingInternalSecret = Boolean(resume_needed && !internalAuthConfigured);
+    // Azure gateways may require x-functions-key before JS runs. If FUNCTION_KEY is missing, treat resume as stalled.
+    const resumeStalledByGatewayAuth = Boolean(resume_needed && !gatewayKeyConfigured);
 
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
