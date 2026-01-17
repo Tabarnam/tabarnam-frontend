@@ -772,8 +772,10 @@ test("/api/import/status surfaces verified save fields while running (memory fal
     assert.deepEqual(statusBody.saved_company_ids_verified, [verifiedId]);
     assert.equal(statusBody.resume_needed, true);
     assert.equal(statusBody.save_outcome, "duplicate_detected");
-    assert.equal(statusBody.resume_error, "resume_worker_http_401");
+    assert.equal(statusBody.resume_error, "resume_worker_gateway_401_missing_internal_secret");
     assert.equal(statusBody.resume_error_details?.http_status, 401);
+    assert.equal(statusBody.resume?.status, "stalled");
+    assert.equal(statusBody.resume_worker?.last_reject_layer, "gateway");
     assert.ok(Array.isArray(statusBody.saved_company_urls));
     assert.ok(statusBody.saved_company_urls.includes("https://omre.co/"));
   });
