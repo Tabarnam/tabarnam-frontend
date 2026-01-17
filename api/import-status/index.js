@@ -1288,7 +1288,12 @@ async function handler(req, context) {
               ? "primary_search_started"
               : "primary_search_started";
 
-    const effectiveStageBeacon = resume_needed ? "enrichment_resume_pending" : stageBeaconFromPrimary;
+    const sessionStageBeacon =
+      typeof report?.session?.stage_beacon === "string" && report.session.stage_beacon.trim()
+        ? report.session.stage_beacon.trim()
+        : "";
+
+    const effectiveStageBeacon = resume_needed ? "enrichment_resume_pending" : sessionStageBeacon || stageBeaconFromPrimary;
 
     stageBeaconValues.status_enrichment_health_summary = nowIso();
     stageBeaconValues.status_enrichment_incomplete = enrichment_health_summary.incomplete;
