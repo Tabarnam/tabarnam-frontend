@@ -6399,20 +6399,31 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       : null;
 
                     if (existingDoc) {
+                      const existingMissing = Array.isArray(existingDoc?.import_missing_fields)
+                        ? existingDoc.import_missing_fields
+                        : [];
+                      const existingComplete = existingMissing.length === 0;
+
+                      if (!existingComplete) {
+                        save_outcome = "duplicate_detected_unverified_missing_required_fields";
+                      }
+
                       saveResult = {
                         ...saveResult,
-                        saved: 1,
+                        saved: existingComplete ? 1 : 0,
                         skipped: 0,
                         failed: 0,
-                        saved_ids: [duplicateOfId],
+                        saved_ids: existingComplete ? [duplicateOfId] : [],
                         skipped_ids: [],
                         failed_items: [],
-                        saved_company_ids_verified: [duplicateOfId],
-                        saved_company_ids_unverified: [],
-                        saved_verified_count: 1,
+                        saved_company_ids_verified: existingComplete ? [duplicateOfId] : [],
+                        saved_company_ids_unverified: existingComplete ? [] : [duplicateOfId],
+                        saved_verified_count: existingComplete ? 1 : 0,
                         saved_write_count: 0,
                         saved_ids_write: [],
                         duplicate_of_id: duplicateOfId,
+                        duplicate_existing_incomplete: !existingComplete,
+                        duplicate_existing_missing_fields: existingComplete ? [] : existingMissing.slice(0, 20),
                       };
                     } else {
                       save_outcome = "read_after_write_failed";
