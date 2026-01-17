@@ -288,10 +288,14 @@ async function apiFetchWithFallback(paths, init) {
     lastPath = path;
     const res = await apiFetch(path, init);
     lastRes = res;
-    if (res.status !== 404) return { res, usedPath: path };
+
+    // Return the *effective* request path (including API_BASE) so debug payloads match what the browser actually called.
+    const effectivePath = join(API_BASE || "", path);
+
+    if (res.status !== 404) return { res, usedPath: effectivePath };
   }
 
-  return { res: lastRes, usedPath: lastPath };
+  return { res: lastRes, usedPath: join(API_BASE || "", lastPath) };
 }
 
 function extractSessionId(value) {
@@ -1717,7 +1721,9 @@ export default function AdminImport() {
 
       const callImportStage = async ({ stage, skipStages, companies }) => {
         const params = new URLSearchParams();
-        if (stage) params.set("max_stage", stage);
+
+        // IMPORTANT: real imports must not send max_stage=expand (or any max_stage) via query params.
+        // The backend should run the full pipeline by default. (Keeping `stage` only for UI/debug labels.)
         if (skipStages && skipStages.length > 0) params.set("skip_stages", skipStages.join(","));
         const qs = params.toString();
 

@@ -3366,12 +3366,16 @@ async function saveCompaniesToCosmos({
                 if (!import_missing_fields.includes(f)) import_missing_fields.push(f);
                 if (!import_missing_reason[f]) import_missing_reason[f] = String(reason || "missing");
 
+                const missing_reason = String(reason || "missing");
+                const terminal = missing_reason === "not_disclosed";
+
                 import_warnings.push({
                   field: f,
-                  missing_reason: String(reason || "missing"),
+                  missing_reason,
                   stage: String(stage || "unknown"),
                   source_attempted: String(source_attempted || ""),
                   retryable: Boolean(retryable),
+                  terminal,
                   message: String(message || "missing"),
                 });
               };
@@ -3441,7 +3445,8 @@ async function saveCompaniesToCosmos({
                     "headquarters_location",
                     "not_disclosed",
                     "extract_hq",
-                    "headquarters_location missing; recorded as terminal sentinel 'Not disclosed'"
+                    "headquarters_location missing; recorded as terminal sentinel 'Not disclosed'",
+                    false
                   );
                 } else {
                   doc.headquarters_location = "Unknown";
@@ -3493,7 +3498,8 @@ async function saveCompaniesToCosmos({
                     "manufacturing_locations",
                     "not_disclosed",
                     "extract_mfg",
-                    "manufacturing_locations missing; recorded as terminal sentinel ['Not disclosed']"
+                    "manufacturing_locations missing; recorded as terminal sentinel ['Not disclosed']",
+                    false
                   );
                 } else {
                   doc.manufacturing_locations = ["Unknown"];
@@ -8871,15 +8877,28 @@ Return ONLY the JSON array, no other text.`,
                   : [];
 
                 const ensureMissing = (field, reason, message, retryable = true) => {
+                  const missing_reason = String(reason || "missing");
+                  const terminal = missing_reason === "not_disclosed";
+
                   if (!import_missing_fields.includes(field)) import_missing_fields.push(field);
-                  if (!import_missing_reason[field]) import_missing_reason[field] = String(reason || "missing");
-                  import_warnings.push({ field, root_cause: field, retryable: Boolean(retryable), message: String(message || "missing") });
+                  if (!import_missing_reason[field]) import_missing_reason[field] = missing_reason;
+
+                  import_warnings.push({
+                    field,
+                    root_cause: field,
+                    missing_reason,
+                    retryable: Boolean(retryable),
+                    terminal,
+                    message: String(message || "missing"),
+                  });
 
                   // Session-level warning (visible in import completion doc)
                   addWarning(`import_missing_${field}_${i}`, {
                     stage: "enrich",
                     root_cause: `missing_${field}`,
+                    missing_reason,
                     retryable: Boolean(retryable),
+                    terminal,
                     message: String(message || "missing"),
                     company_name: company_name || undefined,
                     website_url: website_url || undefined,
@@ -8928,22 +8947,82 @@ Return ONLY the JSON array, no other text.`,
 
                 // headquarters
                 if (!isRealValue("headquarters_location", base.headquarters_location, base)) {
-                  base.headquarters_location = "Unknown";
+                  const hqReasonRaw = String(base.hq_unknown_reason || "unknown").trim().toLowerCase();
+                  const hqValueRaw = String(base.headquarters_location || "").trim().toLowerCase();
+                  const hqNotDisclosed =
+                    hqReasonRaw === "not_disclosed" || hqValueRaw === "not disclosed" || hqValueRaw === "not_disclosed";
+
                   base.hq_unknown = true;
-                  base.hq_unknown_reason = String(base.hq_unknown_reason || "unknown");
-                  ensureMissing("headquarters_location", base.hq_unknown_reason, "headquarters_location missing; set to placeholder 'Unknown'");
+
+                  if (hqNotDisclosed) {
+                    base.headquarters_location = "Not disclosed";
+                    base.hq_unknown_reason = "not_disclosed";
+                    ensureMissing(
+                      "headquarters_location",
+                      "not_disclosed",
+                      "headquarters_location missing; recorded as terminal sentinel 'Not disclosed'",
+                      false
+                    );
+                  } else {
+                    base.headquarters_location = "Unknown";
+                    base.hq_unknown_reason = hqReasonRaw || "unknown";
+                    ensureMissing(
+                      "headquarters_location",
+                      base.hq_unknown_reason,
+                      "headquarters_location missing; set to placeholder 'Unknown'"
+                    );
+                  }
                 }
 
                 // manufacturing
                 if (!isRealValue("manufacturing_locations", base.manufacturing_locations, base)) {
-                  base.manufacturing_locations = ["Unknown"];
+                  const mfgReasonRaw = String(base.mfg_unknown_reason || base.manufacturing_locations_reason || "unknown")
+                    .trim()
+                    .toLowerCase();
+
+                  const rawList = Array.isArray(base.manufacturing_locations)
+                    ? base.manufacturing_locations
+                    : base.manufacturing_locations == null
+                      ? []
+                      : [base.manufacturing_locations];
+
+                  const normalized = rawList
+                    .map((loc) => {
+                      if (typeof loc === "string") return String(loc).trim().toLowerCase();
+                      if (loc && typeof loc === "object") {
+                        return String(loc.formatted || loc.full_address || loc.address || loc.location || "")
+                          .trim()
+                          .toLowerCase();
+                      }
+                      return "";
+                    })
+                    .filter(Boolean);
+
+                  const mfgNotDisclosed =
+                    mfgReasonRaw === "not_disclosed" ||
+                    (normalized.length > 0 && normalized.every((v) => v === "not disclosed" || v === "not_disclosed"));
+
                   base.mfg_unknown = true;
-                  base.mfg_unknown_reason = String(base.mfg_unknown_reason || "unknown");
-                  ensureMissing(
-                    "manufacturing_locations",
-                    base.mfg_unknown_reason,
-                    "manufacturing_locations missing; set to placeholder ['Unknown']"
-                  );
+
+                  if (mfgNotDisclosed) {
+                    base.manufacturing_locations = ["Not disclosed"];
+                    base.manufacturing_locations_reason = "not_disclosed";
+                    base.mfg_unknown_reason = "not_disclosed";
+                    ensureMissing(
+                      "manufacturing_locations",
+                      "not_disclosed",
+                      "manufacturing_locations missing; recorded as terminal sentinel ['Not disclosed']",
+                      false
+                    );
+                  } else {
+                    base.manufacturing_locations = ["Unknown"];
+                    base.mfg_unknown_reason = mfgReasonRaw || "unknown";
+                    ensureMissing(
+                      "manufacturing_locations",
+                      base.mfg_unknown_reason,
+                      "manufacturing_locations missing; set to placeholder ['Unknown']"
+                    );
+                  }
                 }
 
                 // logo

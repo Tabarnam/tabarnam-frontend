@@ -440,6 +440,98 @@ function computeEnrichmentHealth(company) {
   return computeEnrichmentHealthContract(company);
 }
 
+// Back-compat naming used by status/reconciliation logic.
+function computeContractEnrichmentHealth(company) {
+  return computeEnrichmentHealthContract(company);
+}
+
+function normalizeMissingKey(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function isTrueish(value) {
+  if (value === true) return true;
+  if (value === false) return false;
+  const s = normalizeMissingKey(value);
+  return s === "true" || s === "1" || s === "yes" || s === "y";
+}
+
+function isTerminalMissingField(doc, field) {
+  const d = doc && typeof doc === "object" ? doc : {};
+  const f = String(field || "").trim();
+
+  if (f === "headquarters_location") {
+    if (isTrueish(d.hq_unknown)) return true;
+    const val = normalizeMissingKey(d.headquarters_location);
+    return val === "not disclosed" || val === "not_disclosed";
+  }
+
+  if (f === "manufacturing_locations") {
+    if (isTrueish(d.mfg_unknown)) return true;
+
+    const rawList = Array.isArray(d.manufacturing_locations)
+      ? d.manufacturing_locations
+      : d.manufacturing_locations == null
+        ? []
+        : [d.manufacturing_locations];
+
+    const normalized = rawList
+      .map((loc) => {
+        if (typeof loc === "string") return normalizeMissingKey(loc);
+        if (loc && typeof loc === "object") {
+          return normalizeMissingKey(loc.formatted || loc.full_address || loc.address || loc.location);
+        }
+        return "";
+      })
+      .filter(Boolean);
+
+    if (normalized.length === 0) return false;
+
+    return normalized.every((v) => v === "not disclosed" || v === "not_disclosed");
+  }
+
+  if (f === "reviews") {
+    const stage = normalizeMissingKey(d.reviews_stage_status || d.review_cursor?.reviews_stage_status);
+    if (stage === "exhausted") return true;
+    return Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true);
+  }
+
+  if (f === "logo") {
+    const stage = normalizeMissingKey(d.logo_stage_status || d.logo_status);
+    return stage === "not_found_on_site";
+  }
+
+  return false;
+}
+
+function analyzeMissingFieldsForResume(docs) {
+  const list = Array.isArray(docs) ? docs : [];
+
+  let totalMissing = 0;
+  let totalRetryableMissing = 0;
+  let totalTerminalMissing = 0;
+
+  for (const doc of list) {
+    const health = computeContractEnrichmentHealth(doc);
+    const missing = Array.isArray(health?.missing_fields) ? health.missing_fields : [];
+
+    for (const field of missing) {
+      totalMissing += 1;
+      if (isTerminalMissingField(doc, field)) totalTerminalMissing += 1;
+      else totalRetryableMissing += 1;
+    }
+  }
+
+  const terminalOnly = totalMissing > 0 && totalRetryableMissing === 0;
+
+  return {
+    total_missing: totalMissing,
+    total_retryable_missing: totalRetryableMissing,
+    total_terminal_missing: totalTerminalMissing,
+    terminal_only: terminalOnly,
+  };
+}
+
 function summarizeEnrichmentHealth(savedCompanies) {
   const list = Array.isArray(savedCompanies) ? savedCompanies : [];
   const incomplete = list.filter((c) => Array.isArray(c?.enrichment_health?.missing_fields) && c.enrichment_health.missing_fields.length > 0);
@@ -1032,7 +1124,17 @@ async function handler(req, context) {
     }
 
     const resumeNeededFromSession = Boolean(report?.session && report.session.resume_needed);
-    const resumeNeededFromHealth = enrichment_health_summary.incomplete > 0;
+
+    // Recompute missing fields on every status call, then reconcile terminal-only completion.
+    // If the only missing fields are terminal (HQ/MFG "Not disclosed", reviews exhausted, logo not_found_on_site),
+    // status must report resume_needed=false so imports do not stall forever.
+    const resumeMissingAnalysis = analyzeMissingFieldsForResume(savedDocsForHealth);
+    const resumeNeededFromHealth = resumeMissingAnalysis.total_retryable_missing > 0;
+
+    stageBeaconValues.status_resume_missing_total = resumeMissingAnalysis.total_missing;
+    stageBeaconValues.status_resume_missing_retryable = resumeMissingAnalysis.total_retryable_missing;
+    stageBeaconValues.status_resume_missing_terminal = resumeMissingAnalysis.total_terminal_missing;
+    if (resumeMissingAnalysis.terminal_only) stageBeaconValues.status_resume_terminal_only = nowIso();
 
     const missing_by_company = saved_companies
       .filter((c) => Array.isArray(c?.enrichment_health?.missing_fields) && c.enrichment_health.missing_fields.length > 0)
@@ -1044,7 +1146,15 @@ async function handler(req, context) {
       }));
 
     const resumeDocExists = Boolean(report?.resume);
-    const resume_needed = Boolean(resumeNeededFromSession || resumeNeededFromHealth || resumeDocExists);
+
+    // If the saved companies are only missing terminal fields, ignore stale control-doc resume_needed/resume-doc existence.
+    const resume_needed = resumeMissingAnalysis.terminal_only
+      ? false
+      : Boolean(resumeNeededFromSession || resumeNeededFromHealth || resumeDocExists);
+
+    if (resumeMissingAnalysis.terminal_only && report?.session && report.session.resume_needed) {
+      report.session.resume_needed = false;
+    }
 
     let resume_doc_created = false;
     let resume_triggered = false;
@@ -1293,7 +1403,13 @@ async function handler(req, context) {
         ? report.session.stage_beacon.trim()
         : "";
 
-    const effectiveStageBeacon = resume_needed ? "enrichment_resume_pending" : sessionStageBeacon || stageBeaconFromPrimary;
+    const shouldShowCompleteBeacon = Boolean((effectiveStatus === "complete" && !resume_needed) || resumeMissingAnalysis?.terminal_only);
+
+    const effectiveStageBeacon = shouldShowCompleteBeacon
+      ? "complete"
+      : resume_needed
+        ? "enrichment_resume_pending"
+        : sessionStageBeacon || stageBeaconFromPrimary;
 
     stageBeaconValues.status_enrichment_health_summary = nowIso();
     stageBeaconValues.status_enrichment_incomplete = enrichment_health_summary.incomplete;
@@ -1884,6 +2000,7 @@ async function handler(req, context) {
 
         saved = authoritativeDocs.length;
         savedIds = authoritativeIds;
+        savedDocs = authoritativeDocs;
         saved_companies = toSavedCompanies(authoritativeDocs);
         completionReason = reason;
 
@@ -1988,6 +2105,15 @@ async function handler(req, context) {
     };
 
     const enrichment_health_summary = summarizeEnrichmentHealth(saved_companies);
+
+    const resumeMissingAnalysis = analyzeMissingFieldsForResume(savedDocs);
+    const resumeNeededFromHealth = resumeMissingAnalysis.total_retryable_missing > 0;
+
+    stageBeaconValues.status_resume_missing_total = resumeMissingAnalysis.total_missing;
+    stageBeaconValues.status_resume_missing_retryable = resumeMissingAnalysis.total_retryable_missing;
+    stageBeaconValues.status_resume_missing_terminal = resumeMissingAnalysis.total_terminal_missing;
+    if (resumeMissingAnalysis.terminal_only) stageBeaconValues.status_resume_terminal_only = nowIso();
+
     const missing_by_company = saved_companies
       .filter((c) => Array.isArray(c?.enrichment_health?.missing_fields) && c.enrichment_health.missing_fields.length > 0)
       .map((c) => ({
@@ -1997,7 +2123,19 @@ async function handler(req, context) {
         missing_fields: c.enrichment_health.missing_fields,
       }));
 
-    const resume_needed = Boolean(sessionDoc?.resume_needed) || enrichment_health_summary.incomplete > 0 || Boolean(resumeDoc);
+    // Terminal-only missing fields must not keep the session "running".
+    const resume_needed = resumeMissingAnalysis.terminal_only
+      ? false
+      : Boolean(sessionDoc?.resume_needed) || resumeNeededFromHealth || Boolean(resumeDoc);
+
+    if (resumeMissingAnalysis.terminal_only && sessionDoc && sessionDoc.resume_needed) {
+      const now = nowIso();
+      sessionDoc.resume_needed = false;
+      sessionDoc.status = "complete";
+      sessionDoc.stage_beacon = "complete";
+      sessionDoc.updated_at = now;
+      await upsertDoc(container, { ...sessionDoc }).catch(() => null);
+    }
 
     let resume_doc_created = false;
     let resume_triggered = false;
