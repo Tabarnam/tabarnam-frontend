@@ -642,6 +642,9 @@ async function resumeWorkerHandler(req, context) {
 
     const urlForThisPass = startUrlBase;
 
+    lastImportStartRequestPayload = startBody;
+    lastImportStartRequestUrl = String(urlForThisPass);
+
     try {
       lastStartRes = await invokeImportStartDirect(startBody, urlForThisPass);
       if (lastStartRes?.body && typeof lastStartRes.body === "string") lastStartText = lastStartRes.body;
