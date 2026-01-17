@@ -665,6 +665,20 @@ async function resumeWorkerHandler(req, context) {
     lastStartHttpStatus = Number(lastStartJson?.http_status || lastStartRes?.status || 0) || 0;
     lastStartOk = Boolean(lastStartJson) ? lastStartJson.ok !== false : false;
 
+    lastImportStartResponse = lastStartJson || (lastStartText ? { text: lastStartText.slice(0, 8000) } : null);
+
+    if (!lastStartOk || lastStartHttpStatus >= 400) {
+      const msg =
+        typeof lastStartJson?.error_message === "string" && lastStartJson.error_message.trim()
+          ? lastStartJson.error_message.trim()
+          : typeof lastStartJson?.root_cause === "string" && lastStartJson.root_cause.trim()
+            ? lastStartJson.root_cause.trim()
+            : lastStartHttpStatus
+              ? `import_start_http_${lastStartHttpStatus}`
+              : "import_start_failed";
+      last_error_details = String(msg).slice(0, 240);
+    }
+
     // Re-load docs and re-check contract.
     const ids = companies.map((c) => String(c?.id || "").trim()).filter(Boolean).slice(0, 25);
     const refreshed = ids.length > 0 ? await fetchCompaniesByIds(container, ids).catch(() => []) : [];
