@@ -19,6 +19,10 @@ const {
   getInternalJobSecretInfo,
   getAcceptableInternalSecretsInfo,
 } = require("../_internalJobAuth");
+
+// IMPORTANT: pure handler module only (no app.http registrations). Loaded at cold start.
+const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
+
 const { getBuildInfo } = require("../_buildInfo");
 
 const HANDLER_ID = "import-status";
@@ -1310,43 +1314,30 @@ async function handler(req, context) {
           const triggerAttemptAt = nowIso();
           stageBeaconValues.status_trigger_resume_worker = triggerAttemptAt;
 
-          const base = new URL(req.url);
-          const workerUrl = new URL("/api/import/resume-worker", base.origin);
-
           const workerRequest = buildInternalFetchRequest({
             job_kind: "import_resume",
           });
 
-          resume_gateway_key_attached = workerRequest.gateway_key_attached;
-          resume_trigger_request_id = workerRequest.request_id;
-
           const workerRes = await (async () => {
             try {
-              const { handler: resumeWorkerHandler } = require("../import/resume-worker/index.js");
+              const invokeRes = await invokeResumeWorkerInProcess({
+                session_id: sessionId,
+                context,
+                workerRequest,
+              });
 
-              const hdrs = new Headers();
-              for (const [k, v] of Object.entries(workerRequest.headers || {})) {
-                if (v === undefined || v === null) continue;
-                hdrs.set(k, String(v));
-              }
+              resume_gateway_key_attached = Boolean(invokeRes.gateway_key_attached);
+              resume_trigger_request_id = invokeRes.request_id || workerRequest.request_id;
 
-              const internalReq = {
-                method: "POST",
-                url: workerUrl.toString(),
-                headers: hdrs,
-                __in_process: true,
-                json: async () => ({ session_id: sessionId }),
-                text: async () => JSON.stringify({ session_id: sessionId }),
+              return {
+                ok: Boolean(invokeRes.ok),
+                status: Number(invokeRes.status || 0) || 0,
+                text: async () => String(invokeRes.bodyText || ""),
+                _error: invokeRes.error,
               };
-
-              const res = await resumeWorkerHandler(internalReq, context).catch((e) => ({ status: 0, _error: e }));
-              const status = Number(res?.status || 0) || 0;
-              const ok = status >= 200 && status < 300;
-              const bodyText =
-                typeof res?.body === "string" ? res.body : res?.body != null ? JSON.stringify(res.body) : "";
-
-              return { ok, status, text: async () => bodyText, _error: res?._error };
             } catch (e) {
+              resume_gateway_key_attached = Boolean(workerRequest.gateway_key_attached);
+              resume_trigger_request_id = workerRequest.request_id;
               return { ok: false, status: 0, text: async () => "", _error: e };
             }
           })();
@@ -1363,8 +1354,8 @@ async function handler(req, context) {
 
             resume_trigger_error = workerRes?._error?.message || `resume_worker_http_${statusCode}`;
             resume_trigger_error_details = {
+              invocation: "in_process",
               http_status: statusCode,
-              used_url: workerUrl.toString(),
               response_text_preview: preview || null,
               gateway_key_attached: Boolean(resume_gateway_key_attached),
               request_id: resume_trigger_request_id || null,
@@ -2223,43 +2214,30 @@ async function handler(req, context) {
           const triggerAttemptAt = nowIso();
           stageBeaconValues.status_trigger_resume_worker = triggerAttemptAt;
 
-          const base = new URL(req.url);
-          const workerUrl = new URL("/api/import/resume-worker", base.origin);
-
           const workerRequest = buildInternalFetchRequest({
             job_kind: "import_resume",
           });
 
-          resume_gateway_key_attached = workerRequest.gateway_key_attached;
-          resume_trigger_request_id = workerRequest.request_id;
-
           const workerRes = await (async () => {
             try {
-              const { handler: resumeWorkerHandler } = require("../import/resume-worker/index.js");
+              const invokeRes = await invokeResumeWorkerInProcess({
+                session_id: sessionId,
+                context,
+                workerRequest,
+              });
 
-              const hdrs = new Headers();
-              for (const [k, v] of Object.entries(workerRequest.headers || {})) {
-                if (v === undefined || v === null) continue;
-                hdrs.set(k, String(v));
-              }
+              resume_gateway_key_attached = Boolean(invokeRes.gateway_key_attached);
+              resume_trigger_request_id = invokeRes.request_id || workerRequest.request_id;
 
-              const internalReq = {
-                method: "POST",
-                url: workerUrl.toString(),
-                headers: hdrs,
-                __in_process: true,
-                json: async () => ({ session_id: sessionId }),
-                text: async () => JSON.stringify({ session_id: sessionId }),
+              return {
+                ok: Boolean(invokeRes.ok),
+                status: Number(invokeRes.status || 0) || 0,
+                text: async () => String(invokeRes.bodyText || ""),
+                _error: invokeRes.error,
               };
-
-              const res = await resumeWorkerHandler(internalReq, context).catch((e) => ({ status: 0, _error: e }));
-              const status = Number(res?.status || 0) || 0;
-              const ok = status >= 200 && status < 300;
-              const bodyText =
-                typeof res?.body === "string" ? res.body : res?.body != null ? JSON.stringify(res.body) : "";
-
-              return { ok, status, text: async () => bodyText, _error: res?._error };
             } catch (e) {
+              resume_gateway_key_attached = Boolean(workerRequest.gateway_key_attached);
+              resume_trigger_request_id = workerRequest.request_id;
               return { ok: false, status: 0, text: async () => "", _error: e };
             }
           })();
@@ -2276,8 +2254,8 @@ async function handler(req, context) {
 
             resume_trigger_error = workerRes?._error?.message || `resume_worker_http_${statusCode}`;
             resume_trigger_error_details = {
+              invocation: "in_process",
               http_status: statusCode,
-              used_url: workerUrl.toString(),
               response_text_preview: preview || null,
               gateway_key_attached: Boolean(resume_gateway_key_attached),
               request_id: resume_trigger_request_id || null,
