@@ -912,7 +912,7 @@ async function resumeWorkerHandler(req, context) {
     last_trigger_result: {
       ok: Boolean(lastStartOk),
       status: lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0),
-      stage_beacon: resumeNeeded ? lastStartJson?.stage_beacon || null : exhausted ? "enrichment_exhausted" : lastStartJson?.stage_beacon || null,
+      stage_beacon: resumeNeeded ? lastStartJson?.stage_beacon || null : completion_beacon,
       resume_needed: resumeNeeded,
       iterations: iteration + 1,
       resume_control_doc_upsert_ok: resume_control_doc_upsert_ok,
