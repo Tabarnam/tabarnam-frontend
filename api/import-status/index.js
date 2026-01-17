@@ -2000,6 +2000,7 @@ async function handler(req, context) {
 
         saved = authoritativeDocs.length;
         savedIds = authoritativeIds;
+        savedDocs = authoritativeDocs;
         saved_companies = toSavedCompanies(authoritativeDocs);
         completionReason = reason;
 
