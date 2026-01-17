@@ -885,7 +885,25 @@ async function resumeWorkerHandler(req, context) {
     }
   }
 
-  const resumeNeeded = exhausted ? false : missing_by_company.length > 0;
+  const docsById = new Map(
+    (Array.isArray(seedDocs) ? seedDocs : [])
+      .map((d) => [String(d?.id || "").trim(), d])
+      .filter((pair) => Boolean(pair[0]))
+  );
+
+  const terminalOnly =
+    missing_by_company.length > 0 &&
+    missing_by_company.every((entry) => {
+      const doc = docsById.get(String(entry?.company_id || "").trim());
+      if (!doc) return false;
+      const fields = Array.isArray(entry?.missing_fields) ? entry.missing_fields : [];
+      if (fields.length === 0) return false;
+      return fields.every((f) => isTerminalMissingField(doc, f));
+    });
+
+  const completion_beacon = terminalOnly ? "complete" : exhausted ? "enrichment_exhausted" : "enrichment_complete";
+
+  const resumeNeeded = exhausted ? false : terminalOnly ? false : missing_by_company.length > 0;
 
   await upsertDoc(container, {
     ...resumeDoc,
