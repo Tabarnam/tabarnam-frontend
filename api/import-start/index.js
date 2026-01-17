@@ -3656,6 +3656,40 @@ const importStartHandlerInner = async (req, context) => {
     const gatewayKeyConfigured = Boolean(String(process.env.FUNCTION_KEY || "").trim());
     const internalJobSecretConfigured = Boolean(String(process.env.X_INTERNAL_JOB_SECRET || "").trim());
 
+    const buildResumeAuthDiagnostics = () => ({
+      gateway_key_configured: gatewayKeyConfigured,
+      internal_job_secret_configured: internalJobSecretConfigured,
+      acceptable_secret_sources: Array.isArray(acceptableSecretsInfo) ? acceptableSecretsInfo.map((c) => c.source) : [],
+      internal_secret_source: internalSecretInfo?.secret_source || null,
+    });
+
+    const buildResumeStallError = () => {
+      const missingGatewayKey = !gatewayKeyConfigured;
+      const missingInternalSecret = !internalJobSecretConfigured;
+
+      const root_cause = missingGatewayKey
+        ? missingInternalSecret
+          ? "missing_gateway_key_and_internal_secret"
+          : "missing_gateway_key"
+        : "missing_internal_secret";
+
+      const message = missingGatewayKey
+        ? "Missing FUNCTION_KEY; Azure gateway auth (x-functions-key) is not configured, so resume-worker calls can be rejected before JS runs."
+        : "Missing X_INTERNAL_JOB_SECRET; internal handler auth is not configured for resume-worker calls.";
+
+      return {
+        code: missingGatewayKey
+          ? missingInternalSecret
+            ? "resume_worker_gateway_401_missing_gateway_key_and_internal_secret"
+            : "resume_worker_gateway_401_missing_gateway_key"
+          : "resume_worker_gateway_401_missing_internal_secret",
+        root_cause,
+        missing_gateway_key: missingGatewayKey,
+        missing_internal_secret: missingInternalSecret,
+        message,
+      };
+    };
+
     const jsonWithRequestId = (obj, status = 200) => {
       const payload =
         obj && typeof obj === "object" && !Array.isArray(obj)
