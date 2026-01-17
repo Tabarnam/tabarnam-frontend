@@ -420,14 +420,25 @@ async function resumeWorkerHandler(req, context) {
   const attempt = Number.isFinite(Number(resumeDoc?.attempt)) ? Number(resumeDoc.attempt) : 0;
   const thisLockExpiresAt = new Date(Date.now() + 60_000).toISOString();
 
-  await upsertDoc(container, {
-    ...resumeDoc,
+  const resumeControlUpsert = await upsertDoc(container, {
+    ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+    id: resumeDocId,
+    session_id: sessionId,
+    normalized_domain: "import",
+    partition_key: "import",
+    type: "import_control",
+    doc_created: true,
     status: "running",
     attempt: attempt + 1,
     last_invoked_at: nowIso(),
     lock_expires_at: thisLockExpiresAt,
     updated_at: nowIso(),
-  }).catch(() => null);
+  }).catch(() => ({ ok: false }));
+
+  const resume_control_doc_upsert_ok = Boolean(resumeControlUpsert && resumeControlUpsert.ok);
+  if (resume_control_doc_upsert_ok && resumeDoc && typeof resumeDoc === "object") {
+    resumeDoc.doc_created = true;
+  }
 
   let seedDocs = await fetchSeedCompanies(container, sessionId, batchLimit).catch(() => []);
 
