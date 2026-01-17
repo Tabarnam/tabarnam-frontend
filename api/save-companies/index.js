@@ -299,16 +299,24 @@ async function upsertCosmosImportSessionDoc({ sessionId, requestId, patch }) {
   }
 }
 
-async function findExistingCompany(container, normalizedDomain, companyName) {
+async function findExistingCompany(container, normalizedDomain, companyName, canonicalUrl) {
   if (!container) return null;
 
   const domain = String(normalizedDomain || "").trim();
   const name = String(companyName || "").trim();
   const nameLower = name.toLowerCase();
 
+  const normalizeUrlForMatch = (value) => {
+    const s = typeof value === "string" ? value.trim().toLowerCase() : "";
+    if (!s) return "";
+    if (s.endsWith("/")) return s.slice(0, -1);
+    return s;
+  };
+
   const notDeletedClause = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
 
   try {
+    // Primary: exact normalized_domain match.
     if (domain && domain !== "unknown") {
       const q = {
         query: `SELECT TOP 1 c.id, c.normalized_domain FROM c WHERE NOT STARTSWITH(c.id, '_import_') AND ${notDeletedClause} AND c.normalized_domain = @domain`,
@@ -328,6 +336,41 @@ async function findExistingCompany(container, normalizedDomain, companyName) {
       }
     }
 
+    // Secondary: canonical URL host or exact URL match (covers older docs that lack normalized_domain).
+    const canonicalUrlNorm = normalizeUrlForMatch(canonicalUrl);
+    const canonicalHost = canonicalUrl ? toNormalizedDomain(canonicalUrl) : "";
+
+    if (canonicalHost && canonicalHost !== "unknown") {
+      const canonicalUrlAlt = canonicalUrlNorm ? `${canonicalUrlNorm}/` : "";
+
+      const q = {
+        query: `SELECT TOP 1 c.id, c.normalized_domain FROM c WHERE NOT STARTSWITH(c.id, '_import_') AND ${notDeletedClause} AND (
+          c.normalized_domain = @canonicalHost
+          OR (IS_DEFINED(c.canonical_url) AND (LOWER(c.canonical_url) = @canonicalUrlLower OR LOWER(c.canonical_url) = @canonicalUrlLowerAlt))
+          OR (IS_DEFINED(c.website_url) AND (LOWER(c.website_url) = @canonicalUrlLower OR LOWER(c.website_url) = @canonicalUrlLowerAlt))
+          OR (IS_DEFINED(c.url) AND (LOWER(c.url) = @canonicalUrlLower OR LOWER(c.url) = @canonicalUrlLowerAlt))
+        )`,
+        parameters: [
+          { name: "@canonicalHost", value: canonicalHost },
+          { name: "@canonicalUrlLower", value: canonicalUrlNorm },
+          { name: "@canonicalUrlLowerAlt", value: canonicalUrlAlt },
+        ],
+      };
+
+      const { resources } = await container.items
+        .query(q, { enableCrossPartitionQuery: true })
+        .fetchAll();
+
+      if (Array.isArray(resources) && resources[0]) {
+        return {
+          ...resources[0],
+          duplicate_match_key: "canonical_url",
+          duplicate_match_value: canonicalHost,
+        };
+      }
+    }
+
+    // Fallback: match by company name.
     if (nameLower) {
       const q = {
         query: `SELECT TOP 1 c.id, c.company_name, c.name FROM c WHERE NOT STARTSWITH(c.id, '_import_') AND ${notDeletedClause} AND (LOWER(c.company_name) = @name OR LOWER(c.name) = @name)`,
