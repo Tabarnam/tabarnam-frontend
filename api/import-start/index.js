@@ -9612,6 +9612,21 @@ Return ONLY the JSON array, no other text.`,
                 stage_beacon,
                 status: "running",
                 resume_needed: true,
+                resume: {
+                  status: internalAuthConfigured ? "queued" : "stalled",
+                  internal_auth_configured: Boolean(internalAuthConfigured),
+                },
+                ...(internalAuthConfigured
+                  ? {}
+                  : {
+                      resume_error: "resume_worker_gateway_401_missing_internal_secret",
+                      resume_error_details: {
+                        root_cause: "resume_worker_gateway_401_missing_internal_secret",
+                        message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                        updated_at: new Date().toISOString(),
+                      },
+                      resume_worker_last_reject_layer: "gateway",
+                    }),
                 deferred_stages: Array.from(deferredStages),
                 saved_count: Number(saveResult.saved || 0),
                 saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
