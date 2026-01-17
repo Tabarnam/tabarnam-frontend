@@ -67,6 +67,60 @@ function looksLikeUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 }
 
+function normalizeKey(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function isTrueish(value) {
+  if (value === true) return true;
+  if (value === false) return false;
+  const s = String(value ?? "").trim().toLowerCase();
+  return s === "true" || s === "1" || s === "yes" || s === "y";
+}
+
+function isTerminalMissingField(doc, field) {
+  const d = doc && typeof doc === "object" ? doc : {};
+  const f = String(field || "").trim();
+
+  if (f === "headquarters_location") {
+    if (isTrueish(d.hq_unknown)) return true;
+    const val = normalizeKey(d.headquarters_location);
+    return val === "not disclosed" || val === "not_disclosed" || val === "unknown";
+  }
+
+  if (f === "manufacturing_locations") {
+    if (isTrueish(d.mfg_unknown)) return true;
+
+    const rawList = Array.isArray(d.manufacturing_locations)
+      ? d.manufacturing_locations
+      : d.manufacturing_locations == null
+        ? []
+        : [d.manufacturing_locations];
+
+    const normalized = rawList
+      .map((loc) => {
+        if (typeof loc === "string") return normalizeKey(loc);
+        if (loc && typeof loc === "object") {
+          return normalizeKey(loc.formatted || loc.full_address || loc.address || loc.location);
+        }
+        return "";
+      })
+      .filter(Boolean);
+
+    if (normalized.length === 0) return false;
+
+    return normalized.every((v) => v === "unknown" || v === "not disclosed" || v === "not_disclosed");
+  }
+
+  if (f === "reviews") {
+    const stage = normalizeKey(d.reviews_stage_status || d.review_cursor?.reviews_stage_status);
+    if (stage === "exhausted") return true;
+    return Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true);
+  }
+
+  return false;
+}
+
 async function bestEffortPatchSessionDoc({ container, sessionId, patch }) {
   if (!container || !sessionId || !patch) return { ok: false, error: "missing_inputs" };
 
