@@ -6723,27 +6723,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   status: "running",
                   resume_needed: true,
                   resume: {
-                    status: gatewayKeyConfigured ? "queued" : "stalled",
+                    status: "queued",
                     internal_auth_configured: Boolean(internalAuthConfigured),
+                    triggered_in_process: true,
                     ...buildResumeAuthDiagnostics(),
                   },
-                  ...(gatewayKeyConfigured
-                    ? {}
-                    : (() => {
-                        const stall = buildResumeStallError();
-                        return {
-                          resume_error: stall.code,
-                          resume_error_details: {
-                            root_cause: stall.root_cause,
-                            message: stall.message,
-                            missing_gateway_key: Boolean(stall.missing_gateway_key),
-                            missing_internal_secret: Boolean(stall.missing_internal_secret),
-                            ...buildResumeAuthDiagnostics(),
-                            updated_at: new Date().toISOString(),
-                          },
-                          resume_worker_last_reject_layer: "gateway",
-                        };
-                      })()),
                   missing_by_company,
                   company_name: seed.company_name,
                   company_url: seed.company_url || seed.website_url,
