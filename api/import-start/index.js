@@ -6203,6 +6203,10 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
             const cleanHost = String(hostname || "").toLowerCase().replace(/^www\./, "");
 
+            // If we cannot extract a hostname, do NOT seed a company doc.
+            // This prevents accumulating "seed-fallback" junk rows with normalized_domain="unknown".
+            if (!cleanHost) return null;
+
             // Required semantics:
             // - company_url + website_url should reflect the input URL (normalized to include protocol).
             // - canonical_url should be the normalized canonical host URL.
