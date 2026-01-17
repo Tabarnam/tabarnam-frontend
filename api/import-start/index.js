@@ -8685,16 +8685,33 @@ Return ONLY the JSON array, no other text.`,
               const hasMfg = isRealValue("manufacturing_locations", c?.manufacturing_locations, c);
 
               if (!hqMeaningful && !c?.hq_unknown) {
+                const existingDebug = c?.enrichment_debug && typeof c.enrichment_debug === "object" ? c.enrichment_debug : {};
+                const sources = Array.isArray(c?.location_sources) ? c.location_sources.slice(0, 10) : [];
+
                 enriched[i] = {
                   ...c,
                   hq_unknown: true,
                   hq_unknown_reason: String(c?.hq_unknown_reason || "not_found_after_location_enrichment"),
                   red_flag_reason: String(c?.red_flag_reason || "HQ not found after location enrichment").trim(),
+                  enrichment_debug: {
+                    ...existingDebug,
+                    location: {
+                      at: new Date().toISOString(),
+                      outcome: "not_found",
+                      missing_hq: true,
+                      missing_mfg: !hasMfg,
+                      location_sources_count: Array.isArray(c?.location_sources) ? c.location_sources.length : 0,
+                      location_sources: sources,
+                    },
+                  },
                 };
               }
 
               if (!hasMfg && !c?.mfg_unknown) {
                 // Non-retryable terminal sentinel (explicit + typed).
+                const existingDebug = c?.enrichment_debug && typeof c.enrichment_debug === "object" ? c.enrichment_debug : {};
+                const sources = Array.isArray(c?.location_sources) ? c.location_sources.slice(0, 10) : [];
+
                 enriched[i] = {
                   ...(enriched[i] || c),
                   manufacturing_locations: ["Not disclosed"],
@@ -8705,6 +8722,17 @@ Return ONLY the JSON array, no other text.`,
                   red_flag_reason: String(
                     (enriched[i] || c)?.red_flag_reason || "Manufacturing locations not disclosed"
                   ).trim(),
+                  enrichment_debug: {
+                    ...existingDebug,
+                    location: {
+                      at: new Date().toISOString(),
+                      outcome: "not_disclosed",
+                      missing_hq: !hqMeaningful,
+                      missing_mfg: true,
+                      location_sources_count: Array.isArray(c?.location_sources) ? c.location_sources.length : 0,
+                      location_sources: sources,
+                    },
+                  },
                 };
               }
             }
