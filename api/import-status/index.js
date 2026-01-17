@@ -1124,7 +1124,17 @@ async function handler(req, context) {
     }
 
     const resumeNeededFromSession = Boolean(report?.session && report.session.resume_needed);
-    const resumeNeededFromHealth = enrichment_health_summary.incomplete > 0;
+
+    // Recompute missing fields on every status call, then reconcile terminal-only completion.
+    // If the only missing fields are terminal (HQ/MFG "Not disclosed", reviews exhausted, logo not_found_on_site),
+    // status must report resume_needed=false so imports do not stall forever.
+    const resumeMissingAnalysis = analyzeMissingFieldsForResume(savedDocsForHealth);
+    const resumeNeededFromHealth = resumeMissingAnalysis.total_retryable_missing > 0;
+
+    stageBeaconValues.status_resume_missing_total = resumeMissingAnalysis.total_missing;
+    stageBeaconValues.status_resume_missing_retryable = resumeMissingAnalysis.total_retryable_missing;
+    stageBeaconValues.status_resume_missing_terminal = resumeMissingAnalysis.total_terminal_missing;
+    if (resumeMissingAnalysis.terminal_only) stageBeaconValues.status_resume_terminal_only = nowIso();
 
     const missing_by_company = saved_companies
       .filter((c) => Array.isArray(c?.enrichment_health?.missing_fields) && c.enrichment_health.missing_fields.length > 0)
@@ -1136,7 +1146,15 @@ async function handler(req, context) {
       }));
 
     const resumeDocExists = Boolean(report?.resume);
-    const resume_needed = Boolean(resumeNeededFromSession || resumeNeededFromHealth || resumeDocExists);
+
+    // If the saved companies are only missing terminal fields, ignore stale control-doc resume_needed/resume-doc existence.
+    const resume_needed = resumeMissingAnalysis.terminal_only
+      ? false
+      : Boolean(resumeNeededFromSession || resumeNeededFromHealth || resumeDocExists);
+
+    if (resumeMissingAnalysis.terminal_only && report?.session && report.session.resume_needed) {
+      report.session.resume_needed = false;
+    }
 
     let resume_doc_created = false;
     let resume_triggered = false;
