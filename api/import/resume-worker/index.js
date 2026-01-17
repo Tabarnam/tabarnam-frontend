@@ -278,7 +278,15 @@ async function handler(req, context) {
     } catch {}
   }
 
-  const authDecision = getInternalAuthDecision(req);
+  const inProcessTrusted = Boolean(req && req.__in_process === true);
+  const authDecision = inProcessTrusted
+    ? {
+        auth_ok: true,
+        auth_method_used: "in-process",
+        secret_source: "in-process",
+        internal_flag_present: true,
+      }
+    : getInternalAuthDecision(req);
 
   if (!authDecision.auth_ok) {
     if (cosmosContainer) {
