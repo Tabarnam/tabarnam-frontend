@@ -205,7 +205,6 @@ function computeMissingFields(company, { includeReviews = true } = {}) {
 
   if (!isRealValue("industries", c.industries, c)) missing.push("industries");
   if (!isRealValue("product_keywords", c.product_keywords, c)) missing.push("product_keywords");
-  if (!isRealValue("tagline", c.tagline, c)) missing.push("tagline");
   if (!isRealValue("headquarters_location", c.headquarters_location, c)) missing.push("headquarters_location");
   if (!isRealValue("manufacturing_locations", c.manufacturing_locations, c)) missing.push("manufacturing_locations");
   if (!isRealValue("logo", c.logo_url, c)) missing.push("logo");
