@@ -9530,11 +9530,22 @@ Return ONLY the JSON array, no other text.`,
                   patch: {
                     status: "running",
                     stage_beacon: stage_beacon,
-                    saved: saveResult.saved,
-                    skipped: saveResult.skipped,
-                    failed: saveResult.failed,
-                    saved_count: Number(saveResult.saved || 0),
-                    saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                    saved: Number(saveResult.saved || 0) || 0,
+                    skipped: Number(saveResult.skipped || 0) || 0,
+                    failed: Number(saveResult.failed || 0) || 0,
+                    saved_count: Number(saveResult.saved_write_count || 0) || Number(saveResult.saved || 0) || 0,
+                    saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+                    saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
+                      ? saveResult.saved_company_ids_verified
+                      : [],
+                    saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
+                      ? saveResult.saved_company_ids_unverified
+                      : [],
+                    saved_company_ids: Array.isArray(saveResult.saved_ids_write)
+                      ? saveResult.saved_ids_write
+                      : Array.isArray(saveResult.saved_ids)
+                        ? saveResult.saved_ids
+                        : [],
                     saved_company_urls: (Array.isArray(enriched) ? enriched : [])
                       .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
                       .filter(Boolean)
