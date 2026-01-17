@@ -843,6 +843,8 @@ async function resumeWorkerHandler(req, context) {
       stage_beacon: resumeNeeded ? lastStartJson?.stage_beacon || null : exhausted ? "enrichment_exhausted" : lastStartJson?.stage_beacon || null,
       resume_needed: resumeNeeded,
       iterations: iteration + 1,
+      resume_control_doc_upsert_ok: resume_control_doc_upsert_ok,
+      ...(lastStartHttpStatus === 400 || !lastStartOk ? { import_start_debug: importStartDebug } : {}),
     },
     lock_expires_at: null,
     updated_at: updatedAt,
