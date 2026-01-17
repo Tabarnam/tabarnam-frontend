@@ -2112,38 +2112,40 @@ async function handler(req, context) {
         let resumeStatus = String(currentResume?.status || "").trim();
         const lockUntil = Date.parse(String(currentResume?.lock_expires_at || "")) || 0;
 
-        if (resumeMissingInternalSecret) {
+        if (resumeStalledByGatewayAuth) {
           const stalledAt = nowIso();
+          const stall = buildResumeStallError();
           resumeStatus = "stalled";
 
           await upsertDoc(container, {
             ...currentResume,
             status: "stalled",
             stalled_at: stalledAt,
-            last_error: {
-              code: "resume_worker_gateway_401_missing_internal_secret",
-              message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
-            },
+            resume_auth: buildResumeAuthDiagnostics(),
+            last_error: buildResumeStallError(),
             lock_expires_at: null,
             updated_at: stalledAt,
           }).catch(() => null);
 
           if (sessionDoc && typeof sessionDoc === "object") {
             const details = {
-              root_cause: "resume_worker_gateway_401_missing_internal_secret",
-              message: "Missing X_INTERNAL_JOB_SECRET; internal resume-worker calls will be rejected before handler runs",
+              root_cause: stall.root_cause,
+              message: stall.message,
+              missing_gateway_key: Boolean(stall.missing_gateway_key),
+              missing_internal_secret: Boolean(stall.missing_internal_secret),
+              ...buildResumeAuthDiagnostics(),
               updated_at: stalledAt,
             };
 
             // Ensure subsequent response shaping reads the deterministic failure signals.
-            sessionDoc.resume_error = "resume_worker_gateway_401_missing_internal_secret";
+            sessionDoc.resume_error = stall.code;
             sessionDoc.resume_error_details = details;
             sessionDoc.resume_worker_last_http_status = 401;
             sessionDoc.resume_worker_last_reject_layer = "gateway";
 
             await upsertDoc(container, {
               ...sessionDoc,
-              resume_error: "resume_worker_gateway_401_missing_internal_secret",
+              resume_error: stall.code,
               resume_error_details: details,
               resume_needed: true,
               resume_worker_last_http_status: 401,
