@@ -1479,6 +1479,7 @@ async function handler(req, context) {
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
+          ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
@@ -2382,6 +2383,7 @@ async function handler(req, context) {
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
+          ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
@@ -2606,6 +2608,7 @@ async function handler(req, context) {
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
+          ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
@@ -2694,6 +2697,7 @@ async function handler(req, context) {
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
+          ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
