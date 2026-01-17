@@ -1403,7 +1403,13 @@ async function handler(req, context) {
         ? report.session.stage_beacon.trim()
         : "";
 
-    const effectiveStageBeacon = resume_needed ? "enrichment_resume_pending" : sessionStageBeacon || stageBeaconFromPrimary;
+    const shouldShowCompleteBeacon = Boolean((effectiveStatus === "complete" && !resume_needed) || resumeMissingAnalysis?.terminal_only);
+
+    const effectiveStageBeacon = shouldShowCompleteBeacon
+      ? "complete"
+      : resume_needed
+        ? "enrichment_resume_pending"
+        : sessionStageBeacon || stageBeaconFromPrimary;
 
     stageBeaconValues.status_enrichment_health_summary = nowIso();
     stageBeaconValues.status_enrichment_incomplete = enrichment_health_summary.incomplete;
