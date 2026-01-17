@@ -6290,23 +6290,73 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               sessionCreatedAtIso ||= new Date().toISOString();
 
               try {
-                const saveResultRaw = await saveCompaniesToCosmos({
-                  companies,
-                  sessionId,
-                  requestId,
-                  sessionCreatedAt: sessionCreatedAtIso,
-                  axiosTimeout: Math.min(timeout, 20_000),
-                  saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
-                  getRemainingMs,
-                });
+                const container = getCompaniesCosmosContainer();
 
-                const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
-                  verified_ids: [],
-                  unverified_ids: Array.isArray(saveResultRaw?.saved_ids) ? saveResultRaw.saved_ids : [],
-                  verified_persisted_items: [],
-                }));
+                // Prevent flaky/conflicting Cosmos writes on seed-fallback duplicates by checking first.
+                const existingHit = container
+                  ? await findExistingCompany(container, seed.normalized_domain, seed.company_name).catch(() => null)
+                  : null;
 
-                saveResult = applyReadAfterWriteVerification(saveResultRaw, verification);
+                const duplicateOfId = existingHit && existingHit.id ? String(existingHit.id).trim() : "";
+
+                if (duplicateOfId && container) {
+                  const normalizedDomainForTelemetry = String(seed.normalized_domain || "").trim();
+                  const existingDoc = await readItemWithPkCandidates(container, duplicateOfId, {
+                    id: duplicateOfId,
+                    normalized_domain: normalizedDomainForTelemetry,
+                    partition_key: normalizedDomainForTelemetry,
+                  }).catch(() => null);
+
+                  const existingMissing = Array.isArray(existingDoc?.import_missing_fields) ? existingDoc.import_missing_fields : [];
+                  const existingComplete = existingMissing.length === 0;
+
+                  const outcome = existingComplete
+                    ? "duplicate_detected"
+                    : "duplicate_detected_unverified_missing_required_fields";
+
+                  saveResult = {
+                    saved: existingComplete ? 1 : 0,
+                    skipped: 0,
+                    failed: 0,
+                    saved_ids: existingComplete ? [duplicateOfId] : [],
+                    skipped_ids: [],
+                    skipped_duplicates: [
+                      {
+                        duplicate_of_id: duplicateOfId,
+                        match_key: existingHit?.duplicate_match_key || null,
+                        match_value: existingHit?.duplicate_match_value || null,
+                      },
+                    ],
+                    failed_items: [],
+                    saved_company_ids_verified: existingComplete ? [duplicateOfId] : [],
+                    saved_company_ids_unverified: existingComplete ? [] : [duplicateOfId],
+                    saved_verified_count: existingComplete ? 1 : 0,
+                    saved_write_count: 0,
+                    saved_ids_write: [],
+                    duplicate_of_id: duplicateOfId,
+                    duplicate_existing_incomplete: !existingComplete,
+                    duplicate_existing_missing_fields: existingComplete ? [] : existingMissing.slice(0, 20),
+                    save_outcome: outcome,
+                  };
+                } else {
+                  const saveResultRaw = await saveCompaniesToCosmos({
+                    companies,
+                    sessionId,
+                    requestId,
+                    sessionCreatedAt: sessionCreatedAtIso,
+                    axiosTimeout: Math.min(timeout, 20_000),
+                    saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
+                    getRemainingMs,
+                  });
+
+                  const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
+                    verified_ids: [],
+                    unverified_ids: Array.isArray(saveResultRaw?.saved_ids) ? saveResultRaw.saved_ids : [],
+                    verified_persisted_items: [],
+                  }));
+
+                  saveResult = applyReadAfterWriteVerification(saveResultRaw, verification);
+                }
               } catch (e) {
                 const errorMessage = toErrorString(e);
 
