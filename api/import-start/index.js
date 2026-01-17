@@ -1543,7 +1543,7 @@ async function geocodeHQLocation(address, { timeoutMs = 5000 } = {}) {
 
 // Check if company already exists by normalized domain / company name.
 // IMPORTANT: Dedupe only against active companies (ignore soft-deleted rows).
-async function findExistingCompany(container, normalizedDomain, companyName) {
+async function findExistingCompany(container, normalizedDomain, companyName, canonicalUrl) {
   if (!container) return null;
 
   const domain = String(normalizedDomain || "").trim();
