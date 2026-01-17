@@ -2077,7 +2077,7 @@ async function handler(req, context) {
     let resume_trigger_request_id = null;
 
     let resume_status = null;
-    const resumeMissingInternalSecret = Boolean(resume_needed && !internalAuthConfigured);
+    const resumeStalledByGatewayAuth = Boolean(resume_needed && !gatewayKeyConfigured);
 
     if (resume_needed) {
       try {
