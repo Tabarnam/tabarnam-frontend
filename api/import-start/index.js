@@ -6262,6 +6262,59 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
           async function respondWithCompanyUrlSeedFallback(acceptedError) {
             const seed = buildCompanyUrlSeedFromQuery(query);
+            if (!seed || typeof seed !== "object") {
+              const errorAt = new Date().toISOString();
+              try {
+                upsertImportSession({
+                  session_id: sessionId,
+                  request_id: requestId,
+                  status: "error",
+                  stage_beacon: "company_url_seed_invalid",
+                  resume_needed: false,
+                  resume_error: "invalid_company_url",
+                  resume_error_details: {
+                    root_cause: "invalid_company_url",
+                    message: "company_url query did not contain a valid hostname; refusing to seed a company doc",
+                    updated_at: errorAt,
+                  },
+                });
+              } catch {}
+
+              if (cosmosEnabled) {
+                try {
+                  await upsertCosmosImportSessionDoc({
+                    sessionId,
+                    requestId,
+                    patch: {
+                      status: "error",
+                      stage_beacon: "company_url_seed_invalid",
+                      resume_needed: false,
+                      resume_error: "invalid_company_url",
+                      resume_error_details: {
+                        root_cause: "invalid_company_url",
+                        message: "company_url query did not contain a valid hostname; refusing to seed a company doc",
+                        updated_at: errorAt,
+                      },
+                      updated_at: errorAt,
+                    },
+                  }).catch(() => null);
+                } catch {}
+              }
+
+              return jsonWithRequestId(
+                {
+                  ok: false,
+                  session_id: sessionId,
+                  request_id: requestId,
+                  stage_beacon: "company_url_seed_invalid",
+                  status: "error",
+                  error: "invalid_company_url",
+                  message: "company_url query did not contain a valid hostname; refusing to seed a company doc",
+                },
+                200
+              );
+            }
+
             const companies = [seed];
 
             const dryRunRequested = Boolean(bodyObj?.dry_run || bodyObj?.dryRun);
