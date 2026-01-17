@@ -731,6 +731,9 @@ async function handler(req, context) {
       internalSecretInfo.secret_source === "X_INTERNAL_JOB_SECRET"
   );
 
+  // Used for response shaping across all branches (memory-only, primary-job, cosmos-backed).
+  let resume_status = null;
+
   let primaryJob = await getImportPrimaryJob({ sessionId, cosmosEnabled: true }).catch(() => null);
 
   if (primaryJob && primaryJob.job_state) {
