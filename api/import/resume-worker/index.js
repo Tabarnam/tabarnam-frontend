@@ -506,7 +506,9 @@ async function handler(req, context) {
     startJson = null;
   }
 
-  const ok = Boolean(startRes?.ok) && Boolean(startJson?.ok !== false);
+  const startHttpStatus = Number(startJson?.http_status || startRes?.status || 0) || 0;
+  const startOk = Boolean(startJson) ? startJson.ok !== false : false;
+  const ok = Boolean(startOk);
 
   const updatedAt = nowIso();
 
@@ -515,7 +517,7 @@ async function handler(req, context) {
     status: ok ? "triggered" : "error",
     last_trigger_result: {
       ok: Boolean(ok),
-      status: Number(startRes?.status || 0) || 0,
+      status: startHttpStatus || (Number(startRes?.status || 0) || 0),
       stage_beacon: startJson?.stage_beacon || null,
       resume_needed: Boolean(startJson?.resume_needed),
     },
@@ -537,7 +539,7 @@ async function handler(req, context) {
     const derivedResult = (() => {
       if (ok) return "ok";
       const root = typeof startJson?.root_cause === "string" && startJson.root_cause.trim() ? startJson.root_cause.trim() : "import_start_failed";
-      const status = Number(startRes?.status || 0) || 0;
+      const status = startHttpStatus || (Number(startRes?.status || 0) || 0);
       return status ? `${root}_http_${status}` : root;
     })();
 
@@ -547,10 +549,10 @@ async function handler(req, context) {
       resume_worker_last_finished_at: updatedAt,
       resume_worker_last_result: derivedResult,
       resume_worker_last_ok: Boolean(ok),
-      resume_worker_last_http_status: Number(startRes?.status || 0) || 0,
+      resume_worker_last_http_status: startHttpStatus || (Number(startRes?.status || 0) || 0),
       resume_worker_last_error: ok
         ? null
-        : startRes?._error?.message || `import_start_http_${Number(startRes?.status || 0) || 0}`,
+        : startRes?._error?.message || `import_start_http_${startHttpStatus || (Number(startRes?.status || 0) || 0)}`,
       resume_worker_last_stage_beacon: startJson?.stage_beacon || null,
       resume_worker_last_resume_needed: Boolean(startJson?.resume_needed),
       resume_worker_last_company_id: companyIdFromResponse,
@@ -569,8 +571,8 @@ async function handler(req, context) {
       session_id: sessionId,
       triggered: true,
       companies_seeded: companies.length,
-      import_start_status: Number(startRes?.status || 0) || 0,
-      import_start_ok: Boolean(startRes?.ok),
+      import_start_status: startHttpStatus || (Number(startRes?.status || 0) || 0),
+      import_start_ok: Boolean(startOk),
       import_start_body: startJson || (startText ? { text: startText.slice(0, 2000) } : null),
     },
     200,
