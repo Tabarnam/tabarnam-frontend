@@ -9474,7 +9474,11 @@ Return ONLY the JSON array, no other text.`,
 
           // Only mark the session as resume-needed if we successfully persisted at least one company.
           // Otherwise we can get stuck in "running" forever because resume-worker has nothing to load.
-          const needsResume = !dryRunRequested && cosmosEnabled && enrichmentMissingByCompany.length > 0 && saveResult.saved > 0;
+          const needsResume =
+            !dryRunRequested &&
+            cosmosEnabled &&
+            enrichmentMissingByCompany.length > 0 &&
+            (Number(saveResult.saved_write_count || 0) > 0 || (Array.isArray(saveResult.saved_ids_write) && saveResult.saved_ids_write.length > 0));
 
           if (needsResume) {
             mark("enrichment_incomplete");
