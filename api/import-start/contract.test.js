@@ -750,8 +750,8 @@ test("/api/import/status surfaces verified save fields while running (memory fal
       resume_needed: true,
       resume_error: "resume_worker_http_401",
       resume_error_details: {
+        invocation: "in_process",
         http_status: 401,
-        used_url: "https://example.test/api/import/resume-worker",
         response_text_preview: "Unauthorized",
       },
     });

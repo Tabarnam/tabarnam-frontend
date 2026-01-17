@@ -50,6 +50,10 @@ const {
   getInternalJobSecretInfo,
   getAcceptableInternalSecretsInfo,
 } = require("../_internalJobAuth");
+
+// IMPORTANT: pure handler module only (no app.http registrations). Loaded at cold start.
+const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
+
 const {
   buildPrimaryJobId: buildImportPrimaryJobId,
   getJob: getImportPrimaryJob,
@@ -6767,32 +6771,26 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       let workerText = "";
                       let workerError = null;
 
+                      let invokeRequestId = workerRequest.request_id || null;
+                      let invokeGatewayKeyAttached = Boolean(workerRequest.gateway_key_attached);
+
                       try {
-                        const { handler: resumeWorkerHandler } = require("../import/resume-worker/index.js");
+                        const invokeRes = await invokeResumeWorkerInProcess({
+                          session_id: sessionId,
+                          context,
+                          workerRequest,
+                          no_cosmos: !cosmosEnabled,
+                          batch_limit: batchLimit,
+                          deadline_ms: deadlineMs,
+                        });
 
-                        const hdrs = new Headers();
-                        for (const [k, v] of Object.entries(workerRequest.headers || {})) {
-                          if (v === undefined || v === null) continue;
-                          hdrs.set(k, String(v));
-                        }
+                        invokeRequestId = invokeRes.request_id || invokeRequestId;
+                        invokeGatewayKeyAttached = Boolean(invokeRes.gateway_key_attached);
 
-                        const internalReq = {
-                          method: "POST",
-                          url: triggerUrl.toString(),
-                          headers: hdrs,
-                          __in_process: true,
-                          json: async () => ({ session_id: sessionId }),
-                          text: async () => JSON.stringify({ session_id: sessionId }),
-                        };
-
-                        const res = await resumeWorkerHandler(internalReq, context).catch((e) => ({ status: 0, _error: e }));
-                        statusCode = Number(res?.status || 0) || 0;
-                        workerOk = statusCode >= 200 && statusCode < 300;
-
-                        if (typeof res?.body === "string") workerText = res.body;
-                        else if (res?.body != null) workerText = JSON.stringify(res.body);
-
-                        if (res && res._error) workerError = res._error;
+                        statusCode = Number(invokeRes.status || 0) || 0;
+                        workerOk = Boolean(invokeRes.ok);
+                        workerText = typeof invokeRes.bodyText === "string" ? invokeRes.bodyText : "";
+                        workerError = invokeRes.error;
                       } catch (e) {
                         workerError = e;
                       }
@@ -6802,11 +6800,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
                       const resume_error = workerError?.message || (statusCode ? `resume_worker_in_process_${statusCode}` : "resume_worker_in_process_error");
                       const resume_error_details = {
+                        invocation: "in_process",
                         http_status: statusCode,
-                        used_url: triggerUrl.toString(),
                         response_text_preview: preview || null,
-                        gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
-                        request_id: workerRequest.request_id || null,
+                        gateway_key_attached: Boolean(invokeGatewayKeyAttached),
+                        request_id: invokeRequestId,
                       };
 
                       try {
@@ -9923,32 +9921,26 @@ Return ONLY the JSON array, no other text.`,
                     let workerText = "";
                     let workerError = null;
 
+                    let invokeRequestId = workerRequest.request_id || null;
+                    let invokeGatewayKeyAttached = Boolean(workerRequest.gateway_key_attached);
+
                     try {
-                      const { handler: resumeWorkerHandler } = require("../import/resume-worker/index.js");
+                      const invokeRes = await invokeResumeWorkerInProcess({
+                        session_id: sessionId,
+                        context,
+                        workerRequest,
+                        no_cosmos: !cosmosEnabled,
+                        batch_limit: batchLimit,
+                        deadline_ms: deadlineMs,
+                      });
 
-                      const hdrs = new Headers();
-                      for (const [k, v] of Object.entries(workerRequest.headers || {})) {
-                        if (v === undefined || v === null) continue;
-                        hdrs.set(k, String(v));
-                      }
+                      invokeRequestId = invokeRes.request_id || invokeRequestId;
+                      invokeGatewayKeyAttached = Boolean(invokeRes.gateway_key_attached);
 
-                      const internalReq = {
-                        method: "POST",
-                        url: triggerUrl.toString(),
-                        headers: hdrs,
-                        __in_process: true,
-                        json: async () => ({ session_id: sessionId }),
-                        text: async () => JSON.stringify({ session_id: sessionId }),
-                      };
-
-                      const res = await resumeWorkerHandler(internalReq, context).catch((e) => ({ status: 0, _error: e }));
-                      statusCode = Number(res?.status || 0) || 0;
-                      workerOk = statusCode >= 200 && statusCode < 300;
-
-                      if (typeof res?.body === "string") workerText = res.body;
-                      else if (res?.body != null) workerText = JSON.stringify(res.body);
-
-                      if (res && res._error) workerError = res._error;
+                      statusCode = Number(invokeRes.status || 0) || 0;
+                      workerOk = Boolean(invokeRes.ok);
+                      workerText = typeof invokeRes.bodyText === "string" ? invokeRes.bodyText : "";
+                      workerError = invokeRes.error;
                     } catch (e) {
                       workerError = e;
                     }
@@ -9958,11 +9950,11 @@ Return ONLY the JSON array, no other text.`,
                     const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
                     const resume_error = workerError?.message || (statusCode ? `resume_worker_in_process_${statusCode}` : "resume_worker_in_process_error");
                     const resume_error_details = {
+                      invocation: "in_process",
                       http_status: statusCode,
-                      used_url: triggerUrl.toString(),
                       response_text_preview: preview || null,
-                      gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
-                      request_id: workerRequest.request_id || null,
+                      gateway_key_attached: Boolean(invokeGatewayKeyAttached),
+                      request_id: invokeRequestId,
                     };
 
                     try {
