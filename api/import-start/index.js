@@ -6533,7 +6533,6 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       (async () => {
                         const workerRequest = buildInternalFetchRequest({
                           job_kind: "import_resume",
-                          include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
                         });
 
                         const workerRes = await fetch(triggerUrl.toString(), {
@@ -9542,7 +9541,6 @@ Return ONLY the JSON array, no other text.`,
                     (async () => {
                       const workerRequest = buildInternalFetchRequest({
                         job_kind: "import_resume",
-                        include_functions_key: Boolean(String(process.env.FUNCTION_KEY || "").trim()),
                       });
 
                       const workerRes = await fetch(triggerUrl.toString(), {
