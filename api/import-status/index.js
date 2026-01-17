@@ -440,6 +440,98 @@ function computeEnrichmentHealth(company) {
   return computeEnrichmentHealthContract(company);
 }
 
+// Back-compat naming used by status/reconciliation logic.
+function computeContractEnrichmentHealth(company) {
+  return computeEnrichmentHealthContract(company);
+}
+
+function normalizeMissingKey(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function isTrueish(value) {
+  if (value === true) return true;
+  if (value === false) return false;
+  const s = normalizeMissingKey(value);
+  return s === "true" || s === "1" || s === "yes" || s === "y";
+}
+
+function isTerminalMissingField(doc, field) {
+  const d = doc && typeof doc === "object" ? doc : {};
+  const f = String(field || "").trim();
+
+  if (f === "headquarters_location") {
+    if (isTrueish(d.hq_unknown)) return true;
+    const val = normalizeMissingKey(d.headquarters_location);
+    return val === "not disclosed" || val === "not_disclosed";
+  }
+
+  if (f === "manufacturing_locations") {
+    if (isTrueish(d.mfg_unknown)) return true;
+
+    const rawList = Array.isArray(d.manufacturing_locations)
+      ? d.manufacturing_locations
+      : d.manufacturing_locations == null
+        ? []
+        : [d.manufacturing_locations];
+
+    const normalized = rawList
+      .map((loc) => {
+        if (typeof loc === "string") return normalizeMissingKey(loc);
+        if (loc && typeof loc === "object") {
+          return normalizeMissingKey(loc.formatted || loc.full_address || loc.address || loc.location);
+        }
+        return "";
+      })
+      .filter(Boolean);
+
+    if (normalized.length === 0) return false;
+
+    return normalized.every((v) => v === "not disclosed" || v === "not_disclosed");
+  }
+
+  if (f === "reviews") {
+    const stage = normalizeMissingKey(d.reviews_stage_status || d.review_cursor?.reviews_stage_status);
+    if (stage === "exhausted") return true;
+    return Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true);
+  }
+
+  if (f === "logo") {
+    const stage = normalizeMissingKey(d.logo_stage_status || d.logo_status);
+    return stage === "not_found_on_site";
+  }
+
+  return false;
+}
+
+function analyzeMissingFieldsForResume(docs) {
+  const list = Array.isArray(docs) ? docs : [];
+
+  let totalMissing = 0;
+  let totalRetryableMissing = 0;
+  let totalTerminalMissing = 0;
+
+  for (const doc of list) {
+    const health = computeContractEnrichmentHealth(doc);
+    const missing = Array.isArray(health?.missing_fields) ? health.missing_fields : [];
+
+    for (const field of missing) {
+      totalMissing += 1;
+      if (isTerminalMissingField(doc, field)) totalTerminalMissing += 1;
+      else totalRetryableMissing += 1;
+    }
+  }
+
+  const terminalOnly = totalMissing > 0 && totalRetryableMissing === 0;
+
+  return {
+    total_missing: totalMissing,
+    total_retryable_missing: totalRetryableMissing,
+    total_terminal_missing: totalTerminalMissing,
+    terminal_only: terminalOnly,
+  };
+}
+
 function summarizeEnrichmentHealth(savedCompanies) {
   const list = Array.isArray(savedCompanies) ? savedCompanies : [];
   const incomplete = list.filter((c) => Array.isArray(c?.enrichment_health?.missing_fields) && c.enrichment_health.missing_fields.length > 0);
