@@ -6528,12 +6528,17 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
                   if (!internalAuthConfigured) {
                     const stalledAt = new Date().toISOString();
-                    const resume_error = "resume_worker_gateway_401_missing_internal_secret";
+                    const stall = buildResumeStallError();
+
+                    const resume_error = stall.code;
                     const resume_error_details = {
-                      root_cause: resume_error,
+                      root_cause: stall.root_cause,
                       http_status: 401,
                       used_url: triggerUrl.toString(),
-                      message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                      message: stall.message,
+                      missing_gateway_key: Boolean(stall.missing_gateway_key),
+                      missing_internal_secret: Boolean(stall.missing_internal_secret),
+                      ...buildResumeAuthDiagnostics(),
                       updated_at: stalledAt,
                     };
 
