@@ -17,6 +17,7 @@ const {
   buildInternalFetchHeaders,
   buildInternalFetchRequest,
   getInternalJobSecretInfo,
+  getAcceptableInternalSecretsInfo,
 } = require("../_internalJobAuth");
 const { getBuildInfo } = require("../_buildInfo");
 
@@ -724,12 +725,52 @@ async function handler(req, context) {
     }
   })();
 
-  const internalAuthConfigured = Boolean(
-    internalSecretInfo &&
-      typeof internalSecretInfo === "object" &&
-      String(internalSecretInfo.secret || "").trim() &&
-      internalSecretInfo.secret_source === "X_INTERNAL_JOB_SECRET"
-  );
+  const acceptableSecretsInfo = (() => {
+    try {
+      return getAcceptableInternalSecretsInfo();
+    } catch {
+      return [];
+    }
+  })();
+
+  const internalAuthConfigured = Array.isArray(acceptableSecretsInfo) && acceptableSecretsInfo.length > 0;
+
+  const gatewayKeyConfigured = Boolean(String(process.env.FUNCTION_KEY || "").trim());
+  const internalJobSecretConfigured = Boolean(String(process.env.X_INTERNAL_JOB_SECRET || "").trim());
+
+  const buildResumeAuthDiagnostics = () => ({
+    gateway_key_configured: gatewayKeyConfigured,
+    internal_job_secret_configured: internalJobSecretConfigured,
+    acceptable_secret_sources: Array.isArray(acceptableSecretsInfo) ? acceptableSecretsInfo.map((c) => c.source) : [],
+    internal_secret_source: internalSecretInfo?.secret_source || null,
+  });
+
+  const buildResumeStallError = () => {
+    const missingGatewayKey = !gatewayKeyConfigured;
+    const missingInternalSecret = !internalJobSecretConfigured;
+
+    const root_cause = missingGatewayKey
+      ? missingInternalSecret
+        ? "missing_gateway_key_and_internal_secret"
+        : "missing_gateway_key"
+      : "missing_internal_secret";
+
+    const message = missingGatewayKey
+      ? "Missing FUNCTION_KEY; Azure gateway auth (x-functions-key) is not configured, so resume-worker calls can be rejected before JS runs."
+      : "Missing X_INTERNAL_JOB_SECRET; internal handler auth is not configured for resume-worker calls.";
+
+    return {
+      code: missingGatewayKey
+        ? missingInternalSecret
+          ? "resume_worker_gateway_401_missing_gateway_key_and_internal_secret"
+          : "resume_worker_gateway_401_missing_gateway_key"
+        : "resume_worker_gateway_401_missing_internal_secret",
+      root_cause,
+      missing_gateway_key: missingGatewayKey,
+      missing_internal_secret: missingInternalSecret,
+      message,
+    };
+  };
 
   // Used for response shaping across all branches (memory-only, primary-job, cosmos-backed).
   let resume_status = null;
