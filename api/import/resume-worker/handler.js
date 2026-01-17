@@ -361,13 +361,45 @@ async function resumeWorkerHandler(req, context) {
   const resumeDocId = `_import_resume_${sessionId}`;
   const sessionDocId = `_import_session_${sessionId}`;
 
-  const [resumeDoc, sessionDoc] = await Promise.all([
-    readControlDoc(container, resumeDocId, sessionId),
-    readControlDoc(container, sessionDocId, sessionId),
+  let [resumeDoc, sessionDoc] = await Promise.all([
+    readControlDoc(container, resumeDocId, sessionId).catch(() => null),
+    readControlDoc(container, sessionDocId, sessionId).catch(() => null),
   ]);
 
+  // Required: resume worker must always upsert a resume control doc every run.
   if (!resumeDoc) {
-    return json({ ok: false, session_id: sessionId, root_cause: "missing_resume_doc", retryable: false }, 200, req);
+    const now = nowIso();
+    const savedIds = Array.isArray(sessionDoc?.saved_company_ids)
+      ? sessionDoc.saved_company_ids
+      : Array.isArray(sessionDoc?.saved_ids)
+        ? sessionDoc.saved_ids
+        : Array.isArray(sessionDoc?.saved_company_ids_verified)
+          ? sessionDoc.saved_company_ids_verified
+          : [];
+
+    const created = {
+      id: resumeDocId,
+      session_id: sessionId,
+      normalized_domain: "import",
+      partition_key: "import",
+      type: "import_control",
+      created_at: now,
+      updated_at: now,
+      status: "queued",
+      doc_created: false,
+      saved_company_ids: savedIds.map((v) => String(v || "").trim()).filter(Boolean).slice(0, 50),
+      missing_by_company: [],
+    };
+
+    const upsertResult = await upsertDoc(container, created).catch(() => ({ ok: false }));
+    const doc_created = Boolean(upsertResult && upsertResult.ok);
+
+    resumeDoc = { ...created, doc_created };
+
+    if (doc_created) {
+      // Refresh from Cosmos so we always operate on the authoritative doc.
+      resumeDoc = (await readControlDoc(container, resumeDocId, sessionId).catch(() => null)) || resumeDoc;
+    }
   }
 
   const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
