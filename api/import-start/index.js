@@ -6452,12 +6452,14 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                             stalled_at: nowResumeIso,
                             last_error: buildResumeStallError(),
                           }),
-                      saved_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
-                      saved_company_ids: Array.isArray(saveResult.saved_company_ids_verified)
-                        ? saveResult.saved_company_ids_verified
-                        : Array.isArray(saveResult.saved_ids)
-                          ? saveResult.saved_ids
-                          : [],
+                      saved_count: Number(saveResult.saved_write_count || 0) || 0,
+                      saved_company_ids: Array.isArray(saveResult.saved_ids_write)
+                        ? saveResult.saved_ids_write
+                        : Array.isArray(saveResult.saved_ids_write)
+                          ? saveResult.saved_ids_write
+                          : Array.isArray(saveResult.saved_ids)
+                            ? saveResult.saved_ids
+                            : [],
                       saved_company_urls: [String(seed.company_url || seed.website_url || seed.url || "").trim()].filter(Boolean),
                       missing_by_company,
                       keywords_stage_completed: false,
