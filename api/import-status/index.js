@@ -1664,6 +1664,7 @@ async function handler(req, context) {
             resume_needed && !internalAuthConfigured
               ? {
                   root_cause: "resume_worker_gateway_401_missing_internal_secret",
+                  http_status: 401,
                   message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
                   updated_at: nowIso(),
                 }
@@ -1680,7 +1681,8 @@ async function handler(req, context) {
               resume_needed && !internalAuthConfigured
                 ? {
                     root_cause: "resume_worker_gateway_401_missing_internal_secret",
-                    message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                  http_status: 401,
+                  message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
                     updated_at: nowIso(),
                   }
                 : resume_error_details,
@@ -1758,6 +1760,7 @@ async function handler(req, context) {
             resume_needed && !internalAuthConfigured
               ? {
                   root_cause: "resume_worker_gateway_401_missing_internal_secret",
+                  http_status: 401,
                   message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
                   updated_at: nowIso(),
                 }
@@ -1774,7 +1777,8 @@ async function handler(req, context) {
               resume_needed && !internalAuthConfigured
                 ? {
                     root_cause: "resume_worker_gateway_401_missing_internal_secret",
-                    message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                  http_status: 401,
+                  message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
                     updated_at: nowIso(),
                   }
                 : resume_error_details,
