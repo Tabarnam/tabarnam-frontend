@@ -7,10 +7,10 @@ function normalizeSecret(raw) {
 }
 
 function getInternalJobSecretInfo() {
+  // Internal handler auth secret (NOT the Azure gateway/host key).
   const candidates = [
     { source: "X_INTERNAL_JOB_SECRET", value: process.env.X_INTERNAL_JOB_SECRET },
     { source: "XAI_EXTERNAL_KEY", value: process.env.XAI_EXTERNAL_KEY },
-    { source: "FUNCTION_KEY", value: process.env.FUNCTION_KEY },
   ];
 
   for (const c of candidates) {
@@ -75,8 +75,8 @@ function buildInternalFetchRequest(options) {
   const { secret: internalSecret, secret_source } = getInternalJobSecretInfo();
 
   // IMPORTANT: Azure gateways may require x-functions-key *before* our handler runs.
-  // Always use FUNCTION_KEY when present.
-  const functionsKey = normalizeSecret(process.env.FUNCTION_KEY) || internalSecret;
+  // Only FUNCTION_KEY is valid for this header.
+  const functionsKey = normalizeSecret(process.env.FUNCTION_KEY);
 
   const headers = {
     "Content-Type": "application/json",
@@ -109,6 +109,8 @@ function buildInternalFetchRequest(options) {
     request_id,
     job_kind,
     gateway_key_attached: Boolean(include_functions_key && functionsKey),
+    gateway_key_configured: Boolean(functionsKey),
+    internal_secret_attached: Boolean(internalSecret),
     secret_source,
   };
 }
