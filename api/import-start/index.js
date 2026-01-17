@@ -9497,17 +9497,19 @@ Return ONLY the JSON array, no other text.`,
                     updated_at: nowResumeIso,
                     request_id: requestId,
                     status: internalAuthConfigured ? "queued" : "stalled",
+                    resume_auth: buildResumeAuthDiagnostics(),
                     ...(internalAuthConfigured
                       ? {}
                       : {
                           stalled_at: nowResumeIso,
-                          last_error: {
-                            code: "resume_worker_gateway_401_missing_internal_secret",
-                            message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
-                          },
+                          last_error: buildResumeStallError(),
                         }),
-                    saved_count: Number(saveResult.saved || 0),
-                    saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                    saved_count: Number(saveResult.saved_write_count || 0) || 0,
+                    saved_company_ids: Array.isArray(saveResult.saved_ids_write)
+                      ? saveResult.saved_ids_write
+                      : Array.isArray(saveResult.saved_ids)
+                        ? saveResult.saved_ids
+                        : [],
                     saved_company_urls: (Array.isArray(enriched) ? enriched : [])
                       .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
                       .filter(Boolean)
