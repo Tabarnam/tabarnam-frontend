@@ -761,7 +761,8 @@ async function resumeWorkerHandler(req, context) {
         ? {}
         : {
             status: "complete",
-            stage_beacon: "enrichment_complete",
+            stage_beacon: exhausted ? "enrichment_exhausted" : "enrichment_complete",
+            ...(exhausted ? { resume_exhausted: true } : {}),
             completed_at: updatedAt,
           }),
       updated_at: updatedAt,
