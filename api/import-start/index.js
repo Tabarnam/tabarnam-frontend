@@ -8684,20 +8684,23 @@ Return ONLY the JSON array, no other text.`,
               const hqMeaningful = asMeaningfulString(c?.headquarters_location);
               const hasMfg = isRealValue("manufacturing_locations", c?.manufacturing_locations, c);
 
-              if (!hqMeaningful && !c?.hq_unknown) {
+              if (!hqMeaningful) {
+                // Terminal sentinel: we have attempted location enrichment and still found no HQ.
                 const existingDebug = c?.enrichment_debug && typeof c.enrichment_debug === "object" ? c.enrichment_debug : {};
                 const sources = Array.isArray(c?.location_sources) ? c.location_sources.slice(0, 10) : [];
 
                 enriched[i] = {
                   ...c,
+                  headquarters_location: "Not disclosed",
                   hq_unknown: true,
-                  hq_unknown_reason: String(c?.hq_unknown_reason || "not_found_after_location_enrichment"),
-                  red_flag_reason: String(c?.red_flag_reason || "HQ not found after location enrichment").trim(),
+                  hq_unknown_reason: "not_disclosed",
+                  red_flag: true,
+                  red_flag_reason: String(c?.red_flag_reason || "Headquarters not disclosed").trim(),
                   enrichment_debug: {
                     ...existingDebug,
                     location: {
                       at: new Date().toISOString(),
-                      outcome: "not_found",
+                      outcome: "not_disclosed",
                       missing_hq: true,
                       missing_mfg: !hasMfg,
                       location_sources_count: Array.isArray(c?.location_sources) ? c.location_sources.length : 0,
