@@ -186,7 +186,8 @@ async function fetchSeedCompanies(container, sessionId, limit = 25) {
         c.hq_unknown, c.hq_unknown_reason,
         c.mfg_unknown, c.mfg_unknown_reason,
         c.source, c.source_stage, c.seed_ready,
-        c.primary_candidate, c.seed
+        c.primary_candidate, c.seed,
+        c.import_missing_fields, c.import_missing_reason, c.import_warnings
       FROM c
       WHERE (c.session_id = @sid OR c.import_session_id = @sid)
         AND NOT STARTSWITH(c.id, '_import_')
@@ -230,6 +231,12 @@ async function handler(req, context) {
   const noCosmosMode = String(url.searchParams.get("no_cosmos") || "").trim() === "1";
   const cosmosEnabled = !noCosmosMode;
 
+  const parseBoundedInt = (value, fallback, { min = 1, max = 50 } = {}) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(Math.trunc(n), max));
+  };
+
   let body = {};
   try {
     if (typeof req?.json === "function") {
@@ -241,6 +248,18 @@ async function handler(req, context) {
   } catch {}
 
   const sessionId = String(body?.session_id || body?.sessionId || url.searchParams.get("session_id") || "").trim();
+
+  const batchLimit = parseBoundedInt(
+    body?.batch_limit ?? body?.batchLimit ?? url.searchParams.get("batch_limit") ?? url.searchParams.get("batchLimit"),
+    25,
+    { min: 1, max: 50 }
+  );
+
+  const deadlineMs = parseBoundedInt(
+    body?.deadline_ms ?? body?.deadlineMs ?? url.searchParams.get("deadline_ms") ?? url.searchParams.get("deadlineMs"),
+    25000,
+    { min: 1000, max: 60000 }
+  );
   if (!sessionId) return json({ ok: false, error: "Missing session_id" }, 200, req);
 
   // Deterministic diagnosis marker: if this never updates, the request never reached the handler
@@ -380,7 +399,7 @@ async function handler(req, context) {
     updated_at: nowIso(),
   }).catch(() => null);
 
-  let seedDocs = await fetchSeedCompanies(container, sessionId, 25).catch(() => []);
+  let seedDocs = await fetchSeedCompanies(container, sessionId, batchLimit).catch(() => []);
 
   // If the session/company docs are missing the session_id markers (e.g. platform kill mid-flight),
   // fall back to canonical saved IDs persisted in the resume/session docs.
@@ -388,6 +407,55 @@ async function handler(req, context) {
     const fallbackIds = Array.isArray(resumeDoc?.saved_company_ids) ? resumeDoc.saved_company_ids : [];
     if (fallbackIds.length > 0) {
       seedDocs = await fetchCompaniesByIds(container, fallbackIds).catch(() => []);
+    }
+  }
+
+  // Idempotency: only attempt resume on company docs that still report missing required fields.
+  // This prevents repeated resume invocations from rewriting already-complete docs.
+  if (seedDocs.length > 0) {
+    const withMissing = seedDocs.filter(
+      (d) => Array.isArray(d?.import_missing_fields) && d.import_missing_fields.length > 0
+    );
+
+    if (withMissing.length > 0) {
+      seedDocs = withMissing;
+    } else {
+      const updatedAt = nowIso();
+
+      await upsertDoc(container, {
+        ...resumeDoc,
+        status: "complete",
+        last_trigger_result: {
+          ok: true,
+          status: 200,
+          stage_beacon: "already_complete",
+          resume_needed: false,
+        },
+        lock_expires_at: null,
+        updated_at: updatedAt,
+      }).catch(() => null);
+
+      await bestEffortPatchSessionDoc({
+        container,
+        sessionId,
+        patch: {
+          resume_needed: false,
+          resume_updated_at: updatedAt,
+          updated_at: updatedAt,
+        },
+      }).catch(() => null);
+
+      return json(
+        {
+          ok: true,
+          session_id: sessionId,
+          skipped: true,
+          reason: "no_missing_required_fields",
+          batch_limit: batchLimit,
+        },
+        200,
+        req
+      );
     }
   }
 
@@ -455,7 +523,7 @@ async function handler(req, context) {
     query: String(request?.query || "resume").trim() || "resume",
     queryTypes: Array.isArray(request?.queryTypes) ? request.queryTypes : [String(request?.queryType || "product_keyword")],
     location: typeof request?.location === "string" && request.location.trim() ? request.location.trim() : undefined,
-    limit: Number.isFinite(Number(request?.limit)) ? Number(request.limit) : Math.min(25, companies.length),
+    limit: Number.isFinite(Number(request?.limit)) ? Number(request.limit) : Math.min(batchLimit, companies.length),
     expand_if_few: true,
     dry_run: false,
     companies,
@@ -466,7 +534,7 @@ async function handler(req, context) {
   startUrl.searchParams.set("skip_stages", "primary");
   startUrl.searchParams.set("max_stage", "expand");
   startUrl.searchParams.set("resume_worker", "1");
-  startUrl.searchParams.set("deadline_ms", "25000");
+  startUrl.searchParams.set("deadline_ms", String(deadlineMs));
 
   // IMPORTANT: We invoke import-start directly in-process to avoid an internal HTTP round-trip.
   // This removes reliance on SWA gateway host key behavior for resume-worker -> import-start.
