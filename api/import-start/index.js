@@ -48,6 +48,7 @@ const {
   buildInternalFetchHeaders,
   buildInternalFetchRequest,
   getInternalJobSecretInfo,
+  getAcceptableInternalSecretsInfo,
 } = require("../_internalJobAuth");
 const {
   buildPrimaryJobId: buildImportPrimaryJobId,
@@ -2727,12 +2728,15 @@ async function verifySavedCompaniesReadAfterWrite(saveResult) {
           partition_key: normalizedDomain,
         }).catch(() => null);
 
-        return { companyId, ok: Boolean(doc) };
+        const missingFields = Array.isArray(doc?.import_missing_fields) ? doc.import_missing_fields : [];
+        const complete = Boolean(doc) && missingFields.length === 0;
+
+        return { companyId, ok: Boolean(doc), complete };
       })
     );
 
     for (const r of reads) {
-      if (r.ok) verified.push(r.companyId);
+      if (r.complete) verified.push(r.companyId);
       else unverified.push(r.companyId);
     }
   }
@@ -3520,7 +3524,11 @@ async function saveCompaniesToCosmos({
               },
             ];
 
-            await container.items.create(doc);
+            const upsertRes = await upsertItemWithPkCandidates(container, doc);
+            if (!upsertRes?.ok) {
+              throw new Error(upsertRes?.error || "upsert_failed");
+            }
+
             return {
               type: "saved",
               index: companyIndex,
@@ -3640,12 +3648,54 @@ const importStartHandlerInner = async (req, context) => {
       }
     })();
 
-    const internalAuthConfigured = Boolean(
-      internalSecretInfo &&
-        typeof internalSecretInfo === "object" &&
-        String(internalSecretInfo.secret || "").trim() &&
-        internalSecretInfo.secret_source === "X_INTERNAL_JOB_SECRET"
-    );
+    const acceptableSecretsInfo = (() => {
+      try {
+        return getAcceptableInternalSecretsInfo();
+      } catch {
+        return [];
+      }
+    })();
+
+    // internal_auth_configured should be true if ANY accepted secret exists
+    // (e.g. X_INTERNAL_JOB_SECRET OR FUNCTION_KEY), not only when the secret source is X_INTERNAL_JOB_SECRET.
+    const internalAuthConfigured = Array.isArray(acceptableSecretsInfo) && acceptableSecretsInfo.length > 0;
+
+    const gatewayKeyConfigured = Boolean(String(process.env.FUNCTION_KEY || "").trim());
+    const internalJobSecretConfigured = Boolean(String(process.env.X_INTERNAL_JOB_SECRET || "").trim());
+
+    const buildResumeAuthDiagnostics = () => ({
+      gateway_key_configured: gatewayKeyConfigured,
+      internal_job_secret_configured: internalJobSecretConfigured,
+      acceptable_secret_sources: Array.isArray(acceptableSecretsInfo) ? acceptableSecretsInfo.map((c) => c.source) : [],
+      internal_secret_source: internalSecretInfo?.secret_source || null,
+    });
+
+    const buildResumeStallError = () => {
+      const missingGatewayKey = !gatewayKeyConfigured;
+      const missingInternalSecret = !internalJobSecretConfigured;
+
+      const root_cause = missingGatewayKey
+        ? missingInternalSecret
+          ? "missing_gateway_key_and_internal_secret"
+          : "missing_gateway_key"
+        : "missing_internal_secret";
+
+      const message = missingGatewayKey
+        ? "Missing FUNCTION_KEY; Azure gateway auth (x-functions-key) is not configured, so resume-worker calls can be rejected before JS runs."
+        : "Missing X_INTERNAL_JOB_SECRET; internal handler auth is not configured for resume-worker calls.";
+
+      return {
+        code: missingGatewayKey
+          ? missingInternalSecret
+            ? "resume_worker_gateway_401_missing_gateway_key_and_internal_secret"
+            : "resume_worker_gateway_401_missing_gateway_key"
+          : "resume_worker_gateway_401_missing_internal_secret",
+        root_cause,
+        missing_gateway_key: missingGatewayKey,
+        missing_internal_secret: missingInternalSecret,
+        message,
+      };
+    };
 
     const jsonWithRequestId = (obj, status = 200) => {
       const payload =
@@ -6244,23 +6294,93 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               sessionCreatedAtIso ||= new Date().toISOString();
 
               try {
-                const saveResultRaw = await saveCompaniesToCosmos({
-                  companies,
-                  sessionId,
-                  requestId,
-                  sessionCreatedAt: sessionCreatedAtIso,
-                  axiosTimeout: Math.min(timeout, 20_000),
-                  saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
-                  getRemainingMs,
-                });
+                const container = getCompaniesCosmosContainer();
 
-                const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
-                  verified_ids: [],
-                  unverified_ids: Array.isArray(saveResultRaw?.saved_ids) ? saveResultRaw.saved_ids : [],
-                  verified_persisted_items: [],
-                }));
+                // Prevent flaky/conflicting Cosmos writes on seed-fallback duplicates by checking first.
+                // Query by website_url since normalized_domain can be "unknown" for some records.
+                const urlToMatch = String(seed.website_url || seed.url || "").trim();
+                const urlTrimmed = urlToMatch.replace(/\/+$/, "");
+                const urlWithSlash = urlTrimmed ? `${urlTrimmed}/` : urlToMatch;
 
-                saveResult = applyReadAfterWriteVerification(saveResultRaw, verification);
+                const existingHit = (() => {
+                  if (!container || !urlTrimmed) return null;
+                  return container.items
+                    .query(
+                      {
+                        query: `
+                          SELECT TOP 1 c.id, c.normalized_domain, c.partition_key, c.import_missing_fields
+                          FROM c
+                          WHERE (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
+                            AND (
+                              c.website_url = @url1 OR c.website_url = @url2
+                              OR c.url = @url1 OR c.url = @url2
+                            )
+                        `,
+                        parameters: [
+                          { name: "@url1", value: urlTrimmed },
+                          { name: "@url2", value: urlWithSlash },
+                        ],
+                      },
+                      { enableCrossPartitionQuery: true }
+                    )
+                    .fetchAll();
+                })();
+
+                const existingRows = existingHit ? (await existingHit).resources : null;
+                const existingRow = Array.isArray(existingRows) && existingRows[0] ? existingRows[0] : null;
+                const duplicateOfId = existingRow && existingRow.id ? String(existingRow.id).trim() : "";
+
+                if (duplicateOfId && container) {
+                  const existingMissing = Array.isArray(existingRow?.import_missing_fields) ? existingRow.import_missing_fields : [];
+                  const existingComplete = existingMissing.length === 0;
+
+                  const outcome = existingComplete
+                    ? "duplicate_detected"
+                    : "duplicate_detected_unverified_missing_required_fields";
+
+                  saveResult = {
+                    saved: existingComplete ? 1 : 0,
+                    skipped: 0,
+                    failed: 0,
+                    saved_ids: existingComplete ? [duplicateOfId] : [],
+                    skipped_ids: [],
+                    skipped_duplicates: [
+                      {
+                        duplicate_of_id: duplicateOfId,
+                        match_key: "website_url",
+                        match_value: urlToMatch,
+                      },
+                    ],
+                    failed_items: [],
+                    saved_company_ids_verified: existingComplete ? [duplicateOfId] : [],
+                    saved_company_ids_unverified: existingComplete ? [] : [duplicateOfId],
+                    saved_verified_count: existingComplete ? 1 : 0,
+                    saved_write_count: 0,
+                    saved_ids_write: [],
+                    duplicate_of_id: duplicateOfId,
+                    duplicate_existing_incomplete: !existingComplete,
+                    duplicate_existing_missing_fields: existingComplete ? [] : existingMissing.slice(0, 20),
+                    save_outcome: outcome,
+                  };
+                } else {
+                  const saveResultRaw = await saveCompaniesToCosmos({
+                    companies,
+                    sessionId,
+                    requestId,
+                    sessionCreatedAt: sessionCreatedAtIso,
+                    axiosTimeout: Math.min(timeout, 20_000),
+                    saveStub: Boolean(bodyObj?.save_stub || bodyObj?.saveStub),
+                    getRemainingMs,
+                  });
+
+                  const verification = await verifySavedCompaniesReadAfterWrite(saveResultRaw).catch(() => ({
+                    verified_ids: [],
+                    unverified_ids: Array.isArray(saveResultRaw?.saved_ids) ? saveResultRaw.saved_ids : [],
+                    verified_persisted_items: [],
+                  }));
+
+                  saveResult = applyReadAfterWriteVerification(saveResultRaw, verification);
+                }
               } catch (e) {
                 const errorMessage = toErrorString(e);
 
@@ -6319,6 +6439,12 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 save_outcome = "saved_verified";
               } else if (getDuplicateOfId(saveResult)) {
                 save_outcome = "duplicate_detected";
+              } else if (
+                writeCountPre > 0 &&
+                Array.isArray(saveResult.saved_company_ids_unverified) &&
+                saveResult.saved_company_ids_unverified.length > 0
+              ) {
+                save_outcome = "saved_unverified_missing_required_fields";
               } else if (writeCountPre > 0) {
                 save_outcome = "read_after_write_failed";
               } else if (Number(saveResult.failed || 0) > 0) {
@@ -6347,20 +6473,31 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       : null;
 
                     if (existingDoc) {
+                      const existingMissing = Array.isArray(existingDoc?.import_missing_fields)
+                        ? existingDoc.import_missing_fields
+                        : [];
+                      const existingComplete = existingMissing.length === 0;
+
+                      if (!existingComplete) {
+                        save_outcome = "duplicate_detected_unverified_missing_required_fields";
+                      }
+
                       saveResult = {
                         ...saveResult,
-                        saved: 1,
+                        saved: existingComplete ? 1 : 0,
                         skipped: 0,
                         failed: 0,
-                        saved_ids: [duplicateOfId],
+                        saved_ids: existingComplete ? [duplicateOfId] : [],
                         skipped_ids: [],
                         failed_items: [],
-                        saved_company_ids_verified: [duplicateOfId],
-                        saved_company_ids_unverified: [],
-                        saved_verified_count: 1,
+                        saved_company_ids_verified: existingComplete ? [duplicateOfId] : [],
+                        saved_company_ids_unverified: existingComplete ? [] : [duplicateOfId],
+                        saved_verified_count: existingComplete ? 1 : 0,
                         saved_write_count: 0,
                         saved_ids_write: [],
                         duplicate_of_id: duplicateOfId,
+                        duplicate_existing_incomplete: !existingComplete,
+                        duplicate_existing_missing_fields: existingComplete ? [] : existingMissing.slice(0, 20),
                       };
                     } else {
                       save_outcome = "read_after_write_failed";
@@ -6381,7 +6518,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             }
 
             const verifiedCount = Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0;
-            const canResume = canPersist && verifiedCount > 0;
+            const writeCount = Number(saveResult.saved_write_count || 0) || 0;
+            const canResume = canPersist && writeCount > 0;
 
             if (canResume) {
               if (cosmosEnabled) {
@@ -6397,19 +6535,17 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       created_at: nowResumeIso,
                       updated_at: nowResumeIso,
                       request_id: requestId,
-                      status: internalAuthConfigured ? "queued" : "stalled",
-                      ...(internalAuthConfigured
+                      status: gatewayKeyConfigured ? "queued" : "stalled",
+                      resume_auth: buildResumeAuthDiagnostics(),
+                      ...(gatewayKeyConfigured
                         ? {}
                         : {
                             stalled_at: nowResumeIso,
-                            last_error: {
-                              code: "resume_worker_gateway_401_missing_internal_secret",
-                              message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
-                            },
+                            last_error: buildResumeStallError(),
                           }),
-                      saved_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
-                      saved_company_ids: Array.isArray(saveResult.saved_company_ids_verified)
-                        ? saveResult.saved_company_ids_verified
+                      saved_count: Number(saveResult.saved_write_count || 0) || 0,
+                      saved_company_ids: Array.isArray(saveResult.saved_ids_write)
+                        ? saveResult.saved_ids_write
                         : Array.isArray(saveResult.saved_ids)
                           ? saveResult.saved_ids
                           : [],
@@ -6446,9 +6582,9 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       saved_verified_count: verifiedCount,
                       saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : verifiedIds,
                       saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
-                      saved_company_ids: verifiedIds,
+                      saved_company_ids: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : verifiedIds,
                       saved_company_urls: [String(seed.company_url || seed.website_url || seed.url || "").trim()].filter(Boolean),
-                      saved_ids: verifiedIds,
+                      saved_ids: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : verifiedIds,
                       saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
                       saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
                       skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
@@ -6485,14 +6621,19 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   triggerUrl.searchParams.set("session_id", sessionId);
                   if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
 
-                  if (!internalAuthConfigured) {
+                  if (!gatewayKeyConfigured) {
                     const stalledAt = new Date().toISOString();
-                    const resume_error = "resume_worker_gateway_401_missing_internal_secret";
+                    const stall = buildResumeStallError();
+
+                    const resume_error = stall.code;
                     const resume_error_details = {
-                      root_cause: resume_error,
+                      root_cause: stall.root_cause,
                       http_status: 401,
                       used_url: triggerUrl.toString(),
-                      message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                      message: stall.message,
+                      missing_gateway_key: Boolean(stall.missing_gateway_key),
+                      missing_internal_secret: Boolean(stall.missing_internal_secret),
+                      ...buildResumeAuthDiagnostics(),
                       updated_at: stalledAt,
                     };
 
@@ -6605,20 +6746,27 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   status: "running",
                   resume_needed: true,
                   resume: {
-                    status: internalAuthConfigured ? "queued" : "stalled",
+                    status: gatewayKeyConfigured ? "queued" : "stalled",
                     internal_auth_configured: Boolean(internalAuthConfigured),
+                    ...buildResumeAuthDiagnostics(),
                   },
-                  ...(internalAuthConfigured
+                  ...(gatewayKeyConfigured
                     ? {}
-                    : {
-                        resume_error: "resume_worker_gateway_401_missing_internal_secret",
-                        resume_error_details: {
-                          root_cause: "resume_worker_gateway_401_missing_internal_secret",
-                          message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
-                          updated_at: new Date().toISOString(),
-                        },
-                        resume_worker_last_reject_layer: "gateway",
-                      }),
+                    : (() => {
+                        const stall = buildResumeStallError();
+                        return {
+                          resume_error: stall.code,
+                          resume_error_details: {
+                            root_cause: stall.root_cause,
+                            message: stall.message,
+                            missing_gateway_key: Boolean(stall.missing_gateway_key),
+                            missing_internal_secret: Boolean(stall.missing_internal_secret),
+                            ...buildResumeAuthDiagnostics(),
+                            updated_at: new Date().toISOString(),
+                          },
+                          resume_worker_last_reject_layer: "gateway",
+                        };
+                      })()),
                   missing_by_company,
                   company_name: seed.company_name,
                   company_url: seed.company_url || seed.website_url,
@@ -9373,25 +9521,14 @@ Return ONLY the JSON array, no other text.`,
             const mfgList = Array.isArray(c.manufacturing_locations) ? c.manufacturing_locations : [];
             const hasMfg = mfgList.length > 0 || Boolean(c.mfg_unknown && String(c.mfg_unknown_reason || c.red_flag_reason || "").trim());
 
-            const hasReviewCount = typeof c.review_count === "number" && Number.isFinite(c.review_count);
-            const hasCuratedReviewsField = Array.isArray(c.curated_reviews);
-            const hasReviewCursorField = Boolean(c.review_cursor && typeof c.review_cursor === "object");
-
-            const stageStatus =
-              typeof c.reviews_stage_status === "string" && c.reviews_stage_status.trim()
-                ? c.reviews_stage_status.trim()
-                : typeof c?.review_cursor?.reviews_stage_status === "string"
-                  ? String(c.review_cursor.reviews_stage_status).trim()
-                  : "";
-
-            const reviewsStageTerminal = shouldRunStage("reviews") ? Boolean(stageStatus && stageStatus !== "pending") : true;
+            // NOTE: Reviews are *not* treated as required for session completeness.
+            // Required fields here are the ones that gate the "verified" UX: industries, keywords, HQ, and manufacturing.
 
             const missing = [];
             if (!hasIndustries) missing.push("industries");
             if (!hasKeywords) missing.push("product_keywords");
             if (!hasHq) missing.push("headquarters_location");
             if (!hasMfg) missing.push("manufacturing_locations");
-            if (!hasReviewCount || !hasCuratedReviewsField || !hasReviewCursorField || !reviewsStageTerminal) missing.push("reviews");
 
             return missing;
           };
@@ -9409,9 +9546,170 @@ Return ONLY the JSON array, no other text.`,
             })
             .filter(Boolean);
 
+          const allowResumeWorker =
+            Boolean(bodyObj?.allow_resume_worker || bodyObj?.allowResumeWorker) ||
+            String(readQueryParam(req, "allow_resume_worker") || "").trim() === "1" ||
+            String(readQueryParam(req, "allowResumeWorker") || "").trim() === "1";
+
+          const hasPersistedWrite =
+            Number(saveResult.saved_write_count || 0) > 0 ||
+            (Array.isArray(saveResult.saved_ids_write) && saveResult.saved_ids_write.length > 0);
+
+          const hasMissingRequired = enrichmentMissingByCompany.length > 0;
+
+          // Default (single-path) behavior: if we persisted anything but required enrichment fields are still missing,
+          // fail deterministically rather than relying on a separate resume-worker invocation.
+          if (!dryRunRequested && cosmosEnabled && hasPersistedWrite && hasMissingRequired && !allowResumeWorker) {
+            mark("required_fields_missing_single_path");
+
+            const failedAt = new Date().toISOString();
+
+            const last_error = {
+              code: "REQUIRED_FIELDS_MISSING",
+              message:
+                "Import incomplete: required fields missing after inline stages. Resume-worker is disabled (single-path), so failing deterministically.",
+            };
+
+            if (cosmosEnabled) {
+              try {
+                const container = getCompaniesCosmosContainer();
+                if (container) {
+                  const errorDoc = {
+                    id: `_import_error_${sessionId}`,
+                    ...buildImportControlDocBase(sessionId),
+                    request_id: requestId,
+                    stage: "required_fields_missing",
+                    error: last_error,
+                    details: {
+                      stage_beacon,
+                      deferred_stages: Array.from(deferredStages),
+                      missing_by_company: enrichmentMissingByCompany,
+                      saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
+                      saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
+                      saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+                      saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
+                        ? saveResult.saved_company_ids_verified
+                        : [],
+                      saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
+                        ? saveResult.saved_company_ids_unverified
+                        : [],
+                    },
+                    failed_at: failedAt,
+                  };
+
+                  await upsertItemWithPkCandidates(container, errorDoc).catch(() => null);
+
+                  await upsertCosmosImportSessionDoc({
+                    sessionId,
+                    requestId,
+                    patch: {
+                      status: "error",
+                      stage_beacon: "required_fields_missing",
+                      last_error,
+                      save_outcome: typeof saveResult?.save_outcome === "string" ? saveResult.save_outcome : null,
+                      saved: Number(saveResult.saved || 0) || 0,
+                      skipped: Number(saveResult.skipped || 0) || 0,
+                      failed: Number(saveResult.failed || 0) || 0,
+                      saved_count: Number(saveResult.saved_write_count || 0) || Number(saveResult.saved || 0) || 0,
+                      saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+                      saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
+                        ? saveResult.saved_company_ids_verified
+                        : [],
+                      saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
+                        ? saveResult.saved_company_ids_unverified
+                        : [],
+                      saved_company_ids: Array.isArray(saveResult.saved_ids_write)
+                        ? saveResult.saved_ids_write
+                        : Array.isArray(saveResult.saved_ids)
+                          ? saveResult.saved_ids
+                          : [],
+                      saved_company_urls: (Array.isArray(enriched) ? enriched : [])
+                        .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
+                        .filter(Boolean)
+                        .slice(0, 50),
+                      deferred_stages: Array.from(deferredStages),
+                      resume_needed: false,
+                      resume_updated_at: failedAt,
+                      updated_at: failedAt,
+                    },
+                  }).catch(() => null);
+                }
+              } catch {}
+            }
+
+            try {
+              upsertImportSession({
+                session_id: sessionId,
+                request_id: requestId,
+                status: "error",
+                stage_beacon: "required_fields_missing",
+                companies_count: Array.isArray(enriched) ? enriched.length : 0,
+                resume_needed: false,
+                last_error,
+                saved: Number(saveResult.saved || 0) || 0,
+                saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+                saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
+                  ? saveResult.saved_company_ids_verified
+                  : [],
+                saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
+                  ? saveResult.saved_company_ids_unverified
+                  : [],
+              });
+            } catch {}
+
+            const cosmosTarget = cosmosEnabled ? await getCompaniesCosmosTargetDiagnostics().catch(() => null) : null;
+
+            return jsonWithRequestId(
+              {
+                ok: false,
+                session_id: sessionId,
+                request_id: requestId,
+                status: "error",
+                stage_beacon: "required_fields_missing",
+                resume_needed: false,
+                last_error,
+                deferred_stages: Array.from(deferredStages),
+                missing_by_company: enrichmentMissingByCompany,
+                ...(cosmosTarget ? cosmosTarget : {}),
+                saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+                saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
+                  ? saveResult.saved_company_ids_verified
+                  : Array.isArray(saveResult.saved_ids)
+                    ? saveResult.saved_ids
+                    : [],
+                saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
+                  ? saveResult.saved_company_ids_unverified
+                  : [],
+                saved: saveResult.saved,
+                skipped: saveResult.skipped,
+                failed: saveResult.failed,
+                save_report: {
+                  saved: saveResult.saved,
+                  saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+                  saved_write_count: Number(saveResult.saved_write_count || 0) || 0,
+                  skipped: saveResult.skipped,
+                  failed: saveResult.failed,
+                  saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                  saved_ids_verified: Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : [],
+                  saved_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : [],
+                  saved_ids_write: Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : [],
+                  skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
+                  skipped_duplicates: Array.isArray(saveResult.skipped_duplicates) ? saveResult.skipped_duplicates : [],
+                  failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
+                },
+              },
+              200
+            );
+          }
+
           // Only mark the session as resume-needed if we successfully persisted at least one company.
           // Otherwise we can get stuck in "running" forever because resume-worker has nothing to load.
-          const needsResume = !dryRunRequested && cosmosEnabled && enrichmentMissingByCompany.length > 0 && saveResult.saved > 0;
+          const needsResume =
+            !dryRunRequested &&
+            cosmosEnabled &&
+            hasMissingRequired &&
+            hasPersistedWrite &&
+            allowResumeWorker;
 
           if (needsResume) {
             mark("enrichment_incomplete");
@@ -9429,18 +9727,20 @@ Return ONLY the JSON array, no other text.`,
                     created_at: nowResumeIso,
                     updated_at: nowResumeIso,
                     request_id: requestId,
-                    status: internalAuthConfigured ? "queued" : "stalled",
-                    ...(internalAuthConfigured
+                    status: gatewayKeyConfigured ? "queued" : "stalled",
+                    resume_auth: buildResumeAuthDiagnostics(),
+                    ...(gatewayKeyConfigured
                       ? {}
                       : {
                           stalled_at: nowResumeIso,
-                          last_error: {
-                            code: "resume_worker_gateway_401_missing_internal_secret",
-                            message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
-                          },
+                          last_error: buildResumeStallError(),
                         }),
-                    saved_count: Number(saveResult.saved || 0),
-                    saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                    saved_count: Number(saveResult.saved_write_count || 0) || 0,
+                    saved_company_ids: Array.isArray(saveResult.saved_ids_write)
+                      ? saveResult.saved_ids_write
+                      : Array.isArray(saveResult.saved_ids)
+                        ? saveResult.saved_ids
+                        : [],
                     saved_company_urls: (Array.isArray(enriched) ? enriched : [])
                       .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
                       .filter(Boolean)
@@ -9461,17 +9761,32 @@ Return ONLY the JSON array, no other text.`,
                   patch: {
                     status: "running",
                     stage_beacon: stage_beacon,
-                    saved: saveResult.saved,
-                    skipped: saveResult.skipped,
-                    failed: saveResult.failed,
-                    saved_count: Number(saveResult.saved || 0),
-                    saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                    saved: Number(saveResult.saved || 0) || 0,
+                    skipped: Number(saveResult.skipped || 0) || 0,
+                    failed: Number(saveResult.failed || 0) || 0,
+                    saved_count: Number(saveResult.saved_write_count || 0) || Number(saveResult.saved || 0) || 0,
+                    saved_verified_count: Number(saveResult.saved_verified_count ?? saveResult.saved ?? 0) || 0,
+                    saved_company_ids_verified: Array.isArray(saveResult.saved_company_ids_verified)
+                      ? saveResult.saved_company_ids_verified
+                      : [],
+                    saved_company_ids_unverified: Array.isArray(saveResult.saved_company_ids_unverified)
+                      ? saveResult.saved_company_ids_unverified
+                      : [],
+                    saved_company_ids: Array.isArray(saveResult.saved_ids_write)
+                      ? saveResult.saved_ids_write
+                      : Array.isArray(saveResult.saved_ids)
+                        ? saveResult.saved_ids
+                        : [],
                     saved_company_urls: (Array.isArray(enriched) ? enriched : [])
                       .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
                       .filter(Boolean)
                       .slice(0, 50),
                     deferred_stages: Array.from(deferredStages),
-                    saved_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                    saved_ids: Array.isArray(saveResult.saved_ids_write)
+                      ? saveResult.saved_ids_write
+                      : Array.isArray(saveResult.saved_ids)
+                        ? saveResult.saved_ids
+                        : [],
                     skipped_ids: Array.isArray(saveResult.skipped_ids) ? saveResult.skipped_ids : [],
                     failed_items: Array.isArray(saveResult.failed_items) ? saveResult.failed_items : [],
                     resume_needed: true,
@@ -9493,14 +9808,19 @@ Return ONLY the JSON array, no other text.`,
                 triggerUrl.searchParams.set("session_id", sessionId);
                 if (!cosmosEnabled) triggerUrl.searchParams.set("no_cosmos", "1");
 
-                if (!internalAuthConfigured) {
+                if (!gatewayKeyConfigured) {
                   const stalledAt = new Date().toISOString();
-                  const resume_error = "resume_worker_gateway_401_missing_internal_secret";
+                  const stall = buildResumeStallError();
+
+                  const resume_error = stall.code;
                   const resume_error_details = {
-                    root_cause: resume_error,
+                    root_cause: stall.root_cause,
                     http_status: 401,
                     used_url: triggerUrl.toString(),
-                    message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
+                    message: stall.message,
+                    missing_gateway_key: Boolean(stall.missing_gateway_key),
+                    missing_internal_secret: Boolean(stall.missing_internal_secret),
+                    ...buildResumeAuthDiagnostics(),
                     updated_at: stalledAt,
                   };
 
@@ -9611,23 +9931,34 @@ Return ONLY the JSON array, no other text.`,
                 status: "running",
                 resume_needed: true,
                 resume: {
-                  status: internalAuthConfigured ? "queued" : "stalled",
+                  status: gatewayKeyConfigured ? "queued" : "stalled",
                   internal_auth_configured: Boolean(internalAuthConfigured),
+                  ...buildResumeAuthDiagnostics(),
                 },
-                ...(internalAuthConfigured
+                ...(gatewayKeyConfigured
                   ? {}
-                  : {
-                      resume_error: "resume_worker_gateway_401_missing_internal_secret",
-                      resume_error_details: {
-                        root_cause: "resume_worker_gateway_401_missing_internal_secret",
-                        message: "Missing X_INTERNAL_JOB_SECRET; resume worker cannot be triggered",
-                        updated_at: new Date().toISOString(),
-                      },
-                      resume_worker_last_reject_layer: "gateway",
-                    }),
+                  : (() => {
+                      const stall = buildResumeStallError();
+                      return {
+                        resume_error: stall.code,
+                        resume_error_details: {
+                          root_cause: stall.root_cause,
+                          message: stall.message,
+                          missing_gateway_key: Boolean(stall.missing_gateway_key),
+                          missing_internal_secret: Boolean(stall.missing_internal_secret),
+                          ...buildResumeAuthDiagnostics(),
+                          updated_at: new Date().toISOString(),
+                        },
+                        resume_worker_last_reject_layer: "gateway",
+                      };
+                    })()),
                 deferred_stages: Array.from(deferredStages),
-                saved_count: Number(saveResult.saved || 0),
-                saved_company_ids: Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : [],
+                saved_count: Number(saveResult.saved_write_count || 0) || Number(saveResult.saved || 0) || 0,
+                saved_company_ids: Array.isArray(saveResult.saved_ids_write)
+                  ? saveResult.saved_ids_write
+                  : Array.isArray(saveResult.saved_ids)
+                    ? saveResult.saved_ids
+                    : [],
                 saved_company_urls: (Array.isArray(enriched) ? enriched : [])
                   .map((c) => String(c?.company_url || c?.website_url || c?.canonical_url || c?.url || "").trim())
                   .filter(Boolean)

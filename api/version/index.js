@@ -39,15 +39,22 @@ app.http("version", {
       },
       body: JSON.stringify({
         ok: true,
-        source: "swa",
+        source: detectSource(),
         ts: new Date().toISOString(),
         ...getBuildInfo(),
         runtime: {
           website_site_name: String(env.WEBSITE_SITE_NAME || ""),
+          website_slot_name: String(env.WEBSITE_SLOT_NAME || ""),
           website_hostname: String(env.WEBSITE_HOSTNAME || ""),
+          region_name: String(env.REGION_NAME || ""),
           azure_functions_environment: String(env.AZURE_FUNCTIONS_ENVIRONMENT || ""),
           functions_worker_runtime: String(env.FUNCTIONS_WORKER_RUNTIME || ""),
+          functions_extension_version: String(env.FUNCTIONS_EXTENSION_VERSION || ""),
           swa_deployment_id: String(env.SWA_DEPLOYMENT_ID || ""),
+        },
+        config: {
+          function_key_configured: Boolean(String(env.FUNCTION_KEY || "").trim()),
+          internal_job_secret_configured: Boolean(String(env.X_INTERNAL_JOB_SECRET || "").trim()),
         },
       }),
     };

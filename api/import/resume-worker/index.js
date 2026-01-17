@@ -460,35 +460,55 @@ async function handler(req, context) {
   startUrl.searchParams.set("resume_worker", "1");
   startUrl.searchParams.set("deadline_ms", "25000");
 
-  // IMPORTANT: Azure gateways may require x-functions-key *before* our handler runs.
-  // buildInternalFetchRequest defaults to including x-functions-key (using FUNCTION_KEY when present,
-  // otherwise falling back to the internal secret).
-  const startRequest = buildInternalFetchRequest({
-    job_kind: "import_resume",
-  });
+  // IMPORTANT: We invoke import-start directly in-process to avoid an internal HTTP round-trip.
+  // This removes reliance on SWA gateway host key behavior for resume-worker -> import-start.
+  const startRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
 
-  const startRes = await fetch(startUrl.toString(), {
-    method: "POST",
-    headers: startRequest.headers,
-    body: JSON.stringify(startBody),
-  }).catch((e) => ({ ok: false, status: 0, _error: e }));
+  const invokeImportStartDirect = async () => {
+    const { handler: importStartHandler } = require("../../import-start/index.js");
 
-  const startText = await (async () => {
-    try {
-      if (startRes && typeof startRes.text === "function") return await startRes.text();
-    } catch {}
-    return "";
-  })();
-
-  const startJson = (() => {
-    try {
-      return startText ? JSON.parse(startText) : null;
-    } catch {
-      return null;
+    const hdrs = new Headers();
+    for (const [k, v] of Object.entries(startRequest.headers || {})) {
+      if (v === undefined || v === null) continue;
+      hdrs.set(k, String(v));
     }
-  })();
 
-  const ok = Boolean(startRes?.ok) && Boolean(startJson?.ok !== false);
+    // Minimal Request-like object expected by import-start.
+    const internalReq = {
+      method: "POST",
+      url: startUrl.toString(),
+      headers: hdrs,
+      json: async () => startBody,
+      text: async () => JSON.stringify(startBody),
+    };
+
+    return await importStartHandler(internalReq, context);
+  };
+
+  let startRes = null;
+  let startText = "";
+  let startJson = null;
+
+  try {
+    startRes = await invokeImportStartDirect();
+    if (startRes?.body && typeof startRes.body === "string") startText = startRes.body;
+    else if (startRes?.body && typeof startRes.body === "object") startText = JSON.stringify(startRes.body);
+    else startText = "";
+
+    try {
+      startJson = startText ? JSON.parse(startText) : null;
+    } catch {
+      startJson = null;
+    }
+  } catch (e) {
+    startRes = { ok: false, status: 0, _error: e };
+    startText = "";
+    startJson = null;
+  }
+
+  const startHttpStatus = Number(startJson?.http_status || startRes?.status || 0) || 0;
+  const startOk = Boolean(startJson) ? startJson.ok !== false : false;
+  const ok = Boolean(startOk);
 
   const updatedAt = nowIso();
 
@@ -497,7 +517,7 @@ async function handler(req, context) {
     status: ok ? "triggered" : "error",
     last_trigger_result: {
       ok: Boolean(ok),
-      status: Number(startRes?.status || 0) || 0,
+      status: startHttpStatus || (Number(startRes?.status || 0) || 0),
       stage_beacon: startJson?.stage_beacon || null,
       resume_needed: Boolean(startJson?.resume_needed),
     },
@@ -519,7 +539,7 @@ async function handler(req, context) {
     const derivedResult = (() => {
       if (ok) return "ok";
       const root = typeof startJson?.root_cause === "string" && startJson.root_cause.trim() ? startJson.root_cause.trim() : "import_start_failed";
-      const status = Number(startRes?.status || 0) || 0;
+      const status = startHttpStatus || (Number(startRes?.status || 0) || 0);
       return status ? `${root}_http_${status}` : root;
     })();
 
@@ -529,10 +549,10 @@ async function handler(req, context) {
       resume_worker_last_finished_at: updatedAt,
       resume_worker_last_result: derivedResult,
       resume_worker_last_ok: Boolean(ok),
-      resume_worker_last_http_status: Number(startRes?.status || 0) || 0,
+      resume_worker_last_http_status: startHttpStatus || (Number(startRes?.status || 0) || 0),
       resume_worker_last_error: ok
         ? null
-        : startRes?._error?.message || `import_start_http_${Number(startRes?.status || 0) || 0}`,
+        : startRes?._error?.message || `import_start_http_${startHttpStatus || (Number(startRes?.status || 0) || 0)}`,
       resume_worker_last_stage_beacon: startJson?.stage_beacon || null,
       resume_worker_last_resume_needed: Boolean(startJson?.resume_needed),
       resume_worker_last_company_id: companyIdFromResponse,
@@ -551,8 +571,8 @@ async function handler(req, context) {
       session_id: sessionId,
       triggered: true,
       companies_seeded: companies.length,
-      import_start_status: Number(startRes?.status || 0) || 0,
-      import_start_ok: Boolean(startRes?.ok),
+      import_start_status: startHttpStatus || (Number(startRes?.status || 0) || 0),
+      import_start_ok: Boolean(startOk),
       import_start_body: startJson || (startText ? { text: startText.slice(0, 2000) } : null),
     },
     200,
