@@ -9361,7 +9361,7 @@ Return ONLY the JSON array, no other text.`,
               let refreshReviewsHandler = null;
               try {
                 const xadminMod = require("../xadmin-api-refresh-reviews/index.js");
-                refreshReviewsHandler = xadminMod?._test?.handler;
+                refreshReviewsHandler = xadminMod?.handler;
               } catch {
                 refreshReviewsHandler = null;
               }
@@ -9455,13 +9455,16 @@ Return ONLY the JSON array, no other text.`,
                 const reqMock = {
                   method: "POST",
                   url: "https://internal/api/xadmin-api-refresh-reviews",
-                  headers: {},
+                  headers: new Headers(),
                   json: async () => ({ company_id: companyId, take: 2, timeout_ms: timeoutMs }),
                 };
 
                 let refreshPayload = null;
                 try {
-                  const res = await refreshReviewsHandler(reqMock, context);
+                  const res = await refreshReviewsHandler(reqMock, context, {
+                    companiesContainer,
+                    validate_review_urls: false,
+                  });
                   refreshPayload = safeJsonParse(res?.body);
                 } catch (e) {
                   refreshPayload = { ok: false, root_cause: "unhandled_exception", message: e?.message || String(e) };
