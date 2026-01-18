@@ -158,6 +158,11 @@ function isTerminalMissingField(doc, field) {
   return isTerminalMissingReason(reason);
 }
 
+function computeRetryableMissingFields(doc) {
+  const baseMissing = computeMissingFields(doc);
+  return (Array.isArray(baseMissing) ? baseMissing : []).filter((f) => !isTerminalMissingField(doc, f));
+}
+
 async function bestEffortPatchSessionDoc({ container, sessionId, patch }) {
   if (!container || !sessionId || !patch) return { ok: false, error: "missing_inputs" };
 
@@ -545,7 +550,7 @@ async function resumeWorkerHandler(req, context) {
   // Idempotency: only attempt resume on company docs that still violate the required-fields contract.
   // Placeholders like "Unknown" do NOT count as present.
   if (seedDocs.length > 0) {
-    const withMissing = seedDocs.filter((d) => computeMissingFields(d).length > 0);
+    const withMissing = seedDocs.filter((d) => computeRetryableMissingFields(d).length > 0);
 
     if (withMissing.length > 0) {
       seedDocs = withMissing;
@@ -626,30 +631,21 @@ async function resumeWorkerHandler(req, context) {
 
   const request = sessionDoc?.request && typeof sessionDoc.request === "object" ? sessionDoc.request : {};
 
-  const initialMissing = seedDocs.length === 1 && seedDocs[0] ? computeMissingFields(seedDocs[0]) : [];
+  const initialMissing = seedDocs.length === 1 && seedDocs[0] ? computeRetryableMissingFields(seedDocs[0]) : [];
   const forceStages =
     seedDocs.length === 1 &&
     initialMissing.some(
       (f) => f === "industries" || f === "headquarters_location" || f === "manufacturing_locations" || f === "reviews"
     );
 
-  // Resume behavior: call /api/import/start once, skipping only what is already satisfied.
-  const missingUnion = new Set();
-  for (const doc of seedDocs) {
-    for (const field of computeMissingFields(doc)) missingUnion.add(field);
-  }
-
-  const needsKeywords = missingUnion.has("industries") || missingUnion.has("product_keywords");
-  const needsReviews = missingUnion.has("reviews");
-  const needsLocation = missingUnion.has("headquarters_location") || missingUnion.has("manufacturing_locations");
-
   // Fast path: for single-company company_url imports, avoid repeatedly calling import-start/XAI
-  // once we've already tried enough times to conclude industries/keywords are not recoverable.
+  // once we've already tried enough times to conclude industries are not recoverable.
+  // IMPORTANT: do NOT terminalize HQ/MFG/Reviews here — those are still handled via Grok-only live search.
   if (forceStages && seedDocs.length === 1 && seedDocs[0]) {
     const doc = seedDocs[0];
-    const missing = computeMissingFields(doc);
+    const retryableMissing = computeRetryableMissingFields(doc);
 
-    if (missing.includes("industries")) {
+    if (retryableMissing.includes("industries")) {
       const attemptsObj =
         doc.import_low_quality_attempts && typeof doc.import_low_quality_attempts === "object" && !Array.isArray(doc.import_low_quality_attempts)
           ? { ...doc.import_low_quality_attempts }
@@ -664,47 +660,14 @@ async function resumeWorkerHandler(req, context) {
       const baseReason = prevReason || "not_found";
       const currentAttempts = Number(attemptsObj.industries) || 0;
 
-      // If the next attempt would hit the cap, terminalize in-place and let the session complete.
+      // If the next attempt would hit the cap, terminalize industries in-place and continue.
       if (currentAttempts >= 2) {
         const updatedAt = nowIso();
-        const nextAttempts = currentAttempts + 1;
-        attemptsObj.industries = nextAttempts;
+        attemptsObj.industries = currentAttempts + 1;
         reasonsObj.industries = baseReason === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
-
-        const patch = {};
-
-        if (missing.includes("headquarters_location")) {
-          patch.headquarters_location = "Not disclosed";
-          patch.hq_unknown = true;
-          patch.hq_unknown_reason = "not_disclosed";
-          reasonsObj.headquarters_location = "not_disclosed";
-        }
-
-        if (missing.includes("manufacturing_locations")) {
-          patch.manufacturing_locations = ["Not disclosed"];
-          patch.manufacturing_locations_reason = "not_disclosed";
-          patch.mfg_unknown = true;
-          patch.mfg_unknown_reason = "not_disclosed";
-          reasonsObj.manufacturing_locations = "not_disclosed";
-        }
-
-        if (missing.includes("reviews")) {
-          patch.reviews_stage_status = "exhausted";
-          const cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
-          patch.review_cursor = {
-            ...cursor,
-            exhausted: true,
-            reviews_stage_status: cursor.reviews_stage_status || "exhausted",
-            exhausted_at: updatedAt,
-          };
-          reasonsObj.reviews = "exhausted";
-        }
 
         const terminalParts = [];
         terminalParts.push("industries (" + (baseReason === "low_quality" ? "low quality" : "missing") + ")");
-        if (missing.includes("headquarters_location")) terminalParts.push("HQ not disclosed");
-        if (missing.includes("manufacturing_locations")) terminalParts.push("manufacturing not disclosed");
-        if (missing.includes("reviews")) terminalParts.push("reviews exhausted");
 
         const computedTerminalReason = terminalParts.length
           ? "Enrichment complete (terminal): " + terminalParts.join(", ")
@@ -715,59 +678,31 @@ async function resumeWorkerHandler(req, context) {
 
         const nextDoc = {
           ...doc,
-          ...patch,
           import_missing_reason: reasonsObj,
           import_low_quality_attempts: attemptsObj,
-          import_missing_fields: missing,
+          import_missing_fields: Array.isArray(doc.import_missing_fields) ? doc.import_missing_fields : computeMissingFields(doc),
           red_flag: true,
           red_flag_reason: replaceReason ? computedTerminalReason : existingReason,
-          resume_exhausted: true,
           updated_at: updatedAt,
         };
 
         await upsertDoc(container, nextDoc).catch(() => null);
 
-        await upsertDoc(container, {
-          ...resumeDoc,
-          status: "complete",
-          missing_by_company: [],
-          last_trigger_result: {
-            ok: true,
-            status: 200,
-            stage_beacon: "complete",
-            resume_needed: false,
-          },
-          lock_expires_at: null,
-          updated_at: updatedAt,
-        }).catch(() => null);
-
-        await bestEffortPatchSessionDoc({
-          container,
-          sessionId,
-          patch: {
-            resume_needed: false,
-            status: "complete",
-            stage_beacon: "complete",
-            completed_at: updatedAt,
-            updated_at: updatedAt,
-          },
-        }).catch(() => null);
-
-        return json(
-          {
-            ok: true,
-            session_id: sessionId,
-            triggered: true,
-            resume_needed: false,
-            iterations: 0,
-            fast_terminalized: true,
-          },
-          200,
-          req
-        );
+        const refreshedFinal = await fetchCompaniesByIds(container, [String(doc.id).trim()]).catch(() => []);
+        if (Array.isArray(refreshedFinal) && refreshedFinal.length > 0) seedDocs = refreshedFinal;
       }
     }
   }
+
+  // Resume behavior: call /api/import/start once, skipping only what is already satisfied.
+  const missingUnion = new Set();
+  for (const doc of seedDocs) {
+    for (const field of computeRetryableMissingFields(doc)) missingUnion.add(field);
+  }
+
+  const needsKeywords = missingUnion.has("industries") || missingUnion.has("product_keywords");
+  const needsReviews = missingUnion.has("reviews");
+  const needsLocation = missingUnion.has("headquarters_location") || missingUnion.has("manufacturing_locations");
 
   const skipStages = new Set(["primary", "expand"]);
   if (!needsKeywords) skipStages.add("keywords");

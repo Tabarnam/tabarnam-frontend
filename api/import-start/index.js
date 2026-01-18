@@ -8701,6 +8701,8 @@ Return ONLY the JSON array, no other text.`,
                   { role: "system", content: XAI_SYSTEM_PROMPT },
                   refinementMessage,
                 ],
+                // HQ/MFG are Grok-only: enforce live search.
+                search_parameters: { mode: "on" },
                 temperature: 0.1,
                 stream: false,
               };
@@ -9683,6 +9685,8 @@ Return ONLY the JSON array, no other text.`,
                   { role: "system", content: XAI_SYSTEM_PROMPT },
                   expansionMessage,
                 ],
+                // Expansion prompt asks for HQ/MFG using third-party sources; enforce live search.
+                search_parameters: { mode: "on" },
                 temperature: 0.3,
                 stream: false,
               };

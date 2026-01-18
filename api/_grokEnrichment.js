@@ -1,6 +1,7 @@
 const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
 const { extractJsonFromText } = require("./_curatedReviewsXai");
 const { buildSearchParameters } = require("./_buildSearchParameters");
+const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
 
 const DEFAULT_REVIEW_EXCLUDE_DOMAINS = [
   "amazon.",
