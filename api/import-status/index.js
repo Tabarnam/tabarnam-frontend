@@ -1389,7 +1389,14 @@ async function handler(req, context) {
       resume_trigger_error = e?.message || String(e);
     }
 
-    const forceComplete = Boolean(resumeMissingAnalysis?.terminal_only);
+    const reportSessionStatus = typeof report?.session?.status === "string" ? report.session.status.trim() : "";
+    const reportSessionStageBeacon = typeof report?.session?.stage_beacon === "string" ? report.session.stage_beacon.trim() : "";
+
+    const forceComplete = Boolean(
+      resumeMissingAnalysis?.terminal_only ||
+        reportSessionStatus === "complete" ||
+        reportSessionStageBeacon === "complete"
+    );
 
     const effectiveStatus = forceComplete ? "complete" : status === "error" ? "error" : status;
     const effectiveState = forceComplete ? "complete" : status === "error" ? "failed" : state;
@@ -1411,7 +1418,7 @@ async function handler(req, context) {
         ? report.session.stage_beacon.trim()
         : "";
 
-    const shouldShowCompleteBeacon = Boolean((effectiveStatus === "complete" && !resume_needed) || resumeMissingAnalysis?.terminal_only);
+    const shouldShowCompleteBeacon = Boolean((effectiveStatus === "complete" && !resume_needed) || forceComplete);
 
     const effectiveStageBeacon = shouldShowCompleteBeacon
       ? "complete"
@@ -2117,7 +2124,9 @@ async function handler(req, context) {
     const resumeMissingAnalysis = analyzeMissingFieldsForResume(savedDocs);
     const resumeNeededFromHealth = resumeMissingAnalysis.total_retryable_missing > 0;
 
-    const forceComplete = Boolean(resumeMissingAnalysis.terminal_only);
+    const sessionStatus = typeof sessionDoc?.status === "string" ? sessionDoc.status.trim() : "";
+
+    const forceComplete = Boolean(resumeMissingAnalysis.terminal_only || sessionStatus === "complete" || stage_beacon === "complete");
     if (forceComplete) stage_beacon = "complete";
 
     stageBeaconValues.status_resume_missing_total = resumeMissingAnalysis.total_missing;
