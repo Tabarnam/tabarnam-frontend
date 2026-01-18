@@ -22,6 +22,191 @@ const SENTINEL_STRINGS = new Set([
   "not_disclosed",
 ]);
 
+// Industries quality gate
+const INDUSTRY_MARKETPLACE_BUCKETS = new Set([
+  "home goods",
+  "home",
+  "food",
+  "electronics",
+  "shopping",
+  "retail",
+  "marketplace",
+]);
+
+const INDUSTRY_NAV_TERMS = [
+  "shop",
+  "sale",
+  "new arrivals",
+  "collections",
+  "gift cards",
+  "customer service",
+  "support",
+  "contact",
+  "about",
+  "blog",
+  "careers",
+  "privacy",
+  "terms",
+  "shipping",
+  "returns",
+  "faq",
+];
+
+// Minimal allowlist/classifier for accepting industry values.
+// Keep this list short + deterministic; it can be expanded as we learn.
+const INDUSTRY_ALLOWLIST = [
+  "oral care",
+  "dental",
+  "dental hygiene",
+  "personal care",
+  "healthcare",
+  "medical",
+  "pharmaceutical",
+  "biotech",
+  "cosmetics",
+  "skincare",
+  "consumer goods",
+  "manufacturing",
+  "supplements",
+];
+
+function sanitizeIndustries(value) {
+  const raw = normalizeStringArray(value)
+    .map(asMeaningfulString)
+    .filter(Boolean);
+
+  const seen = new Set();
+  const valid = [];
+
+  for (const item of raw) {
+    const key = normalizeKey(item);
+    if (!key) continue;
+
+    if (INDUSTRY_MARKETPLACE_BUCKETS.has(key)) continue;
+
+    // Reject obvious navigation labels.
+    if (INDUSTRY_NAV_TERMS.some((t) => key.includes(t))) continue;
+
+    // Require at least one classifier/allowlist signal.
+    const allow = INDUSTRY_ALLOWLIST.some((t) => key.includes(t));
+    if (!allow) continue;
+
+    if (seen.has(key)) continue;
+    seen.add(key);
+    valid.push(item);
+  }
+
+  return valid;
+}
+
+function isValidIndustries(value) {
+  return sanitizeIndustries(value).length > 0;
+}
+
+// Product keywords quality gate
+const KEYWORD_DISALLOW_TERMS = [
+  "unknown",
+  "privacy",
+  "terms",
+  "policy",
+  "cookie",
+  "cookies",
+  "shipping",
+  "returns",
+  "refund",
+  "faq",
+  "contact",
+  "about",
+  "careers",
+  "login",
+  "sign in",
+  "signup",
+  "sign up",
+  "account",
+  "cart",
+  "checkout",
+  "search",
+  "menu",
+  "sitemap",
+  "svg",
+  "path",
+  "stroke",
+  "fill",
+  "viewbox",
+  "css",
+  "tailwind",
+  "javascript",
+  "react",
+];
+
+function splitKeywordString(value) {
+  const s = asString(value).trim();
+  if (!s) return [];
+  return s
+    .split(/\s*,\s*/g)
+    .map((v) => asString(v).trim())
+    .filter(Boolean);
+}
+
+function normalizeKeyword(value) {
+  const s = asMeaningfulString(value);
+  if (!s) return "";
+  return s.replace(/\s+/g, " ").trim();
+}
+
+function isKeywordJunk(keyword) {
+  const key = normalizeKey(keyword);
+  if (!key) return true;
+
+  if (PLACEHOLDER_STRINGS.has(key)) return true;
+
+  // Code-ish / class names / CSS tokens
+  if (/^(w|h|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr)-\d+/i.test(key)) return true;
+  if (/stroke-\d+/i.test(key)) return true;
+  if (/^text-[a-z0-9-]+$/i.test(key)) return true;
+
+  // URLs / fragments
+  if (key.includes("http://") || key.includes("https://")) return true;
+
+  // Legal/nav terms
+  if (KEYWORD_DISALLOW_TERMS.some((t) => key.includes(normalizeKey(t)))) return true;
+
+  // Too short or just symbols
+  if (key.length < 3) return true;
+  if (!/[a-z]/i.test(key)) return true;
+
+  return false;
+}
+
+function sanitizeKeywords({ product_keywords, keywords }) {
+  const rawFromProductKeywords = splitKeywordString(product_keywords);
+  const rawFromKeywords = Array.isArray(keywords) ? keywords : [];
+
+  const raw = [...rawFromProductKeywords, ...rawFromKeywords]
+    .map(normalizeKeyword)
+    .filter(Boolean);
+
+  const total_raw = raw.length;
+
+  const seen = new Set();
+  const sanitized = [];
+
+  for (const k of raw) {
+    if (isKeywordJunk(k)) continue;
+    const key = normalizeKey(k);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    sanitized.push(k);
+  }
+
+  return {
+    total_raw,
+    sanitized,
+    sanitized_count: sanitized.length,
+    product_relevant_count: sanitized.length,
+  };
+}
+
 function asMeaningfulString(value) {
   const s = asString(value).trim();
   if (!s) return "";
@@ -160,20 +345,22 @@ function isRealValue(field, value, doc) {
   const f = normalizeKey(field);
 
   if (f === "industries") {
-    const list = normalizeStringArray(value).map(asMeaningfulString).filter(Boolean);
-    return list.length >= 1;
+    return isValidIndustries(value);
   }
 
   if (f === "product_keywords") {
-    const pk = asMeaningfulString(
-      typeof value === "string"
-        ? value
-        : Array.isArray(value)
-          ? value.join(", ")
-          : ""
-    );
-    const keywords = normalizeStringArray(doc?.keywords).map(asMeaningfulString).filter(Boolean);
-    return Boolean(pk) || keywords.length > 0;
+    const stats = sanitizeKeywords({
+      product_keywords: typeof value === "string" ? value : Array.isArray(value) ? value.join(", ") : "",
+      keywords: doc?.keywords,
+    });
+
+    // Quality gate:
+    // - must have at least 20 total raw keywords
+    // - must have at least 10 product-relevant keywords after sanitization
+    if (stats.total_raw < 20) return false;
+    if (stats.product_relevant_count < 10) return false;
+
+    return true;
   }
 
   if (f === "tagline") {
@@ -300,6 +487,9 @@ module.exports = {
   isMeaningfulString,
   normalizeStringArray,
   looksLikeHqLocationString,
+  sanitizeIndustries,
+  isValidIndustries,
+  sanitizeKeywords,
   isRealValue,
   computeMissingFields,
   computeEnrichmentHealth,

@@ -656,7 +656,15 @@ export default function AdminImport() {
         const lastError = body?.last_error || null;
         const report = body?.report && typeof body.report === "object" ? body.report : null;
 
+        const reportSessionStatus = asString(report?.session?.status).trim();
+
+        // Resume flags
         const resumeNeeded = Boolean(body?.resume_needed || body?.resume?.needed || report?.session?.resume_needed);
+        const resumeNeededExplicitlyFalse = body?.resume_needed === false && body?.resume?.needed === false;
+
+        // Completion signals (UI must stop polling quickly when ANY are true)
+        const stageBeaconComplete = stageBeacon === "complete";
+        const reportSessionComplete = reportSessionStatus === "complete";
 
         const completed = state === "complete" ? true : Boolean(body?.completed);
         const timedOut = Boolean(body?.timedOut);
@@ -664,6 +672,9 @@ export default function AdminImport() {
 
         const isTerminalError = state === "failed" || status === "error" || jobState === "error";
         const isTerminalComplete =
+          stageBeaconComplete ||
+          reportSessionComplete ||
+          resumeNeededExplicitlyFalse ||
           state === "complete" ||
           status === "complete" ||
           (!resumeNeeded && jobState === "complete") ||
@@ -841,8 +852,19 @@ export default function AdminImport() {
           })
         );
 
-        if (isTerminalError) return { shouldStop: true, body };
-        if (isTerminalComplete) return { shouldStop: true, body };
+        if (isTerminalError) {
+          try {
+            setActiveStatus((prev) => (prev === "running" ? "error" : prev));
+          } catch {}
+          return { shouldStop: true, body };
+        }
+
+        if (isTerminalComplete) {
+          try {
+            setActiveStatus((prev) => (prev === "running" ? "done" : prev));
+          } catch {}
+          return { shouldStop: true, body };
+        }
 
         if (shouldPauseForResume) {
           try {
@@ -1222,6 +1244,7 @@ export default function AdminImport() {
         }
 
         if (result?.shouldStop) {
+          stopPolling();
           const body = result?.body;
 
           const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
@@ -1245,11 +1268,26 @@ export default function AdminImport() {
           const jobState = asString(body?.job_state || body?.primary_job_state || body?.primary_job?.job_state).trim();
           const completed = state === "complete" ? true : Boolean(body?.completed);
 
-          const isTerminalComplete =
-            state === "complete" || status === "complete" || jobState === "complete" || completed;
+          const reportSessionStatus = asString(body?.report?.session?.status).trim();
+          const resumeNeededExplicitlyFalse = body?.resume_needed === false && body?.resume?.needed === false;
 
-          if (isTerminalComplete && savedCount === 0) {
-            scheduleTerminalRefresh({ session_id });
+          const isTerminalComplete =
+            stageBeacon === "complete" ||
+            reportSessionStatus === "complete" ||
+            resumeNeededExplicitlyFalse ||
+            state === "complete" ||
+            status === "complete" ||
+            jobState === "complete" ||
+            completed;
+
+          if (isTerminalComplete) {
+            try {
+              setActiveStatus((prev) => (prev === "running" ? "done" : prev));
+            } catch {}
+
+            if (savedCount === 0) {
+              scheduleTerminalRefresh({ session_id });
+            }
           }
 
           return;
