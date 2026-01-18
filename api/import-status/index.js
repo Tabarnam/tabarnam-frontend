@@ -2056,9 +2056,28 @@ async function handler(req, context) {
       (typeof sessionDoc?.saved_verified_count === "number" ? sessionDoc.saved_verified_count : null) ??
       (derivedVerifiedCount > 0 ? derivedVerifiedCount : null);
 
-    // Truthfulness: `saved` must come from verified fields only.
-    // Never infer `saved` from candidate items or attempted writes.
-    let saved = Number.isFinite(Number(savedVerifiedCount)) ? Number(savedVerifiedCount) : 0;
+    const savedUnverifiedIdsRaw = Array.isArray(sessionDoc?.saved_company_ids_unverified)
+      ? sessionDoc.saved_company_ids_unverified
+      : [];
+
+    const persistedIds = (() => {
+      const seen = new Set();
+      const out = [];
+
+      for (const raw of [...savedIds, ...savedUnverifiedIdsRaw]) {
+        const value = String(raw || "").trim();
+        if (!value) continue;
+        const key = value.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(value);
+      }
+
+      return out;
+    })();
+
+    // Persisted count includes verified + unverified saved ids.
+    let saved = persistedIds.length;
 
     let savedDocs = savedIds.length > 0 ? await fetchCompaniesByIds(container, savedIds).catch(() => []) : [];
     let saved_companies = savedDocs.length > 0 ? toSavedCompanies(savedDocs) : [];
