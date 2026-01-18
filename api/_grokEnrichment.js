@@ -11,6 +11,24 @@ const DEFAULT_REVIEW_EXCLUDE_DOMAINS = [
   "yelp.",
 ];
 
+function clampInt(value, { min, max, fallback }) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.trunc(n);
+  return Math.max(min, Math.min(max, i));
+}
+
+// Keep upstream calls safely under the SWA gateway wall-clock (~30s) with a buffer.
+function clampStageTimeoutMs({ remainingMs, minMs = 2_500, maxMs = 8_000, safetyMarginMs = 1_200 } = {}) {
+  const rem = Number.isFinite(Number(remainingMs)) ? Number(remainingMs) : 0;
+  const min = clampInt(minMs, { min: 250, max: 60_000, fallback: 2_500 });
+  const max = clampInt(maxMs, { min, max: 60_000, fallback: 8_000 });
+  const safety = clampInt(safetyMarginMs, { min: 0, max: 20_000, fallback: 1_200 });
+
+  const raw = Math.max(0, Math.trunc(rem - safety));
+  return Math.max(min, Math.min(max, raw));
+}
+
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
@@ -78,13 +96,13 @@ Return JSON array:
 ]
 `.trim();
 
-  // Budget clamp
+  // Budget clamp: if we can't safely run another upstream call, defer without terminalizing.
   const remaining = budgetMs - (Date.now() - started);
   if (remaining < 3000) {
     return {
       curated_reviews: [],
-      reviews_stage_status: "exhausted",
-      diagnostics: { reason: "budget_too_low" },
+      reviews_stage_status: "deferred",
+      diagnostics: { reason: "budget_too_low", remaining_ms: Math.max(0, remaining) },
     };
   }
 
@@ -95,7 +113,7 @@ Return JSON array:
 
   const r = await xaiLiveSearch({
     prompt,
-    timeoutMs: Math.min(12000, remaining),
+    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
     maxTokens: 900,
     model: asString(model).trim() || "grok-4-latest",
     xaiUrl,
@@ -163,6 +181,8 @@ async function fetchHeadquartersLocation({
   xaiUrl,
   xaiKey,
 } = {}) {
+  const started = Date.now();
+
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
 
@@ -181,9 +201,18 @@ Return:
 { "headquarters_location": "..." }
 `.trim();
 
+  const remaining = budgetMs - (Date.now() - started);
+  if (remaining < 2500) {
+    return {
+      headquarters_location: "",
+      hq_status: "deferred",
+      diagnostics: { reason: "budget_too_low", remaining_ms: Math.max(0, remaining) },
+    };
+  }
+
   const r = await xaiLiveSearch({
     prompt,
-    timeoutMs: Math.min(12000, budgetMs),
+    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
     maxTokens: 300,
     model: "grok-2-latest",
     xaiUrl,
@@ -193,7 +222,7 @@ Return:
 
   if (!r.ok) {
     return {
-      headquarters_location: "Not disclosed",
+      headquarters_location: "",
       hq_status: "upstream_unreachable",
     };
   }
@@ -201,7 +230,12 @@ Return:
   const out = parseJsonFromXaiResponse(r.resp);
   const value = asString(out?.headquarters_location).trim();
   if (!value) {
-    return { headquarters_location: "Not disclosed", hq_status: "not_found" };
+    return { headquarters_location: "", hq_status: "not_found" };
+  }
+
+  // "Not disclosed" is a terminal sentinel (downstream treats it as complete).
+  if (value.toLowerCase() === "not disclosed" || value.toLowerCase() === "not_disclosed") {
+    return { headquarters_location: "Not disclosed", hq_status: "not_disclosed" };
   }
 
   return { headquarters_location: value, hq_status: "ok" };
@@ -214,6 +248,8 @@ async function fetchManufacturingLocations({
   xaiUrl,
   xaiKey,
 } = {}) {
+  const started = Date.now();
+
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
 
@@ -232,9 +268,18 @@ Return:
 { "manufacturing_locations": ["..."] }
 `.trim();
 
+  const remaining = budgetMs - (Date.now() - started);
+  if (remaining < 2500) {
+    return {
+      manufacturing_locations: [],
+      mfg_status: "deferred",
+      diagnostics: { reason: "budget_too_low", remaining_ms: Math.max(0, remaining) },
+    };
+  }
+
   const r = await xaiLiveSearch({
     prompt,
-    timeoutMs: Math.min(12000, budgetMs),
+    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
     maxTokens: 400,
     model: "grok-2-latest",
     xaiUrl,
@@ -243,7 +288,7 @@ Return:
   });
 
   if (!r.ok) {
-    return { manufacturing_locations: ["Not disclosed"], mfg_status: "upstream_unreachable" };
+    return { manufacturing_locations: [], mfg_status: "upstream_unreachable" };
   }
 
   const out = parseJsonFromXaiResponse(r.resp);
@@ -252,7 +297,7 @@ Return:
   const cleaned = arr.map((x) => asString(x).trim()).filter(Boolean);
 
   if (cleaned.length === 0) {
-    return { manufacturing_locations: ["Not disclosed"], mfg_status: "not_found" };
+    return { manufacturing_locations: [], mfg_status: "not_found" };
   }
 
   if (cleaned.length === 1 && cleaned[0].toLowerCase().includes("not disclosed")) {
