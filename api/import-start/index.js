@@ -119,6 +119,17 @@ const UPSTREAM_TIMEOUT_MARGIN_MS = 1_200;
 const XAI_SYSTEM_PROMPT =
   "You are a precise assistant. Follow the user's instructions exactly. When asked for JSON, output ONLY valid JSON with no markdown, no prose, and no extra keys.";
 
+const GROK_ONLY_FIELDS = new Set([
+  "headquarters_location",
+  "manufacturing_locations",
+  "reviews",
+]);
+
+function assertNoWebsiteFallback(field) {
+  if (GROK_ONLY_FIELDS.has(field)) return true;
+  return false;
+}
+
 if (!globalThis.__importStartProcessHandlersInstalled) {
   globalThis.__importStartProcessHandlersInstalled = true;
 
