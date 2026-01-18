@@ -39,7 +39,12 @@ const {
   buildPartitionKeyCandidates,
 } = require("../_cosmosPartitionKey");
 
-const { computeEnrichmentHealth: computeEnrichmentHealthContract } = require("../_requiredFields");
+const {
+  computeEnrichmentHealth: computeEnrichmentHealthContract,
+  deriveMissingReason,
+  isTerminalMissingReason,
+  isTerminalMissingField,
+} = require("../_requiredFields");
 
 const EMPTY_RESUME_DIAGNOSTICS = Object.freeze({
   resume: {
@@ -445,79 +450,6 @@ function computeContractEnrichmentHealth(company) {
   return computeEnrichmentHealthContract(company);
 }
 
-function normalizeMissingKey(value) {
-  return String(value ?? "").trim().toLowerCase();
-}
-
-function isTrueish(value) {
-  if (value === true) return true;
-  if (value === false) return false;
-  const s = normalizeMissingKey(value);
-  return s === "true" || s === "1" || s === "yes" || s === "y";
-}
-
-function isTerminalMissingReason(reason) {
-  // Spec: terminal reasons must be treated as non-retryable; anything else is retryable.
-  return new Set(["not_disclosed", "exhausted", "low_quality_terminal", "not_found_terminal"]).has(reason);
-}
-
-function deriveMissingReason(doc, field) {
-  const d = doc && typeof doc === "object" ? doc : {};
-  const f = String(field || "").trim();
-
-  const reasons =
-    d.import_missing_reason && typeof d.import_missing_reason === "object" && !Array.isArray(d.import_missing_reason)
-      ? d.import_missing_reason
-      : {};
-
-  const direct = normalizeMissingKey(reasons[f] || "");
-  if (direct) return direct;
-
-  if (f === "headquarters_location") {
-    const val = normalizeMissingKey(d.headquarters_location);
-    if (val === "not disclosed" || val === "not_disclosed") return "not_disclosed";
-  }
-
-  if (f === "manufacturing_locations") {
-    const rawList = Array.isArray(d.manufacturing_locations)
-      ? d.manufacturing_locations
-      : d.manufacturing_locations == null
-        ? []
-        : [d.manufacturing_locations];
-
-    const normalized = rawList
-      .map((loc) => {
-        if (typeof loc === "string") return normalizeMissingKey(loc);
-        if (loc && typeof loc === "object") {
-          return normalizeMissingKey(loc.formatted || loc.full_address || loc.address || loc.location);
-        }
-        return "";
-      })
-      .filter(Boolean);
-
-    if (normalized.length > 0 && normalized.every((v) => v === "not disclosed" || v === "not_disclosed")) {
-      return "not_disclosed";
-    }
-  }
-
-  if (f === "reviews") {
-    const stage = normalizeMissingKey(d.reviews_stage_status || d.review_cursor?.reviews_stage_status);
-    if (stage === "exhausted") return "exhausted";
-    if (Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true)) return "exhausted";
-  }
-
-  if (f === "logo") {
-    const stage = normalizeMissingKey(d.logo_stage_status || d.logo_status);
-    if (stage === "not_found_on_site") return "not_found_on_site";
-  }
-
-  return "";
-}
-
-function isTerminalMissingField(doc, field) {
-  const reason = deriveMissingReason(doc, field);
-  return isTerminalMissingReason(reason);
-}
 
 function analyzeMissingFieldsForResume(docs) {
   const list = Array.isArray(docs) ? docs : [];
