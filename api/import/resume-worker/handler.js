@@ -18,6 +18,12 @@ const {
 const { getBuildInfo } = require("../../_buildInfo");
 const { computeMissingFields } = require("../../_requiredFields");
 
+const {
+  fetchCuratedReviews,
+  fetchHeadquartersLocation,
+  fetchManufacturingLocations,
+} = require("../../_grokEnrichment");
+
 const HANDLER_ID = "import-resume-worker";
 
 const BUILD_INFO = (() => {
