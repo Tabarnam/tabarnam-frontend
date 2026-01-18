@@ -4295,6 +4295,31 @@ export default function AdminImport() {
                                     <span className="font-medium">resume.trigger_request_id:</span>{" "}
                                     <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{asString(resume?.trigger_request_id).trim() || "—"}</code>
                                   </div>
+
+                                  <div>
+                                    <span className="font-medium">resume.status:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">{resumeStatus || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker.last_result:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">{resumeWorkerLastResult || "—"}</code>
+                                  </div>
+                                  <div className="md:col-span-2">
+                                    <span className="font-medium">missing fields:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">
+                                      {Number.isFinite(missingRetryable) ? missingRetryable : "—"} retryable ·{" "}
+                                      {Number.isFinite(missingTerminal) ? missingTerminal : "—"} terminal
+                                    </code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker.last_invoked_at:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{resumeWorkerLastInvokedAt || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker.last_finished_at:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{resumeWorkerLastFinishedAt || "—"}</code>
+                                  </div>
+
                                   <div>
                                     <span className="font-medium">resume_worker_handler_entered_at:</span>{" "}
                                     <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{handlerEnteredAt || "—"}</code>
