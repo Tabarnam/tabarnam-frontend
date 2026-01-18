@@ -42,7 +42,12 @@ const { fillCompanyBaselineFromWebsite } = require("../_websiteBaseline");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { mergeCompanyDocsForSession: mergeCompanyDocsForSessionExternal } = require("../_companyDocMerge");
 const { applyEnrichment } = require("../_applyEnrichment");
-const { asMeaningfulString, isRealValue } = require("../_requiredFields");
+const {
+  asMeaningfulString,
+  isRealValue,
+  sanitizeIndustries,
+  sanitizeKeywords,
+} = require("../_requiredFields");
 const { resolveReviewsStarState } = require("../_reviewsStarState");
 const { getBuildInfo } = require("../_buildInfo");
 const { getImportStartHandlerVersion } = require("../_handlerVersions");
@@ -3407,29 +3412,54 @@ async function saveCompaniesToCosmos({
                 ensureMissing("website_url", "missing", "primary", "website_url missing; set to placeholder 'Unknown'", false);
               }
 
-              // industries (required)
-              if (!Array.isArray(doc.industries)) doc.industries = [];
-              const industriesMeaningful = doc.industries.map(asMeaningful).filter(Boolean);
-              if (industriesMeaningful.length === 0) {
+              // industries (required) — quality gate
+              const industriesRaw = Array.isArray(doc.industries) ? doc.industries : [];
+              const industriesSanitized = sanitizeIndustries(industriesRaw);
+
+              if (industriesSanitized.length === 0) {
+                const hadAny = normalizeStringArray(industriesRaw).length > 0;
                 doc.industries = ["Unknown"];
                 doc.industries_unknown = true;
-                ensureMissing("industries", "not_found", "extract_industries", "Industries missing; set to placeholder ['Unknown']");
+                ensureMissing(
+                  "industries",
+                  hadAny ? "low_quality" : "not_found",
+                  "extract_industries",
+                  hadAny
+                    ? "Industries present but low-quality (navigation/marketplace buckets); set to placeholder ['Unknown']"
+                    : "Industries missing; set to placeholder ['Unknown']"
+                );
+              } else {
+                doc.industries = industriesSanitized;
               }
 
-              // keywords/product_keywords (required)
+              // keywords/product_keywords (required) — sanitize + quality gate
               if (!Array.isArray(doc.keywords)) doc.keywords = [];
-              const keywordListMeaningful = doc.keywords.map(asMeaningful).filter(Boolean);
-              const pkRaw = String(doc.product_keywords || "").trim();
 
-              if (!pkRaw && keywordListMeaningful.length > 0) {
-                doc.product_keywords = keywordListMeaningful.join(", ");
-              }
+              const keywordStats = sanitizeKeywords({
+                product_keywords: doc.product_keywords,
+                keywords: doc.keywords,
+              });
 
-              const pkMeaningful = asMeaningful(String(doc.product_keywords || "").trim());
-              if (!pkMeaningful && keywordListMeaningful.length === 0) {
+              const meetsKeywordQuality = keywordStats.total_raw >= 20 && keywordStats.product_relevant_count >= 10;
+
+              if (meetsKeywordQuality) {
+                doc.keywords = keywordStats.sanitized;
+                doc.product_keywords = keywordStats.sanitized.join(", ");
+                doc.product_keywords_unknown = false;
+              } else {
+                const hadAny = keywordStats.total_raw > 0;
+                doc.keywords = keywordStats.sanitized;
                 doc.product_keywords = "Unknown";
                 doc.product_keywords_unknown = true;
-                ensureMissing("product_keywords", "not_found", "extract_keywords", "product_keywords missing; set to placeholder 'Unknown'");
+
+                ensureMissing(
+                  "product_keywords",
+                  hadAny ? "low_quality" : "not_found",
+                  "extract_keywords",
+                  hadAny
+                    ? `product_keywords low quality (raw=${keywordStats.total_raw}, sanitized=${keywordStats.product_relevant_count}); set to placeholder 'Unknown'`
+                    : "product_keywords missing; set to placeholder 'Unknown'"
+                );
               }
 
               // tagline (required)
@@ -8933,27 +8963,49 @@ Return ONLY the JSON array, no other text.`,
                   ensureMissing("website_url", "missing", "website_url missing; set to placeholder 'Unknown'", false);
                 }
 
-                // industries
-                const industriesMeaningful = Array.isArray(base.industries)
-                  ? base.industries.map(asMeaningfulString).filter(Boolean)
-                  : [];
-                if (industriesMeaningful.length === 0) {
+                // industries — quality gate
+                const industriesRaw = Array.isArray(base.industries) ? base.industries : [];
+                const industriesSanitized = sanitizeIndustries(industriesRaw);
+
+                if (industriesSanitized.length === 0) {
+                  const hadAny = normalizeStringArray(industriesRaw).length > 0;
                   base.industries = ["Unknown"];
                   base.industries_unknown = true;
-                  ensureMissing("industries", "not_found", "Industries missing; set to placeholder ['Unknown']");
+                  ensureMissing(
+                    "industries",
+                    hadAny ? "low_quality" : "not_found",
+                    hadAny
+                      ? "Industries present but low-quality (navigation/marketplace buckets); set to placeholder ['Unknown']"
+                      : "Industries missing; set to placeholder ['Unknown']"
+                  );
+                } else {
+                  base.industries = industriesSanitized;
                 }
 
-                // product keywords
-                const pkRaw = typeof base.product_keywords === "string" ? base.product_keywords.trim() : "";
-                const pkMeaningful = asMeaningfulString(pkRaw);
-                const keywordListMeaningful = Array.isArray(base.keywords)
-                  ? base.keywords.map(asMeaningfulString).filter(Boolean)
-                  : [];
-                const hasKeywords = Boolean(pkMeaningful) || keywordListMeaningful.length > 0;
-                if (!hasKeywords) {
+                // product keywords — sanitize + quality gate
+                if (!Array.isArray(base.keywords)) base.keywords = [];
+
+                const keywordStats = sanitizeKeywords({
+                  product_keywords: base.product_keywords,
+                  keywords: base.keywords,
+                });
+
+                const meetsKeywordQuality = keywordStats.total_raw >= 20 && keywordStats.product_relevant_count >= 10;
+
+                if (meetsKeywordQuality) {
+                  base.keywords = keywordStats.sanitized;
+                  base.product_keywords = keywordStats.sanitized.join(", ");
+                } else {
+                  const hadAny = keywordStats.total_raw > 0;
+                  base.keywords = keywordStats.sanitized;
                   base.product_keywords = "Unknown";
-                  if (!Array.isArray(base.keywords)) base.keywords = [];
-                  ensureMissing("product_keywords", "not_found", "product_keywords missing; set to placeholder 'Unknown'");
+                  ensureMissing(
+                    "product_keywords",
+                    hadAny ? "low_quality" : "not_found",
+                    hadAny
+                      ? `product_keywords low quality (raw=${keywordStats.total_raw}, sanitized=${keywordStats.product_relevant_count}); set to placeholder 'Unknown'`
+                      : "product_keywords missing; set to placeholder 'Unknown'"
+                  );
                 }
 
                 // headquarters
