@@ -660,6 +660,136 @@ async function resumeWorkerHandler(req, context) {
     }
   }
 
+  // Grok-only enrichment pass for HQ/MFG/Reviews.
+  // This must run before import-start, and import-start must always skip reviews/location.
+  const startedEnrichmentAt = Date.now();
+  const perDocBudgetMs = Math.max(4000, Math.trunc(deadlineMs / Math.max(1, seedDocs.length)));
+
+  for (const doc of seedDocs) {
+    if (!doc || typeof doc !== "object") continue;
+
+    const missingNow = computeRetryableMissingFields(doc);
+
+    const companyName = String(doc.company_name || doc.name || "").trim();
+    const normalizedDomain = String(doc.normalized_domain || "").trim();
+
+    let changed = false;
+
+    // HQ
+    if (missingNow.includes("headquarters_location")) {
+      const r = await fetchHeadquartersLocation({
+        companyName,
+        normalizedDomain,
+        budgetMs: perDocBudgetMs,
+        xaiUrl: process.env.XAI_API_URL,
+        xaiKey: process.env.XAI_API_KEY,
+      }).catch(() => null);
+
+      const status = normalizeKey(r?.hq_status || "");
+      if (status === "ok" && typeof r?.headquarters_location === "string" && r.headquarters_location.trim()) {
+        doc.headquarters_location = r.headquarters_location.trim();
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.headquarters_location = "ok";
+        changed = true;
+      } else if (GROK_RETRYABLE_STATUSES.has(status)) {
+        bumpFieldAttempt(doc, "headquarters_location", requestId);
+        if (attemptsFor(doc, "headquarters_location") >= GROK_MAX_ATTEMPTS) {
+          terminalizeGrokField(doc, "headquarters_location");
+          changed = true;
+        } else {
+          doc.import_missing_reason ||= {};
+          doc.import_missing_reason.headquarters_location = status || "not_found";
+          changed = true;
+        }
+      } else if (status === "not_disclosed") {
+        terminalizeGrokField(doc, "headquarters_location");
+        changed = true;
+      }
+    }
+
+    // MFG
+    if (missingNow.includes("manufacturing_locations")) {
+      const r = await fetchManufacturingLocations({
+        companyName,
+        normalizedDomain,
+        budgetMs: perDocBudgetMs,
+        xaiUrl: process.env.XAI_API_URL,
+        xaiKey: process.env.XAI_API_KEY,
+      }).catch(() => null);
+
+      const status = normalizeKey(r?.mfg_status || "");
+      const locs = Array.isArray(r?.manufacturing_locations) ? r.manufacturing_locations : [];
+
+      if (status === "ok" && locs.length > 0) {
+        doc.manufacturing_locations = locs;
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.manufacturing_locations = "ok";
+        changed = true;
+      } else if (GROK_RETRYABLE_STATUSES.has(status)) {
+        bumpFieldAttempt(doc, "manufacturing_locations", requestId);
+        if (attemptsFor(doc, "manufacturing_locations") >= GROK_MAX_ATTEMPTS) {
+          terminalizeGrokField(doc, "manufacturing_locations");
+          changed = true;
+        } else {
+          doc.import_missing_reason ||= {};
+          doc.import_missing_reason.manufacturing_locations = status || "not_found";
+          changed = true;
+        }
+      } else if (status === "not_disclosed") {
+        terminalizeGrokField(doc, "manufacturing_locations");
+        changed = true;
+      }
+    }
+
+    // Reviews
+    if (missingNow.includes("reviews")) {
+      const r = await fetchCuratedReviews({
+        companyName,
+        normalizedDomain,
+        budgetMs: perDocBudgetMs,
+        xaiUrl: process.env.XAI_API_URL,
+        xaiKey: process.env.XAI_API_KEY,
+      }).catch(() => null);
+
+      const status = normalizeKey(r?.reviews_stage_status || "");
+      const curated = Array.isArray(r?.curated_reviews) ? r.curated_reviews : [];
+
+      if (status === "ok" && curated.length > 0) {
+        doc.curated_reviews = curated.slice(0, 2);
+        doc.review_count = typeof doc.review_count === "number" ? doc.review_count : 0;
+        doc.reviews_stage_status = "ok";
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.reviews = "ok";
+        changed = true;
+      } else if (status === "exhausted") {
+        terminalizeGrokField(doc, "reviews");
+        changed = true;
+      } else if (GROK_RETRYABLE_STATUSES.has(status)) {
+        bumpFieldAttempt(doc, "reviews", requestId);
+        if (attemptsFor(doc, "reviews") >= GROK_MAX_ATTEMPTS) {
+          // After capped retries, force terminal so the run can complete.
+          terminalizeGrokField(doc, "reviews");
+          changed = true;
+        } else {
+          doc.reviews_stage_status = status || "not_found";
+          doc.import_missing_reason ||= {};
+          doc.import_missing_reason.reviews = status || "not_found";
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      // Recompute missing fields to keep doc consistent with required-fields logic
+      doc.import_missing_fields = computeMissingFields(doc);
+      doc.updated_at = nowIso();
+      await upsertDoc(container, doc).catch(() => null);
+    }
+
+    // Hard clamp to avoid spending whole deadline here
+    if (Date.now() - startedEnrichmentAt > Math.max(0, deadlineMs - 1500)) break;
+  }
+
   const buildSeedCompanyPayload = (d) => {
     const company_name = String(d?.company_name || d?.name || "").trim();
     const website_url = String(d?.website_url || d?.url || "").trim();
