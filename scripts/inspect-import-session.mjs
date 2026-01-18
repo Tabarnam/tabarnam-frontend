@@ -34,6 +34,16 @@ function summarizeCompany(doc) {
       ? doc.missing_fields
       : null;
 
+  const reasons =
+    doc.import_missing_reason && typeof doc.import_missing_reason === "object" && !Array.isArray(doc.import_missing_reason)
+      ? doc.import_missing_reason
+      : {};
+
+  const attempts =
+    doc.import_low_quality_attempts && typeof doc.import_low_quality_attempts === "object" && !Array.isArray(doc.import_low_quality_attempts)
+      ? doc.import_low_quality_attempts
+      : {};
+
   return {
     id: asString(doc.id).trim() || null,
     company_name: asString(doc.company_name || doc.name).trim() || null,
