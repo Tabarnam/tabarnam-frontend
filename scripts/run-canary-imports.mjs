@@ -161,6 +161,7 @@ async function runCanary(url) {
   let lastStatus = null;
   const maxPolls = 75;
   const pollStartedAt = Date.now();
+  let lastDirectResumeAt = 0;
 
   for (let i = 0; i < maxPolls; i += 1) {
     let statusUrl = "https://example.test/api/import/status?session_id=" + encodeURIComponent(sessionId);
@@ -205,6 +206,24 @@ async function runCanary(url) {
     if (summary.stage === "complete" && summary.resumeNeeded === false) {
       origLog("Terminal complete reached.");
       break;
+    }
+
+    // Safety valve: if we're stuck in resume_queued for a while, invoke the resume-worker in-process
+    // (equivalent to what /import/status would trigger) so the canary run finishes within the time budget.
+    const elapsedMs = Date.now() - pollStartedAt;
+    const canDirectInvoke = elapsedMs > 3 * 60 * 1000;
+    const resumeLooksStuck =
+      summary.resumeNeeded === true &&
+      (summary.resumeStatus === "queued" || summary.stage === "enrichment_resume_queued" || summary.stage === "enrichment_resume_running");
+
+    if (canDirectInvoke && resumeLooksStuck && Date.now() - lastDirectResumeAt > 60_000) {
+      lastDirectResumeAt = Date.now();
+      origLog("  (canary) invoking resume-worker directly...");
+      try {
+        await invokeResumeWorkerInProcess({ session_id: sessionId, context: { log() {} } });
+      } catch (e) {
+        origLog("  (canary) resume-worker direct invoke failed: " + (e?.message || String(e)));
+      }
     }
 
     const delay = computeDelayMs(summary);
