@@ -3555,13 +3555,14 @@ async function saveCompaniesToCosmos({
                     false
                   );
                 } else {
-                  doc.headquarters_location = "Unknown";
-                  doc.hq_unknown_reason = hqReasonRaw || "unknown";
+                  doc.headquarters_location = "Not disclosed";
+                  doc.hq_unknown_reason = "not_disclosed";
                   ensureMissing(
                     "headquarters_location",
-                    doc.hq_unknown_reason,
+                    "not_disclosed",
                     "extract_hq",
-                    "headquarters_location missing; set to placeholder 'Unknown'"
+                    "headquarters_location missing; recorded as terminal sentinel 'Not disclosed'",
+                    false
                   );
                 }
               }
@@ -9157,12 +9158,13 @@ Return ONLY the JSON array, no other text.`,
                       false
                     );
                   } else {
-                    base.headquarters_location = "Unknown";
-                    base.hq_unknown_reason = hqReasonRaw || "unknown";
+                    base.headquarters_location = "Not disclosed";
+                    base.hq_unknown_reason = "not_disclosed";
                     ensureMissing(
                       "headquarters_location",
-                      base.hq_unknown_reason,
-                      "headquarters_location missing; set to placeholder 'Unknown'"
+                      "not_disclosed",
+                      "headquarters_location missing; recorded as terminal sentinel 'Not disclosed'",
+                      false
                     );
                   }
                 }
