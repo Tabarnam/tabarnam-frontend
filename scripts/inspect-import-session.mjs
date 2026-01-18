@@ -74,6 +74,20 @@ function summarizeCompany(doc) {
     product_keywords: doc.product_keywords ?? null,
     review_count: typeof doc.review_count === "number" ? doc.review_count : null,
 
+    import_missing_reason: {
+      industries: reasons.industries ?? null,
+      product_keywords: reasons.product_keywords ?? null,
+      headquarters_location: reasons.headquarters_location ?? null,
+      manufacturing_locations: reasons.manufacturing_locations ?? null,
+      reviews: reasons.reviews ?? null,
+      logo: reasons.logo ?? null,
+    },
+
+    import_low_quality_attempts: {
+      industries: attempts.industries ?? null,
+      product_keywords: attempts.product_keywords ?? null,
+    },
+
     import_missing_fields: missing,
   };
 }
