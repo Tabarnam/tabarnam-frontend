@@ -105,6 +105,7 @@ function summarizeControlDoc(doc) {
     created_at: safeIso(doc.created_at),
     updated_at: safeIso(doc.updated_at),
     completed_at: safeIso(doc.completed_at),
+    lock_expires_at: safeIso(doc.lock_expires_at),
 
     companies_count: typeof doc.companies_count === "number" ? doc.companies_count : null,
 
