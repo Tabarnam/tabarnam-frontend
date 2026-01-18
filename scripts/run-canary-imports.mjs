@@ -14,6 +14,7 @@ console.error = () => {};
 const { handler: importStartHandler } = require("../api/import-start/index.js");
 const { _test: importStatusTest } = require("../api/import-status/index.js");
 const importStatusHandler = importStatusTest.handler;
+const { invokeResumeWorkerInProcess } = require("../api/import/resume-worker/handler.js");
 
 const cosmosPkg = await import("@azure/cosmos");
 const CosmosClient = cosmosPkg.CosmosClient;
