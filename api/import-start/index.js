@@ -3363,13 +3363,20 @@ async function saveCompaniesToCosmos({
               const ensureMissing = (field, reason, stage, message, retryable = true, source_attempted = "xai") => {
                 const f = String(field || "").trim();
                 if (!f) return;
-                if (!import_missing_fields.includes(f)) import_missing_fields.push(f);
-                if (!import_missing_reason[f]) import_missing_reason[f] = String(reason || "missing");
 
                 const missing_reason = String(reason || "missing");
                 const terminal = missing_reason === "not_disclosed";
 
-                import_warnings.push({
+                if (!import_missing_fields.includes(f)) import_missing_fields.push(f);
+
+                // Prefer final, terminal decisions over earlier seed placeholders.
+                // This prevents "seed_from_company_url" from surviving after extractors run.
+                const prevReason = String(import_missing_reason[f] || "").trim();
+                if (!prevReason || terminal || prevReason === "seed_from_company_url") {
+                  import_missing_reason[f] = missing_reason;
+                }
+
+                const entry = {
                   field: f,
                   missing_reason,
                   stage: String(stage || "unknown"),
@@ -3377,7 +3384,11 @@ async function saveCompaniesToCosmos({
                   retryable: Boolean(retryable),
                   terminal,
                   message: String(message || "missing"),
-                });
+                };
+
+                const existingIndex = import_warnings.findIndex((w) => w && typeof w === "object" && w.field === f);
+                if (existingIndex >= 0) import_warnings[existingIndex] = entry;
+                else import_warnings.push(entry);
               };
 
               // company_name (required)
@@ -3461,18 +3472,16 @@ async function saveCompaniesToCosmos({
               }
 
               // manufacturing_locations (required)
-              if (!isRealValue("manufacturing_locations", doc.manufacturing_locations, doc)) {
-                const mfgReasonRaw = String(doc.mfg_unknown_reason || doc.manufacturing_locations_reason || "unknown")
-                  .trim()
-                  .toLowerCase();
-
-                const listRaw = Array.isArray(doc.manufacturing_locations)
+              // Ordering fix: decide the final terminal sentinel first ("Not disclosed") and then generate warnings from that.
+              // Never emit "seed_from_company_url" after extractors have run.
+              {
+                const rawList = Array.isArray(doc.manufacturing_locations)
                   ? doc.manufacturing_locations
                   : doc.manufacturing_locations == null
                     ? []
                     : [doc.manufacturing_locations];
 
-                const normalized = listRaw
+                const normalized = rawList
                   .map((loc) => {
                     if (typeof loc === "string") return String(loc).trim().toLowerCase();
                     if (loc && typeof loc === "object") {
@@ -3484,31 +3493,24 @@ async function saveCompaniesToCosmos({
                   })
                   .filter(Boolean);
 
-                const mfgNotDisclosed =
-                  mfgReasonRaw === "not_disclosed" ||
-                  (normalized.length > 0 && normalized.every((v) => v === "not disclosed" || v === "not_disclosed"));
+                const hasNotDisclosed = normalized.length > 0 && normalized.every((v) => v === "not disclosed" || v === "not_disclosed");
+                const hasUnknownPlaceholder = normalized.length > 0 && normalized.every((v) => v === "unknown");
 
-                doc.mfg_unknown = true;
+                const hasRealMfg =
+                  isRealValue("manufacturing_locations", doc.manufacturing_locations, doc) && !hasNotDisclosed && !hasUnknownPlaceholder;
 
-                if (mfgNotDisclosed) {
+                if (!hasRealMfg) {
                   doc.manufacturing_locations = ["Not disclosed"];
                   doc.manufacturing_locations_reason = "not_disclosed";
+                  doc.mfg_unknown = true;
                   doc.mfg_unknown_reason = "not_disclosed";
+
                   ensureMissing(
                     "manufacturing_locations",
                     "not_disclosed",
                     "extract_mfg",
                     "manufacturing_locations missing; recorded as terminal sentinel ['Not disclosed']",
                     false
-                  );
-                } else {
-                  doc.manufacturing_locations = ["Unknown"];
-                  doc.mfg_unknown_reason = mfgReasonRaw || "unknown";
-                  ensureMissing(
-                    "manufacturing_locations",
-                    doc.mfg_unknown_reason,
-                    "extract_mfg",
-                    "manufacturing_locations missing; set to placeholder ['Unknown']"
                   );
                 }
               }
@@ -8881,16 +8883,25 @@ Return ONLY the JSON array, no other text.`,
                   const terminal = missing_reason === "not_disclosed";
 
                   if (!import_missing_fields.includes(field)) import_missing_fields.push(field);
-                  if (!import_missing_reason[field]) import_missing_reason[field] = missing_reason;
 
-                  import_warnings.push({
+                  // Prefer final, terminal decisions over earlier seed placeholders.
+                  const prevReason = String(import_missing_reason[field] || "").trim();
+                  if (!prevReason || terminal || prevReason === "seed_from_company_url") {
+                    import_missing_reason[field] = missing_reason;
+                  }
+
+                  const entry = {
                     field,
                     root_cause: field,
                     missing_reason,
                     retryable: Boolean(retryable),
                     terminal,
                     message: String(message || "missing"),
-                  });
+                  };
+
+                  const existingIndex = import_warnings.findIndex((w) => w && typeof w === "object" && w.field === field);
+                  if (existingIndex >= 0) import_warnings[existingIndex] = entry;
+                  else import_warnings.push(entry);
 
                   // Session-level warning (visible in import completion doc)
                   addWarning(`import_missing_${field}_${i}`, {
@@ -8975,11 +8986,9 @@ Return ONLY the JSON array, no other text.`,
                 }
 
                 // manufacturing
-                if (!isRealValue("manufacturing_locations", base.manufacturing_locations, base)) {
-                  const mfgReasonRaw = String(base.mfg_unknown_reason || base.manufacturing_locations_reason || "unknown")
-                    .trim()
-                    .toLowerCase();
-
+                // Ordering fix: decide the final terminal sentinel first ("Not disclosed") and then generate warnings from that.
+                // Never emit "seed_from_company_url" after extractors have run.
+                {
                   const rawList = Array.isArray(base.manufacturing_locations)
                     ? base.manufacturing_locations
                     : base.manufacturing_locations == null
@@ -8998,29 +9007,23 @@ Return ONLY the JSON array, no other text.`,
                     })
                     .filter(Boolean);
 
-                  const mfgNotDisclosed =
-                    mfgReasonRaw === "not_disclosed" ||
-                    (normalized.length > 0 && normalized.every((v) => v === "not disclosed" || v === "not_disclosed"));
+                  const hasNotDisclosed = normalized.length > 0 && normalized.every((v) => v === "not disclosed" || v === "not_disclosed");
+                  const hasUnknownPlaceholder = normalized.length > 0 && normalized.every((v) => v === "unknown");
 
-                  base.mfg_unknown = true;
+                  const hasRealMfg =
+                    isRealValue("manufacturing_locations", base.manufacturing_locations, base) && !hasNotDisclosed && !hasUnknownPlaceholder;
 
-                  if (mfgNotDisclosed) {
+                  if (!hasRealMfg) {
                     base.manufacturing_locations = ["Not disclosed"];
                     base.manufacturing_locations_reason = "not_disclosed";
+                    base.mfg_unknown = true;
                     base.mfg_unknown_reason = "not_disclosed";
+
                     ensureMissing(
                       "manufacturing_locations",
                       "not_disclosed",
                       "manufacturing_locations missing; recorded as terminal sentinel ['Not disclosed']",
                       false
-                    );
-                  } else {
-                    base.manufacturing_locations = ["Unknown"];
-                    base.mfg_unknown_reason = mfgReasonRaw || "unknown";
-                    ensureMissing(
-                      "manufacturing_locations",
-                      base.mfg_unknown_reason,
-                      "manufacturing_locations missing; set to placeholder ['Unknown']"
                     );
                   }
                 }
