@@ -4268,6 +4268,19 @@ export default function AdminImport() {
                               const authMethodUsed = asString(lastAuth?.auth_method_used || lastAuth?.auth_method).trim();
                               const secretSource = asString(lastAuth?.secret_source).trim();
 
+                              const resumeStatus = asString(resume?.status).trim();
+                              const resumeWorkerLastInvokedAt = asString(resumeWorker?.last_invoked_at).trim();
+                              const resumeWorkerLastFinishedAt = asString(resumeWorker?.last_finished_at).trim();
+                              const resumeWorkerLastResult = asString(resumeWorker?.last_result).trim();
+
+                              const stageBeaconValues =
+                                statusBody?.stage_beacon_values && typeof statusBody.stage_beacon_values === "object"
+                                  ? statusBody.stage_beacon_values
+                                  : {};
+
+                              const missingRetryable = Number(stageBeaconValues.status_resume_missing_retryable);
+                              const missingTerminal = Number(stageBeaconValues.status_resume_missing_terminal);
+
                               return (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-700">
                                   <div>
