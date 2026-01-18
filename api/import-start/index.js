@@ -44,6 +44,7 @@ const { mergeCompanyDocsForSession: mergeCompanyDocsForSessionExternal } = requi
 const { applyEnrichment } = require("../_applyEnrichment");
 const {
   asMeaningfulString,
+  normalizeStringArray,
   isRealValue,
   sanitizeIndustries,
   sanitizeKeywords,
