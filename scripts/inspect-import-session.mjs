@@ -88,6 +88,9 @@ function summarizeCompany(doc) {
       product_keywords: attempts.product_keywords ?? null,
     },
 
+    import_low_quality_attempts_meta: doc.import_low_quality_attempts_meta ?? null,
+    import_request_id: doc.import_request_id ?? null,
+
     import_missing_fields: missing,
   };
 }
