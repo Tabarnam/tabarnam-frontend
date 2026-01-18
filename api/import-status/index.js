@@ -460,14 +460,14 @@ function isTerminalMissingField(doc, field) {
   const d = doc && typeof doc === "object" ? doc : {};
   const f = String(field || "").trim();
 
-  // low_quality terminalization (set by import-start after N attempts)
+  // low_quality / not_found terminalization (set by import-start after N attempts)
   if (f === "industries" || f === "product_keywords") {
     const reasons =
       d.import_missing_reason && typeof d.import_missing_reason === "object" && !Array.isArray(d.import_missing_reason)
         ? d.import_missing_reason
         : {};
     const reason = normalizeMissingKey(reasons[f] || "");
-    if (reason === "low_quality_terminal") return true;
+    if (reason === "low_quality_terminal" || reason === "not_found_terminal") return true;
   }
 
   if (f === "headquarters_location") {
@@ -1129,9 +1129,32 @@ async function handler(req, context) {
         .slice(0, 50);
     }
 
-    if (Number(saved || 0) !== Number(saved_verified_count || 0)) {
-      saved = Number(saved_verified_count || 0);
-    }
+    const persistedIds = (() => {
+      const seen = new Set();
+      const out = [];
+      const verified = Array.isArray(saved_company_ids_verified) ? saved_company_ids_verified : [];
+      const unverified = Array.isArray(saved_company_ids_unverified) ? saved_company_ids_unverified : [];
+
+      for (const raw of [...verified, ...unverified]) {
+        const value = String(raw || "").trim();
+        if (!value) continue;
+        const key = value.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(value);
+      }
+
+      return out;
+    })();
+
+    const persistedCount = Math.max(
+      Number(saved || 0),
+      persistedIds.length,
+      Array.isArray(saved_companies) ? saved_companies.length : 0,
+      Number(saved_verified_count || 0)
+    );
+
+    saved = persistedCount;
 
     const resumeNeededFromSession = Boolean(report?.session && report.session.resume_needed);
 
@@ -1161,9 +1184,11 @@ async function handler(req, context) {
       resumeDocStatus === "complete" && resumeMissingAnalysis.total_retryable_missing === 0;
 
     // If the saved companies are only missing terminal fields (or none), ignore stale control-doc resume_needed/resume-doc existence.
-    const resume_needed = resumeMissingAnalysis.terminal_only || forceTerminalComplete
-      ? false
-      : Boolean(resumeNeededFromSession || resumeNeededFromHealth || resumeDocExists);
+    let resume_needed = forceResume
+      ? true
+      : resumeMissingAnalysis.terminal_only || forceTerminalComplete
+        ? false
+        : Boolean(resumeNeededFromSession || resumeNeededFromHealth || resumeDocExists);
 
     // Reflect terminal completion in the report payload as well.
     if ((resumeMissingAnalysis.terminal_only || forceTerminalComplete) && report?.session) {
@@ -2033,11 +2058,30 @@ async function handler(req, context) {
       (typeof sessionDoc?.saved_verified_count === "number" ? sessionDoc.saved_verified_count : null) ??
       (derivedVerifiedCount > 0 ? derivedVerifiedCount : null);
 
-    // Truthfulness: `saved` must come from verified fields only.
-    // Never infer `saved` from candidate items or attempted writes.
-    let saved = Number.isFinite(Number(savedVerifiedCount)) ? Number(savedVerifiedCount) : 0;
+    const savedUnverifiedIdsRaw = Array.isArray(sessionDoc?.saved_company_ids_unverified)
+      ? sessionDoc.saved_company_ids_unverified
+      : [];
 
-    let savedDocs = savedIds.length > 0 ? await fetchCompaniesByIds(container, savedIds).catch(() => []) : [];
+    const persistedIds = (() => {
+      const seen = new Set();
+      const out = [];
+
+      for (const raw of [...savedIds, ...savedUnverifiedIdsRaw]) {
+        const value = String(raw || "").trim();
+        if (!value) continue;
+        const key = value.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(value);
+      }
+
+      return out;
+    })();
+
+    // Persisted count includes verified + unverified saved ids.
+    let saved = persistedIds.length;
+
+    let savedDocs = persistedIds.length > 0 ? await fetchCompaniesByIds(container, persistedIds).catch(() => []) : [];
     let saved_companies = savedDocs.length > 0 ? toSavedCompanies(savedDocs) : [];
     let completionReason = typeof completionDoc?.reason === "string" ? completionDoc.reason : null;
 
@@ -2205,9 +2249,11 @@ async function handler(req, context) {
     const forceTerminalComplete = resumeDocStatus === "complete" && resumeMissingAnalysis.total_retryable_missing === 0;
 
     // Terminal-only missing fields must not keep the session "running".
-    const resume_needed = resumeMissingAnalysis.terminal_only || forceTerminalComplete
-      ? false
-      : Boolean(sessionDoc?.resume_needed) || resumeNeededFromHealth || Boolean(resumeDoc);
+    let resume_needed = forceResume
+      ? true
+      : resumeMissingAnalysis.terminal_only || forceTerminalComplete
+        ? false
+        : Boolean(sessionDoc?.resume_needed) || resumeNeededFromHealth || Boolean(resumeDoc);
 
     if ((resumeMissingAnalysis.terminal_only || forceTerminalComplete) && sessionDoc && sessionDoc.resume_needed) {
       const now = nowIso();
@@ -2442,6 +2488,26 @@ async function handler(req, context) {
       }
     }
 
+    // Stage beacon must reflect resume control doc status so the UI can back off polling.
+    const retryableMissing = Number(resumeMissingAnalysis?.total_retryable_missing || 0) || 0;
+    const resumeStatusForBeacon = String(resume_status || "").trim();
+
+    const resumeStageBeacon = (() => {
+      if (!resume_needed) return null;
+      if (resumeStatusForBeacon === "running") return "enrichment_resume_running";
+      if (resumeStatusForBeacon === "queued") return "enrichment_resume_queued";
+      if (resumeStatusForBeacon === "stalled") return "enrichment_resume_stalled";
+      if (resumeStatusForBeacon === "error") return "enrichment_resume_error";
+      if (resumeStatusForBeacon === "complete") {
+        return retryableMissing > 0 ? "enrichment_incomplete_retryable" : "complete";
+      }
+      return "enrichment_resume_pending";
+    })();
+
+    if (!forceComplete) {
+      stage_beacon = resumeStageBeacon || stage_beacon;
+    }
+
     const effectiveCompleted = forceComplete || (completed && !resume_needed);
 
     const saved_verified_count =
@@ -2588,7 +2654,13 @@ async function handler(req, context) {
       );
     }
 
-    if (isCompanyUrlImport && effectiveCompleted && saved_verified_count === 0) {
+    const persistedSeedCount =
+      (typeof saved_verified_count === "number" && Number.isFinite(saved_verified_count) ? saved_verified_count : 0) +
+      (Array.isArray(saved_company_ids_unverified) ? saved_company_ids_unverified.length : 0);
+
+    const hasPersistedSeed = persistedSeedCount > 0 || (Array.isArray(savedCompanies) && savedCompanies.length > 0);
+
+    if (isCompanyUrlImport && effectiveCompleted && !hasPersistedSeed) {
       const failed_items =
         Array.isArray(completionDoc?.failed_items)
           ? completionDoc.failed_items
@@ -2818,7 +2890,7 @@ async function handler(req, context) {
         status: "running",
         state: "running",
         job_state: null,
-        stage_beacon: resume_needed ? "enrichment_resume_pending" : stage_beacon,
+        stage_beacon,
         stage_beacon_values: stageBeaconValues,
         ...(cosmosTarget ? cosmosTarget : {}),
         primary_job_state: null,

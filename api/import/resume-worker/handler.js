@@ -82,14 +82,14 @@ function isTerminalMissingField(doc, field) {
   const d = doc && typeof doc === "object" ? doc : {};
   const f = String(field || "").trim();
 
-  // low_quality terminalization (set by import-start after N attempts)
+  // low_quality / not_found terminalization (set by import-start after N attempts)
   if (f === "industries" || f === "product_keywords") {
     const reasons =
       d.import_missing_reason && typeof d.import_missing_reason === "object" && !Array.isArray(d.import_missing_reason)
         ? d.import_missing_reason
         : {};
     const reason = normalizeKey(reasons[f] || "");
-    if (reason === "low_quality_terminal") return true;
+    if (reason === "low_quality_terminal" || reason === "not_found_terminal") return true;
   }
 
   if (f === "headquarters_location") {
@@ -332,7 +332,7 @@ async function resumeWorkerHandler(req, context) {
   } catch {}
 
   let cosmosContainer = null;
-  if (cosmosEnabled && looksLikeUuid(sessionId)) {
+  if (cosmosEnabled) {
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
       const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
@@ -616,6 +616,132 @@ async function resumeWorkerHandler(req, context) {
   const needsReviews = missingUnion.has("reviews");
   const needsLocation = missingUnion.has("headquarters_location") || missingUnion.has("manufacturing_locations");
 
+  // Fast path: for single-company company_url imports, avoid repeatedly calling import-start/XAI
+  // once we've already tried enough times to conclude industries/keywords are not recoverable.
+  if (forceStages && seedDocs.length === 1 && seedDocs[0]) {
+    const doc = seedDocs[0];
+    const missing = computeMissingFields(doc);
+
+    if (missing.includes("industries")) {
+      const attemptsObj =
+        doc.import_low_quality_attempts && typeof doc.import_low_quality_attempts === "object" && !Array.isArray(doc.import_low_quality_attempts)
+          ? { ...doc.import_low_quality_attempts }
+          : {};
+
+      const reasonsObj =
+        doc.import_missing_reason && typeof doc.import_missing_reason === "object" && !Array.isArray(doc.import_missing_reason)
+          ? { ...doc.import_missing_reason }
+          : {};
+
+      const prevReason = normalizeKey(reasonsObj.industries || "");
+      const baseReason = prevReason || "not_found";
+      const currentAttempts = Number(attemptsObj.industries) || 0;
+
+      // If the next attempt would hit the cap, terminalize in-place and let the session complete.
+      if (currentAttempts >= 2) {
+        const updatedAt = nowIso();
+        const nextAttempts = currentAttempts + 1;
+        attemptsObj.industries = nextAttempts;
+        reasonsObj.industries = baseReason === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
+
+        const patch = {};
+
+        if (missing.includes("headquarters_location")) {
+          patch.headquarters_location = "Not disclosed";
+          patch.hq_unknown = true;
+          patch.hq_unknown_reason = "not_disclosed";
+          reasonsObj.headquarters_location = "not_disclosed";
+        }
+
+        if (missing.includes("manufacturing_locations")) {
+          patch.manufacturing_locations = ["Not disclosed"];
+          patch.manufacturing_locations_reason = "not_disclosed";
+          patch.mfg_unknown = true;
+          patch.mfg_unknown_reason = "not_disclosed";
+          reasonsObj.manufacturing_locations = "not_disclosed";
+        }
+
+        if (missing.includes("reviews")) {
+          patch.reviews_stage_status = "exhausted";
+          const cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
+          patch.review_cursor = {
+            ...cursor,
+            exhausted: true,
+            reviews_stage_status: cursor.reviews_stage_status || "exhausted",
+            exhausted_at: updatedAt,
+          };
+          reasonsObj.reviews = "exhausted";
+        }
+
+        const terminalParts = [];
+        terminalParts.push("industries (" + (baseReason === "low_quality" ? "low quality" : "missing") + ")");
+        if (missing.includes("headquarters_location")) terminalParts.push("HQ not disclosed");
+        if (missing.includes("manufacturing_locations")) terminalParts.push("manufacturing not disclosed");
+        if (missing.includes("reviews")) terminalParts.push("reviews exhausted");
+
+        const computedTerminalReason = terminalParts.length
+          ? "Enrichment complete (terminal): " + terminalParts.join(", ")
+          : "Enrichment complete (terminal)";
+
+        const existingReason = String(doc.red_flag_reason || "").trim();
+        const replaceReason = !existingReason || /enrichment pending/i.test(existingReason);
+
+        const nextDoc = {
+          ...doc,
+          ...patch,
+          import_missing_reason: reasonsObj,
+          import_low_quality_attempts: attemptsObj,
+          import_missing_fields: missing,
+          red_flag: true,
+          red_flag_reason: replaceReason ? computedTerminalReason : existingReason,
+          resume_exhausted: true,
+          updated_at: updatedAt,
+        };
+
+        await upsertDoc(container, nextDoc).catch(() => null);
+
+        await upsertDoc(container, {
+          ...resumeDoc,
+          status: "complete",
+          missing_by_company: [],
+          last_trigger_result: {
+            ok: true,
+            status: 200,
+            stage_beacon: "complete",
+            resume_needed: false,
+          },
+          lock_expires_at: null,
+          updated_at: updatedAt,
+        }).catch(() => null);
+
+        await bestEffortPatchSessionDoc({
+          container,
+          sessionId,
+          patch: {
+            resume_needed: false,
+            status: "complete",
+            stage_beacon: "complete",
+            completed_at: updatedAt,
+            updated_at: updatedAt,
+          },
+        }).catch(() => null);
+
+        return json(
+          {
+            ok: true,
+            session_id: sessionId,
+            triggered: true,
+            resume_needed: false,
+            iterations: 0,
+            fast_terminalized: true,
+          },
+          200,
+          req
+        );
+      }
+    }
+  }
+
   const skipStages = new Set(["primary", "expand"]);
   if (!needsKeywords) skipStages.add("keywords");
   if (!needsReviews) skipStages.add("reviews");
@@ -852,8 +978,48 @@ async function resumeWorkerHandler(req, context) {
           import_missing_reason.reviews = "exhausted";
         }
 
+        const LOW_QUALITY_MAX_ATTEMPTS = 3;
+
         if (missing.includes("industries")) {
-          import_missing_reason.industries ||= "not_found";
+          const attemptsObj =
+            doc.import_low_quality_attempts && typeof doc.import_low_quality_attempts === "object" && !Array.isArray(doc.import_low_quality_attempts)
+              ? { ...doc.import_low_quality_attempts }
+              : {};
+
+          const prevReason = normalizeKey(import_missing_reason.industries || "");
+          const baseReason = prevReason || "not_found";
+
+          const nextAttempts = (Number(attemptsObj.industries) || 0) + 1;
+          attemptsObj.industries = nextAttempts;
+
+          doc.import_low_quality_attempts = attemptsObj;
+
+          if (nextAttempts >= LOW_QUALITY_MAX_ATTEMPTS) {
+            import_missing_reason.industries = baseReason === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
+          } else {
+            import_missing_reason.industries = baseReason;
+          }
+        }
+
+        if (missing.includes("product_keywords")) {
+          const attemptsObj =
+            doc.import_low_quality_attempts && typeof doc.import_low_quality_attempts === "object" && !Array.isArray(doc.import_low_quality_attempts)
+              ? { ...doc.import_low_quality_attempts }
+              : {};
+
+          const prevReason = normalizeKey(import_missing_reason.product_keywords || "");
+          const baseReason = prevReason || "not_found";
+
+          const nextAttempts = (Number(attemptsObj.product_keywords) || 0) + 1;
+          attemptsObj.product_keywords = nextAttempts;
+
+          doc.import_low_quality_attempts = attemptsObj;
+
+          if (nextAttempts >= LOW_QUALITY_MAX_ATTEMPTS) {
+            import_missing_reason.product_keywords = baseReason === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
+          } else {
+            import_missing_reason.product_keywords = baseReason;
+          }
         }
 
         const existingReason = String(doc.red_flag_reason || "").trim();

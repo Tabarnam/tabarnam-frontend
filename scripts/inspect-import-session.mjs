@@ -34,6 +34,16 @@ function summarizeCompany(doc) {
       ? doc.missing_fields
       : null;
 
+  const reasons =
+    doc.import_missing_reason && typeof doc.import_missing_reason === "object" && !Array.isArray(doc.import_missing_reason)
+      ? doc.import_missing_reason
+      : {};
+
+  const attempts =
+    doc.import_low_quality_attempts && typeof doc.import_low_quality_attempts === "object" && !Array.isArray(doc.import_low_quality_attempts)
+      ? doc.import_low_quality_attempts
+      : {};
+
   return {
     id: asString(doc.id).trim() || null,
     company_name: asString(doc.company_name || doc.name).trim() || null,
@@ -64,6 +74,23 @@ function summarizeCompany(doc) {
     product_keywords: doc.product_keywords ?? null,
     review_count: typeof doc.review_count === "number" ? doc.review_count : null,
 
+    import_missing_reason: {
+      industries: reasons.industries ?? null,
+      product_keywords: reasons.product_keywords ?? null,
+      headquarters_location: reasons.headquarters_location ?? null,
+      manufacturing_locations: reasons.manufacturing_locations ?? null,
+      reviews: reasons.reviews ?? null,
+      logo: reasons.logo ?? null,
+    },
+
+    import_low_quality_attempts: {
+      industries: attempts.industries ?? null,
+      product_keywords: attempts.product_keywords ?? null,
+    },
+
+    import_low_quality_attempts_meta: doc.import_low_quality_attempts_meta ?? null,
+    import_request_id: doc.import_request_id ?? null,
+
     import_missing_fields: missing,
   };
 }
@@ -81,6 +108,7 @@ function summarizeControlDoc(doc) {
     created_at: safeIso(doc.created_at),
     updated_at: safeIso(doc.updated_at),
     completed_at: safeIso(doc.completed_at),
+    lock_expires_at: safeIso(doc.lock_expires_at),
 
     companies_count: typeof doc.companies_count === "number" ? doc.companies_count : null,
 
@@ -97,6 +125,10 @@ function summarizeControlDoc(doc) {
     resume_error_details: doc.resume_error_details && typeof doc.resume_error_details === "object" ? doc.resume_error_details : null,
 
     // Resume worker evidence (some of these are added in newer handlers)
+    resume_worker_last_triggered_at: safeIso(doc.resume_worker_last_triggered_at),
+    resume_worker_last_trigger_request_id: asString(doc.resume_worker_last_trigger_request_id).trim() || null,
+    resume_worker_handler_entered_at: safeIso(doc.resume_worker_handler_entered_at),
+
     resume_worker_last_invoked_at: safeIso(doc.resume_worker_last_invoked_at),
     resume_worker_last_finished_at: safeIso(doc.resume_worker_last_finished_at),
     resume_worker_last_result: asString(doc.resume_worker_last_result).trim() || null,

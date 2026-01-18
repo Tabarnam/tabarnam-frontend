@@ -3373,13 +3373,17 @@ async function saveCompaniesToCosmos({
                 const r = String(reason || "").trim();
                 if (!f) return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
 
-                // Only low_quality is subject to terminalization.
-                if (r !== "low_quality") return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
+                // We cap repeated attempts for both low_quality and not_found so resume-worker can
+                // terminalize these fields and let the session complete.
+                const supportsTerminalization = r === "low_quality" || r === "not_found";
+                if (!supportsTerminalization) return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
+
+                const terminalReason = r === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
 
                 // If we previously terminalized this field, keep it terminal.
                 const prev = String(import_missing_reason[f] || doc?.import_missing_reason?.[f] || "").trim();
-                if (prev === "low_quality_terminal") {
-                  return { missing_reason: "low_quality_terminal", retryable: false, attemptCount: LOW_QUALITY_MAX_ATTEMPTS };
+                if (prev === "low_quality_terminal" || prev === "not_found_terminal") {
+                  return { missing_reason: prev, retryable: false, attemptCount: LOW_QUALITY_MAX_ATTEMPTS };
                 }
 
                 const attemptsObj =
@@ -3410,10 +3414,10 @@ async function saveCompaniesToCosmos({
                 const attemptCount = Number(attemptsObj[f]) || 0;
 
                 if (attemptCount >= LOW_QUALITY_MAX_ATTEMPTS) {
-                  return { missing_reason: "low_quality_terminal", retryable: false, attemptCount };
+                  return { missing_reason: terminalReason, retryable: false, attemptCount };
                 }
 
-                return { missing_reason: "low_quality", retryable: true, attemptCount };
+                return { missing_reason: r, retryable: true, attemptCount };
               };
 
               const ensureMissing = (field, reason, stage, message, retryable = true, source_attempted = "xai") => {
@@ -3421,7 +3425,10 @@ async function saveCompaniesToCosmos({
                 if (!f) return;
 
                 const missing_reason = String(reason || "missing");
-                const terminal = missing_reason === "not_disclosed" || missing_reason === "low_quality_terminal";
+                const terminal =
+                  missing_reason === "not_disclosed" ||
+                  missing_reason === "low_quality_terminal" ||
+                  missing_reason === "not_found_terminal";
 
                 if (!import_missing_fields.includes(f)) import_missing_fields.push(f);
 
@@ -8973,11 +8980,14 @@ Return ONLY the JSON array, no other text.`,
                   const r = String(reason || "").trim();
                   if (!f) return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
 
-                  if (r !== "low_quality") return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
+                  const supportsTerminalization = r === "low_quality" || r === "not_found";
+                  if (!supportsTerminalization) return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
+
+                  const terminalReason = r === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
 
                   const prev = String(import_missing_reason[f] || base?.import_missing_reason?.[f] || "").trim();
-                  if (prev === "low_quality_terminal") {
-                    return { missing_reason: "low_quality_terminal", retryable: false, attemptCount: LOW_QUALITY_MAX_ATTEMPTS };
+                  if (prev === "low_quality_terminal" || prev === "not_found_terminal") {
+                    return { missing_reason: prev, retryable: false, attemptCount: LOW_QUALITY_MAX_ATTEMPTS };
                   }
 
                   const attemptsObj =
@@ -9009,15 +9019,18 @@ Return ONLY the JSON array, no other text.`,
                   const attemptCount = Number(attemptsObj[f]) || 0;
 
                   if (attemptCount >= LOW_QUALITY_MAX_ATTEMPTS) {
-                    return { missing_reason: "low_quality_terminal", retryable: false, attemptCount };
+                    return { missing_reason: terminalReason, retryable: false, attemptCount };
                   }
 
-                  return { missing_reason: "low_quality", retryable: true, attemptCount };
+                  return { missing_reason: r, retryable: true, attemptCount };
                 };
 
                 const ensureMissing = (field, reason, message, retryable = true) => {
                   const missing_reason = String(reason || "missing");
-                  const terminal = missing_reason === "not_disclosed" || missing_reason === "low_quality_terminal";
+                  const terminal =
+                    missing_reason === "not_disclosed" ||
+                    missing_reason === "low_quality_terminal" ||
+                    missing_reason === "not_found_terminal";
 
                   if (!import_missing_fields.includes(field)) import_missing_fields.push(field);
 

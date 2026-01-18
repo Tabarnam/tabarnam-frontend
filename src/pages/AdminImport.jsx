@@ -641,10 +641,12 @@ export default function AdminImport() {
         const savedVerifiedCountNormalized =
           typeof savedVerifiedCount === "number" && Number.isFinite(savedVerifiedCount) ? savedVerifiedCount : null;
 
+        const persistedIds = mergeUniqueStrings(incomingVerifiedIds, incomingUnverifiedIds);
+        const persistedCountFromIds = persistedIds.length;
+
         const persistedCount = Math.max(
           savedCompanies.length,
-          incomingVerifiedIds.length,
-          incomingUnverifiedIds.length,
+          persistedCountFromIds,
           Number.isFinite(Number(body?.saved)) ? Number(body.saved) : 0,
           savedVerifiedCountNormalized != null ? savedVerifiedCountNormalized : 0
         );
@@ -1090,12 +1092,26 @@ export default function AdminImport() {
               ? body.result.saved_verified_count
               : null;
 
-        const savedCount =
-          savedVerifiedCount != null
-            ? savedVerifiedCount
-            : savedCompanies.length > 0
-              ? savedCompanies.length
-              : 0;
+        const verifiedIds = Array.isArray(body?.saved_company_ids_verified)
+          ? body.saved_company_ids_verified
+          : Array.isArray(body?.result?.saved_company_ids_verified)
+            ? body.result.saved_company_ids_verified
+            : [];
+
+        const unverifiedIds = Array.isArray(body?.saved_company_ids_unverified)
+          ? body.saved_company_ids_unverified
+          : Array.isArray(body?.result?.saved_company_ids_unverified)
+            ? body.result.saved_company_ids_unverified
+            : [];
+
+        const persistedIds = mergeUniqueStrings(verifiedIds, unverifiedIds);
+
+        const savedCount = Math.max(
+          persistedIds.length,
+          savedCompanies.length,
+          savedVerifiedCount != null ? savedVerifiedCount : 0,
+          Number.isFinite(Number(body?.saved)) ? Number(body.saved) : 0
+        );
 
         const status = asString(body?.status).trim();
         const state = asString(body?.state).trim();
@@ -1157,26 +1173,23 @@ export default function AdminImport() {
             stageBeaconNow === "enrichment_incomplete_retryable");
 
         const computeNextDelayMs = () => {
-          if (
+          const inResumeBackoffState =
             resumeNeeded &&
             (resumeStatus === "queued" ||
+              resumeStatus === "running" ||
               stageBeaconNow === "enrichment_resume_queued" ||
-              stageBeaconNow === "enrichment_incomplete_retryable")
-          ) {
+              stageBeaconNow === "enrichment_resume_running" ||
+              stageBeaconNow === "enrichment_incomplete_retryable");
+
+          if (inResumeBackoffState) {
             const currentIndex = pollBackoffRef.current.get(sid) || 0;
             const idx = Math.max(0, Math.min(currentIndex, RESUME_POLL_BACKOFF_MS.length - 1));
             pollBackoffRef.current.set(sid, Math.min(idx + 1, RESUME_POLL_BACKOFF_MS.length - 1));
 
-            // Don't let queued resume runs hit the tight-poll max.
+            // Don't let queued/running resume runs hit the tight-poll max.
             pollAttemptsRef.current.set(sid, 0);
 
             return RESUME_POLL_BACKOFF_MS[idx];
-          }
-
-          if (resumeNeeded && (resumeStatus === "running" || stageBeaconNow === "enrichment_resume_running")) {
-            pollBackoffRef.current.set(sid, 0);
-            pollAttemptsRef.current.set(sid, 0);
-            return RESUME_POLL_RUNNING_MS;
           }
 
           pollBackoffRef.current.delete(sid);
@@ -1302,12 +1315,26 @@ export default function AdminImport() {
                 ? body.result.saved_verified_count
                 : null;
 
-          const savedCount =
-            savedVerifiedCount != null
-              ? savedVerifiedCount
-              : savedCompanies.length > 0
-                ? savedCompanies.length
-                : 0;
+          const verifiedIds = Array.isArray(body?.saved_company_ids_verified)
+            ? body.saved_company_ids_verified
+            : Array.isArray(body?.result?.saved_company_ids_verified)
+              ? body.result.saved_company_ids_verified
+              : [];
+
+          const unverifiedIds = Array.isArray(body?.saved_company_ids_unverified)
+            ? body.saved_company_ids_unverified
+            : Array.isArray(body?.result?.saved_company_ids_unverified)
+              ? body.result.saved_company_ids_unverified
+              : [];
+
+          const persistedIds = mergeUniqueStrings(verifiedIds, unverifiedIds);
+
+          const savedCount = Math.max(
+            persistedIds.length,
+            savedCompanies.length,
+            savedVerifiedCount != null ? savedVerifiedCount : 0,
+            Number.isFinite(Number(body?.saved)) ? Number(body.saved) : 0
+          );
 
           const status = asString(body?.status).trim();
           const state = asString(body?.state).trim();
@@ -2562,13 +2589,19 @@ export default function AdminImport() {
   const activeItems = Array.isArray(activeRun?.items) ? activeRun.items : [];
   const activeSavedCompanies = Array.isArray(activeRun?.saved_companies) ? activeRun.saved_companies : [];
   const activeSavedVerifiedIds = Array.isArray(activeRun?.saved_company_ids_verified) ? activeRun.saved_company_ids_verified : [];
+  const activeSavedUnverifiedIds = Array.isArray(activeRun?.saved_company_ids_unverified) ? activeRun.saved_company_ids_unverified : [];
 
   const activeSavedVerifiedCount =
     typeof activeRun?.saved_verified_count === "number" && Number.isFinite(activeRun.saved_verified_count)
       ? activeRun.saved_verified_count
       : activeSavedVerifiedIds.length;
 
-  const activeSavedCount = Math.max(activeSavedCompanies.length, activeSavedVerifiedCount);
+  const activePersistedIds = mergeUniqueStrings(activeSavedVerifiedIds, activeSavedUnverifiedIds);
+  const activeSavedCount = Math.max(
+    activeSavedCompanies.length,
+    activePersistedIds.length,
+    Number.isFinite(Number(activeRun?.saved)) ? Number(activeRun.saved) : 0
+  );
 
   const activeIsTerminal = Boolean(activeRun && (activeRun.completed || activeRun.timedOut || activeRun.stopped));
 
@@ -3652,14 +3685,16 @@ export default function AdminImport() {
                         ? r.saved_company_ids
                         : [];
 
-                    const savedCount =
-                      verifiedCount != null
-                        ? verifiedCount
-                        : verifiedIds.length > 0
-                          ? verifiedIds.length
-                          : Number.isFinite(Number(r.saved))
-                            ? Number(r.saved)
-                            : 0;
+                    const unverifiedIds = Array.isArray(r.saved_company_ids_unverified) ? r.saved_company_ids_unverified : [];
+                    const persistedIds = mergeUniqueStrings(verifiedIds, unverifiedIds);
+
+                    const savedVerifiedCount = verifiedCount != null ? verifiedCount : verifiedIds.length;
+
+                    const savedCount = Math.max(
+                      persistedIds.length,
+                      Number.isFinite(Number(r.saved)) ? Number(r.saved) : 0,
+                      savedCompanies.length
+                    );
 
                     const companyId =
                       asString(primarySaved?.company_id).trim() ||
@@ -3854,7 +3889,8 @@ export default function AdminImport() {
 
                           <div className="flex flex-col items-end gap-2 text-xs text-slate-600">
                             <div className="flex items-center gap-2">
-                              <span>Saved: {savedCount}</span>
+                              <span>Persisted: {savedCount}</span>
+                              <span className="text-slate-500">Verified: {savedVerifiedCount}</span>
                               <span className={`rounded border px-2 py-0.5 text-[11px] ${statusBadgeClass}`}>{statusLabel}</span>
                               <Button
                                 variant="outline"
@@ -3949,11 +3985,17 @@ export default function AdminImport() {
                           : [];
                       const savedVerifiedCount = verifiedCount != null ? verifiedCount : verifiedIds.length;
 
-                      const persistedCount = Number.isFinite(Number(activeRun.saved))
-                        ? Number(activeRun.saved)
-                        : savedCompanies.length > 0
-                          ? savedCompanies.length
-                          : savedVerifiedCount;
+                      const unverifiedIds = Array.isArray(activeRun.saved_company_ids_unverified)
+                        ? activeRun.saved_company_ids_unverified
+                        : [];
+                      const persistedIds = mergeUniqueStrings(verifiedIds, unverifiedIds);
+
+                      const persistedCount = Math.max(
+                        persistedIds.length,
+                        Number.isFinite(Number(activeRun.saved)) ? Number(activeRun.saved) : 0,
+                        savedCompanies.length,
+                        savedVerifiedCount
+                      );
 
                       const stageBeacon = asString(activeRun.final_stage_beacon || activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
                       const stageBeaconValues =
