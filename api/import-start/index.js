@@ -3547,81 +3547,22 @@ async function saveCompaniesToCosmos({
                 ensureMissing("tagline", "not_found", "extract_tagline", "tagline missing; set to placeholder 'Unknown'");
               }
 
-              // headquarters_location (required)
-              if (!isRealValue("headquarters_location", doc.headquarters_location, doc)) {
-                const hqReasonRaw = String(doc.hq_unknown_reason || "unknown").trim().toLowerCase();
-                const hqValueRaw = String(doc.headquarters_location || "").trim().toLowerCase();
-                const hqNotDisclosed =
-                  hqReasonRaw === "not_disclosed" || hqValueRaw === "not disclosed" || hqValueRaw === "not_disclosed";
-
-                doc.hq_unknown = true;
-
-                if (hqNotDisclosed) {
-                  doc.headquarters_location = "Not disclosed";
-                  doc.hq_unknown_reason = "not_disclosed";
-                  ensureMissing(
-                    "headquarters_location",
-                    "not_disclosed",
-                    "extract_hq",
-                    "headquarters_location missing; recorded as terminal sentinel 'Not disclosed'",
-                    false
-                  );
-                } else {
-                  doc.headquarters_location = "Not disclosed";
-                  doc.hq_unknown_reason = "not_disclosed";
-                  ensureMissing(
-                    "headquarters_location",
-                    "not_disclosed",
-                    "extract_hq",
-                    "headquarters_location missing; recorded as terminal sentinel 'Not disclosed'",
-                    false
-                  );
-                }
+              // headquarters_location + manufacturing_locations are Grok-only (handled in resume-worker).
+              // Do NOT extract from the website here and do NOT terminalize here.
+              // Keep types stable so downstream code/UI don't crash.
+              if (typeof doc.headquarters_location !== "string") {
+                doc.headquarters_location = doc.headquarters_location == null ? "" : String(doc.headquarters_location);
               }
 
-              // manufacturing_locations (required)
-              // Ordering fix: decide the final terminal sentinel first ("Not disclosed") and then generate warnings from that.
-              // Never emit "seed_from_company_url" after extractors have run.
-              {
-                const rawList = Array.isArray(doc.manufacturing_locations)
-                  ? doc.manufacturing_locations
-                  : doc.manufacturing_locations == null
-                    ? []
-                    : [doc.manufacturing_locations];
-
-                const normalized = rawList
-                  .map((loc) => {
-                    if (typeof loc === "string") return String(loc).trim().toLowerCase();
-                    if (loc && typeof loc === "object") {
-                      return String(loc.formatted || loc.full_address || loc.address || loc.location || "")
-                        .trim()
-                        .toLowerCase();
-                    }
-                    return "";
-                  })
-                  .filter(Boolean);
-
-                const hasNotDisclosed = normalized.length > 0 && normalized.every((v) => v === "not disclosed" || v === "not_disclosed");
-                const hasUnknownPlaceholder = normalized.length > 0 && normalized.every((v) => v === "unknown");
-
-                const hasRealMfg =
-                  isRealValue("manufacturing_locations", doc.manufacturing_locations, doc) && !hasNotDisclosed && !hasUnknownPlaceholder;
-
-                if (!hasRealMfg) {
-                  doc.manufacturing_locations = ["Not disclosed"];
-                  doc.manufacturing_locations_reason = "not_disclosed";
-                  doc.mfg_unknown = true;
-                  doc.mfg_unknown_reason = "not_disclosed";
-
-                  ensureMissing(
-                    "manufacturing_locations",
-                    "not_disclosed",
-                    "extract_mfg",
-                    "manufacturing_locations missing; recorded as terminal sentinel ['Not disclosed']",
-                    false
-                  );
-                }
+              if (!Array.isArray(doc.manufacturing_locations)) {
+                doc.manufacturing_locations = doc.manufacturing_locations == null ? [] : [doc.manufacturing_locations];
               }
+              doc.manufacturing_locations = doc.manufacturing_locations
+                .map((v) => (typeof v === "string" ? v : v == null ? "" : String(v)))
+                .map((v) => v.trim())
+                .filter(Boolean);
+
+              // Note: missing/attempt tracking + terminal sentinels for HQ/MFG are persisted by resume-worker only.
 
               // reviews (required fields can be empty, but must be explicitly set)
               if (!Array.isArray(doc.curated_reviews)) doc.curated_reviews = [];
@@ -4542,6 +4483,11 @@ const importStartHandlerInner = async (req, context) => {
         }
         if (parsed) skipStages.add(parsed);
       }
+
+      // HARD RULE: import-start must never run (or fallback to website parsing for) HQ/MFG/Reviews.
+      // These are Grok-only and handled exclusively in resume-worker.
+      skipStages.add("reviews");
+      skipStages.add("location");
 
       const maxStage = maxStageParsed;
 
@@ -7692,6 +7638,21 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                     if (e instanceof AcceptedResponseError) throw e;
                     return company;
                   }
+                });
+
+                // HARD RULE: website scraping must NOT be used for these fields at any stage.
+                // Even if baselineWebsiteParse runs for other enrichment needs, strip any accidental
+                // HQ/MFG/Reviews fields so resume-worker remains the single source of truth.
+                enriched = enriched.map((c) => {
+                  if (!c || typeof c !== "object") return c;
+                  const next = { ...c };
+                  delete next.headquarters_location;
+                  delete next.manufacturing_locations;
+                  delete next.curated_reviews;
+                  delete next.review_count;
+                  delete next.review_cursor;
+                  delete next.reviews_stage_status;
+                  return next;
                 });
 
                 enrichedForCounts = enriched;

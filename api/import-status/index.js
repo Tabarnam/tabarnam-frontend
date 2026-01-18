@@ -457,14 +457,8 @@ function isTrueish(value) {
 }
 
 function isTerminalMissingReason(reason) {
-  return new Set([
-    "low_quality_terminal",
-    "not_found_terminal",
-    "conflicting_sources_terminal",
-    "not_disclosed",
-    "exhausted",
-    "not_found_on_site" // only if still used for other fields like logo, not HQ/MFG/Reviews
-  ]).has(reason);
+  // Spec: terminal reasons must be treated as non-retryable; anything else is retryable.
+  return new Set(["not_disclosed", "exhausted", "low_quality_terminal", "not_found_terminal"]).has(reason);
 }
 
 function deriveMissingReason(doc, field) {
