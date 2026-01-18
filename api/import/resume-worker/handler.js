@@ -852,8 +852,48 @@ async function resumeWorkerHandler(req, context) {
           import_missing_reason.reviews = "exhausted";
         }
 
+        const LOW_QUALITY_MAX_ATTEMPTS = 3;
+
         if (missing.includes("industries")) {
-          import_missing_reason.industries ||= "not_found";
+          const attemptsObj =
+            doc.import_low_quality_attempts && typeof doc.import_low_quality_attempts === "object" && !Array.isArray(doc.import_low_quality_attempts)
+              ? { ...doc.import_low_quality_attempts }
+              : {};
+
+          const prevReason = normalizeKey(import_missing_reason.industries || "");
+          const baseReason = prevReason || "not_found";
+
+          const nextAttempts = (Number(attemptsObj.industries) || 0) + 1;
+          attemptsObj.industries = nextAttempts;
+
+          doc.import_low_quality_attempts = attemptsObj;
+
+          if (nextAttempts >= LOW_QUALITY_MAX_ATTEMPTS) {
+            import_missing_reason.industries = baseReason === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
+          } else {
+            import_missing_reason.industries = baseReason;
+          }
+        }
+
+        if (missing.includes("product_keywords")) {
+          const attemptsObj =
+            doc.import_low_quality_attempts && typeof doc.import_low_quality_attempts === "object" && !Array.isArray(doc.import_low_quality_attempts)
+              ? { ...doc.import_low_quality_attempts }
+              : {};
+
+          const prevReason = normalizeKey(import_missing_reason.product_keywords || "");
+          const baseReason = prevReason || "not_found";
+
+          const nextAttempts = (Number(attemptsObj.product_keywords) || 0) + 1;
+          attemptsObj.product_keywords = nextAttempts;
+
+          doc.import_low_quality_attempts = attemptsObj;
+
+          if (nextAttempts >= LOW_QUALITY_MAX_ATTEMPTS) {
+            import_missing_reason.product_keywords = baseReason === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
+          } else {
+            import_missing_reason.product_keywords = baseReason;
+          }
         }
 
         const existingReason = String(doc.red_flag_reason || "").trim();
