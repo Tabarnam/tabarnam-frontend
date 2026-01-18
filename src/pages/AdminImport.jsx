@@ -885,6 +885,9 @@ export default function AdminImport() {
   );
 
   const POLL_MAX_ATTEMPTS = 180;
+  const DEFAULT_POLL_INTERVAL_MS = 2500;
+  const RESUME_POLL_RUNNING_MS = 15_000;
+  const RESUME_POLL_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000];
 
   const resetPollAttempts = useCallback((session_id) => {
     if (!session_id) return;
