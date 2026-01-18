@@ -3371,7 +3371,7 @@ async function saveCompaniesToCosmos({
                 if (!f) return;
 
                 const missing_reason = String(reason || "missing");
-                const terminal = missing_reason === "not_disclosed";
+                const terminal = missing_reason === "not_disclosed" || missing_reason === "low_quality_terminal";
 
                 if (!import_missing_fields.includes(f)) import_missing_fields.push(f);
 
@@ -8911,7 +8911,7 @@ Return ONLY the JSON array, no other text.`,
 
                 const ensureMissing = (field, reason, message, retryable = true) => {
                   const missing_reason = String(reason || "missing");
-                  const terminal = missing_reason === "not_disclosed";
+                  const terminal = missing_reason === "not_disclosed" || missing_reason === "low_quality_terminal";
 
                   if (!import_missing_fields.includes(field)) import_missing_fields.push(field);
 
