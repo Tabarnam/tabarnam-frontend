@@ -2658,7 +2658,9 @@ async function handler(req, context) {
       (typeof saved_verified_count === "number" && Number.isFinite(saved_verified_count) ? saved_verified_count : 0) +
       (Array.isArray(saved_company_ids_unverified) ? saved_company_ids_unverified.length : 0);
 
-    const hasPersistedSeed = persistedSeedCount > 0 || (Array.isArray(savedCompanies) && savedCompanies.length > 0);
+    const hasPersistedSeed =
+      persistedSeedCount > 0 ||
+      (Array.isArray(saved_companies) && saved_companies.length > 0);
 
     if (isCompanyUrlImport && effectiveCompleted && !hasPersistedSeed) {
       const failed_items =
