@@ -25,6 +25,25 @@ function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
+function importMissingReasonLabel(raw) {
+  const key = asString(raw).trim();
+  if (!key) return "missing";
+
+  const normalized = key.toLowerCase();
+
+  const map = {
+    not_disclosed: "Not disclosed",
+    "not-disclosed": "Not disclosed",
+    exhausted: "Exhausted",
+    low_quality_terminal: "Low quality (terminal)",
+    not_found_terminal: "Not found (terminal)",
+    conflicting_sources_terminal: "Conflicting sources (terminal)",
+    upstream_unreachable: "Upstream unreachable",
+  };
+
+  return map[normalized] || key;
+}
+
 function looksLikeUrlOrDomain(raw) {
   const s = asString(raw).trim();
   if (!s) return false;
@@ -673,6 +692,23 @@ export default function AdminImport() {
         const stageBeaconComplete = stageBeacon === "complete";
         const reportSessionComplete = reportSessionStatus === "complete";
 
+        const stageBeaconValues =
+          body?.stage_beacon_values && typeof body.stage_beacon_values === "object" ? body.stage_beacon_values : {};
+
+        const missingRetryableCount =
+          Number.isFinite(Number(stageBeaconValues.status_resume_missing_retryable))
+            ? Number(stageBeaconValues.status_resume_missing_retryable)
+            : null;
+
+        const missingTerminalCount =
+          Number.isFinite(Number(stageBeaconValues.status_resume_missing_terminal))
+            ? Number(stageBeaconValues.status_resume_missing_terminal)
+            : null;
+
+        const terminalOnlyFlag =
+          Boolean(stageBeaconValues.status_resume_terminal_only) ||
+          (missingRetryableCount === 0 && (missingTerminalCount || 0) > 0 && !resumeNeeded);
+
         const completed = state === "complete" ? true : Boolean(body?.completed);
         const timedOut = Boolean(body?.timedOut);
         const stopped = state === "failed" ? true : Boolean(body?.stopped);
@@ -685,7 +721,8 @@ export default function AdminImport() {
           state === "complete" ||
           status === "complete" ||
           (!resumeNeeded && jobState === "complete") ||
-          (completed && !resumeNeeded);
+          (completed && !resumeNeeded) ||
+          terminalOnlyFlag;
 
         // If at least one company is already saved (verified), we can pause polling while resume-worker
         // continues enrichment. This is NOT a terminal "Completed" state.
@@ -807,6 +844,7 @@ export default function AdminImport() {
               reconciled_saved_ids: reconciledSavedIds,
               saved_companies: savedCompanies.length > 0 ? savedCompanies : Array.isArray(r.saved_companies) ? r.saved_companies : [],
               completed: isTerminalComplete,
+              terminal_only: Boolean(r.terminal_only) || terminalOnlyFlag,
               timedOut,
               stopped: isTerminalError ? true : stopped,
               job_state: normalizedJobState,
@@ -854,9 +892,11 @@ export default function AdminImport() {
               start_error: nextStartError,
               start_error_details: nextStartErrorDetails,
               progress_error: nextProgressError,
-              progress_notice: shouldBackoffForResume
-                ? `Resume ${resumeStatusLabel || "queued"}, waiting for worker. Polling will slow down.`
-                : r.progress_notice,
+              progress_notice: terminalOnlyFlag && isTerminalComplete
+                ? "Completed (terminal-only): remaining missing fields were marked Not disclosed / Exhausted."
+                : shouldBackoffForResume
+                  ? `Resume ${resumeStatusLabel || "queued"}, waiting for worker. Polling will slow down.`
+                  : r.progress_notice,
               updatedAt: new Date().toISOString(),
             };
           })
@@ -1344,6 +1384,22 @@ export default function AdminImport() {
           const reportSessionStatus = asString(body?.report?.session?.status).trim();
           const resumeNeededExplicitlyFalse = body?.resume_needed === false && body?.resume?.needed === false;
 
+          const stageBeaconValues =
+            body?.stage_beacon_values && typeof body.stage_beacon_values === "object" ? body.stage_beacon_values : {};
+
+          const missingRetryable =
+            Number.isFinite(Number(stageBeaconValues.status_resume_missing_retryable))
+              ? Number(stageBeaconValues.status_resume_missing_retryable)
+              : 0;
+
+          const missingTerminal =
+            Number.isFinite(Number(stageBeaconValues.status_resume_missing_terminal))
+              ? Number(stageBeaconValues.status_resume_missing_terminal)
+              : 0;
+
+          const terminalOnly =
+            Boolean(stageBeaconValues.status_resume_terminal_only) || (missingRetryable === 0 && missingTerminal > 0 && !Boolean(body?.resume_needed));
+
           const isTerminalComplete =
             stageBeacon === "complete" ||
             reportSessionStatus === "complete" ||
@@ -1351,14 +1407,15 @@ export default function AdminImport() {
             state === "complete" ||
             status === "complete" ||
             jobState === "complete" ||
-            completed;
+            completed ||
+            terminalOnly;
 
           if (isTerminalComplete) {
             try {
               setActiveStatus((prev) => (prev === "running" ? "done" : prev));
             } catch {}
 
-            if (savedCount === 0) {
+            if (savedCount === 0 && !terminalOnly) {
               scheduleTerminalRefresh({ session_id: sid });
             }
           }
@@ -2773,8 +2830,11 @@ export default function AdminImport() {
         : [];
 
       const dryRunEnabled = Boolean(request?.dry_run);
+      const terminalOnly = Boolean(activeRun.terminal_only);
 
-      if (dryRunEnabled) {
+      if (terminalOnly) {
+        reasonText = "Completed (terminal-only): remaining missing fields were marked Not disclosed / Exhausted. No resume needed.";
+      } else if (dryRunEnabled) {
         reasonText = "Dry run: saving was skipped by config (dry_run=true).";
       } else if (skipStages.includes("primary")) {
         reasonText = "Match found, but persistence was skipped by config (skip_stages includes primary).";
@@ -4142,7 +4202,7 @@ export default function AdminImport() {
                                         <li key={`${field || "field"}-${idx}`} className="flex flex-wrap items-start justify-between gap-2">
                                           <span className="font-medium">{field || "(field)"}</span>
                                           <span className="text-amber-900/90">
-                                            {reason || "missing"}
+                                            {importMissingReasonLabel(reason) || "missing"}
                                             {stage ? ` · ${stage}` : ""}
                                             {msg ? ` · ${msg}` : ""}
                                           </span>
@@ -4351,6 +4411,7 @@ export default function AdminImport() {
                                     <code className="rounded bg-slate-100 px-1 py-0.5">
                                       {Number.isFinite(missingRetryable) ? missingRetryable : "—"} retryable ·{" "}
                                       {Number.isFinite(missingTerminal) ? missingTerminal : "—"} terminal
+                                      {Boolean(stageBeaconValues.status_resume_terminal_only) ? " · terminal-only" : ""}
                                     </code>
                                   </div>
                                   <div>
