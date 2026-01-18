@@ -156,9 +156,11 @@ Return JSON array:
   const curated_reviews = validated.slice(0, 2);
 
   if (curated_reviews.length === 0) {
+    // Important: "not_found" is retryable and attempt-capped by the resume worker.
+    // "exhausted" is reserved for terminalization (e.g. after GROK_MAX_ATTEMPTS).
     return {
       curated_reviews: [],
-      reviews_stage_status: "exhausted",
+      reviews_stage_status: "not_found",
       diagnostics: { candidate_count: candidates.length, validated_count: 0 },
       search_telemetry: searchBuild.telemetry,
       excluded_hosts: searchBuild.excluded_hosts,
