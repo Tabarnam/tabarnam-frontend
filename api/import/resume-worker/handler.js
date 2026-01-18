@@ -573,6 +573,7 @@ async function resumeWorkerHandler(req, context) {
 
   const attempt = Number.isFinite(Number(resumeDoc?.attempt)) ? Number(resumeDoc.attempt) : 0;
   const thisLockExpiresAt = new Date(Date.now() + 60_000).toISOString();
+  const invokedAt = nowIso();
 
   const resumeControlUpsert = await upsertDoc(container, {
     ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
@@ -584,7 +585,7 @@ async function resumeWorkerHandler(req, context) {
     doc_created: true,
     status: "running",
     attempt: attempt + 1,
-    last_invoked_at: nowIso(),
+    last_invoked_at: invokedAt,
     lock_expires_at: thisLockExpiresAt,
     updated_at: nowIso(),
   }).catch(() => ({ ok: false }));
@@ -592,7 +593,13 @@ async function resumeWorkerHandler(req, context) {
   const resume_control_doc_upsert_ok = Boolean(resumeControlUpsert && resumeControlUpsert.ok);
   if (resume_control_doc_upsert_ok && resumeDoc && typeof resumeDoc === "object") {
     resumeDoc.doc_created = true;
+    resumeDoc.last_invoked_at = invokedAt;
+    resumeDoc.attempt = attempt + 1;
   }
+
+  const requestId =
+    String(req?.headers?.get?.("x-request-id") || req?.headers?.get?.("x-client-request-id") || "").trim() ||
+    String(resumeDoc?.last_invoked_at || enteredAt);
 
   let seedDocs = await fetchSeedCompanies(container, sessionId, batchLimit).catch(() => []);
 
