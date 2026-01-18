@@ -451,6 +451,7 @@ export default function AdminImport() {
   const pollTimerRef = useRef(null);
   const startFetchAbortRef = useRef(null);
   const pollAttemptsRef = useRef(new Map());
+  const pollBackoffRef = useRef(new Map());
   const terminalRefreshAttemptsRef = useRef(new Map());
   const terminalRefreshTimersRef = useRef(new Map());
 
@@ -637,14 +638,18 @@ export default function AdminImport() {
                 ? incomingVerifiedIds.length
                 : null;
 
-        const saved =
-          savedVerifiedCount != null
-            ? savedVerifiedCount
-            : incomingVerifiedIds.length > 0
-              ? incomingVerifiedIds.length
-              : savedCompanies.length > 0
-                ? savedCompanies.length
-                : 0;
+        const savedVerifiedCountNormalized =
+          typeof savedVerifiedCount === "number" && Number.isFinite(savedVerifiedCount) ? savedVerifiedCount : null;
+
+        const persistedCount = Math.max(
+          savedCompanies.length,
+          incomingVerifiedIds.length,
+          incomingUnverifiedIds.length,
+          Number.isFinite(Number(body?.saved)) ? Number(body.saved) : 0,
+          savedVerifiedCountNormalized != null ? savedVerifiedCountNormalized : 0
+        );
+
+        const saved = persistedCount;
 
         const reconciled = Boolean(body?.reconciled);
         const reconcileStrategy = asString(body?.reconcile_strategy).trim();
@@ -682,7 +687,10 @@ export default function AdminImport() {
 
         // If at least one company is already saved (verified), we can pause polling while resume-worker
         // continues enrichment. This is NOT a terminal "Completed" state.
-        const shouldPauseForResume = resumeNeeded && saved > 0 && !isTerminalError && !isTerminalComplete;
+        const resumeStatusLabel = asString(body?.resume?.status).trim();
+
+        const shouldBackoffForResume =
+          resumeNeeded && saved > 0 && !isTerminalError && !isTerminalComplete && resumeStatusLabel !== "stalled";
 
         const lastErrorCode = asString(lastError?.code).trim();
         const primaryTimeoutLabel = formatDurationShort(lastError?.hard_timeout_ms);
@@ -844,8 +852,8 @@ export default function AdminImport() {
               start_error: nextStartError,
               start_error_details: nextStartErrorDetails,
               progress_error: nextProgressError,
-              progress_notice: shouldPauseForResume
-                ? `Saved (verified): ${savedCount}. Resume needed — enrichment will continue in the background.`
+              progress_notice: shouldBackoffForResume
+                ? `Resume ${resumeStatusLabel || "queued"}, waiting for worker. Polling will slow down.`
                 : r.progress_notice,
               updatedAt: new Date().toISOString(),
             };
@@ -866,15 +874,7 @@ export default function AdminImport() {
           return { shouldStop: true, body };
         }
 
-        if (shouldPauseForResume) {
-          try {
-            setActiveStatus((prev) => (prev === "running" ? "done" : prev));
-          } catch {}
-          toast.info("Saved (verified). Enrichment pending — use Retry resume if it gets stuck.");
-          return { shouldStop: true, body, stop_reason: "resume_needed" };
-        }
-
-        return { shouldStop: timedOut || stopped, body };
+        return { shouldStop: timedOut || stopped, body, shouldBackoff: shouldBackoffForResume };
       } catch (e) {
         const msg = toErrorString(e) || "Progress failed";
         setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
@@ -885,6 +885,9 @@ export default function AdminImport() {
   );
 
   const POLL_MAX_ATTEMPTS = 180;
+  const DEFAULT_POLL_INTERVAL_MS = 2500;
+  const RESUME_POLL_RUNNING_MS = 15_000;
+  const RESUME_POLL_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000];
 
   const resetPollAttempts = useCallback((session_id) => {
     if (!session_id) return;
@@ -1124,23 +1127,65 @@ export default function AdminImport() {
   );
 
   const schedulePoll = useCallback(
-    ({ session_id }) => {
+    ({ session_id, delayMs } = {}) => {
+      const sid = asString(session_id).trim();
+      if (!sid) return;
+
       stopPolling();
-      setPollingSessionId(asString(session_id).trim());
+      setPollingSessionId(sid);
+
+      const initialDelay = Number.isFinite(Number(delayMs)) ? Math.max(500, Number(delayMs)) : DEFAULT_POLL_INTERVAL_MS;
+
       pollTimerRef.current = setTimeout(async () => {
-        const prevAttempts = pollAttemptsRef.current.get(session_id) || 0;
+        const prevAttempts = pollAttemptsRef.current.get(sid) || 0;
         const nextAttempts = prevAttempts + 1;
-        pollAttemptsRef.current.set(session_id, nextAttempts);
+        pollAttemptsRef.current.set(sid, nextAttempts);
 
-        if (nextAttempts > POLL_MAX_ATTEMPTS) {
-          let latestBody = null;
-          try {
-            const latest = await pollProgress({ session_id });
-            latestBody = latest?.body || null;
-          } catch {}
+        const result = await pollProgress({ session_id: sid }).catch((e) => ({ shouldStop: false, error: e }));
+        const latestBody = result?.body || null;
 
-          const resumeNeeded = Boolean(latestBody?.resume_needed);
-          const resumeWorker = latestBody?.resume_worker && typeof latestBody.resume_worker === "object" ? latestBody.resume_worker : null;
+        const resumeNeeded = Boolean(latestBody?.resume_needed);
+        const resumeStatus = asString(latestBody?.resume?.status).trim();
+        const stageBeaconNow = asString(latestBody?.stage_beacon).trim();
+
+        const shouldBackoffForResume =
+          resumeNeeded &&
+          (resumeStatus === "queued" ||
+            resumeStatus === "running" ||
+            stageBeaconNow === "enrichment_resume_queued" ||
+            stageBeaconNow === "enrichment_resume_running" ||
+            stageBeaconNow === "enrichment_incomplete_retryable");
+
+        const computeNextDelayMs = () => {
+          if (
+            resumeNeeded &&
+            (resumeStatus === "queued" ||
+              stageBeaconNow === "enrichment_resume_queued" ||
+              stageBeaconNow === "enrichment_incomplete_retryable")
+          ) {
+            const currentIndex = pollBackoffRef.current.get(sid) || 0;
+            const idx = Math.max(0, Math.min(currentIndex, RESUME_POLL_BACKOFF_MS.length - 1));
+            pollBackoffRef.current.set(sid, Math.min(idx + 1, RESUME_POLL_BACKOFF_MS.length - 1));
+
+            // Don't let queued resume runs hit the tight-poll max.
+            pollAttemptsRef.current.set(sid, 0);
+
+            return RESUME_POLL_BACKOFF_MS[idx];
+          }
+
+          if (resumeNeeded && (resumeStatus === "running" || stageBeaconNow === "enrichment_resume_running")) {
+            pollBackoffRef.current.set(sid, 0);
+            pollAttemptsRef.current.set(sid, 0);
+            return RESUME_POLL_RUNNING_MS;
+          }
+
+          pollBackoffRef.current.delete(sid);
+          return DEFAULT_POLL_INTERVAL_MS;
+        };
+
+        if (nextAttempts > POLL_MAX_ATTEMPTS && !shouldBackoffForResume) {
+          const resumeWorker =
+            latestBody?.resume_worker && typeof latestBody.resume_worker === "object" ? latestBody.resume_worker : null;
           const invokedAt = asString(resumeWorker?.last_invoked_at).trim();
           const finishedAt = asString(resumeWorker?.last_finished_at).trim();
           const lastResult = asString(resumeWorker?.last_result).trim();
@@ -1190,19 +1235,17 @@ export default function AdminImport() {
               );
             }
 
-            return (
-              `Polling paused after ${POLL_MAX_ATTEMPTS} attempts. ` +
-              `Use "View status" (or "Poll now") to refresh.`
-            );
+            return `Polling paused after ${POLL_MAX_ATTEMPTS} attempts. Use "View status" (or "Poll now") to refresh.`;
           })();
 
           toast.info(msg);
           try {
             setActiveStatus((prev) => (prev === "running" ? "done" : prev));
           } catch {}
+
           setRuns((prev) =>
             prev.map((r) =>
-              r.session_id === session_id
+              r.session_id === sid
                 ? {
                     ...r,
                     progress_error: null,
@@ -1213,19 +1256,19 @@ export default function AdminImport() {
                 : r
             )
           );
+
           return;
         }
-
-        const result = await pollProgress({ session_id });
 
         if (result?.unknown_session) {
           const MAX_UNKNOWN_SESSION_ATTEMPTS = 8;
           if (nextAttempts >= MAX_UNKNOWN_SESSION_ATTEMPTS) {
-            const msg = "No session found after repeated status checks. The gateway may have interrupted before the session was created. Retry start.";
+            const msg =
+              "No session found after repeated status checks. The gateway may have interrupted before the session was created. Retry start.";
 
             setRuns((prev) =>
               prev.map((r) =>
-                r.session_id === session_id
+                r.session_id === sid
                   ? {
                       ...r,
                       progress_error: msg,
@@ -1245,7 +1288,10 @@ export default function AdminImport() {
 
         if (result?.shouldStop) {
           stopPolling();
+          pollBackoffRef.current.delete(sid);
+
           const body = result?.body;
+          const stageBeacon = asString(body?.stage_beacon).trim();
 
           const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
 
@@ -1257,11 +1303,11 @@ export default function AdminImport() {
                 : null;
 
           const savedCount =
-          savedVerifiedCount != null
-            ? savedVerifiedCount
-            : savedCompanies.length > 0
-              ? savedCompanies.length
-              : 0;
+            savedVerifiedCount != null
+              ? savedVerifiedCount
+              : savedCompanies.length > 0
+                ? savedCompanies.length
+                : 0;
 
           const status = asString(body?.status).trim();
           const state = asString(body?.state).trim();
@@ -1286,15 +1332,15 @@ export default function AdminImport() {
             } catch {}
 
             if (savedCount === 0) {
-              scheduleTerminalRefresh({ session_id });
+              scheduleTerminalRefresh({ session_id: sid });
             }
           }
 
           return;
         }
 
-        schedulePoll({ session_id });
-      }, 2500);
+        schedulePoll({ session_id: sid, delayMs: computeNextDelayMs() });
+      }, initialDelay);
     },
     [pollProgress, scheduleTerminalRefresh, stopPolling]
   );
@@ -3901,7 +3947,13 @@ export default function AdminImport() {
                         : Array.isArray(activeRun.saved_company_ids)
                           ? activeRun.saved_company_ids
                           : [];
-                      const savedCount = verifiedCount != null ? verifiedCount : verifiedIds.length;
+                      const savedVerifiedCount = verifiedCount != null ? verifiedCount : verifiedIds.length;
+
+                      const persistedCount = Number.isFinite(Number(activeRun.saved))
+                        ? Number(activeRun.saved)
+                        : savedCompanies.length > 0
+                          ? savedCompanies.length
+                          : savedVerifiedCount;
 
                       const stageBeacon = asString(activeRun.final_stage_beacon || activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
                       const stageBeaconValues =
@@ -3913,7 +3965,7 @@ export default function AdminImport() {
                           (resumeStatus === "complete" && Number.isFinite(retryableMissingCount) && retryableMissingCount === 0)
                       );
 
-                      const persistedDetected = savedCount > 0 || stageBeacon === "cosmos_write_done";
+                      const persistedDetected = persistedCount > 0 || stageBeacon === "cosmos_write_done";
 
                       const report = activeRun.report && typeof activeRun.report === "object" ? activeRun.report : null;
                       const session = report?.session && typeof report.session === "object" ? report.session : null;
@@ -3948,8 +4000,8 @@ export default function AdminImport() {
                           ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
                           : explicitNoPersist
                             ? "No company persisted"
-                            : savedCount > 0
-                              ? "Saved (verified) but cannot read company doc"
+                            : persistedCount > 0
+                              ? "Saved but cannot read company doc"
                               : "Company candidate");
                       const websiteUrlRaw = asString(
                         primaryDoc?.canonical_url ||
@@ -4012,13 +4064,15 @@ export default function AdminImport() {
                                 <div className="mt-1 text-sm text-slate-600">No URL</div>
                               )}
 
-                              {primaryDocError && savedCount > 0 ? (
+                              {primaryDocError && persistedCount > 0 ? (
                                 <div className="mt-1 text-xs text-amber-900 break-words">
-                                  Saved (verified) but cannot read company doc: {asString(primaryDocError.message).trim() || "unknown error"}
+                                  Saved but cannot read company doc: {asString(primaryDocError.message).trim() || "unknown error"}
                                 </div>
                               ) : null}
                             </div>
-                            <div className="text-sm text-slate-700">Persisted (verified): {savedCount}</div>
+                            <div className="text-sm text-slate-700">
+                              Persisted: {persistedCount} <span className="text-slate-500">(verified: {savedVerifiedCount})</span>
+                            </div>
                           </div>
 
                           {enrichmentMissingFields.length > 0 ? (
@@ -4069,14 +4123,37 @@ export default function AdminImport() {
 
                           {Boolean(activeRun.resume_needed) && !terminalComplete ? (
                             <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-2">
-                              <div className="font-medium">Resume needed</div>
+                              <div className="font-medium">
+                                {resumeStatus === "queued"
+                                  ? "Resume queued"
+                                  : resumeStatus === "running"
+                                    ? "Resume running"
+                                    : resumeStatus === "stalled"
+                                      ? "Resume stalled"
+                                      : "Resume needed"}
+                              </div>
+
+                              <div className="text-amber-900/90">
+                                <span className="font-medium">resume.status:</span> {resumeStatus || "—"}
+                                {Number.isFinite(retryableMissingCount)
+                                  ? ` · retryable missing: ${retryableMissingCount}`
+                                  : ""}
+                                {Number.isFinite(Number(stageBeaconValues.status_resume_missing_terminal))
+                                  ? ` · terminal missing: ${Number(stageBeaconValues.status_resume_missing_terminal)}`
+                                  : ""}
+                              </div>
+
                               {asString(activeRun.resume?.trigger_error).trim() ? (
                                 <div className="text-amber-900/90 break-words">
                                   Last resume error: {asString(activeRun.resume?.trigger_error).trim()}
                                 </div>
+                              ) : resumeStatus === "queued" ? (
+                                <div className="text-amber-900/90">Waiting for the resume worker. Polling will automatically slow down.</div>
+                              ) : resumeStatus === "running" ? (
+                                <div className="text-amber-900/90">Resume worker is running. Polling will automatically slow down.</div>
                               ) : (
                                 <div className="text-amber-900/90">
-                                  Enrichment is still in progress (reviews/logos/location). You can retry the resume worker if it stalled.
+                                  Enrichment is still in progress. You can retry the resume worker if it stalled.
                                 </div>
                               )}
                               <div className="flex flex-wrap items-center gap-2">
@@ -4191,6 +4268,19 @@ export default function AdminImport() {
                               const authMethodUsed = asString(lastAuth?.auth_method_used || lastAuth?.auth_method).trim();
                               const secretSource = asString(lastAuth?.secret_source).trim();
 
+                              const resumeStatus = asString(resume?.status).trim();
+                              const resumeWorkerLastInvokedAt = asString(resumeWorker?.last_invoked_at).trim();
+                              const resumeWorkerLastFinishedAt = asString(resumeWorker?.last_finished_at).trim();
+                              const resumeWorkerLastResult = asString(resumeWorker?.last_result).trim();
+
+                              const stageBeaconValues =
+                                statusBody?.stage_beacon_values && typeof statusBody.stage_beacon_values === "object"
+                                  ? statusBody.stage_beacon_values
+                                  : {};
+
+                              const missingRetryable = Number(stageBeaconValues.status_resume_missing_retryable);
+                              const missingTerminal = Number(stageBeaconValues.status_resume_missing_terminal);
+
                               return (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-slate-700">
                                   <div>
@@ -4205,6 +4295,31 @@ export default function AdminImport() {
                                     <span className="font-medium">resume.trigger_request_id:</span>{" "}
                                     <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{asString(resume?.trigger_request_id).trim() || "—"}</code>
                                   </div>
+
+                                  <div>
+                                    <span className="font-medium">resume.status:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">{resumeStatus || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker.last_result:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">{resumeWorkerLastResult || "—"}</code>
+                                  </div>
+                                  <div className="md:col-span-2">
+                                    <span className="font-medium">missing fields:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5">
+                                      {Number.isFinite(missingRetryable) ? missingRetryable : "—"} retryable ·{" "}
+                                      {Number.isFinite(missingTerminal) ? missingTerminal : "—"} terminal
+                                    </code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker.last_invoked_at:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{resumeWorkerLastInvokedAt || "—"}</code>
+                                  </div>
+                                  <div>
+                                    <span className="font-medium">resume_worker.last_finished_at:</span>{" "}
+                                    <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{resumeWorkerLastFinishedAt || "—"}</code>
+                                  </div>
+
                                   <div>
                                     <span className="font-medium">resume_worker_handler_entered_at:</span>{" "}
                                     <code className="rounded bg-slate-100 px-1 py-0.5 break-all">{handlerEnteredAt || "—"}</code>

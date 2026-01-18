@@ -1310,7 +1310,23 @@ async function handler(req, context) {
           }
         }
 
-        const canTrigger = !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil);
+        let canTrigger = !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil);
+
+        if (canTrigger && resumeStatus === "queued" && !forceResume) {
+          const cooldownMs = 60_000;
+          let lastTriggeredTs = 0;
+
+          try {
+            const sessionDocId = `_import_session_${sessionId}`;
+            const sessionDocForTrigger = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+            lastTriggeredTs = Date.parse(String(sessionDocForTrigger?.resume_worker_last_triggered_at || "")) || 0;
+          } catch {}
+
+          if (lastTriggeredTs && Date.now() - lastTriggeredTs < cooldownMs) {
+            canTrigger = false;
+            stageBeaconValues.status_resume_trigger_cooldown = nowIso();
+          }
+        }
 
         if (
           canTrigger &&
@@ -1322,6 +1338,22 @@ async function handler(req, context) {
           const workerRequest = buildInternalFetchRequest({
             job_kind: "import_resume",
           });
+
+          // Dedupe guard: record that we attempted a trigger so repeated /import/status polling
+          // doesn't spam resume-worker invocations while the resume doc is queued.
+          try {
+            const sessionDocId = `_import_session_${sessionId}`;
+            const sessionDocForTrigger = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+            if (sessionDocForTrigger && typeof sessionDocForTrigger === "object") {
+              await upsertDoc(container, {
+                ...sessionDocForTrigger,
+                resume_worker_last_triggered_at: triggerAttemptAt,
+                resume_worker_last_trigger_request_id: workerRequest.request_id || null,
+                resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
+                updated_at: nowIso(),
+              }).catch(() => null);
+            }
+          } catch {}
 
           const workerRes = await (async () => {
             try {
@@ -1431,13 +1463,26 @@ async function handler(req, context) {
         ? report.session.stage_beacon.trim()
         : "";
 
+    const retryableMissing = Number(resumeMissingAnalysis?.total_retryable_missing || 0) || 0;
+    const resumeStatusForBeacon = String(resume_status || "").trim();
+
+    const resumeStageBeacon = (() => {
+      if (!resume_needed) return null;
+      if (resumeStatusForBeacon === "running") return "enrichment_resume_running";
+      if (resumeStatusForBeacon === "queued") return "enrichment_resume_queued";
+      if (resumeStatusForBeacon === "stalled") return "enrichment_resume_stalled";
+      if (resumeStatusForBeacon === "error") return "enrichment_resume_error";
+      if (resumeStatusForBeacon === "complete") {
+        return retryableMissing > 0 ? "enrichment_incomplete_retryable" : "complete";
+      }
+      return "enrichment_resume_pending";
+    })();
+
     const shouldShowCompleteBeacon = Boolean((effectiveStatus === "complete" && !resume_needed) || forceComplete);
 
     const effectiveStageBeacon = shouldShowCompleteBeacon
       ? "complete"
-      : resume_needed
-        ? "enrichment_resume_pending"
-        : sessionStageBeacon || stageBeaconFromPrimary;
+      : resumeStageBeacon || sessionStageBeacon || stageBeaconFromPrimary;
 
     stageBeaconValues.status_enrichment_health_summary = nowIso();
     stageBeaconValues.status_enrichment_incomplete = enrichment_health_summary.incomplete;
@@ -2261,7 +2306,23 @@ async function handler(req, context) {
 
         resume_status = resumeStatus;
 
-        const canTrigger = !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil);
+        let canTrigger = !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil);
+
+        if (canTrigger && resumeStatus === "queued" && !forceResume) {
+          const cooldownMs = 60_000;
+          let lastTriggeredTs = 0;
+
+          try {
+            const sessionDocId = `_import_session_${sessionId}`;
+            const sessionDocForTrigger = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+            lastTriggeredTs = Date.parse(String(sessionDocForTrigger?.resume_worker_last_triggered_at || "")) || 0;
+          } catch {}
+
+          if (lastTriggeredTs && Date.now() - lastTriggeredTs < cooldownMs) {
+            canTrigger = false;
+            stageBeaconValues.status_resume_trigger_cooldown = nowIso();
+          }
+        }
 
         if (
           canTrigger &&
@@ -2273,6 +2334,22 @@ async function handler(req, context) {
           const workerRequest = buildInternalFetchRequest({
             job_kind: "import_resume",
           });
+
+          // Dedupe guard: record that we attempted a trigger so repeated /import/status polling
+          // doesn't spam resume-worker invocations while the resume doc is queued.
+          try {
+            const sessionDocId = `_import_session_${sessionId}`;
+            const sessionDocForTrigger = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+            if (sessionDocForTrigger && typeof sessionDocForTrigger === "object") {
+              await upsertDoc(container, {
+                ...sessionDocForTrigger,
+                resume_worker_last_triggered_at: triggerAttemptAt,
+                resume_worker_last_trigger_request_id: workerRequest.request_id || null,
+                resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
+                updated_at: nowIso(),
+              }).catch(() => null);
+            }
+          } catch {}
 
           const workerRes = await (async () => {
             try {
