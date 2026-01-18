@@ -159,10 +159,19 @@ async function runCanary(url) {
 
   let lastStatus = null;
   const maxPolls = 75;
+  const pollStartedAt = Date.now();
 
   for (let i = 0; i < maxPolls; i += 1) {
+    let statusUrl = "https://example.test/api/import/status?session_id=" + encodeURIComponent(sessionId);
+
+    // If we're still not complete after a few minutes, force resume attempts so we can validate
+    // terminalization logic within a single dev/CI run.
+    if (Date.now() - pollStartedAt > 3 * 60 * 1000) {
+      statusUrl += "&force_resume=1";
+    }
+
     const statusReq = makeReq({
-      url: "https://example.test/api/import/status?session_id=" + encodeURIComponent(sessionId),
+      url: statusUrl,
       method: "GET",
     });
 
