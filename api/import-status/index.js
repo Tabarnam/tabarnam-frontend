@@ -869,7 +869,7 @@ async function handler(req, context) {
 
     let report = null;
     let saved = 0;
-    let savedCompanies = [];
+    let saved_companies = [];
     let savedCompanyDocs = [];
 
     let reconciled = false;
@@ -958,7 +958,7 @@ async function handler(req, context) {
           stageBeaconValues.status_fetching_saved_companies = nowIso();
           const savedDocs = await fetchCompaniesByIds(container, completionSavedIds).catch(() => []);
           savedCompanyDocs = savedDocs;
-          savedCompanies = toSavedCompanies(savedDocs);
+          saved_companies = toSavedCompanies(savedDocs);
           stageBeaconValues.status_fetched_saved_companies = nowIso();
         }
 
@@ -975,7 +975,7 @@ async function handler(req, context) {
 
           if (Array.isArray(fallbackDocs) && fallbackDocs.length > 0) {
             savedCompanyDocs = fallbackDocs;
-            savedCompanies = toSavedCompanies(fallbackDocs);
+            saved_companies = toSavedCompanies(fallbackDocs);
             stageBeaconValues.status_fetched_saved_companies_fallback = nowIso();
           }
         }
@@ -1003,7 +1003,7 @@ async function handler(req, context) {
 
             saved = authoritativeDocs.length;
             savedCompanyDocs = authoritativeDocs;
-            savedCompanies = toSavedCompanies(authoritativeDocs);
+            saved_companies = toSavedCompanies(authoritativeDocs);
             stageBeaconValues.status_reconciled_saved = nowIso();
             stageBeaconValues.status_reconciled_saved_count = saved;
 
@@ -1082,7 +1082,7 @@ async function handler(req, context) {
     } catch {
       report = null;
       saved = 0;
-      savedCompanies = [];
+      saved_companies = [];
     }
 
     if (!report) {
@@ -1113,7 +1113,7 @@ async function handler(req, context) {
           ? primaryJob.companies
           : [];
 
-    const saved_companies = toSavedCompanies(savedDocsForHealth);
+    saved_companies = toSavedCompanies(savedDocsForHealth);
     const enrichment_health_summary = summarizeEnrichmentHealth(saved_companies);
 
     // Always surface "verified save" fields while running so the Admin UI can render
@@ -1129,29 +1129,38 @@ async function handler(req, context) {
         .slice(0, 50);
     }
 
-    const persistedIds = (() => {
-      const seen = new Set();
-      const out = [];
-      const verified = Array.isArray(saved_company_ids_verified) ? saved_company_ids_verified : [];
-      const unverified = Array.isArray(saved_company_ids_unverified) ? saved_company_ids_unverified : [];
+    const session = sessionDoc && typeof sessionDoc === "object" ? sessionDoc : {};
+    session.saved_company_ids_verified = saved_company_ids_verified;
+    session.saved_company_ids_unverified = saved_company_ids_unverified;
+    session.saved_verified_count = saved_verified_count;
+    session.saved = saved;
 
-      for (const raw of [...verified, ...unverified]) {
-        const value = String(raw || "").trim();
-        if (!value) continue;
-        const key = value.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(value);
-      }
+    // Canonical persisted ids computation. Never reference savedCompanies.
+    const savedCompanyIdsVerified = Array.isArray(session?.saved_company_ids_verified)
+      ? session.saved_company_ids_verified
+      : [];
 
-      return out;
-    })();
+    const savedCompanyIdsUnverified = Array.isArray(session?.saved_company_ids_unverified)
+      ? session.saved_company_ids_unverified
+      : [];
+
+    // Use case-insensitive id keys to avoid duplicates by casing.
+    const persistedIds = Array.from(
+      new Set(
+        [...savedCompanyIdsVerified, ...savedCompanyIdsUnverified]
+          .filter(Boolean)
+          .map(String)
+          .map(s => s.trim())
+          .filter(Boolean)
+          .map(s => s.toLowerCase())
+      )
+    );
 
     const persistedCount = Math.max(
-      Number(saved || 0),
       persistedIds.length,
-      Array.isArray(saved_companies) ? saved_companies.length : 0,
-      Number(saved_verified_count || 0)
+      Number(session?.saved_verified_count || 0),
+      Number(session?.saved || 0),
+      Array.isArray(session?.saved_companies) ? session.saved_companies.length : 0
     );
 
     saved = persistedCount;
@@ -2062,24 +2071,45 @@ async function handler(req, context) {
       ? sessionDoc.saved_company_ids_unverified
       : [];
 
-    const persistedIds = (() => {
-      const seen = new Set();
-      const out = [];
+    const session = sessionDoc && typeof sessionDoc === "object" ? sessionDoc : {};
+    session.saved_company_ids_verified = savedIds;
+    session.saved_company_ids_unverified = savedUnverifiedIdsRaw;
+    session.saved_verified_count = savedVerifiedCount;
+    session.saved =
+      (typeof completionDoc?.saved === "number" ? completionDoc.saved : null) ??
+      (typeof sessionDoc?.saved === "number" ? sessionDoc.saved : null) ??
+      0;
 
-      for (const raw of [...savedIds, ...savedUnverifiedIdsRaw]) {
-        const value = String(raw || "").trim();
-        if (!value) continue;
-        const key = value.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(value);
-      }
+    // Canonical persisted ids computation. Never reference savedCompanies.
+    const savedCompanyIdsVerified = Array.isArray(session?.saved_company_ids_verified)
+      ? session.saved_company_ids_verified
+      : [];
 
-      return out;
-    })();
+    const savedCompanyIdsUnverified = Array.isArray(session?.saved_company_ids_unverified)
+      ? session.saved_company_ids_unverified
+      : [];
+
+    // Use case-insensitive id keys to avoid duplicates by casing.
+    const persistedIds = Array.from(
+      new Set(
+        [...savedCompanyIdsVerified, ...savedCompanyIdsUnverified]
+          .filter(Boolean)
+          .map(String)
+          .map(s => s.trim())
+          .filter(Boolean)
+          .map(s => s.toLowerCase())
+      )
+    );
+
+    const persistedCount = Math.max(
+      persistedIds.length,
+      Number(session?.saved_verified_count || 0),
+      Number(session?.saved || 0),
+      Array.isArray(session?.saved_companies) ? session.saved_companies.length : 0
+    );
 
     // Persisted count includes verified + unverified saved ids.
-    let saved = persistedIds.length;
+    let saved = persistedCount;
 
     let savedDocs = persistedIds.length > 0 ? await fetchCompaniesByIds(container, persistedIds).catch(() => []) : [];
     let saved_companies = savedDocs.length > 0 ? toSavedCompanies(savedDocs) : [];
