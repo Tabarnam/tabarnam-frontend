@@ -8302,7 +8302,7 @@ Output JSON only:
             // Defer until after saveCompaniesToCosmos so we have stable company_id values.
             reviewStageCompleted = false;
             mark("xai_reviews_fetch_deferred");
-          } else if (shouldRunStage("reviews") && !shouldAbort()) {
+          } else if (shouldRunStage("reviews") && !shouldAbort() && !assertNoWebsiteFallback("reviews")) {
             ensureStageBudgetOrThrow("reviews", "xai_reviews_fetch_start");
 
             const deadlineBeforeReviews = checkDeadlineOrReturn("xai_reviews_fetch_start", "reviews");
