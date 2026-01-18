@@ -1108,33 +1108,6 @@ async function resumeWorkerHandler(req, context) {
 
         const patch = {};
 
-        if (missing.includes("headquarters_location")) {
-          patch.headquarters_location = "Not disclosed";
-          patch.hq_unknown = true;
-          patch.hq_unknown_reason = "not_disclosed";
-          import_missing_reason.headquarters_location = "not_disclosed";
-        }
-
-        if (missing.includes("manufacturing_locations")) {
-          patch.manufacturing_locations = ["Not disclosed"];
-          patch.manufacturing_locations_reason = "not_disclosed";
-          patch.mfg_unknown = true;
-          patch.mfg_unknown_reason = "not_disclosed";
-          import_missing_reason.manufacturing_locations = "not_disclosed";
-        }
-
-        if (missing.includes("reviews")) {
-          patch.reviews_stage_status = "exhausted";
-          const cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
-          patch.review_cursor = {
-            ...cursor,
-            exhausted: true,
-            reviews_stage_status: cursor.reviews_stage_status || "exhausted",
-            exhausted_at: nowIso(),
-          };
-          import_missing_reason.reviews = "exhausted";
-        }
-
         const LOW_QUALITY_MAX_ATTEMPTS = 3;
 
         if (missing.includes("industries")) {
