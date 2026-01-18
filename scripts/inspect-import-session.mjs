@@ -121,6 +121,10 @@ function summarizeControlDoc(doc) {
     resume_error_details: doc.resume_error_details && typeof doc.resume_error_details === "object" ? doc.resume_error_details : null,
 
     // Resume worker evidence (some of these are added in newer handlers)
+    resume_worker_last_triggered_at: safeIso(doc.resume_worker_last_triggered_at),
+    resume_worker_last_trigger_request_id: asString(doc.resume_worker_last_trigger_request_id).trim() || null,
+    resume_worker_handler_entered_at: safeIso(doc.resume_worker_handler_entered_at),
+
     resume_worker_last_invoked_at: safeIso(doc.resume_worker_last_invoked_at),
     resume_worker_last_finished_at: safeIso(doc.resume_worker_last_finished_at),
     resume_worker_last_result: asString(doc.resume_worker_last_result).trim() || null,
