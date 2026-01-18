@@ -2534,6 +2534,7 @@ async function handler(req, context) {
     const resumeStatusForBeacon = String(resume_status || "").trim();
 
     const resumeStageBeacon = (() => {
+      if (!forceComplete && !resume_needed) return null;
       if (resumeStatusForBeacon === "queued") return "enrichment_resume_queued";
       if (resumeStatusForBeacon === "running") return "enrichment_resume_running";
       if (resumeStatusForBeacon === "stalled") return "enrichment_resume_stalled";
