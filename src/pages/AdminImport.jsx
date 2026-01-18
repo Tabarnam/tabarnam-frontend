@@ -4123,14 +4123,37 @@ export default function AdminImport() {
 
                           {Boolean(activeRun.resume_needed) && !terminalComplete ? (
                             <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-2">
-                              <div className="font-medium">Resume needed</div>
+                              <div className="font-medium">
+                                {resumeStatus === "queued"
+                                  ? "Resume queued"
+                                  : resumeStatus === "running"
+                                    ? "Resume running"
+                                    : resumeStatus === "stalled"
+                                      ? "Resume stalled"
+                                      : "Resume needed"}
+                              </div>
+
+                              <div className="text-amber-900/90">
+                                <span className="font-medium">resume.status:</span> {resumeStatus || "—"}
+                                {Number.isFinite(retryableMissingCount)
+                                  ? ` · retryable missing: ${retryableMissingCount}`
+                                  : ""}
+                                {Number.isFinite(Number(stageBeaconValues.status_resume_missing_terminal))
+                                  ? ` · terminal missing: ${Number(stageBeaconValues.status_resume_missing_terminal)}`
+                                  : ""}
+                              </div>
+
                               {asString(activeRun.resume?.trigger_error).trim() ? (
                                 <div className="text-amber-900/90 break-words">
                                   Last resume error: {asString(activeRun.resume?.trigger_error).trim()}
                                 </div>
+                              ) : resumeStatus === "queued" ? (
+                                <div className="text-amber-900/90">Waiting for the resume worker. Polling will automatically slow down.</div>
+                              ) : resumeStatus === "running" ? (
+                                <div className="text-amber-900/90">Resume worker is running. Polling will automatically slow down.</div>
                               ) : (
                                 <div className="text-amber-900/90">
-                                  Enrichment is still in progress (reviews/logos/location). You can retry the resume worker if it stalled.
+                                  Enrichment is still in progress. You can retry the resume worker if it stalled.
                                 </div>
                               )}
                               <div className="flex flex-wrap items-center gap-2">
