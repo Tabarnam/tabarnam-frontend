@@ -2611,7 +2611,13 @@ async function handler(req, context) {
       );
     }
 
-    if (isCompanyUrlImport && effectiveCompleted && saved_verified_count === 0) {
+    const persistedSeedCount =
+      (typeof saved_verified_count === "number" && Number.isFinite(saved_verified_count) ? saved_verified_count : 0) +
+      (Array.isArray(saved_company_ids_unverified) ? saved_company_ids_unverified.length : 0);
+
+    const hasPersistedSeed = persistedSeedCount > 0 || (Array.isArray(savedCompanies) && savedCompanies.length > 0);
+
+    if (isCompanyUrlImport && effectiveCompleted && !hasPersistedSeed) {
       const failed_items =
         Array.isArray(completionDoc?.failed_items)
           ? completionDoc.failed_items
