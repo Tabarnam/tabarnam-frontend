@@ -1129,9 +1129,32 @@ async function handler(req, context) {
         .slice(0, 50);
     }
 
-    if (Number(saved || 0) !== Number(saved_verified_count || 0)) {
-      saved = Number(saved_verified_count || 0);
-    }
+    const persistedIds = (() => {
+      const seen = new Set();
+      const out = [];
+      const verified = Array.isArray(saved_company_ids_verified) ? saved_company_ids_verified : [];
+      const unverified = Array.isArray(saved_company_ids_unverified) ? saved_company_ids_unverified : [];
+
+      for (const raw of [...verified, ...unverified]) {
+        const value = String(raw || "").trim();
+        if (!value) continue;
+        const key = value.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(value);
+      }
+
+      return out;
+    })();
+
+    const persistedCount = Math.max(
+      Number(saved || 0),
+      persistedIds.length,
+      Array.isArray(saved_companies) ? saved_companies.length : 0,
+      Number(saved_verified_count || 0)
+    );
+
+    saved = persistedCount;
 
     const resumeNeededFromSession = Boolean(report?.session && report.session.resume_needed);
 
