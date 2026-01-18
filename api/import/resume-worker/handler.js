@@ -71,6 +71,17 @@ function normalizeKey(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+const GROK_ONLY_FIELDS = new Set([
+  "headquarters_location",
+  "manufacturing_locations",
+  "reviews",
+]);
+
+function assertNoWebsiteFallback(field) {
+  if (GROK_ONLY_FIELDS.has(field)) return true;
+  return false;
+}
+
 function isTrueish(value) {
   if (value === true) return true;
   if (value === false) return false;
