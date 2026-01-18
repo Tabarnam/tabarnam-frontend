@@ -18,6 +18,12 @@ const {
 const { getBuildInfo } = require("../../_buildInfo");
 const { computeMissingFields } = require("../../_requiredFields");
 
+const {
+  fetchCuratedReviews,
+  fetchHeadquartersLocation,
+  fetchManufacturingLocations,
+} = require("../../_grokEnrichment");
+
 const HANDLER_ID = "import-resume-worker";
 
 const BUILD_INFO = (() => {
@@ -76,6 +82,58 @@ const GROK_ONLY_FIELDS = new Set([
   "manufacturing_locations",
   "reviews",
 ]);
+
+const GROK_RETRYABLE_STATUSES = new Set(["deferred", "upstream_unreachable", "not_found"]);
+const GROK_MAX_ATTEMPTS = 3;
+
+function bumpFieldAttempt(doc, field, requestId) {
+  doc.import_attempts ||= {};
+  doc.import_attempts_meta ||= {};
+
+  const last = doc.import_attempts_meta[field];
+  if (last === requestId) return false;
+
+  doc.import_attempts[field] = Number(doc.import_attempts[field] || 0) + 1;
+  doc.import_attempts_meta[field] = requestId;
+  return true;
+}
+
+function attemptsFor(doc, field) {
+  return Number(doc?.import_attempts?.[field] || 0);
+}
+
+function terminalizeGrokField(doc, field) {
+  doc.import_missing_reason ||= {};
+
+  if (field === "headquarters_location") {
+    doc.headquarters_location = "Not disclosed";
+    doc.hq_unknown = true;
+    doc.hq_unknown_reason = "not_disclosed";
+    doc.import_missing_reason.headquarters_location = "not_disclosed";
+  }
+
+  if (field === "manufacturing_locations") {
+    doc.manufacturing_locations = ["Not disclosed"];
+    doc.mfg_unknown = true;
+    doc.mfg_unknown_reason = "not_disclosed";
+    doc.import_missing_reason.manufacturing_locations = "not_disclosed";
+  }
+
+  if (field === "reviews") {
+    doc.curated_reviews = [];
+    doc.review_count = typeof doc.review_count === "number" ? doc.review_count : 0;
+    doc.reviews_stage_status = "exhausted";
+    const cursor =
+      doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
+    doc.review_cursor = {
+      ...cursor,
+      exhausted: true,
+      reviews_stage_status: "exhausted",
+      exhausted_at: nowIso(),
+    };
+    doc.import_missing_reason.reviews = "exhausted";
+  }
+}
 
 function assertNoWebsiteFallback(field) {
   if (GROK_ONLY_FIELDS.has(field)) return true;
@@ -515,6 +573,7 @@ async function resumeWorkerHandler(req, context) {
 
   const attempt = Number.isFinite(Number(resumeDoc?.attempt)) ? Number(resumeDoc.attempt) : 0;
   const thisLockExpiresAt = new Date(Date.now() + 60_000).toISOString();
+  const invokedAt = nowIso();
 
   const resumeControlUpsert = await upsertDoc(container, {
     ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
@@ -526,7 +585,7 @@ async function resumeWorkerHandler(req, context) {
     doc_created: true,
     status: "running",
     attempt: attempt + 1,
-    last_invoked_at: nowIso(),
+    last_invoked_at: invokedAt,
     lock_expires_at: thisLockExpiresAt,
     updated_at: nowIso(),
   }).catch(() => ({ ok: false }));
@@ -534,7 +593,13 @@ async function resumeWorkerHandler(req, context) {
   const resume_control_doc_upsert_ok = Boolean(resumeControlUpsert && resumeControlUpsert.ok);
   if (resume_control_doc_upsert_ok && resumeDoc && typeof resumeDoc === "object") {
     resumeDoc.doc_created = true;
+    resumeDoc.last_invoked_at = invokedAt;
+    resumeDoc.attempt = attempt + 1;
   }
+
+  const requestId =
+    String(req?.headers?.get?.("x-request-id") || req?.headers?.get?.("x-client-request-id") || "").trim() ||
+    String(resumeDoc?.last_invoked_at || enteredAt);
 
   let seedDocs = await fetchSeedCompanies(container, sessionId, batchLimit).catch(() => []);
 
@@ -593,6 +658,136 @@ async function resumeWorkerHandler(req, context) {
         req
       );
     }
+  }
+
+  // Grok-only enrichment pass for HQ/MFG/Reviews.
+  // This must run before import-start, and import-start must always skip reviews/location.
+  const startedEnrichmentAt = Date.now();
+  const perDocBudgetMs = Math.max(4000, Math.trunc(deadlineMs / Math.max(1, seedDocs.length)));
+
+  for (const doc of seedDocs) {
+    if (!doc || typeof doc !== "object") continue;
+
+    const missingNow = computeRetryableMissingFields(doc);
+
+    const companyName = String(doc.company_name || doc.name || "").trim();
+    const normalizedDomain = String(doc.normalized_domain || "").trim();
+
+    let changed = false;
+
+    // HQ
+    if (missingNow.includes("headquarters_location")) {
+      const r = await fetchHeadquartersLocation({
+        companyName,
+        normalizedDomain,
+        budgetMs: perDocBudgetMs,
+        xaiUrl: process.env.XAI_API_URL,
+        xaiKey: process.env.XAI_API_KEY,
+      }).catch(() => null);
+
+      const status = normalizeKey(r?.hq_status || "");
+      if (status === "ok" && typeof r?.headquarters_location === "string" && r.headquarters_location.trim()) {
+        doc.headquarters_location = r.headquarters_location.trim();
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.headquarters_location = "ok";
+        changed = true;
+      } else if (GROK_RETRYABLE_STATUSES.has(status)) {
+        bumpFieldAttempt(doc, "headquarters_location", requestId);
+        if (attemptsFor(doc, "headquarters_location") >= GROK_MAX_ATTEMPTS) {
+          terminalizeGrokField(doc, "headquarters_location");
+          changed = true;
+        } else {
+          doc.import_missing_reason ||= {};
+          doc.import_missing_reason.headquarters_location = status || "not_found";
+          changed = true;
+        }
+      } else if (status === "not_disclosed") {
+        terminalizeGrokField(doc, "headquarters_location");
+        changed = true;
+      }
+    }
+
+    // MFG
+    if (missingNow.includes("manufacturing_locations")) {
+      const r = await fetchManufacturingLocations({
+        companyName,
+        normalizedDomain,
+        budgetMs: perDocBudgetMs,
+        xaiUrl: process.env.XAI_API_URL,
+        xaiKey: process.env.XAI_API_KEY,
+      }).catch(() => null);
+
+      const status = normalizeKey(r?.mfg_status || "");
+      const locs = Array.isArray(r?.manufacturing_locations) ? r.manufacturing_locations : [];
+
+      if (status === "ok" && locs.length > 0) {
+        doc.manufacturing_locations = locs;
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.manufacturing_locations = "ok";
+        changed = true;
+      } else if (GROK_RETRYABLE_STATUSES.has(status)) {
+        bumpFieldAttempt(doc, "manufacturing_locations", requestId);
+        if (attemptsFor(doc, "manufacturing_locations") >= GROK_MAX_ATTEMPTS) {
+          terminalizeGrokField(doc, "manufacturing_locations");
+          changed = true;
+        } else {
+          doc.import_missing_reason ||= {};
+          doc.import_missing_reason.manufacturing_locations = status || "not_found";
+          changed = true;
+        }
+      } else if (status === "not_disclosed") {
+        terminalizeGrokField(doc, "manufacturing_locations");
+        changed = true;
+      }
+    }
+
+    // Reviews
+    if (missingNow.includes("reviews")) {
+      const r = await fetchCuratedReviews({
+        companyName,
+        normalizedDomain,
+        budgetMs: perDocBudgetMs,
+        xaiUrl: process.env.XAI_API_URL,
+        xaiKey: process.env.XAI_API_KEY,
+      }).catch(() => null);
+
+      const status = normalizeKey(r?.reviews_stage_status || "");
+      const curated = Array.isArray(r?.curated_reviews) ? r.curated_reviews : [];
+
+      if (status === "ok" && curated.length > 0) {
+        doc.curated_reviews = curated.slice(0, 2);
+        doc.review_count = typeof doc.review_count === "number" ? doc.review_count : 0;
+        doc.reviews_stage_status = "ok";
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.reviews = "ok";
+        changed = true;
+      } else if (status === "exhausted") {
+        terminalizeGrokField(doc, "reviews");
+        changed = true;
+      } else if (GROK_RETRYABLE_STATUSES.has(status)) {
+        bumpFieldAttempt(doc, "reviews", requestId);
+        if (attemptsFor(doc, "reviews") >= GROK_MAX_ATTEMPTS) {
+          // After capped retries, force terminal so the run can complete.
+          terminalizeGrokField(doc, "reviews");
+          changed = true;
+        } else {
+          doc.reviews_stage_status = status || "not_found";
+          doc.import_missing_reason ||= {};
+          doc.import_missing_reason.reviews = status || "not_found";
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      // Recompute missing fields to keep doc consistent with required-fields logic
+      doc.import_missing_fields = computeMissingFields(doc);
+      doc.updated_at = nowIso();
+      await upsertDoc(container, doc).catch(() => null);
+    }
+
+    // Hard clamp to avoid spending whole deadline here
+    if (Date.now() - startedEnrichmentAt > Math.max(0, deadlineMs - 1500)) break;
   }
 
   const buildSeedCompanyPayload = (d) => {
@@ -701,13 +896,13 @@ async function resumeWorkerHandler(req, context) {
   }
 
   const needsKeywords = missingUnion.has("industries") || missingUnion.has("product_keywords");
-  const needsReviews = missingUnion.has("reviews");
-  const needsLocation = missingUnion.has("headquarters_location") || missingUnion.has("manufacturing_locations");
 
   const skipStages = new Set(["primary", "expand"]);
   if (!needsKeywords) skipStages.add("keywords");
-  if (!needsReviews) skipStages.add("reviews");
-  if (!needsLocation) skipStages.add("location");
+
+  // IMPORTANT: HQ/MFG/Reviews are Grok-only. Never let import-start handle these stages.
+  skipStages.add("reviews");
+  skipStages.add("location");
 
   const base = new URL(req.url);
   const startUrlBase = new URL("/api/import/start", base.origin);
@@ -913,33 +1108,6 @@ async function resumeWorkerHandler(req, context) {
 
         const patch = {};
 
-        if (missing.includes("headquarters_location")) {
-          patch.headquarters_location = "Not disclosed";
-          patch.hq_unknown = true;
-          patch.hq_unknown_reason = "not_disclosed";
-          import_missing_reason.headquarters_location = "not_disclosed";
-        }
-
-        if (missing.includes("manufacturing_locations")) {
-          patch.manufacturing_locations = ["Not disclosed"];
-          patch.manufacturing_locations_reason = "not_disclosed";
-          patch.mfg_unknown = true;
-          patch.mfg_unknown_reason = "not_disclosed";
-          import_missing_reason.manufacturing_locations = "not_disclosed";
-        }
-
-        if (missing.includes("reviews")) {
-          patch.reviews_stage_status = "exhausted";
-          const cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
-          patch.review_cursor = {
-            ...cursor,
-            exhausted: true,
-            reviews_stage_status: cursor.reviews_stage_status || "exhausted",
-            exhausted_at: nowIso(),
-          };
-          import_missing_reason.reviews = "exhausted";
-        }
-
         const LOW_QUALITY_MAX_ATTEMPTS = 3;
 
         if (missing.includes("industries")) {
@@ -996,9 +1164,6 @@ async function resumeWorkerHandler(req, context) {
           const reason = normalizeKey(import_missing_reason.product_keywords || "");
           terminalParts.push(reason === "low_quality" || reason === "low_quality_terminal" ? "keywords (low quality)" : "keywords missing");
         }
-        if (missing.includes("headquarters_location")) terminalParts.push("HQ not disclosed");
-        if (missing.includes("manufacturing_locations")) terminalParts.push("manufacturing not disclosed");
-        if (missing.includes("reviews")) terminalParts.push("reviews exhausted");
         if (missing.includes("logo")) terminalParts.push("logo not found");
 
         const computedTerminalReason = terminalParts.length
@@ -1010,7 +1175,7 @@ async function resumeWorkerHandler(req, context) {
           ...patch,
           import_missing_reason,
           import_missing_fields: missing,
-          red_flag: Boolean(doc.red_flag) || missing.some((f) => f === "headquarters_location" || f === "manufacturing_locations"),
+          red_flag: Boolean(doc.red_flag) || missing.some((f) => f === "industries" || f === "product_keywords"),
           red_flag_reason: replaceReason ? computedTerminalReason : existingReason,
           resume_exhausted: true,
           updated_at: updatedAt,

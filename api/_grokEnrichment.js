@@ -108,7 +108,7 @@ Return JSON array:
 
   const searchBuild = buildSearchParameters({
     companyWebsiteHost: domain,
-    additionalExcludedHosts: [],
+    additionalExcludedHosts: excludeDomains,
   });
 
   const r = await xaiLiveSearch({
