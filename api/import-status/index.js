@@ -460,6 +460,16 @@ function isTerminalMissingField(doc, field) {
   const d = doc && typeof doc === "object" ? doc : {};
   const f = String(field || "").trim();
 
+  // low_quality terminalization (set by import-start after N attempts)
+  if (f === "industries" || f === "product_keywords") {
+    const reasons =
+      d.import_missing_reason && typeof d.import_missing_reason === "object" && !Array.isArray(d.import_missing_reason)
+        ? d.import_missing_reason
+        : {};
+    const reason = normalizeMissingKey(reasons[f] || "");
+    if (reason === "low_quality_terminal") return true;
+  }
+
   if (f === "headquarters_location") {
     if (isTrueish(d.hq_unknown)) return true;
     const val = normalizeMissingKey(d.headquarters_location);
@@ -1146,14 +1156,17 @@ async function handler(req, context) {
       }));
 
     const resumeDocExists = Boolean(report?.resume);
+    const resumeDocStatus = typeof report?.resume?.status === "string" ? report.resume.status.trim() : "";
+    const forceTerminalComplete =
+      resumeDocStatus === "complete" && resumeMissingAnalysis.total_retryable_missing === 0;
 
-    // If the saved companies are only missing terminal fields, ignore stale control-doc resume_needed/resume-doc existence.
-    const resume_needed = resumeMissingAnalysis.terminal_only
+    // If the saved companies are only missing terminal fields (or none), ignore stale control-doc resume_needed/resume-doc existence.
+    const resume_needed = resumeMissingAnalysis.terminal_only || forceTerminalComplete
       ? false
       : Boolean(resumeNeededFromSession || resumeNeededFromHealth || resumeDocExists);
 
-    // Reflect terminal-only completion in the report payload as well.
-    if (resumeMissingAnalysis.terminal_only && report?.session) {
+    // Reflect terminal completion in the report payload as well.
+    if ((resumeMissingAnalysis.terminal_only || forceTerminalComplete) && report?.session) {
       report.session.resume_needed = false;
       report.session.status = "complete";
       report.session.stage_beacon = "complete";
@@ -2143,12 +2156,15 @@ async function handler(req, context) {
         missing_fields: c.enrichment_health.missing_fields,
       }));
 
+    const resumeDocStatus = typeof resumeDoc?.status === "string" ? resumeDoc.status.trim() : "";
+    const forceTerminalComplete = resumeDocStatus === "complete" && resumeMissingAnalysis.total_retryable_missing === 0;
+
     // Terminal-only missing fields must not keep the session "running".
-    const resume_needed = resumeMissingAnalysis.terminal_only
+    const resume_needed = resumeMissingAnalysis.terminal_only || forceTerminalComplete
       ? false
       : Boolean(sessionDoc?.resume_needed) || resumeNeededFromHealth || Boolean(resumeDoc);
 
-    if (resumeMissingAnalysis.terminal_only && sessionDoc && sessionDoc.resume_needed) {
+    if ((resumeMissingAnalysis.terminal_only || forceTerminalComplete) && sessionDoc && sessionDoc.resume_needed) {
       const now = nowIso();
       sessionDoc.resume_needed = false;
       sessionDoc.status = "complete";

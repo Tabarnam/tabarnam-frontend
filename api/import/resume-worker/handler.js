@@ -82,6 +82,16 @@ function isTerminalMissingField(doc, field) {
   const d = doc && typeof doc === "object" ? doc : {};
   const f = String(field || "").trim();
 
+  // low_quality terminalization (set by import-start after N attempts)
+  if (f === "industries" || f === "product_keywords") {
+    const reasons =
+      d.import_missing_reason && typeof d.import_missing_reason === "object" && !Array.isArray(d.import_missing_reason)
+        ? d.import_missing_reason
+        : {};
+    const reason = normalizeKey(reasons[f] || "");
+    if (reason === "low_quality_terminal") return true;
+  }
+
   if (f === "headquarters_location") {
     if (isTrueish(d.hq_unknown)) return true;
     const val = normalizeKey(d.headquarters_location);
@@ -846,19 +856,34 @@ async function resumeWorkerHandler(req, context) {
           import_missing_reason.industries ||= "not_found";
         }
 
+        const existingReason = String(doc.red_flag_reason || "").trim();
+        const replaceReason = !existingReason || /enrichment pending/i.test(existingReason);
+
+        const terminalParts = [];
+        if (missing.includes("industries")) {
+          const reason = normalizeKey(import_missing_reason.industries || "");
+          terminalParts.push(reason === "low_quality" || reason === "low_quality_terminal" ? "industries (low quality)" : "industries missing");
+        }
+        if (missing.includes("product_keywords")) {
+          const reason = normalizeKey(import_missing_reason.product_keywords || "");
+          terminalParts.push(reason === "low_quality" || reason === "low_quality_terminal" ? "keywords (low quality)" : "keywords missing");
+        }
+        if (missing.includes("headquarters_location")) terminalParts.push("HQ not disclosed");
+        if (missing.includes("manufacturing_locations")) terminalParts.push("manufacturing not disclosed");
+        if (missing.includes("reviews")) terminalParts.push("reviews exhausted");
+        if (missing.includes("logo")) terminalParts.push("logo not found");
+
+        const computedTerminalReason = terminalParts.length
+          ? `Enrichment complete (terminal): ${terminalParts.join(", ")}`
+          : "Enrichment complete (terminal)";
+
         const next = {
           ...doc,
           ...patch,
           import_missing_reason,
           import_missing_fields: missing,
           red_flag: Boolean(doc.red_flag) || missing.some((f) => f === "headquarters_location" || f === "manufacturing_locations"),
-          red_flag_reason:
-            String(doc.red_flag_reason || "").trim() ||
-            (missing.includes("manufacturing_locations")
-              ? "Manufacturing not disclosed"
-              : missing.includes("headquarters_location")
-                ? "Headquarters not disclosed"
-                : "Required fields missing"),
+          red_flag_reason: replaceReason ? computedTerminalReason : existingReason,
           resume_exhausted: true,
           updated_at: updatedAt,
         };
@@ -891,19 +916,29 @@ async function resumeWorkerHandler(req, context) {
       .filter((pair) => Boolean(pair[0]))
   );
 
-  const terminalOnly =
-    missing_by_company.length > 0 &&
-    missing_by_company.every((entry) => {
-      const doc = docsById.get(String(entry?.company_id || "").trim());
-      if (!doc) return false;
-      const fields = Array.isArray(entry?.missing_fields) ? entry.missing_fields : [];
-      if (fields.length === 0) return false;
-      return fields.every((f) => isTerminalMissingField(doc, f));
-    });
+  let totalMissing = 0;
+  let totalRetryableMissing = 0;
+  let totalTerminalMissing = 0;
+
+  for (const entry of missing_by_company) {
+    const doc = docsById.get(String(entry?.company_id || "").trim());
+    if (!doc) continue;
+
+    const fields = Array.isArray(entry?.missing_fields) ? entry.missing_fields : [];
+    for (const f of fields) {
+      totalMissing += 1;
+      if (isTerminalMissingField(doc, f)) totalTerminalMissing += 1;
+      else totalRetryableMissing += 1;
+    }
+  }
+
+  const terminalOnly = totalMissing > 0 && totalRetryableMissing === 0;
 
   const completion_beacon = terminalOnly ? "complete" : exhausted ? "enrichment_exhausted" : "enrichment_complete";
 
-  const resumeNeeded = exhausted ? false : terminalOnly ? false : missing_by_company.length > 0;
+  // IMPORTANT: do not mark resume/status complete if any retryable missing fields remain.
+  // "exhausted" just means we hit our in-worker cap; it does NOT imply terminal completion.
+  const resumeNeeded = totalRetryableMissing > 0;
 
   await upsertDoc(container, {
     ...resumeDoc,

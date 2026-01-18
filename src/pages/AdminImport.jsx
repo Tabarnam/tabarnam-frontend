@@ -3720,35 +3720,50 @@ export default function AdminImport() {
 
                     const resumeNeeded = Boolean(r.resume_needed);
 
+                    const stageBeaconValues =
+                      r.stage_beacon_values && typeof r.stage_beacon_values === "object" ? r.stage_beacon_values : {};
+                    const retryableMissingCount = Number(stageBeaconValues.status_resume_missing_retryable);
+                    const resumeStatus = asString(r.resume?.status || r.report?.resume?.status).trim().toLowerCase();
+                    const terminalComplete = Boolean(
+                      stageBeaconForStatus === "complete" ||
+                        (resumeStatus === "complete" && Number.isFinite(retryableMissingCount) && retryableMissingCount === 0)
+                    );
+
                     const statusLabel = isFailed
                       ? "Failed"
                       : isSkipped
                         ? "Skipped"
-                        : resumeNeeded && savedCount > 0
-                          ? "Resume needed"
-                          : isCompleteWithSave
-                            ? hasWarnings
-                              ? "Completed with warnings"
-                              : "Completed"
-                            : isCompleteNoSave
-                              ? "Completed: no save"
-                              : r.polling_exhausted
-                                ? "Processing async"
-                                : "Processing";
+                        : terminalComplete && savedCount > 0
+                          ? enrichmentMissingFields.length > 0
+                            ? "Completed (terminal)"
+                            : "Completed"
+                          : resumeNeeded && savedCount > 0
+                            ? "Resume needed"
+                            : isCompleteWithSave
+                              ? hasWarnings
+                                ? "Completed with warnings"
+                                : "Completed"
+                              : isCompleteNoSave
+                                ? "Completed: no save"
+                                : r.polling_exhausted
+                                  ? "Processing async"
+                                  : "Processing";
 
                     const statusBadgeClass = isFailed
                       ? "border-red-200 bg-red-50 text-red-800"
                       : isSkipped
                         ? "border-amber-200 bg-amber-50 text-amber-900"
-                        : resumeNeeded && savedCount > 0
-                          ? "border-amber-200 bg-amber-50 text-amber-900"
-                          : isCompleteWithSave
-                            ? hasWarnings
-                              ? "border-amber-200 bg-amber-50 text-amber-900"
-                              : "border-emerald-200 bg-emerald-50 text-emerald-800"
-                            : isCompleteNoSave
-                              ? "border-slate-200 bg-slate-50 text-slate-700"
-                              : "border-sky-200 bg-sky-50 text-sky-800";
+                        : terminalComplete && savedCount > 0
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : resumeNeeded && savedCount > 0
+                            ? "border-amber-200 bg-amber-50 text-amber-900"
+                            : isCompleteWithSave
+                              ? hasWarnings
+                                ? "border-amber-200 bg-amber-50 text-amber-900"
+                                : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                              : isCompleteNoSave
+                                ? "border-slate-200 bg-slate-50 text-slate-700"
+                                : "border-sky-200 bg-sky-50 text-sky-800";
 
                     return (
                       <div
@@ -3889,6 +3904,15 @@ export default function AdminImport() {
                       const savedCount = verifiedCount != null ? verifiedCount : verifiedIds.length;
 
                       const stageBeacon = asString(activeRun.final_stage_beacon || activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
+                      const stageBeaconValues =
+                        activeRun.stage_beacon_values && typeof activeRun.stage_beacon_values === "object" ? activeRun.stage_beacon_values : {};
+                      const retryableMissingCount = Number(stageBeaconValues.status_resume_missing_retryable);
+                      const resumeStatus = asString(activeRun.resume?.status || activeRun.report?.resume?.status).trim().toLowerCase();
+                      const terminalComplete = Boolean(
+                        stageBeacon === "complete" ||
+                          (resumeStatus === "complete" && Number.isFinite(retryableMissingCount) && retryableMissingCount === 0)
+                      );
+
                       const persistedDetected = savedCount > 0 || stageBeacon === "cosmos_write_done";
 
                       const report = activeRun.report && typeof activeRun.report === "object" ? activeRun.report : null;
@@ -4043,7 +4067,7 @@ export default function AdminImport() {
                             </div>
                           ) : null}
 
-                          {Boolean(activeRun.resume_needed) ? (
+                          {Boolean(activeRun.resume_needed) && !terminalComplete ? (
                             <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-2">
                               <div className="font-medium">Resume needed</div>
                               {asString(activeRun.resume?.trigger_error).trim() ? (
