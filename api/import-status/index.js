@@ -2484,6 +2484,26 @@ async function handler(req, context) {
       }
     }
 
+    // Stage beacon must reflect resume control doc status so the UI can back off polling.
+    const retryableMissing = Number(resumeMissingAnalysis?.total_retryable_missing || 0) || 0;
+    const resumeStatusForBeacon = String(resume_status || "").trim();
+
+    const resumeStageBeacon = (() => {
+      if (!resume_needed) return null;
+      if (resumeStatusForBeacon === "running") return "enrichment_resume_running";
+      if (resumeStatusForBeacon === "queued") return "enrichment_resume_queued";
+      if (resumeStatusForBeacon === "stalled") return "enrichment_resume_stalled";
+      if (resumeStatusForBeacon === "error") return "enrichment_resume_error";
+      if (resumeStatusForBeacon === "complete") {
+        return retryableMissing > 0 ? "enrichment_incomplete_retryable" : "complete";
+      }
+      return "enrichment_resume_pending";
+    })();
+
+    if (!forceComplete) {
+      stage_beacon = resumeStageBeacon || stage_beacon;
+    }
+
     const effectiveCompleted = forceComplete || (completed && !resume_needed);
 
     const saved_verified_count =
