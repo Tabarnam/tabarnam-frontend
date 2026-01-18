@@ -3366,6 +3366,56 @@ async function saveCompaniesToCosmos({
               const import_missing_reason = {};
               const import_warnings = [];
 
+              const LOW_QUALITY_MAX_ATTEMPTS = 3;
+
+              const applyLowQualityPolicy = (field, reason) => {
+                const f = String(field || "").trim();
+                const r = String(reason || "").trim();
+                if (!f) return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
+
+                // Only low_quality is subject to terminalization.
+                if (r !== "low_quality") return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
+
+                // If we previously terminalized this field, keep it terminal.
+                const prev = String(import_missing_reason[f] || "").trim();
+                if (prev === "low_quality_terminal") {
+                  return { missing_reason: "low_quality_terminal", retryable: false, attemptCount: LOW_QUALITY_MAX_ATTEMPTS };
+                }
+
+                const attemptsObj =
+                  doc.import_low_quality_attempts &&
+                  typeof doc.import_low_quality_attempts === "object" &&
+                  !Array.isArray(doc.import_low_quality_attempts)
+                    ? { ...doc.import_low_quality_attempts }
+                    : {};
+
+                const metaObj =
+                  doc.import_low_quality_attempts_meta &&
+                  typeof doc.import_low_quality_attempts_meta === "object" &&
+                  !Array.isArray(doc.import_low_quality_attempts_meta)
+                    ? { ...doc.import_low_quality_attempts_meta }
+                    : {};
+
+                const currentRequestId = String(doc.import_request_id || importRequestId || "").trim();
+                const lastRequestId = String(metaObj[f] || "").trim();
+
+                if (currentRequestId && lastRequestId !== currentRequestId) {
+                  attemptsObj[f] = (Number(attemptsObj[f]) || 0) + 1;
+                  metaObj[f] = currentRequestId;
+                }
+
+                doc.import_low_quality_attempts = attemptsObj;
+                doc.import_low_quality_attempts_meta = metaObj;
+
+                const attemptCount = Number(attemptsObj[f]) || 0;
+
+                if (attemptCount >= LOW_QUALITY_MAX_ATTEMPTS) {
+                  return { missing_reason: "low_quality_terminal", retryable: false, attemptCount };
+                }
+
+                return { missing_reason: "low_quality", retryable: true, attemptCount };
+              };
+
               const ensureMissing = (field, reason, stage, message, retryable = true, source_attempted = "xai") => {
                 const f = String(field || "").trim();
                 if (!f) return;
@@ -3421,14 +3471,18 @@ async function saveCompaniesToCosmos({
                 const hadAny = normalizeStringArray(industriesRaw).length > 0;
                 doc.industries = ["Unknown"];
                 doc.industries_unknown = true;
-                ensureMissing(
-                  "industries",
-                  hadAny ? "low_quality" : "not_found",
-                  "extract_industries",
-                  hadAny
-                    ? "Industries present but low-quality (navigation/marketplace buckets); set to placeholder ['Unknown']"
-                    : "Industries missing; set to placeholder ['Unknown']"
-                );
+
+                const policy = applyLowQualityPolicy("industries", hadAny ? "low_quality" : "not_found");
+                const messageBase = hadAny
+                  ? "Industries present but low-quality (navigation/marketplace buckets); set to placeholder ['Unknown']"
+                  : "Industries missing; set to placeholder ['Unknown']";
+
+                const message =
+                  policy.missing_reason === "low_quality_terminal"
+                    ? `${messageBase} (terminal after ${policy.attemptCount || LOW_QUALITY_MAX_ATTEMPTS} attempts)`
+                    : messageBase;
+
+                ensureMissing("industries", policy.missing_reason, "extract_industries", message, policy.retryable);
               } else {
                 doc.industries = industriesSanitized;
               }
@@ -3453,14 +3507,17 @@ async function saveCompaniesToCosmos({
                 doc.product_keywords = "Unknown";
                 doc.product_keywords_unknown = true;
 
-                ensureMissing(
-                  "product_keywords",
-                  hadAny ? "low_quality" : "not_found",
-                  "extract_keywords",
-                  hadAny
-                    ? `product_keywords low quality (raw=${keywordStats.total_raw}, sanitized=${keywordStats.product_relevant_count}); set to placeholder 'Unknown'`
-                    : "product_keywords missing; set to placeholder 'Unknown'"
-                );
+                const policy = applyLowQualityPolicy("product_keywords", hadAny ? "low_quality" : "not_found");
+                const messageBase = hadAny
+                  ? `product_keywords low quality (raw=${keywordStats.total_raw}, sanitized=${keywordStats.product_relevant_count}); set to placeholder 'Unknown'`
+                  : "product_keywords missing; set to placeholder 'Unknown'";
+
+                const message =
+                  policy.missing_reason === "low_quality_terminal"
+                    ? `${messageBase} (terminal after ${policy.attemptCount || LOW_QUALITY_MAX_ATTEMPTS} attempts)`
+                    : messageBase;
+
+                ensureMissing("product_keywords", policy.missing_reason, "extract_keywords", message, policy.retryable);
               }
 
               // tagline (required)
