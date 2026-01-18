@@ -1175,7 +1175,7 @@ async function resumeWorkerHandler(req, context) {
           ...patch,
           import_missing_reason,
           import_missing_fields: missing,
-          red_flag: Boolean(doc.red_flag) || missing.some((f) => f === "headquarters_location" || f === "manufacturing_locations"),
+          red_flag: Boolean(doc.red_flag) || missing.some((f) => f === "industries" || f === "product_keywords"),
           red_flag_reason: replaceReason ? computedTerminalReason : existingReason,
           resume_exhausted: true,
           updated_at: updatedAt,
