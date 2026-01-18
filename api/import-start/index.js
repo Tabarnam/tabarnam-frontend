@@ -8713,7 +8713,7 @@ Return ONLY the JSON array, no other text.`,
                 stageKey: "location",
                 stageBeacon: "xai_location_refinement_fetch_start",
                 body: JSON.stringify(refinementPayload),
-                stageCapMsOverride: timeout,
+                stageCapMsOverride: Math.min(timeout, 25000),
               });
 
               if (refinementResponse.status >= 200 && refinementResponse.status < 300) {
@@ -9449,7 +9449,11 @@ Return ONLY the JSON array, no other text.`,
                 // Execute the refresh pipeline with a timeout clamped to remaining budget.
                 const timeoutMs = Math.max(
                   5000,
-                  Math.min(timeout, Math.trunc(remaining - DEADLINE_SAFETY_BUFFER_MS - UPSTREAM_TIMEOUT_MARGIN_MS))
+                  Math.min(
+                    20000,
+                    timeout,
+                    Math.trunc(remaining - DEADLINE_SAFETY_BUFFER_MS - UPSTREAM_TIMEOUT_MARGIN_MS)
+                  )
                 );
 
                 const reqMock = {
@@ -9686,7 +9690,7 @@ Return ONLY the JSON array, no other text.`,
                 stageKey: "expand",
                 stageBeacon: "xai_expand_fetch_start",
                 body: JSON.stringify(expansionPayload),
-                stageCapMsOverride: timeout,
+                stageCapMsOverride: Math.min(timeout, 25000),
               });
 
               if (expansionResponse.status >= 200 && expansionResponse.status < 300) {
