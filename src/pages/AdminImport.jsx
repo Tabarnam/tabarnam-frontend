@@ -3904,6 +3904,15 @@ export default function AdminImport() {
                       const savedCount = verifiedCount != null ? verifiedCount : verifiedIds.length;
 
                       const stageBeacon = asString(activeRun.final_stage_beacon || activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
+                      const stageBeaconValues =
+                        activeRun.stage_beacon_values && typeof activeRun.stage_beacon_values === "object" ? activeRun.stage_beacon_values : {};
+                      const retryableMissingCount = Number(stageBeaconValues.status_resume_missing_retryable);
+                      const resumeStatus = asString(activeRun.resume?.status || activeRun.report?.resume?.status).trim().toLowerCase();
+                      const terminalComplete = Boolean(
+                        stageBeacon === "complete" ||
+                          (resumeStatus === "complete" && Number.isFinite(retryableMissingCount) && retryableMissingCount === 0)
+                      );
+
                       const persistedDetected = savedCount > 0 || stageBeacon === "cosmos_write_done";
 
                       const report = activeRun.report && typeof activeRun.report === "object" ? activeRun.report : null;
@@ -4058,7 +4067,7 @@ export default function AdminImport() {
                             </div>
                           ) : null}
 
-                          {Boolean(activeRun.resume_needed) ? (
+                          {Boolean(activeRun.resume_needed) && !terminalComplete ? (
                             <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-2">
                               <div className="font-medium">Resume needed</div>
                               {asString(activeRun.resume?.trigger_error).trim() ? (
