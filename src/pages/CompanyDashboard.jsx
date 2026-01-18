@@ -803,9 +803,14 @@ function toLegacyIssueTags(company) {
 }
 
 function getContractMissingFields(company) {
-  const raw = company?.enrichment_health?.missing_fields;
-  if (!Array.isArray(raw)) return null;
-  return raw
+  const raw =
+    company?.enrichment_health?.missing_fields ??
+    company?.enrichment_health?.missing ??
+    company?.enrichment_health?.missingFields;
+
+  const list = Array.isArray(raw) ? raw : [];
+
+  return list
     .filter((v) => typeof v === "string")
     .map((v) => v.trim())
     .filter(Boolean);
@@ -828,9 +833,9 @@ function formatContractMissingField(field) {
 }
 
 function toIssueTags(company) {
-  const contract = getContractMissingFields(company);
-  if (contract !== null) return contract;
-  return toLegacyIssueTags(company);
+  // Issues column must render from enrichment_health.missing_fields (contract), not legacy heuristics.
+  // Legacy heuristics treat placeholders like "Unknown" as present and hide real missing fields.
+  return getContractMissingFields(company);
 }
 
 function toDisplayDate(value) {
@@ -5088,18 +5093,17 @@ export default function CompanyDashboard() {
       },
       {
         name: "Issues",
-        selector: (row) => toIssueTags(row).length,
+        selector: (row) => getContractMissingFields(row).length,
         sortable: true,
         cell: (row) => {
-          const contractMissing = getContractMissingFields(row);
-          const tags = contractMissing !== null ? contractMissing : toLegacyIssueTags(row);
+          const tags = getContractMissingFields(row);
 
           if (tags.length === 0) return <span className="text-xs text-emerald-700">OK</span>;
 
           return (
             <div className="flex flex-wrap gap-[6px]">
               {tags.map((t, idx) => {
-                const label = contractMissing !== null ? formatContractMissingField(t) : t;
+                const label = formatContractMissingField(t);
                 const key = `${t}-${idx}`;
 
                 const stageRaw =
@@ -5110,7 +5114,7 @@ export default function CompanyDashboard() {
                 return (
                   <span
                     key={key}
-                    title={contractMissing !== null ? `Missing: ${t}${titleSuffix}` : t}
+                    title={`Missing: ${t}${titleSuffix}`}
                     className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] text-amber-900"
                   >
                     {label}
