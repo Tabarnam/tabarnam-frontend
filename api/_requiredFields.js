@@ -480,6 +480,71 @@ function computeEnrichmentHealth(company) {
   };
 }
 
+function isTerminalMissingReason(reason) {
+  // Terminal reasons are non-retryable, even if the field still counts as "missing" under the required-fields contract.
+  return new Set(["not_disclosed", "exhausted", "low_quality_terminal", "not_found_terminal"]).has(normalizeKey(reason));
+}
+
+function deriveMissingReason(doc, field) {
+  const d = doc && typeof doc === "object" ? doc : {};
+  const f = String(field || "").trim();
+
+  // IMPORTANT: terminal sentinel values MUST override any stale stored reasons.
+  // This is required to prevent resume-needed from staying true forever when we already
+  // concluded a field is terminal (e.g. "Not disclosed" or reviews exhausted).
+  if (f === "headquarters_location") {
+    const val = normalizeKey(d.headquarters_location);
+    if (val === "not disclosed" || val === "not_disclosed") return "not_disclosed";
+  }
+
+  if (f === "manufacturing_locations") {
+    const rawList = Array.isArray(d.manufacturing_locations)
+      ? d.manufacturing_locations
+      : d.manufacturing_locations == null
+        ? []
+        : [d.manufacturing_locations];
+
+    const normalized = rawList
+      .map((loc) => {
+        if (typeof loc === "string") return normalizeKey(loc);
+        if (loc && typeof loc === "object") {
+          return normalizeKey(loc.formatted || loc.full_address || loc.address || loc.location);
+        }
+        return "";
+      })
+      .filter(Boolean);
+
+    if (normalized.length > 0 && normalized.every((v) => v === "not disclosed" || v === "not_disclosed")) {
+      return "not_disclosed";
+    }
+  }
+
+  if (f === "reviews") {
+    const stage = normalizeKey(d.reviews_stage_status || d.review_cursor?.reviews_stage_status);
+    if (stage === "exhausted") return "exhausted";
+    if (Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true)) return "exhausted";
+  }
+
+  const reasons =
+    d.import_missing_reason && typeof d.import_missing_reason === "object" && !Array.isArray(d.import_missing_reason)
+      ? d.import_missing_reason
+      : {};
+
+  const direct = normalizeKey(reasons[f] || "");
+  if (direct) return direct;
+
+  if (f === "logo") {
+    const stage = normalizeKey(d.logo_stage_status || d.logo_status);
+    if (stage === "not_found_on_site") return "not_found_on_site";
+  }
+
+  return "";
+}
+
+function isTerminalMissingField(doc, field) {
+  return isTerminalMissingReason(deriveMissingReason(doc, field));
+}
+
 module.exports = {
   PLACEHOLDER_STRINGS,
   SENTINEL_STRINGS,
@@ -493,4 +558,7 @@ module.exports = {
   isRealValue,
   computeMissingFields,
   computeEnrichmentHealth,
+  isTerminalMissingReason,
+  deriveMissingReason,
+  isTerminalMissingField,
 };

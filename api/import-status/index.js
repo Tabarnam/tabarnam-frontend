@@ -39,7 +39,12 @@ const {
   buildPartitionKeyCandidates,
 } = require("../_cosmosPartitionKey");
 
-const { computeEnrichmentHealth: computeEnrichmentHealthContract } = require("../_requiredFields");
+const {
+  computeEnrichmentHealth: computeEnrichmentHealthContract,
+  deriveMissingReason,
+  isTerminalMissingReason,
+  isTerminalMissingField,
+} = require("../_requiredFields");
 
 const EMPTY_RESUME_DIAGNOSTICS = Object.freeze({
   resume: {
@@ -445,79 +450,6 @@ function computeContractEnrichmentHealth(company) {
   return computeEnrichmentHealthContract(company);
 }
 
-function normalizeMissingKey(value) {
-  return String(value ?? "").trim().toLowerCase();
-}
-
-function isTrueish(value) {
-  if (value === true) return true;
-  if (value === false) return false;
-  const s = normalizeMissingKey(value);
-  return s === "true" || s === "1" || s === "yes" || s === "y";
-}
-
-function isTerminalMissingReason(reason) {
-  // Spec: terminal reasons must be treated as non-retryable; anything else is retryable.
-  return new Set(["not_disclosed", "exhausted", "low_quality_terminal", "not_found_terminal"]).has(reason);
-}
-
-function deriveMissingReason(doc, field) {
-  const d = doc && typeof doc === "object" ? doc : {};
-  const f = String(field || "").trim();
-
-  const reasons =
-    d.import_missing_reason && typeof d.import_missing_reason === "object" && !Array.isArray(d.import_missing_reason)
-      ? d.import_missing_reason
-      : {};
-
-  const direct = normalizeMissingKey(reasons[f] || "");
-  if (direct) return direct;
-
-  if (f === "headquarters_location") {
-    const val = normalizeMissingKey(d.headquarters_location);
-    if (val === "not disclosed" || val === "not_disclosed") return "not_disclosed";
-  }
-
-  if (f === "manufacturing_locations") {
-    const rawList = Array.isArray(d.manufacturing_locations)
-      ? d.manufacturing_locations
-      : d.manufacturing_locations == null
-        ? []
-        : [d.manufacturing_locations];
-
-    const normalized = rawList
-      .map((loc) => {
-        if (typeof loc === "string") return normalizeMissingKey(loc);
-        if (loc && typeof loc === "object") {
-          return normalizeMissingKey(loc.formatted || loc.full_address || loc.address || loc.location);
-        }
-        return "";
-      })
-      .filter(Boolean);
-
-    if (normalized.length > 0 && normalized.every((v) => v === "not disclosed" || v === "not_disclosed")) {
-      return "not_disclosed";
-    }
-  }
-
-  if (f === "reviews") {
-    const stage = normalizeMissingKey(d.reviews_stage_status || d.review_cursor?.reviews_stage_status);
-    if (stage === "exhausted") return "exhausted";
-    if (Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true)) return "exhausted";
-  }
-
-  if (f === "logo") {
-    const stage = normalizeMissingKey(d.logo_stage_status || d.logo_status);
-    if (stage === "not_found_on_site") return "not_found_on_site";
-  }
-
-  return "";
-}
-
-function isTerminalMissingField(doc, field) {
-  const reason = deriveMissingReason(doc, field);
-  return isTerminalMissingReason(reason);
-}
 
 function analyzeMissingFieldsForResume(docs) {
   const list = Array.isArray(docs) ? docs : [];
@@ -1351,7 +1283,27 @@ async function handler(req, context) {
 
         let canTrigger = !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil);
 
-        if (canTrigger && resumeStatus === "queued" && !forceResume) {
+        const resumeStuckQueuedMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
+          ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
+          : 90_000;
+
+        let watchdog_stuck_queued = false;
+        let watchdog_last_finished_at = null;
+
+        try {
+          const sessionDocId = `_import_session_${sessionId}`;
+          const sessionDocForWatchdog = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+          watchdog_last_finished_at = sessionDocForWatchdog?.resume_worker_last_finished_at || null;
+
+          const lastFinishedTs = Date.parse(String(watchdog_last_finished_at || "")) || 0;
+
+          if (resume_needed && resumeStatus === "queued" && lastFinishedTs && Date.now() - lastFinishedTs > resumeStuckQueuedMs) {
+            watchdog_stuck_queued = true;
+            stageBeaconValues.status_resume_watchdog_stuck_queued = nowIso();
+          }
+        } catch {}
+
+        if (canTrigger && resumeStatus === "queued" && !forceResume && !watchdog_stuck_queued) {
           const cooldownMs = 60_000;
           let lastTriggeredTs = 0;
 
@@ -1423,46 +1375,145 @@ async function handler(req, context) {
             if (workerRes && typeof workerRes.text === "function") workerText = await workerRes.text();
           } catch {}
 
-          resume_triggered = Boolean(workerRes?.ok);
-          if (!resume_triggered) {
-            const statusCode = Number(workerRes?.status || 0) || 0;
-            const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
+          const statusCode = Number(workerRes?.status || 0) || 0;
+          const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
 
-            resume_trigger_error = workerRes?._error?.message || `resume_worker_http_${statusCode}`;
+          let workerJson = null;
+          try {
+            workerJson = workerText ? JSON.parse(workerText) : null;
+          } catch {
+            workerJson = null;
+          }
+
+          const responseOk = workerJson && typeof workerJson === "object" ? workerJson.ok : null;
+          const triggerOk = Boolean(workerRes?.ok) && responseOk !== false;
+
+          resume_triggered = triggerOk;
+
+          const triggerResult = {
+            ok: triggerOk,
+            invocation: "in_process",
+            http_status: statusCode,
+            triggered_at: triggerAttemptAt,
+            request_id: resume_trigger_request_id || null,
+            gateway_key_attached: Boolean(resume_gateway_key_attached),
+            response:
+              workerJson && typeof workerJson === "object"
+                ? {
+                    ok: responseOk !== false,
+                    stage_beacon: typeof workerJson.stage_beacon === "string" ? workerJson.stage_beacon : null,
+                    resume_needed: typeof workerJson.resume_needed === "boolean" ? workerJson.resume_needed : null,
+                    error:
+                      (typeof workerJson.error === "string" && workerJson.error.trim() ? workerJson.error.trim() : null) ||
+                      (typeof workerJson.root_cause === "string" && workerJson.root_cause.trim() ? workerJson.root_cause.trim() : null) ||
+                      null,
+                  }
+                : {
+                    response_text_preview: preview || null,
+                  },
+          };
+
+          if (!triggerOk) {
+            const baseErr =
+              (workerJson && typeof workerJson === "object" && typeof workerJson.error === "string" && workerJson.error.trim()
+                ? workerJson.error.trim()
+                : null) ||
+              (workerJson && typeof workerJson === "object" && typeof workerJson.root_cause === "string" && workerJson.root_cause.trim()
+                ? workerJson.root_cause.trim()
+                : null) ||
+              workerRes?._error?.message ||
+              `resume_worker_http_${statusCode}`;
+
+            resume_trigger_error = watchdog_stuck_queued ? "resume_worker_stuck_or_trigger_failed" : baseErr;
             resume_trigger_error_details = {
-              invocation: "in_process",
-              http_status: statusCode,
+              ...triggerResult,
               response_text_preview: preview || null,
-              gateway_key_attached: Boolean(resume_gateway_key_attached),
-              request_id: resume_trigger_request_id || null,
+              watchdog: watchdog_stuck_queued
+                ? {
+                    stuck_ms: resumeStuckQueuedMs,
+                    last_finished_at: watchdog_last_finished_at,
+                  }
+                : null,
             };
+          }
 
-            // Persist deterministic diagnosis signals so AdminImport can render a concrete message.
+          // Always persist the trigger result so /api/import/status can be truthful even if the worker never re-enters.
+          try {
+            const sessionDocId = `_import_session_${sessionId}`;
+            const sessionDocAfter = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+
+            const enteredTs = Date.parse(String(sessionDocAfter?.resume_worker_handler_entered_at || "")) || 0;
+            const attemptTs = Date.parse(String(triggerAttemptAt || "")) || Date.now();
+
+            const rejectLayer =
+              statusCode === 401
+                ? enteredTs && enteredTs >= attemptTs - 5000
+                  ? "handler"
+                  : "gateway"
+                : null;
+
+            if (sessionDocAfter && typeof sessionDocAfter === "object") {
+              await upsertDoc(container, {
+                ...sessionDocAfter,
+                resume_worker_last_trigger_result: triggerResult,
+                resume_worker_last_trigger_ok: triggerOk,
+                resume_worker_last_trigger_http_status: statusCode,
+                resume_worker_last_trigger_request_id: resume_trigger_request_id || null,
+                resume_worker_last_gateway_key_attached: Boolean(resume_gateway_key_attached),
+                ...(triggerOk
+                  ? {}
+                  : {
+                      resume_error: String(resume_trigger_error || "").trim() || "resume_worker_trigger_failed",
+                      resume_error_details:
+                        resume_trigger_error_details && typeof resume_trigger_error_details === "object" ? resume_trigger_error_details : null,
+                      resume_needed: true,
+                      resume_worker_last_http_status: statusCode,
+                      resume_worker_last_reject_layer: rejectLayer,
+                    }),
+                updated_at: nowIso(),
+              }).catch(() => null);
+            }
+          } catch {}
+
+          if (watchdog_stuck_queued && !triggerOk) {
+            const erroredAt = nowIso();
+            resume_status = "error";
+
+            try {
+              const resumeDoc = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+              if (resumeDoc && typeof resumeDoc === "object") {
+                await upsertDoc(container, {
+                  ...resumeDoc,
+                  status: "error",
+                  last_error: {
+                    code: "resume_worker_stuck_or_trigger_failed",
+                    message: "Resume worker queued but no worker activity; retrigger failed",
+                    last_finished_at: watchdog_last_finished_at,
+                    trigger_result: triggerResult,
+                  },
+                  updated_at: erroredAt,
+                  lock_expires_at: null,
+                }).catch(() => null);
+              }
+            } catch {}
+
             try {
               const sessionDocId = `_import_session_${sessionId}`;
               const sessionDocAfter = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
-
-              const enteredTs = Date.parse(String(sessionDocAfter?.resume_worker_handler_entered_at || "")) || 0;
-              const attemptTs = Date.parse(String(triggerAttemptAt || "")) || Date.now();
-
-              const rejectLayer =
-                statusCode === 401
-                  ? enteredTs && enteredTs >= attemptTs - 5000
-                    ? "handler"
-                    : "gateway"
-                  : null;
-
               if (sessionDocAfter && typeof sessionDocAfter === "object") {
                 await upsertDoc(container, {
                   ...sessionDocAfter,
-                  resume_error: resume_trigger_error,
-                  resume_error_details: resume_trigger_error_details,
+                  resume_error: "resume_worker_stuck_or_trigger_failed",
+                  resume_error_details: {
+                    ...((resume_trigger_error_details && typeof resume_trigger_error_details === "object")
+                      ? resume_trigger_error_details
+                      : {}),
+                    updated_at: erroredAt,
+                  },
                   resume_needed: true,
-                  resume_worker_last_http_status: statusCode,
-                  resume_worker_last_reject_layer: rejectLayer,
-                  resume_worker_last_trigger_request_id: resume_trigger_request_id || null,
-                  resume_worker_last_gateway_key_attached: Boolean(resume_gateway_key_attached),
-                  updated_at: nowIso(),
+                  status: "error",
+                  stage_beacon: "enrichment_resume_error",
+                  updated_at: erroredAt,
                 }).catch(() => null);
               }
             } catch {}
@@ -2392,7 +2443,27 @@ async function handler(req, context) {
 
         let canTrigger = !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil);
 
-        if (canTrigger && resumeStatus === "queued" && !forceResume) {
+        const resumeStuckQueuedMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
+          ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
+          : 90_000;
+
+        let watchdog_stuck_queued = false;
+        let watchdog_last_finished_at = null;
+
+        try {
+          const sessionDocId = `_import_session_${sessionId}`;
+          const sessionDocForWatchdog = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+          watchdog_last_finished_at = sessionDocForWatchdog?.resume_worker_last_finished_at || null;
+
+          const lastFinishedTs = Date.parse(String(watchdog_last_finished_at || "")) || 0;
+
+          if (resume_needed && resumeStatus === "queued" && lastFinishedTs && Date.now() - lastFinishedTs > resumeStuckQueuedMs) {
+            watchdog_stuck_queued = true;
+            stageBeaconValues.status_resume_watchdog_stuck_queued = nowIso();
+          }
+        } catch {}
+
+        if (canTrigger && resumeStatus === "queued" && !forceResume && !watchdog_stuck_queued) {
           const cooldownMs = 60_000;
           let lastTriggeredTs = 0;
 
@@ -2464,46 +2535,145 @@ async function handler(req, context) {
             if (workerRes && typeof workerRes.text === "function") workerText = await workerRes.text();
           } catch {}
 
-          resume_triggered = Boolean(workerRes?.ok);
-          if (!resume_triggered) {
-            const statusCode = Number(workerRes?.status || 0) || 0;
-            const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
+          const statusCode = Number(workerRes?.status || 0) || 0;
+          const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
 
-            resume_trigger_error = workerRes?._error?.message || `resume_worker_http_${statusCode}`;
+          let workerJson = null;
+          try {
+            workerJson = workerText ? JSON.parse(workerText) : null;
+          } catch {
+            workerJson = null;
+          }
+
+          const responseOk = workerJson && typeof workerJson === "object" ? workerJson.ok : null;
+          const triggerOk = Boolean(workerRes?.ok) && responseOk !== false;
+
+          resume_triggered = triggerOk;
+
+          const triggerResult = {
+            ok: triggerOk,
+            invocation: "in_process",
+            http_status: statusCode,
+            triggered_at: triggerAttemptAt,
+            request_id: resume_trigger_request_id || null,
+            gateway_key_attached: Boolean(resume_gateway_key_attached),
+            response:
+              workerJson && typeof workerJson === "object"
+                ? {
+                    ok: responseOk !== false,
+                    stage_beacon: typeof workerJson.stage_beacon === "string" ? workerJson.stage_beacon : null,
+                    resume_needed: typeof workerJson.resume_needed === "boolean" ? workerJson.resume_needed : null,
+                    error:
+                      (typeof workerJson.error === "string" && workerJson.error.trim() ? workerJson.error.trim() : null) ||
+                      (typeof workerJson.root_cause === "string" && workerJson.root_cause.trim() ? workerJson.root_cause.trim() : null) ||
+                      null,
+                  }
+                : {
+                    response_text_preview: preview || null,
+                  },
+          };
+
+          if (!triggerOk) {
+            const baseErr =
+              (workerJson && typeof workerJson === "object" && typeof workerJson.error === "string" && workerJson.error.trim()
+                ? workerJson.error.trim()
+                : null) ||
+              (workerJson && typeof workerJson === "object" && typeof workerJson.root_cause === "string" && workerJson.root_cause.trim()
+                ? workerJson.root_cause.trim()
+                : null) ||
+              workerRes?._error?.message ||
+              `resume_worker_http_${statusCode}`;
+
+            resume_trigger_error = watchdog_stuck_queued ? "resume_worker_stuck_or_trigger_failed" : baseErr;
             resume_trigger_error_details = {
-              invocation: "in_process",
-              http_status: statusCode,
+              ...triggerResult,
               response_text_preview: preview || null,
-              gateway_key_attached: Boolean(resume_gateway_key_attached),
-              request_id: resume_trigger_request_id || null,
+              watchdog: watchdog_stuck_queued
+                ? {
+                    stuck_ms: resumeStuckQueuedMs,
+                    last_finished_at: watchdog_last_finished_at,
+                  }
+                : null,
             };
+          }
 
-            // Persist deterministic diagnosis signals so AdminImport can render a concrete message.
+          // Always persist the trigger result so /api/import/status can be truthful even if the worker never re-enters.
+          try {
+            const sessionDocId = `_import_session_${sessionId}`;
+            const sessionDocAfter = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+
+            const enteredTs = Date.parse(String(sessionDocAfter?.resume_worker_handler_entered_at || "")) || 0;
+            const attemptTs = Date.parse(String(triggerAttemptAt || "")) || Date.now();
+
+            const rejectLayer =
+              statusCode === 401
+                ? enteredTs && enteredTs >= attemptTs - 5000
+                  ? "handler"
+                  : "gateway"
+                : null;
+
+            if (sessionDocAfter && typeof sessionDocAfter === "object") {
+              await upsertDoc(container, {
+                ...sessionDocAfter,
+                resume_worker_last_trigger_result: triggerResult,
+                resume_worker_last_trigger_ok: triggerOk,
+                resume_worker_last_trigger_http_status: statusCode,
+                resume_worker_last_trigger_request_id: resume_trigger_request_id || null,
+                resume_worker_last_gateway_key_attached: Boolean(resume_gateway_key_attached),
+                ...(triggerOk
+                  ? {}
+                  : {
+                      resume_error: String(resume_trigger_error || "").trim() || "resume_worker_trigger_failed",
+                      resume_error_details:
+                        resume_trigger_error_details && typeof resume_trigger_error_details === "object" ? resume_trigger_error_details : null,
+                      resume_needed: true,
+                      resume_worker_last_http_status: statusCode,
+                      resume_worker_last_reject_layer: rejectLayer,
+                    }),
+                updated_at: nowIso(),
+              }).catch(() => null);
+            }
+          } catch {}
+
+          if (watchdog_stuck_queued && !triggerOk) {
+            const erroredAt = nowIso();
+            resume_status = "error";
+
+            try {
+              const resumeDoc = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+              if (resumeDoc && typeof resumeDoc === "object") {
+                await upsertDoc(container, {
+                  ...resumeDoc,
+                  status: "error",
+                  last_error: {
+                    code: "resume_worker_stuck_or_trigger_failed",
+                    message: "Resume worker queued but no worker activity; retrigger failed",
+                    last_finished_at: watchdog_last_finished_at,
+                    trigger_result: triggerResult,
+                  },
+                  updated_at: erroredAt,
+                  lock_expires_at: null,
+                }).catch(() => null);
+              }
+            } catch {}
+
             try {
               const sessionDocId = `_import_session_${sessionId}`;
               const sessionDocAfter = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
-
-              const enteredTs = Date.parse(String(sessionDocAfter?.resume_worker_handler_entered_at || "")) || 0;
-              const attemptTs = Date.parse(String(triggerAttemptAt || "")) || Date.now();
-
-              const rejectLayer =
-                statusCode === 401
-                  ? enteredTs && enteredTs >= attemptTs - 5000
-                    ? "handler"
-                    : "gateway"
-                  : null;
-
               if (sessionDocAfter && typeof sessionDocAfter === "object") {
                 await upsertDoc(container, {
                   ...sessionDocAfter,
-                  resume_error: resume_trigger_error,
-                  resume_error_details: resume_trigger_error_details,
+                  resume_error: "resume_worker_stuck_or_trigger_failed",
+                  resume_error_details: {
+                    ...((resume_trigger_error_details && typeof resume_trigger_error_details === "object")
+                      ? resume_trigger_error_details
+                      : {}),
+                    updated_at: erroredAt,
+                  },
                   resume_needed: true,
-                  resume_worker_last_http_status: statusCode,
-                  resume_worker_last_reject_layer: rejectLayer,
-                  resume_worker_last_trigger_request_id: resume_trigger_request_id || null,
-                  resume_worker_last_gateway_key_attached: Boolean(resume_gateway_key_attached),
-                  updated_at: nowIso(),
+                  status: "error",
+                  stage_beacon: "enrichment_resume_error",
+                  updated_at: erroredAt,
                 }).catch(() => null);
               }
             } catch {}
