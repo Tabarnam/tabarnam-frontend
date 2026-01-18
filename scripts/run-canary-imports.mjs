@@ -158,7 +158,7 @@ async function runCanary(url) {
   origLog("session_id: " + sessionId);
 
   let lastStatus = null;
-  const maxPolls = 120;
+  const maxPolls = 75;
 
   for (let i = 0; i < maxPolls; i += 1) {
     const statusReq = makeReq({
