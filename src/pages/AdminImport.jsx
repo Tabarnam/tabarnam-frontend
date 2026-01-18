@@ -637,14 +637,18 @@ export default function AdminImport() {
                 ? incomingVerifiedIds.length
                 : null;
 
-        const saved =
-          savedVerifiedCount != null
-            ? savedVerifiedCount
-            : incomingVerifiedIds.length > 0
-              ? incomingVerifiedIds.length
-              : savedCompanies.length > 0
-                ? savedCompanies.length
-                : 0;
+        const savedVerifiedCountNormalized =
+          typeof savedVerifiedCount === "number" && Number.isFinite(savedVerifiedCount) ? savedVerifiedCount : null;
+
+        const persistedCount = Math.max(
+          savedCompanies.length,
+          incomingVerifiedIds.length,
+          incomingUnverifiedIds.length,
+          Number.isFinite(Number(body?.saved)) ? Number(body.saved) : 0,
+          savedVerifiedCountNormalized != null ? savedVerifiedCountNormalized : 0
+        );
+
+        const saved = persistedCount;
 
         const reconciled = Boolean(body?.reconciled);
         const reconcileStrategy = asString(body?.reconcile_strategy).trim();
@@ -682,7 +686,10 @@ export default function AdminImport() {
 
         // If at least one company is already saved (verified), we can pause polling while resume-worker
         // continues enrichment. This is NOT a terminal "Completed" state.
-        const shouldPauseForResume = resumeNeeded && saved > 0 && !isTerminalError && !isTerminalComplete;
+        const resumeStatusLabel = asString(body?.resume?.status).trim();
+
+        const shouldBackoffForResume =
+          resumeNeeded && saved > 0 && !isTerminalError && !isTerminalComplete && resumeStatusLabel !== "stalled";
 
         const lastErrorCode = asString(lastError?.code).trim();
         const primaryTimeoutLabel = formatDurationShort(lastError?.hard_timeout_ms);
@@ -844,8 +851,8 @@ export default function AdminImport() {
               start_error: nextStartError,
               start_error_details: nextStartErrorDetails,
               progress_error: nextProgressError,
-              progress_notice: shouldPauseForResume
-                ? `Saved (verified): ${savedCount}. Resume needed — enrichment will continue in the background.`
+              progress_notice: shouldBackoffForResume
+                ? `Resume ${resumeStatusLabel || "queued"}, waiting for worker. Polling will slow down.`
                 : r.progress_notice,
               updatedAt: new Date().toISOString(),
             };
@@ -866,15 +873,7 @@ export default function AdminImport() {
           return { shouldStop: true, body };
         }
 
-        if (shouldPauseForResume) {
-          try {
-            setActiveStatus((prev) => (prev === "running" ? "done" : prev));
-          } catch {}
-          toast.info("Saved (verified). Enrichment pending — use Retry resume if it gets stuck.");
-          return { shouldStop: true, body, stop_reason: "resume_needed" };
-        }
-
-        return { shouldStop: timedOut || stopped, body };
+        return { shouldStop: timedOut || stopped, body, shouldBackoff: shouldBackoffForResume };
       } catch (e) {
         const msg = toErrorString(e) || "Progress failed";
         setRuns((prev) => prev.map((r) => (r.session_id === session_id ? { ...r, progress_error: msg } : r)));
