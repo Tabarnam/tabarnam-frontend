@@ -4064,9 +4064,9 @@ export default function AdminImport() {
                                 <div className="mt-1 text-sm text-slate-600">No URL</div>
                               )}
 
-                              {primaryDocError && savedCount > 0 ? (
+                              {primaryDocError && persistedCount > 0 ? (
                                 <div className="mt-1 text-xs text-amber-900 break-words">
-                                  Saved (verified) but cannot read company doc: {asString(primaryDocError.message).trim() || "unknown error"}
+                                  Saved but cannot read company doc: {asString(primaryDocError.message).trim() || "unknown error"}
                                 </div>
                               ) : null}
                             </div>
