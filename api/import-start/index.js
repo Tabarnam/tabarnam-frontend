@@ -39,6 +39,7 @@ const {
   checkUrlHealthAndFetchText,
 } = require("../_reviewQuality");
 const { fillCompanyBaselineFromWebsite } = require("../_websiteBaseline");
+const { fetchCuratedReviews: fetchCuratedReviewsGrok } = require("../_grokEnrichment");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { mergeCompanyDocsForSession: mergeCompanyDocsForSessionExternal } = require("../_companyDocMerge");
 const { applyEnrichment } = require("../_applyEnrichment");
@@ -8368,77 +8369,89 @@ Output JSON only:
               try {
                 const companyForReviews = company.website_url ? company : { ...company, website_url: effectiveWebsiteUrl };
 
-                const editorialReviews = await fetchEditorialReviews(
-                  companyForReviews,
+                const grokReviews = await fetchCuratedReviewsGrok({
+                  companyName: String(companyForReviews.company_name || "").trim(),
+                  normalizedDomain:
+                    String(companyForReviews.normalized_domain || "").trim() || toNormalizedDomain(effectiveWebsiteUrl),
+                  budgetMs: Math.min(
+                    12000,
+                    Math.max(
+                      3000,
+                      (typeof getRemainingMs === "function" ? getRemainingMs() : 12000) - DEADLINE_SAFETY_BUFFER_MS
+                    )
+                  ),
                   xaiUrl,
                   xaiKey,
-                  timeout,
-                  debugOutput ? debugOutput.reviews_debug : null,
-                  {
-                    setStage,
-                    postXaiJsonWithBudget: postXaiJsonWithBudgetRetry,
-                    getRemainingMs,
-                    deadlineSafetyBufferMs: DEADLINE_SAFETY_BUFFER_MS,
-                  },
-                  warnReviews
-                );
-
-                const fetchOk = editorialReviews?._fetch_ok !== false;
-                const fetchErrorCode = typeof editorialReviews?._fetch_error_code === "string" ? editorialReviews._fetch_error_code : null;
-                const fetchErrorMsg = typeof editorialReviews?._fetch_error === "string" ? editorialReviews._fetch_error : null;
-
-                const curated = dedupeCuratedReviews(editorialReviews);
-                const candidateCount =
-                  typeof editorialReviews?._candidate_count === "number" && Number.isFinite(editorialReviews._candidate_count)
-                    ? editorialReviews._candidate_count
-                    : Array.isArray(editorialReviews)
-                      ? editorialReviews.length
-                      : 0;
-
-                const rejectedCount =
-                  typeof editorialReviews?._rejected_count === "number" && Number.isFinite(editorialReviews._rejected_count)
-                    ? editorialReviews._rejected_count
-                    : null;
+                  model: "grok-4-latest",
+                });
 
                 const reviewsStageStatus =
-                  typeof editorialReviews?._stage_status === "string" && editorialReviews._stage_status.trim()
-                    ? editorialReviews._stage_status.trim()
-                    : fetchOk
-                      ? candidateCount === 0
-                        ? "exhausted"
-                        : curated.length === 0 && candidateCount > 0
-                          ? "no_valid_reviews_found"
-                          : "ok"
-                      : "upstream_unreachable";
+                  typeof grokReviews?.reviews_stage_status === "string" && grokReviews.reviews_stage_status.trim()
+                    ? grokReviews.reviews_stage_status.trim()
+                    : "upstream_unreachable";
 
-                const reviewsTelemetry = editorialReviews?._telemetry && typeof editorialReviews._telemetry === "object" ? editorialReviews._telemetry : null;
-                const candidatesDebug = Array.isArray(editorialReviews?._candidates_debug) ? editorialReviews._candidates_debug : [];
+                const fetchOk = reviewsStageStatus !== "upstream_unreachable";
+                const fetchErrorCode = fetchOk ? null : "REVIEWS_UPSTREAM_UNREACHABLE";
+                const fetchErrorMsg =
+                  fetchOk ? null : typeof grokReviews?.diagnostics?.error === "string" ? grokReviews.diagnostics.error : "Reviews fetch failed";
+
+                const curated = dedupeCuratedReviews(Array.isArray(grokReviews?.curated_reviews) ? grokReviews.curated_reviews : []);
+                const candidateCount =
+                  typeof grokReviews?.diagnostics?.candidate_count === "number" && Number.isFinite(grokReviews.diagnostics.candidate_count)
+                    ? grokReviews.diagnostics.candidate_count
+                    : Array.isArray(grokReviews?.curated_reviews)
+                      ? grokReviews.curated_reviews.length
+                      : 0;
+
+                const rejectedCount = Math.max(0, candidateCount - curated.length);
+
+                const reviewsTelemetry = {
+                  stage_status: reviewsStageStatus,
+                  review_candidates_fetched_count: candidateCount,
+                  review_candidates_considered_count: candidateCount,
+                  review_candidates_rejected_count: rejectedCount,
+                  review_candidates_rejected_reasons: {},
+                  review_validated_count: curated.length,
+                  review_saved_count: curated.length,
+                  duplicate_host_used_as_fallback: false,
+                  time_budget_exhausted: false,
+                  upstream_status: null,
+                  upstream_error_code: fetchOk ? null : fetchErrorCode,
+                  upstream_failure_buckets: {
+                    upstream_4xx: 0,
+                    upstream_5xx: 0,
+                    upstream_rate_limited: 0,
+                    upstream_unreachable: fetchOk ? 0 : 1,
+                  },
+                  excluded_websites_original_count:
+                    typeof grokReviews?.search_telemetry?.excluded_websites_original_count === "number"
+                      ? grokReviews.search_telemetry.excluded_websites_original_count
+                      : null,
+                  excluded_websites_used_count:
+                    typeof grokReviews?.search_telemetry?.excluded_websites_used_count === "number"
+                      ? grokReviews.search_telemetry.excluded_websites_used_count
+                      : null,
+                  excluded_websites_truncated:
+                    typeof grokReviews?.search_telemetry?.excluded_websites_truncated === "boolean"
+                      ? grokReviews.search_telemetry.excluded_websites_truncated
+                      : null,
+                  excluded_hosts_spilled_to_prompt_count:
+                    typeof grokReviews?.search_telemetry?.excluded_hosts_spilled_to_prompt_count === "number"
+                      ? grokReviews.search_telemetry.excluded_hosts_spilled_to_prompt_count
+                      : null,
+                };
+
+                const candidatesDebug = [];
 
                 // Only mark reviews "exhausted" when upstream returned *no candidates*.
-                // If we timed out or validation rejected candidates, leave the cursor open.
                 const cursorExhausted = fetchOk && reviewsStageStatus === "exhausted";
 
-                const fetchErrorDetail =
-                  editorialReviews && typeof editorialReviews === "object" ? editorialReviews._fetch_error_detail : null;
-
-                const cursorError =
-                  reviewsStageStatus === "timed_out"
-                    ? {
-                        code: "REVIEWS_TIMED_OUT",
-                        message: "Review validation stopped early due to time budget",
-                      }
-                    : !fetchOk
-                      ? {
-                          code: fetchErrorCode || "REVIEWS_FAILED",
-                          message: fetchErrorMsg || "Reviews fetch failed",
-                          ...(fetchErrorDetail && typeof fetchErrorDetail === "object" ? { detail: fetchErrorDetail } : {}),
-                        }
-                      : curated.length === 0 && candidateCount > 0
-                        ? {
-                            code: "REVIEWS_VALIDATION_REJECTED",
-                            message: "Upstream returned review candidates but none passed validation",
-                          }
-                        : null;
+                const cursorError = !fetchOk
+                  ? {
+                      code: fetchErrorCode || "REVIEWS_FAILED",
+                      message: fetchErrorMsg || "Reviews fetch failed",
+                    }
+                  : null;
 
                 const cursor = buildReviewCursor({
                   nowIso: nowReviewsIso,
