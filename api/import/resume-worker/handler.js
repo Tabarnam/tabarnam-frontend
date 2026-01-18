@@ -843,7 +843,7 @@ async function resumeWorkerHandler(req, context) {
 
     missing_by_company = seedDocs
       .map((d) => {
-        const missing = computeMissingFields(d);
+        const missing = computeRetryableMissingFields(d);
         if (missing.length === 0) return null;
         return {
           company_id: String(d?.id || "").trim(),
@@ -1023,7 +1023,7 @@ async function resumeWorkerHandler(req, context) {
           seedDocs = refreshedFinal;
           missing_by_company = seedDocs
             .map((d) => {
-              const missing = computeMissingFields(d);
+              const missing = computeRetryableMissingFields(d);
               if (missing.length === 0) return null;
               return {
                 company_id: String(d?.id || "").trim(),
