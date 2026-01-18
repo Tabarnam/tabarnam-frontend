@@ -456,29 +456,35 @@ function isTrueish(value) {
   return s === "true" || s === "1" || s === "yes" || s === "y";
 }
 
-function isTerminalMissingField(doc, field) {
+function isTerminalMissingReason(reason) {
+  return new Set([
+    "low_quality_terminal",
+    "not_found_terminal",
+    "conflicting_sources_terminal",
+    "not_disclosed",
+    "exhausted",
+    "not_found_on_site" // only if still used for other fields like logo, not HQ/MFG/Reviews
+  ]).has(reason);
+}
+
+function deriveMissingReason(doc, field) {
   const d = doc && typeof doc === "object" ? doc : {};
   const f = String(field || "").trim();
 
-  // low_quality / not_found terminalization (set by import-start after N attempts)
-  if (f === "industries" || f === "product_keywords") {
-    const reasons =
-      d.import_missing_reason && typeof d.import_missing_reason === "object" && !Array.isArray(d.import_missing_reason)
-        ? d.import_missing_reason
-        : {};
-    const reason = normalizeMissingKey(reasons[f] || "");
-    if (reason === "low_quality_terminal" || reason === "not_found_terminal") return true;
-  }
+  const reasons =
+    d.import_missing_reason && typeof d.import_missing_reason === "object" && !Array.isArray(d.import_missing_reason)
+      ? d.import_missing_reason
+      : {};
+
+  const direct = normalizeMissingKey(reasons[f] || "");
+  if (direct) return direct;
 
   if (f === "headquarters_location") {
-    if (isTrueish(d.hq_unknown)) return true;
     const val = normalizeMissingKey(d.headquarters_location);
-    return val === "not disclosed" || val === "not_disclosed";
+    if (val === "not disclosed" || val === "not_disclosed") return "not_disclosed";
   }
 
   if (f === "manufacturing_locations") {
-    if (isTrueish(d.mfg_unknown)) return true;
-
     const rawList = Array.isArray(d.manufacturing_locations)
       ? d.manufacturing_locations
       : d.manufacturing_locations == null
@@ -495,23 +501,28 @@ function isTerminalMissingField(doc, field) {
       })
       .filter(Boolean);
 
-    if (normalized.length === 0) return false;
-
-    return normalized.every((v) => v === "not disclosed" || v === "not_disclosed");
+    if (normalized.length > 0 && normalized.every((v) => v === "not disclosed" || v === "not_disclosed")) {
+      return "not_disclosed";
+    }
   }
 
   if (f === "reviews") {
     const stage = normalizeMissingKey(d.reviews_stage_status || d.review_cursor?.reviews_stage_status);
-    if (stage === "exhausted") return true;
-    return Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true);
+    if (stage === "exhausted") return "exhausted";
+    if (Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true)) return "exhausted";
   }
 
   if (f === "logo") {
     const stage = normalizeMissingKey(d.logo_stage_status || d.logo_status);
-    return stage === "not_found_on_site";
+    if (stage === "not_found_on_site") return "not_found_on_site";
   }
 
-  return false;
+  return "";
+}
+
+function isTerminalMissingField(doc, field) {
+  const reason = deriveMissingReason(doc, field);
+  return isTerminalMissingReason(reason);
 }
 
 function analyzeMissingFieldsForResume(docs) {
@@ -1193,11 +1204,9 @@ async function handler(req, context) {
       resumeDocStatus === "complete" && resumeMissingAnalysis.total_retryable_missing === 0;
 
     // If the saved companies are only missing terminal fields (or none), ignore stale control-doc resume_needed/resume-doc existence.
-    let resume_needed = forceResume
-      ? true
-      : resumeMissingAnalysis.terminal_only || forceTerminalComplete
-        ? false
-        : Boolean(resumeNeededFromSession || resumeNeededFromHealth || resumeDocExists);
+    const retryableMissingCount = Number(resumeMissingAnalysis?.total_retryable_missing || 0) || 0;
+
+    let resume_needed = forceResume ? true : retryableMissingCount > 0;
 
     // Reflect terminal completion in the report payload as well.
     if ((resumeMissingAnalysis.terminal_only || forceTerminalComplete) && report?.session) {
@@ -1472,7 +1481,10 @@ async function handler(req, context) {
     const reportSessionStageBeacon = typeof report?.session?.stage_beacon === "string" ? report.session.stage_beacon.trim() : "";
 
     const forceComplete = Boolean(
-      resumeMissingAnalysis?.terminal_only ||
+      (!forceResume &&
+        (Number(saved || 0) > 0 || (Array.isArray(saved_companies) && saved_companies.length > 0)) &&
+        Number(resumeMissingAnalysis?.total_retryable_missing || 0) === 0) ||
+        resumeMissingAnalysis?.terminal_only ||
         reportSessionStatus === "complete" ||
         reportSessionStageBeacon === "complete"
     );
@@ -1497,19 +1509,15 @@ async function handler(req, context) {
         ? report.session.stage_beacon.trim()
         : "";
 
-    const retryableMissing = Number(resumeMissingAnalysis?.total_retryable_missing || 0) || 0;
     const resumeStatusForBeacon = String(resume_status || "").trim();
 
     const resumeStageBeacon = (() => {
-      if (!resume_needed) return null;
-      if (resumeStatusForBeacon === "running") return "enrichment_resume_running";
       if (resumeStatusForBeacon === "queued") return "enrichment_resume_queued";
+      if (resumeStatusForBeacon === "running") return "enrichment_resume_running";
       if (resumeStatusForBeacon === "stalled") return "enrichment_resume_stalled";
       if (resumeStatusForBeacon === "error") return "enrichment_resume_error";
-      if (resumeStatusForBeacon === "complete") {
-        return retryableMissing > 0 ? "enrichment_incomplete_retryable" : "complete";
-      }
-      return "enrichment_resume_pending";
+      if (retryableMissingCount > 0) return "enrichment_incomplete_retryable";
+      return "complete";
     })();
 
     const shouldShowCompleteBeacon = Boolean((effectiveStatus === "complete" && !resume_needed) || forceComplete);
@@ -2258,7 +2266,12 @@ async function handler(req, context) {
 
     const sessionStatus = typeof sessionDoc?.status === "string" ? sessionDoc.status.trim() : "";
 
-    const forceComplete = Boolean(resumeMissingAnalysis.terminal_only || sessionStatus === "complete" || stage_beacon === "complete");
+    const forceComplete = Boolean(
+      (!forceResume && Number(saved || 0) > 0 && Number(resumeMissingAnalysis?.total_retryable_missing || 0) === 0) ||
+        resumeMissingAnalysis.terminal_only ||
+        sessionStatus === "complete" ||
+        stage_beacon === "complete"
+    );
     if (forceComplete) stage_beacon = "complete";
 
     stageBeaconValues.status_resume_missing_total = resumeMissingAnalysis.total_missing;
@@ -2279,11 +2292,9 @@ async function handler(req, context) {
     const forceTerminalComplete = resumeDocStatus === "complete" && resumeMissingAnalysis.total_retryable_missing === 0;
 
     // Terminal-only missing fields must not keep the session "running".
-    let resume_needed = forceResume
-      ? true
-      : resumeMissingAnalysis.terminal_only || forceTerminalComplete
-        ? false
-        : Boolean(sessionDoc?.resume_needed) || resumeNeededFromHealth || Boolean(resumeDoc);
+    const retryableMissingCount = Number(resumeMissingAnalysis?.total_retryable_missing || 0) || 0;
+
+    let resume_needed = forceResume ? true : retryableMissingCount > 0;
 
     if ((resumeMissingAnalysis.terminal_only || forceTerminalComplete) && sessionDoc && sessionDoc.resume_needed) {
       const now = nowIso();
@@ -2519,19 +2530,15 @@ async function handler(req, context) {
     }
 
     // Stage beacon must reflect resume control doc status so the UI can back off polling.
-    const retryableMissing = Number(resumeMissingAnalysis?.total_retryable_missing || 0) || 0;
     const resumeStatusForBeacon = String(resume_status || "").trim();
 
     const resumeStageBeacon = (() => {
-      if (!resume_needed) return null;
-      if (resumeStatusForBeacon === "running") return "enrichment_resume_running";
       if (resumeStatusForBeacon === "queued") return "enrichment_resume_queued";
+      if (resumeStatusForBeacon === "running") return "enrichment_resume_running";
       if (resumeStatusForBeacon === "stalled") return "enrichment_resume_stalled";
       if (resumeStatusForBeacon === "error") return "enrichment_resume_error";
-      if (resumeStatusForBeacon === "complete") {
-        return retryableMissing > 0 ? "enrichment_incomplete_retryable" : "complete";
-      }
-      return "enrichment_resume_pending";
+      if (retryableMissingCount > 0) return "enrichment_incomplete_retryable";
+      return "complete";
     })();
 
     if (!forceComplete) {
