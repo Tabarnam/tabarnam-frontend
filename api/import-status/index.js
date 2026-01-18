@@ -542,8 +542,8 @@ function analyzeMissingFieldsForResume(docs) {
   };
 }
 
-function summarizeEnrichmentHealth(savedCompanies) {
-  const list = Array.isArray(savedCompanies) ? savedCompanies : [];
+function summarizeEnrichmentHealth(saved_companies) {
+  const list = Array.isArray(saved_companies) ? saved_companies : [];
   const incomplete = list.filter((c) => Array.isArray(c?.enrichment_health?.missing_fields) && c.enrichment_health.missing_fields.length > 0);
   const missingCounts = {};
 
