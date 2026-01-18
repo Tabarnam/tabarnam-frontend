@@ -16,7 +16,12 @@ const {
 } = require("../../_internalJobAuth");
 
 const { getBuildInfo } = require("../../_buildInfo");
-const { computeMissingFields } = require("../../_requiredFields");
+const {
+  computeMissingFields,
+  deriveMissingReason,
+  isTerminalMissingReason,
+  isTerminalMissingField,
+} = require("../../_requiredFields");
 
 const {
   fetchCuratedReviews,
@@ -140,74 +145,98 @@ function assertNoWebsiteFallback(field) {
   return false;
 }
 
-function isTrueish(value) {
-  if (value === true) return true;
-  if (value === false) return false;
-  const s = String(value ?? "").trim().toLowerCase();
-  return s === "true" || s === "1" || s === "yes" || s === "y";
-}
+function reconcileGrokTerminalState(doc) {
+  if (!doc || typeof doc !== "object") return false;
 
-function isTerminalMissingReason(reason) {
-  // Spec: only these terminal reasons should prevent resume from continuing.
-  return new Set(["not_disclosed", "exhausted", "low_quality_terminal", "not_found_terminal"]).has(reason);
-}
+  let changed = false;
+  doc.import_missing_reason ||= {};
 
-function deriveMissingReason(doc, field) {
-  const d = doc && typeof doc === "object" ? doc : {};
-  const f = String(field || "").trim();
-
-  const reasons =
-    d.import_missing_reason && typeof d.import_missing_reason === "object" && !Array.isArray(d.import_missing_reason)
-      ? d.import_missing_reason
-      : {};
-
-  const direct = normalizeKey(reasons[f] || "");
-  if (direct) return direct;
-
-  if (f === "headquarters_location") {
-    const val = normalizeKey(d.headquarters_location);
-    if (val === "not disclosed" || val === "not_disclosed") return "not_disclosed";
-  }
-
-  if (f === "manufacturing_locations") {
-    const rawList = Array.isArray(d.manufacturing_locations)
-      ? d.manufacturing_locations
-      : d.manufacturing_locations == null
-        ? []
-        : [d.manufacturing_locations];
-
-    const normalized = rawList
-      .map((loc) => {
-        if (typeof loc === "string") return normalizeKey(loc);
-        if (loc && typeof loc === "object") {
-          return normalizeKey(loc.formatted || loc.full_address || loc.address || loc.location);
-        }
-        return "";
-      })
-      .filter(Boolean);
-
-    if (normalized.length > 0 && normalized.every((v) => v === "not disclosed" || v === "not_disclosed")) {
-      return "not_disclosed";
+  const hqVal = normalizeKey(doc.headquarters_location);
+  if (hqVal === "not disclosed" || hqVal === "not_disclosed") {
+    if (doc.hq_unknown !== true) {
+      doc.hq_unknown = true;
+      changed = true;
+    }
+    if (normalizeKey(doc.hq_unknown_reason) !== "not_disclosed") {
+      doc.hq_unknown_reason = "not_disclosed";
+      changed = true;
+    }
+    if (normalizeKey(doc.import_missing_reason.headquarters_location) !== "not_disclosed") {
+      doc.import_missing_reason.headquarters_location = "not_disclosed";
+      changed = true;
     }
   }
 
-  if (f === "reviews") {
-    const stage = normalizeKey(d.reviews_stage_status || d.review_cursor?.reviews_stage_status);
-    if (stage === "exhausted") return "exhausted";
-    if (Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true)) return "exhausted";
+  const rawMfgList = Array.isArray(doc.manufacturing_locations)
+    ? doc.manufacturing_locations
+    : doc.manufacturing_locations == null
+      ? []
+      : [doc.manufacturing_locations];
+
+  const normalizedMfg = rawMfgList
+    .map((loc) => {
+      if (typeof loc === "string") return normalizeKey(loc);
+      if (loc && typeof loc === "object") {
+        return normalizeKey(loc.formatted || loc.full_address || loc.address || loc.location);
+      }
+      return "";
+    })
+    .filter(Boolean);
+
+  if (normalizedMfg.length > 0 && normalizedMfg.every((v) => v === "not disclosed" || v === "not_disclosed")) {
+    const existingList = Array.isArray(doc.manufacturing_locations) ? doc.manufacturing_locations : [];
+    if (!(existingList.length === 1 && normalizeKey(existingList[0]) === "not disclosed")) {
+      doc.manufacturing_locations = ["Not disclosed"];
+      changed = true;
+    }
+
+    if (doc.mfg_unknown !== true) {
+      doc.mfg_unknown = true;
+      changed = true;
+    }
+    if (normalizeKey(doc.mfg_unknown_reason) !== "not_disclosed") {
+      doc.mfg_unknown_reason = "not_disclosed";
+      changed = true;
+    }
+    if (normalizeKey(doc.import_missing_reason.manufacturing_locations) !== "not_disclosed") {
+      doc.import_missing_reason.manufacturing_locations = "not_disclosed";
+      changed = true;
+    }
   }
 
-  if (f === "logo") {
-    const stage = normalizeKey(d.logo_stage_status || d.logo_status);
-    if (stage === "not_found_on_site") return "not_found_on_site";
+  const reviewsStage = normalizeKey(doc.reviews_stage_status || doc.review_cursor?.reviews_stage_status);
+  const cursorExhausted = Boolean(doc.review_cursor && typeof doc.review_cursor === "object" && doc.review_cursor.exhausted === true);
+
+  if (reviewsStage === "exhausted" || cursorExhausted) {
+    if (normalizeKey(doc.reviews_stage_status) !== "exhausted") {
+      doc.reviews_stage_status = "exhausted";
+      changed = true;
+    }
+
+    const cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
+
+    if (cursor.exhausted !== true) {
+      cursor.exhausted = true;
+      changed = true;
+    }
+    if (normalizeKey(cursor.reviews_stage_status) !== "exhausted") {
+      cursor.reviews_stage_status = "exhausted";
+      changed = true;
+    }
+    if (!cursor.exhausted_at) {
+      cursor.exhausted_at = nowIso();
+      changed = true;
+    }
+
+    doc.review_cursor = cursor;
+
+    if (normalizeKey(doc.import_missing_reason.reviews) !== "exhausted") {
+      doc.import_missing_reason.reviews = "exhausted";
+      changed = true;
+    }
   }
 
-  return "";
-}
-
-function isTerminalMissingField(doc, field) {
-  const reason = deriveMissingReason(doc, field);
-  return isTerminalMissingReason(reason);
+  return changed;
 }
 
 function computeRetryableMissingFields(doc) {
@@ -668,6 +697,8 @@ async function resumeWorkerHandler(req, context) {
     const normalizedDomain = String(doc.normalized_domain || "").trim();
 
     let changed = false;
+
+    if (reconcileGrokTerminalState(doc)) changed = true;
 
     // HQ
     if (missingNow.includes("headquarters_location")) {
