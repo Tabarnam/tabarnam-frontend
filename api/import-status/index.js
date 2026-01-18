@@ -460,14 +460,14 @@ function isTerminalMissingField(doc, field) {
   const d = doc && typeof doc === "object" ? doc : {};
   const f = String(field || "").trim();
 
-  // low_quality terminalization (set by import-start after N attempts)
+  // low_quality / not_found terminalization (set by import-start after N attempts)
   if (f === "industries" || f === "product_keywords") {
     const reasons =
       d.import_missing_reason && typeof d.import_missing_reason === "object" && !Array.isArray(d.import_missing_reason)
         ? d.import_missing_reason
         : {};
     const reason = normalizeMissingKey(reasons[f] || "");
-    if (reason === "low_quality_terminal") return true;
+    if (reason === "low_quality_terminal" || reason === "not_found_terminal") return true;
   }
 
   if (f === "headquarters_location") {
