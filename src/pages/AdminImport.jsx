@@ -1127,23 +1127,65 @@ export default function AdminImport() {
   );
 
   const schedulePoll = useCallback(
-    ({ session_id }) => {
+    ({ session_id, delayMs } = {}) => {
+      const sid = asString(session_id).trim();
+      if (!sid) return;
+
       stopPolling();
-      setPollingSessionId(asString(session_id).trim());
+      setPollingSessionId(sid);
+
+      const initialDelay = Number.isFinite(Number(delayMs)) ? Math.max(500, Number(delayMs)) : DEFAULT_POLL_INTERVAL_MS;
+
       pollTimerRef.current = setTimeout(async () => {
-        const prevAttempts = pollAttemptsRef.current.get(session_id) || 0;
+        const prevAttempts = pollAttemptsRef.current.get(sid) || 0;
         const nextAttempts = prevAttempts + 1;
-        pollAttemptsRef.current.set(session_id, nextAttempts);
+        pollAttemptsRef.current.set(sid, nextAttempts);
 
-        if (nextAttempts > POLL_MAX_ATTEMPTS) {
-          let latestBody = null;
-          try {
-            const latest = await pollProgress({ session_id });
-            latestBody = latest?.body || null;
-          } catch {}
+        const result = await pollProgress({ session_id: sid }).catch((e) => ({ shouldStop: false, error: e }));
+        const latestBody = result?.body || null;
 
-          const resumeNeeded = Boolean(latestBody?.resume_needed);
-          const resumeWorker = latestBody?.resume_worker && typeof latestBody.resume_worker === "object" ? latestBody.resume_worker : null;
+        const resumeNeeded = Boolean(latestBody?.resume_needed);
+        const resumeStatus = asString(latestBody?.resume?.status).trim();
+        const stageBeaconNow = asString(latestBody?.stage_beacon).trim();
+
+        const shouldBackoffForResume =
+          resumeNeeded &&
+          (resumeStatus === "queued" ||
+            resumeStatus === "running" ||
+            stageBeaconNow === "enrichment_resume_queued" ||
+            stageBeaconNow === "enrichment_resume_running" ||
+            stageBeaconNow === "enrichment_incomplete_retryable");
+
+        const computeNextDelayMs = () => {
+          if (
+            resumeNeeded &&
+            (resumeStatus === "queued" ||
+              stageBeaconNow === "enrichment_resume_queued" ||
+              stageBeaconNow === "enrichment_incomplete_retryable")
+          ) {
+            const currentIndex = pollBackoffRef.current.get(sid) || 0;
+            const idx = Math.max(0, Math.min(currentIndex, RESUME_POLL_BACKOFF_MS.length - 1));
+            pollBackoffRef.current.set(sid, Math.min(idx + 1, RESUME_POLL_BACKOFF_MS.length - 1));
+
+            // Don't let queued resume runs hit the tight-poll max.
+            pollAttemptsRef.current.set(sid, 0);
+
+            return RESUME_POLL_BACKOFF_MS[idx];
+          }
+
+          if (resumeNeeded && (resumeStatus === "running" || stageBeaconNow === "enrichment_resume_running")) {
+            pollBackoffRef.current.set(sid, 0);
+            pollAttemptsRef.current.set(sid, 0);
+            return RESUME_POLL_RUNNING_MS;
+          }
+
+          pollBackoffRef.current.delete(sid);
+          return DEFAULT_POLL_INTERVAL_MS;
+        };
+
+        if (nextAttempts > POLL_MAX_ATTEMPTS && !shouldBackoffForResume) {
+          const resumeWorker =
+            latestBody?.resume_worker && typeof latestBody.resume_worker === "object" ? latestBody.resume_worker : null;
           const invokedAt = asString(resumeWorker?.last_invoked_at).trim();
           const finishedAt = asString(resumeWorker?.last_finished_at).trim();
           const lastResult = asString(resumeWorker?.last_result).trim();
@@ -1193,19 +1235,17 @@ export default function AdminImport() {
               );
             }
 
-            return (
-              `Polling paused after ${POLL_MAX_ATTEMPTS} attempts. ` +
-              `Use "View status" (or "Poll now") to refresh.`
-            );
+            return `Polling paused after ${POLL_MAX_ATTEMPTS} attempts. Use "View status" (or "Poll now") to refresh.`;
           })();
 
           toast.info(msg);
           try {
             setActiveStatus((prev) => (prev === "running" ? "done" : prev));
           } catch {}
+
           setRuns((prev) =>
             prev.map((r) =>
-              r.session_id === session_id
+              r.session_id === sid
                 ? {
                     ...r,
                     progress_error: null,
@@ -1216,19 +1256,19 @@ export default function AdminImport() {
                 : r
             )
           );
+
           return;
         }
-
-        const result = await pollProgress({ session_id });
 
         if (result?.unknown_session) {
           const MAX_UNKNOWN_SESSION_ATTEMPTS = 8;
           if (nextAttempts >= MAX_UNKNOWN_SESSION_ATTEMPTS) {
-            const msg = "No session found after repeated status checks. The gateway may have interrupted before the session was created. Retry start.";
+            const msg =
+              "No session found after repeated status checks. The gateway may have interrupted before the session was created. Retry start.";
 
             setRuns((prev) =>
               prev.map((r) =>
-                r.session_id === session_id
+                r.session_id === sid
                   ? {
                       ...r,
                       progress_error: msg,
@@ -1248,7 +1288,10 @@ export default function AdminImport() {
 
         if (result?.shouldStop) {
           stopPolling();
+          pollBackoffRef.current.delete(sid);
+
           const body = result?.body;
+          const stageBeacon = asString(body?.stage_beacon).trim();
 
           const savedCompanies = Array.isArray(body?.saved_companies) ? body.saved_companies : [];
 
@@ -1260,11 +1303,11 @@ export default function AdminImport() {
                 : null;
 
           const savedCount =
-          savedVerifiedCount != null
-            ? savedVerifiedCount
-            : savedCompanies.length > 0
-              ? savedCompanies.length
-              : 0;
+            savedVerifiedCount != null
+              ? savedVerifiedCount
+              : savedCompanies.length > 0
+                ? savedCompanies.length
+                : 0;
 
           const status = asString(body?.status).trim();
           const state = asString(body?.state).trim();
@@ -1289,15 +1332,15 @@ export default function AdminImport() {
             } catch {}
 
             if (savedCount === 0) {
-              scheduleTerminalRefresh({ session_id });
+              scheduleTerminalRefresh({ session_id: sid });
             }
           }
 
           return;
         }
 
-        schedulePoll({ session_id });
-      }, 2500);
+        schedulePoll({ session_id: sid, delayMs: computeNextDelayMs() });
+      }, initialDelay);
     },
     [pollProgress, scheduleTerminalRefresh, stopPolling]
   );
