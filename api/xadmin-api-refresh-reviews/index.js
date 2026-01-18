@@ -6,7 +6,6 @@ const {
   buildPartitionKeyCandidates,
 } = require("../_cosmosPartitionKey");
 const { getXAIEndpoint, getXAIKey, getResolvedUpstreamMeta, resolveXaiEndpointForModel } = require("../_shared");
-const { checkUrlHealthAndFetchText } = require("../_reviewQuality");
 const {
   extractUpstreamRequestId,
   extractContentType,
@@ -1147,39 +1146,8 @@ async function handler(req, context, opts) {
           .map((r) => normalizeIncomingReview(r, { companyHost: companyHostForFilter }))
           .filter(Boolean);
 
-        // xAI-only reviews: do not crawl/fetch source URLs during import/refresh.
-        const incoming = [];
-        const validateReviewUrls =
-          Boolean(options?.validate_review_urls ?? options?.validateReviewUrls) && getRemainingBudgetMs() > 8000;
-        for (const r of incomingNormalized) {
-          if (!validateReviewUrls) {
-            incoming.push(r);
-            continue;
-          }
-
-          try {
-            const health = await checkUrlHealthAndFetchText(r.source_url, { timeoutMs: 2500, maxBytes: 20000 });
-            if (health?.link_status === "not_found") {
-              warnings.push({
-                stage: "reviews_refresh",
-                root_cause: "review_url_not_found",
-                upstream_status: null,
-                message: `Rejected review URL (page not found): ${asString(r.source_url).slice(0, 200)}`,
-              });
-              continue;
-            }
-
-            const finalUrl = normalizeHttpUrlOrNull(health?.final_url || r.source_url) || r.source_url;
-            incoming.push({
-              ...r,
-              source_url: finalUrl,
-              url: finalUrl,
-            });
-          } catch (e) {
-            // If validation fails unexpectedly, keep the review rather than failing the refresh.
-            incoming.push(r);
-          }
-        }
+        // Grok-only reviews: NEVER crawl/fetch source URLs.
+        const incoming = incomingNormalized;
 
         fetched_count_total += incoming.length;
 
