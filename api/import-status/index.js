@@ -1152,7 +1152,12 @@ async function handler(req, context) {
       ? false
       : Boolean(resumeNeededFromSession || resumeNeededFromHealth || resumeDocExists);
 
-    if (resumeMissingAnalysis.terminal_only && report?.session && report.session.resume_needed) {
+    // Reflect terminal-only completion in the report payload as well.
+    if (resumeMissingAnalysis.terminal_only && report?.session) {
+      report.session.resume_needed = false;
+      report.session.status = "complete";
+      report.session.stage_beacon = "complete";
+    } else if (report?.session && report.session.resume_needed === true && resume_needed === false) {
       report.session.resume_needed = false;
     }
 
@@ -1384,8 +1389,11 @@ async function handler(req, context) {
       resume_trigger_error = e?.message || String(e);
     }
 
-    const effectiveStatus = status === "error" ? "error" : status;
-    const effectiveState = status === "error" ? "failed" : state;
+    const forceComplete = Boolean(resumeMissingAnalysis?.terminal_only);
+
+    const effectiveStatus = forceComplete ? "complete" : status === "error" ? "error" : status;
+    const effectiveState = forceComplete ? "complete" : status === "error" ? "failed" : state;
+    const effectiveJobState = forceComplete ? "complete" : finalJobState;
 
     const stageBeaconFromPrimary =
       typeof primaryJob?.stage_beacon === "string" && primaryJob.stage_beacon.trim()
@@ -1447,10 +1455,10 @@ async function handler(req, context) {
         session_id: sessionId,
         status: effectiveStatus,
         state: effectiveState,
-        job_state: finalJobState,
+        job_state: effectiveJobState,
         stage_beacon: effectiveStageBeacon,
         stage_beacon_values: stageBeaconValues,
-        primary_job_state: finalJobState,
+        primary_job_state: effectiveJobState,
         last_heartbeat_at: primaryJob?.last_heartbeat_at || null,
         lock_until: primaryJob?.lock_expires_at || null,
         attempts: Number.isFinite(Number(primaryJob?.attempt)) ? Number(primaryJob.attempt) : 0,
@@ -2038,7 +2046,7 @@ async function handler(req, context) {
 
     const lastCreatedAt = Array.isArray(items) && items.length > 0 ? String(items[0]?.created_at || "") : "";
 
-    const stage_beacon =
+    let stage_beacon =
       (typeof errorDoc?.stage === "string" && errorDoc.stage.trim() ? errorDoc.stage.trim() : null) ||
       (typeof errorDoc?.error?.step === "string" && errorDoc.error.step.trim() ? errorDoc.error.step.trim() : null) ||
       (typeof sessionDoc?.stage_beacon === "string" && sessionDoc.stage_beacon.trim() ? sessionDoc.stage_beacon.trim() : null) ||
@@ -2108,6 +2116,9 @@ async function handler(req, context) {
 
     const resumeMissingAnalysis = analyzeMissingFieldsForResume(savedDocs);
     const resumeNeededFromHealth = resumeMissingAnalysis.total_retryable_missing > 0;
+
+    const forceComplete = Boolean(resumeMissingAnalysis.terminal_only);
+    if (forceComplete) stage_beacon = "complete";
 
     stageBeaconValues.status_resume_missing_total = resumeMissingAnalysis.total_missing;
     stageBeaconValues.status_resume_missing_retryable = resumeMissingAnalysis.total_retryable_missing;
@@ -2329,7 +2340,7 @@ async function handler(req, context) {
       }
     }
 
-    const effectiveCompleted = completed && !resume_needed;
+    const effectiveCompleted = forceComplete || (completed && !resume_needed);
 
     const saved_verified_count =
       sessionDoc && typeof sessionDoc.saved_verified_count === "number" && Number.isFinite(sessionDoc.saved_verified_count)
