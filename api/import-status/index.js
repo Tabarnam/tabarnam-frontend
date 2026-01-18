@@ -2079,7 +2079,7 @@ async function handler(req, context) {
     // Persisted count includes verified + unverified saved ids.
     let saved = persistedIds.length;
 
-    let savedDocs = savedIds.length > 0 ? await fetchCompaniesByIds(container, savedIds).catch(() => []) : [];
+    let savedDocs = persistedIds.length > 0 ? await fetchCompaniesByIds(container, persistedIds).catch(() => []) : [];
     let saved_companies = savedDocs.length > 0 ? toSavedCompanies(savedDocs) : [];
     let completionReason = typeof completionDoc?.reason === "string" ? completionDoc.reason : null;
 
