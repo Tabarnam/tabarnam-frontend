@@ -332,7 +332,7 @@ async function resumeWorkerHandler(req, context) {
   } catch {}
 
   let cosmosContainer = null;
-  if (cosmosEnabled && looksLikeUuid(sessionId)) {
+  if (cosmosEnabled) {
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
       const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
