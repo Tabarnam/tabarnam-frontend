@@ -1184,9 +1184,11 @@ async function handler(req, context) {
       resumeDocStatus === "complete" && resumeMissingAnalysis.total_retryable_missing === 0;
 
     // If the saved companies are only missing terminal fields (or none), ignore stale control-doc resume_needed/resume-doc existence.
-    const resume_needed = resumeMissingAnalysis.terminal_only || forceTerminalComplete
-      ? false
-      : Boolean(resumeNeededFromSession || resumeNeededFromHealth || resumeDocExists);
+    let resume_needed = forceResume
+      ? true
+      : resumeMissingAnalysis.terminal_only || forceTerminalComplete
+        ? false
+        : Boolean(resumeNeededFromSession || resumeNeededFromHealth || resumeDocExists);
 
     // Reflect terminal completion in the report payload as well.
     if ((resumeMissingAnalysis.terminal_only || forceTerminalComplete) && report?.session) {
@@ -2247,9 +2249,11 @@ async function handler(req, context) {
     const forceTerminalComplete = resumeDocStatus === "complete" && resumeMissingAnalysis.total_retryable_missing === 0;
 
     // Terminal-only missing fields must not keep the session "running".
-    const resume_needed = resumeMissingAnalysis.terminal_only || forceTerminalComplete
-      ? false
-      : Boolean(sessionDoc?.resume_needed) || resumeNeededFromHealth || Boolean(resumeDoc);
+    let resume_needed = forceResume
+      ? true
+      : resumeMissingAnalysis.terminal_only || forceTerminalComplete
+        ? false
+        : Boolean(sessionDoc?.resume_needed) || resumeNeededFromHealth || Boolean(resumeDoc);
 
     if ((resumeMissingAnalysis.terminal_only || forceTerminalComplete) && sessionDoc && sessionDoc.resume_needed) {
       const now = nowIso();
