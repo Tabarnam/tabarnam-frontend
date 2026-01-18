@@ -896,13 +896,13 @@ async function resumeWorkerHandler(req, context) {
   }
 
   const needsKeywords = missingUnion.has("industries") || missingUnion.has("product_keywords");
-  const needsReviews = missingUnion.has("reviews");
-  const needsLocation = missingUnion.has("headquarters_location") || missingUnion.has("manufacturing_locations");
 
   const skipStages = new Set(["primary", "expand"]);
   if (!needsKeywords) skipStages.add("keywords");
-  if (!needsReviews) skipStages.add("reviews");
-  if (!needsLocation) skipStages.add("location");
+
+  // IMPORTANT: HQ/MFG/Reviews are Grok-only. Never let import-start handle these stages.
+  skipStages.add("reviews");
+  skipStages.add("location");
 
   const base = new URL(req.url);
   const startUrlBase = new URL("/api/import/start", base.origin);
