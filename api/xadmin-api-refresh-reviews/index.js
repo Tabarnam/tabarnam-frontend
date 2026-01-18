@@ -6,7 +6,6 @@ const {
   buildPartitionKeyCandidates,
 } = require("../_cosmosPartitionKey");
 const { getXAIEndpoint, getXAIKey, getResolvedUpstreamMeta, resolveXaiEndpointForModel } = require("../_shared");
-const { checkUrlHealthAndFetchText } = require("../_reviewQuality");
 const {
   extractUpstreamRequestId,
   extractContentType,
@@ -272,13 +271,20 @@ function normalizeHttpUrlOrNull(input) {
   }
 }
 
-function isDisallowedReviewSourceUrl(url) {
+function isDisallowedReviewSourceUrl(url, opts = {}) {
   const raw = asString(url).trim();
   if (!raw) return true;
 
+  const normalizeHost = (h) => asString(h).toLowerCase().replace(/^www\./, "").trim();
+  const excludedHost = normalizeHost(opts?.companyHost || opts?.excludedHost || "");
+
   try {
     const u = new URL(raw);
-    const host = asString(u.hostname).toLowerCase().replace(/^www\./, "");
+    const host = normalizeHost(u.hostname);
+    if (!host) return true;
+
+    // Disallow the company's own domain (and its subdomains)
+    if (excludedHost && (host === excludedHost || host.endsWith(`.${excludedHost}`))) return true;
 
     // Amazon (disallowed)
     if (host === "amzn.to" || host.endsWith(".amzn.to")) return true;
@@ -289,6 +295,9 @@ function isDisallowedReviewSourceUrl(url) {
     if (host === "youtube.com" || host.endsWith(".youtube.com") || host === "youtu.be") return false;
     if (host === "g.co" || host.endsWith(".g.co") || host === "goo.gl" || host.endsWith(".goo.gl")) return true;
     if (host === "google.com" || host.endsWith(".google.com") || host.endsWith(".google")) return true;
+
+    // Yelp (disallowed)
+    if (host === "yelp.com" || host.endsWith(".yelp.com") || host.endsWith(".yelp") || host.includes("yelp.")) return true;
 
     return false;
   } catch {
@@ -307,7 +316,7 @@ function inferSourceNameFromUrl(url) {
   }
 }
 
-function normalizeIncomingReview(r) {
+function normalizeIncomingReview(r, opts = {}) {
   const obj = r && typeof r === "object" ? r : {};
 
   const urlRaw = asString(obj.source_url || obj.url).trim();
@@ -319,7 +328,7 @@ function normalizeIncomingReview(r) {
   if (!urlRaw || !excerptRaw) return null;
 
   const source_url = normalizeHttpUrlOrNull(urlRaw);
-  if (!source_url || isDisallowedReviewSourceUrl(source_url)) return null;
+  if (!source_url || isDisallowedReviewSourceUrl(source_url, opts)) return null;
 
   const now = nowIso();
   const source_name = sourceNameRaw || inferSourceNameFromUrl(source_url) || "Unknown Source";
@@ -1119,41 +1128,26 @@ async function handler(req, context, opts) {
         });
 
         const incomingRaw = Array.isArray(upstream?.reviews) ? upstream.reviews : [];
-        const incomingNormalized = incomingRaw.map(normalizeIncomingReview).filter(Boolean);
 
-        // Filter out review URLs that are clearly dead (404/page not found).
-        // Note: We allow "blocked" (403/429/etc) because those often work in a real browser.
-        const incoming = [];
-        const validateReviewUrls = getRemainingBudgetMs() > 8000;
-        for (const r of incomingNormalized) {
-          if (!validateReviewUrls) {
-            incoming.push(r);
-            continue;
-          }
-
+        const companyHostForFilter = (() => {
+          const normalizeHost = (h) => asString(h).toLowerCase().replace(/^www\./, "").trim();
+          const fallback = normalizeHost(company?.normalized_domain || "");
+          if (fallback) return fallback;
           try {
-            const health = await checkUrlHealthAndFetchText(r.source_url, { timeoutMs: 2500, maxBytes: 20000 });
-            if (health?.link_status === "not_found") {
-              warnings.push({
-                stage: "reviews_refresh",
-                root_cause: "review_url_not_found",
-                upstream_status: null,
-                message: `Rejected review URL (page not found): ${asString(r.source_url).slice(0, 200)}`,
-              });
-              continue;
-            }
-
-            const finalUrl = normalizeHttpUrlOrNull(health?.final_url || r.source_url) || r.source_url;
-            incoming.push({
-              ...r,
-              source_url: finalUrl,
-              url: finalUrl,
-            });
-          } catch (e) {
-            // If validation fails unexpectedly, keep the review rather than failing the refresh.
-            incoming.push(r);
+            const websiteUrl = asString(company?.website_url || company?.url).trim();
+            const u = new URL(websiteUrl);
+            return normalizeHost(u.hostname || "");
+          } catch {
+            return "";
           }
-        }
+        })();
+
+        const incomingNormalized = incomingRaw
+          .map((r) => normalizeIncomingReview(r, { companyHost: companyHostForFilter }))
+          .filter(Boolean);
+
+        // Grok-only reviews: NEVER crawl/fetch source URLs.
+        const incoming = incomingNormalized;
 
         fetched_count_total += incoming.length;
 

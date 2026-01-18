@@ -71,6 +71,17 @@ function normalizeKey(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+const GROK_ONLY_FIELDS = new Set([
+  "headquarters_location",
+  "manufacturing_locations",
+  "reviews",
+]);
+
+function assertNoWebsiteFallback(field) {
+  if (GROK_ONLY_FIELDS.has(field)) return true;
+  return false;
+}
+
 function isTrueish(value) {
   if (value === true) return true;
   if (value === false) return false;
@@ -78,29 +89,35 @@ function isTrueish(value) {
   return s === "true" || s === "1" || s === "yes" || s === "y";
 }
 
-function isTerminalMissingField(doc, field) {
+function isTerminalMissingReason(reason) {
+  return new Set([
+    "low_quality_terminal",
+    "not_found_terminal",
+    "conflicting_sources_terminal",
+    "not_disclosed",
+    "exhausted",
+    "not_found_on_site" // only if still used for other fields like logo, not HQ/MFG/Reviews
+  ]).has(reason);
+}
+
+function deriveMissingReason(doc, field) {
   const d = doc && typeof doc === "object" ? doc : {};
   const f = String(field || "").trim();
 
-  // low_quality / not_found terminalization (set by import-start after N attempts)
-  if (f === "industries" || f === "product_keywords") {
-    const reasons =
-      d.import_missing_reason && typeof d.import_missing_reason === "object" && !Array.isArray(d.import_missing_reason)
-        ? d.import_missing_reason
-        : {};
-    const reason = normalizeKey(reasons[f] || "");
-    if (reason === "low_quality_terminal" || reason === "not_found_terminal") return true;
-  }
+  const reasons =
+    d.import_missing_reason && typeof d.import_missing_reason === "object" && !Array.isArray(d.import_missing_reason)
+      ? d.import_missing_reason
+      : {};
+
+  const direct = normalizeKey(reasons[f] || "");
+  if (direct) return direct;
 
   if (f === "headquarters_location") {
-    if (isTrueish(d.hq_unknown)) return true;
     const val = normalizeKey(d.headquarters_location);
-    return val === "not disclosed" || val === "not_disclosed" || val === "unknown";
+    if (val === "not disclosed" || val === "not_disclosed") return "not_disclosed";
   }
 
   if (f === "manufacturing_locations") {
-    if (isTrueish(d.mfg_unknown)) return true;
-
     const rawList = Array.isArray(d.manufacturing_locations)
       ? d.manufacturing_locations
       : d.manufacturing_locations == null
@@ -117,18 +134,33 @@ function isTerminalMissingField(doc, field) {
       })
       .filter(Boolean);
 
-    if (normalized.length === 0) return false;
-
-    return normalized.every((v) => v === "unknown" || v === "not disclosed" || v === "not_disclosed");
+    if (normalized.length > 0 && normalized.every((v) => v === "not disclosed" || v === "not_disclosed")) {
+      return "not_disclosed";
+    }
   }
 
   if (f === "reviews") {
     const stage = normalizeKey(d.reviews_stage_status || d.review_cursor?.reviews_stage_status);
-    if (stage === "exhausted") return true;
-    return Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true);
+    if (stage === "exhausted") return "exhausted";
+    if (Boolean(d.review_cursor && typeof d.review_cursor === "object" && d.review_cursor.exhausted === true)) return "exhausted";
   }
 
-  return false;
+  if (f === "logo") {
+    const stage = normalizeKey(d.logo_stage_status || d.logo_status);
+    if (stage === "not_found_on_site") return "not_found_on_site";
+  }
+
+  return "";
+}
+
+function isTerminalMissingField(doc, field) {
+  const reason = deriveMissingReason(doc, field);
+  return isTerminalMissingReason(reason);
+}
+
+function computeRetryableMissingFields(doc) {
+  const baseMissing = computeMissingFields(doc);
+  return (Array.isArray(baseMissing) ? baseMissing : []).filter((f) => !isTerminalMissingField(doc, f));
 }
 
 async function bestEffortPatchSessionDoc({ container, sessionId, patch }) {
@@ -518,7 +550,7 @@ async function resumeWorkerHandler(req, context) {
   // Idempotency: only attempt resume on company docs that still violate the required-fields contract.
   // Placeholders like "Unknown" do NOT count as present.
   if (seedDocs.length > 0) {
-    const withMissing = seedDocs.filter((d) => computeMissingFields(d).length > 0);
+    const withMissing = seedDocs.filter((d) => computeRetryableMissingFields(d).length > 0);
 
     if (withMissing.length > 0) {
       seedDocs = withMissing;
@@ -599,30 +631,21 @@ async function resumeWorkerHandler(req, context) {
 
   const request = sessionDoc?.request && typeof sessionDoc.request === "object" ? sessionDoc.request : {};
 
-  const initialMissing = seedDocs.length === 1 && seedDocs[0] ? computeMissingFields(seedDocs[0]) : [];
+  const initialMissing = seedDocs.length === 1 && seedDocs[0] ? computeRetryableMissingFields(seedDocs[0]) : [];
   const forceStages =
     seedDocs.length === 1 &&
     initialMissing.some(
       (f) => f === "industries" || f === "headquarters_location" || f === "manufacturing_locations" || f === "reviews"
     );
 
-  // Resume behavior: call /api/import/start once, skipping only what is already satisfied.
-  const missingUnion = new Set();
-  for (const doc of seedDocs) {
-    for (const field of computeMissingFields(doc)) missingUnion.add(field);
-  }
-
-  const needsKeywords = missingUnion.has("industries") || missingUnion.has("product_keywords");
-  const needsReviews = missingUnion.has("reviews");
-  const needsLocation = missingUnion.has("headquarters_location") || missingUnion.has("manufacturing_locations");
-
   // Fast path: for single-company company_url imports, avoid repeatedly calling import-start/XAI
-  // once we've already tried enough times to conclude industries/keywords are not recoverable.
+  // once we've already tried enough times to conclude industries are not recoverable.
+  // IMPORTANT: do NOT terminalize HQ/MFG/Reviews here — those are still handled via Grok-only live search.
   if (forceStages && seedDocs.length === 1 && seedDocs[0]) {
     const doc = seedDocs[0];
-    const missing = computeMissingFields(doc);
+    const retryableMissing = computeRetryableMissingFields(doc);
 
-    if (missing.includes("industries")) {
+    if (retryableMissing.includes("industries")) {
       const attemptsObj =
         doc.import_low_quality_attempts && typeof doc.import_low_quality_attempts === "object" && !Array.isArray(doc.import_low_quality_attempts)
           ? { ...doc.import_low_quality_attempts }
@@ -637,47 +660,14 @@ async function resumeWorkerHandler(req, context) {
       const baseReason = prevReason || "not_found";
       const currentAttempts = Number(attemptsObj.industries) || 0;
 
-      // If the next attempt would hit the cap, terminalize in-place and let the session complete.
+      // If the next attempt would hit the cap, terminalize industries in-place and continue.
       if (currentAttempts >= 2) {
         const updatedAt = nowIso();
-        const nextAttempts = currentAttempts + 1;
-        attemptsObj.industries = nextAttempts;
+        attemptsObj.industries = currentAttempts + 1;
         reasonsObj.industries = baseReason === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
-
-        const patch = {};
-
-        if (missing.includes("headquarters_location")) {
-          patch.headquarters_location = "Not disclosed";
-          patch.hq_unknown = true;
-          patch.hq_unknown_reason = "not_disclosed";
-          reasonsObj.headquarters_location = "not_disclosed";
-        }
-
-        if (missing.includes("manufacturing_locations")) {
-          patch.manufacturing_locations = ["Not disclosed"];
-          patch.manufacturing_locations_reason = "not_disclosed";
-          patch.mfg_unknown = true;
-          patch.mfg_unknown_reason = "not_disclosed";
-          reasonsObj.manufacturing_locations = "not_disclosed";
-        }
-
-        if (missing.includes("reviews")) {
-          patch.reviews_stage_status = "exhausted";
-          const cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
-          patch.review_cursor = {
-            ...cursor,
-            exhausted: true,
-            reviews_stage_status: cursor.reviews_stage_status || "exhausted",
-            exhausted_at: updatedAt,
-          };
-          reasonsObj.reviews = "exhausted";
-        }
 
         const terminalParts = [];
         terminalParts.push("industries (" + (baseReason === "low_quality" ? "low quality" : "missing") + ")");
-        if (missing.includes("headquarters_location")) terminalParts.push("HQ not disclosed");
-        if (missing.includes("manufacturing_locations")) terminalParts.push("manufacturing not disclosed");
-        if (missing.includes("reviews")) terminalParts.push("reviews exhausted");
 
         const computedTerminalReason = terminalParts.length
           ? "Enrichment complete (terminal): " + terminalParts.join(", ")
@@ -688,59 +678,31 @@ async function resumeWorkerHandler(req, context) {
 
         const nextDoc = {
           ...doc,
-          ...patch,
           import_missing_reason: reasonsObj,
           import_low_quality_attempts: attemptsObj,
-          import_missing_fields: missing,
+          import_missing_fields: Array.isArray(doc.import_missing_fields) ? doc.import_missing_fields : computeMissingFields(doc),
           red_flag: true,
           red_flag_reason: replaceReason ? computedTerminalReason : existingReason,
-          resume_exhausted: true,
           updated_at: updatedAt,
         };
 
         await upsertDoc(container, nextDoc).catch(() => null);
 
-        await upsertDoc(container, {
-          ...resumeDoc,
-          status: "complete",
-          missing_by_company: [],
-          last_trigger_result: {
-            ok: true,
-            status: 200,
-            stage_beacon: "complete",
-            resume_needed: false,
-          },
-          lock_expires_at: null,
-          updated_at: updatedAt,
-        }).catch(() => null);
-
-        await bestEffortPatchSessionDoc({
-          container,
-          sessionId,
-          patch: {
-            resume_needed: false,
-            status: "complete",
-            stage_beacon: "complete",
-            completed_at: updatedAt,
-            updated_at: updatedAt,
-          },
-        }).catch(() => null);
-
-        return json(
-          {
-            ok: true,
-            session_id: sessionId,
-            triggered: true,
-            resume_needed: false,
-            iterations: 0,
-            fast_terminalized: true,
-          },
-          200,
-          req
-        );
+        const refreshedFinal = await fetchCompaniesByIds(container, [String(doc.id).trim()]).catch(() => []);
+        if (Array.isArray(refreshedFinal) && refreshedFinal.length > 0) seedDocs = refreshedFinal;
       }
     }
   }
+
+  // Resume behavior: call /api/import/start once, skipping only what is already satisfied.
+  const missingUnion = new Set();
+  for (const doc of seedDocs) {
+    for (const field of computeRetryableMissingFields(doc)) missingUnion.add(field);
+  }
+
+  const needsKeywords = missingUnion.has("industries") || missingUnion.has("product_keywords");
+  const needsReviews = missingUnion.has("reviews");
+  const needsLocation = missingUnion.has("headquarters_location") || missingUnion.has("manufacturing_locations");
 
   const skipStages = new Set(["primary", "expand"]);
   if (!needsKeywords) skipStages.add("keywords");
@@ -881,7 +843,7 @@ async function resumeWorkerHandler(req, context) {
 
     missing_by_company = seedDocs
       .map((d) => {
-        const missing = computeMissingFields(d);
+        const missing = computeRetryableMissingFields(d);
         if (missing.length === 0) return null;
         return {
           company_id: String(d?.id || "").trim(),
@@ -1061,7 +1023,7 @@ async function resumeWorkerHandler(req, context) {
           seedDocs = refreshedFinal;
           missing_by_company = seedDocs
             .map((d) => {
-              const missing = computeMissingFields(d);
+              const missing = computeRetryableMissingFields(d);
               if (missing.length === 0) return null;
               return {
                 company_id: String(d?.id || "").trim(),
@@ -1090,21 +1052,38 @@ async function resumeWorkerHandler(req, context) {
     const doc = docsById.get(String(entry?.company_id || "").trim());
     if (!doc) continue;
 
-    const fields = Array.isArray(entry?.missing_fields) ? entry.missing_fields : [];
-    for (const f of fields) {
-      totalMissing += 1;
-      if (isTerminalMissingField(doc, f)) totalTerminalMissing += 1;
-      else totalRetryableMissing += 1;
-    }
+    const missing = Array.isArray(doc?.import_missing_fields)
+      ? doc.import_missing_fields
+      : Array.isArray(entry?.missing_fields)
+        ? entry.missing_fields
+        : [];
+
+    const reasons = doc?.import_missing_reason && typeof doc.import_missing_reason === "object" && !Array.isArray(doc.import_missing_reason)
+      ? doc.import_missing_reason
+      : {};
+
+    const retryableMissing = missing.filter((f) => {
+      const reason = deriveMissingReason(doc, f) || normalizeKey(reasons[f] || "");
+      return !isTerminalMissingReason(reason);
+    });
+
+    const retryableMissingCount = retryableMissing.length;
+    const terminalMissingCount = missing.length - retryableMissingCount;
+
+    totalMissing += missing.length;
+    totalRetryableMissing += retryableMissingCount;
+    totalTerminalMissing += terminalMissingCount;
   }
 
-  const terminalOnly = totalMissing > 0 && totalRetryableMissing === 0;
+  const retryableMissingCount = totalRetryableMissing;
+  const terminalMissingCount = totalTerminalMissing;
+
+  const terminalOnly = retryableMissingCount === 0;
 
   const completion_beacon = terminalOnly ? "complete" : exhausted ? "enrichment_exhausted" : "enrichment_complete";
 
-  // IMPORTANT: do not mark resume/status complete if any retryable missing fields remain.
-  // "exhausted" just means we hit our in-worker cap; it does NOT imply terminal completion.
-  const resumeNeeded = totalRetryableMissing > 0;
+  // Resume-needed is ONLY retryable based.
+  const resumeNeeded = retryableMissingCount > 0;
 
   await upsertDoc(container, {
     ...resumeDoc,
@@ -1128,6 +1107,10 @@ async function resumeWorkerHandler(req, context) {
     sessionId,
     patch: {
       resume_needed: resumeNeeded,
+      resume: {
+        status: resumeNeeded ? (lastStartOk ? "queued" : "error") : "complete",
+        updated_at: updatedAt,
+      },
       resume_updated_at: updatedAt,
       ...(resumeNeeded
         ? {}

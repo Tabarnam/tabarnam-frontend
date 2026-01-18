@@ -39,6 +39,7 @@ const {
   checkUrlHealthAndFetchText,
 } = require("../_reviewQuality");
 const { fillCompanyBaselineFromWebsite } = require("../_websiteBaseline");
+const { fetchCuratedReviews: fetchCuratedReviewsGrok } = require("../_grokEnrichment");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { mergeCompanyDocsForSession: mergeCompanyDocsForSessionExternal } = require("../_companyDocMerge");
 const { applyEnrichment } = require("../_applyEnrichment");
@@ -118,6 +119,17 @@ const UPSTREAM_TIMEOUT_MARGIN_MS = 1_200;
 
 const XAI_SYSTEM_PROMPT =
   "You are a precise assistant. Follow the user's instructions exactly. When asked for JSON, output ONLY valid JSON with no markdown, no prose, and no extra keys.";
+
+const GROK_ONLY_FIELDS = new Set([
+  "headquarters_location",
+  "manufacturing_locations",
+  "reviews",
+]);
+
+function assertNoWebsiteFallback(field) {
+  if (GROK_ONLY_FIELDS.has(field)) return true;
+  return false;
+}
 
 if (!globalThis.__importStartProcessHandlersInstalled) {
   globalThis.__importStartProcessHandlersInstalled = true;
@@ -3555,13 +3567,14 @@ async function saveCompaniesToCosmos({
                     false
                   );
                 } else {
-                  doc.headquarters_location = "Unknown";
-                  doc.hq_unknown_reason = hqReasonRaw || "unknown";
+                  doc.headquarters_location = "Not disclosed";
+                  doc.hq_unknown_reason = "not_disclosed";
                   ensureMissing(
                     "headquarters_location",
-                    doc.hq_unknown_reason,
+                    "not_disclosed",
                     "extract_hq",
-                    "headquarters_location missing; set to placeholder 'Unknown'"
+                    "headquarters_location missing; recorded as terminal sentinel 'Not disclosed'",
+                    false
                   );
                 }
               }
@@ -8290,7 +8303,7 @@ Output JSON only:
             // Defer until after saveCompaniesToCosmos so we have stable company_id values.
             reviewStageCompleted = false;
             mark("xai_reviews_fetch_deferred");
-          } else if (shouldRunStage("reviews") && !shouldAbort()) {
+          } else if (shouldRunStage("reviews") && !shouldAbort() && !assertNoWebsiteFallback("reviews")) {
             ensureStageBudgetOrThrow("reviews", "xai_reviews_fetch_start");
 
             const deadlineBeforeReviews = checkDeadlineOrReturn("xai_reviews_fetch_start", "reviews");
@@ -8356,77 +8369,89 @@ Output JSON only:
               try {
                 const companyForReviews = company.website_url ? company : { ...company, website_url: effectiveWebsiteUrl };
 
-                const editorialReviews = await fetchEditorialReviews(
-                  companyForReviews,
+                const grokReviews = await fetchCuratedReviewsGrok({
+                  companyName: String(companyForReviews.company_name || "").trim(),
+                  normalizedDomain:
+                    String(companyForReviews.normalized_domain || "").trim() || toNormalizedDomain(effectiveWebsiteUrl),
+                  budgetMs: Math.min(
+                    6500,
+                    Math.max(
+                      3000,
+                      (typeof getRemainingMs === "function" ? getRemainingMs() : 12000) - DEADLINE_SAFETY_BUFFER_MS
+                    )
+                  ),
                   xaiUrl,
                   xaiKey,
-                  timeout,
-                  debugOutput ? debugOutput.reviews_debug : null,
-                  {
-                    setStage,
-                    postXaiJsonWithBudget: postXaiJsonWithBudgetRetry,
-                    getRemainingMs,
-                    deadlineSafetyBufferMs: DEADLINE_SAFETY_BUFFER_MS,
-                  },
-                  warnReviews
-                );
-
-                const fetchOk = editorialReviews?._fetch_ok !== false;
-                const fetchErrorCode = typeof editorialReviews?._fetch_error_code === "string" ? editorialReviews._fetch_error_code : null;
-                const fetchErrorMsg = typeof editorialReviews?._fetch_error === "string" ? editorialReviews._fetch_error : null;
-
-                const curated = dedupeCuratedReviews(editorialReviews);
-                const candidateCount =
-                  typeof editorialReviews?._candidate_count === "number" && Number.isFinite(editorialReviews._candidate_count)
-                    ? editorialReviews._candidate_count
-                    : Array.isArray(editorialReviews)
-                      ? editorialReviews.length
-                      : 0;
-
-                const rejectedCount =
-                  typeof editorialReviews?._rejected_count === "number" && Number.isFinite(editorialReviews._rejected_count)
-                    ? editorialReviews._rejected_count
-                    : null;
+                  model: "grok-4-latest",
+                });
 
                 const reviewsStageStatus =
-                  typeof editorialReviews?._stage_status === "string" && editorialReviews._stage_status.trim()
-                    ? editorialReviews._stage_status.trim()
-                    : fetchOk
-                      ? candidateCount === 0
-                        ? "exhausted"
-                        : curated.length === 0 && candidateCount > 0
-                          ? "no_valid_reviews_found"
-                          : "ok"
-                      : "upstream_unreachable";
+                  typeof grokReviews?.reviews_stage_status === "string" && grokReviews.reviews_stage_status.trim()
+                    ? grokReviews.reviews_stage_status.trim()
+                    : "upstream_unreachable";
 
-                const reviewsTelemetry = editorialReviews?._telemetry && typeof editorialReviews._telemetry === "object" ? editorialReviews._telemetry : null;
-                const candidatesDebug = Array.isArray(editorialReviews?._candidates_debug) ? editorialReviews._candidates_debug : [];
+                const fetchOk = reviewsStageStatus !== "upstream_unreachable";
+                const fetchErrorCode = fetchOk ? null : "REVIEWS_UPSTREAM_UNREACHABLE";
+                const fetchErrorMsg =
+                  fetchOk ? null : typeof grokReviews?.diagnostics?.error === "string" ? grokReviews.diagnostics.error : "Reviews fetch failed";
+
+                const curated = dedupeCuratedReviews(Array.isArray(grokReviews?.curated_reviews) ? grokReviews.curated_reviews : []);
+                const candidateCount =
+                  typeof grokReviews?.diagnostics?.candidate_count === "number" && Number.isFinite(grokReviews.diagnostics.candidate_count)
+                    ? grokReviews.diagnostics.candidate_count
+                    : Array.isArray(grokReviews?.curated_reviews)
+                      ? grokReviews.curated_reviews.length
+                      : 0;
+
+                const rejectedCount = Math.max(0, candidateCount - curated.length);
+
+                const reviewsTelemetry = {
+                  stage_status: reviewsStageStatus,
+                  review_candidates_fetched_count: candidateCount,
+                  review_candidates_considered_count: candidateCount,
+                  review_candidates_rejected_count: rejectedCount,
+                  review_candidates_rejected_reasons: {},
+                  review_validated_count: curated.length,
+                  review_saved_count: curated.length,
+                  duplicate_host_used_as_fallback: false,
+                  time_budget_exhausted: false,
+                  upstream_status: null,
+                  upstream_error_code: fetchOk ? null : fetchErrorCode,
+                  upstream_failure_buckets: {
+                    upstream_4xx: 0,
+                    upstream_5xx: 0,
+                    upstream_rate_limited: 0,
+                    upstream_unreachable: fetchOk ? 0 : 1,
+                  },
+                  excluded_websites_original_count:
+                    typeof grokReviews?.search_telemetry?.excluded_websites_original_count === "number"
+                      ? grokReviews.search_telemetry.excluded_websites_original_count
+                      : null,
+                  excluded_websites_used_count:
+                    typeof grokReviews?.search_telemetry?.excluded_websites_used_count === "number"
+                      ? grokReviews.search_telemetry.excluded_websites_used_count
+                      : null,
+                  excluded_websites_truncated:
+                    typeof grokReviews?.search_telemetry?.excluded_websites_truncated === "boolean"
+                      ? grokReviews.search_telemetry.excluded_websites_truncated
+                      : null,
+                  excluded_hosts_spilled_to_prompt_count:
+                    typeof grokReviews?.search_telemetry?.excluded_hosts_spilled_to_prompt_count === "number"
+                      ? grokReviews.search_telemetry.excluded_hosts_spilled_to_prompt_count
+                      : null,
+                };
+
+                const candidatesDebug = [];
 
                 // Only mark reviews "exhausted" when upstream returned *no candidates*.
-                // If we timed out or validation rejected candidates, leave the cursor open.
                 const cursorExhausted = fetchOk && reviewsStageStatus === "exhausted";
 
-                const fetchErrorDetail =
-                  editorialReviews && typeof editorialReviews === "object" ? editorialReviews._fetch_error_detail : null;
-
-                const cursorError =
-                  reviewsStageStatus === "timed_out"
-                    ? {
-                        code: "REVIEWS_TIMED_OUT",
-                        message: "Review validation stopped early due to time budget",
-                      }
-                    : !fetchOk
-                      ? {
-                          code: fetchErrorCode || "REVIEWS_FAILED",
-                          message: fetchErrorMsg || "Reviews fetch failed",
-                          ...(fetchErrorDetail && typeof fetchErrorDetail === "object" ? { detail: fetchErrorDetail } : {}),
-                        }
-                      : curated.length === 0 && candidateCount > 0
-                        ? {
-                            code: "REVIEWS_VALIDATION_REJECTED",
-                            message: "Upstream returned review candidates but none passed validation",
-                          }
-                        : null;
+                const cursorError = !fetchOk
+                  ? {
+                      code: fetchErrorCode || "REVIEWS_FAILED",
+                      message: fetchErrorMsg || "Reviews fetch failed",
+                    }
+                  : null;
 
                 const cursor = buildReviewCursor({
                   nowIso: nowReviewsIso,
@@ -8689,6 +8714,8 @@ Return ONLY the JSON array, no other text.`,
                   { role: "system", content: XAI_SYSTEM_PROMPT },
                   refinementMessage,
                 ],
+                // HQ/MFG are Grok-only: enforce live search.
+                search_parameters: { mode: "on" },
                 temperature: 0.1,
                 stream: false,
               };
@@ -8712,7 +8739,7 @@ Return ONLY the JSON array, no other text.`,
                 stageKey: "location",
                 stageBeacon: "xai_location_refinement_fetch_start",
                 body: JSON.stringify(refinementPayload),
-                stageCapMsOverride: timeout,
+                stageCapMsOverride: Math.min(timeout, 25000),
               });
 
               if (refinementResponse.status >= 200 && refinementResponse.status < 300) {
@@ -9157,12 +9184,13 @@ Return ONLY the JSON array, no other text.`,
                       false
                     );
                   } else {
-                    base.headquarters_location = "Unknown";
-                    base.hq_unknown_reason = hqReasonRaw || "unknown";
+                    base.headquarters_location = "Not disclosed";
+                    base.hq_unknown_reason = "not_disclosed";
                     ensureMissing(
                       "headquarters_location",
-                      base.hq_unknown_reason,
-                      "headquarters_location missing; set to placeholder 'Unknown'"
+                      "not_disclosed",
+                      "headquarters_location missing; recorded as terminal sentinel 'Not disclosed'",
+                      false
                     );
                   }
                 }
@@ -9359,7 +9387,7 @@ Return ONLY the JSON array, no other text.`,
               let refreshReviewsHandler = null;
               try {
                 const xadminMod = require("../xadmin-api-refresh-reviews/index.js");
-                refreshReviewsHandler = xadminMod?._test?.handler;
+                refreshReviewsHandler = xadminMod?.handler;
               } catch {
                 refreshReviewsHandler = null;
               }
@@ -9447,19 +9475,26 @@ Return ONLY the JSON array, no other text.`,
                 // Execute the refresh pipeline with a timeout clamped to remaining budget.
                 const timeoutMs = Math.max(
                   5000,
-                  Math.min(timeout, Math.trunc(remaining - DEADLINE_SAFETY_BUFFER_MS - UPSTREAM_TIMEOUT_MARGIN_MS))
+                  Math.min(
+                    20000,
+                    timeout,
+                    Math.trunc(remaining - DEADLINE_SAFETY_BUFFER_MS - UPSTREAM_TIMEOUT_MARGIN_MS)
+                  )
                 );
 
                 const reqMock = {
                   method: "POST",
                   url: "https://internal/api/xadmin-api-refresh-reviews",
-                  headers: {},
+                  headers: new Headers(),
                   json: async () => ({ company_id: companyId, take: 2, timeout_ms: timeoutMs }),
                 };
 
                 let refreshPayload = null;
                 try {
-                  const res = await refreshReviewsHandler(reqMock, context);
+                  const res = await refreshReviewsHandler(reqMock, context, {
+                    companiesContainer,
+                    validate_review_urls: false,
+                  });
                   refreshPayload = safeJsonParse(res?.body);
                 } catch (e) {
                   refreshPayload = { ok: false, root_cause: "unhandled_exception", message: e?.message || String(e) };
@@ -9663,6 +9698,8 @@ Return ONLY the JSON array, no other text.`,
                   { role: "system", content: XAI_SYSTEM_PROMPT },
                   expansionMessage,
                 ],
+                // Expansion prompt asks for HQ/MFG using third-party sources; enforce live search.
+                search_parameters: { mode: "on" },
                 temperature: 0.3,
                 stream: false,
               };
@@ -9681,7 +9718,7 @@ Return ONLY the JSON array, no other text.`,
                 stageKey: "expand",
                 stageBeacon: "xai_expand_fetch_start",
                 body: JSON.stringify(expansionPayload),
-                stageCapMsOverride: timeout,
+                stageCapMsOverride: Math.min(timeout, 25000),
               });
 
               if (expansionResponse.status >= 200 && expansionResponse.status < 300) {
@@ -9718,165 +9755,11 @@ Return ONLY the JSON array, no other text.`,
                     }
                   }
 
-                  // Fetch editorial reviews for expansion companies
-                  console.log(`[import-start] Fetching editorial reviews for ${enrichedExpansion.length} expansion companies`);
-                  for (let i = 0; i < enrichedExpansion.length; i++) {
-                    const company = enrichedExpansion[i];
-                    const effectiveWebsiteUrl = String(company?.website_url || company?.canonical_url || company?.url || "").trim();
-
-                    if (company.company_name && effectiveWebsiteUrl) {
-                      const companyForReviews = company.website_url ? company : { ...company, website_url: effectiveWebsiteUrl };
-
-                      setStage("fetchEditorialReviews", {
-                        company_name: String(companyForReviews?.company_name || companyForReviews?.name || ""),
-                        website_url: String(companyForReviews?.website_url || companyForReviews?.url || ""),
-                        normalized_domain: String(companyForReviews?.normalized_domain || ""),
-                      });
-
-                      const editorialReviews = await fetchEditorialReviews(
-                        companyForReviews,
-                        xaiUrl,
-                        xaiKey,
-                        timeout,
-                        debugOutput ? debugOutput.reviews_debug : null,
-                        {
-                          setStage,
-                          postXaiJsonWithBudget: postXaiJsonWithBudgetRetry,
-                          getRemainingMs,
-                          deadlineSafetyBufferMs: DEADLINE_SAFETY_BUFFER_MS,
-                        },
-                        warnReviews
-                      );
-
-                      const nowReviewsIso = new Date().toISOString();
-
-                      const fetchOk = editorialReviews?._fetch_ok !== false;
-                      const fetchErrorCode = typeof editorialReviews?._fetch_error_code === "string" ? editorialReviews._fetch_error_code : null;
-                      const fetchErrorMsg = typeof editorialReviews?._fetch_error === "string" ? editorialReviews._fetch_error : null;
-
-                      const curated = dedupeCuratedReviews(editorialReviews);
-                      const candidateCount =
-                        typeof editorialReviews?._candidate_count === "number" && Number.isFinite(editorialReviews._candidate_count)
-                          ? editorialReviews._candidate_count
-                          : Array.isArray(editorialReviews)
-                            ? editorialReviews.length
-                            : 0;
-
-                      const rejectedCount =
-                        typeof editorialReviews?._rejected_count === "number" && Number.isFinite(editorialReviews._rejected_count)
-                          ? editorialReviews._rejected_count
-                          : null;
-
-                      const reviewsStageStatus =
-                  typeof editorialReviews?._stage_status === "string" && editorialReviews._stage_status.trim()
-                    ? editorialReviews._stage_status.trim()
-                    : fetchOk
-                      ? candidateCount === 0
-                        ? "exhausted"
-                        : curated.length === 0 && candidateCount > 0
-                          ? "no_valid_reviews_found"
-                          : "ok"
-                      : "upstream_unreachable";
-
-                      const reviewsTelemetry = editorialReviews?._telemetry && typeof editorialReviews._telemetry === "object" ? editorialReviews._telemetry : null;
-                      const candidatesDebug = Array.isArray(editorialReviews?._candidates_debug) ? editorialReviews._candidates_debug : [];
-
-                      const cursorExhausted = fetchOk && reviewsStageStatus === "exhausted";
-
-                      const fetchErrorDetail =
-                  editorialReviews && typeof editorialReviews === "object" ? editorialReviews._fetch_error_detail : null;
-
-                const cursorError =
-                  reviewsStageStatus === "timed_out"
-                    ? {
-                        code: "REVIEWS_TIMED_OUT",
-                        message: "Review validation stopped early due to time budget",
-                      }
-                    : !fetchOk
-                      ? {
-                          code: fetchErrorCode || "REVIEWS_FAILED",
-                          message: fetchErrorMsg || "Reviews fetch failed",
-                          ...(fetchErrorDetail && typeof fetchErrorDetail === "object" ? { detail: fetchErrorDetail } : {}),
-                        }
-                      : curated.length === 0 && candidateCount > 0
-                        ? {
-                            code: "REVIEWS_VALIDATION_REJECTED",
-                            message: "Upstream returned review candidates but none passed validation",
-                          }
-                        : null;
-
-                      const cursor = buildReviewCursor({
-                  nowIso: nowReviewsIso,
-                  count: curated.length,
-                  exhausted: cursorExhausted,
-                  last_error: cursorError,
-                  prev_cursor: companyForReviews.review_cursor,
-                });
-
-                      cursor._candidate_count = candidateCount;
-                      if (rejectedCount != null) cursor._rejected_count = rejectedCount;
-                      cursor._saved_count = curated.length;
-                      cursor.exhausted_reason = cursorExhausted ? "no_candidates" : "";
-
-                      cursor.reviews_stage_status = reviewsStageStatus;
-                      if (reviewsTelemetry) {
-                        cursor.reviews_telemetry = {
-                          stage_status: reviewsTelemetry.stage_status,
-                          review_candidates_fetched_count: reviewsTelemetry.review_candidates_fetched_count,
-                          review_candidates_considered_count: reviewsTelemetry.review_candidates_considered_count,
-                          review_candidates_rejected_count: reviewsTelemetry.review_candidates_rejected_count,
-                          review_candidates_rejected_reasons: reviewsTelemetry.review_candidates_rejected_reasons,
-                          review_validated_count: reviewsTelemetry.review_validated_count,
-                          review_saved_count: reviewsTelemetry.review_saved_count,
-                          duplicate_host_used_as_fallback: reviewsTelemetry.duplicate_host_used_as_fallback,
-                          time_budget_exhausted: reviewsTelemetry.time_budget_exhausted,
-                          upstream_status: reviewsTelemetry.upstream_status,
-                          upstream_error_code: reviewsTelemetry.upstream_error_code,
-                          upstream_failure_buckets: reviewsTelemetry.upstream_failure_buckets,
-
-                          excluded_websites_original_count: reviewsTelemetry.excluded_websites_original_count,
-                          excluded_websites_used_count: reviewsTelemetry.excluded_websites_used_count,
-                          excluded_websites_truncated: reviewsTelemetry.excluded_websites_truncated,
-                          excluded_hosts_spilled_to_prompt_count: reviewsTelemetry.excluded_hosts_spilled_to_prompt_count,
-                        };
-                      }
-
-                      if ((reviewsStageStatus !== "ok" || curated.length === 0) && candidatesDebug.length) {
-                        cursor.review_candidates_debug = candidatesDebug;
-                      }
-
-                      enrichedExpansion[i] = {
-                        ...companyForReviews,
-                        curated_reviews: curated,
-                        review_count: curated.length,
-                        reviews_last_updated_at: nowReviewsIso,
-                        review_cursor: cursor,
-                      };
-
-                      if (curated.length > 0) {
-                        console.log(
-                          `[import-start] Fetched ${curated.length} editorial reviews for expansion company ${companyForReviews.company_name}`
-                        );
-                      }
-                    } else {
-                      const nowReviewsIso = new Date().toISOString();
-                      enrichedExpansion[i] = {
-                        ...company,
-                        curated_reviews: [],
-                        review_count: 0,
-                        reviews_last_updated_at: nowReviewsIso,
-                        review_cursor: buildReviewCursor({
-                          nowIso: nowReviewsIso,
-                          count: 0,
-                          exhausted: false,
-                          last_error: {
-                            code: "MISSING_COMPANY_INPUT",
-                            message: "Missing company_name or website_url",
-                          },
-                          prev_cursor: company.review_cursor,
-                        }),
-                      };
-                    }
+                  // Reviews are Grok-only (xAI live search) and run post-save for persisted companies.
+                  if (assertNoWebsiteFallback("reviews")) {
+                    console.log(
+                      `[import-start] Skipping pre-save reviews for expansion companies (Grok-only post-save stage).`
+                    );
                   }
 
                   enriched = enriched.concat(enrichedExpansion);

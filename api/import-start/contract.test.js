@@ -781,6 +781,287 @@ test("/api/import/status surfaces verified save fields while running (memory fal
   });
 });
 
+test("/api/import/status does not throw when session store has missing saved fields", async () => {
+  await withTempEnv(NO_NETWORK_ENV, async () => {
+    const { upsertSession, _test: sessionStoreTest } = require("../_importSessionStore");
+    const store = sessionStoreTest.getState();
+    store.map.clear();
+    store.order.length = 0;
+
+    const session_id = "55555555-6666-7777-8888-999999999999";
+
+    // Simulate a partially-written session doc (historical crash: code assumed arrays existed).
+    upsertSession({
+      session_id,
+      status: "running",
+      stage_beacon: "save",
+      companies_count: 1,
+      saved_verified_count: 1,
+      // Intentionally omit: saved_company_ids_verified/saved_company_ids_unverified/saved_company_urls.
+      resume_needed: false,
+    });
+
+    const statusReq = makeReq({
+      url: `https://example.test/api/import/status?session_id=${encodeURIComponent(session_id)}`,
+      method: "GET",
+    });
+
+    const statusRes = await importStatusTest.handler(statusReq, { log() {} });
+    const statusBody = JSON.parse(String(statusRes.body || "{}"));
+
+    assert.equal(statusRes.status, 200);
+    assert.equal(statusBody.ok, true);
+    assert.equal(statusBody.session_id, session_id);
+
+    // Defensive defaults.
+    assert.ok(Array.isArray(statusBody.saved_company_ids_verified));
+    assert.ok(Array.isArray(statusBody.saved_company_ids_unverified));
+    assert.ok(Array.isArray(statusBody.saved_company_urls));
+  });
+});
+
+test("/api/import/status reports resume_needed=false when only terminal missing fields remain (mock cosmos)", async () => {
+  const path = require("node:path");
+
+  const session_id = "66666666-7777-8888-9999-000000000000";
+
+  await withTempEnv(
+    {
+      ...NO_NETWORK_ENV,
+      // Force the import-status handler down the Cosmos-backed code path.
+      COSMOS_DB_ENDPOINT: "https://cosmos.fake.local",
+      COSMOS_DB_KEY: "fake_key",
+      COSMOS_DB_DATABASE: "tabarnam-db",
+      COSMOS_DB_COMPANIES_CONTAINER: "companies",
+    },
+    async () => {
+      const docsById = new Map();
+
+      const companyDoc = {
+        id: "company_1",
+        session_id,
+        import_session_id: session_id,
+        normalized_domain: "example.com",
+        company_name: "Example Co",
+        website_url: "https://example.com",
+
+        industries: [],
+        product_keywords: "",
+        keywords: [],
+
+        headquarters_location: "Not disclosed",
+        hq_unknown: true,
+        hq_unknown_reason: "not_disclosed",
+
+        manufacturing_locations: ["Not disclosed"],
+        mfg_unknown: true,
+        mfg_unknown_reason: "not_disclosed",
+
+        curated_reviews: [],
+        review_count: 0,
+        reviews_stage_status: "exhausted",
+        review_cursor: {
+          source: "xai_reviews",
+          last_offset: 0,
+          total_fetched: 0,
+          exhausted: true,
+          reviews_stage_status: "exhausted",
+          exhausted_at: new Date().toISOString(),
+        },
+
+        import_missing_reason: {
+          industries: "low_quality_terminal",
+          product_keywords: "not_found_terminal",
+          headquarters_location: "not_disclosed",
+          manufacturing_locations: "not_disclosed",
+          reviews: "exhausted",
+        },
+
+        // A terminal logo state is considered acceptable (not missing) by the required-fields contract.
+        logo_stage_status: "not_found_on_site",
+        logo_url: "",
+      };
+
+      docsById.set(`_import_session_${session_id}`, {
+        id: `_import_session_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        status: "running",
+        stage_beacon: "save",
+        resume_needed: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      docsById.set(`_import_accept_${session_id}`, {
+        id: `_import_accept_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        accepted: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      docsById.set(`_import_complete_${session_id}`, {
+        id: `_import_complete_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        saved: 1,
+        saved_ids: ["company_1"],
+        saved_company_ids_verified: ["company_1"],
+        saved_verified_count: 1,
+        save_outcome: "saved",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      docsById.set(`_import_primary_job_${session_id}`, {
+        id: `_import_primary_job_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_primary_job",
+        job_state: "complete",
+        stage_beacon: "primary_complete",
+        attempt: 1,
+        companies_count: 1,
+        // Not relied on for this test (we fetch by saved_ids), but useful for coverage.
+        companies: [companyDoc],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      docsById.set("company_1", companyDoc);
+
+      const fakeContainer = {
+        read: async () => ({
+          resource: {
+            partitionKey: {
+              paths: ["/normalized_domain"],
+            },
+          },
+        }),
+        item: (id) => ({
+          read: async () => {
+            if (docsById.has(id)) return { resource: docsById.get(id) };
+            const err = new Error("Not Found");
+            err.code = 404;
+            throw err;
+          },
+        }),
+        items: {
+          upsert: async (doc) => {
+            if (doc && doc.id) docsById.set(String(doc.id), doc);
+            return { resource: doc };
+          },
+          query: (spec) => ({
+            fetchAll: async () => {
+              const q = String(spec?.query || "");
+              if (q.includes("ARRAY_CONTAINS(@ids, c.id)")) {
+                const idsParam = spec?.parameters?.find((p) => p?.name === "@ids");
+                const ids = Array.isArray(idsParam?.value) ? idsParam.value : [];
+                const resources = ids.map((id) => docsById.get(String(id))).filter(Boolean);
+                return { resources };
+              }
+
+              // Minimal support: return empty for any other query shapes.
+              return { resources: [] };
+            },
+          }),
+        },
+        database: () => fakeContainer,
+        container: () => fakeContainer,
+      };
+
+      class FakeCosmosClient {
+        constructor() {}
+        database() {
+          return {
+            container: () => fakeContainer,
+          };
+        }
+      }
+
+      const cosmosModuleId = require.resolve("@azure/cosmos");
+      const originalCosmosExports = require("@azure/cosmos");
+
+      // Patch CosmosClient for this test only.
+      require.cache[cosmosModuleId].exports = { ...originalCosmosExports, CosmosClient: FakeCosmosClient };
+
+      const importStatusModuleId = require.resolve("../import-status/index.js");
+      const primaryJobStoreModuleId = require.resolve("../_importPrimaryJobStore.js");
+
+      delete require.cache[importStatusModuleId];
+      delete require.cache[primaryJobStoreModuleId];
+
+      try {
+        const { _test: freshImportStatusTest } = require("../import-status/index.js");
+
+        const statusReq = makeReq({
+          url: `https://example.test/api/import/status?session_id=${encodeURIComponent(session_id)}`,
+          method: "GET",
+        });
+
+        const statusRes = await freshImportStatusTest.handler(statusReq, { log() {} });
+        const statusBody = JSON.parse(String(statusRes.body || "{}"));
+
+        assert.equal(statusRes.status, 200);
+        assert.equal(statusBody.ok, true);
+        assert.equal(statusBody.session_id, session_id);
+
+        // Key behavioral change: terminal-only missing fields must not keep resume_needed stuck.
+        assert.equal(statusBody.resume_needed, false);
+        assert.equal(statusBody.report?.session?.resume_needed, false);
+        assert.equal(statusBody.report?.session?.status, "complete");
+        assert.equal(statusBody.report?.session?.stage_beacon, "complete");
+      } finally {
+        // Restore real Cosmos exports for subsequent tests.
+        require.cache[cosmosModuleId].exports = originalCosmosExports;
+        delete require.cache[importStatusModuleId];
+        delete require.cache[primaryJobStoreModuleId];
+      }
+    }
+  );
+});
+
+test("/api/import/start buildReviewsUpstreamPayloadForImportStart uses live search mode and caps excluded websites", () => {
+  assert.equal(typeof _test?.buildReviewsUpstreamPayloadForImportStart, "function");
+
+  const reviewMessage = { role: "user", content: "Find independent reviews." };
+
+  const built = _test.buildReviewsUpstreamPayloadForImportStart({
+    reviewMessage,
+    companyWebsiteHost: "audiocontrol.com",
+  });
+
+  assert.ok(built && typeof built === "object");
+  assert.ok(built.reviewPayload && typeof built.reviewPayload === "object");
+
+  const payload = built.reviewPayload;
+  assert.equal(payload?.search_parameters?.mode, "on");
+
+  const sources = payload?.search_parameters?.sources;
+  assert.ok(Array.isArray(sources));
+
+  const web = sources.find((s) => s?.type === "web");
+  const news = sources.find((s) => s?.type === "news");
+
+  assert.ok(Array.isArray(web?.excluded_websites));
+  assert.ok(Array.isArray(news?.excluded_websites));
+  assert.ok(web.excluded_websites.length <= 5);
+  assert.ok(news.excluded_websites.length <= 5);
+
+  const msg = Array.isArray(payload.messages) ? payload.messages.find((m) => m?.role === "user") : null;
+  assert.ok(typeof msg?.content === "string");
+  assert.ok(msg.content.includes("Also avoid these websites"));
+});
+
 test("/api/import/start uses provided session_id for async primary job and import-status reaches terminal state", async () => {
   await withTempEnv(
     {
