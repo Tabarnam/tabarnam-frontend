@@ -1164,9 +1164,6 @@ async function resumeWorkerHandler(req, context) {
           const reason = normalizeKey(import_missing_reason.product_keywords || "");
           terminalParts.push(reason === "low_quality" || reason === "low_quality_terminal" ? "keywords (low quality)" : "keywords missing");
         }
-        if (missing.includes("headquarters_location")) terminalParts.push("HQ not disclosed");
-        if (missing.includes("manufacturing_locations")) terminalParts.push("manufacturing not disclosed");
-        if (missing.includes("reviews")) terminalParts.push("reviews exhausted");
         if (missing.includes("logo")) terminalParts.push("logo not found");
 
         const computedTerminalReason = terminalParts.length
