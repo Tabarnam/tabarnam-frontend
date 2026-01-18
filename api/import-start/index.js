@@ -3396,7 +3396,7 @@ async function saveCompaniesToCosmos({
                     ? { ...doc.import_low_quality_attempts_meta }
                     : {};
 
-                const currentRequestId = String(doc.import_request_id || importRequestId || "").trim();
+                const currentRequestId = String(importRequestId || doc.import_request_id || "").trim();
                 const lastRequestId = String(metaObj[f] || "").trim();
 
                 if (currentRequestId && lastRequestId !== currentRequestId) {
@@ -8994,7 +8994,8 @@ Return ONLY the JSON array, no other text.`,
                       ? { ...base.import_low_quality_attempts_meta }
                       : {};
 
-                  const currentRequestId = String(base.import_request_id || requestId || "").trim();
+                  const currentRequestId = String(requestId || "").trim();
+                  if (currentRequestId) base.import_request_id = currentRequestId;
                   const lastRequestId = String(metaObj[f] || "").trim();
 
                   if (currentRequestId && lastRequestId !== currentRequestId) {
