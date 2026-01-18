@@ -83,6 +83,58 @@ const GROK_ONLY_FIELDS = new Set([
   "reviews",
 ]);
 
+const GROK_RETRYABLE_STATUSES = new Set(["deferred", "upstream_unreachable", "not_found"]);
+const GROK_MAX_ATTEMPTS = 3;
+
+function bumpFieldAttempt(doc, field, requestId) {
+  doc.import_attempts ||= {};
+  doc.import_attempts_meta ||= {};
+
+  const last = doc.import_attempts_meta[field];
+  if (last === requestId) return false;
+
+  doc.import_attempts[field] = Number(doc.import_attempts[field] || 0) + 1;
+  doc.import_attempts_meta[field] = requestId;
+  return true;
+}
+
+function attemptsFor(doc, field) {
+  return Number(doc?.import_attempts?.[field] || 0);
+}
+
+function terminalizeGrokField(doc, field) {
+  doc.import_missing_reason ||= {};
+
+  if (field === "headquarters_location") {
+    doc.headquarters_location = "Not disclosed";
+    doc.hq_unknown = true;
+    doc.hq_unknown_reason = "not_disclosed";
+    doc.import_missing_reason.headquarters_location = "not_disclosed";
+  }
+
+  if (field === "manufacturing_locations") {
+    doc.manufacturing_locations = ["Not disclosed"];
+    doc.mfg_unknown = true;
+    doc.mfg_unknown_reason = "not_disclosed";
+    doc.import_missing_reason.manufacturing_locations = "not_disclosed";
+  }
+
+  if (field === "reviews") {
+    doc.curated_reviews = [];
+    doc.review_count = typeof doc.review_count === "number" ? doc.review_count : 0;
+    doc.reviews_stage_status = "exhausted";
+    const cursor =
+      doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
+    doc.review_cursor = {
+      ...cursor,
+      exhausted: true,
+      reviews_stage_status: "exhausted",
+      exhausted_at: nowIso(),
+    };
+    doc.import_missing_reason.reviews = "exhausted";
+  }
+}
+
 function assertNoWebsiteFallback(field) {
   if (GROK_ONLY_FIELDS.has(field)) return true;
   return false;
