@@ -8966,6 +8966,54 @@ Return ONLY the JSON array, no other text.`,
                   ? base.import_warnings.filter((w) => w && typeof w === "object")
                   : [];
 
+                const LOW_QUALITY_MAX_ATTEMPTS = 3;
+
+                const applyLowQualityPolicy = (field, reason) => {
+                  const f = String(field || "").trim();
+                  const r = String(reason || "").trim();
+                  if (!f) return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
+
+                  if (r !== "low_quality") return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
+
+                  const prev = String(import_missing_reason[f] || "").trim();
+                  if (prev === "low_quality_terminal") {
+                    return { missing_reason: "low_quality_terminal", retryable: false, attemptCount: LOW_QUALITY_MAX_ATTEMPTS };
+                  }
+
+                  const attemptsObj =
+                    base.import_low_quality_attempts &&
+                    typeof base.import_low_quality_attempts === "object" &&
+                    !Array.isArray(base.import_low_quality_attempts)
+                      ? { ...base.import_low_quality_attempts }
+                      : {};
+
+                  const metaObj =
+                    base.import_low_quality_attempts_meta &&
+                    typeof base.import_low_quality_attempts_meta === "object" &&
+                    !Array.isArray(base.import_low_quality_attempts_meta)
+                      ? { ...base.import_low_quality_attempts_meta }
+                      : {};
+
+                  const currentRequestId = String(base.import_request_id || requestId || "").trim();
+                  const lastRequestId = String(metaObj[f] || "").trim();
+
+                  if (currentRequestId && lastRequestId !== currentRequestId) {
+                    attemptsObj[f] = (Number(attemptsObj[f]) || 0) + 1;
+                    metaObj[f] = currentRequestId;
+                  }
+
+                  base.import_low_quality_attempts = attemptsObj;
+                  base.import_low_quality_attempts_meta = metaObj;
+
+                  const attemptCount = Number(attemptsObj[f]) || 0;
+
+                  if (attemptCount >= LOW_QUALITY_MAX_ATTEMPTS) {
+                    return { missing_reason: "low_quality_terminal", retryable: false, attemptCount };
+                  }
+
+                  return { missing_reason: "low_quality", retryable: true, attemptCount };
+                };
+
                 const ensureMissing = (field, reason, message, retryable = true) => {
                   const missing_reason = String(reason || "missing");
                   const terminal = missing_reason === "not_disclosed" || missing_reason === "low_quality_terminal";
@@ -9029,13 +9077,18 @@ Return ONLY the JSON array, no other text.`,
                   const hadAny = normalizeStringArray(industriesRaw).length > 0;
                   base.industries = ["Unknown"];
                   base.industries_unknown = true;
-                  ensureMissing(
-                    "industries",
-                    hadAny ? "low_quality" : "not_found",
-                    hadAny
-                      ? "Industries present but low-quality (navigation/marketplace buckets); set to placeholder ['Unknown']"
-                      : "Industries missing; set to placeholder ['Unknown']"
-                  );
+
+                  const policy = applyLowQualityPolicy("industries", hadAny ? "low_quality" : "not_found");
+                  const messageBase = hadAny
+                    ? "Industries present but low-quality (navigation/marketplace buckets); set to placeholder ['Unknown']"
+                    : "Industries missing; set to placeholder ['Unknown']";
+
+                  const message =
+                    policy.missing_reason === "low_quality_terminal"
+                      ? `${messageBase} (terminal after ${policy.attemptCount || LOW_QUALITY_MAX_ATTEMPTS} attempts)`
+                      : messageBase;
+
+                  ensureMissing("industries", policy.missing_reason, message, policy.retryable);
                 } else {
                   base.industries = industriesSanitized;
                 }
@@ -9057,13 +9110,18 @@ Return ONLY the JSON array, no other text.`,
                   const hadAny = keywordStats.total_raw > 0;
                   base.keywords = keywordStats.sanitized;
                   base.product_keywords = "Unknown";
-                  ensureMissing(
-                    "product_keywords",
-                    hadAny ? "low_quality" : "not_found",
-                    hadAny
-                      ? `product_keywords low quality (raw=${keywordStats.total_raw}, sanitized=${keywordStats.product_relevant_count}); set to placeholder 'Unknown'`
-                      : "product_keywords missing; set to placeholder 'Unknown'"
-                  );
+
+                  const policy = applyLowQualityPolicy("product_keywords", hadAny ? "low_quality" : "not_found");
+                  const messageBase = hadAny
+                    ? `product_keywords low quality (raw=${keywordStats.total_raw}, sanitized=${keywordStats.product_relevant_count}); set to placeholder 'Unknown'`
+                    : "product_keywords missing; set to placeholder 'Unknown'";
+
+                  const message =
+                    policy.missing_reason === "low_quality_terminal"
+                      ? `${messageBase} (terminal after ${policy.attemptCount || LOW_QUALITY_MAX_ATTEMPTS} attempts)`
+                      : messageBase;
+
+                  ensureMissing("product_keywords", policy.missing_reason, message, policy.retryable);
                 }
 
                 // headquarters
