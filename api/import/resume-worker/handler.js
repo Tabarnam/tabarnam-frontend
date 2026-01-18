@@ -856,19 +856,34 @@ async function resumeWorkerHandler(req, context) {
           import_missing_reason.industries ||= "not_found";
         }
 
+        const existingReason = String(doc.red_flag_reason || "").trim();
+        const replaceReason = !existingReason || /enrichment pending/i.test(existingReason);
+
+        const terminalParts = [];
+        if (missing.includes("industries")) {
+          const reason = normalizeKey(import_missing_reason.industries || "");
+          terminalParts.push(reason === "low_quality" || reason === "low_quality_terminal" ? "industries (low quality)" : "industries missing");
+        }
+        if (missing.includes("product_keywords")) {
+          const reason = normalizeKey(import_missing_reason.product_keywords || "");
+          terminalParts.push(reason === "low_quality" || reason === "low_quality_terminal" ? "keywords (low quality)" : "keywords missing");
+        }
+        if (missing.includes("headquarters_location")) terminalParts.push("HQ not disclosed");
+        if (missing.includes("manufacturing_locations")) terminalParts.push("manufacturing not disclosed");
+        if (missing.includes("reviews")) terminalParts.push("reviews exhausted");
+        if (missing.includes("logo")) terminalParts.push("logo not found");
+
+        const computedTerminalReason = terminalParts.length
+          ? `Enrichment complete (terminal): ${terminalParts.join(", ")}`
+          : "Enrichment complete (terminal)";
+
         const next = {
           ...doc,
           ...patch,
           import_missing_reason,
           import_missing_fields: missing,
           red_flag: Boolean(doc.red_flag) || missing.some((f) => f === "headquarters_location" || f === "manufacturing_locations"),
-          red_flag_reason:
-            String(doc.red_flag_reason || "").trim() ||
-            (missing.includes("manufacturing_locations")
-              ? "Manufacturing not disclosed"
-              : missing.includes("headquarters_location")
-                ? "Headquarters not disclosed"
-                : "Required fields missing"),
+          red_flag_reason: replaceReason ? computedTerminalReason : existingReason,
           resume_exhausted: true,
           updated_at: updatedAt,
         };
