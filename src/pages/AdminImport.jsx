@@ -3947,7 +3947,13 @@ export default function AdminImport() {
                         : Array.isArray(activeRun.saved_company_ids)
                           ? activeRun.saved_company_ids
                           : [];
-                      const savedCount = verifiedCount != null ? verifiedCount : verifiedIds.length;
+                      const savedVerifiedCount = verifiedCount != null ? verifiedCount : verifiedIds.length;
+
+                      const persistedCount = Number.isFinite(Number(activeRun.saved))
+                        ? Number(activeRun.saved)
+                        : savedCompanies.length > 0
+                          ? savedCompanies.length
+                          : savedVerifiedCount;
 
                       const stageBeacon = asString(activeRun.final_stage_beacon || activeRun.stage_beacon || activeRun.last_stage_beacon).trim();
                       const stageBeaconValues =
@@ -3959,7 +3965,7 @@ export default function AdminImport() {
                           (resumeStatus === "complete" && Number.isFinite(retryableMissingCount) && retryableMissingCount === 0)
                       );
 
-                      const persistedDetected = savedCount > 0 || stageBeacon === "cosmos_write_done";
+                      const persistedDetected = persistedCount > 0 || stageBeacon === "cosmos_write_done";
 
                       const report = activeRun.report && typeof activeRun.report === "object" ? activeRun.report : null;
                       const session = report?.session && typeof report.session === "object" ? report.session : null;
@@ -3994,8 +4000,8 @@ export default function AdminImport() {
                           ? asString(primaryCandidate?.company_name || primaryCandidate?.name).trim() || "Company candidate"
                           : explicitNoPersist
                             ? "No company persisted"
-                            : savedCount > 0
-                              ? "Saved (verified) but cannot read company doc"
+                            : persistedCount > 0
+                              ? "Saved but cannot read company doc"
                               : "Company candidate");
                       const websiteUrlRaw = asString(
                         primaryDoc?.canonical_url ||
@@ -4064,7 +4070,9 @@ export default function AdminImport() {
                                 </div>
                               ) : null}
                             </div>
-                            <div className="text-sm text-slate-700">Persisted (verified): {savedCount}</div>
+                            <div className="text-sm text-slate-700">
+                              Persisted: {persistedCount} <span className="text-slate-500">(verified: {savedVerifiedCount})</span>
+                            </div>
                           </div>
 
                           {enrichmentMissingFields.length > 0 ? (
