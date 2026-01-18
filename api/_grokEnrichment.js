@@ -53,6 +53,7 @@ async function fetchCuratedReviews({
   budgetMs = 25000,
   xaiUrl,
   xaiKey,
+  model = "grok-4-latest",
 } = {}) {
   const started = Date.now();
 
@@ -97,7 +98,7 @@ Return JSON array:
     prompt,
     timeoutMs: Math.min(12000, remaining),
     maxTokens: 900,
-    model: "grok-2-latest",
+    model: asString(model).trim() || "grok-4-latest",
     xaiUrl,
     xaiKey,
     search_parameters: searchBuild.search_parameters,
@@ -108,6 +109,8 @@ Return JSON array:
       curated_reviews: [],
       reviews_stage_status: "upstream_unreachable",
       diagnostics: { error: r.error },
+      search_telemetry: searchBuild.telemetry,
+      excluded_hosts: searchBuild.excluded_hosts,
     };
   }
 
@@ -140,6 +143,8 @@ Return JSON array:
       curated_reviews: [],
       reviews_stage_status: "exhausted",
       diagnostics: { candidate_count: candidates.length, validated_count: 0 },
+      search_telemetry: searchBuild.telemetry,
+      excluded_hosts: searchBuild.excluded_hosts,
     };
   }
 
@@ -147,6 +152,8 @@ Return JSON array:
     curated_reviews,
     reviews_stage_status: "ok",
     diagnostics: { candidate_count: candidates.length, validated_count: validated.length },
+    search_telemetry: searchBuild.telemetry,
+    excluded_hosts: searchBuild.excluded_hosts,
   };
 }
 

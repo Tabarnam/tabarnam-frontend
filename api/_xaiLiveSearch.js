@@ -11,6 +11,17 @@ function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
+function isAzureWebsitesUrl(rawUrl) {
+  const raw = asString(rawUrl).trim();
+  if (!raw) return false;
+  try {
+    const u = new URL(raw);
+    return /\.azurewebsites\.net$/i.test(String(u.hostname || ""));
+  } catch {
+    return false;
+  }
+}
+
 function extractTextFromXaiResponse(resp) {
   const r = resp && typeof resp === "object" ? resp : {};
 
@@ -86,12 +97,19 @@ async function xaiLiveSearch({
     };
 
     if (!axios) {
+      const headers = {
+        "Content-Type": "application/json",
+      };
+
+      if (isAzureWebsitesUrl(url)) {
+        headers["x-functions-key"] = key;
+      } else {
+        headers.Authorization = `Bearer ${key}`;
+      }
+
       const res = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${key}`,
-        },
+        headers,
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
@@ -114,10 +132,16 @@ async function xaiLiveSearch({
       return { ok: true, resp };
     }
 
+    const headers = {};
+
+    if (isAzureWebsitesUrl(url)) {
+      headers["x-functions-key"] = key;
+    } else {
+      headers.Authorization = `Bearer ${key}`;
+    }
+
     const resp = await axios.post(url, payload, {
-      headers: {
-        Authorization: `Bearer ${key}`,
-      },
+      headers,
       signal: controller.signal,
       timeout: Math.max(1000, Math.trunc(Number(timeoutMs) || 12000)),
       validateStatus: () => true,
