@@ -8374,7 +8374,7 @@ Output JSON only:
                   normalizedDomain:
                     String(companyForReviews.normalized_domain || "").trim() || toNormalizedDomain(effectiveWebsiteUrl),
                   budgetMs: Math.min(
-                    12000,
+                    6500,
                     Math.max(
                       3000,
                       (typeof getRemainingMs === "function" ? getRemainingMs() : 12000) - DEADLINE_SAFETY_BUFFER_MS
