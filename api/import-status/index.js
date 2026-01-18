@@ -1140,7 +1140,9 @@ async function handler(req, context) {
         .slice(0, 50);
     }
 
-    const session = sessionDoc && typeof sessionDoc === "object" ? sessionDoc : {};
+    const session = report?.session && typeof report.session === "object" ? report.session : {};
+    if (report && typeof report === "object" && !report.session) report.session = session;
+
     session.saved_company_ids_verified = saved_company_ids_verified;
     session.saved_company_ids_unverified = saved_company_ids_unverified;
     session.saved_verified_count = saved_verified_count;
