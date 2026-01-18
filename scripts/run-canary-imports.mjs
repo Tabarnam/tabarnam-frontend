@@ -76,10 +76,10 @@ function summarizeStatus(body) {
 }
 
 function computeDelayMs(summary) {
-  if (!summary) return 5000;
+  if (!summary) return 4000;
   if (summary.stage === "complete" && summary.resumeNeeded === false) return 0;
 
-  // Match UI backoff for resume states
+  // Canary runner: poll faster than the UI so we can finish within a reasonable CI/dev timeout.
   if (
     summary.stage === "enrichment_resume_queued" ||
     summary.stage === "enrichment_resume_running" ||
@@ -87,10 +87,10 @@ function computeDelayMs(summary) {
     summary.resumeStatus === "queued" ||
     summary.resumeStatus === "running"
   ) {
-    return 30000;
+    return 10000;
   }
 
-  return 8000;
+  return 6000;
 }
 
 async function fetchCompanyDocsByIds(ids) {
