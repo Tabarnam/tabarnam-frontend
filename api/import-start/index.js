@@ -3377,7 +3377,7 @@ async function saveCompaniesToCosmos({
                 if (r !== "low_quality") return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
 
                 // If we previously terminalized this field, keep it terminal.
-                const prev = String(import_missing_reason[f] || "").trim();
+                const prev = String(import_missing_reason[f] || doc?.import_missing_reason?.[f] || "").trim();
                 if (prev === "low_quality_terminal") {
                   return { missing_reason: "low_quality_terminal", retryable: false, attemptCount: LOW_QUALITY_MAX_ATTEMPTS };
                 }
@@ -8975,7 +8975,7 @@ Return ONLY the JSON array, no other text.`,
 
                   if (r !== "low_quality") return { missing_reason: r || "missing", retryable: true, attemptCount: 0 };
 
-                  const prev = String(import_missing_reason[f] || "").trim();
+                  const prev = String(import_missing_reason[f] || base?.import_missing_reason?.[f] || "").trim();
                   if (prev === "low_quality_terminal") {
                     return { missing_reason: "low_quality_terminal", retryable: false, attemptCount: LOW_QUALITY_MAX_ATTEMPTS };
                   }
