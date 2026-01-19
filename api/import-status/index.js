@@ -2014,6 +2014,11 @@ async function handler(req, context) {
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
+          cycle_count:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+              : null,
+          max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -3413,6 +3418,11 @@ async function handler(req, context) {
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
+          cycle_count:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+              : null,
+          max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -3660,6 +3670,11 @@ async function handler(req, context) {
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
+          cycle_count:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+              : null,
+          max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -3756,6 +3771,11 @@ async function handler(req, context) {
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
+          cycle_count:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+              : null,
+          max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
