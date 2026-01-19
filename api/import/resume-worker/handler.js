@@ -203,7 +203,17 @@ function markFieldSuccess(doc, field) {
 
 function markFieldError(doc, field, error) {
   const meta = ensureAttemptsDetail(doc, field);
-  meta.last_error = error && typeof error === "object" ? error : { message: String(error || "error") };
+  const message = safeErrorMessage(error) || "error";
+
+  if (error && typeof error === "object" && !Array.isArray(error)) {
+    meta.last_error = {
+      ...error,
+      message,
+    };
+    return;
+  }
+
+  meta.last_error = { message };
 }
 
 function ensureImportWarnings(doc) {
