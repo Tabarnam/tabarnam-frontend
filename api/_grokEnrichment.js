@@ -290,7 +290,7 @@ Return:
   });
 
   if (!r.ok) {
-    return { manufacturing_locations: [], mfg_status: "upstream_unreachable" };
+    return { manufacturing_locations: [], mfg_status: "upstream_unreachable", diagnostics: { error: r.error, resp: r.resp } };
   }
 
   const out = parseJsonFromXaiResponse(r.resp);
@@ -309,9 +309,197 @@ Return:
   return { manufacturing_locations: cleaned, mfg_status: "ok" };
 }
 
+async function fetchTagline({
+  companyName,
+  normalizedDomain,
+  budgetMs = 12000,
+  xaiUrl,
+  xaiKey,
+  model = "grok-2-latest",
+} = {}) {
+  const started = Date.now();
+
+  const name = asString(companyName).trim();
+  const domain = normalizeDomain(normalizedDomain);
+
+  const prompt = `
+Find the company tagline/slogan for:
+Name: ${name}
+Domain: ${domain}
+
+Rules:
+- Use web search.
+- Return a short marketing-style tagline (a sentence fragment is fine).
+- Do not return navigation labels, legal text, or "Unknown".
+- Output STRICT JSON only.
+
+Return:
+{ "tagline": "..." }
+`.trim();
+
+  const remaining = budgetMs - (Date.now() - started);
+  if (remaining < 2500) {
+    return {
+      tagline: "",
+      tagline_status: "deferred",
+      diagnostics: { reason: "budget_too_low", remaining_ms: Math.max(0, remaining) },
+    };
+  }
+
+  const r = await xaiLiveSearch({
+    prompt,
+    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
+    maxTokens: 180,
+    model: asString(model).trim() || "grok-2-latest",
+    xaiUrl,
+    xaiKey,
+    search_parameters: { mode: "on" },
+  });
+
+  if (!r.ok) {
+    return { tagline: "", tagline_status: "upstream_unreachable", diagnostics: { error: r.error, resp: r.resp } };
+  }
+
+  const out = parseJsonFromXaiResponse(r.resp);
+  const tagline = asString(out?.tagline || out?.slogan || "").trim();
+
+  if (!tagline || /^(unknown|n\/a|not disclosed)$/i.test(tagline)) {
+    return { tagline: "", tagline_status: "not_found" };
+  }
+
+  return { tagline, tagline_status: "ok" };
+}
+
+async function fetchIndustries({
+  companyName,
+  normalizedDomain,
+  budgetMs = 15000,
+  xaiUrl,
+  xaiKey,
+  model = "grok-2-latest",
+} = {}) {
+  const started = Date.now();
+
+  const name = asString(companyName).trim();
+  const domain = normalizeDomain(normalizedDomain);
+
+  const prompt = `
+Identify the primary industries for the company:
+Name: ${name}
+Domain: ${domain}
+
+Rules:
+- Use web search.
+- Return 1-3 broad industries (not store navigation categories like "New Arrivals", "Shop", etc.).
+- Examples of good outputs: "Supplements", "Oral Care", "Skincare", "Household Cleaning", "Pet Care".
+- Output STRICT JSON only.
+
+Return:
+{ "industries": ["..."] }
+`.trim();
+
+  const remaining = budgetMs - (Date.now() - started);
+  if (remaining < 2500) {
+    return {
+      industries: [],
+      industries_status: "deferred",
+      diagnostics: { reason: "budget_too_low", remaining_ms: Math.max(0, remaining) },
+    };
+  }
+
+  const r = await xaiLiveSearch({
+    prompt,
+    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
+    maxTokens: 220,
+    model: asString(model).trim() || "grok-2-latest",
+    xaiUrl,
+    xaiKey,
+    search_parameters: { mode: "on" },
+  });
+
+  if (!r.ok) {
+    return { industries: [], industries_status: "upstream_unreachable", diagnostics: { error: r.error, resp: r.resp } };
+  }
+
+  const out = parseJsonFromXaiResponse(r.resp);
+  const list = Array.isArray(out?.industries) ? out.industries : Array.isArray(out) ? out : [];
+
+  const cleaned = list.map((x) => asString(x).trim()).filter(Boolean);
+  if (cleaned.length === 0) {
+    return { industries: [], industries_status: "not_found" };
+  }
+
+  return { industries: cleaned.slice(0, 5), industries_status: "ok" };
+}
+
+async function fetchProductKeywords({
+  companyName,
+  normalizedDomain,
+  budgetMs = 15000,
+  xaiUrl,
+  xaiKey,
+  model = "grok-2-latest",
+} = {}) {
+  const started = Date.now();
+
+  const name = asString(companyName).trim();
+  const domain = normalizeDomain(normalizedDomain);
+
+  const prompt = `
+List product-related keywords for the company's main products:
+Name: ${name}
+Domain: ${domain}
+
+Rules:
+- Use web search.
+- Return 8-20 product-related keywords/phrases.
+- Avoid generic navigation terms (e.g. "Shop", "Sale", "Login") and legal terms.
+- Output STRICT JSON only.
+
+Return:
+{ "keywords": ["..."] }
+`.trim();
+
+  const remaining = budgetMs - (Date.now() - started);
+  if (remaining < 2500) {
+    return {
+      keywords: [],
+      keywords_status: "deferred",
+      diagnostics: { reason: "budget_too_low", remaining_ms: Math.max(0, remaining) },
+    };
+  }
+
+  const r = await xaiLiveSearch({
+    prompt,
+    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
+    maxTokens: 300,
+    model: asString(model).trim() || "grok-2-latest",
+    xaiUrl,
+    xaiKey,
+    search_parameters: { mode: "on" },
+  });
+
+  if (!r.ok) {
+    return { keywords: [], keywords_status: "upstream_unreachable", diagnostics: { error: r.error, resp: r.resp } };
+  }
+
+  const out = parseJsonFromXaiResponse(r.resp);
+  const list = Array.isArray(out?.keywords) ? out.keywords : Array.isArray(out) ? out : [];
+
+  const cleaned = list.map((x) => asString(x).trim()).filter(Boolean);
+  if (cleaned.length === 0) {
+    return { keywords: [], keywords_status: "not_found" };
+  }
+
+  return { keywords: cleaned.slice(0, 30), keywords_status: "ok" };
+}
+
 module.exports = {
   DEFAULT_REVIEW_EXCLUDE_DOMAINS,
   fetchCuratedReviews,
   fetchHeadquartersLocation,
   fetchManufacturingLocations,
+  fetchTagline,
+  fetchIndustries,
+  fetchProductKeywords,
 };
