@@ -1937,9 +1937,11 @@ async function handler(req, context) {
     const reportSessionStageBeacon = typeof report?.session?.stage_beacon === "string" ? report.session.stage_beacon.trim() : "";
 
     const forceComplete = Boolean(
-      (!forceResume &&
-        (Number(saved || 0) > 0 || (Array.isArray(saved_companies) && saved_companies.length > 0)) &&
-        Number(resumeMissingAnalysis?.total_retryable_missing || 0) === 0) ||
+      stageBeaconValues.status_resume_forced_terminalize_single ||
+        stageBeaconValues.status_resume_terminal_only ||
+        (!forceResume &&
+          (Number(saved || 0) > 0 || (Array.isArray(saved_companies) && saved_companies.length > 0)) &&
+          Number(resumeMissingAnalysis?.total_retryable_missing || 0) === 0) ||
         resumeMissingAnalysis?.terminal_only ||
         reportSessionStatus === "complete" ||
         reportSessionStageBeacon === "complete"
