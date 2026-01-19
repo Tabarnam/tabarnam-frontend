@@ -2757,7 +2757,9 @@ async function handler(req, context) {
     const sessionStatus = typeof sessionDoc?.status === "string" ? sessionDoc.status.trim() : "";
 
     const forceComplete = Boolean(
-      (!forceResume && Number(saved || 0) > 0 && Number(resumeMissingAnalysis?.total_retryable_missing || 0) === 0) ||
+      stageBeaconValues.status_resume_forced_terminalize_single ||
+        stageBeaconValues.status_resume_terminal_only ||
+        (!forceResume && Number(saved || 0) > 0 && Number(resumeMissingAnalysis?.total_retryable_missing || 0) === 0) ||
         resumeMissingAnalysis.terminal_only ||
         sessionStatus === "complete" ||
         stage_beacon === "complete" ||
