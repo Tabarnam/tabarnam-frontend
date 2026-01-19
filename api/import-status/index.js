@@ -1731,9 +1731,7 @@ async function handler(req, context) {
 
           if (forceDecision.force) {
             const forcedAt = nowIso();
-            stageBeaconValues.status_resume_forced_terminalize_single = forcedAt;
-            stageBeaconValues.status_resume_forced_terminalize_reason = forceDecision.reason;
-            stageBeaconValues.status_force_terminalize_reason = forceDecision.reason;
+            stageBeaconValues.status_resume_blocked_reason = forceDecision.reason;
 
             const docsForInfra =
               typeof savedDocsForHealth !== "undefined"
@@ -2034,8 +2032,7 @@ async function handler(req, context) {
     const reportSessionStageBeacon = typeof report?.session?.stage_beacon === "string" ? report.session.stage_beacon.trim() : "";
 
     const forceComplete = Boolean(
-      stageBeaconValues.status_resume_forced_terminalize_single ||
-        stageBeaconValues.status_resume_terminal_only ||
+      stageBeaconValues.status_resume_terminal_only ||
         (!forceResume &&
           (Number(saved || 0) > 0 || (Array.isArray(saved_companies) && saved_companies.length > 0)) &&
           Number(resumeMissingAnalysis?.total_retryable_missing || 0) === 0) ||
@@ -2079,7 +2076,7 @@ async function handler(req, context) {
     const shouldShowCompleteBeacon = Boolean((effectiveStatus === "complete" && !resume_needed) || forceComplete);
 
     const completeBeacon =
-      stageBeaconValues.status_resume_forced_terminalize_single || sessionStageBeacon === "status_resume_terminal_only"
+      (resumeMissingAnalysis?.terminal_only || sessionStageBeacon === "status_resume_terminal_only")
         ? "status_resume_terminal_only"
         : "complete";
 
@@ -2901,8 +2898,7 @@ async function handler(req, context) {
     const sessionStatus = typeof sessionDoc?.status === "string" ? sessionDoc.status.trim() : "";
 
     const forceComplete = Boolean(
-      stageBeaconValues.status_resume_forced_terminalize_single ||
-        stageBeaconValues.status_resume_terminal_only ||
+      stageBeaconValues.status_resume_terminal_only ||
         (!forceResume && Number(saved || 0) > 0 && Number(resumeMissingAnalysis?.total_retryable_missing || 0) === 0) ||
         resumeMissingAnalysis.terminal_only ||
         sessionStatus === "complete" ||
@@ -3213,9 +3209,7 @@ async function handler(req, context) {
 
           if (forceDecision.force) {
             const forcedAt = nowIso();
-            stageBeaconValues.status_resume_forced_terminalize_single = forcedAt;
-            stageBeaconValues.status_resume_forced_terminalize_reason = forceDecision.reason;
-            stageBeaconValues.status_force_terminalize_reason = forceDecision.reason;
+            stageBeaconValues.status_resume_blocked_reason = forceDecision.reason;
 
             const docsForInfra =
               typeof savedDocsForHealth !== "undefined"
