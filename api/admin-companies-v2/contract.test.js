@@ -314,6 +314,67 @@ test("xadmin-api-companies: contract issues do not flag HQ/MFG when locations ex
   assert.ok(!missing.includes("manufacturing_locations"));
 });
 
+test("xadmin-api-companies: contract issues do not flag keywords when product_keywords is stored as an array", async () => {
+  const container = makeMemoryContainer();
+
+  const marker = "company_keywords_array_ok_contract";
+  const companyId = `company_${marker}`;
+
+  const createRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "POST",
+      url: "https://example.test/api/xadmin-api-companies",
+      json: async () => ({
+        id: companyId,
+        company_id: companyId,
+        company_name: `Contract ${marker}`,
+        name: `Contract ${marker}`,
+        website_url: "https://example.com",
+
+        // Older documents sometimes store keywords in product_keywords as an array.
+        // The Issues column should not flag "keywords" just because the field isn't a string.
+        product_keywords_source: "grok",
+        product_keywords: [
+          "toothbrush",
+          "toothpaste",
+          "dental floss",
+          "mouthwash",
+          "whitening strips",
+          "electric toothbrush",
+          "fluoride",
+          "enamel care",
+        ],
+
+        // Ensure we cover the exact legacy case: keywords array is missing/empty.
+        keywords: [],
+      }),
+    }),
+    { log() {} },
+    { container }
+  );
+
+  assert.equal(createRes.status, 200);
+
+  const searchRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "GET",
+      url: `https://example.test/api/xadmin-api-companies?q=${encodeURIComponent(marker)}`,
+      query: { q: marker },
+    }),
+    { log() {} },
+    { container }
+  );
+
+  assert.equal(searchRes.status, 200);
+  const body = parseJson(searchRes);
+  const items = Array.isArray(body.items) ? body.items : [];
+  const item = items.find((it) => it && (it.id === companyId || it.company_id === companyId));
+  assert.ok(item);
+
+  const missing = Array.isArray(item.enrichment_health?.missing_fields) ? item.enrichment_health.missing_fields : [];
+  assert.ok(!missing.includes("product_keywords"));
+});
+
 test("xadmin-api-companies: persists curated_reviews array", async () => {
   const container = makeMemoryContainer();
 
