@@ -3913,8 +3913,7 @@ async function handler(req, context) {
       return jsonWithSessionId(out, 200, req);
     }
 
-    return jsonWithSessionId(
-      {
+    const out = {
         ok: true,
         session_id: sessionId,
         status: "running",
@@ -4022,10 +4021,19 @@ async function handler(req, context) {
         enrichment_health_summary,
         lastCreatedAt,
         report,
-      },
-      200,
-      req
-    );
+      };
+
+    const terminalOnlyReason =
+      stageBeaconValues.status_resume_forced_terminalize_reason ||
+      (resumeMissingAnalysis?.terminal_only ? "terminal_only_missing" : null);
+
+    if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
+    else {
+      out.completed = false;
+      out.terminal_only = false;
+    }
+
+    return jsonWithSessionId(out, 200, req);
   } catch (e) {
     const msg = e?.message || String(e);
     try {
