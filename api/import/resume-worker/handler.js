@@ -185,21 +185,43 @@ function attemptsFor(doc, field) {
   return Number(doc?.import_attempts?.[field] || 0);
 }
 
-function terminalizeGrokField(doc, field) {
+function terminalizeGrokField(doc, field, terminalReason) {
   doc.import_missing_reason ||= {};
 
+  const reason = String(terminalReason || "exhausted").trim().toLowerCase();
+
   if (field === "headquarters_location") {
-    doc.headquarters_location = "Not disclosed";
+    // Only write the visible sentinel when we have exhausted attempts (or Grok repeatedly indicates not disclosed).
+    if (reason === "not_disclosed") {
+      doc.headquarters_location = "Not disclosed";
+      doc.hq_unknown = true;
+      doc.hq_unknown_reason = "not_disclosed";
+      doc.import_missing_reason.headquarters_location = "not_disclosed";
+      return;
+    }
+
+    // Exhausted due to repeated upstream failures or other terminalization.
     doc.hq_unknown = true;
-    doc.hq_unknown_reason = "not_disclosed";
-    doc.import_missing_reason.headquarters_location = "not_disclosed";
+    doc.hq_unknown_reason = "exhausted";
+    doc.import_missing_reason.headquarters_location = "exhausted";
+    if (typeof doc.headquarters_location !== "string") doc.headquarters_location = "";
+    return;
   }
 
   if (field === "manufacturing_locations") {
-    doc.manufacturing_locations = ["Not disclosed"];
+    if (reason === "not_disclosed") {
+      doc.manufacturing_locations = ["Not disclosed"];
+      doc.mfg_unknown = true;
+      doc.mfg_unknown_reason = "not_disclosed";
+      doc.import_missing_reason.manufacturing_locations = "not_disclosed";
+      return;
+    }
+
     doc.mfg_unknown = true;
-    doc.mfg_unknown_reason = "not_disclosed";
-    doc.import_missing_reason.manufacturing_locations = "not_disclosed";
+    doc.mfg_unknown_reason = "exhausted";
+    doc.import_missing_reason.manufacturing_locations = "exhausted";
+    if (!Array.isArray(doc.manufacturing_locations)) doc.manufacturing_locations = [];
+    return;
   }
 
   if (field === "reviews") {
