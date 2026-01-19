@@ -2266,8 +2266,9 @@ async function handler(req, context) {
       };
 
     const terminalOnlyReason =
-      stageBeaconValues.status_resume_forced_terminalize_reason ||
-      (resumeMissingAnalysis?.terminal_only ? "terminal_only_missing" : null);
+      stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only
+        ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
+        : null;
 
     if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
     else {
@@ -3972,8 +3973,9 @@ async function handler(req, context) {
         };
 
       const terminalOnlyReason =
-        stageBeaconValues.status_resume_forced_terminalize_reason ||
-        (resumeMissingAnalysis?.terminal_only ? "terminal_only_missing" : null);
+      stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only
+        ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
+        : null;
 
       if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
       else {
@@ -4100,8 +4102,9 @@ async function handler(req, context) {
       };
 
     const terminalOnlyReason =
-      stageBeaconValues.status_resume_forced_terminalize_reason ||
-      (resumeMissingAnalysis?.terminal_only ? "terminal_only_missing" : null);
+      stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only
+        ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
+        : null;
 
     if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
     else {
