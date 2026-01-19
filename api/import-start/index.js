@@ -9861,13 +9861,28 @@ Return ONLY the JSON array, no other text.`,
           const computeEnrichmentMissingFields = (company) => {
             const c = company && typeof company === "object" ? company : {};
 
-            // Required fields here are the ones that gate the "verified" UX.
-            // Use the centralized contract (placeholders like "Unknown" do NOT count as present).
+            // Verification spec (minimal): only company name + a working website URL.
+            // All other fields are enrichment goals and should not gate persistence/verification.
             const missing = [];
-            if (!isRealValue("industries", c.industries, c)) missing.push("industries");
-            if (!isRealValue("product_keywords", c.product_keywords, c)) missing.push("product_keywords");
-            if (!isRealValue("headquarters_location", c.headquarters_location, c)) missing.push("headquarters_location");
-            if (!isRealValue("manufacturing_locations", c.manufacturing_locations, c)) missing.push("manufacturing_locations");
+
+            const name = String(c.company_name || c.name || "").trim();
+            if (!name) missing.push("company_name");
+
+            const websiteUrlRaw = String(c.website_url || c.url || c.canonical_url || "").trim();
+            const hasWorkingWebsite = (() => {
+              if (!websiteUrlRaw) return false;
+              const lowered = websiteUrlRaw.toLowerCase();
+              if (lowered === "unknown" || lowered === "n/a" || lowered === "na") return false;
+              try {
+                const u = websiteUrlRaw.includes("://") ? new URL(websiteUrlRaw) : new URL(`https://${websiteUrlRaw}`);
+                const host = String(u.hostname || "").toLowerCase();
+                return Boolean(host && host.includes("."));
+              } catch {
+                return false;
+              }
+            })();
+
+            if (!hasWorkingWebsite) missing.push("website_url");
 
             return missing;
           };
