@@ -1254,6 +1254,22 @@ async function handler(req, context) {
           ? primaryJob.companies
           : [];
 
+    const lowQualityMaxAttempts = Number.isFinite(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS))
+      ? Math.max(1, Math.trunc(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS)))
+      : 2;
+
+    let reconciledLowQualityCount = 0;
+    for (const doc of Array.isArray(savedDocsForHealth) ? savedDocsForHealth : []) {
+      if (reconcileLowQualityToTerminal(doc, lowQualityMaxAttempts)) {
+        reconciledLowQualityCount += 1;
+      }
+    }
+
+    if (reconciledLowQualityCount > 0) {
+      stageBeaconValues.status_reconciled_low_quality_terminal = nowIso();
+      stageBeaconValues.status_reconciled_low_quality_terminal_count = reconciledLowQualityCount;
+    }
+
     saved_companies = toSavedCompanies(savedDocsForHealth);
     const enrichment_health_summary = summarizeEnrichmentHealth(saved_companies);
 
