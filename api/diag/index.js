@@ -5,8 +5,16 @@ try {
   app = { http() {} };
 }
 
+let CosmosClient;
+try {
+  ({ CosmosClient } = require("@azure/cosmos"));
+} catch {
+  CosmosClient = null;
+}
+
 const { getBuildInfo } = require("../_buildInfo");
 const { getHandlerVersions } = require("../_handlerVersions");
+const { getContainerPartitionKeyPath, buildPartitionKeyCandidates } = require("../_cosmosPartitionKey");
 
 function json(obj, status = 200) {
   return {
@@ -32,6 +40,205 @@ function pickEnv(env) {
     github_sha: String(e.GITHUB_SHA || ""),
     node_version: String(e.WEBSITE_NODE_DEFAULT_VERSION || process.version || ""),
   };
+}
+
+function asString(value) {
+  return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function readQueryParam(req, name) {
+  if (!req || !name) return undefined;
+
+  const query = req.query;
+  if (query) {
+    if (typeof query.get === "function") {
+      try {
+        const v = query.get(name);
+        if (v !== null && v !== undefined) return v;
+      } catch {}
+    }
+
+    const direct = query[name] ?? query[name.toLowerCase()] ?? query[name.toUpperCase()];
+    if (direct !== null && direct !== undefined) return direct;
+  }
+
+  const rawUrl = typeof req.url === "string" ? req.url : "";
+  if (rawUrl) {
+    try {
+      const u = new URL(rawUrl, "http://localhost");
+      const v = u.searchParams.get(name);
+      if (v !== null && v !== undefined) return v;
+    } catch {}
+  }
+
+  return undefined;
+}
+
+let _cosmosContainerPromise;
+function getCosmosContainer() {
+  if (_cosmosContainerPromise) return _cosmosContainerPromise;
+
+  _cosmosContainerPromise = (async () => {
+    const endpoint = asString(process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+    const key = asString(process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+    const databaseId = asString(process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+    const containerId = asString(process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+
+    if (!endpoint || !key || !CosmosClient) return null;
+
+    const client = new CosmosClient({ endpoint, key });
+    return client.database(databaseId).container(containerId);
+  })();
+
+  return _cosmosContainerPromise;
+}
+
+let _companiesPkPathPromise;
+async function getCompaniesPkPath(container) {
+  if (!container) return "/normalized_domain";
+  _companiesPkPathPromise ||= getContainerPartitionKeyPath(container, "/normalized_domain");
+  try {
+    return await _companiesPkPathPromise;
+  } catch {
+    return "/normalized_domain";
+  }
+}
+
+async function readControlDoc(container, id, sessionId) {
+  if (!container) return null;
+  const containerPkPath = await getCompaniesPkPath(container);
+
+  const docForCandidates = {
+    id,
+    session_id: sessionId,
+    normalized_domain: "import",
+    partition_key: "import",
+    type: "import_control",
+  };
+
+  const candidates = buildPartitionKeyCandidates({
+    doc: docForCandidates,
+    containerPkPath,
+    requestedId: id,
+  });
+
+  for (const partitionKeyValue of candidates) {
+    try {
+      const item =
+        partitionKeyValue !== undefined ? container.item(id, partitionKeyValue) : container.item(id);
+      const { resource } = await item.read();
+      return resource || null;
+    } catch (e) {
+      if (e?.code === 404) return null;
+    }
+  }
+
+  return null;
+}
+
+async function upsertDoc(container, doc) {
+  if (!container || !doc) return { ok: false, error: "no_container" };
+  const id = asString(doc.id).trim();
+  if (!id) return { ok: false, error: "missing_id" };
+
+  const containerPkPath = await getCompaniesPkPath(container);
+  const candidates = buildPartitionKeyCandidates({ doc, containerPkPath, requestedId: id });
+
+  let lastErr = null;
+  for (const partitionKeyValue of candidates) {
+    try {
+      if (partitionKeyValue !== undefined) {
+        await container.items.upsert(doc, { partitionKey: partitionKeyValue });
+      } else {
+        await container.items.upsert(doc);
+      }
+      return { ok: true };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  return { ok: false, error: lastErr?.message || String(lastErr || "upsert_failed") };
+}
+
+async function persistXaiDiagBundle({ sessionId, bundle }) {
+  const sid = asString(sessionId).trim();
+  if (!sid) return { ok: false, error: "missing_session_id" };
+
+  const container = await getCosmosContainer();
+  if (!container) return { ok: false, error: "cosmos_not_configured" };
+
+  const stamp = nowIso();
+
+  const sessionDocId = `_import_session_${sid}`;
+  const resumeDocId = `_import_resume_${sid}`;
+
+  const out = {
+    ok: true,
+    writes: {
+      session: { attempted: true, ok: false, id: sessionDocId },
+      resume: { attempted: true, ok: false, id: resumeDocId },
+    },
+  };
+
+  // 1) Session control doc
+  try {
+    const existingSession = await readControlDoc(container, sessionDocId, sid).catch(() => null);
+    const base = existingSession && typeof existingSession === "object"
+      ? { ...existingSession }
+      : {
+          id: sessionDocId,
+          session_id: sid,
+          normalized_domain: "import",
+          partition_key: "import",
+          type: "import_control",
+          status: "running",
+          stage_beacon: "diag_xai",
+          created_at: stamp,
+        };
+
+    const sessionWrite = {
+      ...base,
+      last_xai_diag_bundle: bundle && typeof bundle === "object" ? bundle : null,
+      last_xai_diag_bundle_at: stamp,
+      updated_at: stamp,
+    };
+
+    const res = await upsertDoc(container, sessionWrite);
+    out.writes.session.ok = Boolean(res.ok);
+    if (!res.ok) out.writes.session.error = res.error;
+  } catch (e) {
+    out.writes.session.error = asString(e?.message || e) || "write_failed";
+  }
+
+  // 2) Resume/control doc (best-effort; create if absent so /import/status sees status="blocked" correctly when we mark it later)
+  try {
+    const existingResume = await readControlDoc(container, resumeDocId, sid).catch(() => null);
+    if (!existingResume) {
+      out.writes.resume.ok = true;
+      out.writes.resume.skipped = true;
+      return out;
+    }
+
+    const resumeWrite = {
+      ...existingResume,
+      last_xai_diag_bundle: bundle && typeof bundle === "object" ? bundle : null,
+      last_xai_diag_bundle_at: stamp,
+      updated_at: stamp,
+    };
+
+    const res = await upsertDoc(container, resumeWrite);
+    out.writes.resume.ok = Boolean(res.ok);
+    if (!res.ok) out.writes.resume.error = res.error;
+  } catch (e) {
+    out.writes.resume.error = asString(e?.message || e) || "write_failed";
+  }
+
+  return out;
 }
 
 app.http("diag", {
@@ -84,10 +291,6 @@ try {
 
 const dns = require("dns");
 const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../_shared");
-
-function asString(value) {
-  return typeof value === "string" ? value : value == null ? "" : String(value);
-}
 
 function redactUrl(rawUrl) {
   const raw = asString(rawUrl).trim();
@@ -148,6 +351,9 @@ app.http("diag-xai", {
     const started = Date.now();
     const buildInfo = getBuildInfo();
 
+    // NOTE: accepted query param name is session_id (snake_case) to match the import pipeline.
+    const session_id = asString(readQueryParam(req, "session_id")).trim() || null;
+
     const base = asString(getXAIEndpoint()).trim();
     const key = asString(getXAIKey()).trim();
     const model = "grok-2-latest";
@@ -173,8 +379,16 @@ app.http("diag-xai", {
       }
     })();
 
+    const persistIfRequested = async (bundle) => {
+      if (!session_id) return null;
+      return await persistXaiDiagBundle({ sessionId: session_id, bundle }).catch((e) => ({
+        ok: false,
+        error: asString(e?.message || e) || "persist_failed",
+      }));
+    };
+
     if (!url || !key) {
-      return json({
+      const payload = {
         ok: false,
         error: "missing_xai_config",
         dns: dnsResult,
@@ -184,7 +398,22 @@ app.http("diag-xai", {
         elapsed_ms: Date.now() - started,
         website_hostname: asString(process.env.WEBSITE_HOSTNAME || "") || null,
         ...buildInfo,
+      };
+
+      const persisted = await persistIfRequested({
+        kind: "xai_diag_bundle",
+        session_id,
+        ok: false,
+        error: payload.error,
+        dns: payload.dns,
+        resolved_upstream_url_redacted: payload.resolved_upstream_url_redacted,
+        elapsed_ms: payload.elapsed_ms,
+        website_hostname: payload.website_hostname,
+        build_id: buildInfo?.build_id || null,
+        at: nowIso(),
       });
+
+      return json({ ...payload, ...(persisted ? { persisted } : {}) });
     }
 
     const headers = {
@@ -251,7 +480,7 @@ app.http("diag-xai", {
         bodyPreview = (text || "").slice(0, 500);
       }
     } catch (e) {
-      return json({
+      const responsePayload = {
         ok: false,
         error: "xai_request_failed",
         message: asString(e?.message || e) || "xai_request_failed",
@@ -260,10 +489,26 @@ app.http("diag-xai", {
         elapsed_ms: Date.now() - started,
         website_hostname: asString(process.env.WEBSITE_HOSTNAME || "") || null,
         ...buildInfo,
+      };
+
+      const persisted = await persistIfRequested({
+        kind: "xai_diag_bundle",
+        session_id,
+        ok: false,
+        error: responsePayload.error,
+        message: responsePayload.message,
+        dns: responsePayload.dns,
+        resolved_upstream_url_redacted: responsePayload.resolved_upstream_url_redacted,
+        elapsed_ms: responsePayload.elapsed_ms,
+        website_hostname: responsePayload.website_hostname,
+        build_id: buildInfo?.build_id || null,
+        at: nowIso(),
       });
+
+      return json({ ...responsePayload, ...(persisted ? { persisted } : {}) });
     }
 
-    return json({
+    const responsePayload = {
       ok: status != null && status >= 200 && status < 300,
       dns: dnsResult,
       http_status: status,
@@ -273,6 +518,23 @@ app.http("diag-xai", {
       response_body_preview: bodyPreview,
       website_hostname: asString(process.env.WEBSITE_HOSTNAME || "") || null,
       ...buildInfo,
+    };
+
+    const persisted = await persistIfRequested({
+      kind: "xai_diag_bundle",
+      session_id,
+      ok: responsePayload.ok,
+      dns: responsePayload.dns,
+      http_status: responsePayload.http_status,
+      resolved_upstream_url_redacted: responsePayload.resolved_upstream_url_redacted,
+      response_headers: responsePayload.response_headers,
+      response_body_preview: responsePayload.response_body_preview,
+      elapsed_ms: responsePayload.elapsed_ms,
+      website_hostname: responsePayload.website_hostname,
+      build_id: buildInfo?.build_id || null,
+      at: nowIso(),
     });
+
+    return json({ ...responsePayload, ...(persisted ? { persisted } : {}) });
   },
 });
