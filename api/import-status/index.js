@@ -1776,8 +1776,11 @@ async function handler(req, context) {
               }).catch(() => null);
             }
 
-            // Keep status as running/queued; allow retry until attempt caps terminalize fields.
+            // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
             resume_needed = true;
+            resume_status = "blocked";
+            resumeStatus = "blocked";
+            canTrigger = false;
           }
         } catch {}
 
@@ -2065,6 +2068,7 @@ async function handler(req, context) {
 
     const resumeStageBeacon = (() => {
       if (!forceComplete && !resume_needed) return null;
+      if (resumeStatusForBeacon === "blocked") return "enrichment_resume_blocked";
       if (resumeStatusForBeacon === "queued") return "enrichment_resume_queued";
       if (resumeStatusForBeacon === "running") return "enrichment_resume_running";
       if (resumeStatusForBeacon === "stalled") return "enrichment_resume_stalled";
@@ -3254,8 +3258,11 @@ async function handler(req, context) {
               }).catch(() => null);
             }
 
-            // Keep status as running/queued; allow retry until attempt caps terminalize fields.
+            // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
             resume_needed = true;
+            resume_status = "blocked";
+            resumeStatus = "blocked";
+            canTrigger = false;
           }
         } catch {}
 
@@ -3523,6 +3530,7 @@ async function handler(req, context) {
 
     const resumeStageBeacon = (() => {
       if (!forceComplete && !resume_needed) return null;
+      if (resumeStatusForBeacon === "blocked") return "enrichment_resume_blocked";
       if (resumeStatusForBeacon === "queued") return "enrichment_resume_queued";
       if (resumeStatusForBeacon === "running") return "enrichment_resume_running";
       if (resumeStatusForBeacon === "stalled") return "enrichment_resume_stalled";
