@@ -1437,6 +1437,7 @@ async function resumeWorkerHandler(req, context) {
             error_code: "upstream_unreachable",
             at: nowIso(),
           });
+          markEnrichmentIncomplete(doc, { reason: "upstream unreachable", field: "headquarters_location" });
         }
 
         if (terminal) {
