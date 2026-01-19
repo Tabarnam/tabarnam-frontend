@@ -2062,8 +2062,7 @@ async function handler(req, context) {
       }
     }
 
-    return jsonWithSessionId(
-      {
+    const out = {
         ok: true,
         session_id: sessionId,
         status: effectiveStatus,
@@ -2209,10 +2208,19 @@ async function handler(req, context) {
             ? primaryJob.note.trim()
             : "start endpoint is inline capped; long primary runs async",
         report,
-      },
-      200,
-      req
-    );
+      };
+
+    const terminalOnlyReason =
+      stageBeaconValues.status_resume_forced_terminalize_reason ||
+      (resumeMissingAnalysis?.terminal_only ? "terminal_only_missing" : null);
+
+    if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
+    else {
+      out.completed = out.status === "complete";
+      out.terminal_only = false;
+    }
+
+    return jsonWithSessionId(out, 200, req);
   }
 
   const mem = getImportSession(sessionId);
