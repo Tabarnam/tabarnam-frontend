@@ -1389,7 +1389,37 @@ async function handler(req, context) {
           }
 
           const responseOk = workerJson && typeof workerJson === "object" ? workerJson.ok : null;
-          const triggerOk = Boolean(workerRes?.ok) && responseOk !== false;
+
+          const bodySessionId = workerJson && typeof workerJson === "object"
+            ? String(workerJson.session_id || workerJson.sessionId || "").trim()
+            : "";
+
+          const enteredAtFromBody = workerJson && typeof workerJson === "object"
+            ? String(
+                workerJson.handler_entered_at ||
+                  workerJson.worker_entered_at ||
+                  workerJson.handler_entered_at_iso ||
+                  workerJson.worker_entered_at_iso ||
+                  ""
+              ).trim()
+            : "";
+
+          const enteredTs = Date.parse(enteredAtFromBody) || 0;
+          const attemptTs = Date.parse(String(triggerAttemptAt || "")) || 0;
+          const enteredSameSecond = Boolean(enteredTs && attemptTs) && Math.floor(enteredTs / 1000) === Math.floor(attemptTs / 1000);
+          const enteredAfterAttempt = Boolean(enteredTs && attemptTs) && enteredTs >= attemptTs;
+          const enteredTimeOk = enteredAfterAttempt || enteredSameSecond;
+
+          const strongTriggerOk =
+            Boolean(workerRes?.ok) &&
+            responseOk !== false &&
+            Boolean(bodySessionId) &&
+            bodySessionId === sessionId &&
+            Boolean(enteredAtFromBody) &&
+            enteredTimeOk;
+
+          const triggerNoopOrNoEnter = Boolean(workerRes?.ok) && responseOk !== false && !strongTriggerOk;
+          const triggerOk = strongTriggerOk;
 
           resume_triggered = triggerOk;
 
@@ -1406,6 +1436,13 @@ async function handler(req, context) {
                     ok: responseOk !== false,
                     stage_beacon: typeof workerJson.stage_beacon === "string" ? workerJson.stage_beacon : null,
                     resume_needed: typeof workerJson.resume_needed === "boolean" ? workerJson.resume_needed : null,
+                    session_id: bodySessionId || null,
+                    handler_entered_at: enteredAtFromBody || null,
+                    did_work: typeof workerJson.did_work === "boolean" ? workerJson.did_work : null,
+                    did_work_reason:
+                      typeof workerJson.did_work_reason === "string" && workerJson.did_work_reason.trim()
+                        ? workerJson.did_work_reason.trim()
+                        : null,
                     error:
                       (typeof workerJson.error === "string" && workerJson.error.trim() ? workerJson.error.trim() : null) ||
                       (typeof workerJson.root_cause === "string" && workerJson.root_cause.trim() ? workerJson.root_cause.trim() : null) ||
@@ -1418,18 +1455,21 @@ async function handler(req, context) {
 
           if (!triggerOk) {
             const baseErr =
-              (workerJson && typeof workerJson === "object" && typeof workerJson.error === "string" && workerJson.error.trim()
-                ? workerJson.error.trim()
-                : null) ||
-              (workerJson && typeof workerJson === "object" && typeof workerJson.root_cause === "string" && workerJson.root_cause.trim()
-                ? workerJson.root_cause.trim()
-                : null) ||
-              workerRes?._error?.message ||
-              `resume_worker_http_${statusCode}`;
+              triggerNoopOrNoEnter
+                ? "resume_worker_trigger_noop_or_no_enter"
+                : (workerJson && typeof workerJson === "object" && typeof workerJson.error === "string" && workerJson.error.trim()
+                    ? workerJson.error.trim()
+                    : null) ||
+                  (workerJson && typeof workerJson === "object" && typeof workerJson.root_cause === "string" && workerJson.root_cause.trim()
+                    ? workerJson.root_cause.trim()
+                    : null) ||
+                  workerRes?._error?.message ||
+                  `resume_worker_http_${statusCode}`;
 
             resume_trigger_error = watchdog_stuck_queued ? "resume_worker_stuck_or_trigger_failed" : baseErr;
             resume_trigger_error_details = {
               ...triggerResult,
+              response_body: workerJson && typeof workerJson === "object" ? workerJson : null,
               response_text_preview: preview || null,
               watchdog: watchdog_stuck_queued
                 ? {
@@ -2556,7 +2596,37 @@ async function handler(req, context) {
           }
 
           const responseOk = workerJson && typeof workerJson === "object" ? workerJson.ok : null;
-          const triggerOk = Boolean(workerRes?.ok) && responseOk !== false;
+
+          const bodySessionId = workerJson && typeof workerJson === "object"
+            ? String(workerJson.session_id || workerJson.sessionId || "").trim()
+            : "";
+
+          const enteredAtFromBody = workerJson && typeof workerJson === "object"
+            ? String(
+                workerJson.handler_entered_at ||
+                  workerJson.worker_entered_at ||
+                  workerJson.handler_entered_at_iso ||
+                  workerJson.worker_entered_at_iso ||
+                  ""
+              ).trim()
+            : "";
+
+          const enteredTs = Date.parse(enteredAtFromBody) || 0;
+          const attemptTs = Date.parse(String(triggerAttemptAt || "")) || 0;
+          const enteredSameSecond = Boolean(enteredTs && attemptTs) && Math.floor(enteredTs / 1000) === Math.floor(attemptTs / 1000);
+          const enteredAfterAttempt = Boolean(enteredTs && attemptTs) && enteredTs >= attemptTs;
+          const enteredTimeOk = enteredAfterAttempt || enteredSameSecond;
+
+          const strongTriggerOk =
+            Boolean(workerRes?.ok) &&
+            responseOk !== false &&
+            Boolean(bodySessionId) &&
+            bodySessionId === sessionId &&
+            Boolean(enteredAtFromBody) &&
+            enteredTimeOk;
+
+          const triggerNoopOrNoEnter = Boolean(workerRes?.ok) && responseOk !== false && !strongTriggerOk;
+          const triggerOk = strongTriggerOk;
 
           resume_triggered = triggerOk;
 
@@ -2573,6 +2643,13 @@ async function handler(req, context) {
                     ok: responseOk !== false,
                     stage_beacon: typeof workerJson.stage_beacon === "string" ? workerJson.stage_beacon : null,
                     resume_needed: typeof workerJson.resume_needed === "boolean" ? workerJson.resume_needed : null,
+                    session_id: bodySessionId || null,
+                    handler_entered_at: enteredAtFromBody || null,
+                    did_work: typeof workerJson.did_work === "boolean" ? workerJson.did_work : null,
+                    did_work_reason:
+                      typeof workerJson.did_work_reason === "string" && workerJson.did_work_reason.trim()
+                        ? workerJson.did_work_reason.trim()
+                        : null,
                     error:
                       (typeof workerJson.error === "string" && workerJson.error.trim() ? workerJson.error.trim() : null) ||
                       (typeof workerJson.root_cause === "string" && workerJson.root_cause.trim() ? workerJson.root_cause.trim() : null) ||
@@ -2585,18 +2662,21 @@ async function handler(req, context) {
 
           if (!triggerOk) {
             const baseErr =
-              (workerJson && typeof workerJson === "object" && typeof workerJson.error === "string" && workerJson.error.trim()
-                ? workerJson.error.trim()
-                : null) ||
-              (workerJson && typeof workerJson === "object" && typeof workerJson.root_cause === "string" && workerJson.root_cause.trim()
-                ? workerJson.root_cause.trim()
-                : null) ||
-              workerRes?._error?.message ||
-              `resume_worker_http_${statusCode}`;
+              triggerNoopOrNoEnter
+                ? "resume_worker_trigger_noop_or_no_enter"
+                : (workerJson && typeof workerJson === "object" && typeof workerJson.error === "string" && workerJson.error.trim()
+                    ? workerJson.error.trim()
+                    : null) ||
+                  (workerJson && typeof workerJson === "object" && typeof workerJson.root_cause === "string" && workerJson.root_cause.trim()
+                    ? workerJson.root_cause.trim()
+                    : null) ||
+                  workerRes?._error?.message ||
+                  `resume_worker_http_${statusCode}`;
 
             resume_trigger_error = watchdog_stuck_queued ? "resume_worker_stuck_or_trigger_failed" : baseErr;
             resume_trigger_error_details = {
               ...triggerResult,
+              response_body: workerJson && typeof workerJson === "object" ? workerJson : null,
               response_text_preview: preview || null,
               watchdog: watchdog_stuck_queued
                 ? {
