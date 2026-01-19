@@ -309,6 +309,24 @@ function normalizeStringArray(value) {
   return value.map((v) => asString(v).trim()).filter(Boolean);
 }
 
+function toFiniteNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string" && value.trim()) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function isValidLatLngPair(lat, lng) {
+  const la = toFiniteNumber(lat);
+  const ln = toFiniteNumber(lng);
+  if (la == null || ln == null) return false;
+  if (Math.abs(la) > 90 || Math.abs(ln) > 180) return false;
+  if (Math.abs(la) < 1e-6 && Math.abs(ln) < 1e-6) return false;
+  return true;
+}
+
 function looksLikeHqLocationString(value) {
   const s = asMeaningfulString(value);
   if (!s) return false;
@@ -387,6 +405,10 @@ function hasNonPlaceholderLocationEntry(list) {
         asString(loc.address).trim() ||
         asString(loc.location).trim();
 
+      const lat = toFiniteNumber(loc.lat ?? loc.latitude);
+      const lng = toFiniteNumber(loc.lng ?? loc.longitude);
+      if (isValidLatLngPair(lat, lng)) return true;
+
       const key = normalizeKey(raw);
       if (!key) continue;
       if (PLACEHOLDER_STRINGS.has(key)) continue;
@@ -461,6 +483,9 @@ function isRealValue(field, value, doc) {
   if (f === "headquarters_location" || f === "hq") {
     if (isTrueish(doc?.hq_unknown)) return false;
 
+    // If we have real coordinates, treat HQ as present even if the formatted label is missing.
+    if (isValidLatLngPair(doc?.hq_lat, doc?.hq_lng)) return true;
+
     if (value && typeof value === "object" && !Array.isArray(value)) {
       const formattedRaw = asString(value.formatted || value.full_address || value.address || value.location).trim();
       if (isSentinelString(formattedRaw)) return false;
@@ -471,7 +496,11 @@ function isRealValue(field, value, doc) {
       const city = asMeaningfulString(value.city || value.locality);
       const region = asMeaningfulString(value.state || value.region || value.province);
       const country = asMeaningfulString(value.country);
-      return Boolean(city && (region || country));
+      if (city && (region || country)) return true;
+
+      const lat = toFiniteNumber(value.lat ?? value.latitude);
+      const lng = toFiniteNumber(value.lng ?? value.longitude);
+      return isValidLatLngPair(lat, lng);
     }
 
     if (isSentinelString(value)) return false;
