@@ -2000,6 +2000,89 @@ async function resumeWorkerHandler(req, context) {
   // Resume-needed is ONLY retryable based.
   const resumeNeeded = retryableMissingCount > 0;
 
+  // Invariant: if we still have retryable missing fields, this invocation must have made at least one
+  // real attempt (bumped import_attempts.*). Otherwise, we mark the resume as blocked to prevent no-op loops.
+  const attemptedFieldsThisRun = (() => {
+    const attempted = new Set();
+    const docs = Array.isArray(seedDocs) ? seedDocs : [];
+    const metaFields = [
+      "industries",
+      "product_keywords",
+      "tagline",
+      "headquarters_location",
+      "manufacturing_locations",
+      "reviews",
+      "logo",
+    ];
+
+    for (const doc of docs) {
+      const meta = doc?.import_attempts_meta && typeof doc.import_attempts_meta === "object" ? doc.import_attempts_meta : null;
+      if (!meta) continue;
+      for (const field of metaFields) {
+        if (meta[field] === requestId) attempted.add(field);
+      }
+    }
+
+    return Array.from(attempted.values());
+  })();
+
+  if (resumeNeeded && attemptedFieldsThisRun.length === 0) {
+    const blockedAt = updatedAt;
+    const errorCode = "resume_no_progress_no_attempts";
+
+    await upsertDoc(container, {
+      ...resumeDoc,
+      status: "blocked",
+      resume_error: errorCode,
+      resume_error_details: {
+        blocked_at: blockedAt,
+        request_id: requestId,
+        missing_by_company,
+        note: "No import_attempts were bumped during this invocation",
+      },
+      last_error: {
+        code: errorCode,
+        message: "Resume blocked: no progress/no attempts",
+        blocked_at: blockedAt,
+      },
+      lock_expires_at: null,
+      updated_at: blockedAt,
+    }).catch(() => null);
+
+    await bestEffortPatchSessionDoc({
+      container,
+      sessionId,
+      patch: {
+        resume_needed: true,
+        resume_error: errorCode,
+        resume_error_details: {
+          blocked_at: blockedAt,
+          request_id: requestId,
+          missing_by_company,
+          note: "No import_attempts were bumped during this invocation",
+        },
+        stage_beacon: "enrichment_resume_blocked",
+        updated_at: blockedAt,
+      },
+    }).catch(() => null);
+
+    return json(
+      {
+        ok: true,
+        session_id: sessionId,
+        handler_entered_at,
+        did_work: true,
+        did_work_reason: "resume_blocked_no_attempts",
+        resume_needed: true,
+        missing_by_company,
+        attempted_fields: attemptedFieldsThisRun,
+        stage_beacon: "enrichment_resume_blocked",
+      },
+      200,
+      req
+    );
+  }
+
   const grokErrors = Array.isArray(workerErrors) ? workerErrors : [];
   const grokErrorSummary = grokErrors.length
     ? {
