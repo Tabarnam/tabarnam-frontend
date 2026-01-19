@@ -1152,7 +1152,15 @@ async function resumeWorkerHandler(req, context) {
       field: String(field || "").trim() || null,
       stage: String(stage || "").trim() || null,
       at: nowIso(),
-      message: typeof err?.message === "string" ? err.message : String(err || "error"),
+      code:
+        typeof err?.code === "string"
+          ? err.code
+          : typeof err?.error_code === "string"
+            ? err.error_code
+            : typeof err?.error === "string"
+              ? err.error
+              : null,
+      message: safeErrorMessage(err) || "error",
       ...(details && typeof details === "object" ? details : {}),
     };
     workerErrors.push(entry);
