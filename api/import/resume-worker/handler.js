@@ -1002,10 +1002,34 @@ async function resumeWorkerHandler(req, context) {
     }
   }
 
-  // Grok-only enrichment pass for HQ/MFG/Reviews.
+  // Grok enrichment pass for required fields.
   // This must run before import-start, and import-start must always skip reviews/location.
   const startedEnrichmentAt = Date.now();
   const perDocBudgetMs = Math.max(4000, Math.trunc(deadlineMs / Math.max(1, seedDocs.length)));
+
+  const workerErrors = [];
+
+  const safeJsonPreview = (value, limit = 1200) => {
+    if (!value) return null;
+    try {
+      const s = typeof value === "string" ? value : JSON.stringify(value);
+      return s.length > limit ? s.slice(0, limit) : s;
+    } catch {
+      return null;
+    }
+  };
+
+  const recordWorkerError = (field, stage, err, details) => {
+    const entry = {
+      field: String(field || "").trim() || null,
+      stage: String(stage || "").trim() || null,
+      at: nowIso(),
+      message: typeof err?.message === "string" ? err.message : String(err || "error"),
+      ...(details && typeof details === "object" ? details : {}),
+    };
+    workerErrors.push(entry);
+    return entry;
+  };
 
   for (const doc of seedDocs) {
     if (!doc || typeof doc !== "object") continue;
@@ -1015,111 +1039,406 @@ async function resumeWorkerHandler(req, context) {
     const companyName = String(doc.company_name || doc.name || "").trim();
     const normalizedDomain = String(doc.normalized_domain || "").trim();
 
+    const grokArgs = {
+      companyName,
+      normalizedDomain,
+      budgetMs: perDocBudgetMs,
+      xaiUrl: process.env.XAI_API_URL,
+      xaiKey: process.env.XAI_API_KEY,
+    };
+
     let changed = false;
 
     if (reconcileGrokTerminalState(doc)) changed = true;
 
+    // Tagline (Grok authoritative)
+    if (missingNow.includes("tagline")) {
+      const bumped = bumpFieldAttempt(doc, "tagline", requestId);
+      if (bumped) changed = true;
+
+      let r;
+      try {
+        r = await fetchTagline(grokArgs);
+      } catch (e) {
+        const entry = recordWorkerError("tagline", "grok_tagline", e);
+        r = { tagline: "", tagline_status: "upstream_unreachable", diagnostics: entry };
+      }
+
+      const status = normalizeKey(r?.tagline_status || "");
+      if (status === "ok" && typeof r?.tagline === "string" && r.tagline.trim()) {
+        doc.tagline = r.tagline.trim();
+        doc.tagline_unknown = false;
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.tagline = "ok";
+        markFieldSuccess(doc, "tagline");
+        changed = true;
+      } else {
+        const terminal = attemptsFor(doc, "tagline") >= MAX_ATTEMPTS_TAGLINE;
+        const reason = status || "not_found";
+
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.tagline = terminal ? "not_found_terminal" : reason;
+        doc.tagline_unknown = true;
+
+        if (status === "upstream_unreachable") {
+          const entry = recordWorkerError("tagline", "grok_tagline", r?.diagnostics || r);
+          markFieldError(doc, "tagline", entry);
+          addImportWarning(doc, {
+            field: "tagline",
+            missing_reason: "upstream_unreachable",
+            stage: "grok_tagline",
+            retryable: !terminal,
+            message: "Grok tagline fetch failed",
+            error_code: "upstream_unreachable",
+            at: nowIso(),
+          });
+        }
+
+        if (terminal) {
+          terminalizeNonGrokField(doc, "tagline", "not_found_terminal");
+        }
+
+        changed = true;
+      }
+    }
+
+    // Industries (Grok authoritative)
+    if (missingNow.includes("industries")) {
+      const bumped = bumpFieldAttempt(doc, "industries", requestId);
+      if (bumped) changed = true;
+
+      let r;
+      try {
+        r = await fetchIndustries(grokArgs);
+      } catch (e) {
+        const entry = recordWorkerError("industries", "grok_industries", e);
+        r = { industries: [], industries_status: "upstream_unreachable", diagnostics: entry };
+      }
+
+      const status = normalizeKey(r?.industries_status || "");
+      const list = Array.isArray(r?.industries) ? r.industries : [];
+      const sanitized = (() => {
+        try {
+          const { sanitizeIndustries } = require("../../_requiredFields");
+          return sanitizeIndustries(list);
+        } catch {
+          return list.map((x) => String(x || "").trim()).filter(Boolean);
+        }
+      })();
+
+      if (status === "ok" && sanitized.length > 0) {
+        doc.industries = sanitized;
+        doc.industries_unknown = false;
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.industries = "ok";
+        markFieldSuccess(doc, "industries");
+        changed = true;
+      } else {
+        const hadAny = Array.isArray(list) && list.length > 0;
+        const terminal = attemptsFor(doc, "industries") >= MAX_ATTEMPTS_INDUSTRIES;
+
+        const retryReason = status === "ok" && hadAny ? "low_quality" : status || "not_found";
+        const terminalReason = retryReason === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
+
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.industries = terminal ? terminalReason : retryReason;
+
+        if (status === "upstream_unreachable") {
+          const entry = recordWorkerError("industries", "grok_industries", r?.diagnostics || r);
+          markFieldError(doc, "industries", entry);
+          addImportWarning(doc, {
+            field: "industries",
+            missing_reason: "upstream_unreachable",
+            stage: "grok_industries",
+            retryable: !terminal,
+            message: "Grok industries fetch failed",
+            error_code: "upstream_unreachable",
+            at: nowIso(),
+          });
+        }
+
+        if (terminal) {
+          terminalizeNonGrokField(doc, "industries", terminalReason);
+        }
+
+        changed = true;
+      }
+    }
+
+    // Product keywords (Grok authoritative)
+    if (missingNow.includes("product_keywords")) {
+      const bumped = bumpFieldAttempt(doc, "product_keywords", requestId);
+      if (bumped) changed = true;
+
+      let r;
+      try {
+        r = await fetchProductKeywords(grokArgs);
+      } catch (e) {
+        const entry = recordWorkerError("product_keywords", "grok_keywords", e);
+        r = { keywords: [], keywords_status: "upstream_unreachable", diagnostics: entry };
+      }
+
+      const status = normalizeKey(r?.keywords_status || "");
+      const list = Array.isArray(r?.keywords) ? r.keywords : [];
+
+      const sanitized = (() => {
+        try {
+          const { sanitizeKeywords } = require("../../_requiredFields");
+          const stats = sanitizeKeywords({ product_keywords: list.join(", "), keywords: [] });
+          return Array.isArray(stats?.sanitized) ? stats.sanitized : [];
+        } catch {
+          return list.map((x) => String(x || "").trim()).filter(Boolean);
+        }
+      })();
+
+      if (status === "ok" && sanitized.length > 0) {
+        doc.keywords = sanitized.slice(0, 25);
+        doc.product_keywords = doc.keywords.join(", ");
+        doc.keywords_source = "grok";
+        doc.product_keywords_source = "grok";
+
+        doc.product_keywords_unknown = false;
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.product_keywords = "ok";
+        markFieldSuccess(doc, "product_keywords");
+        changed = true;
+      } else {
+        const terminal = attemptsFor(doc, "product_keywords") >= MAX_ATTEMPTS_KEYWORDS;
+        const retryReason = status || "not_found";
+        const terminalReason = retryReason === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
+
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.product_keywords = terminal ? terminalReason : retryReason;
+        doc.product_keywords_unknown = true;
+
+        if (status === "upstream_unreachable") {
+          const entry = recordWorkerError("product_keywords", "grok_keywords", r?.diagnostics || r);
+          markFieldError(doc, "product_keywords", entry);
+          addImportWarning(doc, {
+            field: "product_keywords",
+            missing_reason: "upstream_unreachable",
+            stage: "grok_keywords",
+            retryable: !terminal,
+            message: "Grok product keywords fetch failed",
+            error_code: "upstream_unreachable",
+            at: nowIso(),
+          });
+        }
+
+        if (terminal) {
+          terminalizeNonGrokField(doc, "product_keywords", terminalReason);
+        }
+
+        changed = true;
+      }
+    }
+
     // HQ
     if (missingNow.includes("headquarters_location")) {
-      const r = await fetchHeadquartersLocation({
-        companyName,
-        normalizedDomain,
-        budgetMs: perDocBudgetMs,
-        xaiUrl: process.env.XAI_API_URL,
-        xaiKey: process.env.XAI_API_KEY,
-      }).catch(() => null);
+      const bumped = bumpFieldAttempt(doc, "headquarters_location", requestId);
+      if (bumped) changed = true;
+
+      let r;
+      try {
+        r = await fetchHeadquartersLocation(grokArgs);
+      } catch (e) {
+        const entry = recordWorkerError("headquarters_location", "grok_hq", e);
+        r = { headquarters_location: "", hq_status: "upstream_unreachable", diagnostics: entry };
+      }
 
       const status = normalizeKey(r?.hq_status || "");
-      if (status === "ok" && typeof r?.headquarters_location === "string" && r.headquarters_location.trim()) {
-        doc.headquarters_location = r.headquarters_location.trim();
+      const value = typeof r?.headquarters_location === "string" ? r.headquarters_location.trim() : "";
+
+      if (status === "ok" && value) {
+        doc.headquarters_location = value;
+        doc.hq_unknown = false;
+        doc.hq_unknown_reason = null;
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.headquarters_location = "ok";
+        markFieldSuccess(doc, "headquarters_location");
         changed = true;
-      } else if (GROK_RETRYABLE_STATUSES.has(status)) {
-        bumpFieldAttempt(doc, "headquarters_location", requestId);
-        if (attemptsFor(doc, "headquarters_location") >= GROK_MAX_ATTEMPTS) {
-          terminalizeGrokField(doc, "headquarters_location");
-          changed = true;
-        } else {
-          doc.import_missing_reason ||= {};
-          doc.import_missing_reason.headquarters_location = status || "not_found";
-          changed = true;
+      } else {
+        const terminal = attemptsFor(doc, "headquarters_location") >= MAX_ATTEMPTS_LOCATION;
+
+        const normalized = status === "not_disclosed" ? "not_disclosed_pending" : status || "not_found";
+
+        doc.hq_unknown = true;
+        doc.hq_unknown_reason = "pending_grok";
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.headquarters_location = terminal
+          ? (status === "upstream_unreachable" || status === "deferred" ? "exhausted" : "not_disclosed")
+          : normalized;
+
+        if (status === "upstream_unreachable") {
+          const entry = recordWorkerError("headquarters_location", "grok_hq", r?.diagnostics || r, {
+            upstream_preview: safeJsonPreview(r?.diagnostics || r),
+          });
+          markFieldError(doc, "headquarters_location", entry);
+          addImportWarning(doc, {
+            field: "headquarters_location",
+            missing_reason: "upstream_unreachable",
+            stage: "grok_hq",
+            retryable: !terminal,
+            message: "Grok HQ fetch failed",
+            error_code: "upstream_unreachable",
+            at: nowIso(),
+          });
         }
-      } else if (status === "not_disclosed") {
-        terminalizeGrokField(doc, "headquarters_location");
+
+        if (terminal) {
+          terminalizeGrokField(
+            doc,
+            "headquarters_location",
+            status === "upstream_unreachable" || status === "deferred" ? "exhausted" : "not_disclosed"
+          );
+        }
+
         changed = true;
       }
     }
 
     // MFG
     if (missingNow.includes("manufacturing_locations")) {
-      const r = await fetchManufacturingLocations({
-        companyName,
-        normalizedDomain,
-        budgetMs: perDocBudgetMs,
-        xaiUrl: process.env.XAI_API_URL,
-        xaiKey: process.env.XAI_API_KEY,
-      }).catch(() => null);
+      const bumped = bumpFieldAttempt(doc, "manufacturing_locations", requestId);
+      if (bumped) changed = true;
+
+      let r;
+      try {
+        r = await fetchManufacturingLocations(grokArgs);
+      } catch (e) {
+        const entry = recordWorkerError("manufacturing_locations", "grok_mfg", e);
+        r = { manufacturing_locations: [], mfg_status: "upstream_unreachable", diagnostics: entry };
+      }
 
       const status = normalizeKey(r?.mfg_status || "");
       const locs = Array.isArray(r?.manufacturing_locations) ? r.manufacturing_locations : [];
 
       if (status === "ok" && locs.length > 0) {
         doc.manufacturing_locations = locs;
+        doc.mfg_unknown = false;
+        doc.mfg_unknown_reason = null;
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.manufacturing_locations = "ok";
+        markFieldSuccess(doc, "manufacturing_locations");
         changed = true;
-      } else if (GROK_RETRYABLE_STATUSES.has(status)) {
-        bumpFieldAttempt(doc, "manufacturing_locations", requestId);
-        if (attemptsFor(doc, "manufacturing_locations") >= GROK_MAX_ATTEMPTS) {
-          terminalizeGrokField(doc, "manufacturing_locations");
-          changed = true;
-        } else {
-          doc.import_missing_reason ||= {};
-          doc.import_missing_reason.manufacturing_locations = status || "not_found";
-          changed = true;
+      } else {
+        const terminal = attemptsFor(doc, "manufacturing_locations") >= MAX_ATTEMPTS_LOCATION;
+
+        const normalized = status === "not_disclosed" ? "not_disclosed_pending" : status || "not_found";
+
+        doc.mfg_unknown = true;
+        doc.mfg_unknown_reason = "pending_grok";
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.manufacturing_locations = terminal
+          ? (status === "upstream_unreachable" || status === "deferred" ? "exhausted" : "not_disclosed")
+          : normalized;
+
+        if (status === "upstream_unreachable") {
+          const entry = recordWorkerError("manufacturing_locations", "grok_mfg", r?.diagnostics || r, {
+            upstream_preview: safeJsonPreview(r?.diagnostics || r),
+          });
+          markFieldError(doc, "manufacturing_locations", entry);
+          addImportWarning(doc, {
+            field: "manufacturing_locations",
+            missing_reason: "upstream_unreachable",
+            stage: "grok_mfg",
+            retryable: !terminal,
+            message: "Grok manufacturing fetch failed",
+            error_code: "upstream_unreachable",
+            at: nowIso(),
+          });
         }
-      } else if (status === "not_disclosed") {
-        terminalizeGrokField(doc, "manufacturing_locations");
+
+        if (terminal) {
+          terminalizeGrokField(
+            doc,
+            "manufacturing_locations",
+            status === "upstream_unreachable" || status === "deferred" ? "exhausted" : "not_disclosed"
+          );
+        }
+
         changed = true;
       }
     }
 
     // Reviews
     if (missingNow.includes("reviews")) {
-      const r = await fetchCuratedReviews({
-        companyName,
-        normalizedDomain,
-        budgetMs: perDocBudgetMs,
-        xaiUrl: process.env.XAI_API_URL,
-        xaiKey: process.env.XAI_API_KEY,
-      }).catch(() => null);
+      const bumped = bumpFieldAttempt(doc, "reviews", requestId);
+      if (bumped) changed = true;
+
+      let r;
+      try {
+        r = await fetchCuratedReviews(grokArgs);
+      } catch (e) {
+        const entry = recordWorkerError("reviews", "grok_reviews", e);
+        r = { curated_reviews: [], reviews_stage_status: "upstream_unreachable", diagnostics: entry };
+      }
 
       const status = normalizeKey(r?.reviews_stage_status || "");
       const curated = Array.isArray(r?.curated_reviews) ? r.curated_reviews : [];
 
+      doc.review_cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
+
       if (status === "ok" && curated.length > 0) {
-        doc.curated_reviews = curated.slice(0, 2);
-        doc.review_count = typeof doc.review_count === "number" ? doc.review_count : 0;
+        doc.curated_reviews = curated.slice(0, 10);
+
+        const counts = curated
+          .map((x) => (x && typeof x === "object" ? Number(x.review_count) : NaN))
+          .filter((n) => Number.isFinite(n) && n > 0);
+
+        const derivedCount = counts.length > 0 ? Math.max(...counts) : curated.length;
+        doc.review_count = Number.isFinite(Number(doc.review_count)) && Number(doc.review_count) > 0
+          ? Number(doc.review_count)
+          : derivedCount;
+
         doc.reviews_stage_status = "ok";
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.reviews = "ok";
+
+        doc.review_cursor.last_success_at = nowIso();
+        doc.review_cursor.last_error = null;
+
+        markFieldSuccess(doc, "reviews");
         changed = true;
-      } else if (status === "exhausted") {
-        terminalizeGrokField(doc, "reviews");
-        changed = true;
-      } else if (GROK_RETRYABLE_STATUSES.has(status)) {
-        bumpFieldAttempt(doc, "reviews", requestId);
-        if (attemptsFor(doc, "reviews") >= GROK_MAX_ATTEMPTS) {
-          // After capped retries, force terminal so the run can complete.
-          terminalizeGrokField(doc, "reviews");
-          changed = true;
-        } else {
-          doc.reviews_stage_status = status || "not_found";
-          doc.import_missing_reason ||= {};
-          doc.import_missing_reason.reviews = status || "not_found";
-          changed = true;
+      } else {
+        const terminal = attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS;
+
+        doc.reviews_stage_status = status || "not_found";
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.reviews = terminal ? "exhausted" : status || "not_found";
+
+        if (status === "upstream_unreachable") {
+          const entry = recordWorkerError("reviews", "grok_reviews", r?.diagnostics || r, {
+            upstream_preview: safeJsonPreview(r?.diagnostics || r),
+          });
+
+          markFieldError(doc, "reviews", entry);
+
+          doc.review_cursor.last_error = {
+            code: "upstream_unreachable",
+            message: entry.message,
+            at: entry.at,
+            request_id: requestId || null,
+          };
+
+          addImportWarning(doc, {
+            field: "reviews",
+            missing_reason: "upstream_unreachable",
+            stage: "grok_reviews",
+            retryable: !terminal,
+            message: "Grok reviews fetch failed",
+            error_code: "upstream_unreachable",
+            at: nowIso(),
+          });
+        } else if (status === "not_found") {
+          doc.review_cursor.last_error = null;
         }
+
+        if (terminal) {
+          terminalizeGrokField(doc, "reviews", "exhausted");
+        }
+
+        changed = true;
       }
     }
 
