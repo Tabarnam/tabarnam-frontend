@@ -1614,37 +1614,24 @@ async function handler(req, context) {
 
           const currentCycleCount = Number(sessionDocForPolicy?.resume_cycle_count || 0) || 0;
 
-          const resumeUpdatedAtIso =
-            (typeof currentResume !== "undefined" && currentResume && typeof currentResume === "object" && currentResume.updated_at
-              ? currentResume.updated_at
-              : resumeDoc?.updated_at) || null;
+          const resumeWorkerForProgress = {
+            last_finished_at: sessionDocForPolicy?.resume_worker_last_finished_at || null,
+            handler_entered_at: sessionDocForPolicy?.resume_worker_handler_entered_at || null,
+          };
 
-          const resumeLastTriggeredAtIso =
-            sessionDocForPolicy?.resume_last_triggered_at || sessionDocForPolicy?.resume_worker_last_triggered_at || null;
-
-          const tUpdated = Date.parse(String(resumeUpdatedAtIso || ""));
-          const tTrig = Date.parse(String(resumeLastTriggeredAtIso || ""));
-
-          const timeoutElapsedMs = Number.isFinite(tUpdated) ? Math.max(0, Date.now() - tUpdated) : null;
-
-          const timeoutConditionMet = Boolean(
-            Number.isFinite(tUpdated) &&
-              Number.isFinite(tTrig) &&
-              tTrig >= tUpdated &&
-              timeoutElapsedMs !== null &&
-              timeoutElapsedMs >= resumeStuckQueuedMs
-          );
-
-          stageBeaconValues.resume_updated_at = resumeUpdatedAtIso;
-          stageBeaconValues.resume_last_triggered_at = resumeLastTriggeredAtIso;
-          stageBeaconValues.resume_timeout_condition_met = timeoutConditionMet;
-          stageBeaconValues.resume_timeout_ms = resumeStuckQueuedMs;
-          stageBeaconValues.resume_timeout_elapsed_ms = timeoutElapsedMs;
-          stageBeaconValues.resume_timeout_t_updated_ms = Number.isFinite(tUpdated) ? tUpdated : null;
-          stageBeaconValues.resume_timeout_t_trig_ms = Number.isFinite(tTrig) ? tTrig : null;
+          const nowMs = Date.now();
+          const queued = resumeStatus === "queued" && resume_needed === true;
+          const noRecentProgress = !hasRecentWorkerProgress(resumeWorkerForProgress, nowMs, resumeStuckQueuedMs);
+          const shouldForceByQueuedTimeout = Boolean(singleCompanyMode && queued && noRecentProgress);
 
           stageBeaconValues.status_single_company_mode = Boolean(singleCompanyMode);
           stageBeaconValues.status_resume_cycle_count = currentCycleCount;
+          stageBeaconValues.status_resume_queued = queued;
+          stageBeaconValues.status_resume_no_recent_worker_progress = noRecentProgress;
+          stageBeaconValues.status_resume_stuck_ms = resumeStuckQueuedMs;
+          stageBeaconValues.status_resume_worker_last_finished_at = resumeWorkerForProgress.last_finished_at;
+          stageBeaconValues.status_resume_worker_handler_entered_at = resumeWorkerForProgress.handler_entered_at;
+          stageBeaconValues.status_resume_should_force_by_queued_timeout = shouldForceByQueuedTimeout;
 
           // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
           const preTriggerCap = Boolean(singleCompanyMode && resume_needed && currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE);
@@ -3080,37 +3067,24 @@ async function handler(req, context) {
 
           const currentCycleCount = Number(sessionDocForPolicy?.resume_cycle_count || 0) || 0;
 
-          const resumeUpdatedAtIso =
-            (typeof currentResume !== "undefined" && currentResume && typeof currentResume === "object" && currentResume.updated_at
-              ? currentResume.updated_at
-              : resumeDoc?.updated_at) || null;
+          const resumeWorkerForProgress = {
+            last_finished_at: sessionDocForPolicy?.resume_worker_last_finished_at || null,
+            handler_entered_at: sessionDocForPolicy?.resume_worker_handler_entered_at || null,
+          };
 
-          const resumeLastTriggeredAtIso =
-            sessionDocForPolicy?.resume_last_triggered_at || sessionDocForPolicy?.resume_worker_last_triggered_at || null;
-
-          const tUpdated = Date.parse(String(resumeUpdatedAtIso || ""));
-          const tTrig = Date.parse(String(resumeLastTriggeredAtIso || ""));
-
-          const timeoutElapsedMs = Number.isFinite(tUpdated) ? Math.max(0, Date.now() - tUpdated) : null;
-
-          const timeoutConditionMet = Boolean(
-            Number.isFinite(tUpdated) &&
-              Number.isFinite(tTrig) &&
-              tTrig >= tUpdated &&
-              timeoutElapsedMs !== null &&
-              timeoutElapsedMs >= resumeStuckQueuedMs
-          );
-
-          stageBeaconValues.resume_updated_at = resumeUpdatedAtIso;
-          stageBeaconValues.resume_last_triggered_at = resumeLastTriggeredAtIso;
-          stageBeaconValues.resume_timeout_condition_met = timeoutConditionMet;
-          stageBeaconValues.resume_timeout_ms = resumeStuckQueuedMs;
-          stageBeaconValues.resume_timeout_elapsed_ms = timeoutElapsedMs;
-          stageBeaconValues.resume_timeout_t_updated_ms = Number.isFinite(tUpdated) ? tUpdated : null;
-          stageBeaconValues.resume_timeout_t_trig_ms = Number.isFinite(tTrig) ? tTrig : null;
+          const nowMs = Date.now();
+          const queued = resumeStatus === "queued" && resume_needed === true;
+          const noRecentProgress = !hasRecentWorkerProgress(resumeWorkerForProgress, nowMs, resumeStuckQueuedMs);
+          const shouldForceByQueuedTimeout = Boolean(singleCompanyMode && queued && noRecentProgress);
 
           stageBeaconValues.status_single_company_mode = Boolean(singleCompanyMode);
           stageBeaconValues.status_resume_cycle_count = currentCycleCount;
+          stageBeaconValues.status_resume_queued = queued;
+          stageBeaconValues.status_resume_no_recent_worker_progress = noRecentProgress;
+          stageBeaconValues.status_resume_stuck_ms = resumeStuckQueuedMs;
+          stageBeaconValues.status_resume_worker_last_finished_at = resumeWorkerForProgress.last_finished_at;
+          stageBeaconValues.status_resume_worker_handler_entered_at = resumeWorkerForProgress.handler_entered_at;
+          stageBeaconValues.status_resume_should_force_by_queued_timeout = shouldForceByQueuedTimeout;
 
           // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
           const preTriggerCap = Boolean(singleCompanyMode && resume_needed && currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE);
