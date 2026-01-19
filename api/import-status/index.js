@@ -2032,6 +2032,15 @@ async function handler(req, context) {
         reconciled_saved_ids,
         saved_companies,
         resume_needed,
+        resume_cycle_count:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+            : 0,
+        resume_last_triggered_at:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+            : null,
+        max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
         resume: {
           needed: resume_needed,
           status: resume_status || null,
@@ -3443,9 +3452,18 @@ async function handler(req, context) {
         reconciled,
           reconcile_strategy,
           reconciled_saved_ids,
-          saved_companies,
-          resume_needed,
-          resume: {
+        saved_companies,
+        resume_needed,
+        resume_cycle_count:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+            : 0,
+        resume_last_triggered_at:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+            : null,
+        max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+        resume: {
           needed: resume_needed,
           status: resume_status || null,
             doc_created: Boolean(report?.resume) || resume_doc_created,
@@ -3695,9 +3713,18 @@ async function handler(req, context) {
         reconciled,
           reconcile_strategy,
           reconciled_saved_ids,
-          saved_companies,
-          resume_needed,
-          resume: {
+        saved_companies,
+        resume_needed,
+        resume_cycle_count:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+            : 0,
+        resume_last_triggered_at:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+            : null,
+        max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+        resume: {
           needed: resume_needed,
           status: resume_status || null,
             doc_created: Boolean(report?.resume) || resume_doc_created,
@@ -3798,6 +3825,15 @@ async function handler(req, context) {
         reconciled_saved_ids,
         saved_companies,
         resume_needed,
+        resume_cycle_count:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+            : 0,
+        resume_last_triggered_at:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+            : null,
+        max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
         resume: {
           needed: resume_needed,
           status: resume_status || null,
