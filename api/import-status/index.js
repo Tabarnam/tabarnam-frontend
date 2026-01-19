@@ -1562,6 +1562,13 @@ async function handler(req, context) {
 
         let canTrigger = !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil);
 
+        // Persisted blocked state: once blocked, /import/status must not keep auto-triggering the worker.
+        // The worker may only resume via a manual force_resume=1 request (or future health-check/backoff logic).
+        if (!forceResume && resumeStatus === "blocked") {
+          canTrigger = false;
+          stageBeaconValues.status_resume_blocked_persisted = nowIso();
+        }
+
         const resumeStuckQueuedMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
           ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
           : 90_000;
@@ -1775,6 +1782,28 @@ async function handler(req, context) {
                 updated_at: forcedAt,
               }).catch(() => null);
             }
+
+            // Persist the blocked state to the resume/control doc so polling does not keep seeing queued.
+            try {
+              const resumeDocForBlocked = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+              if (resumeDocForBlocked && typeof resumeDocForBlocked === "object") {
+                await upsertDoc(container, {
+                  ...resumeDocForBlocked,
+                  status: "blocked",
+                  resume_error: errorCode,
+                  resume_error_details: details,
+                  blocked_at: forcedAt,
+                  blocked_reason: forceDecision.reason,
+                  last_error: {
+                    code: errorCode,
+                    message: "Resume blocked by status watchdog",
+                    ...details,
+                  },
+                  lock_expires_at: null,
+                  updated_at: forcedAt,
+                }).catch(() => null);
+              }
+            } catch {}
 
             // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
             resume_needed = true;
@@ -3038,6 +3067,13 @@ async function handler(req, context) {
 
         let canTrigger = !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil);
 
+        // Persisted blocked state: once blocked, /import/status must not keep auto-triggering the worker.
+        // The worker may only resume via a manual force_resume=1 request (or future health-check/backoff logic).
+        if (!forceResume && resumeStatus === "blocked") {
+          canTrigger = false;
+          stageBeaconValues.status_resume_blocked_persisted = nowIso();
+        }
+
         const resumeStuckQueuedMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
           ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
           : 90_000;
@@ -3257,6 +3293,28 @@ async function handler(req, context) {
                 updated_at: forcedAt,
               }).catch(() => null);
             }
+
+            // Persist the blocked state to the resume/control doc so polling does not keep seeing queued.
+            try {
+              const resumeDocForBlocked = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+              if (resumeDocForBlocked && typeof resumeDocForBlocked === "object") {
+                await upsertDoc(container, {
+                  ...resumeDocForBlocked,
+                  status: "blocked",
+                  resume_error: errorCode,
+                  resume_error_details: details,
+                  blocked_at: forcedAt,
+                  blocked_reason: forceDecision.reason,
+                  last_error: {
+                    code: errorCode,
+                    message: "Resume blocked by status watchdog",
+                    ...details,
+                  },
+                  lock_expires_at: null,
+                  updated_at: forcedAt,
+                }).catch(() => null);
+              }
+            } catch {}
 
             // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
             resume_needed = true;
