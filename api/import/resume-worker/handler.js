@@ -865,6 +865,13 @@ async function resumeWorkerHandler(req, context) {
         did_work_reason: "forced_terminalize_single",
         resume_needed: false,
         forced_terminalize_single: true,
+        import_attempts_snapshot: seedDocs.slice(0, 5).map((d) => ({
+          company_id: d?.id || null,
+          normalized_domain: d?.normalized_domain || null,
+          import_attempts: d?.import_attempts || {},
+          import_missing_reason: d?.import_missing_reason || {},
+          import_missing_fields: Array.isArray(d?.import_missing_fields) ? d.import_missing_fields : null,
+        })),
       },
       200,
       req
