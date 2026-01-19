@@ -91,6 +91,8 @@ const GROK_ONLY_FIELDS = new Set([
 const GROK_RETRYABLE_STATUSES = new Set(["deferred", "upstream_unreachable", "not_found"]);
 const GROK_MAX_ATTEMPTS = 3;
 
+const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = 2;
+
 function bumpFieldAttempt(doc, field, requestId) {
   doc.import_attempts ||= {};
   doc.import_attempts_meta ||= {};
