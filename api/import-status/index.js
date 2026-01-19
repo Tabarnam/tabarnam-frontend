@@ -2682,9 +2682,16 @@ async function handler(req, context) {
       (!forceResume && Number(saved || 0) > 0 && Number(resumeMissingAnalysis?.total_retryable_missing || 0) === 0) ||
         resumeMissingAnalysis.terminal_only ||
         sessionStatus === "complete" ||
-        stage_beacon === "complete"
+        stage_beacon === "complete" ||
+        stage_beacon === "status_resume_terminal_only"
     );
-    if (forceComplete) stage_beacon = "complete";
+
+    if (forceComplete) {
+      stage_beacon =
+        stage_beacon === "status_resume_terminal_only" || sessionDoc?.stage_beacon === "status_resume_terminal_only"
+          ? "status_resume_terminal_only"
+          : "complete";
+    }
 
     stageBeaconValues.status_resume_missing_total = resumeMissingAnalysis.total_missing;
     stageBeaconValues.status_resume_missing_retryable = resumeMissingAnalysis.total_retryable_missing;
