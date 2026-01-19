@@ -882,7 +882,9 @@ async function resumeWorkerHandler(req, context) {
       let changed = false;
 
       for (const field of lowQualityFields) {
-        const reason = normalizeKey(deriveMissingReason(doc, field));
+        const storedReason = normalizeKey(doc?.import_missing_reason?.[field] || "");
+        const derivedReason = normalizeKey(deriveMissingReason(doc, field));
+        const reason = storedReason || derivedReason;
         if (reason !== "low_quality") continue;
 
         bumpFieldAttempt(doc, field, requestId);
