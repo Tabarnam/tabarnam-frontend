@@ -1919,6 +1919,17 @@ async function resumeWorkerHandler(req, context) {
   // Resume-needed is ONLY retryable based.
   const resumeNeeded = retryableMissingCount > 0;
 
+  const grokErrors = Array.isArray(workerErrors) ? workerErrors : [];
+  const grokErrorSummary = grokErrors.length
+    ? {
+        code: "grok_enrichment_error",
+        message: String(grokErrors[0]?.message || "grok enrichment error").slice(0, 240),
+        fields: Array.from(new Set(grokErrors.map((e) => e?.field).filter(Boolean))).slice(0, 20),
+        last_error: grokErrors[0],
+        errors: grokErrors.slice(0, 5),
+      }
+    : null;
+
   await upsertDoc(container, {
     ...resumeDoc,
     status: resumeNeeded ? (lastStartOk ? "queued" : "error") : "complete",
