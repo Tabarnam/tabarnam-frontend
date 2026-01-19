@@ -254,17 +254,45 @@ function reconcileGrokTerminalState(doc) {
 
   const hqVal = normalizeKey(doc.headquarters_location);
   if (hqVal === "not disclosed" || hqVal === "not_disclosed") {
-    if (doc.hq_unknown !== true) {
-      doc.hq_unknown = true;
-      changed = true;
-    }
-    if (normalizeKey(doc.hq_unknown_reason) !== "not_disclosed") {
-      doc.hq_unknown_reason = "not_disclosed";
-      changed = true;
-    }
-    if (normalizeKey(doc.import_missing_reason.headquarters_location) !== "not_disclosed") {
-      doc.import_missing_reason.headquarters_location = "not_disclosed";
-      changed = true;
+    const hqReason = normalizeKey(doc.import_missing_reason.headquarters_location || doc.hq_unknown_reason || "");
+    const attempts = attemptsFor(doc, "headquarters_location");
+    const confirmedTerminal = hqReason === "not_disclosed" || attempts >= MAX_ATTEMPTS_LOCATION;
+
+    // If a placeholder sentinel was written too early, treat it as retryable and clear the visible value.
+    if (!confirmedTerminal) {
+      if (typeof doc.headquarters_location === "string" && doc.headquarters_location.trim()) {
+        doc.headquarters_location = "";
+        changed = true;
+      }
+
+      if (doc.hq_unknown !== true) {
+        doc.hq_unknown = true;
+        changed = true;
+      }
+
+      if (normalizeKey(doc.hq_unknown_reason) !== "pending_grok") {
+        doc.hq_unknown_reason = "pending_grok";
+        changed = true;
+      }
+
+      const stored = normalizeKey(doc.import_missing_reason.headquarters_location || "");
+      if (!stored || stored === "not_disclosed") {
+        doc.import_missing_reason.headquarters_location = "not_disclosed_pending";
+        changed = true;
+      }
+    } else {
+      if (doc.hq_unknown !== true) {
+        doc.hq_unknown = true;
+        changed = true;
+      }
+      if (normalizeKey(doc.hq_unknown_reason) !== "not_disclosed") {
+        doc.hq_unknown_reason = "not_disclosed";
+        changed = true;
+      }
+      if (normalizeKey(doc.import_missing_reason.headquarters_location) !== "not_disclosed") {
+        doc.import_missing_reason.headquarters_location = "not_disclosed";
+        changed = true;
+      }
     }
   }
 
