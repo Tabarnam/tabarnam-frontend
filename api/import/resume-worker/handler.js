@@ -1970,7 +1970,19 @@ async function resumeWorkerHandler(req, context) {
           ? String(seedDocs[0].id).trim()
           : null;
 
+    const grokErrors = Array.isArray(workerErrors) ? workerErrors : [];
+    const grokErrorSummary = grokErrors.length
+      ? {
+          code: "grok_enrichment_error",
+          message: String(grokErrors[0]?.message || "grok enrichment error").slice(0, 240),
+          fields: Array.from(new Set(grokErrors.map((e) => e?.field).filter(Boolean))).slice(0, 20),
+          last_error: grokErrors[0],
+          errors: grokErrors.slice(0, 5),
+        }
+      : null;
+
     const derivedResult = (() => {
+      if (grokErrorSummary) return resumeNeeded ? "grok_error_incomplete" : "grok_error_complete";
       if (lastStartOk) return resumeNeeded ? "ok_incomplete" : "ok_complete";
       const root = typeof lastStartJson?.root_cause === "string" && lastStartJson.root_cause.trim()
         ? lastStartJson.root_cause.trim()
@@ -1986,10 +1998,12 @@ async function resumeWorkerHandler(req, context) {
       resume_worker_last_result: derivedResult,
       resume_worker_last_ok: Boolean(lastStartOk),
       resume_worker_last_http_status: lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0),
-      resume_worker_last_error: lastStartOk
-        ? null
-        : lastStartRes?._error?.message || `import_start_http_${lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0)}`,
-      resume_worker_last_error_details: last_error_details || null,
+      resume_worker_last_error: grokErrorSummary
+        ? grokErrorSummary.code
+        : lastStartOk
+          ? null
+          : lastStartRes?._error?.message || `import_start_http_${lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0)}`,
+      resume_worker_last_error_details: grokErrorSummary ? grokErrorSummary : last_error_details || null,
       resume_worker_last_stage_beacon: lastStartJson?.stage_beacon || null,
       resume_worker_last_resume_needed: resumeNeeded,
       resume_worker_last_company_id: companyIdFromResponse,
