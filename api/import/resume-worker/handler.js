@@ -1606,6 +1606,13 @@ async function resumeWorkerHandler(req, context) {
       resume_needed: resumeNeeded,
       iterations: iteration + 1,
       missing_by_company,
+      import_attempts_snapshot: seedDocs.slice(0, 5).map((d) => ({
+        company_id: d?.id || null,
+        normalized_domain: d?.normalized_domain || null,
+        import_attempts: d?.import_attempts || {},
+        import_missing_reason: d?.import_missing_reason || {},
+        import_missing_fields: Array.isArray(d?.import_missing_fields) ? d.import_missing_fields : null,
+      })),
       import_start_body: lastStartJson || (lastStartText ? { text: lastStartText.slice(0, 2000) } : null),
     },
     200,
