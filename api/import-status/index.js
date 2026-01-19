@@ -1845,40 +1845,14 @@ async function handler(req, context) {
             resume_error = errorCode;
             resume_error_details = details;
 
-            // Persist surfaced error on the session control doc (best effort).
-            if (sessionDocForPolicy && typeof sessionDocForPolicy === "object") {
-              await upsertDoc(container, {
-                ...sessionDocForPolicy,
-                resume_needed: true,
-                resume_error: errorCode,
-                resume_error_details: details,
-                status: sessionDocForPolicy.status === "complete" ? "running" : (sessionDocForPolicy.status || "running"),
-                stage_beacon: "enrichment_resume_blocked",
-                updated_at: forcedAt,
-              }).catch(() => null);
-            }
-
-            // Persist the blocked state to the resume/control doc so polling does not keep seeing queued.
-            try {
-              const resumeDocForBlocked = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
-              if (resumeDocForBlocked && typeof resumeDocForBlocked === "object") {
-                await upsertDoc(container, {
-                  ...resumeDocForBlocked,
-                  status: "blocked",
-                  resume_error: errorCode,
-                  resume_error_details: details,
-                  blocked_at: forcedAt,
-                  blocked_reason: forceDecision.reason,
-                  last_error: {
-                    code: errorCode,
-                    message: "Resume blocked by status watchdog",
-                    ...details,
-                  },
-                  lock_expires_at: null,
-                  updated_at: forcedAt,
-                }).catch(() => null);
-              }
-            } catch {}
+            await persistResumeBlocked(container, {
+              sessionId,
+              forcedAt,
+              errorCode,
+              details,
+              forcedBy: forceDecision.reason,
+              message: "Resume blocked by status watchdog",
+            }).catch(() => null);
 
             // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
             resume_needed = true;
@@ -3347,40 +3321,14 @@ async function handler(req, context) {
             resume_error = errorCode;
             resume_error_details = details;
 
-            // Persist surfaced error on the session control doc (best effort).
-            if (sessionDocForPolicy && typeof sessionDocForPolicy === "object") {
-              await upsertDoc(container, {
-                ...sessionDocForPolicy,
-                resume_needed: true,
-                resume_error: errorCode,
-                resume_error_details: details,
-                status: sessionDocForPolicy.status === "complete" ? "running" : (sessionDocForPolicy.status || "running"),
-                stage_beacon: "enrichment_resume_blocked",
-                updated_at: forcedAt,
-              }).catch(() => null);
-            }
-
-            // Persist the blocked state to the resume/control doc so polling does not keep seeing queued.
-            try {
-              const resumeDocForBlocked = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
-              if (resumeDocForBlocked && typeof resumeDocForBlocked === "object") {
-                await upsertDoc(container, {
-                  ...resumeDocForBlocked,
-                  status: "blocked",
-                  resume_error: errorCode,
-                  resume_error_details: details,
-                  blocked_at: forcedAt,
-                  blocked_reason: forceDecision.reason,
-                  last_error: {
-                    code: errorCode,
-                    message: "Resume blocked by status watchdog",
-                    ...details,
-                  },
-                  lock_expires_at: null,
-                  updated_at: forcedAt,
-                }).catch(() => null);
-              }
-            } catch {}
+            await persistResumeBlocked(container, {
+              sessionId,
+              forcedAt,
+              errorCode,
+              details,
+              forcedBy: forceDecision.reason,
+              message: "Resume blocked by status watchdog",
+            }).catch(() => null);
 
             // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
             resume_needed = true;
