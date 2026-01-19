@@ -828,6 +828,93 @@ async function upsertDoc(container, doc) {
   return { ok: false, error: lastErr?.message || String(lastErr || "upsert_failed") };
 }
 
+async function persistResumeBlocked(container, {
+  sessionId,
+  forcedAt,
+  errorCode,
+  details,
+  forcedBy,
+  message,
+}) {
+  if (!container) return { ok: false, error: "no_container" };
+  const sid = String(sessionId || "").trim();
+  if (!sid) return { ok: false, error: "missing_session_id" };
+
+  const stamp = String(forcedAt || nowIso()).trim() || nowIso();
+
+  const sessionDocId = `_import_session_${sid}`;
+  const resumeDocId = `_import_resume_${sid}`;
+
+  const sessionDoc = await readControlDoc(container, sessionDocId, sid).catch(() => null);
+  const resumeDoc = await readControlDoc(container, resumeDocId, sid).catch(() => null);
+
+  const mergedDetails = {
+    ...(details && typeof details === "object" ? details : {}),
+    blocked_at: (details && typeof details === "object" && details.blocked_at) ? details.blocked_at : stamp,
+    forced_by: (details && typeof details === "object" && details.forced_by) ? details.forced_by : (forcedBy || null),
+  };
+
+  const sessionWrite = {
+    ...(sessionDoc && typeof sessionDoc === "object"
+      ? sessionDoc
+      : {
+          id: sessionDocId,
+          session_id: sid,
+          normalized_domain: "import",
+          partition_key: "import",
+          type: "import_control",
+          status: "running",
+          stage_beacon: "enrichment_resume_blocked",
+          created_at: stamp,
+        }),
+    resume_needed: true,
+    resume_error: errorCode,
+    resume_error_details: mergedDetails,
+    // Keep the overall session status non-terminal; it is blocked due to retryable missing fields.
+    status: sessionDoc && typeof sessionDoc?.status === "string" && sessionDoc.status.trim() === "complete" ? "running" : (sessionDoc?.status || "running"),
+    stage_beacon: "enrichment_resume_blocked",
+    updated_at: stamp,
+  };
+
+  const resumeWrite = {
+    ...(resumeDoc && typeof resumeDoc === "object"
+      ? resumeDoc
+      : {
+          id: resumeDocId,
+          session_id: sid,
+          normalized_domain: "import",
+          partition_key: "import",
+          type: "import_control",
+          created_at: stamp,
+        }),
+    status: "blocked",
+    resume_error: errorCode,
+    resume_error_details: mergedDetails,
+    blocked_at: stamp,
+    blocked_reason: forcedBy || null,
+    last_error: {
+      code: errorCode,
+      message: String(message || "Resume blocked"),
+      ...mergedDetails,
+    },
+    lock_expires_at: null,
+    updated_at: stamp,
+  };
+
+  const [sessionRes, resumeRes] = await Promise.all([
+    upsertDoc(container, sessionWrite).catch((e) => ({ ok: false, error: e?.message || String(e) })),
+    upsertDoc(container, resumeWrite).catch((e) => ({ ok: false, error: e?.message || String(e) })),
+  ]);
+
+  return {
+    ok: Boolean(sessionRes?.ok) && Boolean(resumeRes?.ok),
+    session: sessionRes,
+    resume: resumeRes,
+    session_doc_id: sessionDocId,
+    resume_doc_id: resumeDocId,
+  };
+}
+
 async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionCreatedAt, normalizedDomain, createdAfter, limit = 200 }) {
   if (!container) return [];
   const n = Math.max(0, Math.min(Number(limit) || 0, 200));
@@ -1594,48 +1681,34 @@ async function handler(req, context) {
 
           // Second-stage watchdog: if watchdog fired at time T, the very next status poll must observe a handler re-entry.
           if (prevWatchdogTs && resume_needed && resumeStatus === "queued" && (!lastEnteredTs || lastEnteredTs < prevWatchdogTs)) {
-            const erroredAt = nowIso();
-            stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress = erroredAt;
+            const blockedAt = nowIso();
+            stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress = blockedAt;
 
+            const errorCode = "resume_worker_stuck_queued_no_progress";
             const details = {
+              forced_by: "watchdog_no_progress",
+              blocked_at: blockedAt,
               watchdog_fired_at: prevWatchdogAt,
               last_entered_at: lastEnteredAt,
               last_finished_at: watchdog_last_finished_at,
               last_trigger_result: sessionDocForWatchdog?.resume_worker_last_trigger_result || null,
-              updated_at: erroredAt,
+              updated_at: blockedAt,
             };
 
-            resume_status = "error";
-            resume_error = "resume_worker_stuck_queued_no_progress";
+            resume_error = errorCode;
             resume_error_details = details;
+            resume_status = "blocked";
+            resumeStatus = "blocked";
             canTrigger = false;
 
-            if (sessionDocForWatchdog && typeof sessionDocForWatchdog === "object") {
-              await upsertDoc(container, {
-                ...sessionDocForWatchdog,
-                resume_error: "resume_worker_stuck_queued_no_progress",
-                resume_error_details: details,
-                resume_needed: true,
-                status: "error",
-                stage_beacon: "enrichment_resume_error",
-                updated_at: erroredAt,
-              }).catch(() => null);
-            }
-
-            const resumeDocForError = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
-            if (resumeDocForError && typeof resumeDocForError === "object") {
-              await upsertDoc(container, {
-                ...resumeDocForError,
-                status: "error",
-                last_error: {
-                  code: "resume_worker_stuck_queued_no_progress",
-                  message: "Watchdog fired but resume-worker did not re-enter on subsequent poll",
-                  ...details,
-                },
-                lock_expires_at: null,
-                updated_at: erroredAt,
-              }).catch(() => null);
-            }
+            await persistResumeBlocked(container, {
+              sessionId,
+              forcedAt: blockedAt,
+              errorCode,
+              details,
+              forcedBy: "watchdog_no_progress",
+              message: "Watchdog fired but resume-worker did not re-enter on subsequent poll",
+            }).catch(() => null);
           } else if (
             prevWatchdogTs &&
             lastEnteredTs &&
@@ -1772,40 +1845,14 @@ async function handler(req, context) {
             resume_error = errorCode;
             resume_error_details = details;
 
-            // Persist surfaced error on the session control doc (best effort).
-            if (sessionDocForPolicy && typeof sessionDocForPolicy === "object") {
-              await upsertDoc(container, {
-                ...sessionDocForPolicy,
-                resume_needed: true,
-                resume_error: errorCode,
-                resume_error_details: details,
-                status: sessionDocForPolicy.status === "complete" ? "running" : (sessionDocForPolicy.status || "running"),
-                stage_beacon: "enrichment_resume_blocked",
-                updated_at: forcedAt,
-              }).catch(() => null);
-            }
-
-            // Persist the blocked state to the resume/control doc so polling does not keep seeing queued.
-            try {
-              const resumeDocForBlocked = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
-              if (resumeDocForBlocked && typeof resumeDocForBlocked === "object") {
-                await upsertDoc(container, {
-                  ...resumeDocForBlocked,
-                  status: "blocked",
-                  resume_error: errorCode,
-                  resume_error_details: details,
-                  blocked_at: forcedAt,
-                  blocked_reason: forceDecision.reason,
-                  last_error: {
-                    code: errorCode,
-                    message: "Resume blocked by status watchdog",
-                    ...details,
-                  },
-                  lock_expires_at: null,
-                  updated_at: forcedAt,
-                }).catch(() => null);
-              }
-            } catch {}
+            await persistResumeBlocked(container, {
+              sessionId,
+              forcedAt,
+              errorCode,
+              details,
+              forcedBy: forceDecision.reason,
+              message: "Resume blocked by status watchdog",
+            }).catch(() => null);
 
             // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
             resume_needed = true;
@@ -3102,54 +3149,42 @@ async function handler(req, context) {
 
           // Second-stage watchdog: if watchdog fired at time T, the very next status poll must observe a handler re-entry.
           if (prevWatchdogTs && resume_needed && resumeStatus === "queued" && (!lastEnteredTs || lastEnteredTs < prevWatchdogTs)) {
-            const erroredAt = nowIso();
-            stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress = erroredAt;
+            const blockedAt = nowIso();
+            stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress = blockedAt;
 
+            const errorCode = "resume_worker_stuck_queued_no_progress";
             const details = {
+              forced_by: "watchdog_no_progress",
+              blocked_at: blockedAt,
               watchdog_fired_at: prevWatchdogAt,
               last_entered_at: lastEnteredAt,
               last_finished_at: watchdog_last_finished_at,
               last_trigger_result: sessionDocForWatchdog?.resume_worker_last_trigger_result || null,
-              updated_at: erroredAt,
+              updated_at: blockedAt,
             };
 
-            resume_status = "error";
-            resumeStatus = "error";
+            resume_error = errorCode;
+            resume_error_details = details;
+            resume_status = "blocked";
+            resumeStatus = "blocked";
             canTrigger = false;
-            resume_trigger_error ||= "resume_worker_stuck_queued_no_progress";
+
+            resume_trigger_error ||= errorCode;
             resume_trigger_error_details ||= details;
 
             if (sessionDoc && typeof sessionDoc === "object") {
-              sessionDoc.resume_error = "resume_worker_stuck_queued_no_progress";
+              sessionDoc.resume_error = errorCode;
               sessionDoc.resume_error_details = details;
             }
 
-            if (sessionDocForWatchdog && typeof sessionDocForWatchdog === "object") {
-              await upsertDoc(container, {
-                ...sessionDocForWatchdog,
-                resume_error: "resume_worker_stuck_queued_no_progress",
-                resume_error_details: details,
-                resume_needed: true,
-                status: "error",
-                stage_beacon: "enrichment_resume_error",
-                updated_at: erroredAt,
-              }).catch(() => null);
-            }
-
-            const resumeDocForError = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
-            if (resumeDocForError && typeof resumeDocForError === "object") {
-              await upsertDoc(container, {
-                ...resumeDocForError,
-                status: "error",
-                last_error: {
-                  code: "resume_worker_stuck_queued_no_progress",
-                  message: "Watchdog fired but resume-worker did not re-enter on subsequent poll",
-                  ...details,
-                },
-                lock_expires_at: null,
-                updated_at: erroredAt,
-              }).catch(() => null);
-            }
+            await persistResumeBlocked(container, {
+              sessionId,
+              forcedAt: blockedAt,
+              errorCode,
+              details,
+              forcedBy: "watchdog_no_progress",
+              message: "Watchdog fired but resume-worker did not re-enter on subsequent poll",
+            }).catch(() => null);
           } else if (
             prevWatchdogTs &&
             lastEnteredTs &&
@@ -3286,40 +3321,14 @@ async function handler(req, context) {
             resume_error = errorCode;
             resume_error_details = details;
 
-            // Persist surfaced error on the session control doc (best effort).
-            if (sessionDocForPolicy && typeof sessionDocForPolicy === "object") {
-              await upsertDoc(container, {
-                ...sessionDocForPolicy,
-                resume_needed: true,
-                resume_error: errorCode,
-                resume_error_details: details,
-                status: sessionDocForPolicy.status === "complete" ? "running" : (sessionDocForPolicy.status || "running"),
-                stage_beacon: "enrichment_resume_blocked",
-                updated_at: forcedAt,
-              }).catch(() => null);
-            }
-
-            // Persist the blocked state to the resume/control doc so polling does not keep seeing queued.
-            try {
-              const resumeDocForBlocked = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
-              if (resumeDocForBlocked && typeof resumeDocForBlocked === "object") {
-                await upsertDoc(container, {
-                  ...resumeDocForBlocked,
-                  status: "blocked",
-                  resume_error: errorCode,
-                  resume_error_details: details,
-                  blocked_at: forcedAt,
-                  blocked_reason: forceDecision.reason,
-                  last_error: {
-                    code: errorCode,
-                    message: "Resume blocked by status watchdog",
-                    ...details,
-                  },
-                  lock_expires_at: null,
-                  updated_at: forcedAt,
-                }).catch(() => null);
-              }
-            } catch {}
+            await persistResumeBlocked(container, {
+              sessionId,
+              forcedAt,
+              errorCode,
+              details,
+              forcedBy: forceDecision.reason,
+              message: "Resume blocked by status watchdog",
+            }).catch(() => null);
 
             // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
             resume_needed = true;
