@@ -2306,11 +2306,12 @@ async function handler(req, context) {
 
     if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
     else {
-      out.completed = out.status === "complete";
+      // "complete" status can mean the *primary* job is finished, while enrichment may still be incomplete.
+      // Only mark the overall import as completed when resume is not needed.
+      out.completed = out.status === "complete" && out.resume_needed === false;
       out.terminal_only = false;
 
       if (out.completed) {
-        out.resume_needed = false;
         out.resume = out.resume || {};
         out.resume.needed = false;
         out.resume.status = out.resume.status || "complete";
