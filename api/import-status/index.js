@@ -1614,6 +1614,7 @@ async function handler(req, context) {
             const forcedAt = nowIso();
             stageBeaconValues.status_resume_forced_terminalize_single = forcedAt;
             stageBeaconValues.status_resume_forced_terminalize_reason = forceDecision.reason;
+            stageBeaconValues.status_force_terminalize_reason = forceDecision.reason;
             stageBeaconValues.status_resume_terminal_only = forcedAt;
 
             const savedIdsForTerminalize = Array.from(
@@ -3075,6 +3076,7 @@ async function handler(req, context) {
             const forcedAt = nowIso();
             stageBeaconValues.status_resume_forced_terminalize_single = forcedAt;
             stageBeaconValues.status_resume_forced_terminalize_reason = forceDecision.reason;
+            stageBeaconValues.status_force_terminalize_reason = forceDecision.reason;
             stageBeaconValues.status_resume_terminal_only = forcedAt;
 
             const savedIdsForTerminalize = Array.from(
