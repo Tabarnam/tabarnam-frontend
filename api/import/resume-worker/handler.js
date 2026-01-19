@@ -1586,6 +1586,7 @@ async function resumeWorkerHandler(req, context) {
             error_code: "upstream_unreachable",
             at: nowIso(),
           });
+          markEnrichmentIncomplete(doc, { reason: "upstream unreachable", field: "reviews" });
         } else if (status === "not_found") {
           doc.review_cursor.last_error = null;
         }
