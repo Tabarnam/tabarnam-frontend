@@ -1314,8 +1314,8 @@ test("/api/import/start company_url_seed_fallback persists and verifies seed com
       assert.equal(body.company_url, seedUrl);
 
       assert.equal(Number(body?.save_report?.failed ?? 0), 0);
-      assert.equal(String(body?.save_report?.save_outcome || ""), "saved_unverified_missing_required_fields");
-      assert.equal(Number(body?.saved_verified_count ?? 0), 0);
+      assert.equal(String(body?.save_report?.save_outcome || ""), "saved_verified");
+      assert.equal(Number(body?.saved_verified_count ?? 0), 1);
 
       const writeIds = Array.isArray(body?.save_report?.saved_ids_write) ? body.save_report.saved_ids_write : [];
       assert.equal(writeIds.length, 1);
@@ -1388,8 +1388,8 @@ test("/api/import/start company_url_seed_fallback duplicate_detected returns ver
       assert.equal(body1.stage_beacon, "company_url_seed_fallback");
       assert.equal(body1.company_url, seedUrl);
       assert.equal(Number(body1?.save_report?.failed ?? 0), 0);
-      assert.equal(Number(body1?.saved_verified_count ?? 0), 0);
-      assert.equal(String(body1?.save_report?.save_outcome || ""), "saved_unverified_missing_required_fields");
+      assert.equal(Number(body1?.saved_verified_count ?? 0), 1);
+      assert.equal(String(body1?.save_report?.save_outcome || ""), "saved_verified");
 
       const writeIds1 = Array.isArray(body1?.save_report?.saved_ids_write) ? body1.save_report.saved_ids_write : [];
       assert.equal(writeIds1.length, 1);
@@ -1416,12 +1416,12 @@ test("/api/import/start company_url_seed_fallback duplicate_detected returns ver
       assert.equal(body2.stage_beacon, "company_url_seed_fallback");
       assert.equal(body2.company_url, seedUrl);
       assert.equal(Number(body2?.save_report?.failed ?? 0), 0);
-      assert.equal(Number(body2?.saved_verified_count ?? 0), 0);
-      assert.equal(String(body2?.save_report?.save_outcome || ""), "duplicate_detected_unverified_missing_required_fields");
+      assert.equal(Number(body2?.saved_verified_count ?? 0), 1);
+      assert.equal(String(body2?.save_report?.save_outcome || ""), "duplicate_detected");
 
-      const unverifiedIds2 = Array.isArray(body2?.saved_company_ids_unverified) ? body2.saved_company_ids_unverified : [];
-      assert.equal(unverifiedIds2.length, 1);
-      assert.equal(String(unverifiedIds2[0] || ""), companyId);
+      const verifiedIds2 = Array.isArray(body2?.saved_company_ids_verified) ? body2.saved_company_ids_verified : [];
+      assert.equal(verifiedIds2.length, 1);
+      assert.equal(String(verifiedIds2[0] || ""), companyId);
 
       const normalizedDomain = seedHost.replace(/^www\./, "").toLowerCase();
       await container.item(companyId, normalizedDomain).delete().catch(() => null);
