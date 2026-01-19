@@ -1734,74 +1734,52 @@ async function handler(req, context) {
             stageBeaconValues.status_resume_forced_terminalize_single = forcedAt;
             stageBeaconValues.status_resume_forced_terminalize_reason = forceDecision.reason;
             stageBeaconValues.status_force_terminalize_reason = forceDecision.reason;
-            stageBeaconValues.status_resume_terminal_only = forcedAt;
 
-            const savedIdsForTerminalize = Array.from(
-              new Set(
-                [
-                  ...(Array.isArray(sessionDocForPolicy?.saved_company_ids_verified)
-                    ? sessionDocForPolicy.saved_company_ids_verified
-                    : []),
-                  ...(Array.isArray(sessionDocForPolicy?.saved_company_ids_unverified)
-                    ? sessionDocForPolicy.saved_company_ids_unverified
-                    : []),
-                ]
-                  .map((v) => String(v || "").trim())
-                  .filter(Boolean)
-              )
-            ).slice(0, 25);
-
-            const fallbackIds =
-              savedIdsForTerminalize.length > 0
-                ? savedIdsForTerminalize
-                : Array.isArray(saved_companies) && saved_companies[0]?.company_id
-                  ? [String(saved_companies[0].company_id).trim()]
+            const docsForInfra =
+              typeof savedDocsForHealth !== "undefined"
+                ? savedDocsForHealth
+                : typeof savedDocs !== "undefined"
+                  ? savedDocs
                   : [];
 
-            const fullDocs = fallbackIds.length > 0
-              ? await fetchCompaniesByIdsFull(container, fallbackIds).catch(() => [])
-              : [];
+            const infraRetryable = collectInfraRetryableMissing(docsForInfra);
 
-            for (const doc of fullDocs) {
-              const next = forceTerminalizeCompanyDocForSingle(doc);
-              await upsertDoc(container, next).catch(() => null);
-            }
+            const errorCode = infraRetryable.length > 0
+              ? "enrichment_upstream_unreachable"
+              : "resume_worker_stuck_queued_no_progress";
 
-            const resumeDocId = `_import_resume_${sessionId}`;
-            const resumeDocForWrite = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
-            if (resumeDocForWrite && typeof resumeDocForWrite === "object") {
-              await upsertDoc(container, {
-                ...resumeDocForWrite,
-                status: "complete",
-                lock_expires_at: null,
-                missing_by_company: [],
-                forced_terminalized_at: forcedAt,
-                forced_terminalized_reason: forceDecision.reason,
-                updated_at: forcedAt,
-              }).catch(() => null);
-            }
+            const details = {
+              forced_by: forceDecision.reason,
+              blocked_at: forcedAt,
+              infra_retryable_missing: infraRetryable,
+              last_worker_error: sessionDocForPolicy?.resume_worker_last_error_details || sessionDocForPolicy?.resume_worker_last_error || null,
+              last_trigger_result: sessionDocForPolicy?.resume_worker_last_trigger_result || null,
+              last_trigger_request_id: sessionDocForPolicy?.resume_worker_last_trigger_request_id || null,
+              last_finished_at: sessionDocForPolicy?.resume_worker_last_finished_at || null,
+              last_entered_at: sessionDocForPolicy?.resume_worker_handler_entered_at || null,
+            };
 
+            stageBeaconValues.status_resume_blocked = forcedAt;
+            stageBeaconValues.status_resume_blocked_code = errorCode;
+
+            resume_error = errorCode;
+            resume_error_details = details;
+
+            // Persist surfaced error on the session control doc (best effort).
             if (sessionDocForPolicy && typeof sessionDocForPolicy === "object") {
               await upsertDoc(container, {
                 ...sessionDocForPolicy,
-                resume_needed: false,
-                resume_error: null,
-                resume_error_details: null,
-                resume_cycle_count: currentCycleCount + 1,
-                resume_last_triggered_at: forcedAt,
-                status: "complete",
-                stage_beacon: "status_resume_terminal_only",
-                resume_terminal_only: true,
-                resume_terminalized_at: forcedAt,
-                resume_terminalized_reason: forceDecision.reason,
+                resume_needed: true,
+                resume_error: errorCode,
+                resume_error_details: details,
+                status: sessionDocForPolicy.status === "complete" ? "running" : (sessionDocForPolicy.status || "running"),
+                stage_beacon: "enrichment_resume_blocked",
                 updated_at: forcedAt,
               }).catch(() => null);
             }
 
-            resume_needed = false;
-            resumeStatus = "complete";
-            resume_status = "complete";
-            canTrigger = false;
+            // Keep status as running/queued; allow retry until attempt caps terminalize fields.
+            resume_needed = true;
           }
         } catch {}
 
@@ -3237,74 +3215,52 @@ async function handler(req, context) {
             stageBeaconValues.status_resume_forced_terminalize_single = forcedAt;
             stageBeaconValues.status_resume_forced_terminalize_reason = forceDecision.reason;
             stageBeaconValues.status_force_terminalize_reason = forceDecision.reason;
-            stageBeaconValues.status_resume_terminal_only = forcedAt;
 
-            const savedIdsForTerminalize = Array.from(
-              new Set(
-                [
-                  ...(Array.isArray(sessionDocForPolicy?.saved_company_ids_verified)
-                    ? sessionDocForPolicy.saved_company_ids_verified
-                    : []),
-                  ...(Array.isArray(sessionDocForPolicy?.saved_company_ids_unverified)
-                    ? sessionDocForPolicy.saved_company_ids_unverified
-                    : []),
-                ]
-                  .map((v) => String(v || "").trim())
-                  .filter(Boolean)
-              )
-            ).slice(0, 25);
-
-            const fallbackIds =
-              savedIdsForTerminalize.length > 0
-                ? savedIdsForTerminalize
-                : Array.isArray(saved_companies) && saved_companies[0]?.company_id
-                  ? [String(saved_companies[0].company_id).trim()]
+            const docsForInfra =
+              typeof savedDocsForHealth !== "undefined"
+                ? savedDocsForHealth
+                : typeof savedDocs !== "undefined"
+                  ? savedDocs
                   : [];
 
-            const fullDocs = fallbackIds.length > 0
-              ? await fetchCompaniesByIdsFull(container, fallbackIds).catch(() => [])
-              : [];
+            const infraRetryable = collectInfraRetryableMissing(docsForInfra);
 
-            for (const doc of fullDocs) {
-              const next = forceTerminalizeCompanyDocForSingle(doc);
-              await upsertDoc(container, next).catch(() => null);
-            }
+            const errorCode = infraRetryable.length > 0
+              ? "enrichment_upstream_unreachable"
+              : "resume_worker_stuck_queued_no_progress";
 
-            const resumeDocId = `_import_resume_${sessionId}`;
-            const resumeDocForWrite = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
-            if (resumeDocForWrite && typeof resumeDocForWrite === "object") {
-              await upsertDoc(container, {
-                ...resumeDocForWrite,
-                status: "complete",
-                lock_expires_at: null,
-                missing_by_company: [],
-                forced_terminalized_at: forcedAt,
-                forced_terminalized_reason: forceDecision.reason,
-                updated_at: forcedAt,
-              }).catch(() => null);
-            }
+            const details = {
+              forced_by: forceDecision.reason,
+              blocked_at: forcedAt,
+              infra_retryable_missing: infraRetryable,
+              last_worker_error: sessionDocForPolicy?.resume_worker_last_error_details || sessionDocForPolicy?.resume_worker_last_error || null,
+              last_trigger_result: sessionDocForPolicy?.resume_worker_last_trigger_result || null,
+              last_trigger_request_id: sessionDocForPolicy?.resume_worker_last_trigger_request_id || null,
+              last_finished_at: sessionDocForPolicy?.resume_worker_last_finished_at || null,
+              last_entered_at: sessionDocForPolicy?.resume_worker_handler_entered_at || null,
+            };
 
+            stageBeaconValues.status_resume_blocked = forcedAt;
+            stageBeaconValues.status_resume_blocked_code = errorCode;
+
+            resume_error = errorCode;
+            resume_error_details = details;
+
+            // Persist surfaced error on the session control doc (best effort).
             if (sessionDocForPolicy && typeof sessionDocForPolicy === "object") {
               await upsertDoc(container, {
                 ...sessionDocForPolicy,
-                resume_needed: false,
-                resume_error: null,
-                resume_error_details: null,
-                resume_cycle_count: currentCycleCount + 1,
-                resume_last_triggered_at: forcedAt,
-                status: "complete",
-                stage_beacon: "status_resume_terminal_only",
-                resume_terminal_only: true,
-                resume_terminalized_at: forcedAt,
-                resume_terminalized_reason: forceDecision.reason,
+                resume_needed: true,
+                resume_error: errorCode,
+                resume_error_details: details,
+                status: sessionDocForPolicy.status === "complete" ? "running" : (sessionDocForPolicy.status || "running"),
+                stage_beacon: "enrichment_resume_blocked",
                 updated_at: forcedAt,
               }).catch(() => null);
             }
 
-            resume_needed = false;
-            resumeStatus = "complete";
-            resume_status = "complete";
-            canTrigger = false;
+            // Keep status as running/queued; allow retry until attempt caps terminalize fields.
+            resume_needed = true;
           }
         } catch {}
 
