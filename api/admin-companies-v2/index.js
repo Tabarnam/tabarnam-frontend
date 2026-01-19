@@ -350,6 +350,48 @@ function hasAnyLocationDescriptor(value) {
   return false;
 }
 
+function normalizeKeywordList(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => (typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim()))
+      .filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(/\s*,\s*/g)
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function getContractKeywordInputs(company) {
+  const c = company && typeof company === "object" ? company : {};
+
+  const keywordsDirect = normalizeKeywordList(c.keywords);
+  const keywordsLegacy = normalizeKeywordList(c.keyword_list);
+  const keywordsFromProductArray = Array.isArray(c.product_keywords) ? normalizeKeywordList(c.product_keywords) : [];
+
+  const keywords = keywordsDirect.length > 0 ? keywordsDirect : keywordsLegacy.length > 0 ? keywordsLegacy : keywordsFromProductArray;
+
+  let product_keywords = "";
+  if (typeof c.product_keywords === "string") {
+    product_keywords = c.product_keywords;
+  } else if (Array.isArray(c.product_keywords)) {
+    product_keywords = normalizeKeywordList(c.product_keywords).join(", ");
+  } else if (typeof c.product_keywords_text === "string") {
+    product_keywords = c.product_keywords_text;
+  }
+
+  if (!String(product_keywords || "").trim() && keywords.length > 0) {
+    product_keywords = keywords.join(", ");
+  }
+
+  return { keywords, product_keywords };
+}
+
 function computeContractEnrichmentHealth(company) {
   const c = company && typeof company === "object" ? company : {};
 
@@ -367,12 +409,26 @@ function computeContractEnrichmentHealth(company) {
   // headquarters_locations / manufacturing_geocodes and create false-positive "HQ"/"MFG" issues.
   const primaryHq = Array.isArray(c.headquarters_location) ? c.headquarters_location[0] : c.headquarters_location;
 
+  const { keywords: normalizedKeywords, product_keywords: normalizedProductKeywords } = getContractKeywordInputs(c);
+
+  const industriesFallback =
+    Array.isArray(c.industries) && c.industries.length > 0
+      ? c.industries
+      : Array.isArray(c.industry)
+        ? c.industry
+        : typeof c.industry === "string" && c.industry.trim()
+          ? [c.industry.trim()]
+          : [];
+
   const contractInput = {
     ...c,
     headquarters_location: hasAnyLocationDescriptor(primaryHq) ? primaryHq : inferredHq,
     manufacturing_locations: hasAnyLocationDescriptor(c.manufacturing_locations) ? c.manufacturing_locations : inferredMfg,
-    industries: Array.isArray(c.industries) && c.industries.length > 0 ? c.industries : c.industry ?? [],
-    product_keywords: typeof c.product_keywords === "string" ? c.product_keywords : "",
+    industries: industriesFallback,
+
+    // Ensure keywords are evaluated correctly even when older docs store them as arrays (or in keyword_list).
+    keywords: normalizedKeywords,
+    product_keywords: normalizedProductKeywords,
   };
 
   return computeEnrichmentHealth(contractInput);
