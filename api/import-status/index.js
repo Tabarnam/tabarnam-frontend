@@ -137,6 +137,19 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function toMs(ts) {
+  const t = ts ? Date.parse(ts) : NaN;
+  return Number.isFinite(t) ? t : null;
+}
+
+function hasRecentWorkerProgress(resumeWorker, nowMs, windowMs) {
+  const finished = toMs(resumeWorker?.last_finished_at);
+  const entered = toMs(resumeWorker?.handler_entered_at);
+  const newest = Math.max(finished || 0, entered || 0);
+  if (!newest) return false;
+  return nowMs - newest < windowMs;
+}
+
 function normalizeKey(value) {
   return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -159,8 +172,7 @@ function shouldForceTerminalizeSingle({
   resume_needed,
   resume_status,
   resume_cycle_count,
-  resume_doc_updated_at,
-  resume_last_triggered_at,
+  resume_worker,
   resume_stuck_ms,
 }) {
   if (!single) return { force: false, reason: null };
@@ -172,67 +184,48 @@ function shouldForceTerminalizeSingle({
   const status = String(resume_status || "").trim();
   if (status !== "queued") return { force: false, reason: null };
 
-  const updatedTs = Date.parse(String(resume_doc_updated_at || ""));
-  if (!Number.isFinite(updatedTs)) return { force: false, reason: null };
-
   const stuckMs = Number(resume_stuck_ms || 0) || 0;
   if (!stuckMs) return { force: false, reason: null };
 
-  const elapsed = Date.now() - updatedTs;
-  if (elapsed < stuckMs) return { force: false, reason: null };
-
-  const lastTriggerTs = Date.parse(String(resume_last_triggered_at || ""));
-  if (!Number.isFinite(lastTriggerTs)) return { force: false, reason: null };
-
-  // Only terminalize after we have attempted at least one trigger since the resume doc was last updated.
-  if (lastTriggerTs >= updatedTs - 1000) return { force: true, reason: "queued_timeout_after_trigger" };
+  const nowMs = Date.now();
+  const noRecentProgress = !hasRecentWorkerProgress(resume_worker, nowMs, stuckMs);
+  if (noRecentProgress) return { force: true, reason: "queued_timeout_no_progress" };
 
   return { force: false, reason: null };
 }
 
 function forceTerminalizeCompanyDocForSingle(doc) {
   const d = doc && typeof doc === "object" ? { ...doc } : {};
+
   d.import_missing_reason ||= {};
+  d.import_attempts ||= {};
 
-  const missing = Array.isArray(computeEnrichmentHealthContract(d)?.missing_fields)
-    ? computeEnrichmentHealthContract(d).missing_fields
-    : [];
+  // industries
+  d.industries = ["Unknown"];
+  d.import_missing_reason.industries = "exhausted";
 
-  const missingSet = new Set(missing);
+  // tagline
+  d.tagline = "Unknown";
+  d.import_missing_reason.tagline = "exhausted";
 
-  if (missingSet.has("industries")) {
-    d.industries = ["Unknown"];
-    d.import_missing_reason.industries = "exhausted";
-  }
-
-  if (missingSet.has("product_keywords")) {
+  // product_keywords
+  if (!d.product_keywords || d.product_keywords === "Unknown") {
     d.product_keywords = "Unknown";
-    d.import_missing_reason.product_keywords = "exhausted";
   }
+  d.import_missing_reason.product_keywords = d.import_missing_reason.product_keywords || "exhausted";
 
-  // Tagline isn't part of the required-fields missing set, but make it deterministic anyway.
-  if (!String(d.tagline || "").trim() || normalizeKey(d.tagline) === "unknown") {
-    d.tagline = "Unknown";
-    d.import_missing_reason.tagline = d.import_missing_reason.tagline || "exhausted";
-  }
+  // reviews
+  d.reviews_stage_status = "exhausted";
+  d.review_cursor = d.review_cursor && typeof d.review_cursor === "object" ? d.review_cursor : {};
+  d.review_cursor.exhausted = true;
+  d.review_cursor.reviews_stage_status = "exhausted";
+  d.review_cursor.exhausted_at = d.review_cursor.exhausted_at || nowIso();
+  d.import_missing_reason.reviews = "exhausted";
 
-  if (missingSet.has("logo")) {
-    if (!String(d.logo_stage_status || "").trim()) d.logo_stage_status = "missing";
+  // logo (do not retry forever)
+  if (!d.logo_url) {
+    d.logo_stage_status = d.logo_stage_status || "missing";
     d.import_missing_reason.logo = "exhausted";
-  }
-
-  if (missingSet.has("reviews")) {
-    d.curated_reviews = [];
-    d.review_count = typeof d.review_count === "number" ? d.review_count : 0;
-    d.reviews_stage_status = "exhausted";
-    const cursor = d.review_cursor && typeof d.review_cursor === "object" ? { ...d.review_cursor } : {};
-    d.review_cursor = {
-      ...cursor,
-      exhausted: true,
-      reviews_stage_status: "exhausted",
-      exhausted_at: cursor.exhausted_at || nowIso(),
-    };
-    d.import_missing_reason.reviews = "exhausted";
   }
 
   // Keep required-fields meta consistent.
@@ -243,6 +236,64 @@ function forceTerminalizeCompanyDocForSingle(doc) {
 
   d.updated_at = nowIso();
   return d;
+}
+
+function reconcileLowQualityToTerminal(doc, maxAttempts = 2) {
+  if (!doc || typeof doc !== "object") return false;
+
+  doc.import_attempts ||= {};
+  doc.import_missing_reason ||= {};
+
+  let changed = false;
+
+  const fields = ["industries", "tagline", "product_keywords"];
+  for (const f of fields) {
+    const reason = String(doc.import_missing_reason[f] || "").trim().toLowerCase();
+    const attempts = Number(doc.import_attempts[f] || 0);
+
+    if (reason === "low_quality" && attempts >= maxAttempts) {
+      doc.import_missing_reason[f] = "low_quality_terminal";
+      if (f === "industries") doc.industries = ["Unknown"];
+      if (f === "tagline") doc.tagline = "Unknown";
+      if (f === "product_keywords" && (!doc.product_keywords || doc.product_keywords === "Unknown")) {
+        doc.product_keywords = "Unknown";
+      }
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+function applyTerminalOnlyCompletion(out, reason) {
+  out.completed = true;
+  out.terminal_only = true;
+
+  out.status = "complete";
+  if (typeof out.state === "string") out.state = "complete";
+  if (typeof out.job_state === "string") out.job_state = "complete";
+  if (typeof out.primary_job_state === "string") out.primary_job_state = "complete";
+
+  out.resume_needed = false;
+  out.resume_error = out.resume_error || null;
+  out.resume_error_details = out.resume_error_details || null;
+
+  out.stage_beacon = "status_resume_terminal_only";
+
+  out.progress_error = out.progress_error || "Saved with warnings: post_save_warning";
+  out.progress_notice =
+    "Completed (terminal-only): remaining missing fields were marked Not disclosed / Exhausted.";
+
+  out.resume = out.resume || {};
+  out.resume.needed = false;
+  out.resume.status = "complete";
+  out.resume.triggered = false;
+
+  out.stage_beacon_values = out.stage_beacon_values || {};
+  out.stage_beacon_values.status_resume_terminal_only = new Date().toISOString();
+  out.stage_beacon_values.status_resume_forced_terminalize_reason = reason;
+
+  return out;
 }
 
 function normalizeDomain(raw) {
@@ -503,6 +554,7 @@ async function fetchRecentCompanies(container, { sessionId, take, normalizedDoma
   const q = {
     query: `
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
+        c.normalized_domain, c.import_attempts, c.import_attempts_meta,
         c.industries, c.product_keywords, c.keywords,
         c.headquarters_location, c.manufacturing_locations,
         c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
@@ -550,7 +602,7 @@ async function fetchCompaniesByIds(container, ids) {
   const q = {
     query: `
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
-        c.normalized_domain,
+        c.normalized_domain, c.import_attempts, c.import_attempts_meta,
         c.industries, c.product_keywords, c.keywords,
         c.headquarters_location, c.manufacturing_locations,
         c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
@@ -729,6 +781,7 @@ async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionC
   const q = {
     query: `
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
+        c.normalized_domain, c.import_attempts, c.import_attempts_meta,
         c.industries, c.product_keywords, c.keywords,
         c.headquarters_location, c.manufacturing_locations,
         c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
@@ -1201,6 +1254,22 @@ async function handler(req, context) {
           ? primaryJob.companies
           : [];
 
+    const lowQualityMaxAttempts = Number.isFinite(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS))
+      ? Math.max(1, Math.trunc(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS)))
+      : 2;
+
+    let reconciledLowQualityCount = 0;
+    for (const doc of Array.isArray(savedDocsForHealth) ? savedDocsForHealth : []) {
+      if (reconcileLowQualityToTerminal(doc, lowQualityMaxAttempts)) {
+        reconciledLowQualityCount += 1;
+      }
+    }
+
+    if (reconciledLowQualityCount > 0) {
+      stageBeaconValues.status_reconciled_low_quality_terminal = nowIso();
+      stageBeaconValues.status_reconciled_low_quality_terminal_count = reconciledLowQualityCount;
+    }
+
     saved_companies = toSavedCompanies(savedDocsForHealth);
     const enrichment_health_summary = summarizeEnrichmentHealth(saved_companies);
 
@@ -1563,52 +1632,43 @@ async function handler(req, context) {
 
           const currentCycleCount = Number(sessionDocForPolicy?.resume_cycle_count || 0) || 0;
 
-          const resumeUpdatedAtIso =
-            (typeof currentResume !== "undefined" && currentResume && typeof currentResume === "object" && currentResume.updated_at
-              ? currentResume.updated_at
-              : resumeDoc?.updated_at) || null;
+          const resumeWorkerForProgress = {
+            last_finished_at: sessionDocForPolicy?.resume_worker_last_finished_at || null,
+            handler_entered_at: sessionDocForPolicy?.resume_worker_handler_entered_at || null,
+          };
 
-          const resumeLastTriggeredAtIso =
-            sessionDocForPolicy?.resume_last_triggered_at || sessionDocForPolicy?.resume_worker_last_triggered_at || null;
-
-          const tUpdated = Date.parse(String(resumeUpdatedAtIso || ""));
-          const tTrig = Date.parse(String(resumeLastTriggeredAtIso || ""));
-
-          const timeoutElapsedMs = Number.isFinite(tUpdated) ? Math.max(0, Date.now() - tUpdated) : null;
-
-          const timeoutConditionMet = Boolean(
-            Number.isFinite(tUpdated) &&
-              Number.isFinite(tTrig) &&
-              tTrig >= tUpdated &&
-              timeoutElapsedMs !== null &&
-              timeoutElapsedMs >= resumeStuckQueuedMs
-          );
-
-          stageBeaconValues.resume_updated_at = resumeUpdatedAtIso;
-          stageBeaconValues.resume_last_triggered_at = resumeLastTriggeredAtIso;
-          stageBeaconValues.resume_timeout_condition_met = timeoutConditionMet;
-          stageBeaconValues.resume_timeout_ms = resumeStuckQueuedMs;
-          stageBeaconValues.resume_timeout_elapsed_ms = timeoutElapsedMs;
-          stageBeaconValues.resume_timeout_t_updated_ms = Number.isFinite(tUpdated) ? tUpdated : null;
-          stageBeaconValues.resume_timeout_t_trig_ms = Number.isFinite(tTrig) ? tTrig : null;
+          const nowMs = Date.now();
+          const queued = resumeStatus === "queued" && resume_needed === true;
+          const noRecentProgress = !hasRecentWorkerProgress(resumeWorkerForProgress, nowMs, resumeStuckQueuedMs);
+          const shouldForceByQueuedTimeout = Boolean(singleCompanyMode && queued && noRecentProgress);
 
           stageBeaconValues.status_single_company_mode = Boolean(singleCompanyMode);
           stageBeaconValues.status_resume_cycle_count = currentCycleCount;
+          stageBeaconValues.status_resume_queued = queued;
+          stageBeaconValues.status_resume_no_recent_worker_progress = noRecentProgress;
+          stageBeaconValues.status_resume_stuck_ms = resumeStuckQueuedMs;
+          stageBeaconValues.status_resume_worker_last_finished_at = resumeWorkerForProgress.last_finished_at;
+          stageBeaconValues.status_resume_worker_handler_entered_at = resumeWorkerForProgress.handler_entered_at;
+          stageBeaconValues.status_resume_should_force_by_queued_timeout = shouldForceByQueuedTimeout;
 
           // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
           const preTriggerCap = Boolean(singleCompanyMode && resume_needed && currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE);
+          const watchdogNoProgress = Boolean(stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress);
 
           const forceDecision = preTriggerCap
             ? { force: true, reason: "max_cycles_pre_trigger" }
-            : shouldForceTerminalizeSingle({
-                single: singleCompanyMode,
-                resume_needed,
-                resume_status: resumeStatus,
-                resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
-                resume_doc_updated_at: resumeUpdatedAtIso,
-                resume_last_triggered_at: resumeLastTriggeredAtIso,
-                resume_stuck_ms: resumeStuckQueuedMs,
-              });
+            : watchdogNoProgress && singleCompanyMode && queued
+              ? { force: true, reason: "watchdog_no_progress" }
+              : shouldForceByQueuedTimeout
+                ? { force: true, reason: "queued_timeout_no_progress" }
+                : shouldForceTerminalizeSingle({
+                    single: singleCompanyMode,
+                    resume_needed,
+                    resume_status: resumeStatus,
+                    resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
+                    resume_worker: resumeWorkerForProgress,
+                    resume_stuck_ms: resumeStuckQueuedMs,
+                  });
 
           if (forceDecision.force) {
             const forcedAt = nowIso();
@@ -2020,8 +2080,7 @@ async function handler(req, context) {
       }
     }
 
-    return jsonWithSessionId(
-      {
+    const out = {
         ok: true,
         session_id: sessionId,
         status: effectiveStatus,
@@ -2167,10 +2226,26 @@ async function handler(req, context) {
             ? primaryJob.note.trim()
             : "start endpoint is inline capped; long primary runs async",
         report,
-      },
-      200,
-      req
-    );
+      };
+
+    const terminalOnlyReason =
+      stageBeaconValues.status_resume_forced_terminalize_reason ||
+      (resumeMissingAnalysis?.terminal_only ? "terminal_only_missing" : null);
+
+    if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
+    else {
+      out.completed = out.status === "complete";
+      out.terminal_only = false;
+
+      if (out.completed) {
+        out.resume_needed = false;
+        out.resume = out.resume || {};
+        out.resume.needed = false;
+        out.resume.status = out.resume.status || "complete";
+      }
+    }
+
+    return jsonWithSessionId(out, 200, req);
   }
 
   const mem = getImportSession(sessionId);
@@ -2610,6 +2685,37 @@ async function handler(req, context) {
     let saved = persistedCount;
 
     let savedDocs = persistedIds.length > 0 ? await fetchCompaniesByIds(container, persistedIds).catch(() => []) : [];
+
+    const lowQualityMaxAttempts = Number.isFinite(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS))
+      ? Math.max(1, Math.trunc(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS)))
+      : 2;
+
+    let reconciledLowQualityCount = 0;
+    for (const doc of Array.isArray(savedDocs) ? savedDocs : []) {
+      if (reconcileLowQualityToTerminal(doc, lowQualityMaxAttempts)) {
+        reconciledLowQualityCount += 1;
+      }
+    }
+
+    if (reconciledLowQualityCount > 0) {
+      stageBeaconValues.status_reconciled_low_quality_terminal = nowIso();
+      stageBeaconValues.status_reconciled_low_quality_terminal_count = reconciledLowQualityCount;
+
+      const singleCompanyMode = isSingleCompanyModeFromSession({
+        sessionDoc,
+        savedCount: saved,
+        itemsCount: savedDocs.length,
+      });
+
+      if (singleCompanyMode) {
+        for (const doc of Array.isArray(savedDocs) ? savedDocs : []) {
+          try {
+            await upsertDoc(container, { ...doc, updated_at: nowIso() });
+          } catch {}
+        }
+      }
+    }
+
     let saved_companies = savedDocs.length > 0 ? toSavedCompanies(savedDocs) : [];
     let completionReason = typeof completionDoc?.reason === "string" ? completionDoc.reason : null;
 
@@ -3029,52 +3135,43 @@ async function handler(req, context) {
 
           const currentCycleCount = Number(sessionDocForPolicy?.resume_cycle_count || 0) || 0;
 
-          const resumeUpdatedAtIso =
-            (typeof currentResume !== "undefined" && currentResume && typeof currentResume === "object" && currentResume.updated_at
-              ? currentResume.updated_at
-              : resumeDoc?.updated_at) || null;
+          const resumeWorkerForProgress = {
+            last_finished_at: sessionDocForPolicy?.resume_worker_last_finished_at || null,
+            handler_entered_at: sessionDocForPolicy?.resume_worker_handler_entered_at || null,
+          };
 
-          const resumeLastTriggeredAtIso =
-            sessionDocForPolicy?.resume_last_triggered_at || sessionDocForPolicy?.resume_worker_last_triggered_at || null;
-
-          const tUpdated = Date.parse(String(resumeUpdatedAtIso || ""));
-          const tTrig = Date.parse(String(resumeLastTriggeredAtIso || ""));
-
-          const timeoutElapsedMs = Number.isFinite(tUpdated) ? Math.max(0, Date.now() - tUpdated) : null;
-
-          const timeoutConditionMet = Boolean(
-            Number.isFinite(tUpdated) &&
-              Number.isFinite(tTrig) &&
-              tTrig >= tUpdated &&
-              timeoutElapsedMs !== null &&
-              timeoutElapsedMs >= resumeStuckQueuedMs
-          );
-
-          stageBeaconValues.resume_updated_at = resumeUpdatedAtIso;
-          stageBeaconValues.resume_last_triggered_at = resumeLastTriggeredAtIso;
-          stageBeaconValues.resume_timeout_condition_met = timeoutConditionMet;
-          stageBeaconValues.resume_timeout_ms = resumeStuckQueuedMs;
-          stageBeaconValues.resume_timeout_elapsed_ms = timeoutElapsedMs;
-          stageBeaconValues.resume_timeout_t_updated_ms = Number.isFinite(tUpdated) ? tUpdated : null;
-          stageBeaconValues.resume_timeout_t_trig_ms = Number.isFinite(tTrig) ? tTrig : null;
+          const nowMs = Date.now();
+          const queued = resumeStatus === "queued" && resume_needed === true;
+          const noRecentProgress = !hasRecentWorkerProgress(resumeWorkerForProgress, nowMs, resumeStuckQueuedMs);
+          const shouldForceByQueuedTimeout = Boolean(singleCompanyMode && queued && noRecentProgress);
 
           stageBeaconValues.status_single_company_mode = Boolean(singleCompanyMode);
           stageBeaconValues.status_resume_cycle_count = currentCycleCount;
+          stageBeaconValues.status_resume_queued = queued;
+          stageBeaconValues.status_resume_no_recent_worker_progress = noRecentProgress;
+          stageBeaconValues.status_resume_stuck_ms = resumeStuckQueuedMs;
+          stageBeaconValues.status_resume_worker_last_finished_at = resumeWorkerForProgress.last_finished_at;
+          stageBeaconValues.status_resume_worker_handler_entered_at = resumeWorkerForProgress.handler_entered_at;
+          stageBeaconValues.status_resume_should_force_by_queued_timeout = shouldForceByQueuedTimeout;
 
           // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
           const preTriggerCap = Boolean(singleCompanyMode && resume_needed && currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE);
+          const watchdogNoProgress = Boolean(stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress);
 
           const forceDecision = preTriggerCap
             ? { force: true, reason: "max_cycles_pre_trigger" }
-            : shouldForceTerminalizeSingle({
-                single: singleCompanyMode,
-                resume_needed,
-                resume_status: resumeStatus,
-                resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
-                resume_doc_updated_at: resumeUpdatedAtIso,
-                resume_last_triggered_at: resumeLastTriggeredAtIso,
-                resume_stuck_ms: resumeStuckQueuedMs,
-              });
+            : watchdogNoProgress && singleCompanyMode && queued
+              ? { force: true, reason: "watchdog_no_progress" }
+              : shouldForceByQueuedTimeout
+                ? { force: true, reason: "queued_timeout_no_progress" }
+                : shouldForceTerminalizeSingle({
+                    single: singleCompanyMode,
+                    resume_needed,
+                    resume_status: resumeStatus,
+                    resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
+                    resume_worker: resumeWorkerForProgress,
+                    resume_stuck_ms: resumeStuckQueuedMs,
+                  });
 
           if (forceDecision.force) {
             const forcedAt = nowIso();
@@ -3738,8 +3835,7 @@ async function handler(req, context) {
     }
 
     if (effectiveCompleted) {
-      return jsonWithSessionId(
-        {
+      const out = {
           ok: true,
           session_id: sessionId,
           status: "complete",
@@ -3858,14 +3954,27 @@ async function handler(req, context) {
         enrichment_health_summary,
           lastCreatedAt,
           report,
-        },
-        200,
-        req
-      );
+        };
+
+      const terminalOnlyReason =
+        stageBeaconValues.status_resume_forced_terminalize_reason ||
+        (resumeMissingAnalysis?.terminal_only ? "terminal_only_missing" : null);
+
+      if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
+      else {
+        out.completed = true;
+        out.terminal_only = false;
+
+        out.resume_needed = false;
+        out.resume = out.resume || {};
+        out.resume.needed = false;
+        out.resume.status = out.resume.status || "complete";
+      }
+
+      return jsonWithSessionId(out, 200, req);
     }
 
-    return jsonWithSessionId(
-      {
+    const out = {
         ok: true,
         session_id: sessionId,
         status: "running",
@@ -3973,10 +4082,19 @@ async function handler(req, context) {
         enrichment_health_summary,
         lastCreatedAt,
         report,
-      },
-      200,
-      req
-    );
+      };
+
+    const terminalOnlyReason =
+      stageBeaconValues.status_resume_forced_terminalize_reason ||
+      (resumeMissingAnalysis?.terminal_only ? "terminal_only_missing" : null);
+
+    if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
+    else {
+      out.completed = false;
+      out.terminal_only = false;
+    }
+
+    return jsonWithSessionId(out, 200, req);
   } catch (e) {
     const msg = e?.message || String(e);
     try {
