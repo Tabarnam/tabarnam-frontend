@@ -1834,7 +1834,9 @@ async function handler(req, context) {
                 ...sessionDocForTrigger,
                 resume_worker_last_triggered_at: triggerAttemptAt,
                 resume_last_triggered_at: triggerAttemptAt,
-                resume_cycle_count: (Number(sessionDocForTrigger?.resume_cycle_count || 0) || 0) + 1,
+                // NOTE: resume_cycle_count is incremented by the resume-worker itself.
+                // This keeps "cycles" aligned with real worker runs rather than status poll trigger attempts.
+                resume_trigger_attempt_count: (Number(sessionDocForTrigger?.resume_trigger_attempt_count || 0) || 0) + 1,
                 resume_worker_last_trigger_request_id: workerRequest.request_id || null,
                 resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
                 updated_at: nowIso(),
@@ -3345,7 +3347,9 @@ async function handler(req, context) {
                 ...sessionDocForTrigger,
                 resume_worker_last_triggered_at: triggerAttemptAt,
                 resume_last_triggered_at: triggerAttemptAt,
-                resume_cycle_count: (Number(sessionDocForTrigger?.resume_cycle_count || 0) || 0) + 1,
+                // NOTE: resume_cycle_count is incremented by the resume-worker itself.
+                // This keeps "cycles" aligned with real worker runs rather than status poll trigger attempts.
+                resume_trigger_attempt_count: (Number(sessionDocForTrigger?.resume_trigger_attempt_count || 0) || 0) + 1,
                 resume_worker_last_trigger_request_id: workerRequest.request_id || null,
                 resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
                 updated_at: nowIso(),
