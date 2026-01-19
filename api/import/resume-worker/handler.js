@@ -313,23 +313,51 @@ function reconcileGrokTerminalState(doc) {
     .filter(Boolean);
 
   if (normalizedMfg.length > 0 && normalizedMfg.every((v) => v === "not disclosed" || v === "not_disclosed")) {
-    const existingList = Array.isArray(doc.manufacturing_locations) ? doc.manufacturing_locations : [];
-    if (!(existingList.length === 1 && normalizeKey(existingList[0]) === "not disclosed")) {
-      doc.manufacturing_locations = ["Not disclosed"];
-      changed = true;
-    }
+    const mfgReason = normalizeKey(doc.import_missing_reason.manufacturing_locations || doc.mfg_unknown_reason || "");
+    const attempts = attemptsFor(doc, "manufacturing_locations");
+    const confirmedTerminal = mfgReason === "not_disclosed" || attempts >= MAX_ATTEMPTS_LOCATION;
 
-    if (doc.mfg_unknown !== true) {
-      doc.mfg_unknown = true;
-      changed = true;
-    }
-    if (normalizeKey(doc.mfg_unknown_reason) !== "not_disclosed") {
-      doc.mfg_unknown_reason = "not_disclosed";
-      changed = true;
-    }
-    if (normalizeKey(doc.import_missing_reason.manufacturing_locations) !== "not_disclosed") {
-      doc.import_missing_reason.manufacturing_locations = "not_disclosed";
-      changed = true;
+    if (!confirmedTerminal) {
+      // Clear premature sentinel so the UI doesn't show "Not disclosed" until we've exhausted Grok attempts.
+      if (Array.isArray(doc.manufacturing_locations) && doc.manufacturing_locations.length > 0) {
+        doc.manufacturing_locations = [];
+        changed = true;
+      }
+
+      if (doc.mfg_unknown !== true) {
+        doc.mfg_unknown = true;
+        changed = true;
+      }
+
+      if (normalizeKey(doc.mfg_unknown_reason) !== "pending_grok") {
+        doc.mfg_unknown_reason = "pending_grok";
+        changed = true;
+      }
+
+      const stored = normalizeKey(doc.import_missing_reason.manufacturing_locations || "");
+      if (!stored || stored === "not_disclosed") {
+        doc.import_missing_reason.manufacturing_locations = "not_disclosed_pending";
+        changed = true;
+      }
+    } else {
+      const existingList = Array.isArray(doc.manufacturing_locations) ? doc.manufacturing_locations : [];
+      if (!(existingList.length === 1 && normalizeKey(existingList[0]) === "not disclosed")) {
+        doc.manufacturing_locations = ["Not disclosed"];
+        changed = true;
+      }
+
+      if (doc.mfg_unknown !== true) {
+        doc.mfg_unknown = true;
+        changed = true;
+      }
+      if (normalizeKey(doc.mfg_unknown_reason) !== "not_disclosed") {
+        doc.mfg_unknown_reason = "not_disclosed";
+        changed = true;
+      }
+      if (normalizeKey(doc.import_missing_reason.manufacturing_locations) !== "not_disclosed") {
+        doc.import_missing_reason.manufacturing_locations = "not_disclosed";
+        changed = true;
+      }
     }
   }
 
