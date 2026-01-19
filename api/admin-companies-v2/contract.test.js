@@ -260,6 +260,60 @@ test("xadmin-api-companies: PUT infers and persists display_name from name overr
   assert.ok(!("display_name" in storedCleared));
 });
 
+test("xadmin-api-companies: contract issues do not flag HQ/MFG when locations exist in lists", async () => {
+  const container = makeMemoryContainer();
+
+  const marker = "company_hq_mfg_ok_contract";
+  const companyId = `company_${marker}`;
+
+  const createRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "POST",
+      url: "https://example.test/api/xadmin-api-companies",
+      json: async () => ({
+        id: companyId,
+        company_id: companyId,
+        company_name: `Contract ${marker}`,
+        name: `Contract ${marker}`,
+        website_url: "https://example.com",
+
+        // These empty values previously caused false-positive "HQ" / "MFG" issues
+        // because they would override the populated structured fields.
+        headquarters_location: "",
+        manufacturing_locations: [],
+
+        // Canonical data lives here for many documents.
+        headquarters_locations: [{ formatted: "Lancaster, NH, USA" }],
+        manufacturing_geocodes: [{ formatted: "White Mountains, NH, USA" }],
+      }),
+    }),
+    { log() {} },
+    { container }
+  );
+
+  assert.equal(createRes.status, 200);
+
+  const searchRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "GET",
+      url: `https://example.test/api/xadmin-api-companies?q=${encodeURIComponent(marker)}`,
+      query: { q: marker },
+    }),
+    { log() {} },
+    { container }
+  );
+
+  assert.equal(searchRes.status, 200);
+  const body = parseJson(searchRes);
+  const items = Array.isArray(body.items) ? body.items : [];
+  const item = items.find((it) => it && (it.id === companyId || it.company_id === companyId));
+  assert.ok(item);
+
+  const missing = Array.isArray(item.enrichment_health?.missing_fields) ? item.enrichment_health.missing_fields : [];
+  assert.ok(!missing.includes("headquarters_location"));
+  assert.ok(!missing.includes("manufacturing_locations"));
+});
+
 test("xadmin-api-companies: persists curated_reviews array", async () => {
   const container = makeMemoryContainer();
 
