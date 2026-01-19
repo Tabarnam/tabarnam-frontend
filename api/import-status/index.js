@@ -1547,7 +1547,10 @@ async function handler(req, context) {
             resume_needed,
             resume_status: resumeStatus,
             resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
-            resume_doc_updated_at: currentResume?.updated_at || null,
+            resume_doc_updated_at:
+              (typeof currentResume !== "undefined" && currentResume && typeof currentResume === "object" && currentResume.updated_at
+                ? currentResume.updated_at
+                : resumeDoc?.updated_at) || null,
             resume_last_triggered_at:
               sessionDocForPolicy?.resume_last_triggered_at || sessionDocForPolicy?.resume_worker_last_triggered_at || null,
             resume_stuck_ms: resumeStuckQueuedMs,
@@ -2937,7 +2940,10 @@ async function handler(req, context) {
             resume_needed,
             resume_status: resumeStatus,
             resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
-            resume_doc_updated_at: currentResume?.updated_at || null,
+            resume_doc_updated_at:
+              (typeof currentResume !== "undefined" && currentResume && typeof currentResume === "object" && currentResume.updated_at
+                ? currentResume.updated_at
+                : resumeDoc?.updated_at) || null,
             resume_last_triggered_at:
               sessionDocForPolicy?.resume_last_triggered_at || sessionDocForPolicy?.resume_worker_last_triggered_at || null,
             resume_stuck_ms: resumeStuckQueuedMs,
