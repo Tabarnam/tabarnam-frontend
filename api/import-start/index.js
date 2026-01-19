@@ -6563,17 +6563,23 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
                 if (duplicateOfId && container) {
                   const existingMissing = Array.isArray(existingRow?.import_missing_fields) ? existingRow.import_missing_fields : [];
-                  const existingComplete = existingMissing.length === 0;
 
-                  const outcome = existingComplete
+                  // "Verified" for import-start seed-fallback means the minimum required fields exist
+                  // (name + website). Enrichment completeness is handled by resume-worker.
+                  const existingVerified = Boolean(
+                    asMeaningfulString(existingRow?.company_name || existingRow?.name || "") &&
+                      asMeaningfulString(existingRow?.website_url || existingRow?.company_url || existingRow?.url || "")
+                  );
+
+                  const outcome = existingVerified
                     ? "duplicate_detected"
                     : "duplicate_detected_unverified_missing_required_fields";
 
                   saveResult = {
-                    saved: existingComplete ? 1 : 0,
+                    saved: existingVerified ? 1 : 0,
                     skipped: 0,
                     failed: 0,
-                    saved_ids: existingComplete ? [duplicateOfId] : [],
+                    saved_ids: existingVerified ? [duplicateOfId] : [],
                     skipped_ids: [],
                     skipped_duplicates: [
                       {
@@ -6587,14 +6593,14 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       },
                     ],
                     failed_items: [],
-                    saved_company_ids_verified: existingComplete ? [duplicateOfId] : [],
-                    saved_company_ids_unverified: existingComplete ? [] : [duplicateOfId],
-                    saved_verified_count: existingComplete ? 1 : 0,
+                    saved_company_ids_verified: existingVerified ? [duplicateOfId] : [],
+                    saved_company_ids_unverified: existingVerified ? [] : [duplicateOfId],
+                    saved_verified_count: existingVerified ? 1 : 0,
                     saved_write_count: 0,
                     saved_ids_write: [],
                     duplicate_of_id: duplicateOfId,
-                    duplicate_existing_incomplete: !existingComplete,
-                    duplicate_existing_missing_fields: existingComplete ? [] : existingMissing.slice(0, 20),
+                    duplicate_existing_incomplete: !existingVerified,
+                    duplicate_existing_missing_fields: existingVerified ? [] : existingMissing.slice(0, 20),
                     save_outcome: outcome,
                   };
                 } else {
@@ -6711,28 +6717,32 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       const existingMissing = Array.isArray(existingDoc?.import_missing_fields)
                         ? existingDoc.import_missing_fields
                         : [];
-                      const existingComplete = existingMissing.length === 0;
 
-                      if (!existingComplete) {
+                      const existingVerified = Boolean(
+                        asMeaningfulString(existingDoc?.company_name || existingDoc?.name || "") &&
+                          asMeaningfulString(existingDoc?.website_url || existingDoc?.company_url || existingDoc?.url || "")
+                      );
+
+                      if (!existingVerified) {
                         save_outcome = "duplicate_detected_unverified_missing_required_fields";
                       }
 
                       saveResult = {
                         ...saveResult,
-                        saved: existingComplete ? 1 : 0,
+                        saved: existingVerified ? 1 : 0,
                         skipped: 0,
                         failed: 0,
-                        saved_ids: existingComplete ? [duplicateOfId] : [],
+                        saved_ids: existingVerified ? [duplicateOfId] : [],
                         skipped_ids: [],
                         failed_items: [],
-                        saved_company_ids_verified: existingComplete ? [duplicateOfId] : [],
-                        saved_company_ids_unverified: existingComplete ? [] : [duplicateOfId],
-                        saved_verified_count: existingComplete ? 1 : 0,
+                        saved_company_ids_verified: existingVerified ? [duplicateOfId] : [],
+                        saved_company_ids_unverified: existingVerified ? [] : [duplicateOfId],
+                        saved_verified_count: existingVerified ? 1 : 0,
                         saved_write_count: 0,
                         saved_ids_write: [],
                         duplicate_of_id: duplicateOfId,
-                        duplicate_existing_incomplete: !existingComplete,
-                        duplicate_existing_missing_fields: existingComplete ? [] : existingMissing.slice(0, 20),
+                        duplicate_existing_incomplete: !existingVerified,
+                        duplicate_existing_missing_fields: existingVerified ? [] : existingMissing.slice(0, 20),
                       };
                     } else {
                       save_outcome = "read_after_write_failed";
