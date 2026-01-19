@@ -237,17 +237,19 @@ function forceTerminalizeCompanyDocForSingle(doc) {
   d.import_attempts ||= {};
 
   // industries
-  d.industries = ["Unknown"];
+  d.industries = [];
+  d.industries_unknown = true;
   d.import_missing_reason.industries = "exhausted";
 
   // tagline
-  d.tagline = "Unknown";
+  d.tagline = "";
+  d.tagline_unknown = true;
   d.import_missing_reason.tagline = "exhausted";
 
   // product_keywords
-  if (!d.product_keywords || d.product_keywords === "Unknown") {
-    d.product_keywords = "Unknown";
-  }
+  d.product_keywords = "";
+  d.product_keywords_unknown = true;
+  if (!Array.isArray(d.keywords)) d.keywords = [];
   d.import_missing_reason.product_keywords = d.import_missing_reason.product_keywords || "exhausted";
 
   // reviews
