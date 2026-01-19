@@ -137,6 +137,19 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function toMs(ts) {
+  const t = ts ? Date.parse(ts) : NaN;
+  return Number.isFinite(t) ? t : null;
+}
+
+function hasRecentWorkerProgress(resumeWorker, nowMs, windowMs) {
+  const finished = toMs(resumeWorker?.last_finished_at);
+  const entered = toMs(resumeWorker?.handler_entered_at);
+  const newest = Math.max(finished || 0, entered || 0);
+  if (!newest) return false;
+  return nowMs - newest < windowMs;
+}
+
 function normalizeKey(value) {
   return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
