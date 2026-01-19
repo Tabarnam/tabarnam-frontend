@@ -238,6 +238,64 @@ function forceTerminalizeCompanyDocForSingle(doc) {
   return d;
 }
 
+function reconcileLowQualityToTerminal(doc, maxAttempts = 2) {
+  if (!doc || typeof doc !== "object") return false;
+
+  doc.import_attempts ||= {};
+  doc.import_missing_reason ||= {};
+
+  let changed = false;
+
+  const fields = ["industries", "tagline", "product_keywords"];
+  for (const f of fields) {
+    const reason = String(doc.import_missing_reason[f] || "").trim().toLowerCase();
+    const attempts = Number(doc.import_attempts[f] || 0);
+
+    if (reason === "low_quality" && attempts >= maxAttempts) {
+      doc.import_missing_reason[f] = "low_quality_terminal";
+      if (f === "industries") doc.industries = ["Unknown"];
+      if (f === "tagline") doc.tagline = "Unknown";
+      if (f === "product_keywords" && (!doc.product_keywords || doc.product_keywords === "Unknown")) {
+        doc.product_keywords = "Unknown";
+      }
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+function applyTerminalOnlyCompletion(out, reason) {
+  out.completed = true;
+  out.terminal_only = true;
+
+  out.status = "complete";
+  if (typeof out.state === "string") out.state = "complete";
+  if (typeof out.job_state === "string") out.job_state = "complete";
+  if (typeof out.primary_job_state === "string") out.primary_job_state = "complete";
+
+  out.resume_needed = false;
+  out.resume_error = out.resume_error || null;
+  out.resume_error_details = out.resume_error_details || null;
+
+  out.stage_beacon = "status_resume_terminal_only";
+
+  out.progress_error = out.progress_error || "Saved with warnings: post_save_warning";
+  out.progress_notice =
+    "Completed (terminal-only): remaining missing fields were marked Not disclosed / Exhausted.";
+
+  out.resume = out.resume || {};
+  out.resume.needed = false;
+  out.resume.status = "complete";
+  out.resume.triggered = false;
+
+  out.stage_beacon_values = out.stage_beacon_values || {};
+  out.stage_beacon_values.status_resume_terminal_only = new Date().toISOString();
+  out.stage_beacon_values.status_resume_forced_terminalize_reason = reason;
+
+  return out;
+}
+
 function normalizeDomain(raw) {
   const host = String(raw || "").trim().toLowerCase();
   if (!host) return "";
