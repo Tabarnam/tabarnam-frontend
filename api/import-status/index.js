@@ -154,6 +154,42 @@ function normalizeKey(value) {
   return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+const INFRA_RETRYABLE_MISSING_REASONS = new Set([
+  "upstream_unreachable",
+  "missing_xai_config",
+]);
+
+function isInfraRetryableMissingReason(reason) {
+  const r = normalizeKey(reason);
+  if (!r) return false;
+  if (INFRA_RETRYABLE_MISSING_REASONS.has(r)) return true;
+  if (r.startsWith("upstream_http_")) return true;
+  return false;
+}
+
+function collectInfraRetryableMissing(docs) {
+  const list = Array.isArray(docs) ? docs : [];
+  const out = [];
+
+  for (const doc of list) {
+    const missing = Array.isArray(computeEnrichmentHealthContract(doc)?.missing_fields)
+      ? computeEnrichmentHealthContract(doc).missing_fields
+      : [];
+
+    for (const field of missing) {
+      const reason = deriveMissingReason(doc, field) || normalizeKey(doc?.import_missing_reason?.[field] || "");
+      if (!isInfraRetryableMissingReason(reason)) continue;
+      out.push({
+        company_id: String(doc?.id || doc?.company_id || "").trim() || null,
+        field,
+        missing_reason: reason,
+      });
+    }
+  }
+
+  return out;
+}
+
 function isSingleCompanyModeFromSession({ sessionDoc, savedCount, itemsCount }) {
   const limit = Number(sessionDoc?.request?.limit ?? sessionDoc?.request?.Limit ?? 0);
   if (Number.isFinite(limit) && limit === 1) return true;
