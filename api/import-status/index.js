@@ -172,8 +172,7 @@ function shouldForceTerminalizeSingle({
   resume_needed,
   resume_status,
   resume_cycle_count,
-  resume_doc_updated_at,
-  resume_last_triggered_at,
+  resume_worker,
   resume_stuck_ms,
 }) {
   if (!single) return { force: false, reason: null };
@@ -185,20 +184,12 @@ function shouldForceTerminalizeSingle({
   const status = String(resume_status || "").trim();
   if (status !== "queued") return { force: false, reason: null };
 
-  const updatedTs = Date.parse(String(resume_doc_updated_at || ""));
-  if (!Number.isFinite(updatedTs)) return { force: false, reason: null };
-
   const stuckMs = Number(resume_stuck_ms || 0) || 0;
   if (!stuckMs) return { force: false, reason: null };
 
-  const elapsed = Date.now() - updatedTs;
-  if (elapsed < stuckMs) return { force: false, reason: null };
-
-  const lastTriggerTs = Date.parse(String(resume_last_triggered_at || ""));
-  if (!Number.isFinite(lastTriggerTs)) return { force: false, reason: null };
-
-  // Only terminalize after we have attempted at least one trigger since the resume doc was last updated.
-  if (lastTriggerTs >= updatedTs - 1000) return { force: true, reason: "queued_timeout_after_trigger" };
+  const nowMs = Date.now();
+  const noRecentProgress = !hasRecentWorkerProgress(resume_worker, nowMs, stuckMs);
+  if (noRecentProgress) return { force: true, reason: "queued_timeout_no_progress" };
 
   return { force: false, reason: null };
 }
