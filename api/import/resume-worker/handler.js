@@ -460,13 +460,6 @@ async function resumeWorkerHandler(req, context) {
       build_id: String(BUILD_INFO.build_id || ""),
     });
   } catch {}
-  try {
-    console.log(`[${HANDLER_ID}] handler_entered`, {
-      session_id: sessionId,
-      entered_at: enteredAt,
-      build_id: String(BUILD_INFO.build_id || ""),
-    });
-  } catch {}
 
   let cosmosContainer = null;
   if (cosmosEnabled) {
@@ -511,7 +504,7 @@ async function resumeWorkerHandler(req, context) {
           resume_worker_last_http_status: 401,
           resume_worker_last_reject_layer: "handler",
           resume_worker_last_auth: authDecision,
-          resume_worker_last_finished_at: enteredAt,
+          resume_worker_last_finished_at: handler_entered_at,
           resume_worker_last_error: "unauthorized",
         },
       }).catch(() => null);
@@ -668,7 +661,7 @@ async function resumeWorkerHandler(req, context) {
 
   const requestId =
     String(req?.headers?.get?.("x-request-id") || req?.headers?.get?.("x-client-request-id") || "").trim() ||
-    String(resumeDoc?.last_invoked_at || enteredAt);
+    String(resumeDoc?.last_invoked_at || handler_entered_at);
 
   let seedDocs = await fetchSeedCompanies(container, sessionId, batchLimit).catch(() => []);
 
@@ -722,7 +715,6 @@ async function resumeWorkerHandler(req, context) {
           handler_entered_at,
           did_work: false,
           did_work_reason: "no_missing_required_fields",
-          did_work: false,
           skipped: true,
           reason: "no_missing_required_fields",
           batch_limit: batchLimit,
