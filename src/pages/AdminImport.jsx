@@ -1104,6 +1104,148 @@ export default function AdminImport() {
     [pollProgress]
   );
 
+  const runXaiDiag = useCallback(
+    async ({ session_id }) => {
+      const sid = asString(session_id).trim();
+      if (!sid) return;
+
+      const encoded = encodeURIComponent(sid);
+      const path = `/diag/xai?session_id=${encoded}`;
+      const endpointUrl = join(API_BASE, path);
+
+      const requestHeaders = { "Content-Type": "application/json" };
+
+      const initialBundle = {
+        kind: "xai_diag",
+        captured_at: new Date().toISOString(),
+        endpoint_url: endpointUrl,
+        request_payload: { session_id: sid },
+        request_explain: {
+          url: endpointUrl,
+          method: "GET",
+          headers: requestHeaders,
+          body_preview: "",
+        },
+        network_error: null,
+        exception_message: null,
+        response_status: null,
+        response_text_preview: null,
+        response: null,
+        build_headers: {
+          api_build_id: null,
+          request_id: null,
+          cached_build_id: getCachedBuildId() || null,
+        },
+      };
+
+      try {
+        setRuns((prev) => prev.map((r) => (r.session_id === sid ? { ...r, last_xai_diag_bundle: initialBundle } : r)));
+      } catch {}
+
+      let finalBundle = initialBundle;
+
+      try {
+        const r = await apiFetchParsed(path, {
+          method: "GET",
+          headers: requestHeaders,
+          keepalive: true,
+        });
+
+        const res = r.response;
+        const body = r.data;
+        const textBody = typeof r.text === "string" ? r.text : "";
+
+        const requestExplain = getLastApiRequestExplain();
+        const apiBuildId = getResponseBuildId(res) || null;
+        const requestId = getResponseRequestId(res) || null;
+
+        finalBundle = {
+          ...initialBundle,
+          request_explain: requestExplain || initialBundle.request_explain,
+          response_status: res?.status ?? null,
+          response_text_preview: textBody ? textBody.slice(0, 2000) : null,
+          response: {
+            status: res.status,
+            ok: res.ok,
+            headers: {
+              "content-type": res.headers.get("content-type") || "",
+              "x-api-build-id": res.headers.get("x-api-build-id") || res.headers.get("X-Api-Build-Id") || "",
+              "x-request-id": res.headers.get("x-request-id") || res.headers.get("X-Request-ID") || "",
+              "x-ms-request-id": res.headers.get("x-ms-request-id") || "",
+            },
+            body_json: body && typeof body === "object" ? body : null,
+            body_text: textBody,
+            api_fetch_error: res && typeof res === "object" ? res.__api_fetch_error : null,
+            api_fetch_fallback: res && typeof res === "object" ? res.__api_fetch_fallback : null,
+          },
+          build_headers: {
+            api_build_id: apiBuildId,
+            request_id: requestId,
+            cached_build_id: getCachedBuildId() || null,
+          },
+        };
+
+        if (res.ok && body && typeof body === "object" && body.ok) {
+          toast.success("xAI diag complete");
+        } else {
+          const msg = (await getUserFacingConfigMessage(res)) || `xAI diag failed (HTTP ${res.status})`;
+          toast.error(msg);
+        }
+      } catch (e) {
+        const maybeStatus = typeof e?.status === "number" ? e.status : Number(e?.status) || null;
+        const res = e?.response;
+        const body = e?.data;
+        const textBody = typeof e?.text === "string" ? e.text : "";
+
+        const requestExplain = getLastApiRequestExplain();
+        const apiBuildId = res ? getResponseBuildId(res) : null;
+        const requestId = res ? getResponseRequestId(res) : null;
+
+        const networkError =
+          body && typeof body === "object"
+            ? asString(body.error_message || body.error || body.message).trim()
+            : "";
+
+        finalBundle = {
+          ...initialBundle,
+          request_explain: requestExplain || initialBundle.request_explain,
+          network_error: networkError || null,
+          exception_message: toErrorString(e) || "xAI diag failed",
+          response_status: res ? res.status : maybeStatus,
+          response_text_preview: textBody ? textBody.slice(0, 2000) : null,
+          response: res
+            ? {
+                status: res.status,
+                ok: res.ok,
+                headers: {
+                  "content-type": res.headers.get("content-type") || "",
+                  "x-api-build-id": res.headers.get("x-api-build-id") || res.headers.get("X-Api-Build-Id") || "",
+                  "x-request-id": res.headers.get("x-request-id") || res.headers.get("X-Request-ID") || "",
+                  "x-ms-request-id": res.headers.get("x-ms-request-id") || "",
+                },
+                body_json: body && typeof body === "object" ? body : null,
+                body_text: textBody,
+                api_fetch_error: res && typeof res === "object" ? res.__api_fetch_error : null,
+                api_fetch_fallback: res && typeof res === "object" ? res.__api_fetch_fallback : null,
+              }
+            : null,
+          build_headers: {
+            api_build_id: apiBuildId,
+            request_id: requestId,
+            cached_build_id: getCachedBuildId() || null,
+          },
+        };
+
+        toast.error(toErrorString(e) || "xAI diag failed");
+      } finally {
+        try {
+          setRuns((prev) => prev.map((r) => (r.session_id === sid ? { ...r, last_xai_diag_bundle: finalBundle } : r)));
+        } catch {}
+      }
+    },
+    []
+  );
+
   const scheduleTerminalRefresh = useCallback(
     ({ session_id }) => {
       const sid = asString(session_id).trim();
@@ -4225,50 +4367,114 @@ export default function AdminImport() {
 
                           {Boolean(activeRun.resume_needed) && !terminalComplete ? (
                             <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-2">
-                              <div className="font-medium">
-                                {resumeStatus === "queued"
-                                  ? "Resume queued"
-                                  : resumeStatus === "running"
-                                    ? "Resume running"
-                                    : resumeStatus === "stalled"
-                                      ? "Resume stalled"
-                                      : "Resume needed"}
-                              </div>
+                              {(() => {
+                                const resumeError =
+                                  asString(activeRun?.resume_error).trim() ||
+                                  asString(activeRun?.last_status_body?.resume_error).trim() ||
+                                  asString(activeRun?.resume?.trigger_error).trim();
 
-                              <div className="text-amber-900/90">
-                                <span className="font-medium">resume.status:</span> {resumeStatus || "—"}
-                                {Number.isFinite(retryableMissingCount)
-                                  ? ` · retryable missing: ${retryableMissingCount}`
-                                  : ""}
-                                {Number.isFinite(Number(stageBeaconValues.status_resume_missing_terminal))
-                                  ? ` · terminal missing: ${Number(stageBeaconValues.status_resume_missing_terminal)}`
-                                  : ""}
-                              </div>
+                                const resumeErrorDetails =
+                                  (activeRun?.resume_error_details && typeof activeRun.resume_error_details === "object")
+                                    ? activeRun.resume_error_details
+                                    : (activeRun?.last_status_body?.resume_error_details && typeof activeRun.last_status_body.resume_error_details === "object")
+                                      ? activeRun.last_status_body.resume_error_details
+                                      : (activeRun?.resume?.trigger_error_details && typeof activeRun.resume.trigger_error_details === "object")
+                                        ? activeRun.resume.trigger_error_details
+                                        : null;
 
-                              {asString(activeRun.resume?.trigger_error).trim() ? (
-                                <div className="text-amber-900/90 break-words">
-                                  Last resume error: {asString(activeRun.resume?.trigger_error).trim()}
-                                </div>
-                              ) : resumeStatus === "queued" ? (
-                                <div className="text-amber-900/90">Waiting for the resume worker. Polling will automatically slow down.</div>
-                              ) : resumeStatus === "running" ? (
-                                <div className="text-amber-900/90">Resume worker is running. Polling will automatically slow down.</div>
-                              ) : (
-                                <div className="text-amber-900/90">
-                                  Enrichment is still in progress. You can retry the resume worker if it stalled.
-                                </div>
-                              )}
+                                const xaiDiag =
+                                  activeRun?.last_xai_diag_bundle && typeof activeRun.last_xai_diag_bundle === "object"
+                                    ? activeRun.last_xai_diag_bundle
+                                    : null;
+
+                                return (
+                                  <>
+                                    <div className="font-medium">
+                                      {resumeStatus === "blocked"
+                                        ? "Resume blocked"
+                                        : resumeStatus === "queued"
+                                          ? "Resume queued"
+                                          : resumeStatus === "running"
+                                            ? "Resume running"
+                                            : resumeStatus === "stalled"
+                                              ? "Resume stalled"
+                                              : "Resume needed"}
+                                    </div>
+
+                                    <div className="text-amber-900/90">
+                                      <span className="font-medium">resume.status:</span> {resumeStatus || "—"}
+                                      {Number.isFinite(retryableMissingCount)
+                                        ? ` · retryable missing: ${retryableMissingCount}`
+                                        : ""}
+                                      {Number.isFinite(Number(stageBeaconValues.status_resume_missing_terminal))
+                                        ? ` · terminal missing: ${Number(stageBeaconValues.status_resume_missing_terminal)}`
+                                        : ""}
+                                    </div>
+
+                                    {resumeError ? (
+                                      <div className="text-amber-900/90 break-words">
+                                        <span className="font-medium">resume_error:</span> {resumeError}
+                                      </div>
+                                    ) : null}
+
+                                    {resumeStatus === "blocked" ? (
+                                      <div className="text-amber-900/90">
+                                        Auto-retries are paused while blocked. Fix upstream connectivity (or wait), then click “Retry resume”.
+                                      </div>
+                                    ) : resumeStatus === "queued" ? (
+                                      <div className="text-amber-900/90">Waiting for the resume worker. Polling will automatically slow down.</div>
+                                    ) : resumeStatus === "running" ? (
+                                      <div className="text-amber-900/90">Resume worker is running. Polling will automatically slow down.</div>
+                                    ) : (
+                                      <div className="text-amber-900/90">
+                                        Enrichment is still in progress. You can retry the resume worker if it stalled.
+                                      </div>
+                                    )}
+
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8"
+                                        onClick={() => retryResumeWorker({ session_id: activeRun.session_id })}
+                                      >
+                                        Retry resume
+                                      </Button>
+
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8"
+                                        onClick={() => runXaiDiag({ session_id: activeRun.session_id })}
+                                      >
+                                        Run xAI diag
+                                      </Button>
+                                    </div>
+
+                                    {resumeErrorDetails ? (
+                                      <details className="rounded border border-amber-200 bg-amber-100/30 p-2">
+                                        <summary className="cursor-pointer select-none text-xs font-medium text-amber-900">Resume error details</summary>
+                                        <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words text-[11px] text-amber-950">
+                                          {toPrettyJsonText(resumeErrorDetails)}
+                                        </pre>
+                                      </details>
+                                    ) : null}
+
+                                    {xaiDiag?.response ? (
+                                      <details className="rounded border border-amber-200 bg-amber-100/30 p-2">
+                                        <summary className="cursor-pointer select-none text-xs font-medium text-amber-900">Latest xAI diag</summary>
+                                        <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words text-[11px] text-amber-950">
+                                          {toPrettyJsonText(xaiDiag.response?.body_json || xaiDiag.response || xaiDiag)}
+                                        </pre>
+                                      </details>
+                                    ) : null}
+                                  </>
+                                );
+                              })()}
+
                               <div className="flex flex-wrap items-center gap-2">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8"
-                                  onClick={() => retryResumeWorker({ session_id: activeRun.session_id })}
-                                >
-                                  Retry resume
-                                </Button>
-
                                 <Button
                                   type="button"
                                   variant="outline"

@@ -78,15 +78,32 @@ export function toErrorString(err: unknown): string {
   try {
     const anyErr: any = err as any;
     const message = anyErr?.message ?? anyErr?.error;
-    if (message != null) return String(message);
 
-    if (anyErr instanceof Error && anyErr.message) return String(anyErr.message);
+    if (typeof message === "string" && message.trim()) return message;
+
+    if (message != null) {
+      try {
+        const text = JSON.stringify(message);
+        if (typeof text === "string" && text.trim()) return text;
+      } catch {
+        // fall through
+      }
+    }
+
+    if (anyErr instanceof Error && typeof anyErr.message === "string" && anyErr.message.trim()) {
+      return anyErr.message;
+    }
 
     if (err != null && typeof err === "object") {
       try {
-        return String(JSON.stringify(err));
+        const text = JSON.stringify(err);
+        return typeof text === "string" ? text : "";
       } catch {
-        return String(err);
+        try {
+          return Object.prototype.toString.call(err);
+        } catch {
+          return "";
+        }
       }
     }
 

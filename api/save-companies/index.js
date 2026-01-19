@@ -816,9 +816,9 @@ app.http("save-companies", {
 
             // industries
             if (!Array.isArray(doc.industries) || doc.industries.filter((v) => asMeaningful(v)).length === 0) {
-              doc.industries = ["Unknown"];
+              doc.industries = [];
               doc.industries_unknown = true;
-              ensureMissing("industries", "not_found", "Industries missing; set to placeholder ['Unknown']");
+              ensureMissing("industries", "not_found", "Industries missing");
             }
 
             // product_keywords (ensure deterministic)
@@ -831,16 +831,17 @@ app.http("save-companies", {
             const pkFixed = String(doc.product_keywords || "").trim();
             const hasAnyKeywords = Boolean(pkFixed) || kwList.length > 0;
             if (!hasAnyKeywords) {
-              doc.product_keywords = "Unknown";
+              doc.product_keywords = "";
+              doc.product_keywords_unknown = true;
               if (!Array.isArray(doc.keywords)) doc.keywords = [];
-              ensureMissing("product_keywords", "not_found", "product_keywords missing; set to placeholder 'Unknown'");
+              ensureMissing("product_keywords", "not_found", "product_keywords missing");
             }
 
-            // tagline (required)
+            // tagline
             if (!asMeaningful(doc.tagline)) {
-              doc.tagline = "Unknown";
+              doc.tagline = "";
               doc.tagline_unknown = true;
-              ensureMissing("tagline", "not_found", "tagline missing; set to placeholder 'Unknown'");
+              ensureMissing("tagline", "not_found", "tagline missing");
             }
 
             // headquarters
@@ -853,13 +854,13 @@ app.http("save-companies", {
             }
 
             if (!asMeaningful(doc.headquarters_location)) {
-              doc.headquarters_location = "Unknown";
+              doc.headquarters_location = "";
               doc.hq_unknown = true;
               doc.hq_unknown_reason = String(doc.hq_unknown_reason || "unknown");
               ensureMissing(
                 "headquarters_location",
                 doc.hq_unknown_reason,
-                "headquarters_location missing; set to placeholder 'Unknown'"
+                "headquarters_location missing"
               );
             }
 
@@ -874,13 +875,13 @@ app.http("save-companies", {
             });
 
             if (!mfgHas) {
-              doc.manufacturing_locations = ["Unknown"];
+              doc.manufacturing_locations = [];
               doc.mfg_unknown = true;
               doc.mfg_unknown_reason = String(doc.mfg_unknown_reason || "unknown");
               ensureMissing(
                 "manufacturing_locations",
                 doc.mfg_unknown_reason,
-                "manufacturing_locations missing; set to placeholder ['Unknown']"
+                "manufacturing_locations missing"
               );
             }
 

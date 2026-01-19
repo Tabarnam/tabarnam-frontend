@@ -104,6 +104,44 @@ function normalizeKey(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function safeJsonStringify(value, limit = 2000) {
+  try {
+    const text = JSON.stringify(value);
+    if (typeof text !== "string") return "";
+    return text.length > limit ? text.slice(0, limit) : text;
+  } catch {
+    try {
+      const text = String(value ?? "");
+      return text.length > limit ? text.slice(0, limit) : text;
+    } catch {
+      return "";
+    }
+  }
+}
+
+function safeErrorMessage(err, limit = 500) {
+  try {
+    if (!err) return "";
+    if (typeof err === "string") return err.length > limit ? err.slice(0, limit) : err;
+
+    const msg = err?.message ?? err?.error;
+    if (typeof msg === "string" && msg.trim()) return msg.length > limit ? msg.slice(0, limit) : msg;
+    if (msg && typeof msg === "object") {
+      const text = safeJsonStringify(msg, limit);
+      return text || "[unserializable_error_message]";
+    }
+
+    if (err instanceof Error && typeof err.message === "string") {
+      return err.message.length > limit ? err.message.slice(0, limit) : err.message;
+    }
+
+    const text = safeJsonStringify(err, limit);
+    return text || "[unserializable_error]";
+  } catch {
+    return "";
+  }
+}
+
 const GROK_ONLY_FIELDS = new Set([
   "headquarters_location",
   "manufacturing_locations",
@@ -165,7 +203,17 @@ function markFieldSuccess(doc, field) {
 
 function markFieldError(doc, field, error) {
   const meta = ensureAttemptsDetail(doc, field);
-  meta.last_error = error && typeof error === "object" ? error : { message: String(error || "error") };
+  const message = safeErrorMessage(error) || "error";
+
+  if (error && typeof error === "object" && !Array.isArray(error)) {
+    meta.last_error = {
+      ...error,
+      message,
+    };
+    return;
+  }
+
+  meta.last_error = { message };
 }
 
 function ensureImportWarnings(doc) {
@@ -184,6 +232,20 @@ function addImportWarning(doc, entry) {
 
 function attemptsFor(doc, field) {
   return Number(doc?.import_attempts?.[field] || 0);
+}
+
+function markEnrichmentIncomplete(doc, { reason, field } = {}) {
+  if (!doc || typeof doc !== "object") return;
+
+  const existingReason = String(doc.red_flag_reason || "").trim();
+  const nextReason = `Enrichment incomplete: ${String(reason || "unknown").trim()}`;
+
+  doc.red_flag = true;
+
+  // Prefer a clear non-terminal reason when upstream is unreachable.
+  if (!existingReason || /enrichment complete/i.test(existingReason) || /enrichment pending/i.test(existingReason)) {
+    doc.red_flag_reason = field ? `${nextReason} (${field})` : nextReason;
+  }
 }
 
 function terminalizeGrokField(doc, field, terminalReason) {
@@ -406,20 +468,26 @@ function terminalizeNonGrokField(doc, field, reason) {
 
   const f = normalizeKey(field);
 
+  // Robustness rule: never write placeholder strings like "Unknown" into canonical fields.
+  // Keep canonical fields empty/unset and encode missingness via *_unknown flags + import_missing_reason.
   if (f === "industries") {
-    doc.industries = ["Unknown"];
+    doc.industries = [];
+    doc.industries_unknown = true;
     doc.import_missing_reason.industries = reason;
     return;
   }
 
   if (f === "tagline") {
-    doc.tagline = "Unknown";
+    doc.tagline = "";
+    doc.tagline_unknown = true;
     doc.import_missing_reason.tagline = reason;
     return;
   }
 
   if (f === "product_keywords") {
-    doc.product_keywords = "Unknown";
+    doc.product_keywords = "";
+    if (!Array.isArray(doc.keywords)) doc.keywords = [];
+    doc.product_keywords_unknown = true;
     doc.import_missing_reason.product_keywords = reason;
     return;
   }
@@ -881,6 +949,23 @@ async function resumeWorkerHandler(req, context) {
     resumeDoc.attempt = attempt + 1;
   }
 
+  // Retry accounting invariant:
+  // - resume_cycle_count tracks actual resume-worker invocations (not /import/status trigger attempts).
+  try {
+    const cycleSessionDoc = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+    if (cycleSessionDoc && typeof cycleSessionDoc === "object") {
+      const nextCycleCount = (Number(cycleSessionDoc.resume_cycle_count || 0) || 0) + 1;
+      const patched = {
+        ...cycleSessionDoc,
+        resume_cycle_count: nextCycleCount,
+        resume_last_triggered_at: invokedAt,
+        updated_at: nowIso(),
+      };
+      await upsertDoc(container, patched).catch(() => null);
+      sessionDoc = patched;
+    }
+  } catch {}
+
   const requestId =
     String(req?.headers?.get?.("x-request-id") || req?.headers?.get?.("x-client-request-id") || "").trim() ||
     String(resumeDoc?.last_invoked_at || handler_entered_at);
@@ -1081,7 +1166,15 @@ async function resumeWorkerHandler(req, context) {
       field: String(field || "").trim() || null,
       stage: String(stage || "").trim() || null,
       at: nowIso(),
-      message: typeof err?.message === "string" ? err.message : String(err || "error"),
+      code:
+        typeof err?.code === "string"
+          ? err.code
+          : typeof err?.error_code === "string"
+            ? err.error_code
+            : typeof err?.error === "string"
+              ? err.error
+              : null,
+      message: safeErrorMessage(err) || "error",
       ...(details && typeof details === "object" ? details : {}),
     };
     workerErrors.push(entry);
@@ -1150,6 +1243,7 @@ async function resumeWorkerHandler(req, context) {
             error_code: "upstream_unreachable",
             at: nowIso(),
           });
+          markEnrichmentIncomplete(doc, { reason: "upstream unreachable", field: "tagline" });
         }
 
         if (terminal) {
@@ -1213,6 +1307,7 @@ async function resumeWorkerHandler(req, context) {
             error_code: "upstream_unreachable",
             at: nowIso(),
           });
+          markEnrichmentIncomplete(doc, { reason: "upstream unreachable", field: "industries" });
         }
 
         if (terminal) {
@@ -1281,6 +1376,7 @@ async function resumeWorkerHandler(req, context) {
             error_code: "upstream_unreachable",
             at: nowIso(),
           });
+          markEnrichmentIncomplete(doc, { reason: "upstream unreachable", field: "product_keywords" });
         }
 
         if (terminal) {
@@ -1341,6 +1437,7 @@ async function resumeWorkerHandler(req, context) {
             error_code: "upstream_unreachable",
             at: nowIso(),
           });
+          markEnrichmentIncomplete(doc, { reason: "upstream unreachable", field: "headquarters_location" });
         }
 
         if (terminal) {
@@ -1405,6 +1502,7 @@ async function resumeWorkerHandler(req, context) {
             error_code: "upstream_unreachable",
             at: nowIso(),
           });
+          markEnrichmentIncomplete(doc, { reason: "upstream unreachable", field: "manufacturing_locations" });
         }
 
         if (terminal) {
@@ -1488,6 +1586,7 @@ async function resumeWorkerHandler(req, context) {
             error_code: "upstream_unreachable",
             at: nowIso(),
           });
+          markEnrichmentIncomplete(doc, { reason: "upstream unreachable", field: "reviews" });
         } else if (status === "not_found") {
           doc.review_cursor.last_error = null;
         }
@@ -1976,6 +2075,89 @@ async function resumeWorkerHandler(req, context) {
 
   // Resume-needed is ONLY retryable based.
   const resumeNeeded = retryableMissingCount > 0;
+
+  // Invariant: if we still have retryable missing fields, this invocation must have made at least one
+  // real attempt (bumped import_attempts.*). Otherwise, we mark the resume as blocked to prevent no-op loops.
+  const attemptedFieldsThisRun = (() => {
+    const attempted = new Set();
+    const docs = Array.isArray(seedDocs) ? seedDocs : [];
+    const metaFields = [
+      "industries",
+      "product_keywords",
+      "tagline",
+      "headquarters_location",
+      "manufacturing_locations",
+      "reviews",
+      "logo",
+    ];
+
+    for (const doc of docs) {
+      const meta = doc?.import_attempts_meta && typeof doc.import_attempts_meta === "object" ? doc.import_attempts_meta : null;
+      if (!meta) continue;
+      for (const field of metaFields) {
+        if (meta[field] === requestId) attempted.add(field);
+      }
+    }
+
+    return Array.from(attempted.values());
+  })();
+
+  if (resumeNeeded && attemptedFieldsThisRun.length === 0) {
+    const blockedAt = updatedAt;
+    const errorCode = "resume_no_progress_no_attempts";
+
+    await upsertDoc(container, {
+      ...resumeDoc,
+      status: "blocked",
+      resume_error: errorCode,
+      resume_error_details: {
+        blocked_at: blockedAt,
+        request_id: requestId,
+        missing_by_company,
+        note: "No import_attempts were bumped during this invocation",
+      },
+      last_error: {
+        code: errorCode,
+        message: "Resume blocked: no progress/no attempts",
+        blocked_at: blockedAt,
+      },
+      lock_expires_at: null,
+      updated_at: blockedAt,
+    }).catch(() => null);
+
+    await bestEffortPatchSessionDoc({
+      container,
+      sessionId,
+      patch: {
+        resume_needed: true,
+        resume_error: errorCode,
+        resume_error_details: {
+          blocked_at: blockedAt,
+          request_id: requestId,
+          missing_by_company,
+          note: "No import_attempts were bumped during this invocation",
+        },
+        stage_beacon: "enrichment_resume_blocked",
+        updated_at: blockedAt,
+      },
+    }).catch(() => null);
+
+    return json(
+      {
+        ok: true,
+        session_id: sessionId,
+        handler_entered_at,
+        did_work: true,
+        did_work_reason: "resume_blocked_no_attempts",
+        resume_needed: true,
+        missing_by_company,
+        attempted_fields: attemptedFieldsThisRun,
+        stage_beacon: "enrichment_resume_blocked",
+      },
+      200,
+      req
+    );
+  }
 
   const grokErrors = Array.isArray(workerErrors) ? workerErrors : [];
   const grokErrorSummary = grokErrors.length

@@ -237,17 +237,19 @@ function forceTerminalizeCompanyDocForSingle(doc) {
   d.import_attempts ||= {};
 
   // industries
-  d.industries = ["Unknown"];
+  d.industries = [];
+  d.industries_unknown = true;
   d.import_missing_reason.industries = "exhausted";
 
   // tagline
-  d.tagline = "Unknown";
+  d.tagline = "";
+  d.tagline_unknown = true;
   d.import_missing_reason.tagline = "exhausted";
 
   // product_keywords
-  if (!d.product_keywords || d.product_keywords === "Unknown") {
-    d.product_keywords = "Unknown";
-  }
+  d.product_keywords = "";
+  d.product_keywords_unknown = true;
+  if (!Array.isArray(d.keywords)) d.keywords = [];
   d.import_missing_reason.product_keywords = d.import_missing_reason.product_keywords || "exhausted";
 
   // reviews
@@ -1562,6 +1564,13 @@ async function handler(req, context) {
 
         let canTrigger = !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil);
 
+        // Persisted blocked state: once blocked, /import/status must not keep auto-triggering the worker.
+        // The worker may only resume via a manual force_resume=1 request (or future health-check/backoff logic).
+        if (!forceResume && resumeStatus === "blocked") {
+          canTrigger = false;
+          stageBeaconValues.status_resume_blocked_persisted = nowIso();
+        }
+
         const resumeStuckQueuedMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
           ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
           : 90_000;
@@ -1776,6 +1785,28 @@ async function handler(req, context) {
               }).catch(() => null);
             }
 
+            // Persist the blocked state to the resume/control doc so polling does not keep seeing queued.
+            try {
+              const resumeDocForBlocked = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+              if (resumeDocForBlocked && typeof resumeDocForBlocked === "object") {
+                await upsertDoc(container, {
+                  ...resumeDocForBlocked,
+                  status: "blocked",
+                  resume_error: errorCode,
+                  resume_error_details: details,
+                  blocked_at: forcedAt,
+                  blocked_reason: forceDecision.reason,
+                  last_error: {
+                    code: errorCode,
+                    message: "Resume blocked by status watchdog",
+                    ...details,
+                  },
+                  lock_expires_at: null,
+                  updated_at: forcedAt,
+                }).catch(() => null);
+              }
+            } catch {}
+
             // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
             resume_needed = true;
             resume_status = "blocked";
@@ -1805,7 +1836,9 @@ async function handler(req, context) {
                 ...sessionDocForTrigger,
                 resume_worker_last_triggered_at: triggerAttemptAt,
                 resume_last_triggered_at: triggerAttemptAt,
-                resume_cycle_count: (Number(sessionDocForTrigger?.resume_cycle_count || 0) || 0) + 1,
+                // NOTE: resume_cycle_count is incremented by the resume-worker itself.
+                // This keeps "cycles" aligned with real worker runs rather than status poll trigger attempts.
+                resume_trigger_attempt_count: (Number(sessionDocForTrigger?.resume_trigger_attempt_count || 0) || 0) + 1,
                 resume_worker_last_trigger_request_id: workerRequest.request_id || null,
                 resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
                 updated_at: nowIso(),
@@ -2273,11 +2306,12 @@ async function handler(req, context) {
 
     if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
     else {
-      out.completed = out.status === "complete";
+      // "complete" status can mean the *primary* job is finished, while enrichment may still be incomplete.
+      // Only mark the overall import as completed when resume is not needed.
+      out.completed = out.status === "complete" && out.resume_needed === false;
       out.terminal_only = false;
 
       if (out.completed) {
-        out.resume_needed = false;
         out.resume = out.resume || {};
         out.resume.needed = false;
         out.resume.status = out.resume.status || "complete";
@@ -3038,6 +3072,13 @@ async function handler(req, context) {
 
         let canTrigger = !resumeStalledByGatewayAuth && (!lockUntil || Date.now() >= lockUntil);
 
+        // Persisted blocked state: once blocked, /import/status must not keep auto-triggering the worker.
+        // The worker may only resume via a manual force_resume=1 request (or future health-check/backoff logic).
+        if (!forceResume && resumeStatus === "blocked") {
+          canTrigger = false;
+          stageBeaconValues.status_resume_blocked_persisted = nowIso();
+        }
+
         const resumeStuckQueuedMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
           ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
           : 90_000;
@@ -3258,6 +3299,28 @@ async function handler(req, context) {
               }).catch(() => null);
             }
 
+            // Persist the blocked state to the resume/control doc so polling does not keep seeing queued.
+            try {
+              const resumeDocForBlocked = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+              if (resumeDocForBlocked && typeof resumeDocForBlocked === "object") {
+                await upsertDoc(container, {
+                  ...resumeDocForBlocked,
+                  status: "blocked",
+                  resume_error: errorCode,
+                  resume_error_details: details,
+                  blocked_at: forcedAt,
+                  blocked_reason: forceDecision.reason,
+                  last_error: {
+                    code: errorCode,
+                    message: "Resume blocked by status watchdog",
+                    ...details,
+                  },
+                  lock_expires_at: null,
+                  updated_at: forcedAt,
+                }).catch(() => null);
+              }
+            } catch {}
+
             // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
             resume_needed = true;
             resume_status = "blocked";
@@ -3287,7 +3350,9 @@ async function handler(req, context) {
                 ...sessionDocForTrigger,
                 resume_worker_last_triggered_at: triggerAttemptAt,
                 resume_last_triggered_at: triggerAttemptAt,
-                resume_cycle_count: (Number(sessionDocForTrigger?.resume_cycle_count || 0) || 0) + 1,
+                // NOTE: resume_cycle_count is incremented by the resume-worker itself.
+                // This keeps "cycles" aligned with real worker runs rather than status poll trigger attempts.
+                resume_trigger_attempt_count: (Number(sessionDocForTrigger?.resume_trigger_attempt_count || 0) || 0) + 1,
                 resume_worker_last_trigger_request_id: workerRequest.request_id || null,
                 resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
                 updated_at: nowIso(),

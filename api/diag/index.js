@@ -73,3 +73,206 @@ app.http("diag", {
     });
   },
 });
+
+// xAI connectivity diagnostic (same config + auth rules used by the import enrichment pipeline).
+let axios;
+try {
+  axios = require("axios");
+} catch {
+  axios = null;
+}
+
+const dns = require("dns");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../_shared");
+
+function asString(value) {
+  return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function redactUrl(rawUrl) {
+  const raw = asString(rawUrl).trim();
+  if (!raw) return "";
+  try {
+    const u = new URL(raw);
+    u.search = "";
+    u.hash = "";
+    return u.toString();
+  } catch {
+    return raw;
+  }
+}
+
+function isAzureWebsitesUrl(rawUrl) {
+  const raw = asString(rawUrl).trim();
+  if (!raw) return false;
+  try {
+    const u = new URL(raw);
+    return /\.azurewebsites\.net$/i.test(String(u.hostname || ""));
+  } catch {
+    return false;
+  }
+}
+
+function redactHeaders(headersObj) {
+  const headers = headersObj && typeof headersObj === "object" ? headersObj : {};
+  const out = {};
+  for (const [kRaw, vRaw] of Object.entries(headers)) {
+    const k = asString(kRaw).toLowerCase();
+    if (!k) continue;
+    if (k === "authorization" || k === "x-functions-key" || k === "cookie" || k === "set-cookie") {
+      out[k] = "[REDACTED]";
+      continue;
+    }
+    out[k] = Array.isArray(vRaw) ? vRaw.join(", ") : asString(vRaw);
+  }
+  return out;
+}
+
+app.http("diag-xai", {
+  route: "diag/xai",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req) => {
+    const method = String(req?.method || "").toUpperCase();
+    if (method === "OPTIONS") {
+      return {
+        status: 200,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,OPTIONS",
+          "Access-Control-Allow-Headers": "content-type,authorization,x-functions-key",
+        },
+      };
+    }
+
+    const started = Date.now();
+    const buildInfo = getBuildInfo();
+
+    const base = asString(getXAIEndpoint()).trim();
+    const key = asString(getXAIKey()).trim();
+    const model = "grok-2-latest";
+    const url = resolveXaiEndpointForModel(base, model);
+
+    const hostname = (() => {
+      try {
+        return url ? new URL(url).hostname : "";
+      } catch {
+        return "";
+      }
+    })();
+
+    const dnsResult = await (async () => {
+      if (!hostname || !dns?.promises?.lookup) {
+        return { ok: false, host: hostname || null, error: "dns_lookup_unavailable" };
+      }
+      try {
+        const r = await dns.promises.lookup(hostname);
+        return { ok: true, host: hostname, address: r?.address || null, family: r?.family || null };
+      } catch (e) {
+        return { ok: false, host: hostname, error: asString(e?.message || e) || "dns_lookup_failed" };
+      }
+    })();
+
+    if (!url || !key) {
+      return json({
+        ok: false,
+        error: "missing_xai_config",
+        dns: dnsResult,
+        resolved_upstream_url_redacted: redactUrl(url) || null,
+        has_url: Boolean(url),
+        has_key: Boolean(key),
+        elapsed_ms: Date.now() - started,
+        website_hostname: asString(process.env.WEBSITE_HOSTNAME || "") || null,
+        ...buildInfo,
+      });
+    }
+
+    const headers = {
+      "Content-Type": "application/json",
+    };
+
+    if (isAzureWebsitesUrl(url)) {
+      headers["x-functions-key"] = key;
+    } else {
+      headers.Authorization = `Bearer ${key}`;
+    }
+
+    const payload = {
+      model,
+      messages: [{ role: "user", content: "ping" }],
+      max_tokens: 1,
+      temperature: 0,
+      stream: false,
+      search_parameters: { mode: "off" },
+    };
+
+    let status = null;
+    let responseHeaders = {};
+    let bodyPreview = "";
+
+    try {
+      if (axios) {
+        const resp = await axios.post(url, payload, {
+          headers,
+          timeout: 12_000,
+          validateStatus: () => true,
+        });
+
+        status = Number(resp?.status || 0) || 0;
+        responseHeaders = redactHeaders(resp?.headers);
+
+        const dataText = (() => {
+          try {
+            if (typeof resp?.data === "string") return resp.data;
+            return JSON.stringify(resp?.data ?? {});
+          } catch {
+            return "";
+          }
+        })();
+
+        bodyPreview = dataText.slice(0, 500);
+      } else {
+        const res = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+        });
+
+        status = res.status;
+        const headersObj = {};
+        try {
+          res.headers.forEach((v, k) => {
+            headersObj[k] = v;
+          });
+        } catch {}
+
+        responseHeaders = redactHeaders(headersObj);
+        const text = await res.text().catch(() => "");
+        bodyPreview = (text || "").slice(0, 500);
+      }
+    } catch (e) {
+      return json({
+        ok: false,
+        error: "xai_request_failed",
+        message: asString(e?.message || e) || "xai_request_failed",
+        dns: dnsResult,
+        resolved_upstream_url_redacted: redactUrl(url) || null,
+        elapsed_ms: Date.now() - started,
+        website_hostname: asString(process.env.WEBSITE_HOSTNAME || "") || null,
+        ...buildInfo,
+      });
+    }
+
+    return json({
+      ok: status != null && status >= 200 && status < 300,
+      dns: dnsResult,
+      http_status: status,
+      elapsed_ms: Date.now() - started,
+      resolved_upstream_url_redacted: redactUrl(url) || null,
+      response_headers: responseHeaders,
+      response_body_preview: bodyPreview,
+      website_hostname: asString(process.env.WEBSITE_HOSTNAME || "") || null,
+      ...buildInfo,
+    });
+  },
+});

@@ -2807,8 +2807,23 @@ async function verifySavedCompaniesReadAfterWrite(saveResult) {
           partition_key: normalizedDomain,
         }).catch(() => null);
 
-        const missingFields = Array.isArray(doc?.import_missing_fields) ? doc.import_missing_fields : [];
-        const complete = Boolean(doc) && missingFields.length === 0;
+        const companyName = String(doc?.company_name || doc?.name || "").trim();
+        const websiteUrlRaw = String(doc?.website_url || doc?.url || doc?.canonical_url || "").trim();
+
+        const hasWorkingWebsite = (() => {
+          if (!websiteUrlRaw) return false;
+          const lowered = websiteUrlRaw.toLowerCase();
+          if (lowered === "unknown" || lowered === "n/a" || lowered === "na") return false;
+          try {
+            const u = websiteUrlRaw.includes("://") ? new URL(websiteUrlRaw) : new URL(`https://${websiteUrlRaw}`);
+            const host = String(u.hostname || "").toLowerCase();
+            return Boolean(host && host.includes("."));
+          } catch {
+            return false;
+          }
+        })();
+
+        const complete = Boolean(doc) && Boolean(companyName) && hasWorkingWebsite;
 
         return { companyId, ok: Boolean(doc), complete };
       })
@@ -6548,17 +6563,23 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
                 if (duplicateOfId && container) {
                   const existingMissing = Array.isArray(existingRow?.import_missing_fields) ? existingRow.import_missing_fields : [];
-                  const existingComplete = existingMissing.length === 0;
 
-                  const outcome = existingComplete
+                  // "Verified" for import-start seed-fallback means the minimum required fields exist
+                  // (name + website). Enrichment completeness is handled by resume-worker.
+                  const existingVerified = Boolean(
+                    asMeaningfulString(existingRow?.company_name || existingRow?.name || "") &&
+                      asMeaningfulString(existingRow?.website_url || existingRow?.company_url || existingRow?.url || "")
+                  );
+
+                  const outcome = existingVerified
                     ? "duplicate_detected"
                     : "duplicate_detected_unverified_missing_required_fields";
 
                   saveResult = {
-                    saved: existingComplete ? 1 : 0,
+                    saved: existingVerified ? 1 : 0,
                     skipped: 0,
                     failed: 0,
-                    saved_ids: existingComplete ? [duplicateOfId] : [],
+                    saved_ids: existingVerified ? [duplicateOfId] : [],
                     skipped_ids: [],
                     skipped_duplicates: [
                       {
@@ -6572,14 +6593,14 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       },
                     ],
                     failed_items: [],
-                    saved_company_ids_verified: existingComplete ? [duplicateOfId] : [],
-                    saved_company_ids_unverified: existingComplete ? [] : [duplicateOfId],
-                    saved_verified_count: existingComplete ? 1 : 0,
+                    saved_company_ids_verified: existingVerified ? [duplicateOfId] : [],
+                    saved_company_ids_unverified: existingVerified ? [] : [duplicateOfId],
+                    saved_verified_count: existingVerified ? 1 : 0,
                     saved_write_count: 0,
                     saved_ids_write: [],
                     duplicate_of_id: duplicateOfId,
-                    duplicate_existing_incomplete: !existingComplete,
-                    duplicate_existing_missing_fields: existingComplete ? [] : existingMissing.slice(0, 20),
+                    duplicate_existing_incomplete: !existingVerified,
+                    duplicate_existing_missing_fields: existingVerified ? [] : existingMissing.slice(0, 20),
                     save_outcome: outcome,
                   };
                 } else {
@@ -6696,28 +6717,32 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                       const existingMissing = Array.isArray(existingDoc?.import_missing_fields)
                         ? existingDoc.import_missing_fields
                         : [];
-                      const existingComplete = existingMissing.length === 0;
 
-                      if (!existingComplete) {
+                      const existingVerified = Boolean(
+                        asMeaningfulString(existingDoc?.company_name || existingDoc?.name || "") &&
+                          asMeaningfulString(existingDoc?.website_url || existingDoc?.company_url || existingDoc?.url || "")
+                      );
+
+                      if (!existingVerified) {
                         save_outcome = "duplicate_detected_unverified_missing_required_fields";
                       }
 
                       saveResult = {
                         ...saveResult,
-                        saved: existingComplete ? 1 : 0,
+                        saved: existingVerified ? 1 : 0,
                         skipped: 0,
                         failed: 0,
-                        saved_ids: existingComplete ? [duplicateOfId] : [],
+                        saved_ids: existingVerified ? [duplicateOfId] : [],
                         skipped_ids: [],
                         failed_items: [],
-                        saved_company_ids_verified: existingComplete ? [duplicateOfId] : [],
-                        saved_company_ids_unverified: existingComplete ? [] : [duplicateOfId],
-                        saved_verified_count: existingComplete ? 1 : 0,
+                        saved_company_ids_verified: existingVerified ? [duplicateOfId] : [],
+                        saved_company_ids_unverified: existingVerified ? [] : [duplicateOfId],
+                        saved_verified_count: existingVerified ? 1 : 0,
                         saved_write_count: 0,
                         saved_ids_write: [],
                         duplicate_of_id: duplicateOfId,
-                        duplicate_existing_incomplete: !existingComplete,
-                        duplicate_existing_missing_fields: existingComplete ? [] : existingMissing.slice(0, 20),
+                        duplicate_existing_incomplete: !existingVerified,
+                        duplicate_existing_missing_fields: existingVerified ? [] : existingMissing.slice(0, 20),
                       };
                     } else {
                       save_outcome = "read_after_write_failed";
@@ -9846,13 +9871,28 @@ Return ONLY the JSON array, no other text.`,
           const computeEnrichmentMissingFields = (company) => {
             const c = company && typeof company === "object" ? company : {};
 
-            // Required fields here are the ones that gate the "verified" UX.
-            // Use the centralized contract (placeholders like "Unknown" do NOT count as present).
+            // Verification spec (minimal): only company name + a working website URL.
+            // All other fields are enrichment goals and should not gate persistence/verification.
             const missing = [];
-            if (!isRealValue("industries", c.industries, c)) missing.push("industries");
-            if (!isRealValue("product_keywords", c.product_keywords, c)) missing.push("product_keywords");
-            if (!isRealValue("headquarters_location", c.headquarters_location, c)) missing.push("headquarters_location");
-            if (!isRealValue("manufacturing_locations", c.manufacturing_locations, c)) missing.push("manufacturing_locations");
+
+            const name = String(c.company_name || c.name || "").trim();
+            if (!name) missing.push("company_name");
+
+            const websiteUrlRaw = String(c.website_url || c.url || c.canonical_url || "").trim();
+            const hasWorkingWebsite = (() => {
+              if (!websiteUrlRaw) return false;
+              const lowered = websiteUrlRaw.toLowerCase();
+              if (lowered === "unknown" || lowered === "n/a" || lowered === "na") return false;
+              try {
+                const u = websiteUrlRaw.includes("://") ? new URL(websiteUrlRaw) : new URL(`https://${websiteUrlRaw}`);
+                const host = String(u.hostname || "").toLowerCase();
+                return Boolean(host && host.includes("."));
+              } catch {
+                return false;
+              }
+            })();
+
+            if (!hasWorkingWebsite) missing.push("website_url");
 
             return missing;
           };

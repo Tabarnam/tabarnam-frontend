@@ -1030,6 +1030,481 @@ test("/api/import/status reports resume_needed=false when only terminal missing 
   );
 });
 
+test("/api/import/status does not auto-trigger resume-worker when resume status is blocked (mock cosmos)", async () => {
+  const session_id = "77777777-8888-9999-0000-111111111111";
+
+  await withTempEnv(
+    {
+      ...NO_NETWORK_ENV,
+      // Force the import-status handler down the Cosmos-backed code path.
+      COSMOS_DB_ENDPOINT: "https://cosmos.fake.local",
+      COSMOS_DB_KEY: "fake_key",
+      COSMOS_DB_DATABASE: "tabarnam-db",
+      COSMOS_DB_COMPANIES_CONTAINER: "companies",
+    },
+    async () => {
+      const docsById = new Map();
+      const now = new Date().toISOString();
+
+      const companyDoc = {
+        id: "company_1",
+        session_id,
+        import_session_id: session_id,
+        normalized_domain: "example.com",
+        company_name: "Example Co",
+        website_url: "https://example.com",
+
+        industries: [],
+        industries_unknown: true,
+        product_keywords: "",
+        product_keywords_unknown: true,
+        keywords: [],
+
+        headquarters_location: "",
+        hq_unknown: true,
+        hq_unknown_reason: "not_found",
+
+        manufacturing_locations: [],
+        mfg_unknown: true,
+        mfg_unknown_reason: "not_found",
+
+        curated_reviews: [],
+        review_count: 0,
+        reviews_stage_status: "missing",
+        review_cursor: {
+          source: "xai_reviews",
+          last_offset: 0,
+          total_fetched: 0,
+          exhausted: false,
+          reviews_stage_status: "missing",
+        },
+
+        logo_stage_status: "missing",
+        logo_url: "",
+
+        import_missing_reason: {
+          industries: "not_found",
+          product_keywords: "not_found",
+          headquarters_location: "not_found",
+          manufacturing_locations: "not_found",
+          reviews: "not_found",
+          logo: "not_found",
+        },
+
+        created_at: now,
+        updated_at: now,
+      };
+
+      docsById.set(`_import_session_${session_id}`, {
+        id: `_import_session_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        status: "running",
+        stage_beacon: "save",
+        resume_needed: true,
+        request: { limit: 1 },
+        created_at: now,
+        updated_at: now,
+      });
+
+      docsById.set(`_import_accept_${session_id}`, {
+        id: `_import_accept_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        accepted: true,
+        created_at: now,
+        updated_at: now,
+      });
+
+      docsById.set(`_import_complete_${session_id}`, {
+        id: `_import_complete_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        saved: 1,
+        saved_ids: ["company_1"],
+        saved_company_ids_verified: ["company_1"],
+        saved_verified_count: 1,
+        save_outcome: "saved",
+        created_at: now,
+        updated_at: now,
+      });
+
+      docsById.set(`_import_primary_job_${session_id}`, {
+        id: `_import_primary_job_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_primary_job",
+        job_state: "complete",
+        stage_beacon: "primary_complete",
+        attempt: 1,
+        companies_count: 1,
+        companies: [companyDoc],
+        created_at: now,
+        updated_at: now,
+      });
+
+      docsById.set(`_import_resume_${session_id}`, {
+        id: `_import_resume_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        status: "blocked",
+        blocked_at: now,
+        blocked_reason: "manual_test",
+        resume_error: "resume_worker_stuck_queued_no_progress",
+        resume_error_details: {
+          blocked_at: now,
+          forced_by: "manual_test",
+        },
+        missing_by_company: {
+          company_1: ["industries", "product_keywords", "headquarters_location", "manufacturing_locations", "reviews", "logo"],
+        },
+        created_at: now,
+        updated_at: now,
+      });
+
+      docsById.set("company_1", companyDoc);
+
+      const fakeContainer = {
+        read: async () => ({
+          resource: {
+            partitionKey: {
+              paths: ["/normalized_domain"],
+            },
+          },
+        }),
+        item: (id) => ({
+          read: async () => {
+            if (docsById.has(id)) return { resource: docsById.get(id) };
+            const err = new Error("Not Found");
+            err.code = 404;
+            throw err;
+          },
+        }),
+        items: {
+          upsert: async (doc) => {
+            if (doc && doc.id) docsById.set(String(doc.id), doc);
+            return { resource: doc };
+          },
+          query: (spec) => ({
+            fetchAll: async () => {
+              const q = String(spec?.query || "");
+              if (q.includes("ARRAY_CONTAINS(@ids, c.id)")) {
+                const idsParam = spec?.parameters?.find((p) => p?.name === "@ids");
+                const ids = Array.isArray(idsParam?.value) ? idsParam.value : [];
+                const resources = ids.map((id) => docsById.get(String(id))).filter(Boolean);
+                return { resources };
+              }
+
+              return { resources: [] };
+            },
+          }),
+        },
+        database: () => fakeContainer,
+        container: () => fakeContainer,
+      };
+
+      class FakeCosmosClient {
+        constructor() {}
+        database() {
+          return {
+            container: () => fakeContainer,
+          };
+        }
+      }
+
+      const cosmosModuleId = require.resolve("@azure/cosmos");
+      const originalCosmosExports = require("@azure/cosmos");
+
+      require.cache[cosmosModuleId].exports = { ...originalCosmosExports, CosmosClient: FakeCosmosClient };
+
+      const importStatusModuleId = require.resolve("../import-status/index.js");
+      const primaryJobStoreModuleId = require.resolve("../_importPrimaryJobStore.js");
+
+      delete require.cache[importStatusModuleId];
+      delete require.cache[primaryJobStoreModuleId];
+
+      try {
+        const { _test: freshImportStatusTest } = require("../import-status/index.js");
+
+        const statusReq = makeReq({
+          url: `https://example.test/api/import/status?session_id=${encodeURIComponent(session_id)}`,
+          method: "GET",
+        });
+
+        const statusRes = await freshImportStatusTest.handler(statusReq, { log() {} });
+        const statusBody = JSON.parse(String(statusRes.body || "{}"));
+
+        assert.equal(statusRes.status, 200);
+        assert.equal(statusBody.ok, true);
+        assert.equal(statusBody.session_id, session_id);
+
+        assert.equal(statusBody.resume_needed, true);
+        assert.equal(statusBody.resume?.status, "blocked");
+        assert.equal(statusBody.stage_beacon, "enrichment_resume_blocked");
+
+        // Key behavior: do not keep auto-triggering the resume-worker once a persisted blocked state exists.
+        assert.ok(statusBody.stage_beacon_values?.status_resume_blocked_persisted);
+        assert.equal(statusBody.resume?.triggered, false);
+        assert.equal(statusBody.stage_beacon_values?.status_trigger_resume_worker, undefined);
+
+        // Sanity: resume doc remains blocked.
+        assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "blocked");
+      } finally {
+        require.cache[cosmosModuleId].exports = originalCosmosExports;
+        delete require.cache[importStatusModuleId];
+        delete require.cache[primaryJobStoreModuleId];
+      }
+    }
+  );
+});
+
+test("/api/import/status forces resume into blocked state when cycle cap reached (mock cosmos)", async () => {
+  const session_id = "88888888-9999-0000-1111-222222222222";
+
+  await withTempEnv(
+    {
+      ...NO_NETWORK_ENV,
+      // Force the import-status handler down the Cosmos-backed code path.
+      COSMOS_DB_ENDPOINT: "https://cosmos.fake.local",
+      COSMOS_DB_KEY: "fake_key",
+      COSMOS_DB_DATABASE: "tabarnam-db",
+      COSMOS_DB_COMPANIES_CONTAINER: "companies",
+      // Pin cap for determinism.
+      MAX_RESUME_CYCLES_SINGLE: "3",
+    },
+    async () => {
+      const docsById = new Map();
+      const now = new Date().toISOString();
+
+      const companyDoc = {
+        id: "company_1",
+        session_id,
+        import_session_id: session_id,
+        normalized_domain: "example.com",
+        company_name: "Example Co",
+        website_url: "https://example.com",
+
+        industries: [],
+        industries_unknown: true,
+        product_keywords: "",
+        product_keywords_unknown: true,
+        keywords: [],
+
+        headquarters_location: "",
+        hq_unknown: true,
+        hq_unknown_reason: "not_found",
+
+        manufacturing_locations: [],
+        mfg_unknown: true,
+        mfg_unknown_reason: "not_found",
+
+        curated_reviews: [],
+        review_count: 0,
+        reviews_stage_status: "missing",
+        review_cursor: {
+          source: "xai_reviews",
+          last_offset: 0,
+          total_fetched: 0,
+          exhausted: false,
+          reviews_stage_status: "missing",
+        },
+
+        logo_stage_status: "missing",
+        logo_url: "",
+
+        import_missing_reason: {
+          industries: "not_found",
+          product_keywords: "not_found",
+          headquarters_location: "not_found",
+          manufacturing_locations: "not_found",
+          reviews: "not_found",
+          logo: "not_found",
+        },
+
+        created_at: now,
+        updated_at: now,
+      };
+
+      // Critical setup: cycle_count is about to hit the cap (2 + 1 >= 3 => block).
+      docsById.set(`_import_session_${session_id}`, {
+        id: `_import_session_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        status: "running",
+        stage_beacon: "save",
+        resume_needed: true,
+        resume_cycle_count: 2,
+        request: { limit: 1 },
+        created_at: now,
+        updated_at: now,
+      });
+
+      docsById.set(`_import_accept_${session_id}`, {
+        id: `_import_accept_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        accepted: true,
+        created_at: now,
+        updated_at: now,
+      });
+
+      docsById.set(`_import_complete_${session_id}`, {
+        id: `_import_complete_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        saved: 1,
+        saved_ids: ["company_1"],
+        saved_company_ids_verified: ["company_1"],
+        saved_verified_count: 1,
+        save_outcome: "saved",
+        created_at: now,
+        updated_at: now,
+      });
+
+      docsById.set(`_import_primary_job_${session_id}`, {
+        id: `_import_primary_job_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_primary_job",
+        job_state: "complete",
+        stage_beacon: "primary_complete",
+        attempt: 1,
+        companies_count: 1,
+        companies: [companyDoc],
+        created_at: now,
+        updated_at: now,
+      });
+
+      docsById.set(`_import_resume_${session_id}`, {
+        id: `_import_resume_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        status: "queued",
+        lock_expires_at: null,
+        missing_by_company: {
+          company_1: ["industries", "product_keywords", "headquarters_location", "manufacturing_locations", "reviews", "logo"],
+        },
+        created_at: now,
+        updated_at: now,
+      });
+
+      docsById.set("company_1", companyDoc);
+
+      const fakeContainer = {
+        read: async () => ({
+          resource: {
+            partitionKey: {
+              paths: ["/normalized_domain"],
+            },
+          },
+        }),
+        item: (id) => ({
+          read: async () => {
+            if (docsById.has(id)) return { resource: docsById.get(id) };
+            const err = new Error("Not Found");
+            err.code = 404;
+            throw err;
+          },
+        }),
+        items: {
+          upsert: async (doc) => {
+            if (doc && doc.id) docsById.set(String(doc.id), doc);
+            return { resource: doc };
+          },
+          query: (spec) => ({
+            fetchAll: async () => {
+              const q = String(spec?.query || "");
+              if (q.includes("ARRAY_CONTAINS(@ids, c.id)")) {
+                const idsParam = spec?.parameters?.find((p) => p?.name === "@ids");
+                const ids = Array.isArray(idsParam?.value) ? idsParam.value : [];
+                const resources = ids.map((id) => docsById.get(String(id))).filter(Boolean);
+                return { resources };
+              }
+
+              return { resources: [] };
+            },
+          }),
+        },
+        database: () => fakeContainer,
+        container: () => fakeContainer,
+      };
+
+      class FakeCosmosClient {
+        constructor() {}
+        database() {
+          return {
+            container: () => fakeContainer,
+          };
+        }
+      }
+
+      const cosmosModuleId = require.resolve("@azure/cosmos");
+      const originalCosmosExports = require("@azure/cosmos");
+
+      require.cache[cosmosModuleId].exports = { ...originalCosmosExports, CosmosClient: FakeCosmosClient };
+
+      const importStatusModuleId = require.resolve("../import-status/index.js");
+      const primaryJobStoreModuleId = require.resolve("../_importPrimaryJobStore.js");
+
+      delete require.cache[importStatusModuleId];
+      delete require.cache[primaryJobStoreModuleId];
+
+      try {
+        const { _test: freshImportStatusTest } = require("../import-status/index.js");
+
+        const statusReq = makeReq({
+          url: `https://example.test/api/import/status?session_id=${encodeURIComponent(session_id)}`,
+          method: "GET",
+        });
+
+        const statusRes = await freshImportStatusTest.handler(statusReq, { log() {} });
+        const statusBody = JSON.parse(String(statusRes.body || "{}"));
+
+        assert.equal(statusRes.status, 200);
+        assert.equal(statusBody.ok, true);
+        assert.equal(statusBody.session_id, session_id);
+
+        assert.equal(statusBody.resume_needed, true);
+        assert.equal(statusBody.resume?.status, "blocked");
+        assert.equal(statusBody.stage_beacon, "enrichment_resume_blocked");
+
+        assert.ok(statusBody.stage_beacon_values?.status_resume_blocked);
+        assert.equal(statusBody.stage_beacon_values?.status_resume_blocked_reason, "max_cycles_pre_trigger");
+
+        assert.equal(statusBody.resume_error, "resume_worker_stuck_queued_no_progress");
+        assert.equal(statusBody.resume_error_details?.forced_by, "max_cycles_pre_trigger");
+
+        // Best-effort persistence to control docs.
+        assert.equal(docsById.get(`_import_session_${session_id}`)?.stage_beacon, "enrichment_resume_blocked");
+        assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "blocked");
+        assert.equal(docsById.get(`_import_resume_${session_id}`)?.blocked_reason, "max_cycles_pre_trigger");
+      } finally {
+        require.cache[cosmosModuleId].exports = originalCosmosExports;
+        delete require.cache[importStatusModuleId];
+        delete require.cache[primaryJobStoreModuleId];
+      }
+    }
+  );
+});
+
 test("/api/import/start buildReviewsUpstreamPayloadForImportStart uses live search mode and caps excluded websites", () => {
   assert.equal(typeof _test?.buildReviewsUpstreamPayloadForImportStart, "function");
 
@@ -1314,8 +1789,8 @@ test("/api/import/start company_url_seed_fallback persists and verifies seed com
       assert.equal(body.company_url, seedUrl);
 
       assert.equal(Number(body?.save_report?.failed ?? 0), 0);
-      assert.equal(String(body?.save_report?.save_outcome || ""), "saved_unverified_missing_required_fields");
-      assert.equal(Number(body?.saved_verified_count ?? 0), 0);
+      assert.equal(String(body?.save_report?.save_outcome || ""), "saved_verified");
+      assert.equal(Number(body?.saved_verified_count ?? 0), 1);
 
       const writeIds = Array.isArray(body?.save_report?.saved_ids_write) ? body.save_report.saved_ids_write : [];
       assert.equal(writeIds.length, 1);
@@ -1388,8 +1863,8 @@ test("/api/import/start company_url_seed_fallback duplicate_detected returns ver
       assert.equal(body1.stage_beacon, "company_url_seed_fallback");
       assert.equal(body1.company_url, seedUrl);
       assert.equal(Number(body1?.save_report?.failed ?? 0), 0);
-      assert.equal(Number(body1?.saved_verified_count ?? 0), 0);
-      assert.equal(String(body1?.save_report?.save_outcome || ""), "saved_unverified_missing_required_fields");
+      assert.equal(Number(body1?.saved_verified_count ?? 0), 1);
+      assert.equal(String(body1?.save_report?.save_outcome || ""), "saved_verified");
 
       const writeIds1 = Array.isArray(body1?.save_report?.saved_ids_write) ? body1.save_report.saved_ids_write : [];
       assert.equal(writeIds1.length, 1);
@@ -1416,12 +1891,12 @@ test("/api/import/start company_url_seed_fallback duplicate_detected returns ver
       assert.equal(body2.stage_beacon, "company_url_seed_fallback");
       assert.equal(body2.company_url, seedUrl);
       assert.equal(Number(body2?.save_report?.failed ?? 0), 0);
-      assert.equal(Number(body2?.saved_verified_count ?? 0), 0);
-      assert.equal(String(body2?.save_report?.save_outcome || ""), "duplicate_detected_unverified_missing_required_fields");
+      assert.equal(Number(body2?.saved_verified_count ?? 0), 1);
+      assert.equal(String(body2?.save_report?.save_outcome || ""), "duplicate_detected");
 
-      const unverifiedIds2 = Array.isArray(body2?.saved_company_ids_unverified) ? body2.saved_company_ids_unverified : [];
-      assert.equal(unverifiedIds2.length, 1);
-      assert.equal(String(unverifiedIds2[0] || ""), companyId);
+      const verifiedIds2 = Array.isArray(body2?.saved_company_ids_verified) ? body2.saved_company_ids_verified : [];
+      assert.equal(verifiedIds2.length, 1);
+      assert.equal(String(verifiedIds2[0] || ""), companyId);
 
       const normalizedDomain = seedHost.replace(/^www\./, "").toLowerCase();
       await container.item(companyId, normalizedDomain).delete().catch(() => null);
