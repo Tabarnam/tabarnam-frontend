@@ -234,6 +234,20 @@ function attemptsFor(doc, field) {
   return Number(doc?.import_attempts?.[field] || 0);
 }
 
+function markEnrichmentIncomplete(doc, { reason, field } = {}) {
+  if (!doc || typeof doc !== "object") return;
+
+  const existingReason = String(doc.red_flag_reason || "").trim();
+  const nextReason = `Enrichment incomplete: ${String(reason || "unknown").trim()}`;
+
+  doc.red_flag = true;
+
+  // Prefer a clear non-terminal reason when upstream is unreachable.
+  if (!existingReason || /enrichment complete/i.test(existingReason) || /enrichment pending/i.test(existingReason)) {
+    doc.red_flag_reason = field ? `${nextReason} (${field})` : nextReason;
+  }
+}
+
 function terminalizeGrokField(doc, field, terminalReason) {
   doc.import_missing_reason ||= {};
 
