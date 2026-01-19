@@ -218,6 +218,8 @@ function forceTerminalizeCompanyDocForSingle(doc) {
   d.reviews_stage_status = "exhausted";
   d.review_cursor = d.review_cursor && typeof d.review_cursor === "object" ? d.review_cursor : {};
   d.review_cursor.exhausted = true;
+  d.review_cursor.reviews_stage_status = "exhausted";
+  d.review_cursor.exhausted_at = d.review_cursor.exhausted_at || nowIso();
   d.import_missing_reason.reviews = "exhausted";
 
   // logo (do not retry forever)
