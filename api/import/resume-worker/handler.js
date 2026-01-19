@@ -246,6 +246,49 @@ function computeRetryableMissingFields(doc) {
   return (Array.isArray(baseMissing) ? baseMissing : []).filter((f) => !isTerminalMissingField(doc, f));
 }
 
+function terminalizeNonGrokField(doc, field, reason) {
+  doc.import_missing_reason ||= {};
+
+  const f = normalizeKey(field);
+
+  if (f === "industries") {
+    doc.industries = ["Unknown"];
+    doc.import_missing_reason.industries = reason;
+    return;
+  }
+
+  if (f === "tagline") {
+    doc.tagline = "Unknown";
+    doc.import_missing_reason.tagline = reason;
+    return;
+  }
+
+  if (f === "product_keywords") {
+    doc.product_keywords = "Unknown";
+    doc.import_missing_reason.product_keywords = reason;
+    return;
+  }
+
+  if (f === "logo") {
+    if (!String(doc.logo_stage_status || "").trim()) doc.logo_stage_status = "missing";
+    doc.import_missing_reason.logo = reason;
+    return;
+  }
+}
+
+function forceTerminalizeNonGrokFields(doc) {
+  const missing = Array.isArray(doc?.import_missing_fields) ? doc.import_missing_fields : computeMissingFields(doc);
+
+  for (const field of missing) {
+    const f = normalizeKey(field);
+    if (f === "industries") terminalizeNonGrokField(doc, "industries", "exhausted");
+    if (f === "tagline") terminalizeNonGrokField(doc, "tagline", "exhausted");
+    if (f === "product_keywords") terminalizeNonGrokField(doc, "product_keywords", "exhausted");
+    if (f === "logo") terminalizeNonGrokField(doc, "logo", "exhausted");
+    if (f === "reviews") terminalizeGrokField(doc, "reviews");
+  }
+}
+
 async function bestEffortPatchSessionDoc({ container, sessionId, patch }) {
   if (!container || !sessionId || !patch) return { ok: false, error: "missing_inputs" };
 
