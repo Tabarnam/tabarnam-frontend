@@ -1635,18 +1635,22 @@ async function handler(req, context) {
 
           // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
           const preTriggerCap = Boolean(singleCompanyMode && resume_needed && currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE);
+          const watchdogNoProgress = Boolean(stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress);
 
           const forceDecision = preTriggerCap
             ? { force: true, reason: "max_cycles_pre_trigger" }
-            : shouldForceTerminalizeSingle({
-                single: singleCompanyMode,
-                resume_needed,
-                resume_status: resumeStatus,
-                resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
-                resume_doc_updated_at: resumeUpdatedAtIso,
-                resume_last_triggered_at: resumeLastTriggeredAtIso,
-                resume_stuck_ms: resumeStuckQueuedMs,
-              });
+            : watchdogNoProgress && singleCompanyMode && queued
+              ? { force: true, reason: "watchdog_no_progress" }
+              : shouldForceByQueuedTimeout
+                ? { force: true, reason: "queued_timeout_no_progress" }
+                : shouldForceTerminalizeSingle({
+                    single: singleCompanyMode,
+                    resume_needed,
+                    resume_status: resumeStatus,
+                    resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
+                    resume_worker: resumeWorkerForProgress,
+                    resume_stuck_ms: resumeStuckQueuedMs,
+                  });
 
           if (forceDecision.force) {
             const forcedAt = nowIso();
@@ -3088,18 +3092,22 @@ async function handler(req, context) {
 
           // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
           const preTriggerCap = Boolean(singleCompanyMode && resume_needed && currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE);
+          const watchdogNoProgress = Boolean(stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress);
 
           const forceDecision = preTriggerCap
             ? { force: true, reason: "max_cycles_pre_trigger" }
-            : shouldForceTerminalizeSingle({
-                single: singleCompanyMode,
-                resume_needed,
-                resume_status: resumeStatus,
-                resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
-                resume_doc_updated_at: resumeUpdatedAtIso,
-                resume_last_triggered_at: resumeLastTriggeredAtIso,
-                resume_stuck_ms: resumeStuckQueuedMs,
-              });
+            : watchdogNoProgress && singleCompanyMode && queued
+              ? { force: true, reason: "watchdog_no_progress" }
+              : shouldForceByQueuedTimeout
+                ? { force: true, reason: "queued_timeout_no_progress" }
+                : shouldForceTerminalizeSingle({
+                    single: singleCompanyMode,
+                    resume_needed,
+                    resume_status: resumeStatus,
+                    resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
+                    resume_worker: resumeWorkerForProgress,
+                    resume_stuck_ms: resumeStuckQueuedMs,
+                  });
 
           if (forceDecision.force) {
             const forcedAt = nowIso();
