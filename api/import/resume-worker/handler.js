@@ -448,6 +448,15 @@ async function resumeWorkerHandler(req, context) {
     { min: 1000, max: 60000 }
   );
 
+  const forceTerminalizeSingle =
+    String(
+      body?.force_terminalize_single ||
+        body?.forceTerminalizeSingle ||
+        url.searchParams.get("force_terminalize_single") ||
+        url.searchParams.get("forceTerminalizeSingle") ||
+        ""
+    ).trim() === "1";
+
   let did_work = false;
   let did_work_reason = null;
 
