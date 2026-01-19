@@ -1933,6 +1933,7 @@ async function resumeWorkerHandler(req, context) {
   await upsertDoc(container, {
     ...resumeDoc,
     status: resumeNeeded ? (lastStartOk ? "queued" : "error") : "complete",
+    last_error: grokErrorSummary || null,
     missing_by_company,
     last_trigger_result: {
       ok: Boolean(lastStartOk),
