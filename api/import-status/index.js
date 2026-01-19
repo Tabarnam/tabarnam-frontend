@@ -181,8 +181,8 @@ function shouldForceTerminalizeSingle({
   const elapsed = Date.now() - updatedTs;
   if (elapsed < stuckMs) return { force: false, reason: null };
 
-  const lastTriggerTs = Date.parse(String(resume_last_triggered_at || "")) || 0;
-  if (!lastTriggerTs) return { force: false, reason: null };
+  const lastTriggerTs = Date.parse(String(resume_last_triggered_at || ""));
+  if (!Number.isFinite(lastTriggerTs)) return { force: false, reason: null };
 
   // Only terminalize after we have attempted at least one trigger since the resume doc was last updated.
   if (lastTriggerTs >= updatedTs - 1000) return { force: true, reason: "queued_timeout_after_trigger" };
