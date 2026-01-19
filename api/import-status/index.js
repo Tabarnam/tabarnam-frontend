@@ -266,31 +266,54 @@ function reconcileLowQualityToTerminal(doc, maxAttempts = 2) {
 }
 
 function applyTerminalOnlyCompletion(out, reason) {
+  const stamp = new Date().toISOString();
+
+  // Force canonical completion state.
   out.completed = true;
   out.terminal_only = true;
 
   out.status = "complete";
-  if (typeof out.state === "string") out.state = "complete";
+  out.state = "complete";
   if (typeof out.job_state === "string") out.job_state = "complete";
   if (typeof out.primary_job_state === "string") out.primary_job_state = "complete";
 
-  out.resume_needed = false;
-  out.resume_error = out.resume_error || null;
-  out.resume_error_details = out.resume_error_details || null;
-
   out.stage_beacon = "status_resume_terminal_only";
 
-  out.progress_error = out.progress_error || "Saved with warnings: post_save_warning";
-  out.progress_notice =
-    "Completed (terminal-only): remaining missing fields were marked Not disclosed / Exhausted.";
+  // Prevent contradictions.
+  out.resume_needed = false;
 
-  out.resume = out.resume || {};
+  out.resume = out.resume && typeof out.resume === "object" ? out.resume : {};
   out.resume.needed = false;
   out.resume.status = "complete";
   out.resume.triggered = false;
+  out.resume.trigger_error = null;
+  out.resume.trigger_error_details = null;
+
+  // Patch nested diagnostics blocks (and tolerate absence).
+  if (out.report && typeof out.report === "object") {
+    if (out.report.session && typeof out.report.session === "object") {
+      out.report.session.resume_needed = false;
+    }
+    if (out.report.resume && typeof out.report.resume === "object") {
+      out.report.resume.status = "complete";
+    }
+  }
+
+  // Ensure no later merges can reintroduce stale resume flags.
+  // (We only mutate known shapes; we do not attempt deep traversal of arbitrary debug payloads.)
+  if (out.resume_worker && typeof out.resume_worker === "object") {
+    if (typeof out.resume_worker.last_resume_needed === "boolean") out.resume_worker.last_resume_needed = false;
+  }
+
+  out.resume_error = out.resume_error || null;
+  out.resume_error_details = out.resume_error_details || null;
+
+  out.progress_error = out.progress_error || "Saved with warnings: post_save_warning";
+  out.progress_notice =
+    "Completed (terminal-only): remaining missing fields are terminal (Not disclosed / exhausted / not found).";
 
   out.stage_beacon_values = out.stage_beacon_values || {};
-  out.stage_beacon_values.status_resume_terminal_only = new Date().toISOString();
+  out.stage_beacon_values.status_resume_terminal_only = stamp;
   out.stage_beacon_values.status_resume_forced_terminalize_reason = reason;
 
   return out;
