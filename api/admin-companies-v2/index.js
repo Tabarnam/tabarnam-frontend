@@ -319,26 +319,58 @@ function normalizeCompanyForResponse(doc) {
   };
 }
 
+function hasAnyLocationDescriptor(value) {
+  const list = Array.isArray(value) ? value : value == null ? [] : [value];
+
+  for (const loc of list) {
+    if (typeof loc === "string") {
+      if (loc.trim()) return true;
+      continue;
+    }
+
+    if (isPlainObject(loc)) {
+      const formatted =
+        (typeof loc.formatted === "string" && loc.formatted.trim()) ||
+        (typeof loc.full_address === "string" && loc.full_address.trim()) ||
+        (typeof loc.address === "string" && loc.address.trim()) ||
+        (typeof loc.location === "string" && loc.location.trim());
+
+      if (formatted) return true;
+
+      const city = typeof (loc.city || loc.locality) === "string" ? String(loc.city || loc.locality).trim() : "";
+      const region = typeof (loc.state || loc.region || loc.province) === "string"
+        ? String(loc.state || loc.region || loc.province).trim()
+        : "";
+      const country = typeof loc.country === "string" ? loc.country.trim() : "";
+
+      if (city && (region || country)) return true;
+    }
+  }
+
+  return false;
+}
+
 function computeContractEnrichmentHealth(company) {
   const c = company && typeof company === "object" ? company : {};
 
   const inferredHq =
-    c.headquarters_location ??
     (Array.isArray(c.headquarters_locations) ? c.headquarters_locations[0] : c.headquarters_locations) ??
     (Array.isArray(c.headquarters) ? c.headquarters[0] : c.headquarters);
 
   const inferredMfg =
-    c.manufacturing_locations ??
-    (Array.isArray(c.manufacturing_geocodes) && c.manufacturing_geocodes.length > 0
+    Array.isArray(c.manufacturing_geocodes) && c.manufacturing_geocodes.length > 0
       ? c.manufacturing_geocodes
-      : c.manufacturing_locations);
+      : c.manufacturing_locations;
 
+  // NOTE: Using nullish coalescing (??) isn't enough here because many docs contain
+  // empty strings/arrays for these fields. Those would incorrectly override populated
+  // headquarters_locations / manufacturing_geocodes and create false-positive "HQ"/"MFG" issues.
   const contractInput = {
     ...c,
-    headquarters_location: c.headquarters_location ?? inferredHq,
-    manufacturing_locations: c.manufacturing_locations ?? inferredMfg,
-    industries: c.industries ?? c.industry ?? [],
-    product_keywords: c.product_keywords ?? "",
+    headquarters_location: hasAnyLocationDescriptor(c.headquarters_location) ? c.headquarters_location : inferredHq,
+    manufacturing_locations: hasAnyLocationDescriptor(c.manufacturing_locations) ? c.manufacturing_locations : inferredMfg,
+    industries: Array.isArray(c.industries) && c.industries.length > 0 ? c.industries : c.industry ?? [],
+    product_keywords: typeof c.product_keywords === "string" ? c.product_keywords : "",
   };
 
   return computeEnrichmentHealth(contractInput);
