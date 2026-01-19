@@ -532,6 +532,7 @@ async function fetchCompaniesByIds(container, ids) {
   const q = {
     query: `
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
+        c.normalized_domain,
         c.industries, c.product_keywords, c.keywords,
         c.headquarters_location, c.manufacturing_locations,
         c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
@@ -550,6 +551,22 @@ async function fetchCompaniesByIds(container, ids) {
     .query(q, { enableCrossPartitionQuery: true })
     .fetchAll();
 
+  const out = Array.isArray(resources) ? resources : [];
+  const byId = new Map(out.map((doc) => [String(doc?.id || ""), doc]));
+  return list.map((id) => byId.get(id)).filter(Boolean);
+}
+
+async function fetchCompaniesByIdsFull(container, ids) {
+  if (!container) return [];
+  const list = Array.isArray(ids) ? ids.map((id) => String(id || "").trim()).filter(Boolean) : [];
+  if (list.length === 0) return [];
+
+  const q = {
+    query: `SELECT * FROM c WHERE ARRAY_CONTAINS(@ids, c.id)`,
+    parameters: [{ name: "@ids", value: list }],
+  };
+
+  const { resources } = await container.items.query(q, { enableCrossPartitionQuery: true }).fetchAll();
   const out = Array.isArray(resources) ? resources : [];
   const byId = new Map(out.map((doc) => [String(doc?.id || ""), doc]));
   return list.map((id) => byId.get(id)).filter(Boolean);
@@ -1513,6 +1530,102 @@ async function handler(req, context) {
           }
         }
 
+        // Single-company deterministic termination: if we're stuck queued (or we've hit the cycle cap),
+        // force terminal-only completion instead of allowing indefinite resume_needed=true.
+        try {
+          const sessionDocId = `_import_session_${sessionId}`;
+          const sessionDocForPolicy = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+
+          const singleCompanyMode = isSingleCompanyModeFromSession({
+            sessionDoc: sessionDocForPolicy,
+            savedCount: saved,
+            itemsCount: Array.isArray(saved_companies) ? saved_companies.length : 0,
+          });
+
+          const forceDecision = shouldForceTerminalizeSingle({
+            single: singleCompanyMode,
+            resume_needed,
+            resume_status: resumeStatus,
+            resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
+            resume_doc_updated_at: currentResume?.updated_at || null,
+            resume_last_triggered_at:
+              sessionDocForPolicy?.resume_last_triggered_at || sessionDocForPolicy?.resume_worker_last_triggered_at || null,
+            resume_stuck_ms: resumeStuckQueuedMs,
+          });
+
+          if (forceDecision.force) {
+            const forcedAt = nowIso();
+            stageBeaconValues.status_resume_forced_terminalize_single = forcedAt;
+            stageBeaconValues.status_resume_forced_terminalize_reason = forceDecision.reason;
+            stageBeaconValues.status_resume_terminal_only = forcedAt;
+
+            const savedIdsForTerminalize = Array.from(
+              new Set(
+                [
+                  ...(Array.isArray(sessionDocForPolicy?.saved_company_ids_verified)
+                    ? sessionDocForPolicy.saved_company_ids_verified
+                    : []),
+                  ...(Array.isArray(sessionDocForPolicy?.saved_company_ids_unverified)
+                    ? sessionDocForPolicy.saved_company_ids_unverified
+                    : []),
+                ]
+                  .map((v) => String(v || "").trim())
+                  .filter(Boolean)
+              )
+            ).slice(0, 25);
+
+            const fallbackIds =
+              savedIdsForTerminalize.length > 0
+                ? savedIdsForTerminalize
+                : Array.isArray(saved_companies) && saved_companies[0]?.company_id
+                  ? [String(saved_companies[0].company_id).trim()]
+                  : [];
+
+            const fullDocs = fallbackIds.length > 0
+              ? await fetchCompaniesByIdsFull(container, fallbackIds).catch(() => [])
+              : [];
+
+            for (const doc of fullDocs) {
+              const next = forceTerminalizeCompanyDocForSingle(doc);
+              await upsertDoc(container, next).catch(() => null);
+            }
+
+            const resumeDocId = `_import_resume_${sessionId}`;
+            const resumeDocForWrite = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+            if (resumeDocForWrite && typeof resumeDocForWrite === "object") {
+              await upsertDoc(container, {
+                ...resumeDocForWrite,
+                status: "complete",
+                lock_expires_at: null,
+                missing_by_company: [],
+                forced_terminalized_at: forcedAt,
+                forced_terminalized_reason: forceDecision.reason,
+                updated_at: forcedAt,
+              }).catch(() => null);
+            }
+
+            if (sessionDocForPolicy && typeof sessionDocForPolicy === "object") {
+              await upsertDoc(container, {
+                ...sessionDocForPolicy,
+                resume_needed: false,
+                resume_error: null,
+                resume_error_details: null,
+                status: "complete",
+                stage_beacon: "status_resume_terminal_only",
+                resume_terminal_only: true,
+                resume_terminalized_at: forcedAt,
+                resume_terminalized_reason: forceDecision.reason,
+                updated_at: forcedAt,
+              }).catch(() => null);
+            }
+
+            resume_needed = false;
+            resumeStatus = "complete";
+            resume_status = "complete";
+            canTrigger = false;
+          }
+        } catch {}
+
         if (
           canTrigger &&
           (resumeStatus === "queued" || resumeStatus === "error" || resumeStatus === "stalled" || (forceResume && resumeStatus !== "running"))
@@ -1533,6 +1646,8 @@ async function handler(req, context) {
               await upsertDoc(container, {
                 ...sessionDocForTrigger,
                 resume_worker_last_triggered_at: triggerAttemptAt,
+                resume_last_triggered_at: triggerAttemptAt,
+                resume_cycle_count: (Number(sessionDocForTrigger?.resume_cycle_count || 0) || 0) + 1,
                 resume_worker_last_trigger_request_id: workerRequest.request_id || null,
                 resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
                 updated_at: nowIso(),
@@ -2805,6 +2920,102 @@ async function handler(req, context) {
           }
         }
 
+        // Single-company deterministic termination: if we're stuck queued (or we've hit the cycle cap),
+        // force terminal-only completion instead of allowing indefinite resume_needed=true.
+        try {
+          const sessionDocId = `_import_session_${sessionId}`;
+          const sessionDocForPolicy = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+
+          const singleCompanyMode = isSingleCompanyModeFromSession({
+            sessionDoc: sessionDocForPolicy,
+            savedCount: saved,
+            itemsCount: Array.isArray(saved_companies) ? saved_companies.length : 0,
+          });
+
+          const forceDecision = shouldForceTerminalizeSingle({
+            single: singleCompanyMode,
+            resume_needed,
+            resume_status: resumeStatus,
+            resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
+            resume_doc_updated_at: currentResume?.updated_at || null,
+            resume_last_triggered_at:
+              sessionDocForPolicy?.resume_last_triggered_at || sessionDocForPolicy?.resume_worker_last_triggered_at || null,
+            resume_stuck_ms: resumeStuckQueuedMs,
+          });
+
+          if (forceDecision.force) {
+            const forcedAt = nowIso();
+            stageBeaconValues.status_resume_forced_terminalize_single = forcedAt;
+            stageBeaconValues.status_resume_forced_terminalize_reason = forceDecision.reason;
+            stageBeaconValues.status_resume_terminal_only = forcedAt;
+
+            const savedIdsForTerminalize = Array.from(
+              new Set(
+                [
+                  ...(Array.isArray(sessionDocForPolicy?.saved_company_ids_verified)
+                    ? sessionDocForPolicy.saved_company_ids_verified
+                    : []),
+                  ...(Array.isArray(sessionDocForPolicy?.saved_company_ids_unverified)
+                    ? sessionDocForPolicy.saved_company_ids_unverified
+                    : []),
+                ]
+                  .map((v) => String(v || "").trim())
+                  .filter(Boolean)
+              )
+            ).slice(0, 25);
+
+            const fallbackIds =
+              savedIdsForTerminalize.length > 0
+                ? savedIdsForTerminalize
+                : Array.isArray(saved_companies) && saved_companies[0]?.company_id
+                  ? [String(saved_companies[0].company_id).trim()]
+                  : [];
+
+            const fullDocs = fallbackIds.length > 0
+              ? await fetchCompaniesByIdsFull(container, fallbackIds).catch(() => [])
+              : [];
+
+            for (const doc of fullDocs) {
+              const next = forceTerminalizeCompanyDocForSingle(doc);
+              await upsertDoc(container, next).catch(() => null);
+            }
+
+            const resumeDocId = `_import_resume_${sessionId}`;
+            const resumeDocForWrite = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+            if (resumeDocForWrite && typeof resumeDocForWrite === "object") {
+              await upsertDoc(container, {
+                ...resumeDocForWrite,
+                status: "complete",
+                lock_expires_at: null,
+                missing_by_company: [],
+                forced_terminalized_at: forcedAt,
+                forced_terminalized_reason: forceDecision.reason,
+                updated_at: forcedAt,
+              }).catch(() => null);
+            }
+
+            if (sessionDocForPolicy && typeof sessionDocForPolicy === "object") {
+              await upsertDoc(container, {
+                ...sessionDocForPolicy,
+                resume_needed: false,
+                resume_error: null,
+                resume_error_details: null,
+                status: "complete",
+                stage_beacon: "status_resume_terminal_only",
+                resume_terminal_only: true,
+                resume_terminalized_at: forcedAt,
+                resume_terminalized_reason: forceDecision.reason,
+                updated_at: forcedAt,
+              }).catch(() => null);
+            }
+
+            resume_needed = false;
+            resumeStatus = "complete";
+            resume_status = "complete";
+            canTrigger = false;
+          }
+        } catch {}
+
         if (
           canTrigger &&
           (resumeStatus === "queued" || resumeStatus === "error" || resumeStatus === "stalled" || (forceResume && resumeStatus !== "running"))
@@ -2825,6 +3036,8 @@ async function handler(req, context) {
               await upsertDoc(container, {
                 ...sessionDocForTrigger,
                 resume_worker_last_triggered_at: triggerAttemptAt,
+                resume_last_triggered_at: triggerAttemptAt,
+                resume_cycle_count: (Number(sessionDocForTrigger?.resume_cycle_count || 0) || 0) + 1,
                 resume_worker_last_trigger_request_id: workerRequest.request_id || null,
                 resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
                 updated_at: nowIso(),
