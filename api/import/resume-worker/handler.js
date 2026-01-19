@@ -125,16 +125,60 @@ const MAX_ATTEMPTS_KEYWORDS = envInt("MAX_ATTEMPTS_KEYWORDS", 3, { min: 1, max: 
 
 const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = envInt("NON_GROK_LOW_QUALITY_MAX_ATTEMPTS", 2, { min: 1, max: 10 });
 
+function ensureAttemptsDetail(doc, field) {
+  doc.import_attempts_detail ||= {};
+  const existing = doc.import_attempts_detail[field];
+  if (existing && typeof existing === "object" && !Array.isArray(existing)) return existing;
+  const created = { last_attempt_at: null, last_success_at: null, last_error: null, last_request_id: null };
+  doc.import_attempts_detail[field] = created;
+  return created;
+}
+
 function bumpFieldAttempt(doc, field, requestId) {
   doc.import_attempts ||= {};
   doc.import_attempts_meta ||= {};
 
   const last = doc.import_attempts_meta[field];
-  if (last === requestId) return false;
+  if (last === requestId) {
+    const meta = ensureAttemptsDetail(doc, field);
+    if (!meta.last_attempt_at) meta.last_attempt_at = nowIso();
+    if (!meta.last_request_id) meta.last_request_id = requestId || null;
+    return false;
+  }
 
   doc.import_attempts[field] = Number(doc.import_attempts[field] || 0) + 1;
   doc.import_attempts_meta[field] = requestId;
+
+  const meta = ensureAttemptsDetail(doc, field);
+  meta.last_attempt_at = nowIso();
+  meta.last_request_id = requestId || null;
+
   return true;
+}
+
+function markFieldSuccess(doc, field) {
+  const meta = ensureAttemptsDetail(doc, field);
+  meta.last_success_at = nowIso();
+  meta.last_error = null;
+}
+
+function markFieldError(doc, field, error) {
+  const meta = ensureAttemptsDetail(doc, field);
+  meta.last_error = error && typeof error === "object" ? error : { message: String(error || "error") };
+}
+
+function ensureImportWarnings(doc) {
+  if (!Array.isArray(doc.import_warnings)) doc.import_warnings = [];
+  return doc.import_warnings;
+}
+
+function addImportWarning(doc, entry) {
+  const list = ensureImportWarnings(doc);
+  const field = String(entry?.field || "").trim();
+  if (!field) return;
+  const idx = list.findIndex((w) => w && typeof w === "object" && String(w.field || "").trim() === field);
+  if (idx >= 0) list[idx] = entry;
+  else list.push(entry);
 }
 
 function attemptsFor(doc, field) {
