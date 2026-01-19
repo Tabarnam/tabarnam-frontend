@@ -304,6 +304,31 @@ function mergeCompanyDocsForSession({ existingDoc, incomingDoc, finalNormalizedD
     // ignore
   }
 
+  // Sentinel-aware merge hygiene:
+  // If the required-fields contract says a field is still retryable (non-terminal missing reason),
+  // never allow placeholder values like "Not disclosed" / "Unknown" to become the canonical field value.
+  const scrubIfRetryableMissing = (field, scrub) => {
+    const reason = deriveMissingReason(merged, field);
+    if (!reason) return;
+    if (isTerminalMissingReason(reason)) return;
+    scrub();
+  };
+
+  scrubIfRetryableMissing("headquarters_location", () => {
+    merged.headquarters_location = "";
+    merged.hq_unknown = true;
+  });
+
+  scrubIfRetryableMissing("manufacturing_locations", () => {
+    merged.manufacturing_locations = [];
+    merged.mfg_unknown = true;
+  });
+
+  scrubIfRetryableMissing("tagline", () => {
+    merged.tagline = "";
+    merged.tagline_unknown = true;
+  });
+
   return merged;
 }
 
