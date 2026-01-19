@@ -365,9 +365,11 @@ function computeContractEnrichmentHealth(company) {
   // NOTE: Using nullish coalescing (??) isn't enough here because many docs contain
   // empty strings/arrays for these fields. Those would incorrectly override populated
   // headquarters_locations / manufacturing_geocodes and create false-positive "HQ"/"MFG" issues.
+  const primaryHq = Array.isArray(c.headquarters_location) ? c.headquarters_location[0] : c.headquarters_location;
+
   const contractInput = {
     ...c,
-    headquarters_location: hasAnyLocationDescriptor(c.headquarters_location) ? c.headquarters_location : inferredHq,
+    headquarters_location: hasAnyLocationDescriptor(primaryHq) ? primaryHq : inferredHq,
     manufacturing_locations: hasAnyLocationDescriptor(c.manufacturing_locations) ? c.manufacturing_locations : inferredMfg,
     industries: Array.isArray(c.industries) && c.industries.length > 0 ? c.industries : c.industry ?? [],
     product_keywords: typeof c.product_keywords === "string" ? c.product_keywords : "",
