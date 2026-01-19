@@ -356,7 +356,34 @@ app.http("diag-xai", {
 
     const base = asString(getXAIEndpoint()).trim();
     const key = asString(getXAIKey()).trim();
-    const model = "grok-2-latest";
+
+    const configuredModel = asString(process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "").trim();
+    if (!configuredModel) {
+      const responsePayload = {
+        ok: false,
+        error: "XAI_CHAT_MODEL_MISSING",
+        attempted_model: null,
+        elapsed_ms: Date.now() - started,
+        website_hostname: asString(process.env.WEBSITE_HOSTNAME || "") || null,
+        ...buildInfo,
+      };
+
+      const persisted = await persistIfRequested({
+        kind: "xai_diag_bundle",
+        session_id,
+        ok: false,
+        error: responsePayload.error,
+        attempted_model: responsePayload.attempted_model,
+        elapsed_ms: responsePayload.elapsed_ms,
+        website_hostname: responsePayload.website_hostname,
+        build_id: buildInfo?.build_id || null,
+        at: nowIso(),
+      });
+
+      return json({ ...responsePayload, ...(persisted ? { persisted } : {}) });
+    }
+
+    const model = asString(process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest").trim();
     const url = resolveXaiEndpointForModel(base, model);
 
     const hostname = (() => {
@@ -391,6 +418,7 @@ app.http("diag-xai", {
       const payload = {
         ok: false,
         error: "missing_xai_config",
+        attempted_model: model,
         dns: dnsResult,
         resolved_upstream_url_redacted: redactUrl(url) || null,
         has_url: Boolean(url),
@@ -405,6 +433,7 @@ app.http("diag-xai", {
         session_id,
         ok: false,
         error: payload.error,
+        attempted_model: payload.attempted_model,
         dns: payload.dns,
         resolved_upstream_url_redacted: payload.resolved_upstream_url_redacted,
         elapsed_ms: payload.elapsed_ms,
@@ -483,6 +512,7 @@ app.http("diag-xai", {
       const responsePayload = {
         ok: false,
         error: "xai_request_failed",
+        attempted_model: model,
         message: asString(e?.message || e) || "xai_request_failed",
         dns: dnsResult,
         resolved_upstream_url_redacted: redactUrl(url) || null,
@@ -496,6 +526,7 @@ app.http("diag-xai", {
         session_id,
         ok: false,
         error: responsePayload.error,
+        attempted_model: responsePayload.attempted_model,
         message: responsePayload.message,
         dns: responsePayload.dns,
         resolved_upstream_url_redacted: responsePayload.resolved_upstream_url_redacted,
@@ -510,6 +541,7 @@ app.http("diag-xai", {
 
     const responsePayload = {
       ok: status != null && status >= 200 && status < 300,
+      attempted_model: model,
       dns: dnsResult,
       http_status: status,
       elapsed_ms: Date.now() - started,
@@ -524,6 +556,7 @@ app.http("diag-xai", {
       kind: "xai_diag_bundle",
       session_id,
       ok: responsePayload.ok,
+      attempted_model: responsePayload.attempted_model,
       dns: responsePayload.dns,
       http_status: responsePayload.http_status,
       resolved_upstream_url_redacted: responsePayload.resolved_upstream_url_redacted,

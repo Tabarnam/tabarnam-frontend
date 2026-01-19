@@ -33,6 +33,22 @@ function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
+function resolveChatModel(provided) {
+  const fromArg = asString(provided).trim();
+  if (fromArg) return fromArg;
+
+  return asString(process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest").trim();
+}
+
+function resolveSearchModel(provided) {
+  const fromArg = asString(provided).trim();
+  if (fromArg) return fromArg;
+
+  return asString(
+    process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest"
+  ).trim();
+}
+
 function normalizeDomain(raw) {
   const host = asString(raw).trim().toLowerCase();
   if (!host) return "";
@@ -216,7 +232,7 @@ Return:
     prompt,
     timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
     maxTokens: 300,
-    model: "grok-2-latest",
+    model: resolveSearchModel(),
     xaiUrl,
     xaiKey,
     search_parameters: { mode: "on" },
@@ -283,7 +299,7 @@ Return:
     prompt,
     timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
     maxTokens: 400,
-    model: "grok-2-latest",
+    model: resolveSearchModel(),
     xaiUrl,
     xaiKey,
     search_parameters: { mode: "on" },
@@ -315,7 +331,7 @@ async function fetchTagline({
   budgetMs = 12000,
   xaiUrl,
   xaiKey,
-  model = "grok-2-latest",
+  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest",
 } = {}) {
   const started = Date.now();
 
@@ -350,7 +366,7 @@ Return:
     prompt,
     timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
     maxTokens: 180,
-    model: asString(model).trim() || "grok-2-latest",
+    model: resolveSearchModel(model),
     xaiUrl,
     xaiKey,
     search_parameters: { mode: "on" },
@@ -376,7 +392,7 @@ async function fetchIndustries({
   budgetMs = 15000,
   xaiUrl,
   xaiKey,
-  model = "grok-2-latest",
+  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest",
 } = {}) {
   const started = Date.now();
 
@@ -411,7 +427,7 @@ Return:
     prompt,
     timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
     maxTokens: 220,
-    model: asString(model).trim() || "grok-2-latest",
+    model: resolveSearchModel(model),
     xaiUrl,
     xaiKey,
     search_parameters: { mode: "on" },
@@ -438,7 +454,7 @@ async function fetchProductKeywords({
   budgetMs = 15000,
   xaiUrl,
   xaiKey,
-  model = "grok-2-latest",
+  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest",
 } = {}) {
   const started = Date.now();
 
@@ -473,7 +489,7 @@ Return:
     prompt,
     timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
     maxTokens: 300,
-    model: asString(model).trim() || "grok-2-latest",
+    model: resolveSearchModel(model),
     xaiUrl,
     xaiKey,
     search_parameters: { mode: "on" },
