@@ -901,10 +901,16 @@ async function resumeWorkerHandler(req, context) {
         const reason = storedReason || derivedReason;
         if (reason !== "low_quality") continue;
 
-        bumpFieldAttempt(doc, field, requestId);
+        const bumped = bumpFieldAttempt(doc, field, requestId);
+        if (bumped) changed = true;
+
         if (attemptsFor(doc, field) >= NON_GROK_LOW_QUALITY_MAX_ATTEMPTS) {
           terminalizeNonGrokField(doc, field, "low_quality_terminal");
           changed = true;
+        } else {
+          doc.import_missing_reason ||= {};
+          // Keep the stored reason retryable until it converts to terminal.
+          if (!doc.import_missing_reason[field]) doc.import_missing_reason[field] = "low_quality";
         }
       }
 
