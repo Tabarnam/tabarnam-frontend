@@ -104,6 +104,44 @@ function normalizeKey(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function safeJsonStringify(value, limit = 2000) {
+  try {
+    const text = JSON.stringify(value);
+    if (typeof text !== "string") return "";
+    return text.length > limit ? text.slice(0, limit) : text;
+  } catch {
+    try {
+      const text = String(value ?? "");
+      return text.length > limit ? text.slice(0, limit) : text;
+    } catch {
+      return "";
+    }
+  }
+}
+
+function safeErrorMessage(err, limit = 500) {
+  try {
+    if (!err) return "";
+    if (typeof err === "string") return err.length > limit ? err.slice(0, limit) : err;
+
+    const msg = err?.message ?? err?.error;
+    if (typeof msg === "string" && msg.trim()) return msg.length > limit ? msg.slice(0, limit) : msg;
+    if (msg && typeof msg === "object") {
+      const text = safeJsonStringify(msg, limit);
+      return text || "[unserializable_error_message]";
+    }
+
+    if (err instanceof Error && typeof err.message === "string") {
+      return err.message.length > limit ? err.message.slice(0, limit) : err.message;
+    }
+
+    const text = safeJsonStringify(err, limit);
+    return text || "[unserializable_error]";
+  } catch {
+    return "";
+  }
+}
+
 const GROK_ONLY_FIELDS = new Set([
   "headquarters_location",
   "manufacturing_locations",
