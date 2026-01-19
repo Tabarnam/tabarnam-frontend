@@ -65,6 +65,20 @@ async function xaiLiveSearch({
   xaiKey,
   search_parameters,
 } = {}) {
+  const isNodeTestRunner =
+    (Array.isArray(process.execArgv) && process.execArgv.includes("--test")) ||
+    (Array.isArray(process.argv) && process.argv.includes("--test"));
+
+  if (isNodeTestRunner) {
+    return {
+      ok: false,
+      error: "test_mode_xai_disabled",
+      details: {
+        reason: "node_test_runner",
+        model: asString(model).trim() || "grok-2-latest",
+      },
+    };
+  }
   const resolvedBase = asString(xaiUrl).trim() || asString(getXAIEndpoint()).trim();
   const key = asString(xaiKey).trim() || asString(getXAIKey()).trim();
   const url = resolveXaiEndpointForModel(resolvedBase, model);

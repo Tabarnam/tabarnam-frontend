@@ -21,12 +21,16 @@ const {
   deriveMissingReason,
   isTerminalMissingReason,
   isTerminalMissingField,
+  isRealValue,
 } = require("../../_requiredFields");
 
 const {
   fetchCuratedReviews,
   fetchHeadquartersLocation,
   fetchManufacturingLocations,
+  fetchTagline,
+  fetchIndustries,
+  fetchProductKeywords,
 } = require("../../_grokEnrichment");
 
 const HANDLER_ID = "import-resume-worker";
@@ -106,42 +110,119 @@ const GROK_ONLY_FIELDS = new Set([
   "reviews",
 ]);
 
-const GROK_RETRYABLE_STATUSES = new Set(["deferred", "upstream_unreachable", "not_found"]);
-const GROK_MAX_ATTEMPTS = 3;
+const GROK_RETRYABLE_STATUSES = new Set(["deferred", "upstream_unreachable", "not_found", "not_disclosed_pending", "not_disclosed_candidate"]);
 
-const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = 2;
+function envInt(name, fallback, { min = 1, max = 25 } = {}) {
+  const raw = Number(process.env[name]);
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.max(min, Math.min(Math.trunc(raw), max));
+}
+
+const MAX_ATTEMPTS_REVIEWS = envInt("MAX_ATTEMPTS_REVIEWS", 3, { min: 1, max: 10 });
+const MAX_ATTEMPTS_LOCATION = envInt("MAX_ATTEMPTS_LOCATION", 3, { min: 1, max: 10 });
+const MAX_ATTEMPTS_INDUSTRIES = envInt("MAX_ATTEMPTS_INDUSTRIES", 3, { min: 1, max: 10 });
+const MAX_ATTEMPTS_TAGLINE = envInt("MAX_ATTEMPTS_TAGLINE", 3, { min: 1, max: 10 });
+const MAX_ATTEMPTS_KEYWORDS = envInt("MAX_ATTEMPTS_KEYWORDS", 3, { min: 1, max: 10 });
+
+const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = envInt("NON_GROK_LOW_QUALITY_MAX_ATTEMPTS", 2, { min: 1, max: 10 });
+
+function ensureAttemptsDetail(doc, field) {
+  doc.import_attempts_detail ||= {};
+  const existing = doc.import_attempts_detail[field];
+  if (existing && typeof existing === "object" && !Array.isArray(existing)) return existing;
+  const created = { last_attempt_at: null, last_success_at: null, last_error: null, last_request_id: null };
+  doc.import_attempts_detail[field] = created;
+  return created;
+}
 
 function bumpFieldAttempt(doc, field, requestId) {
   doc.import_attempts ||= {};
   doc.import_attempts_meta ||= {};
 
   const last = doc.import_attempts_meta[field];
-  if (last === requestId) return false;
+  if (last === requestId) {
+    const meta = ensureAttemptsDetail(doc, field);
+    if (!meta.last_attempt_at) meta.last_attempt_at = nowIso();
+    if (!meta.last_request_id) meta.last_request_id = requestId || null;
+    return false;
+  }
 
   doc.import_attempts[field] = Number(doc.import_attempts[field] || 0) + 1;
   doc.import_attempts_meta[field] = requestId;
+
+  const meta = ensureAttemptsDetail(doc, field);
+  meta.last_attempt_at = nowIso();
+  meta.last_request_id = requestId || null;
+
   return true;
+}
+
+function markFieldSuccess(doc, field) {
+  const meta = ensureAttemptsDetail(doc, field);
+  meta.last_success_at = nowIso();
+  meta.last_error = null;
+}
+
+function markFieldError(doc, field, error) {
+  const meta = ensureAttemptsDetail(doc, field);
+  meta.last_error = error && typeof error === "object" ? error : { message: String(error || "error") };
+}
+
+function ensureImportWarnings(doc) {
+  if (!Array.isArray(doc.import_warnings)) doc.import_warnings = [];
+  return doc.import_warnings;
+}
+
+function addImportWarning(doc, entry) {
+  const list = ensureImportWarnings(doc);
+  const field = String(entry?.field || "").trim();
+  if (!field) return;
+  const idx = list.findIndex((w) => w && typeof w === "object" && String(w.field || "").trim() === field);
+  if (idx >= 0) list[idx] = entry;
+  else list.push(entry);
 }
 
 function attemptsFor(doc, field) {
   return Number(doc?.import_attempts?.[field] || 0);
 }
 
-function terminalizeGrokField(doc, field) {
+function terminalizeGrokField(doc, field, terminalReason) {
   doc.import_missing_reason ||= {};
 
+  const reason = String(terminalReason || "exhausted").trim().toLowerCase();
+
   if (field === "headquarters_location") {
-    doc.headquarters_location = "Not disclosed";
+    // Only write the visible sentinel when we have exhausted attempts (or Grok repeatedly indicates not disclosed).
+    if (reason === "not_disclosed") {
+      doc.headquarters_location = "Not disclosed";
+      doc.hq_unknown = true;
+      doc.hq_unknown_reason = "not_disclosed";
+      doc.import_missing_reason.headquarters_location = "not_disclosed";
+      return;
+    }
+
+    // Exhausted due to repeated upstream failures or other terminalization.
     doc.hq_unknown = true;
-    doc.hq_unknown_reason = "not_disclosed";
-    doc.import_missing_reason.headquarters_location = "not_disclosed";
+    doc.hq_unknown_reason = "exhausted";
+    doc.import_missing_reason.headquarters_location = "exhausted";
+    if (typeof doc.headquarters_location !== "string") doc.headquarters_location = "";
+    return;
   }
 
   if (field === "manufacturing_locations") {
-    doc.manufacturing_locations = ["Not disclosed"];
+    if (reason === "not_disclosed") {
+      doc.manufacturing_locations = ["Not disclosed"];
+      doc.mfg_unknown = true;
+      doc.mfg_unknown_reason = "not_disclosed";
+      doc.import_missing_reason.manufacturing_locations = "not_disclosed";
+      return;
+    }
+
     doc.mfg_unknown = true;
-    doc.mfg_unknown_reason = "not_disclosed";
-    doc.import_missing_reason.manufacturing_locations = "not_disclosed";
+    doc.mfg_unknown_reason = "exhausted";
+    doc.import_missing_reason.manufacturing_locations = "exhausted";
+    if (!Array.isArray(doc.manufacturing_locations)) doc.manufacturing_locations = [];
+    return;
   }
 
   if (field === "reviews") {
@@ -173,17 +254,45 @@ function reconcileGrokTerminalState(doc) {
 
   const hqVal = normalizeKey(doc.headquarters_location);
   if (hqVal === "not disclosed" || hqVal === "not_disclosed") {
-    if (doc.hq_unknown !== true) {
-      doc.hq_unknown = true;
-      changed = true;
-    }
-    if (normalizeKey(doc.hq_unknown_reason) !== "not_disclosed") {
-      doc.hq_unknown_reason = "not_disclosed";
-      changed = true;
-    }
-    if (normalizeKey(doc.import_missing_reason.headquarters_location) !== "not_disclosed") {
-      doc.import_missing_reason.headquarters_location = "not_disclosed";
-      changed = true;
+    const hqReason = normalizeKey(doc.import_missing_reason.headquarters_location || doc.hq_unknown_reason || "");
+    const attempts = attemptsFor(doc, "headquarters_location");
+    const confirmedTerminal = hqReason === "not_disclosed" || attempts >= MAX_ATTEMPTS_LOCATION;
+
+    // If a placeholder sentinel was written too early, treat it as retryable and clear the visible value.
+    if (!confirmedTerminal) {
+      if (typeof doc.headquarters_location === "string" && doc.headquarters_location.trim()) {
+        doc.headquarters_location = "";
+        changed = true;
+      }
+
+      if (doc.hq_unknown !== true) {
+        doc.hq_unknown = true;
+        changed = true;
+      }
+
+      if (normalizeKey(doc.hq_unknown_reason) !== "pending_grok") {
+        doc.hq_unknown_reason = "pending_grok";
+        changed = true;
+      }
+
+      const stored = normalizeKey(doc.import_missing_reason.headquarters_location || "");
+      if (!stored || stored === "not_disclosed") {
+        doc.import_missing_reason.headquarters_location = "not_disclosed_pending";
+        changed = true;
+      }
+    } else {
+      if (doc.hq_unknown !== true) {
+        doc.hq_unknown = true;
+        changed = true;
+      }
+      if (normalizeKey(doc.hq_unknown_reason) !== "not_disclosed") {
+        doc.hq_unknown_reason = "not_disclosed";
+        changed = true;
+      }
+      if (normalizeKey(doc.import_missing_reason.headquarters_location) !== "not_disclosed") {
+        doc.import_missing_reason.headquarters_location = "not_disclosed";
+        changed = true;
+      }
     }
   }
 
@@ -204,23 +313,51 @@ function reconcileGrokTerminalState(doc) {
     .filter(Boolean);
 
   if (normalizedMfg.length > 0 && normalizedMfg.every((v) => v === "not disclosed" || v === "not_disclosed")) {
-    const existingList = Array.isArray(doc.manufacturing_locations) ? doc.manufacturing_locations : [];
-    if (!(existingList.length === 1 && normalizeKey(existingList[0]) === "not disclosed")) {
-      doc.manufacturing_locations = ["Not disclosed"];
-      changed = true;
-    }
+    const mfgReason = normalizeKey(doc.import_missing_reason.manufacturing_locations || doc.mfg_unknown_reason || "");
+    const attempts = attemptsFor(doc, "manufacturing_locations");
+    const confirmedTerminal = mfgReason === "not_disclosed" || attempts >= MAX_ATTEMPTS_LOCATION;
 
-    if (doc.mfg_unknown !== true) {
-      doc.mfg_unknown = true;
-      changed = true;
-    }
-    if (normalizeKey(doc.mfg_unknown_reason) !== "not_disclosed") {
-      doc.mfg_unknown_reason = "not_disclosed";
-      changed = true;
-    }
-    if (normalizeKey(doc.import_missing_reason.manufacturing_locations) !== "not_disclosed") {
-      doc.import_missing_reason.manufacturing_locations = "not_disclosed";
-      changed = true;
+    if (!confirmedTerminal) {
+      // Clear premature sentinel so the UI doesn't show "Not disclosed" until we've exhausted Grok attempts.
+      if (Array.isArray(doc.manufacturing_locations) && doc.manufacturing_locations.length > 0) {
+        doc.manufacturing_locations = [];
+        changed = true;
+      }
+
+      if (doc.mfg_unknown !== true) {
+        doc.mfg_unknown = true;
+        changed = true;
+      }
+
+      if (normalizeKey(doc.mfg_unknown_reason) !== "pending_grok") {
+        doc.mfg_unknown_reason = "pending_grok";
+        changed = true;
+      }
+
+      const stored = normalizeKey(doc.import_missing_reason.manufacturing_locations || "");
+      if (!stored || stored === "not_disclosed") {
+        doc.import_missing_reason.manufacturing_locations = "not_disclosed_pending";
+        changed = true;
+      }
+    } else {
+      const existingList = Array.isArray(doc.manufacturing_locations) ? doc.manufacturing_locations : [];
+      if (!(existingList.length === 1 && normalizeKey(existingList[0]) === "not disclosed")) {
+        doc.manufacturing_locations = ["Not disclosed"];
+        changed = true;
+      }
+
+      if (doc.mfg_unknown !== true) {
+        doc.mfg_unknown = true;
+        changed = true;
+      }
+      if (normalizeKey(doc.mfg_unknown_reason) !== "not_disclosed") {
+        doc.mfg_unknown_reason = "not_disclosed";
+        changed = true;
+      }
+      if (normalizeKey(doc.import_missing_reason.manufacturing_locations) !== "not_disclosed") {
+        doc.import_missing_reason.manufacturing_locations = "not_disclosed";
+        changed = true;
+      }
     }
   }
 
@@ -922,10 +1059,34 @@ async function resumeWorkerHandler(req, context) {
     }
   }
 
-  // Grok-only enrichment pass for HQ/MFG/Reviews.
+  // Grok enrichment pass for required fields.
   // This must run before import-start, and import-start must always skip reviews/location.
   const startedEnrichmentAt = Date.now();
   const perDocBudgetMs = Math.max(4000, Math.trunc(deadlineMs / Math.max(1, seedDocs.length)));
+
+  const workerErrors = [];
+
+  const safeJsonPreview = (value, limit = 1200) => {
+    if (!value) return null;
+    try {
+      const s = typeof value === "string" ? value : JSON.stringify(value);
+      return s.length > limit ? s.slice(0, limit) : s;
+    } catch {
+      return null;
+    }
+  };
+
+  const recordWorkerError = (field, stage, err, details) => {
+    const entry = {
+      field: String(field || "").trim() || null,
+      stage: String(stage || "").trim() || null,
+      at: nowIso(),
+      message: typeof err?.message === "string" ? err.message : String(err || "error"),
+      ...(details && typeof details === "object" ? details : {}),
+    };
+    workerErrors.push(entry);
+    return entry;
+  };
 
   for (const doc of seedDocs) {
     if (!doc || typeof doc !== "object") continue;
@@ -935,111 +1096,407 @@ async function resumeWorkerHandler(req, context) {
     const companyName = String(doc.company_name || doc.name || "").trim();
     const normalizedDomain = String(doc.normalized_domain || "").trim();
 
+    const grokArgs = {
+      companyName,
+      normalizedDomain,
+      budgetMs: perDocBudgetMs,
+      xaiUrl: process.env.XAI_API_URL,
+      xaiKey: process.env.XAI_API_KEY,
+    };
+
     let changed = false;
 
     if (reconcileGrokTerminalState(doc)) changed = true;
 
+    // Tagline (Grok authoritative)
+    const taglineRetryable = !isRealValue("tagline", doc.tagline, doc) && !isTerminalMissingField(doc, "tagline");
+    if (taglineRetryable) {
+      const bumped = bumpFieldAttempt(doc, "tagline", requestId);
+      if (bumped) changed = true;
+
+      let r;
+      try {
+        r = await fetchTagline(grokArgs);
+      } catch (e) {
+        const entry = recordWorkerError("tagline", "grok_tagline", e);
+        r = { tagline: "", tagline_status: "upstream_unreachable", diagnostics: entry };
+      }
+
+      const status = normalizeKey(r?.tagline_status || "");
+      if (status === "ok" && typeof r?.tagline === "string" && r.tagline.trim()) {
+        doc.tagline = r.tagline.trim();
+        doc.tagline_unknown = false;
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.tagline = "ok";
+        markFieldSuccess(doc, "tagline");
+        changed = true;
+      } else {
+        const terminal = attemptsFor(doc, "tagline") >= MAX_ATTEMPTS_TAGLINE;
+        const reason = status || "not_found";
+
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.tagline = terminal ? "not_found_terminal" : reason;
+        doc.tagline_unknown = true;
+
+        if (status === "upstream_unreachable") {
+          const entry = recordWorkerError("tagline", "grok_tagline", r?.diagnostics || r);
+          markFieldError(doc, "tagline", entry);
+          addImportWarning(doc, {
+            field: "tagline",
+            missing_reason: "upstream_unreachable",
+            stage: "grok_tagline",
+            retryable: !terminal,
+            message: "Grok tagline fetch failed",
+            error_code: "upstream_unreachable",
+            at: nowIso(),
+          });
+        }
+
+        if (terminal) {
+          terminalizeNonGrokField(doc, "tagline", "not_found_terminal");
+        }
+
+        changed = true;
+      }
+    }
+
+    // Industries (Grok authoritative)
+    if (missingNow.includes("industries")) {
+      const bumped = bumpFieldAttempt(doc, "industries", requestId);
+      if (bumped) changed = true;
+
+      let r;
+      try {
+        r = await fetchIndustries(grokArgs);
+      } catch (e) {
+        const entry = recordWorkerError("industries", "grok_industries", e);
+        r = { industries: [], industries_status: "upstream_unreachable", diagnostics: entry };
+      }
+
+      const status = normalizeKey(r?.industries_status || "");
+      const list = Array.isArray(r?.industries) ? r.industries : [];
+      const sanitized = (() => {
+        try {
+          const { sanitizeIndustries } = require("../../_requiredFields");
+          return sanitizeIndustries(list);
+        } catch {
+          return list.map((x) => String(x || "").trim()).filter(Boolean);
+        }
+      })();
+
+      if (status === "ok" && sanitized.length > 0) {
+        doc.industries = sanitized;
+        doc.industries_unknown = false;
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.industries = "ok";
+        markFieldSuccess(doc, "industries");
+        changed = true;
+      } else {
+        const hadAny = Array.isArray(list) && list.length > 0;
+        const terminal = attemptsFor(doc, "industries") >= MAX_ATTEMPTS_INDUSTRIES;
+
+        const retryReason = status === "ok" && hadAny ? "low_quality" : status || "not_found";
+        const terminalReason = retryReason === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
+
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.industries = terminal ? terminalReason : retryReason;
+
+        if (status === "upstream_unreachable") {
+          const entry = recordWorkerError("industries", "grok_industries", r?.diagnostics || r);
+          markFieldError(doc, "industries", entry);
+          addImportWarning(doc, {
+            field: "industries",
+            missing_reason: "upstream_unreachable",
+            stage: "grok_industries",
+            retryable: !terminal,
+            message: "Grok industries fetch failed",
+            error_code: "upstream_unreachable",
+            at: nowIso(),
+          });
+        }
+
+        if (terminal) {
+          terminalizeNonGrokField(doc, "industries", terminalReason);
+        }
+
+        changed = true;
+      }
+    }
+
+    // Product keywords (Grok authoritative)
+    if (missingNow.includes("product_keywords")) {
+      const bumped = bumpFieldAttempt(doc, "product_keywords", requestId);
+      if (bumped) changed = true;
+
+      let r;
+      try {
+        r = await fetchProductKeywords(grokArgs);
+      } catch (e) {
+        const entry = recordWorkerError("product_keywords", "grok_keywords", e);
+        r = { keywords: [], keywords_status: "upstream_unreachable", diagnostics: entry };
+      }
+
+      const status = normalizeKey(r?.keywords_status || "");
+      const list = Array.isArray(r?.keywords) ? r.keywords : [];
+
+      const sanitized = (() => {
+        try {
+          const { sanitizeKeywords } = require("../../_requiredFields");
+          const stats = sanitizeKeywords({ product_keywords: list.join(", "), keywords: [] });
+          return Array.isArray(stats?.sanitized) ? stats.sanitized : [];
+        } catch {
+          return list.map((x) => String(x || "").trim()).filter(Boolean);
+        }
+      })();
+
+      if (status === "ok" && sanitized.length > 0) {
+        doc.keywords = sanitized.slice(0, 25);
+        doc.product_keywords = doc.keywords.join(", ");
+        doc.keywords_source = "grok";
+        doc.product_keywords_source = "grok";
+
+        doc.product_keywords_unknown = false;
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.product_keywords = "ok";
+        markFieldSuccess(doc, "product_keywords");
+        changed = true;
+      } else {
+        const terminal = attemptsFor(doc, "product_keywords") >= MAX_ATTEMPTS_KEYWORDS;
+        const retryReason = status || "not_found";
+        const terminalReason = retryReason === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
+
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.product_keywords = terminal ? terminalReason : retryReason;
+        doc.product_keywords_unknown = true;
+
+        if (status === "upstream_unreachable") {
+          const entry = recordWorkerError("product_keywords", "grok_keywords", r?.diagnostics || r);
+          markFieldError(doc, "product_keywords", entry);
+          addImportWarning(doc, {
+            field: "product_keywords",
+            missing_reason: "upstream_unreachable",
+            stage: "grok_keywords",
+            retryable: !terminal,
+            message: "Grok product keywords fetch failed",
+            error_code: "upstream_unreachable",
+            at: nowIso(),
+          });
+        }
+
+        if (terminal) {
+          terminalizeNonGrokField(doc, "product_keywords", terminalReason);
+        }
+
+        changed = true;
+      }
+    }
+
     // HQ
     if (missingNow.includes("headquarters_location")) {
-      const r = await fetchHeadquartersLocation({
-        companyName,
-        normalizedDomain,
-        budgetMs: perDocBudgetMs,
-        xaiUrl: process.env.XAI_API_URL,
-        xaiKey: process.env.XAI_API_KEY,
-      }).catch(() => null);
+      const bumped = bumpFieldAttempt(doc, "headquarters_location", requestId);
+      if (bumped) changed = true;
+
+      let r;
+      try {
+        r = await fetchHeadquartersLocation(grokArgs);
+      } catch (e) {
+        const entry = recordWorkerError("headquarters_location", "grok_hq", e);
+        r = { headquarters_location: "", hq_status: "upstream_unreachable", diagnostics: entry };
+      }
 
       const status = normalizeKey(r?.hq_status || "");
-      if (status === "ok" && typeof r?.headquarters_location === "string" && r.headquarters_location.trim()) {
-        doc.headquarters_location = r.headquarters_location.trim();
+      const value = typeof r?.headquarters_location === "string" ? r.headquarters_location.trim() : "";
+
+      if (status === "ok" && value) {
+        doc.headquarters_location = value;
+        doc.hq_unknown = false;
+        doc.hq_unknown_reason = null;
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.headquarters_location = "ok";
+        markFieldSuccess(doc, "headquarters_location");
         changed = true;
-      } else if (GROK_RETRYABLE_STATUSES.has(status)) {
-        bumpFieldAttempt(doc, "headquarters_location", requestId);
-        if (attemptsFor(doc, "headquarters_location") >= GROK_MAX_ATTEMPTS) {
-          terminalizeGrokField(doc, "headquarters_location");
-          changed = true;
-        } else {
-          doc.import_missing_reason ||= {};
-          doc.import_missing_reason.headquarters_location = status || "not_found";
-          changed = true;
+      } else {
+        const terminal = attemptsFor(doc, "headquarters_location") >= MAX_ATTEMPTS_LOCATION;
+
+        const normalized = status === "not_disclosed" ? "not_disclosed_pending" : status || "not_found";
+
+        doc.hq_unknown = true;
+        doc.hq_unknown_reason = "pending_grok";
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.headquarters_location = terminal
+          ? (status === "upstream_unreachable" || status === "deferred" ? "exhausted" : "not_disclosed")
+          : normalized;
+
+        if (status === "upstream_unreachable") {
+          const entry = recordWorkerError("headquarters_location", "grok_hq", r?.diagnostics || r, {
+            upstream_preview: safeJsonPreview(r?.diagnostics || r),
+          });
+          markFieldError(doc, "headquarters_location", entry);
+          addImportWarning(doc, {
+            field: "headquarters_location",
+            missing_reason: "upstream_unreachable",
+            stage: "grok_hq",
+            retryable: !terminal,
+            message: "Grok HQ fetch failed",
+            error_code: "upstream_unreachable",
+            at: nowIso(),
+          });
         }
-      } else if (status === "not_disclosed") {
-        terminalizeGrokField(doc, "headquarters_location");
+
+        if (terminal) {
+          terminalizeGrokField(
+            doc,
+            "headquarters_location",
+            status === "upstream_unreachable" || status === "deferred" ? "exhausted" : "not_disclosed"
+          );
+        }
+
         changed = true;
       }
     }
 
     // MFG
     if (missingNow.includes("manufacturing_locations")) {
-      const r = await fetchManufacturingLocations({
-        companyName,
-        normalizedDomain,
-        budgetMs: perDocBudgetMs,
-        xaiUrl: process.env.XAI_API_URL,
-        xaiKey: process.env.XAI_API_KEY,
-      }).catch(() => null);
+      const bumped = bumpFieldAttempt(doc, "manufacturing_locations", requestId);
+      if (bumped) changed = true;
+
+      let r;
+      try {
+        r = await fetchManufacturingLocations(grokArgs);
+      } catch (e) {
+        const entry = recordWorkerError("manufacturing_locations", "grok_mfg", e);
+        r = { manufacturing_locations: [], mfg_status: "upstream_unreachable", diagnostics: entry };
+      }
 
       const status = normalizeKey(r?.mfg_status || "");
       const locs = Array.isArray(r?.manufacturing_locations) ? r.manufacturing_locations : [];
 
       if (status === "ok" && locs.length > 0) {
         doc.manufacturing_locations = locs;
+        doc.mfg_unknown = false;
+        doc.mfg_unknown_reason = null;
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.manufacturing_locations = "ok";
+        markFieldSuccess(doc, "manufacturing_locations");
         changed = true;
-      } else if (GROK_RETRYABLE_STATUSES.has(status)) {
-        bumpFieldAttempt(doc, "manufacturing_locations", requestId);
-        if (attemptsFor(doc, "manufacturing_locations") >= GROK_MAX_ATTEMPTS) {
-          terminalizeGrokField(doc, "manufacturing_locations");
-          changed = true;
-        } else {
-          doc.import_missing_reason ||= {};
-          doc.import_missing_reason.manufacturing_locations = status || "not_found";
-          changed = true;
+      } else {
+        const terminal = attemptsFor(doc, "manufacturing_locations") >= MAX_ATTEMPTS_LOCATION;
+
+        const normalized = status === "not_disclosed" ? "not_disclosed_pending" : status || "not_found";
+
+        doc.mfg_unknown = true;
+        doc.mfg_unknown_reason = "pending_grok";
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.manufacturing_locations = terminal
+          ? (status === "upstream_unreachable" || status === "deferred" ? "exhausted" : "not_disclosed")
+          : normalized;
+
+        if (status === "upstream_unreachable") {
+          const entry = recordWorkerError("manufacturing_locations", "grok_mfg", r?.diagnostics || r, {
+            upstream_preview: safeJsonPreview(r?.diagnostics || r),
+          });
+          markFieldError(doc, "manufacturing_locations", entry);
+          addImportWarning(doc, {
+            field: "manufacturing_locations",
+            missing_reason: "upstream_unreachable",
+            stage: "grok_mfg",
+            retryable: !terminal,
+            message: "Grok manufacturing fetch failed",
+            error_code: "upstream_unreachable",
+            at: nowIso(),
+          });
         }
-      } else if (status === "not_disclosed") {
-        terminalizeGrokField(doc, "manufacturing_locations");
+
+        if (terminal) {
+          terminalizeGrokField(
+            doc,
+            "manufacturing_locations",
+            status === "upstream_unreachable" || status === "deferred" ? "exhausted" : "not_disclosed"
+          );
+        }
+
         changed = true;
       }
     }
 
     // Reviews
     if (missingNow.includes("reviews")) {
-      const r = await fetchCuratedReviews({
-        companyName,
-        normalizedDomain,
-        budgetMs: perDocBudgetMs,
-        xaiUrl: process.env.XAI_API_URL,
-        xaiKey: process.env.XAI_API_KEY,
-      }).catch(() => null);
+      const bumped = bumpFieldAttempt(doc, "reviews", requestId);
+      if (bumped) changed = true;
+
+      let r;
+      try {
+        r = await fetchCuratedReviews(grokArgs);
+      } catch (e) {
+        const entry = recordWorkerError("reviews", "grok_reviews", e);
+        r = { curated_reviews: [], reviews_stage_status: "upstream_unreachable", diagnostics: entry };
+      }
 
       const status = normalizeKey(r?.reviews_stage_status || "");
       const curated = Array.isArray(r?.curated_reviews) ? r.curated_reviews : [];
 
+      doc.review_cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
+
       if (status === "ok" && curated.length > 0) {
-        doc.curated_reviews = curated.slice(0, 2);
-        doc.review_count = typeof doc.review_count === "number" ? doc.review_count : 0;
+        doc.curated_reviews = curated.slice(0, 10);
+
+        const counts = curated
+          .map((x) => (x && typeof x === "object" ? Number(x.review_count) : NaN))
+          .filter((n) => Number.isFinite(n) && n > 0);
+
+        const derivedCount = counts.length > 0 ? Math.max(...counts) : curated.length;
+        doc.review_count = Number.isFinite(Number(doc.review_count)) && Number(doc.review_count) > 0
+          ? Number(doc.review_count)
+          : derivedCount;
+
         doc.reviews_stage_status = "ok";
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.reviews = "ok";
+
+        doc.review_cursor.last_success_at = nowIso();
+        doc.review_cursor.last_error = null;
+
+        markFieldSuccess(doc, "reviews");
         changed = true;
-      } else if (status === "exhausted") {
-        terminalizeGrokField(doc, "reviews");
-        changed = true;
-      } else if (GROK_RETRYABLE_STATUSES.has(status)) {
-        bumpFieldAttempt(doc, "reviews", requestId);
-        if (attemptsFor(doc, "reviews") >= GROK_MAX_ATTEMPTS) {
-          // After capped retries, force terminal so the run can complete.
-          terminalizeGrokField(doc, "reviews");
-          changed = true;
-        } else {
-          doc.reviews_stage_status = status || "not_found";
-          doc.import_missing_reason ||= {};
-          doc.import_missing_reason.reviews = status || "not_found";
-          changed = true;
+      } else {
+        const terminal = attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS;
+
+        doc.reviews_stage_status = status || "not_found";
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.reviews = terminal ? "exhausted" : status || "not_found";
+
+        if (status === "upstream_unreachable") {
+          const entry = recordWorkerError("reviews", "grok_reviews", r?.diagnostics || r, {
+            upstream_preview: safeJsonPreview(r?.diagnostics || r),
+          });
+
+          markFieldError(doc, "reviews", entry);
+
+          doc.review_cursor.last_error = {
+            code: "upstream_unreachable",
+            message: entry.message,
+            at: entry.at,
+            request_id: requestId || null,
+          };
+
+          addImportWarning(doc, {
+            field: "reviews",
+            missing_reason: "upstream_unreachable",
+            stage: "grok_reviews",
+            retryable: !terminal,
+            message: "Grok reviews fetch failed",
+            error_code: "upstream_unreachable",
+            at: nowIso(),
+          });
+        } else if (status === "not_found") {
+          doc.review_cursor.last_error = null;
         }
+
+        if (terminal) {
+          terminalizeGrokField(doc, "reviews", "exhausted");
+        }
+
+        changed = true;
       }
     }
 
@@ -1520,9 +1977,21 @@ async function resumeWorkerHandler(req, context) {
   // Resume-needed is ONLY retryable based.
   const resumeNeeded = retryableMissingCount > 0;
 
+  const grokErrors = Array.isArray(workerErrors) ? workerErrors : [];
+  const grokErrorSummary = grokErrors.length
+    ? {
+        code: "grok_enrichment_error",
+        message: String(grokErrors[0]?.message || "grok enrichment error").slice(0, 240),
+        fields: Array.from(new Set(grokErrors.map((e) => e?.field).filter(Boolean))).slice(0, 20),
+        last_error: grokErrors[0],
+        errors: grokErrors.slice(0, 5),
+      }
+    : null;
+
   await upsertDoc(container, {
     ...resumeDoc,
     status: resumeNeeded ? (lastStartOk ? "queued" : "error") : "complete",
+    last_error: grokErrorSummary || null,
     missing_by_company,
     last_trigger_result: {
       ok: Boolean(lastStartOk),
@@ -1571,7 +2040,19 @@ async function resumeWorkerHandler(req, context) {
           ? String(seedDocs[0].id).trim()
           : null;
 
+    const grokErrors = Array.isArray(workerErrors) ? workerErrors : [];
+    const grokErrorSummary = grokErrors.length
+      ? {
+          code: "grok_enrichment_error",
+          message: String(grokErrors[0]?.message || "grok enrichment error").slice(0, 240),
+          fields: Array.from(new Set(grokErrors.map((e) => e?.field).filter(Boolean))).slice(0, 20),
+          last_error: grokErrors[0],
+          errors: grokErrors.slice(0, 5),
+        }
+      : null;
+
     const derivedResult = (() => {
+      if (grokErrorSummary) return resumeNeeded ? "grok_error_incomplete" : "grok_error_complete";
       if (lastStartOk) return resumeNeeded ? "ok_incomplete" : "ok_complete";
       const root = typeof lastStartJson?.root_cause === "string" && lastStartJson.root_cause.trim()
         ? lastStartJson.root_cause.trim()
@@ -1587,10 +2068,12 @@ async function resumeWorkerHandler(req, context) {
       resume_worker_last_result: derivedResult,
       resume_worker_last_ok: Boolean(lastStartOk),
       resume_worker_last_http_status: lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0),
-      resume_worker_last_error: lastStartOk
-        ? null
-        : lastStartRes?._error?.message || `import_start_http_${lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0)}`,
-      resume_worker_last_error_details: last_error_details || null,
+      resume_worker_last_error: grokErrorSummary
+        ? grokErrorSummary.code
+        : lastStartOk
+          ? null
+          : lastStartRes?._error?.message || `import_start_http_${lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0)}`,
+      resume_worker_last_error_details: grokErrorSummary ? grokErrorSummary : last_error_details || null,
       resume_worker_last_stage_beacon: lastStartJson?.stage_beacon || null,
       resume_worker_last_resume_needed: resumeNeeded,
       resume_worker_last_company_id: companyIdFromResponse,

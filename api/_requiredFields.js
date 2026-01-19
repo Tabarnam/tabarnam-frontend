@@ -35,10 +35,29 @@ const INDUSTRY_MARKETPLACE_BUCKETS = new Set([
 
 const INDUSTRY_NAV_TERMS = [
   "shop",
-  "sale",
+  "shop by",
+  "bestsellers",
+  "best sellers",
+  "featured",
   "new arrivals",
+  "new",
   "collections",
+  "collection",
+  "categories",
+  "category",
+  "accessories",
+  "bundles",
+  "bundle",
+  "kits",
+  "kit",
   "gift cards",
+  "gift card",
+  "kids",
+  "kid",
+  "children",
+  "adults",
+  "men",
+  "women",
   "customer service",
   "support",
   "contact",
@@ -70,6 +89,60 @@ const INDUSTRY_ALLOWLIST = [
   "supplements",
 ];
 
+function toTitleCase(input) {
+  const s = asString(input).trim();
+  if (!s) return "";
+  return s
+    .toLowerCase()
+    .split(/\s+/g)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+const INDUSTRY_CANONICAL_MAP = [
+  { match: ["supplement", "vitamin", "nutrition", "nutraceutical", "wellness"], canonical: "Supplements" },
+  { match: ["oral care", "dental", "tooth", "teeth", "whitening", "mouth"], canonical: "Oral Care" },
+  { match: ["skin", "skincare", "cosmetic", "beauty", "dermat"], canonical: "Skincare" },
+  { match: ["personal care", "hygiene", "groom"], canonical: "Personal Care" },
+  { match: ["household", "clean", "laundry", "disinfect", "soap", "detergent"], canonical: "Household Cleaning" },
+  { match: ["pet", "veterinary", "dog", "cat"], canonical: "Pet Care" },
+  { match: ["medical", "healthcare", "health care", "clinic", "pharma", "pharmaceutical"], canonical: "Healthcare" },
+  { match: ["apparel", "clothing", "fashion"], canonical: "Apparel" },
+  { match: ["furniture", "home decor", "homegoods", "home goods"], canonical: "Home Goods" },
+  { match: ["outdoor", "sports", "fitness"], canonical: "Sports & Fitness" },
+  { match: ["food", "beverage", "snack"], canonical: "Food & Beverage" },
+];
+
+function isPlausibleIndustryCandidate(key, raw) {
+  const k = normalizeKey(key);
+  const s = asString(raw).trim();
+  if (!k) return false;
+  if (!s) return false;
+
+  if (PLACEHOLDER_STRINGS.has(k)) return false;
+  if (SENTINEL_STRINGS.has(k)) return false;
+
+  // Avoid UI crumbs / weird tokens.
+  if (/https?:\/\//i.test(s)) return false;
+  if (/[<>|{}]/.test(s)) return false;
+
+  const words = k.split(/\s+/g).filter(Boolean);
+  if (words.length === 0 || words.length > 5) return false;
+
+  // Keep reasonable length.
+  if (k.length < 3 || k.length > 50) return false;
+
+  // Must contain letters.
+  if (!/[a-z]/i.test(k)) return false;
+
+  // Reject pure numbers / heavy digits.
+  const digitCount = (k.match(/\d/g) || []).length;
+  if (digitCount > 2) return false;
+
+  return true;
+}
+
 function sanitizeIndustries(value) {
   const raw = normalizeStringArray(value)
     .map(asMeaningfulString)
@@ -87,13 +160,24 @@ function sanitizeIndustries(value) {
     // Reject obvious navigation labels.
     if (INDUSTRY_NAV_TERMS.some((t) => key.includes(t))) continue;
 
-    // Require at least one classifier/allowlist signal.
-    const allow = INDUSTRY_ALLOWLIST.some((t) => key.includes(t));
+    // Map to a short, controlled vocabulary when possible.
+    const mapped = INDUSTRY_CANONICAL_MAP.find((m) => m.match.some((tok) => key.includes(normalizeKey(tok))));
+    const candidate = mapped ? mapped.canonical : toTitleCase(item);
+
+    // As a fallback, accept values that match the allowlist keywords OR are plausible "industry-like" terms.
+    const allow =
+      Boolean(mapped) ||
+      INDUSTRY_ALLOWLIST.some((t) => key.includes(normalizeKey(t))) ||
+      isPlausibleIndustryCandidate(key, item);
+
     if (!allow) continue;
 
-    if (seen.has(key)) continue;
-    seen.add(key);
-    valid.push(item);
+    const candidateKey = normalizeKey(candidate);
+    if (!candidateKey) continue;
+    if (seen.has(candidateKey)) continue;
+
+    seen.add(candidateKey);
+    valid.push(candidate);
   }
 
   return valid;
@@ -354,12 +438,19 @@ function isRealValue(field, value, doc) {
       keywords: doc?.keywords,
     });
 
-    // Quality gate:
+    const source = normalizeKey(doc?.product_keywords_source || doc?.keywords_source || "");
+
+    // Default quality gate (website/XAI extraction can be noisy).
     // - must have at least 20 total raw keywords
     // - must have at least 10 product-relevant keywords after sanitization
-    if (stats.total_raw < 20) return false;
-    if (stats.product_relevant_count < 10) return false;
+    if (source !== "grok") {
+      if (stats.total_raw < 20) return false;
+      if (stats.product_relevant_count < 10) return false;
+      return true;
+    }
 
+    // Grok-sourced keywords tend to be shorter but higher quality.
+    if (stats.product_relevant_count < 8) return false;
     return true;
   }
 
@@ -490,34 +581,25 @@ function deriveMissingReason(doc, field) {
   const d = doc && typeof doc === "object" ? doc : {};
   const f = String(field || "").trim();
 
-  // IMPORTANT: terminal sentinel values MUST override any stale stored reasons.
-  // This is required to prevent resume-needed from staying true forever when we already
-  // concluded a field is terminal (e.g. "Not disclosed" or reviews exhausted).
+  // IMPORTANT: "Not disclosed" should only be treated as terminal when it is explicitly confirmed.
+  // Otherwise, it can be a premature placeholder that would incorrectly stop Grok retries.
   if (f === "headquarters_location") {
-    const val = normalizeKey(d.headquarters_location);
-    if (val === "not disclosed" || val === "not_disclosed") return "not_disclosed";
+    const reason =
+      normalizeKey(d?.import_missing_reason?.headquarters_location) ||
+      normalizeKey(d?.hq_unknown_reason) ||
+      "";
+
+    if (reason === "not_disclosed") return "not_disclosed";
   }
 
   if (f === "manufacturing_locations") {
-    const rawList = Array.isArray(d.manufacturing_locations)
-      ? d.manufacturing_locations
-      : d.manufacturing_locations == null
-        ? []
-        : [d.manufacturing_locations];
+    const reason =
+      normalizeKey(d?.import_missing_reason?.manufacturing_locations) ||
+      normalizeKey(d?.mfg_unknown_reason) ||
+      normalizeKey(d?.manufacturing_locations_reason) ||
+      "";
 
-    const normalized = rawList
-      .map((loc) => {
-        if (typeof loc === "string") return normalizeKey(loc);
-        if (loc && typeof loc === "object") {
-          return normalizeKey(loc.formatted || loc.full_address || loc.address || loc.location);
-        }
-        return "";
-      })
-      .filter(Boolean);
-
-    if (normalized.length > 0 && normalized.every((v) => v === "not disclosed" || v === "not_disclosed")) {
-      return "not_disclosed";
-    }
+    if (reason === "not_disclosed") return "not_disclosed";
   }
 
   if (f === "reviews") {
