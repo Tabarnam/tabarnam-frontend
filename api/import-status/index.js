@@ -3779,8 +3779,7 @@ async function handler(req, context) {
     }
 
     if (effectiveCompleted) {
-      return jsonWithSessionId(
-        {
+      const out = {
           ok: true,
           session_id: sessionId,
           status: "complete",
@@ -3899,10 +3898,19 @@ async function handler(req, context) {
         enrichment_health_summary,
           lastCreatedAt,
           report,
-        },
-        200,
-        req
-      );
+        };
+
+      const terminalOnlyReason =
+        stageBeaconValues.status_resume_forced_terminalize_reason ||
+        (resumeMissingAnalysis?.terminal_only ? "terminal_only_missing" : null);
+
+      if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
+      else {
+        out.completed = true;
+        out.terminal_only = false;
+      }
+
+      return jsonWithSessionId(out, 200, req);
     }
 
     return jsonWithSessionId(
