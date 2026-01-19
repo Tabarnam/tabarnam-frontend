@@ -1,4 +1,10 @@
-const { asMeaningfulString, isMeaningfulString, isRealValue } = require("./_requiredFields");
+const {
+  asMeaningfulString,
+  isMeaningfulString,
+  isRealValue,
+  deriveMissingReason,
+  isTerminalMissingReason,
+} = require("./_requiredFields");
 
 function looksLikeTaglineInsteadOfName(value) {
   const s = asMeaningfulString(value);
@@ -112,6 +118,14 @@ function mergeCompanyDocsForSession({ existingDoc, incomingDoc, finalNormalizedD
   if (!isMeaningfulString(merged.tagline) && looksLikeTaglineInsteadOfName(incomingDoc.company_name)) {
     merged.tagline = asMeaningfulString(incomingDoc.company_name) || merged.tagline;
   }
+
+  const mergedTaglineHasValue = Boolean(asMeaningfulString(merged.tagline));
+  merged.tagline_unknown = mergedTaglineHasValue
+    ? false
+    : Boolean(existingDoc.tagline_unknown) || Boolean(incomingDoc.tagline_unknown);
+  merged.tagline_unknown_reason = mergedTaglineHasValue
+    ? ""
+    : preferString(incomingDoc.tagline_unknown_reason, existingDoc.tagline_unknown_reason);
 
   merged.logo_url = preferString(incomingDoc.logo_url, existingDoc.logo_url) || null;
   merged.logo_source_url = preferString(incomingDoc.logo_source_url, existingDoc.logo_source_url) || null;
