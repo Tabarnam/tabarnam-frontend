@@ -215,7 +215,7 @@ async function persistXaiDiagBundle({ sessionId, bundle }) {
     out.writes.session.error = asString(e?.message || e) || "write_failed";
   }
 
-  // 2) Resume/control doc (best-effort; create if absent so /import/status sees status="blocked" correctly when we mark it later)
+  // 2) Resume/control doc (best-effort; only patch if it already exists)
   try {
     const existingResume = await readControlDoc(container, resumeDocId, sid).catch(() => null);
     if (!existingResume) {
