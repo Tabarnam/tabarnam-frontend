@@ -887,6 +887,23 @@ async function resumeWorkerHandler(req, context) {
     resumeDoc.attempt = attempt + 1;
   }
 
+  // Retry accounting invariant:
+  // - resume_cycle_count tracks actual resume-worker invocations (not /import/status trigger attempts).
+  try {
+    const cycleSessionDoc = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+    if (cycleSessionDoc && typeof cycleSessionDoc === "object") {
+      const nextCycleCount = (Number(cycleSessionDoc.resume_cycle_count || 0) || 0) + 1;
+      const patched = {
+        ...cycleSessionDoc,
+        resume_cycle_count: nextCycleCount,
+        resume_last_triggered_at: invokedAt,
+        updated_at: nowIso(),
+      };
+      await upsertDoc(container, patched).catch(() => null);
+      sessionDoc = patched;
+    }
+  } catch {}
+
   const requestId =
     String(req?.headers?.get?.("x-request-id") || req?.headers?.get?.("x-client-request-id") || "").trim() ||
     String(resumeDoc?.last_invoked_at || handler_entered_at);
