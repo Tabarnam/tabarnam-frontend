@@ -27,6 +27,10 @@ const { getBuildInfo } = require("../_buildInfo");
 
 const HANDLER_ID = "import-status";
 
+const MAX_RESUME_CYCLES_SINGLE = Number.isFinite(Number(process.env.MAX_RESUME_CYCLES_SINGLE))
+  ? Math.max(1, Math.trunc(Number(process.env.MAX_RESUME_CYCLES_SINGLE)))
+  : 3;
+
 const BUILD_INFO = (() => {
   try {
     return getBuildInfo();
@@ -113,6 +117,114 @@ function json(obj, status = 200, req, extraHeaders) {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function normalizeKey(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function isSingleCompanyModeFromSession({ sessionDoc, savedCount, itemsCount }) {
+  const limit = Number(sessionDoc?.request?.limit ?? sessionDoc?.request?.Limit ?? 0);
+  if (Number.isFinite(limit) && limit === 1) return true;
+
+  const companiesCount = Number(savedCount || 0) || 0;
+  if (companiesCount === 1) return true;
+
+  const itemCount = Number(itemsCount || 0) || 0;
+  if (itemCount === 1) return true;
+
+  return false;
+}
+
+function shouldForceTerminalizeSingle({
+  single,
+  resume_needed,
+  resume_status,
+  resume_cycle_count,
+  resume_doc_updated_at,
+  resume_last_triggered_at,
+  resume_stuck_ms,
+}) {
+  if (!single) return { force: false, reason: null };
+  if (!resume_needed) return { force: false, reason: null };
+
+  const cycles = Number(resume_cycle_count || 0) || 0;
+  if (cycles >= MAX_RESUME_CYCLES_SINGLE) return { force: true, reason: "max_cycles" };
+
+  const status = String(resume_status || "").trim();
+  if (status !== "queued") return { force: false, reason: null };
+
+  const updatedTs = Date.parse(String(resume_doc_updated_at || "")) || 0;
+  if (!updatedTs) return { force: false, reason: null };
+
+  const stuckMs = Number(resume_stuck_ms || 0) || 0;
+  if (!stuckMs) return { force: false, reason: null };
+
+  const elapsed = Date.now() - updatedTs;
+  if (elapsed < stuckMs) return { force: false, reason: null };
+
+  const lastTriggerTs = Date.parse(String(resume_last_triggered_at || "")) || 0;
+  if (!lastTriggerTs) return { force: false, reason: null };
+
+  // Only terminalize after we have attempted at least one trigger since the resume doc was last updated.
+  if (lastTriggerTs >= updatedTs - 1000) return { force: true, reason: "queued_timeout_after_trigger" };
+
+  return { force: false, reason: null };
+}
+
+function forceTerminalizeCompanyDocForSingle(doc) {
+  const d = doc && typeof doc === "object" ? { ...doc } : {};
+  d.import_missing_reason ||= {};
+
+  const missing = Array.isArray(computeEnrichmentHealthContract(d)?.missing_fields)
+    ? computeEnrichmentHealthContract(d).missing_fields
+    : [];
+
+  const missingSet = new Set(missing);
+
+  if (missingSet.has("industries")) {
+    d.industries = ["Unknown"];
+    d.import_missing_reason.industries = "exhausted";
+  }
+
+  if (missingSet.has("product_keywords")) {
+    d.product_keywords = "Unknown";
+    d.import_missing_reason.product_keywords = "exhausted";
+  }
+
+  // Tagline isn't part of the required-fields missing set, but make it deterministic anyway.
+  if (!String(d.tagline || "").trim() || normalizeKey(d.tagline) === "unknown") {
+    d.tagline = "Unknown";
+    d.import_missing_reason.tagline = d.import_missing_reason.tagline || "exhausted";
+  }
+
+  if (missingSet.has("logo")) {
+    if (!String(d.logo_stage_status || "").trim()) d.logo_stage_status = "missing";
+    d.import_missing_reason.logo = "exhausted";
+  }
+
+  if (missingSet.has("reviews")) {
+    d.curated_reviews = [];
+    d.review_count = typeof d.review_count === "number" ? d.review_count : 0;
+    d.reviews_stage_status = "exhausted";
+    const cursor = d.review_cursor && typeof d.review_cursor === "object" ? { ...d.review_cursor } : {};
+    d.review_cursor = {
+      ...cursor,
+      exhausted: true,
+      reviews_stage_status: "exhausted",
+      exhausted_at: cursor.exhausted_at || nowIso(),
+    };
+    d.import_missing_reason.reviews = "exhausted";
+  }
+
+  // Keep required-fields meta consistent.
+  try {
+    const recomputed = computeEnrichmentHealthContract(d);
+    if (recomputed && Array.isArray(recomputed.missing_fields)) d.import_missing_fields = recomputed.missing_fields;
+  } catch {}
+
+  d.updated_at = nowIso();
+  return d;
 }
 
 function normalizeDomain(raw) {
