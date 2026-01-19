@@ -1676,6 +1676,13 @@ async function handler(req, context) {
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
               last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || null,
+              last_trigger_ok:
+                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean" ? sessionDoc.resume_worker_last_trigger_ok : null,
+              last_trigger_http_status:
+                typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
+                  ? sessionDoc.resume_worker_last_trigger_http_status
+                  : null,
               last_gateway_key_attached:
                 typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
                   ? sessionDoc.resume_worker_last_gateway_key_attached
@@ -2835,6 +2842,13 @@ async function handler(req, context) {
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
               last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || null,
+              last_trigger_ok:
+                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean" ? sessionDoc.resume_worker_last_trigger_ok : null,
+              last_trigger_http_status:
+                typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
+                  ? sessionDoc.resume_worker_last_trigger_http_status
+                  : null,
               last_gateway_key_attached:
                 typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
                   ? sessionDoc.resume_worker_last_gateway_key_attached
@@ -2965,6 +2979,13 @@ async function handler(req, context) {
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
               last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || null,
+              last_trigger_ok:
+                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean" ? sessionDoc.resume_worker_last_trigger_ok : null,
+              last_trigger_http_status:
+                typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
+                  ? sessionDoc.resume_worker_last_trigger_http_status
+                  : null,
               last_gateway_key_attached:
                 typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
                   ? sessionDoc.resume_worker_last_gateway_key_attached
@@ -3068,6 +3089,13 @@ async function handler(req, context) {
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
               last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || null,
+              last_trigger_ok:
+                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean" ? sessionDoc.resume_worker_last_trigger_ok : null,
+              last_trigger_http_status:
+                typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
+                  ? sessionDoc.resume_worker_last_trigger_http_status
+                  : null,
               last_gateway_key_attached:
                 typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
                   ? sessionDoc.resume_worker_last_gateway_key_attached
@@ -3157,6 +3185,13 @@ async function handler(req, context) {
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
               last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || null,
+              last_trigger_ok:
+                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean" ? sessionDoc.resume_worker_last_trigger_ok : null,
+              last_trigger_http_status:
+                typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
+                  ? sessionDoc.resume_worker_last_trigger_http_status
+                  : null,
               last_gateway_key_attached:
                 typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
                   ? sessionDoc.resume_worker_last_gateway_key_attached
