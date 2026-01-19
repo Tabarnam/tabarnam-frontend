@@ -2056,6 +2056,11 @@ async function handler(req, context) {
               ? Number(sessionDoc?.resume_cycle_count || 0) || 0
               : null,
           max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          last_triggered_at:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+              : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -3478,6 +3483,11 @@ async function handler(req, context) {
               ? Number(sessionDoc?.resume_cycle_count || 0) || 0
               : null,
           max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          last_triggered_at:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+              : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -3739,6 +3749,11 @@ async function handler(req, context) {
               ? Number(sessionDoc?.resume_cycle_count || 0) || 0
               : null,
           max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          last_triggered_at:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+              : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -3849,6 +3864,11 @@ async function handler(req, context) {
               ? Number(sessionDoc?.resume_cycle_count || 0) || 0
               : null,
           max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          last_triggered_at:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+              : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
