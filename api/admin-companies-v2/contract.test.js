@@ -314,6 +314,77 @@ test("xadmin-api-companies: contract issues do not flag HQ/MFG when locations ex
   assert.ok(!missing.includes("manufacturing_locations"));
 });
 
+test("xadmin-api-companies: contract issues ignore stale hq_unknown/mfg_unknown flags when locations are present", async () => {
+  const container = makeMemoryContainer();
+
+  const marker = "company_hq_mfg_unknown_flags_ok_contract";
+  const companyId = `company_${marker}`;
+
+  const createRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "POST",
+      url: "https://example.test/api/xadmin-api-companies",
+      json: async () => ({
+        id: companyId,
+        company_id: companyId,
+        company_name: `Contract ${marker}`,
+        name: `Contract ${marker}`,
+        website_url: "https://example.com",
+        logo_url: "https://example.com/logo.png",
+        review_count: 1,
+
+        // Stale flags (can linger from earlier enrichment passes)
+        hq_unknown: true,
+        mfg_unknown: true,
+
+        // Placeholders that should not override real data.
+        headquarters_location: "Unknown",
+        manufacturing_locations: "Unknown",
+
+        headquarters_locations: [{ formatted: "Lancaster, NH, USA", lat: 44.487237, lng: -71.56961 }],
+        manufacturing_geocodes: [{ formatted: "White Mountains, NH, USA", lat: 44.16438, lng: -71.43255 }],
+
+        industries: ["Oral Care"],
+        product_keywords_source: "grok",
+        product_keywords: [
+          "toothbrush",
+          "toothpaste",
+          "dental floss",
+          "mouthwash",
+          "whitening strips",
+          "electric toothbrush",
+          "fluoride",
+          "enamel care",
+        ],
+      }),
+    }),
+    { log() {} },
+    { container }
+  );
+
+  assert.equal(createRes.status, 200);
+
+  const searchRes = await _test.adminCompaniesHandler(
+    makeReq({
+      method: "GET",
+      url: `https://example.test/api/xadmin-api-companies?q=${encodeURIComponent(marker)}`,
+      query: { q: marker },
+    }),
+    { log() {} },
+    { container }
+  );
+
+  assert.equal(searchRes.status, 200);
+  const body = parseJson(searchRes);
+  const items = Array.isArray(body.items) ? body.items : [];
+  const item = items.find((it) => it && (it.id === companyId || it.company_id === companyId));
+  assert.ok(item);
+
+  const missing = Array.isArray(item.enrichment_health?.missing_fields) ? item.enrichment_health.missing_fields : [];
+  assert.ok(!missing.includes("headquarters_location"));
+  assert.ok(!missing.includes("manufacturing_locations"));
+});
+
 test("xadmin-api-companies: contract issues do not flag keywords when product_keywords is stored as an array", async () => {
   const container = makeMemoryContainer();
 
