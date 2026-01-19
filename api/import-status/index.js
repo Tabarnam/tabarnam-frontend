@@ -2678,6 +2678,37 @@ async function handler(req, context) {
     let saved = persistedCount;
 
     let savedDocs = persistedIds.length > 0 ? await fetchCompaniesByIds(container, persistedIds).catch(() => []) : [];
+
+    const lowQualityMaxAttempts = Number.isFinite(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS))
+      ? Math.max(1, Math.trunc(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS)))
+      : 2;
+
+    let reconciledLowQualityCount = 0;
+    for (const doc of Array.isArray(savedDocs) ? savedDocs : []) {
+      if (reconcileLowQualityToTerminal(doc, lowQualityMaxAttempts)) {
+        reconciledLowQualityCount += 1;
+      }
+    }
+
+    if (reconciledLowQualityCount > 0) {
+      stageBeaconValues.status_reconciled_low_quality_terminal = nowIso();
+      stageBeaconValues.status_reconciled_low_quality_terminal_count = reconciledLowQualityCount;
+
+      const singleCompanyMode = isSingleCompanyModeFromSession({
+        sessionDoc,
+        savedCount: saved,
+        itemsCount: savedDocs.length,
+      });
+
+      if (singleCompanyMode) {
+        for (const doc of Array.isArray(savedDocs) ? savedDocs : []) {
+          try {
+            await upsertDoc(container, { ...doc, updated_at: nowIso() });
+          } catch {}
+        }
+      }
+    }
+
     let saved_companies = savedDocs.length > 0 ? toSavedCompanies(savedDocs) : [];
     let completionReason = typeof completionDoc?.reason === "string" ? completionDoc.reason : null;
 
