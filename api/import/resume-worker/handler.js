@@ -27,6 +27,9 @@ const {
   fetchCuratedReviews,
   fetchHeadquartersLocation,
   fetchManufacturingLocations,
+  fetchTagline,
+  fetchIndustries,
+  fetchProductKeywords,
 } = require("../../_grokEnrichment");
 
 const HANDLER_ID = "import-resume-worker";
@@ -106,10 +109,21 @@ const GROK_ONLY_FIELDS = new Set([
   "reviews",
 ]);
 
-const GROK_RETRYABLE_STATUSES = new Set(["deferred", "upstream_unreachable", "not_found"]);
-const GROK_MAX_ATTEMPTS = 3;
+const GROK_RETRYABLE_STATUSES = new Set(["deferred", "upstream_unreachable", "not_found", "not_disclosed_pending", "not_disclosed_candidate"]);
 
-const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = 2;
+function envInt(name, fallback, { min = 1, max = 25 } = {}) {
+  const raw = Number(process.env[name]);
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.max(min, Math.min(Math.trunc(raw), max));
+}
+
+const MAX_ATTEMPTS_REVIEWS = envInt("MAX_ATTEMPTS_REVIEWS", 3, { min: 1, max: 10 });
+const MAX_ATTEMPTS_LOCATION = envInt("MAX_ATTEMPTS_LOCATION", 3, { min: 1, max: 10 });
+const MAX_ATTEMPTS_INDUSTRIES = envInt("MAX_ATTEMPTS_INDUSTRIES", 3, { min: 1, max: 10 });
+const MAX_ATTEMPTS_TAGLINE = envInt("MAX_ATTEMPTS_TAGLINE", 3, { min: 1, max: 10 });
+const MAX_ATTEMPTS_KEYWORDS = envInt("MAX_ATTEMPTS_KEYWORDS", 3, { min: 1, max: 10 });
+
+const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = envInt("NON_GROK_LOW_QUALITY_MAX_ATTEMPTS", 2, { min: 1, max: 10 });
 
 function bumpFieldAttempt(doc, field, requestId) {
   doc.import_attempts ||= {};
