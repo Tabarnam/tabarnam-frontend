@@ -417,6 +417,8 @@ async function resumeWorkerHandler(req, context) {
     }
   } catch {}
 
+  const handler_entered_at = nowIso();
+
   const sessionId = String(body?.session_id || body?.sessionId || url.searchParams.get("session_id") || "").trim();
 
   const batchLimit = parseBoundedInt(
@@ -431,11 +433,33 @@ async function resumeWorkerHandler(req, context) {
     { min: 1000, max: 60000 }
   );
 
-  if (!sessionId) return json({ ok: false, error: "Missing session_id" }, 200, req);
+  let did_work = false;
+  let did_work_reason = null;
+
+  if (!sessionId) {
+    return json(
+      {
+        ok: false,
+        session_id: null,
+        handler_entered_at,
+        did_work,
+        did_work_reason: "missing_session_id",
+        error: "Missing session_id",
+      },
+      200,
+      req
+    );
+  }
 
   // Deterministic diagnosis marker: if this never updates, the request never reached the handler
   // (e.g. rejected at gateway/host key layer).
-  const enteredAt = nowIso();
+  try {
+    console.log(`[${HANDLER_ID}] handler_entered`, {
+      session_id: sessionId,
+      entered_at: handler_entered_at,
+      build_id: String(BUILD_INFO.build_id || ""),
+    });
+  } catch {}
   try {
     console.log(`[${HANDLER_ID}] handler_entered`, {
       session_id: sessionId,
@@ -460,7 +484,7 @@ async function resumeWorkerHandler(req, context) {
           container: cosmosContainer,
           sessionId,
           patch: {
-            resume_worker_handler_entered_at: enteredAt,
+            resume_worker_handler_entered_at: handler_entered_at,
             resume_worker_handler_entered_build_id: String(BUILD_INFO.build_id || ""),
           },
         });
@@ -497,6 +521,9 @@ async function resumeWorkerHandler(req, context) {
       {
         ok: false,
         session_id: sessionId,
+        handler_entered_at,
+        did_work,
+        did_work_reason: "unauthorized",
         error: "Unauthorized",
         auth: authDecision,
       },
@@ -506,7 +533,19 @@ async function resumeWorkerHandler(req, context) {
   }
 
   if (!cosmosEnabled) {
-    return json({ ok: false, session_id: sessionId, root_cause: "no_cosmos", retryable: false }, 200, req);
+    return json(
+      {
+        ok: false,
+        session_id: sessionId,
+        handler_entered_at,
+        did_work,
+        did_work_reason: "no_cosmos",
+        root_cause: "no_cosmos",
+        retryable: false,
+      },
+      200,
+      req
+    );
   }
 
   const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
@@ -519,6 +558,9 @@ async function resumeWorkerHandler(req, context) {
       {
         ok: false,
         session_id: sessionId,
+        handler_entered_at,
+        did_work,
+        did_work_reason: "cosmos_not_configured",
         root_cause: "cosmos_not_configured",
         retryable: false,
         details: {
@@ -583,16 +625,20 @@ async function resumeWorkerHandler(req, context) {
   if (lockUntil && Date.now() < lockUntil) {
     return json(
       {
-        ok: true,
+        ok: false,
         session_id: sessionId,
-        skipped: true,
-        reason: "resume_locked",
+        handler_entered_at,
+        did_work,
+        did_work_reason: "resume_locked",
+        error: "resume_locked",
         lock_expires_at: resumeDoc.lock_expires_at,
       },
       200,
       req
     );
   }
+
+  did_work = true;
 
   const attempt = Number.isFinite(Number(resumeDoc?.attempt)) ? Number(resumeDoc.attempt) : 0;
   const thisLockExpiresAt = new Date(Date.now() + 60_000).toISOString();
@@ -673,6 +719,10 @@ async function resumeWorkerHandler(req, context) {
         {
           ok: true,
           session_id: sessionId,
+          handler_entered_at,
+          did_work: false,
+          did_work_reason: "no_missing_required_fields",
+          did_work: false,
           skipped: true,
           reason: "no_missing_required_fields",
           batch_limit: batchLimit,
@@ -989,10 +1039,16 @@ async function resumeWorkerHandler(req, context) {
         updated_at: nowIso(),
       }).catch(() => null);
 
+      did_work = false;
+      did_work_reason = "missing_seed_companies";
+
       return json(
         {
           ok: false,
           session_id: sessionId,
+          handler_entered_at,
+          did_work,
+          did_work_reason,
           root_cause: "missing_seed_companies",
           retryable: true,
         },
@@ -1365,6 +1421,9 @@ async function resumeWorkerHandler(req, context) {
     {
       ok: true,
       session_id: sessionId,
+      handler_entered_at,
+      did_work,
+      did_work_reason,
       triggered: true,
       import_start_status: lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0),
       import_start_ok: Boolean(lastStartOk),
