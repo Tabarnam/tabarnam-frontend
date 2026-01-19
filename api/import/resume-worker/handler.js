@@ -803,6 +803,13 @@ async function resumeWorkerHandler(req, context) {
           skipped: true,
           reason: "no_missing_required_fields",
           batch_limit: batchLimit,
+          import_attempts_snapshot: seedDocs.slice(0, 5).map((d) => ({
+            company_id: d?.id || null,
+            normalized_domain: d?.normalized_domain || null,
+            import_attempts: d?.import_attempts || {},
+            import_missing_reason: d?.import_missing_reason || {},
+            import_missing_fields: Array.isArray(d?.import_missing_fields) ? d.import_missing_fields : null,
+          })),
         },
         200,
         req
