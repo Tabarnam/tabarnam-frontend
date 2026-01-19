@@ -172,8 +172,8 @@ function shouldForceTerminalizeSingle({
   const status = String(resume_status || "").trim();
   if (status !== "queued") return { force: false, reason: null };
 
-  const updatedTs = Date.parse(String(resume_doc_updated_at || "")) || 0;
-  if (!updatedTs) return { force: false, reason: null };
+  const updatedTs = Date.parse(String(resume_doc_updated_at || ""));
+  if (!Number.isFinite(updatedTs)) return { force: false, reason: null };
 
   const stuckMs = Number(resume_stuck_ms || 0) || 0;
   if (!stuckMs) return { force: false, reason: null };
