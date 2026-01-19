@@ -1922,8 +1922,13 @@ async function handler(req, context) {
 
     const shouldShowCompleteBeacon = Boolean((effectiveStatus === "complete" && !resume_needed) || forceComplete);
 
+    const completeBeacon =
+      stageBeaconValues.status_resume_forced_terminalize_single || sessionStageBeacon === "status_resume_terminal_only"
+        ? "status_resume_terminal_only"
+        : "complete";
+
     const effectiveStageBeacon = shouldShowCompleteBeacon
-      ? "complete"
+      ? completeBeacon
       : resumeStageBeacon || sessionStageBeacon || stageBeaconFromPrimary;
 
     stageBeaconValues.status_enrichment_health_summary = nowIso();
