@@ -554,6 +554,7 @@ async function fetchRecentCompanies(container, { sessionId, take, normalizedDoma
   const q = {
     query: `
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
+        c.normalized_domain, c.import_attempts, c.import_attempts_meta,
         c.industries, c.product_keywords, c.keywords,
         c.headquarters_location, c.manufacturing_locations,
         c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
@@ -780,6 +781,7 @@ async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionC
   const q = {
     query: `
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
+        c.normalized_domain, c.import_attempts, c.import_attempts_meta,
         c.industries, c.product_keywords, c.keywords,
         c.headquarters_location, c.manufacturing_locations,
         c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
