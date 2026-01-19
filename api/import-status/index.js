@@ -1298,11 +1298,90 @@ async function handler(req, context) {
           const sessionDocForWatchdog = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
           watchdog_last_finished_at = sessionDocForWatchdog?.resume_worker_last_finished_at || null;
 
+          const prevWatchdogAt =
+            typeof sessionDocForWatchdog?.resume_worker_watchdog_stuck_queued_at === "string"
+              ? sessionDocForWatchdog.resume_worker_watchdog_stuck_queued_at
+              : null;
+
+          const prevWatchdogTs = Date.parse(String(prevWatchdogAt || "")) || 0;
+          const lastEnteredAt = sessionDocForWatchdog?.resume_worker_handler_entered_at || null;
+          const lastEnteredTs = Date.parse(String(lastEnteredAt || "")) || 0;
+
+          // Second-stage watchdog: if watchdog fired at time T, the very next status poll must observe a handler re-entry.
+          if (prevWatchdogTs && resume_needed && resumeStatus === "queued" && (!lastEnteredTs || lastEnteredTs < prevWatchdogTs)) {
+            const erroredAt = nowIso();
+            stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress = erroredAt;
+
+            const details = {
+              watchdog_fired_at: prevWatchdogAt,
+              last_entered_at: lastEnteredAt,
+              last_finished_at: watchdog_last_finished_at,
+              last_trigger_result: sessionDocForWatchdog?.resume_worker_last_trigger_result || null,
+              updated_at: erroredAt,
+            };
+
+            resume_status = "error";
+            resume_error = "resume_worker_stuck_queued_no_progress";
+            resume_error_details = details;
+            canTrigger = false;
+
+            if (sessionDocForWatchdog && typeof sessionDocForWatchdog === "object") {
+              await upsertDoc(container, {
+                ...sessionDocForWatchdog,
+                resume_error: "resume_worker_stuck_queued_no_progress",
+                resume_error_details: details,
+                resume_needed: true,
+                status: "error",
+                stage_beacon: "enrichment_resume_error",
+                updated_at: erroredAt,
+              }).catch(() => null);
+            }
+
+            const resumeDocForError = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+            if (resumeDocForError && typeof resumeDocForError === "object") {
+              await upsertDoc(container, {
+                ...resumeDocForError,
+                status: "error",
+                last_error: {
+                  code: "resume_worker_stuck_queued_no_progress",
+                  message: "Watchdog fired but resume-worker did not re-enter on subsequent poll",
+                  ...details,
+                },
+                lock_expires_at: null,
+                updated_at: erroredAt,
+              }).catch(() => null);
+            }
+          } else if (
+            prevWatchdogTs &&
+            lastEnteredTs &&
+            lastEnteredTs >= prevWatchdogTs &&
+            sessionDocForWatchdog &&
+            typeof sessionDocForWatchdog === "object"
+          ) {
+            // Worker re-entered after the watchdog fired; clear marker so it can fire again if needed.
+            await upsertDoc(container, {
+              ...sessionDocForWatchdog,
+              resume_worker_watchdog_stuck_queued_at: null,
+              resume_worker_watchdog_resolved_at: nowIso(),
+              updated_at: nowIso(),
+            }).catch(() => null);
+          }
+
           const lastFinishedTs = Date.parse(String(watchdog_last_finished_at || "")) || 0;
 
           if (resume_needed && resumeStatus === "queued" && lastFinishedTs && Date.now() - lastFinishedTs > resumeStuckQueuedMs) {
             watchdog_stuck_queued = true;
-            stageBeaconValues.status_resume_watchdog_stuck_queued = nowIso();
+            const watchdogFiredAt = nowIso();
+            stageBeaconValues.status_resume_watchdog_stuck_queued = watchdogFiredAt;
+
+            if (sessionDocForWatchdog && typeof sessionDocForWatchdog === "object") {
+              await upsertDoc(container, {
+                ...sessionDocForWatchdog,
+                resume_worker_watchdog_stuck_queued_at: watchdogFiredAt,
+                resume_worker_watchdog_last_finished_at: watchdog_last_finished_at,
+                updated_at: nowIso(),
+              }).catch(() => null);
+            }
           }
         } catch {}
 
