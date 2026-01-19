@@ -2236,6 +2236,13 @@ async function handler(req, context) {
     else {
       out.completed = out.status === "complete";
       out.terminal_only = false;
+
+      if (out.completed) {
+        out.resume_needed = false;
+        out.resume = out.resume || {};
+        out.resume.needed = false;
+        out.resume.status = out.resume.status || "complete";
+      }
     }
 
     return jsonWithSessionId(out, 200, req);
