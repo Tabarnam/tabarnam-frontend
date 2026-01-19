@@ -482,6 +482,7 @@ function computeEnrichmentHealth(company) {
 
 function isTerminalMissingReason(reason) {
   // Terminal reasons are non-retryable, even if the field still counts as "missing" under the required-fields contract.
+  // NOTE: "low_quality" stays retryable; status/resume-worker convert it to "low_quality_terminal" via attempt caps.
   return new Set(["not_disclosed", "exhausted", "low_quality_terminal", "not_found_terminal"]).has(normalizeKey(reason));
 }
 

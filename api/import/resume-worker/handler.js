@@ -51,8 +51,26 @@ function cors(req) {
 }
 
 function json(obj, status = 200, req) {
+  const siteName = String(process.env.WEBSITE_SITE_NAME || "unknown_site");
+  const buildId =
+    String(
+      process.env.BUILD_ID ||
+        process.env.VERCEL_GIT_COMMIT_SHA ||
+        process.env.GITHUB_SHA ||
+        BUILD_INFO.build_id ||
+        "unknown_build"
+    ) || "unknown_build";
+
   const payload = obj && typeof obj === "object" && !Array.isArray(obj)
-    ? { ...obj, build_id: obj.build_id || String(BUILD_INFO.build_id || "") }
+    ? {
+        ...obj,
+        handler_id: HANDLER_ID,
+        handler_version: siteName,
+        site_name: siteName,
+        site_hostname: String(process.env.WEBSITE_HOSTNAME || BUILD_INFO?.runtime?.website_hostname || ""),
+        build_id: obj.build_id || buildId,
+        build_id_source: obj.build_id_source || BUILD_INFO.build_id_source || null,
+      }
     : obj;
 
   return {
@@ -90,6 +108,8 @@ const GROK_ONLY_FIELDS = new Set([
 
 const GROK_RETRYABLE_STATUSES = new Set(["deferred", "upstream_unreachable", "not_found"]);
 const GROK_MAX_ATTEMPTS = 3;
+
+const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = 2;
 
 function bumpFieldAttempt(doc, field, requestId) {
   doc.import_attempts ||= {};
@@ -244,6 +264,49 @@ function computeRetryableMissingFields(doc) {
   return (Array.isArray(baseMissing) ? baseMissing : []).filter((f) => !isTerminalMissingField(doc, f));
 }
 
+function terminalizeNonGrokField(doc, field, reason) {
+  doc.import_missing_reason ||= {};
+
+  const f = normalizeKey(field);
+
+  if (f === "industries") {
+    doc.industries = ["Unknown"];
+    doc.import_missing_reason.industries = reason;
+    return;
+  }
+
+  if (f === "tagline") {
+    doc.tagline = "Unknown";
+    doc.import_missing_reason.tagline = reason;
+    return;
+  }
+
+  if (f === "product_keywords") {
+    doc.product_keywords = "Unknown";
+    doc.import_missing_reason.product_keywords = reason;
+    return;
+  }
+
+  if (f === "logo") {
+    if (!String(doc.logo_stage_status || "").trim()) doc.logo_stage_status = "missing";
+    doc.import_missing_reason.logo = reason;
+    return;
+  }
+}
+
+function forceTerminalizeNonGrokFields(doc) {
+  const missing = Array.isArray(doc?.import_missing_fields) ? doc.import_missing_fields : computeMissingFields(doc);
+
+  for (const field of missing) {
+    const f = normalizeKey(field);
+    if (f === "industries") terminalizeNonGrokField(doc, "industries", "exhausted");
+    if (f === "tagline") terminalizeNonGrokField(doc, "tagline", "exhausted");
+    if (f === "product_keywords") terminalizeNonGrokField(doc, "product_keywords", "exhausted");
+    if (f === "logo") terminalizeNonGrokField(doc, "logo", "exhausted");
+    if (f === "reviews") terminalizeGrokField(doc, "reviews");
+  }
+}
+
 async function bestEffortPatchSessionDoc({ container, sessionId, patch }) {
   if (!container || !sessionId || !patch) return { ok: false, error: "missing_inputs" };
 
@@ -395,7 +458,20 @@ async function fetchCompaniesByIds(container, ids) {
 async function resumeWorkerHandler(req, context) {
   const method = String(req?.method || "").toUpperCase();
   if (method === "OPTIONS") return { status: 200, headers: cors(req) };
-  if (method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405, req);
+  if (method !== "POST") {
+    return json(
+      {
+        ok: false,
+        session_id: null,
+        handler_entered_at: nowIso(),
+        did_work: false,
+        did_work_reason: "method_not_allowed",
+        error: "Method not allowed",
+      },
+      405,
+      req
+    );
+  }
 
   const url = new URL(req.url);
   const noCosmosMode = String(url.searchParams.get("no_cosmos") || "").trim() === "1";
@@ -417,6 +493,8 @@ async function resumeWorkerHandler(req, context) {
     }
   } catch {}
 
+  const handler_entered_at = nowIso();
+
   const sessionId = String(body?.session_id || body?.sessionId || url.searchParams.get("session_id") || "").trim();
 
   const batchLimit = parseBoundedInt(
@@ -431,15 +509,39 @@ async function resumeWorkerHandler(req, context) {
     { min: 1000, max: 60000 }
   );
 
-  if (!sessionId) return json({ ok: false, error: "Missing session_id" }, 200, req);
+  const forceTerminalizeSingle =
+    String(
+      body?.force_terminalize_single ||
+        body?.forceTerminalizeSingle ||
+        url.searchParams.get("force_terminalize_single") ||
+        url.searchParams.get("forceTerminalizeSingle") ||
+        ""
+    ).trim() === "1";
+
+  let did_work = false;
+  let did_work_reason = null;
+
+  if (!sessionId) {
+    return json(
+      {
+        ok: false,
+        session_id: null,
+        handler_entered_at,
+        did_work,
+        did_work_reason: "missing_session_id",
+        error: "Missing session_id",
+      },
+      200,
+      req
+    );
+  }
 
   // Deterministic diagnosis marker: if this never updates, the request never reached the handler
   // (e.g. rejected at gateway/host key layer).
-  const enteredAt = nowIso();
   try {
     console.log(`[${HANDLER_ID}] handler_entered`, {
       session_id: sessionId,
-      entered_at: enteredAt,
+      entered_at: handler_entered_at,
       build_id: String(BUILD_INFO.build_id || ""),
     });
   } catch {}
@@ -460,7 +562,7 @@ async function resumeWorkerHandler(req, context) {
           container: cosmosContainer,
           sessionId,
           patch: {
-            resume_worker_handler_entered_at: enteredAt,
+            resume_worker_handler_entered_at: handler_entered_at,
             resume_worker_handler_entered_build_id: String(BUILD_INFO.build_id || ""),
           },
         });
@@ -487,7 +589,7 @@ async function resumeWorkerHandler(req, context) {
           resume_worker_last_http_status: 401,
           resume_worker_last_reject_layer: "handler",
           resume_worker_last_auth: authDecision,
-          resume_worker_last_finished_at: enteredAt,
+          resume_worker_last_finished_at: handler_entered_at,
           resume_worker_last_error: "unauthorized",
         },
       }).catch(() => null);
@@ -497,6 +599,9 @@ async function resumeWorkerHandler(req, context) {
       {
         ok: false,
         session_id: sessionId,
+        handler_entered_at,
+        did_work,
+        did_work_reason: "unauthorized",
         error: "Unauthorized",
         auth: authDecision,
       },
@@ -506,7 +611,19 @@ async function resumeWorkerHandler(req, context) {
   }
 
   if (!cosmosEnabled) {
-    return json({ ok: false, session_id: sessionId, root_cause: "no_cosmos", retryable: false }, 200, req);
+    return json(
+      {
+        ok: false,
+        session_id: sessionId,
+        handler_entered_at,
+        did_work,
+        did_work_reason: "no_cosmos",
+        root_cause: "no_cosmos",
+        retryable: false,
+      },
+      200,
+      req
+    );
   }
 
   const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
@@ -519,6 +636,9 @@ async function resumeWorkerHandler(req, context) {
       {
         ok: false,
         session_id: sessionId,
+        handler_entered_at,
+        did_work,
+        did_work_reason: "cosmos_not_configured",
         root_cause: "cosmos_not_configured",
         retryable: false,
         details: {
@@ -583,16 +703,20 @@ async function resumeWorkerHandler(req, context) {
   if (lockUntil && Date.now() < lockUntil) {
     return json(
       {
-        ok: true,
+        ok: false,
         session_id: sessionId,
-        skipped: true,
-        reason: "resume_locked",
+        handler_entered_at,
+        did_work,
+        did_work_reason: "resume_locked",
+        error: "resume_locked",
         lock_expires_at: resumeDoc.lock_expires_at,
       },
       200,
       req
     );
   }
+
+  did_work = true;
 
   const attempt = Number.isFinite(Number(resumeDoc?.attempt)) ? Number(resumeDoc.attempt) : 0;
   const thisLockExpiresAt = new Date(Date.now() + 60_000).toISOString();
@@ -622,7 +746,7 @@ async function resumeWorkerHandler(req, context) {
 
   const requestId =
     String(req?.headers?.get?.("x-request-id") || req?.headers?.get?.("x-client-request-id") || "").trim() ||
-    String(resumeDoc?.last_invoked_at || enteredAt);
+    String(resumeDoc?.last_invoked_at || handler_entered_at);
 
   let seedDocs = await fetchSeedCompanies(container, sessionId, batchLimit).catch(() => []);
 
@@ -673,13 +797,122 @@ async function resumeWorkerHandler(req, context) {
         {
           ok: true,
           session_id: sessionId,
+          handler_entered_at,
+          did_work: false,
+          did_work_reason: "no_missing_required_fields",
           skipped: true,
           reason: "no_missing_required_fields",
           batch_limit: batchLimit,
+          import_attempts_snapshot: seedDocs.slice(0, 5).map((d) => ({
+            company_id: d?.id || null,
+            normalized_domain: d?.normalized_domain || null,
+            import_attempts: d?.import_attempts || {},
+            import_missing_reason: d?.import_missing_reason || {},
+            import_missing_fields: Array.isArray(d?.import_missing_fields) ? d.import_missing_fields : null,
+          })),
         },
         200,
         req
       );
+    }
+  }
+
+  // Forced terminalization path (status-driven) for single-company deterministic completion.
+  if (forceTerminalizeSingle && seedDocs.length > 0) {
+    const updatedAt = nowIso();
+
+    for (const doc of seedDocs) {
+      if (!doc || typeof doc !== "object") continue;
+      forceTerminalizeNonGrokFields(doc);
+      doc.import_missing_fields = computeMissingFields(doc);
+      doc.updated_at = updatedAt;
+      await upsertDoc(container, doc).catch(() => null);
+    }
+
+    await upsertDoc(container, {
+      ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+      id: resumeDocId,
+      session_id: sessionId,
+      normalized_domain: "import",
+      partition_key: "import",
+      type: "import_control",
+      status: "complete",
+      missing_by_company: [],
+      last_trigger_result: {
+        ok: true,
+        status: 200,
+        stage_beacon: "status_resume_terminal_only",
+        resume_needed: false,
+        forced_terminalize_single: true,
+      },
+      lock_expires_at: null,
+      updated_at: updatedAt,
+    }).catch(() => null);
+
+    await bestEffortPatchSessionDoc({
+      container,
+      sessionId,
+      patch: {
+        resume_needed: false,
+        status: "complete",
+        stage_beacon: "status_resume_terminal_only",
+        resume_terminal_only: true,
+        resume_terminalized_at: updatedAt,
+        resume_terminalized_reason: "forced_terminalize_single",
+        updated_at: updatedAt,
+      },
+    }).catch(() => null);
+
+    return json(
+      {
+        ok: true,
+        session_id: sessionId,
+        handler_entered_at,
+        did_work: true,
+        did_work_reason: "forced_terminalize_single",
+        resume_needed: false,
+        forced_terminalize_single: true,
+        import_attempts_snapshot: seedDocs.slice(0, 5).map((d) => ({
+          company_id: d?.id || null,
+          normalized_domain: d?.normalized_domain || null,
+          import_attempts: d?.import_attempts || {},
+          import_missing_reason: d?.import_missing_reason || {},
+          import_missing_fields: Array.isArray(d?.import_missing_fields) ? d.import_missing_fields : null,
+        })),
+      },
+      200,
+      req
+    );
+  }
+
+  // Low-quality non-Grok fields (industries/product_keywords/tagline) must not be retryable forever.
+  // Convert "low_quality" to terminal after a small number of attempts.
+  if (seedDocs.length > 0) {
+    const lowQualityFields = ["industries", "product_keywords", "tagline"];
+
+    for (const doc of seedDocs) {
+      if (!doc || typeof doc !== "object") continue;
+
+      let changed = false;
+
+      for (const field of lowQualityFields) {
+        const storedReason = normalizeKey(doc?.import_missing_reason?.[field] || "");
+        const derivedReason = normalizeKey(deriveMissingReason(doc, field));
+        const reason = storedReason || derivedReason;
+        if (reason !== "low_quality") continue;
+
+        bumpFieldAttempt(doc, field, requestId);
+        if (attemptsFor(doc, field) >= NON_GROK_LOW_QUALITY_MAX_ATTEMPTS) {
+          terminalizeNonGrokField(doc, field, "low_quality_terminal");
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        doc.import_missing_fields = computeMissingFields(doc);
+        doc.updated_at = nowIso();
+        await upsertDoc(container, doc).catch(() => null);
+      }
     }
   }
 
@@ -989,10 +1222,16 @@ async function resumeWorkerHandler(req, context) {
         updated_at: nowIso(),
       }).catch(() => null);
 
+      did_work = false;
+      did_work_reason = "missing_seed_companies";
+
       return json(
         {
           ok: false,
           session_id: sessionId,
+          handler_entered_at,
+          did_work,
+          did_work_reason,
           root_cause: "missing_seed_companies",
           retryable: true,
         },
@@ -1365,12 +1604,22 @@ async function resumeWorkerHandler(req, context) {
     {
       ok: true,
       session_id: sessionId,
+      handler_entered_at,
+      did_work,
+      did_work_reason,
       triggered: true,
       import_start_status: lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0),
       import_start_ok: Boolean(lastStartOk),
       resume_needed: resumeNeeded,
       iterations: iteration + 1,
       missing_by_company,
+      import_attempts_snapshot: seedDocs.slice(0, 5).map((d) => ({
+        company_id: d?.id || null,
+        normalized_domain: d?.normalized_domain || null,
+        import_attempts: d?.import_attempts || {},
+        import_missing_reason: d?.import_missing_reason || {},
+        import_missing_fields: Array.isArray(d?.import_missing_fields) ? d.import_missing_fields : null,
+      })),
       import_start_body: lastStartJson || (lastStartText ? { text: lastStartText.slice(0, 2000) } : null),
     },
     200,

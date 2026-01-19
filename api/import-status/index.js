@@ -27,6 +27,10 @@ const { getBuildInfo } = require("../_buildInfo");
 
 const HANDLER_ID = "import-status";
 
+const MAX_RESUME_CYCLES_SINGLE = Number.isFinite(Number(process.env.MAX_RESUME_CYCLES_SINGLE))
+  ? Math.max(1, Math.trunc(Number(process.env.MAX_RESUME_CYCLES_SINGLE)))
+  : 3;
+
 const BUILD_INFO = (() => {
   try {
     return getBuildInfo();
@@ -70,6 +74,9 @@ const EMPTY_RESUME_DIAGNOSTICS = Object.freeze({
     last_ok: null,
     last_http_status: null,
     last_trigger_request_id: null,
+    last_trigger_result: null,
+    last_trigger_ok: null,
+    last_trigger_http_status: null,
     last_gateway_key_attached: null,
     last_error: null,
     last_company_id: null,
@@ -90,8 +97,26 @@ function cors(req) {
 }
 
 function json(obj, status = 200, req, extraHeaders) {
+  const siteName = String(process.env.WEBSITE_SITE_NAME || "unknown_site");
+  const buildId =
+    String(
+      process.env.BUILD_ID ||
+        process.env.VERCEL_GIT_COMMIT_SHA ||
+        process.env.GITHUB_SHA ||
+        BUILD_INFO.build_id ||
+        "unknown_build"
+    ) || "unknown_build";
+
   const payload = obj && typeof obj === "object" && !Array.isArray(obj)
-    ? { ...obj, build_id: obj.build_id || String(BUILD_INFO.build_id || "") }
+    ? {
+        ...obj,
+        handler_id: HANDLER_ID,
+        handler_version: siteName,
+        site_name: siteName,
+        site_hostname: String(process.env.WEBSITE_HOSTNAME || BUILD_INFO?.runtime?.website_hostname || ""),
+        build_id: obj.build_id || buildId,
+        build_id_source: obj.build_id_source || BUILD_INFO.build_id_source || null,
+      }
     : obj;
 
   return {
@@ -110,6 +135,114 @@ function json(obj, status = 200, req, extraHeaders) {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function normalizeKey(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function isSingleCompanyModeFromSession({ sessionDoc, savedCount, itemsCount }) {
+  const limit = Number(sessionDoc?.request?.limit ?? sessionDoc?.request?.Limit ?? 0);
+  if (Number.isFinite(limit) && limit === 1) return true;
+
+  const companiesCount = Number(savedCount || 0) || 0;
+  if (companiesCount === 1) return true;
+
+  const itemCount = Number(itemsCount || 0) || 0;
+  if (itemCount === 1) return true;
+
+  return false;
+}
+
+function shouldForceTerminalizeSingle({
+  single,
+  resume_needed,
+  resume_status,
+  resume_cycle_count,
+  resume_doc_updated_at,
+  resume_last_triggered_at,
+  resume_stuck_ms,
+}) {
+  if (!single) return { force: false, reason: null };
+  if (!resume_needed) return { force: false, reason: null };
+
+  const cycles = Number(resume_cycle_count || 0) || 0;
+  if (cycles >= MAX_RESUME_CYCLES_SINGLE) return { force: true, reason: "max_cycles" };
+
+  const status = String(resume_status || "").trim();
+  if (status !== "queued") return { force: false, reason: null };
+
+  const updatedTs = Date.parse(String(resume_doc_updated_at || ""));
+  if (!Number.isFinite(updatedTs)) return { force: false, reason: null };
+
+  const stuckMs = Number(resume_stuck_ms || 0) || 0;
+  if (!stuckMs) return { force: false, reason: null };
+
+  const elapsed = Date.now() - updatedTs;
+  if (elapsed < stuckMs) return { force: false, reason: null };
+
+  const lastTriggerTs = Date.parse(String(resume_last_triggered_at || ""));
+  if (!Number.isFinite(lastTriggerTs)) return { force: false, reason: null };
+
+  // Only terminalize after we have attempted at least one trigger since the resume doc was last updated.
+  if (lastTriggerTs >= updatedTs - 1000) return { force: true, reason: "queued_timeout_after_trigger" };
+
+  return { force: false, reason: null };
+}
+
+function forceTerminalizeCompanyDocForSingle(doc) {
+  const d = doc && typeof doc === "object" ? { ...doc } : {};
+  d.import_missing_reason ||= {};
+
+  const missing = Array.isArray(computeEnrichmentHealthContract(d)?.missing_fields)
+    ? computeEnrichmentHealthContract(d).missing_fields
+    : [];
+
+  const missingSet = new Set(missing);
+
+  if (missingSet.has("industries")) {
+    d.industries = ["Unknown"];
+    d.import_missing_reason.industries = "exhausted";
+  }
+
+  if (missingSet.has("product_keywords")) {
+    d.product_keywords = "Unknown";
+    d.import_missing_reason.product_keywords = "exhausted";
+  }
+
+  // Tagline isn't part of the required-fields missing set, but make it deterministic anyway.
+  if (!String(d.tagline || "").trim() || normalizeKey(d.tagline) === "unknown") {
+    d.tagline = "Unknown";
+    d.import_missing_reason.tagline = d.import_missing_reason.tagline || "exhausted";
+  }
+
+  if (missingSet.has("logo")) {
+    if (!String(d.logo_stage_status || "").trim()) d.logo_stage_status = "missing";
+    d.import_missing_reason.logo = "exhausted";
+  }
+
+  if (missingSet.has("reviews")) {
+    d.curated_reviews = [];
+    d.review_count = typeof d.review_count === "number" ? d.review_count : 0;
+    d.reviews_stage_status = "exhausted";
+    const cursor = d.review_cursor && typeof d.review_cursor === "object" ? { ...d.review_cursor } : {};
+    d.review_cursor = {
+      ...cursor,
+      exhausted: true,
+      reviews_stage_status: "exhausted",
+      exhausted_at: cursor.exhausted_at || nowIso(),
+    };
+    d.import_missing_reason.reviews = "exhausted";
+  }
+
+  // Keep required-fields meta consistent.
+  try {
+    const recomputed = computeEnrichmentHealthContract(d);
+    if (recomputed && Array.isArray(recomputed.missing_fields)) d.import_missing_fields = recomputed.missing_fields;
+  } catch {}
+
+  d.updated_at = nowIso();
+  return d;
 }
 
 function normalizeDomain(raw) {
@@ -417,6 +550,7 @@ async function fetchCompaniesByIds(container, ids) {
   const q = {
     query: `
       SELECT c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
+        c.normalized_domain,
         c.industries, c.product_keywords, c.keywords,
         c.headquarters_location, c.manufacturing_locations,
         c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
@@ -435,6 +569,22 @@ async function fetchCompaniesByIds(container, ids) {
     .query(q, { enableCrossPartitionQuery: true })
     .fetchAll();
 
+  const out = Array.isArray(resources) ? resources : [];
+  const byId = new Map(out.map((doc) => [String(doc?.id || ""), doc]));
+  return list.map((id) => byId.get(id)).filter(Boolean);
+}
+
+async function fetchCompaniesByIdsFull(container, ids) {
+  if (!container) return [];
+  const list = Array.isArray(ids) ? ids.map((id) => String(id || "").trim()).filter(Boolean) : [];
+  if (list.length === 0) return [];
+
+  const q = {
+    query: `SELECT * FROM c WHERE ARRAY_CONTAINS(@ids, c.id)`,
+    parameters: [{ name: "@ids", value: list }],
+  };
+
+  const { resources } = await container.items.query(q, { enableCrossPartitionQuery: true }).fetchAll();
   const out = Array.isArray(resources) ? resources : [];
   const byId = new Map(out.map((doc) => [String(doc?.id || ""), doc]));
   return list.map((id) => byId.get(id)).filter(Boolean);
@@ -635,6 +785,7 @@ async function handler(req, context) {
   const statusCheckedAt = nowIso();
   const stageBeaconValues = {
     status_checked_at: statusCheckedAt,
+    status_force_terminalize_reason: null,
   };
 
   const internalSecretInfo = (() => {
@@ -1295,11 +1446,90 @@ async function handler(req, context) {
           const sessionDocForWatchdog = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
           watchdog_last_finished_at = sessionDocForWatchdog?.resume_worker_last_finished_at || null;
 
+          const prevWatchdogAt =
+            typeof sessionDocForWatchdog?.resume_worker_watchdog_stuck_queued_at === "string"
+              ? sessionDocForWatchdog.resume_worker_watchdog_stuck_queued_at
+              : null;
+
+          const prevWatchdogTs = Date.parse(String(prevWatchdogAt || "")) || 0;
+          const lastEnteredAt = sessionDocForWatchdog?.resume_worker_handler_entered_at || null;
+          const lastEnteredTs = Date.parse(String(lastEnteredAt || "")) || 0;
+
+          // Second-stage watchdog: if watchdog fired at time T, the very next status poll must observe a handler re-entry.
+          if (prevWatchdogTs && resume_needed && resumeStatus === "queued" && (!lastEnteredTs || lastEnteredTs < prevWatchdogTs)) {
+            const erroredAt = nowIso();
+            stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress = erroredAt;
+
+            const details = {
+              watchdog_fired_at: prevWatchdogAt,
+              last_entered_at: lastEnteredAt,
+              last_finished_at: watchdog_last_finished_at,
+              last_trigger_result: sessionDocForWatchdog?.resume_worker_last_trigger_result || null,
+              updated_at: erroredAt,
+            };
+
+            resume_status = "error";
+            resume_error = "resume_worker_stuck_queued_no_progress";
+            resume_error_details = details;
+            canTrigger = false;
+
+            if (sessionDocForWatchdog && typeof sessionDocForWatchdog === "object") {
+              await upsertDoc(container, {
+                ...sessionDocForWatchdog,
+                resume_error: "resume_worker_stuck_queued_no_progress",
+                resume_error_details: details,
+                resume_needed: true,
+                status: "error",
+                stage_beacon: "enrichment_resume_error",
+                updated_at: erroredAt,
+              }).catch(() => null);
+            }
+
+            const resumeDocForError = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+            if (resumeDocForError && typeof resumeDocForError === "object") {
+              await upsertDoc(container, {
+                ...resumeDocForError,
+                status: "error",
+                last_error: {
+                  code: "resume_worker_stuck_queued_no_progress",
+                  message: "Watchdog fired but resume-worker did not re-enter on subsequent poll",
+                  ...details,
+                },
+                lock_expires_at: null,
+                updated_at: erroredAt,
+              }).catch(() => null);
+            }
+          } else if (
+            prevWatchdogTs &&
+            lastEnteredTs &&
+            lastEnteredTs >= prevWatchdogTs &&
+            sessionDocForWatchdog &&
+            typeof sessionDocForWatchdog === "object"
+          ) {
+            // Worker re-entered after the watchdog fired; clear marker so it can fire again if needed.
+            await upsertDoc(container, {
+              ...sessionDocForWatchdog,
+              resume_worker_watchdog_stuck_queued_at: null,
+              resume_worker_watchdog_resolved_at: nowIso(),
+              updated_at: nowIso(),
+            }).catch(() => null);
+          }
+
           const lastFinishedTs = Date.parse(String(watchdog_last_finished_at || "")) || 0;
 
           if (resume_needed && resumeStatus === "queued" && lastFinishedTs && Date.now() - lastFinishedTs > resumeStuckQueuedMs) {
             watchdog_stuck_queued = true;
-            stageBeaconValues.status_resume_watchdog_stuck_queued = nowIso();
+            const watchdogFiredAt = nowIso();
+            stageBeaconValues.status_resume_watchdog_stuck_queued = watchdogFiredAt;
+
+            if (sessionDocForWatchdog && typeof sessionDocForWatchdog === "object") {
+              await upsertDoc(container, {
+                ...sessionDocForWatchdog,
+                resume_worker_watchdog_stuck_queued_at: watchdogFiredAt,
+                resume_worker_watchdog_last_finished_at: watchdog_last_finished_at,
+                updated_at: nowIso(),
+              }).catch(() => null);
+            }
           }
         } catch {}
 
@@ -1318,6 +1548,143 @@ async function handler(req, context) {
             stageBeaconValues.status_resume_trigger_cooldown = nowIso();
           }
         }
+
+        // Single-company deterministic termination: if we're stuck queued (or we've hit the cycle cap),
+        // force terminal-only completion instead of allowing indefinite resume_needed=true.
+        try {
+          const sessionDocId = `_import_session_${sessionId}`;
+          const sessionDocForPolicy = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+
+          const singleCompanyMode = isSingleCompanyModeFromSession({
+            sessionDoc: sessionDocForPolicy,
+            savedCount: saved,
+            itemsCount: Array.isArray(saved_companies) ? saved_companies.length : 0,
+          });
+
+          const currentCycleCount = Number(sessionDocForPolicy?.resume_cycle_count || 0) || 0;
+
+          const resumeUpdatedAtIso =
+            (typeof currentResume !== "undefined" && currentResume && typeof currentResume === "object" && currentResume.updated_at
+              ? currentResume.updated_at
+              : resumeDoc?.updated_at) || null;
+
+          const resumeLastTriggeredAtIso =
+            sessionDocForPolicy?.resume_last_triggered_at || sessionDocForPolicy?.resume_worker_last_triggered_at || null;
+
+          const tUpdated = Date.parse(String(resumeUpdatedAtIso || ""));
+          const tTrig = Date.parse(String(resumeLastTriggeredAtIso || ""));
+
+          const timeoutElapsedMs = Number.isFinite(tUpdated) ? Math.max(0, Date.now() - tUpdated) : null;
+
+          const timeoutConditionMet = Boolean(
+            Number.isFinite(tUpdated) &&
+              Number.isFinite(tTrig) &&
+              tTrig >= tUpdated &&
+              timeoutElapsedMs !== null &&
+              timeoutElapsedMs >= resumeStuckQueuedMs
+          );
+
+          stageBeaconValues.resume_updated_at = resumeUpdatedAtIso;
+          stageBeaconValues.resume_last_triggered_at = resumeLastTriggeredAtIso;
+          stageBeaconValues.resume_timeout_condition_met = timeoutConditionMet;
+          stageBeaconValues.resume_timeout_ms = resumeStuckQueuedMs;
+          stageBeaconValues.resume_timeout_elapsed_ms = timeoutElapsedMs;
+          stageBeaconValues.resume_timeout_t_updated_ms = Number.isFinite(tUpdated) ? tUpdated : null;
+          stageBeaconValues.resume_timeout_t_trig_ms = Number.isFinite(tTrig) ? tTrig : null;
+
+          stageBeaconValues.status_single_company_mode = Boolean(singleCompanyMode);
+          stageBeaconValues.status_resume_cycle_count = currentCycleCount;
+
+          // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
+          const preTriggerCap = Boolean(singleCompanyMode && resume_needed && currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE);
+
+          const forceDecision = preTriggerCap
+            ? { force: true, reason: "max_cycles_pre_trigger" }
+            : shouldForceTerminalizeSingle({
+                single: singleCompanyMode,
+                resume_needed,
+                resume_status: resumeStatus,
+                resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
+                resume_doc_updated_at: resumeUpdatedAtIso,
+                resume_last_triggered_at: resumeLastTriggeredAtIso,
+                resume_stuck_ms: resumeStuckQueuedMs,
+              });
+
+          if (forceDecision.force) {
+            const forcedAt = nowIso();
+            stageBeaconValues.status_resume_forced_terminalize_single = forcedAt;
+            stageBeaconValues.status_resume_forced_terminalize_reason = forceDecision.reason;
+            stageBeaconValues.status_force_terminalize_reason = forceDecision.reason;
+            stageBeaconValues.status_resume_terminal_only = forcedAt;
+
+            const savedIdsForTerminalize = Array.from(
+              new Set(
+                [
+                  ...(Array.isArray(sessionDocForPolicy?.saved_company_ids_verified)
+                    ? sessionDocForPolicy.saved_company_ids_verified
+                    : []),
+                  ...(Array.isArray(sessionDocForPolicy?.saved_company_ids_unverified)
+                    ? sessionDocForPolicy.saved_company_ids_unverified
+                    : []),
+                ]
+                  .map((v) => String(v || "").trim())
+                  .filter(Boolean)
+              )
+            ).slice(0, 25);
+
+            const fallbackIds =
+              savedIdsForTerminalize.length > 0
+                ? savedIdsForTerminalize
+                : Array.isArray(saved_companies) && saved_companies[0]?.company_id
+                  ? [String(saved_companies[0].company_id).trim()]
+                  : [];
+
+            const fullDocs = fallbackIds.length > 0
+              ? await fetchCompaniesByIdsFull(container, fallbackIds).catch(() => [])
+              : [];
+
+            for (const doc of fullDocs) {
+              const next = forceTerminalizeCompanyDocForSingle(doc);
+              await upsertDoc(container, next).catch(() => null);
+            }
+
+            const resumeDocId = `_import_resume_${sessionId}`;
+            const resumeDocForWrite = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+            if (resumeDocForWrite && typeof resumeDocForWrite === "object") {
+              await upsertDoc(container, {
+                ...resumeDocForWrite,
+                status: "complete",
+                lock_expires_at: null,
+                missing_by_company: [],
+                forced_terminalized_at: forcedAt,
+                forced_terminalized_reason: forceDecision.reason,
+                updated_at: forcedAt,
+              }).catch(() => null);
+            }
+
+            if (sessionDocForPolicy && typeof sessionDocForPolicy === "object") {
+              await upsertDoc(container, {
+                ...sessionDocForPolicy,
+                resume_needed: false,
+                resume_error: null,
+                resume_error_details: null,
+                resume_cycle_count: currentCycleCount + 1,
+                resume_last_triggered_at: forcedAt,
+                status: "complete",
+                stage_beacon: "status_resume_terminal_only",
+                resume_terminal_only: true,
+                resume_terminalized_at: forcedAt,
+                resume_terminalized_reason: forceDecision.reason,
+                updated_at: forcedAt,
+              }).catch(() => null);
+            }
+
+            resume_needed = false;
+            resumeStatus = "complete";
+            resume_status = "complete";
+            canTrigger = false;
+          }
+        } catch {}
 
         if (
           canTrigger &&
@@ -1339,6 +1706,8 @@ async function handler(req, context) {
               await upsertDoc(container, {
                 ...sessionDocForTrigger,
                 resume_worker_last_triggered_at: triggerAttemptAt,
+                resume_last_triggered_at: triggerAttemptAt,
+                resume_cycle_count: (Number(sessionDocForTrigger?.resume_cycle_count || 0) || 0) + 1,
                 resume_worker_last_trigger_request_id: workerRequest.request_id || null,
                 resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
                 updated_at: nowIso(),
@@ -1386,7 +1755,37 @@ async function handler(req, context) {
           }
 
           const responseOk = workerJson && typeof workerJson === "object" ? workerJson.ok : null;
-          const triggerOk = Boolean(workerRes?.ok) && responseOk !== false;
+
+          const bodySessionId = workerJson && typeof workerJson === "object"
+            ? String(workerJson.session_id || workerJson.sessionId || "").trim()
+            : "";
+
+          const enteredAtFromBody = workerJson && typeof workerJson === "object"
+            ? String(
+                workerJson.handler_entered_at ||
+                  workerJson.worker_entered_at ||
+                  workerJson.handler_entered_at_iso ||
+                  workerJson.worker_entered_at_iso ||
+                  ""
+              ).trim()
+            : "";
+
+          const enteredTs = Date.parse(enteredAtFromBody) || 0;
+          const attemptTs = Date.parse(String(triggerAttemptAt || "")) || 0;
+          const enteredSameSecond = Boolean(enteredTs && attemptTs) && Math.floor(enteredTs / 1000) === Math.floor(attemptTs / 1000);
+          const enteredAfterAttempt = Boolean(enteredTs && attemptTs) && enteredTs >= attemptTs;
+          const enteredTimeOk = enteredAfterAttempt || enteredSameSecond;
+
+          const strongTriggerOk =
+            Boolean(workerRes?.ok) &&
+            responseOk !== false &&
+            Boolean(bodySessionId) &&
+            bodySessionId === sessionId &&
+            Boolean(enteredAtFromBody) &&
+            enteredTimeOk;
+
+          const triggerNoopOrNoEnter = Boolean(workerRes?.ok) && responseOk !== false && !strongTriggerOk;
+          const triggerOk = strongTriggerOk;
 
           resume_triggered = triggerOk;
 
@@ -1403,6 +1802,13 @@ async function handler(req, context) {
                     ok: responseOk !== false,
                     stage_beacon: typeof workerJson.stage_beacon === "string" ? workerJson.stage_beacon : null,
                     resume_needed: typeof workerJson.resume_needed === "boolean" ? workerJson.resume_needed : null,
+                    session_id: bodySessionId || null,
+                    handler_entered_at: enteredAtFromBody || null,
+                    did_work: typeof workerJson.did_work === "boolean" ? workerJson.did_work : null,
+                    did_work_reason:
+                      typeof workerJson.did_work_reason === "string" && workerJson.did_work_reason.trim()
+                        ? workerJson.did_work_reason.trim()
+                        : null,
                     error:
                       (typeof workerJson.error === "string" && workerJson.error.trim() ? workerJson.error.trim() : null) ||
                       (typeof workerJson.root_cause === "string" && workerJson.root_cause.trim() ? workerJson.root_cause.trim() : null) ||
@@ -1415,18 +1821,21 @@ async function handler(req, context) {
 
           if (!triggerOk) {
             const baseErr =
-              (workerJson && typeof workerJson === "object" && typeof workerJson.error === "string" && workerJson.error.trim()
-                ? workerJson.error.trim()
-                : null) ||
-              (workerJson && typeof workerJson === "object" && typeof workerJson.root_cause === "string" && workerJson.root_cause.trim()
-                ? workerJson.root_cause.trim()
-                : null) ||
-              workerRes?._error?.message ||
-              `resume_worker_http_${statusCode}`;
+              triggerNoopOrNoEnter
+                ? "resume_worker_trigger_noop_or_no_enter"
+                : (workerJson && typeof workerJson === "object" && typeof workerJson.error === "string" && workerJson.error.trim()
+                    ? workerJson.error.trim()
+                    : null) ||
+                  (workerJson && typeof workerJson === "object" && typeof workerJson.root_cause === "string" && workerJson.root_cause.trim()
+                    ? workerJson.root_cause.trim()
+                    : null) ||
+                  workerRes?._error?.message ||
+                  `resume_worker_http_${statusCode}`;
 
             resume_trigger_error = watchdog_stuck_queued ? "resume_worker_stuck_or_trigger_failed" : baseErr;
             resume_trigger_error_details = {
               ...triggerResult,
+              response_body: workerJson && typeof workerJson === "object" ? workerJson : null,
               response_text_preview: preview || null,
               watchdog: watchdog_stuck_queued
                 ? {
@@ -1528,9 +1937,11 @@ async function handler(req, context) {
     const reportSessionStageBeacon = typeof report?.session?.stage_beacon === "string" ? report.session.stage_beacon.trim() : "";
 
     const forceComplete = Boolean(
-      (!forceResume &&
-        (Number(saved || 0) > 0 || (Array.isArray(saved_companies) && saved_companies.length > 0)) &&
-        Number(resumeMissingAnalysis?.total_retryable_missing || 0) === 0) ||
+      stageBeaconValues.status_resume_forced_terminalize_single ||
+        stageBeaconValues.status_resume_terminal_only ||
+        (!forceResume &&
+          (Number(saved || 0) > 0 || (Array.isArray(saved_companies) && saved_companies.length > 0)) &&
+          Number(resumeMissingAnalysis?.total_retryable_missing || 0) === 0) ||
         resumeMissingAnalysis?.terminal_only ||
         reportSessionStatus === "complete" ||
         reportSessionStageBeacon === "complete"
@@ -1570,8 +1981,13 @@ async function handler(req, context) {
 
     const shouldShowCompleteBeacon = Boolean((effectiveStatus === "complete" && !resume_needed) || forceComplete);
 
+    const completeBeacon =
+      stageBeaconValues.status_resume_forced_terminalize_single || sessionStageBeacon === "status_resume_terminal_only"
+        ? "status_resume_terminal_only"
+        : "complete";
+
     const effectiveStageBeacon = shouldShowCompleteBeacon
-      ? "complete"
+      ? completeBeacon
       : resumeStageBeacon || sessionStageBeacon || stageBeaconFromPrimary;
 
     stageBeaconValues.status_enrichment_health_summary = nowIso();
@@ -1647,6 +2063,15 @@ async function handler(req, context) {
         reconciled_saved_ids,
         saved_companies,
         resume_needed,
+        resume_cycle_count:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+            : 0,
+        resume_last_triggered_at:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+            : null,
+        max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
         resume: {
           needed: resume_needed,
           status: resume_status || null,
@@ -1657,6 +2082,16 @@ async function handler(req, context) {
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
+          cycle_count:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+              : null,
+          max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          last_triggered_at:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+              : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -1673,6 +2108,13 @@ async function handler(req, context) {
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
               last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || null,
+              last_trigger_ok:
+                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean" ? sessionDoc.resume_worker_last_trigger_ok : null,
+              last_trigger_http_status:
+                typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
+                  ? sessionDoc.resume_worker_last_trigger_http_status
+                  : null,
               last_gateway_key_attached:
                 typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
                   ? sessionDoc.resume_worker_last_gateway_key_attached
@@ -2315,12 +2757,21 @@ async function handler(req, context) {
     const sessionStatus = typeof sessionDoc?.status === "string" ? sessionDoc.status.trim() : "";
 
     const forceComplete = Boolean(
-      (!forceResume && Number(saved || 0) > 0 && Number(resumeMissingAnalysis?.total_retryable_missing || 0) === 0) ||
+      stageBeaconValues.status_resume_forced_terminalize_single ||
+        stageBeaconValues.status_resume_terminal_only ||
+        (!forceResume && Number(saved || 0) > 0 && Number(resumeMissingAnalysis?.total_retryable_missing || 0) === 0) ||
         resumeMissingAnalysis.terminal_only ||
         sessionStatus === "complete" ||
-        stage_beacon === "complete"
+        stage_beacon === "complete" ||
+        stage_beacon === "status_resume_terminal_only"
     );
-    if (forceComplete) stage_beacon = "complete";
+
+    if (forceComplete) {
+      stage_beacon =
+        stage_beacon === "status_resume_terminal_only" || sessionDoc?.stage_beacon === "status_resume_terminal_only"
+          ? "status_resume_terminal_only"
+          : "complete";
+    }
 
     stageBeaconValues.status_resume_missing_total = resumeMissingAnalysis.total_missing;
     stageBeaconValues.status_resume_missing_retryable = resumeMissingAnalysis.total_retryable_missing;
@@ -2455,11 +2906,96 @@ async function handler(req, context) {
           const sessionDocForWatchdog = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
           watchdog_last_finished_at = sessionDocForWatchdog?.resume_worker_last_finished_at || null;
 
+          const prevWatchdogAt =
+            typeof sessionDocForWatchdog?.resume_worker_watchdog_stuck_queued_at === "string"
+              ? sessionDocForWatchdog.resume_worker_watchdog_stuck_queued_at
+              : null;
+
+          const prevWatchdogTs = Date.parse(String(prevWatchdogAt || "")) || 0;
+          const lastEnteredAt = sessionDocForWatchdog?.resume_worker_handler_entered_at || null;
+          const lastEnteredTs = Date.parse(String(lastEnteredAt || "")) || 0;
+
+          // Second-stage watchdog: if watchdog fired at time T, the very next status poll must observe a handler re-entry.
+          if (prevWatchdogTs && resume_needed && resumeStatus === "queued" && (!lastEnteredTs || lastEnteredTs < prevWatchdogTs)) {
+            const erroredAt = nowIso();
+            stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress = erroredAt;
+
+            const details = {
+              watchdog_fired_at: prevWatchdogAt,
+              last_entered_at: lastEnteredAt,
+              last_finished_at: watchdog_last_finished_at,
+              last_trigger_result: sessionDocForWatchdog?.resume_worker_last_trigger_result || null,
+              updated_at: erroredAt,
+            };
+
+            resume_status = "error";
+            resumeStatus = "error";
+            canTrigger = false;
+            resume_trigger_error ||= "resume_worker_stuck_queued_no_progress";
+            resume_trigger_error_details ||= details;
+
+            if (sessionDoc && typeof sessionDoc === "object") {
+              sessionDoc.resume_error = "resume_worker_stuck_queued_no_progress";
+              sessionDoc.resume_error_details = details;
+            }
+
+            if (sessionDocForWatchdog && typeof sessionDocForWatchdog === "object") {
+              await upsertDoc(container, {
+                ...sessionDocForWatchdog,
+                resume_error: "resume_worker_stuck_queued_no_progress",
+                resume_error_details: details,
+                resume_needed: true,
+                status: "error",
+                stage_beacon: "enrichment_resume_error",
+                updated_at: erroredAt,
+              }).catch(() => null);
+            }
+
+            const resumeDocForError = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+            if (resumeDocForError && typeof resumeDocForError === "object") {
+              await upsertDoc(container, {
+                ...resumeDocForError,
+                status: "error",
+                last_error: {
+                  code: "resume_worker_stuck_queued_no_progress",
+                  message: "Watchdog fired but resume-worker did not re-enter on subsequent poll",
+                  ...details,
+                },
+                lock_expires_at: null,
+                updated_at: erroredAt,
+              }).catch(() => null);
+            }
+          } else if (
+            prevWatchdogTs &&
+            lastEnteredTs &&
+            lastEnteredTs >= prevWatchdogTs &&
+            sessionDocForWatchdog &&
+            typeof sessionDocForWatchdog === "object"
+          ) {
+            // Worker re-entered after the watchdog fired; clear marker so it can fire again if needed.
+            await upsertDoc(container, {
+              ...sessionDocForWatchdog,
+              resume_worker_watchdog_stuck_queued_at: null,
+              resume_worker_watchdog_resolved_at: nowIso(),
+              updated_at: nowIso(),
+            }).catch(() => null);
+          }
+
           const lastFinishedTs = Date.parse(String(watchdog_last_finished_at || "")) || 0;
 
           if (resume_needed && resumeStatus === "queued" && lastFinishedTs && Date.now() - lastFinishedTs > resumeStuckQueuedMs) {
             watchdog_stuck_queued = true;
-            stageBeaconValues.status_resume_watchdog_stuck_queued = nowIso();
+            const watchdogFiredAt = nowIso();
+            stageBeaconValues.status_resume_watchdog_stuck_queued = watchdogFiredAt;
+
+            if (sessionDocForWatchdog && typeof sessionDocForWatchdog === "object") {
+              await upsertDoc(container, {
+                ...sessionDocForWatchdog,
+                resume_worker_watchdog_stuck_queued_at: watchdogFiredAt,
+                resume_worker_watchdog_last_finished_at: watchdog_last_finished_at,
+                updated_at: nowIso(),
+              }).catch(() => null);
+            }
           }
         } catch {}
 
@@ -2478,6 +3014,143 @@ async function handler(req, context) {
             stageBeaconValues.status_resume_trigger_cooldown = nowIso();
           }
         }
+
+        // Single-company deterministic termination: if we're stuck queued (or we've hit the cycle cap),
+        // force terminal-only completion instead of allowing indefinite resume_needed=true.
+        try {
+          const sessionDocId = `_import_session_${sessionId}`;
+          const sessionDocForPolicy = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+
+          const singleCompanyMode = isSingleCompanyModeFromSession({
+            sessionDoc: sessionDocForPolicy,
+            savedCount: saved,
+            itemsCount: Array.isArray(saved_companies) ? saved_companies.length : 0,
+          });
+
+          const currentCycleCount = Number(sessionDocForPolicy?.resume_cycle_count || 0) || 0;
+
+          const resumeUpdatedAtIso =
+            (typeof currentResume !== "undefined" && currentResume && typeof currentResume === "object" && currentResume.updated_at
+              ? currentResume.updated_at
+              : resumeDoc?.updated_at) || null;
+
+          const resumeLastTriggeredAtIso =
+            sessionDocForPolicy?.resume_last_triggered_at || sessionDocForPolicy?.resume_worker_last_triggered_at || null;
+
+          const tUpdated = Date.parse(String(resumeUpdatedAtIso || ""));
+          const tTrig = Date.parse(String(resumeLastTriggeredAtIso || ""));
+
+          const timeoutElapsedMs = Number.isFinite(tUpdated) ? Math.max(0, Date.now() - tUpdated) : null;
+
+          const timeoutConditionMet = Boolean(
+            Number.isFinite(tUpdated) &&
+              Number.isFinite(tTrig) &&
+              tTrig >= tUpdated &&
+              timeoutElapsedMs !== null &&
+              timeoutElapsedMs >= resumeStuckQueuedMs
+          );
+
+          stageBeaconValues.resume_updated_at = resumeUpdatedAtIso;
+          stageBeaconValues.resume_last_triggered_at = resumeLastTriggeredAtIso;
+          stageBeaconValues.resume_timeout_condition_met = timeoutConditionMet;
+          stageBeaconValues.resume_timeout_ms = resumeStuckQueuedMs;
+          stageBeaconValues.resume_timeout_elapsed_ms = timeoutElapsedMs;
+          stageBeaconValues.resume_timeout_t_updated_ms = Number.isFinite(tUpdated) ? tUpdated : null;
+          stageBeaconValues.resume_timeout_t_trig_ms = Number.isFinite(tTrig) ? tTrig : null;
+
+          stageBeaconValues.status_single_company_mode = Boolean(singleCompanyMode);
+          stageBeaconValues.status_resume_cycle_count = currentCycleCount;
+
+          // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
+          const preTriggerCap = Boolean(singleCompanyMode && resume_needed && currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE);
+
+          const forceDecision = preTriggerCap
+            ? { force: true, reason: "max_cycles_pre_trigger" }
+            : shouldForceTerminalizeSingle({
+                single: singleCompanyMode,
+                resume_needed,
+                resume_status: resumeStatus,
+                resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
+                resume_doc_updated_at: resumeUpdatedAtIso,
+                resume_last_triggered_at: resumeLastTriggeredAtIso,
+                resume_stuck_ms: resumeStuckQueuedMs,
+              });
+
+          if (forceDecision.force) {
+            const forcedAt = nowIso();
+            stageBeaconValues.status_resume_forced_terminalize_single = forcedAt;
+            stageBeaconValues.status_resume_forced_terminalize_reason = forceDecision.reason;
+            stageBeaconValues.status_force_terminalize_reason = forceDecision.reason;
+            stageBeaconValues.status_resume_terminal_only = forcedAt;
+
+            const savedIdsForTerminalize = Array.from(
+              new Set(
+                [
+                  ...(Array.isArray(sessionDocForPolicy?.saved_company_ids_verified)
+                    ? sessionDocForPolicy.saved_company_ids_verified
+                    : []),
+                  ...(Array.isArray(sessionDocForPolicy?.saved_company_ids_unverified)
+                    ? sessionDocForPolicy.saved_company_ids_unverified
+                    : []),
+                ]
+                  .map((v) => String(v || "").trim())
+                  .filter(Boolean)
+              )
+            ).slice(0, 25);
+
+            const fallbackIds =
+              savedIdsForTerminalize.length > 0
+                ? savedIdsForTerminalize
+                : Array.isArray(saved_companies) && saved_companies[0]?.company_id
+                  ? [String(saved_companies[0].company_id).trim()]
+                  : [];
+
+            const fullDocs = fallbackIds.length > 0
+              ? await fetchCompaniesByIdsFull(container, fallbackIds).catch(() => [])
+              : [];
+
+            for (const doc of fullDocs) {
+              const next = forceTerminalizeCompanyDocForSingle(doc);
+              await upsertDoc(container, next).catch(() => null);
+            }
+
+            const resumeDocId = `_import_resume_${sessionId}`;
+            const resumeDocForWrite = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+            if (resumeDocForWrite && typeof resumeDocForWrite === "object") {
+              await upsertDoc(container, {
+                ...resumeDocForWrite,
+                status: "complete",
+                lock_expires_at: null,
+                missing_by_company: [],
+                forced_terminalized_at: forcedAt,
+                forced_terminalized_reason: forceDecision.reason,
+                updated_at: forcedAt,
+              }).catch(() => null);
+            }
+
+            if (sessionDocForPolicy && typeof sessionDocForPolicy === "object") {
+              await upsertDoc(container, {
+                ...sessionDocForPolicy,
+                resume_needed: false,
+                resume_error: null,
+                resume_error_details: null,
+                resume_cycle_count: currentCycleCount + 1,
+                resume_last_triggered_at: forcedAt,
+                status: "complete",
+                stage_beacon: "status_resume_terminal_only",
+                resume_terminal_only: true,
+                resume_terminalized_at: forcedAt,
+                resume_terminalized_reason: forceDecision.reason,
+                updated_at: forcedAt,
+              }).catch(() => null);
+            }
+
+            resume_needed = false;
+            resumeStatus = "complete";
+            resume_status = "complete";
+            canTrigger = false;
+          }
+        } catch {}
 
         if (
           canTrigger &&
@@ -2499,6 +3172,8 @@ async function handler(req, context) {
               await upsertDoc(container, {
                 ...sessionDocForTrigger,
                 resume_worker_last_triggered_at: triggerAttemptAt,
+                resume_last_triggered_at: triggerAttemptAt,
+                resume_cycle_count: (Number(sessionDocForTrigger?.resume_cycle_count || 0) || 0) + 1,
                 resume_worker_last_trigger_request_id: workerRequest.request_id || null,
                 resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
                 updated_at: nowIso(),
@@ -2546,7 +3221,37 @@ async function handler(req, context) {
           }
 
           const responseOk = workerJson && typeof workerJson === "object" ? workerJson.ok : null;
-          const triggerOk = Boolean(workerRes?.ok) && responseOk !== false;
+
+          const bodySessionId = workerJson && typeof workerJson === "object"
+            ? String(workerJson.session_id || workerJson.sessionId || "").trim()
+            : "";
+
+          const enteredAtFromBody = workerJson && typeof workerJson === "object"
+            ? String(
+                workerJson.handler_entered_at ||
+                  workerJson.worker_entered_at ||
+                  workerJson.handler_entered_at_iso ||
+                  workerJson.worker_entered_at_iso ||
+                  ""
+              ).trim()
+            : "";
+
+          const enteredTs = Date.parse(enteredAtFromBody) || 0;
+          const attemptTs = Date.parse(String(triggerAttemptAt || "")) || 0;
+          const enteredSameSecond = Boolean(enteredTs && attemptTs) && Math.floor(enteredTs / 1000) === Math.floor(attemptTs / 1000);
+          const enteredAfterAttempt = Boolean(enteredTs && attemptTs) && enteredTs >= attemptTs;
+          const enteredTimeOk = enteredAfterAttempt || enteredSameSecond;
+
+          const strongTriggerOk =
+            Boolean(workerRes?.ok) &&
+            responseOk !== false &&
+            Boolean(bodySessionId) &&
+            bodySessionId === sessionId &&
+            Boolean(enteredAtFromBody) &&
+            enteredTimeOk;
+
+          const triggerNoopOrNoEnter = Boolean(workerRes?.ok) && responseOk !== false && !strongTriggerOk;
+          const triggerOk = strongTriggerOk;
 
           resume_triggered = triggerOk;
 
@@ -2563,6 +3268,13 @@ async function handler(req, context) {
                     ok: responseOk !== false,
                     stage_beacon: typeof workerJson.stage_beacon === "string" ? workerJson.stage_beacon : null,
                     resume_needed: typeof workerJson.resume_needed === "boolean" ? workerJson.resume_needed : null,
+                    session_id: bodySessionId || null,
+                    handler_entered_at: enteredAtFromBody || null,
+                    did_work: typeof workerJson.did_work === "boolean" ? workerJson.did_work : null,
+                    did_work_reason:
+                      typeof workerJson.did_work_reason === "string" && workerJson.did_work_reason.trim()
+                        ? workerJson.did_work_reason.trim()
+                        : null,
                     error:
                       (typeof workerJson.error === "string" && workerJson.error.trim() ? workerJson.error.trim() : null) ||
                       (typeof workerJson.root_cause === "string" && workerJson.root_cause.trim() ? workerJson.root_cause.trim() : null) ||
@@ -2575,18 +3287,21 @@ async function handler(req, context) {
 
           if (!triggerOk) {
             const baseErr =
-              (workerJson && typeof workerJson === "object" && typeof workerJson.error === "string" && workerJson.error.trim()
-                ? workerJson.error.trim()
-                : null) ||
-              (workerJson && typeof workerJson === "object" && typeof workerJson.root_cause === "string" && workerJson.root_cause.trim()
-                ? workerJson.root_cause.trim()
-                : null) ||
-              workerRes?._error?.message ||
-              `resume_worker_http_${statusCode}`;
+              triggerNoopOrNoEnter
+                ? "resume_worker_trigger_noop_or_no_enter"
+                : (workerJson && typeof workerJson === "object" && typeof workerJson.error === "string" && workerJson.error.trim()
+                    ? workerJson.error.trim()
+                    : null) ||
+                  (workerJson && typeof workerJson === "object" && typeof workerJson.root_cause === "string" && workerJson.root_cause.trim()
+                    ? workerJson.root_cause.trim()
+                    : null) ||
+                  workerRes?._error?.message ||
+                  `resume_worker_http_${statusCode}`;
 
             resume_trigger_error = watchdog_stuck_queued ? "resume_worker_stuck_or_trigger_failed" : baseErr;
             resume_trigger_error_details = {
               ...triggerResult,
+              response_body: workerJson && typeof workerJson === "object" ? workerJson : null,
               response_text_preview: preview || null,
               watchdog: watchdog_stuck_queued
                 ? {
@@ -2804,9 +3519,18 @@ async function handler(req, context) {
         reconciled,
           reconcile_strategy,
           reconciled_saved_ids,
-          saved_companies,
-          resume_needed,
-          resume: {
+        saved_companies,
+        resume_needed,
+        resume_cycle_count:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+            : 0,
+        resume_last_triggered_at:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+            : null,
+        max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+        resume: {
           needed: resume_needed,
           status: resume_status || null,
             doc_created: Boolean(report?.resume) || resume_doc_created,
@@ -2816,6 +3540,16 @@ async function handler(req, context) {
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
+          cycle_count:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+              : null,
+          max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          last_triggered_at:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+              : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -2832,6 +3566,13 @@ async function handler(req, context) {
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
               last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || null,
+              last_trigger_ok:
+                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean" ? sessionDoc.resume_worker_last_trigger_ok : null,
+              last_trigger_http_status:
+                typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
+                  ? sessionDoc.resume_worker_last_trigger_http_status
+                  : null,
               last_gateway_key_attached:
                 typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
                   ? sessionDoc.resume_worker_last_gateway_key_attached
@@ -2962,6 +3703,13 @@ async function handler(req, context) {
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
               last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || null,
+              last_trigger_ok:
+                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean" ? sessionDoc.resume_worker_last_trigger_ok : null,
+              last_trigger_http_status:
+                typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
+                  ? sessionDoc.resume_worker_last_trigger_http_status
+                  : null,
               last_gateway_key_attached:
                 typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
                   ? sessionDoc.resume_worker_last_gateway_key_attached
@@ -3037,9 +3785,18 @@ async function handler(req, context) {
         reconciled,
           reconcile_strategy,
           reconciled_saved_ids,
-          saved_companies,
-          resume_needed,
-          resume: {
+        saved_companies,
+        resume_needed,
+        resume_cycle_count:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+            : 0,
+        resume_last_triggered_at:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+            : null,
+        max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+        resume: {
           needed: resume_needed,
           status: resume_status || null,
             doc_created: Boolean(report?.resume) || resume_doc_created,
@@ -3049,6 +3806,16 @@ async function handler(req, context) {
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
+          cycle_count:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+              : null,
+          max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          last_triggered_at:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+              : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -3065,6 +3832,13 @@ async function handler(req, context) {
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
               last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || null,
+              last_trigger_ok:
+                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean" ? sessionDoc.resume_worker_last_trigger_ok : null,
+              last_trigger_http_status:
+                typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
+                  ? sessionDoc.resume_worker_last_trigger_http_status
+                  : null,
               last_gateway_key_attached:
                 typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
                   ? sessionDoc.resume_worker_last_gateway_key_attached
@@ -3128,6 +3902,15 @@ async function handler(req, context) {
         reconciled_saved_ids,
         saved_companies,
         resume_needed,
+        resume_cycle_count:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+            : 0,
+        resume_last_triggered_at:
+          (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+            ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+            : null,
+        max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
         resume: {
           needed: resume_needed,
           status: resume_status || null,
@@ -3138,6 +3921,16 @@ async function handler(req, context) {
           gateway_key_attached: Boolean(resume_gateway_key_attached),
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
+          cycle_count:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+              : null,
+          max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
+          last_triggered_at:
+            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+              ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+              : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -3154,6 +3947,13 @@ async function handler(req, context) {
               last_http_status:
                 typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
               last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
+              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || null,
+              last_trigger_ok:
+                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean" ? sessionDoc.resume_worker_last_trigger_ok : null,
+              last_trigger_http_status:
+                typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
+                  ? sessionDoc.resume_worker_last_trigger_http_status
+                  : null,
               last_gateway_key_attached:
                 typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
                   ? sessionDoc.resume_worker_last_gateway_key_attached
