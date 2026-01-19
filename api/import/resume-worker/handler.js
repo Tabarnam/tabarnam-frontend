@@ -395,7 +395,20 @@ async function fetchCompaniesByIds(container, ids) {
 async function resumeWorkerHandler(req, context) {
   const method = String(req?.method || "").toUpperCase();
   if (method === "OPTIONS") return { status: 200, headers: cors(req) };
-  if (method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405, req);
+  if (method !== "POST") {
+    return json(
+      {
+        ok: false,
+        session_id: null,
+        handler_entered_at: nowIso(),
+        did_work: false,
+        did_work_reason: "method_not_allowed",
+        error: "Method not allowed",
+      },
+      405,
+      req
+    );
+  }
 
   const url = new URL(req.url);
   const noCosmosMode = String(url.searchParams.get("no_cosmos") || "").trim() === "1";
