@@ -196,47 +196,34 @@ function shouldForceTerminalizeSingle({
 
 function forceTerminalizeCompanyDocForSingle(doc) {
   const d = doc && typeof doc === "object" ? { ...doc } : {};
+
   d.import_missing_reason ||= {};
+  d.import_attempts ||= {};
 
-  const missing = Array.isArray(computeEnrichmentHealthContract(d)?.missing_fields)
-    ? computeEnrichmentHealthContract(d).missing_fields
-    : [];
+  // industries
+  d.industries = ["Unknown"];
+  d.import_missing_reason.industries = "exhausted";
 
-  const missingSet = new Set(missing);
+  // tagline
+  d.tagline = "Unknown";
+  d.import_missing_reason.tagline = "exhausted";
 
-  if (missingSet.has("industries")) {
-    d.industries = ["Unknown"];
-    d.import_missing_reason.industries = "exhausted";
-  }
-
-  if (missingSet.has("product_keywords")) {
+  // product_keywords
+  if (!d.product_keywords || d.product_keywords === "Unknown") {
     d.product_keywords = "Unknown";
-    d.import_missing_reason.product_keywords = "exhausted";
   }
+  d.import_missing_reason.product_keywords = d.import_missing_reason.product_keywords || "exhausted";
 
-  // Tagline isn't part of the required-fields missing set, but make it deterministic anyway.
-  if (!String(d.tagline || "").trim() || normalizeKey(d.tagline) === "unknown") {
-    d.tagline = "Unknown";
-    d.import_missing_reason.tagline = d.import_missing_reason.tagline || "exhausted";
-  }
+  // reviews
+  d.reviews_stage_status = "exhausted";
+  d.review_cursor = d.review_cursor && typeof d.review_cursor === "object" ? d.review_cursor : {};
+  d.review_cursor.exhausted = true;
+  d.import_missing_reason.reviews = "exhausted";
 
-  if (missingSet.has("logo")) {
-    if (!String(d.logo_stage_status || "").trim()) d.logo_stage_status = "missing";
+  // logo (do not retry forever)
+  if (!d.logo_url) {
+    d.logo_stage_status = d.logo_stage_status || "missing";
     d.import_missing_reason.logo = "exhausted";
-  }
-
-  if (missingSet.has("reviews")) {
-    d.curated_reviews = [];
-    d.review_count = typeof d.review_count === "number" ? d.review_count : 0;
-    d.reviews_stage_status = "exhausted";
-    const cursor = d.review_cursor && typeof d.review_cursor === "object" ? { ...d.review_cursor } : {};
-    d.review_cursor = {
-      ...cursor,
-      exhausted: true,
-      reviews_stage_status: "exhausted",
-      exhausted_at: cursor.exhausted_at || nowIso(),
-    };
-    d.import_missing_reason.reviews = "exhausted";
   }
 
   // Keep required-fields meta consistent.
