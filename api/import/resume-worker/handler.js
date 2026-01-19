@@ -51,8 +51,26 @@ function cors(req) {
 }
 
 function json(obj, status = 200, req) {
+  const siteName = String(process.env.WEBSITE_SITE_NAME || "unknown_site");
+  const buildId =
+    String(
+      process.env.BUILD_ID ||
+        process.env.VERCEL_GIT_COMMIT_SHA ||
+        process.env.GITHUB_SHA ||
+        BUILD_INFO.build_id ||
+        "unknown_build"
+    ) || "unknown_build";
+
   const payload = obj && typeof obj === "object" && !Array.isArray(obj)
-    ? { ...obj, build_id: obj.build_id || String(BUILD_INFO.build_id || "") }
+    ? {
+        ...obj,
+        handler_id: HANDLER_ID,
+        handler_version: siteName,
+        site_name: siteName,
+        site_hostname: String(process.env.WEBSITE_HOSTNAME || BUILD_INFO?.runtime?.website_hostname || ""),
+        build_id: obj.build_id || buildId,
+        build_id_source: obj.build_id_source || BUILD_INFO.build_id_source || null,
+      }
     : obj;
 
   return {
