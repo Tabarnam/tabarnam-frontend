@@ -4500,26 +4500,6 @@ export default function AdminImport() {
                                   variant="outline"
                                   size="sm"
                                   className="h-8"
-                                  disabled={!resumeDebugText}
-                                  onClick={async () => {
-                                    if (!resumeDebugText) return;
-                                    try {
-                                      await navigator.clipboard.writeText(resumeDebugText);
-                                      toast.success("Resume debug copied");
-                                    } catch {
-                                      toast.error("Could not copy");
-                                    }
-                                  }}
-                                >
-                                  <Copy className="h-4 w-4 mr-2" />
-                                  Copy debug
-                                </Button>
-
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8"
                                   disabled={!resumeDebugPayload}
                                   onClick={() => {
                                     if (!resumeDebugPayload) return;
