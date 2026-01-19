@@ -3964,6 +3964,11 @@ async function handler(req, context) {
       else {
         out.completed = true;
         out.terminal_only = false;
+
+        out.resume_needed = false;
+        out.resume = out.resume || {};
+        out.resume.needed = false;
+        out.resume.status = out.resume.status || "complete";
       }
 
       return jsonWithSessionId(out, 200, req);
