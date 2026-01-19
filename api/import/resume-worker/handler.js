@@ -406,20 +406,26 @@ function terminalizeNonGrokField(doc, field, reason) {
 
   const f = normalizeKey(field);
 
+  // Robustness rule: never write placeholder strings like "Unknown" into canonical fields.
+  // Keep canonical fields empty/unset and encode missingness via *_unknown flags + import_missing_reason.
   if (f === "industries") {
-    doc.industries = ["Unknown"];
+    doc.industries = [];
+    doc.industries_unknown = true;
     doc.import_missing_reason.industries = reason;
     return;
   }
 
   if (f === "tagline") {
-    doc.tagline = "Unknown";
+    doc.tagline = "";
+    doc.tagline_unknown = true;
     doc.import_missing_reason.tagline = reason;
     return;
   }
 
   if (f === "product_keywords") {
-    doc.product_keywords = "Unknown";
+    doc.product_keywords = "";
+    if (!Array.isArray(doc.keywords)) doc.keywords = [];
+    doc.product_keywords_unknown = true;
     doc.import_missing_reason.product_keywords = reason;
     return;
   }
