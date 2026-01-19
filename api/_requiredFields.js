@@ -114,6 +114,35 @@ const INDUSTRY_CANONICAL_MAP = [
   { match: ["food", "beverage", "snack"], canonical: "Food & Beverage" },
 ];
 
+function isPlausibleIndustryCandidate(key, raw) {
+  const k = normalizeKey(key);
+  const s = asString(raw).trim();
+  if (!k) return false;
+  if (!s) return false;
+
+  if (PLACEHOLDER_STRINGS.has(k)) return false;
+  if (SENTINEL_STRINGS.has(k)) return false;
+
+  // Avoid UI crumbs / weird tokens.
+  if (/https?:\/\//i.test(s)) return false;
+  if (/[<>|{}]/.test(s)) return false;
+
+  const words = k.split(/\s+/g).filter(Boolean);
+  if (words.length === 0 || words.length > 5) return false;
+
+  // Keep reasonable length.
+  if (k.length < 3 || k.length > 50) return false;
+
+  // Must contain letters.
+  if (!/[a-z]/i.test(k)) return false;
+
+  // Reject pure numbers / heavy digits.
+  const digitCount = (k.match(/\d/g) || []).length;
+  if (digitCount > 2) return false;
+
+  return true;
+}
+
 function sanitizeIndustries(value) {
   const raw = normalizeStringArray(value)
     .map(asMeaningfulString)
@@ -135,8 +164,12 @@ function sanitizeIndustries(value) {
     const mapped = INDUSTRY_CANONICAL_MAP.find((m) => m.match.some((tok) => key.includes(normalizeKey(tok))));
     const candidate = mapped ? mapped.canonical : toTitleCase(item);
 
-    // As a fallback, accept values that match the allowlist keywords.
-    const allow = mapped || INDUSTRY_ALLOWLIST.some((t) => key.includes(normalizeKey(t)));
+    // As a fallback, accept values that match the allowlist keywords OR are plausible "industry-like" terms.
+    const allow =
+      Boolean(mapped) ||
+      INDUSTRY_ALLOWLIST.some((t) => key.includes(normalizeKey(t))) ||
+      isPlausibleIndustryCandidate(key, item);
+
     if (!allow) continue;
 
     const candidateKey = normalizeKey(candidate);
@@ -548,34 +581,25 @@ function deriveMissingReason(doc, field) {
   const d = doc && typeof doc === "object" ? doc : {};
   const f = String(field || "").trim();
 
-  // IMPORTANT: terminal sentinel values MUST override any stale stored reasons.
-  // This is required to prevent resume-needed from staying true forever when we already
-  // concluded a field is terminal (e.g. "Not disclosed" or reviews exhausted).
+  // IMPORTANT: "Not disclosed" should only be treated as terminal when it is explicitly confirmed.
+  // Otherwise, it can be a premature placeholder that would incorrectly stop Grok retries.
   if (f === "headquarters_location") {
-    const val = normalizeKey(d.headquarters_location);
-    if (val === "not disclosed" || val === "not_disclosed") return "not_disclosed";
+    const reason =
+      normalizeKey(d?.import_missing_reason?.headquarters_location) ||
+      normalizeKey(d?.hq_unknown_reason) ||
+      "";
+
+    if (reason === "not_disclosed") return "not_disclosed";
   }
 
   if (f === "manufacturing_locations") {
-    const rawList = Array.isArray(d.manufacturing_locations)
-      ? d.manufacturing_locations
-      : d.manufacturing_locations == null
-        ? []
-        : [d.manufacturing_locations];
+    const reason =
+      normalizeKey(d?.import_missing_reason?.manufacturing_locations) ||
+      normalizeKey(d?.mfg_unknown_reason) ||
+      normalizeKey(d?.manufacturing_locations_reason) ||
+      "";
 
-    const normalized = rawList
-      .map((loc) => {
-        if (typeof loc === "string") return normalizeKey(loc);
-        if (loc && typeof loc === "object") {
-          return normalizeKey(loc.formatted || loc.full_address || loc.address || loc.location);
-        }
-        return "";
-      })
-      .filter(Boolean);
-
-    if (normalized.length > 0 && normalized.every((v) => v === "not disclosed" || v === "not_disclosed")) {
-      return "not_disclosed";
-    }
+    if (reason === "not_disclosed") return "not_disclosed";
   }
 
   if (f === "reviews") {
