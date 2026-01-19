@@ -2807,8 +2807,23 @@ async function verifySavedCompaniesReadAfterWrite(saveResult) {
           partition_key: normalizedDomain,
         }).catch(() => null);
 
-        const missingFields = Array.isArray(doc?.import_missing_fields) ? doc.import_missing_fields : [];
-        const complete = Boolean(doc) && missingFields.length === 0;
+        const companyName = String(doc?.company_name || doc?.name || "").trim();
+        const websiteUrlRaw = String(doc?.website_url || doc?.url || doc?.canonical_url || "").trim();
+
+        const hasWorkingWebsite = (() => {
+          if (!websiteUrlRaw) return false;
+          const lowered = websiteUrlRaw.toLowerCase();
+          if (lowered === "unknown" || lowered === "n/a" || lowered === "na") return false;
+          try {
+            const u = websiteUrlRaw.includes("://") ? new URL(websiteUrlRaw) : new URL(`https://${websiteUrlRaw}`);
+            const host = String(u.hostname || "").toLowerCase();
+            return Boolean(host && host.includes("."));
+          } catch {
+            return false;
+          }
+        })();
+
+        const complete = Boolean(doc) && Boolean(companyName) && hasWorkingWebsite;
 
         return { companyId, ok: Boolean(doc), complete };
       })
