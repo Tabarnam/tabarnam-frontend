@@ -792,6 +792,96 @@ async function resumeWorkerHandler(req, context) {
     }
   }
 
+  // Forced terminalization path (status-driven) for single-company deterministic completion.
+  if (forceTerminalizeSingle && seedDocs.length > 0) {
+    const updatedAt = nowIso();
+
+    for (const doc of seedDocs) {
+      if (!doc || typeof doc !== "object") continue;
+      forceTerminalizeNonGrokFields(doc);
+      doc.import_missing_fields = computeMissingFields(doc);
+      doc.updated_at = updatedAt;
+      await upsertDoc(container, doc).catch(() => null);
+    }
+
+    await upsertDoc(container, {
+      ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+      id: resumeDocId,
+      session_id: sessionId,
+      normalized_domain: "import",
+      partition_key: "import",
+      type: "import_control",
+      status: "complete",
+      missing_by_company: [],
+      last_trigger_result: {
+        ok: true,
+        status: 200,
+        stage_beacon: "status_resume_terminal_only",
+        resume_needed: false,
+        forced_terminalize_single: true,
+      },
+      lock_expires_at: null,
+      updated_at: updatedAt,
+    }).catch(() => null);
+
+    await bestEffortPatchSessionDoc({
+      container,
+      sessionId,
+      patch: {
+        resume_needed: false,
+        status: "complete",
+        stage_beacon: "status_resume_terminal_only",
+        resume_terminal_only: true,
+        resume_terminalized_at: updatedAt,
+        resume_terminalized_reason: "forced_terminalize_single",
+        updated_at: updatedAt,
+      },
+    }).catch(() => null);
+
+    return json(
+      {
+        ok: true,
+        session_id: sessionId,
+        handler_entered_at,
+        did_work: true,
+        did_work_reason: "forced_terminalize_single",
+        resume_needed: false,
+        forced_terminalize_single: true,
+      },
+      200,
+      req
+    );
+  }
+
+  // Low-quality non-Grok fields (industries/product_keywords/tagline) must not be retryable forever.
+  // Convert "low_quality" to terminal after a small number of attempts.
+  if (seedDocs.length > 0) {
+    const lowQualityFields = ["industries", "product_keywords", "tagline"];
+
+    for (const doc of seedDocs) {
+      if (!doc || typeof doc !== "object") continue;
+
+      let changed = false;
+
+      for (const field of lowQualityFields) {
+        const reason = normalizeKey(deriveMissingReason(doc, field));
+        if (reason !== "low_quality") continue;
+
+        bumpFieldAttempt(doc, field, requestId);
+        if (attemptsFor(doc, field) >= NON_GROK_LOW_QUALITY_MAX_ATTEMPTS) {
+          terminalizeNonGrokField(doc, field, "low_quality_terminal");
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        doc.import_missing_fields = computeMissingFields(doc);
+        doc.updated_at = nowIso();
+        await upsertDoc(container, doc).catch(() => null);
+      }
+    }
+  }
+
   // Grok-only enrichment pass for HQ/MFG/Reviews.
   // This must run before import-start, and import-start must always skip reviews/location.
   const startedEnrichmentAt = Date.now();
