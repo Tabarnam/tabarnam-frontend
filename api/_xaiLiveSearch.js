@@ -60,11 +60,16 @@ async function xaiLiveSearch({
   maxTokens = 900,
   timeoutMs = 12000,
   attempt = 0,
-  model = "grok-2-latest",
+  model = process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest",
   xaiUrl,
   xaiKey,
   search_parameters,
 } = {}) {
+  const configuredModel = asString(
+    process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || ""
+  ).trim();
+  const resolvedModel = asString(model).trim() || configuredModel || "grok-4-latest";
+
   const isNodeTestRunner =
     (Array.isArray(process.execArgv) && process.execArgv.includes("--test")) ||
     (Array.isArray(process.argv) && process.argv.includes("--test"));
@@ -75,13 +80,26 @@ async function xaiLiveSearch({
       error: "test_mode_xai_disabled",
       details: {
         reason: "node_test_runner",
-        model: asString(model).trim() || "grok-2-latest",
+        model: resolvedModel,
       },
     };
   }
+
+  if (!configuredModel) {
+    return {
+      ok: false,
+      error: "XAI_CHAT_MODEL_MISSING",
+      details: {
+        has_XAI_SEARCH_MODEL: Boolean(asString(process.env.XAI_SEARCH_MODEL).trim()),
+        has_XAI_CHAT_MODEL: Boolean(asString(process.env.XAI_CHAT_MODEL).trim()),
+        has_XAI_MODEL: Boolean(asString(process.env.XAI_MODEL).trim()),
+      },
+    };
+  }
+
   const resolvedBase = asString(xaiUrl).trim() || asString(getXAIEndpoint()).trim();
   const key = asString(xaiKey).trim() || asString(getXAIKey()).trim();
-  const url = resolveXaiEndpointForModel(resolvedBase, model);
+  const url = resolveXaiEndpointForModel(resolvedBase, resolvedModel);
 
   if (!url || !key) {
     return {
@@ -99,7 +117,7 @@ async function xaiLiveSearch({
 
   try {
     const payload = {
-      model: asString(model).trim() || "grok-2-latest",
+      model: resolvedModel,
       messages: [{ role: "user", content: asString(prompt) }],
       max_tokens: Math.max(1, Math.trunc(Number(maxTokens) || 900)),
       temperature: 0.2,
