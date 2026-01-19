@@ -1053,7 +1053,8 @@ async function resumeWorkerHandler(req, context) {
     if (reconcileGrokTerminalState(doc)) changed = true;
 
     // Tagline (Grok authoritative)
-    if (missingNow.includes("tagline")) {
+    const taglineRetryable = !isRealValue("tagline", doc.tagline, doc) && !isTerminalMissingField(doc, "tagline");
+    if (taglineRetryable) {
       const bumped = bumpFieldAttempt(doc, "tagline", requestId);
       if (bumped) changed = true;
 
