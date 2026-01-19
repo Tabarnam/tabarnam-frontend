@@ -828,6 +828,93 @@ async function upsertDoc(container, doc) {
   return { ok: false, error: lastErr?.message || String(lastErr || "upsert_failed") };
 }
 
+async function persistResumeBlocked(container, {
+  sessionId,
+  forcedAt,
+  errorCode,
+  details,
+  forcedBy,
+  message,
+}) {
+  if (!container) return { ok: false, error: "no_container" };
+  const sid = String(sessionId || "").trim();
+  if (!sid) return { ok: false, error: "missing_session_id" };
+
+  const stamp = String(forcedAt || nowIso()).trim() || nowIso();
+
+  const sessionDocId = `_import_session_${sid}`;
+  const resumeDocId = `_import_resume_${sid}`;
+
+  const sessionDoc = await readControlDoc(container, sessionDocId, sid).catch(() => null);
+  const resumeDoc = await readControlDoc(container, resumeDocId, sid).catch(() => null);
+
+  const mergedDetails = {
+    ...(details && typeof details === "object" ? details : {}),
+    blocked_at: (details && typeof details === "object" && details.blocked_at) ? details.blocked_at : stamp,
+    forced_by: (details && typeof details === "object" && details.forced_by) ? details.forced_by : (forcedBy || null),
+  };
+
+  const sessionWrite = {
+    ...(sessionDoc && typeof sessionDoc === "object"
+      ? sessionDoc
+      : {
+          id: sessionDocId,
+          session_id: sid,
+          normalized_domain: "import",
+          partition_key: "import",
+          type: "import_control",
+          status: "running",
+          stage_beacon: "enrichment_resume_blocked",
+          created_at: stamp,
+        }),
+    resume_needed: true,
+    resume_error: errorCode,
+    resume_error_details: mergedDetails,
+    // Keep the overall session status non-terminal; it is blocked due to retryable missing fields.
+    status: sessionDoc && typeof sessionDoc?.status === "string" && sessionDoc.status.trim() === "complete" ? "running" : (sessionDoc?.status || "running"),
+    stage_beacon: "enrichment_resume_blocked",
+    updated_at: stamp,
+  };
+
+  const resumeWrite = {
+    ...(resumeDoc && typeof resumeDoc === "object"
+      ? resumeDoc
+      : {
+          id: resumeDocId,
+          session_id: sid,
+          normalized_domain: "import",
+          partition_key: "import",
+          type: "import_control",
+          created_at: stamp,
+        }),
+    status: "blocked",
+    resume_error: errorCode,
+    resume_error_details: mergedDetails,
+    blocked_at: stamp,
+    blocked_reason: forcedBy || null,
+    last_error: {
+      code: errorCode,
+      message: String(message || "Resume blocked"),
+      ...mergedDetails,
+    },
+    lock_expires_at: null,
+    updated_at: stamp,
+  };
+
+  const [sessionRes, resumeRes] = await Promise.all([
+    upsertDoc(container, sessionWrite).catch((e) => ({ ok: false, error: e?.message || String(e) })),
+    upsertDoc(container, resumeWrite).catch((e) => ({ ok: false, error: e?.message || String(e) })),
+  ]);
+
+  return {
+    ok: Boolean(sessionRes?.ok) && Boolean(resumeRes?.ok),
+    session: sessionRes,
+    resume: resumeRes,
+    session_doc_id: sessionDocId,
+    resume_doc_id: resumeDocId,
+  };
+}
+
 async function fetchAuthoritativeSavedCompanies(container, { sessionId, sessionCreatedAt, normalizedDomain, createdAfter, limit = 200 }) {
   if (!container) return [];
   const n = Math.max(0, Math.min(Number(limit) || 0, 200));
