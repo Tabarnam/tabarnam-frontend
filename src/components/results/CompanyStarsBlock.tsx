@@ -32,6 +32,10 @@ export function CompanyStarsBlock({ company }: { company: CompanyLike }) {
 
   const score = getQQScore(company);
   const filled = getQQFilledCount(company);
+  const scoreLabel = (() => {
+    if (Math.abs(score - Math.round(score)) < 1e-9) return String(Math.round(score));
+    return score.toFixed(2).replace(/\.00$/, "").replace(/(\.[0-9])0$/, "$1");
+  })();
   const starIcons = getQQStarIcons(company);
 
   const publicNotes: StarSignals["notes"] = [];
@@ -79,7 +83,7 @@ export function CompanyStarsBlock({ company }: { company: CompanyLike }) {
   return (
     <div className="flex items-center gap-2 justify-end">
       <Stars bundle={bundle} notes={notesToUse} size={18} starIcons={starIcons} />
-      <span className="text-sm text-slate-600">{filled}/5</span>
+      <span className="text-sm text-slate-600">{scoreLabel}/5</span>
     </div>
   );
 }
