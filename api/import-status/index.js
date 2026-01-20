@@ -1568,7 +1568,10 @@ async function handler(req, context) {
         let resumeStatus = resumeStatusRaw;
 
         // Blocked should win over queued even if only the session control doc was persisted.
-        const sessionBeaconRaw = typeof sessionDoc?.stage_beacon === "string" ? sessionDoc.stage_beacon.trim() : "";
+        const sessionBeaconRaw =
+          typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc.stage_beacon === "string"
+            ? sessionDoc.stage_beacon.trim()
+            : "";
         if (!forceResume && sessionBeaconRaw === "enrichment_resume_blocked") {
           resumeStatus = "blocked";
         }
