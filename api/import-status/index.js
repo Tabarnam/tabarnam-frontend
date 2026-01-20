@@ -3129,7 +3129,8 @@ async function handler(req, context) {
         missing_fields: c.enrichment_health.missing_fields,
       }));
 
-    const resumeDocStatus = typeof resumeDoc?.status === "string" ? resumeDoc.status.trim() : "";
+    const resumeDocStatus =
+      typeof resumeDoc !== "undefined" && resumeDoc && typeof resumeDoc.status === "string" ? resumeDoc.status.trim() : "";
     const forceTerminalComplete = resumeDocStatus === "complete" && resumeMissingAnalysis.total_retryable_missing === 0;
 
     // Terminal-only missing fields must not keep the session "running".
