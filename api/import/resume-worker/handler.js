@@ -1380,7 +1380,7 @@ async function resumeWorkerHandler(req, context) {
     }
 
     // Industries (Grok authoritative)
-    if (missingNow.includes("industries")) {
+    if (missingNow.includes("industries") && shouldRunField("industries")) {
       const bumped = bumpFieldAttempt(doc, "industries", requestId);
       if (bumped) changed = true;
 
@@ -1453,7 +1453,7 @@ async function resumeWorkerHandler(req, context) {
     }
 
     // Product keywords (Grok authoritative)
-    if (missingNow.includes("product_keywords")) {
+    if (missingNow.includes("product_keywords") && shouldRunField("product_keywords")) {
       const bumped = bumpFieldAttempt(doc, "product_keywords", requestId);
       if (bumped) changed = true;
 
@@ -1534,7 +1534,7 @@ async function resumeWorkerHandler(req, context) {
     }
 
     // HQ
-    if (missingNow.includes("headquarters_location")) {
+    if (missingNow.includes("headquarters_location") && shouldRunField("headquarters_location")) {
       const bumped = bumpFieldAttempt(doc, "headquarters_location", requestId);
       if (bumped) changed = true;
 
@@ -1612,7 +1612,7 @@ async function resumeWorkerHandler(req, context) {
     }
 
     // MFG
-    if (missingNow.includes("manufacturing_locations")) {
+    if (missingNow.includes("manufacturing_locations") && shouldRunField("manufacturing_locations")) {
       const bumped = bumpFieldAttempt(doc, "manufacturing_locations", requestId);
       if (bumped) changed = true;
 
@@ -1693,7 +1693,7 @@ async function resumeWorkerHandler(req, context) {
     }
 
     // Reviews
-    if (missingNow.includes("reviews")) {
+    if (missingNow.includes("reviews") && shouldRunField("reviews")) {
       const bumped = bumpFieldAttempt(doc, "reviews", requestId);
       if (bumped) changed = true;
 
