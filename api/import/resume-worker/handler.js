@@ -327,6 +327,34 @@ function reconcileGrokTerminalState(doc) {
   let changed = false;
   doc.import_missing_reason ||= {};
 
+  // Placeholder hygiene: never persist "Unknown" as a canonical value for retryable fields.
+  // It should stay missing (empty) and be represented via *_unknown flags + import_missing_reason.
+  const industriesList = Array.isArray(doc.industries) ? doc.industries : [];
+  if (
+    industriesList.length === 1 &&
+    normalizeKey(industriesList[0]) === "unknown" &&
+    !isTerminalMissingField(doc, "industries")
+  ) {
+    doc.industries = [];
+    doc.industries_unknown = true;
+    if (!doc.import_missing_reason.industries) {
+      doc.import_missing_reason.industries = normalizeKey(deriveMissingReason(doc, "industries")) || "not_found";
+    }
+    changed = true;
+  }
+
+  const productKeywordsRaw = typeof doc.product_keywords === "string" ? doc.product_keywords : "";
+  if (normalizeKey(productKeywordsRaw) === "unknown" && !isTerminalMissingField(doc, "product_keywords")) {
+    doc.product_keywords = "";
+    if (!Array.isArray(doc.keywords)) doc.keywords = [];
+    doc.product_keywords_unknown = true;
+    if (!doc.import_missing_reason.product_keywords) {
+      doc.import_missing_reason.product_keywords =
+        normalizeKey(deriveMissingReason(doc, "product_keywords")) || "not_found";
+    }
+    changed = true;
+  }
+
   const hqVal = normalizeKey(doc.headquarters_location);
   if (hqVal === "not disclosed" || hqVal === "not_disclosed") {
     const hqReason = normalizeKey(doc.import_missing_reason.headquarters_location || doc.hq_unknown_reason || "");
