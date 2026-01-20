@@ -1266,9 +1266,60 @@ async function resumeWorkerHandler(req, context) {
 
     if (reconcileGrokTerminalState(doc)) changed = true;
 
-    // Tagline (Grok authoritative)
+    const remainingRunMs = () => Math.max(0, deadlineMs - (Date.now() - startedEnrichmentAt));
+
+    // Field-level planning:
+    // - Avoid doing many missing fields per cycle when the worker has a fixed wall-clock budget.
+    // - Prefer HQ/MFG first, then reviews, then lighter metadata fields.
+    const MIN_REQUIRED_MS_BY_FIELD = {
+      reviews: 20_000 + 1_200,
+      headquarters_location: 12_000 + 1_200,
+      manufacturing_locations: 12_000 + 1_200,
+      tagline: 8_000 + 1_200,
+      industries: 8_000 + 1_200,
+      product_keywords: 8_000 + 1_200,
+    };
+
     const taglineRetryable = !isRealValue("tagline", doc.tagline, doc) && !isTerminalMissingField(doc, "tagline");
-    if (taglineRetryable) {
+
+    const fieldsPlanned = (() => {
+      const priority = [
+        "headquarters_location",
+        "manufacturing_locations",
+        "reviews",
+        "tagline",
+        "industries",
+        "product_keywords",
+      ];
+
+      const out = [];
+
+      for (const field of priority) {
+        if (field === "tagline") {
+          if (!taglineRetryable) continue;
+        } else {
+          if (!missingNow.includes(field)) continue;
+        }
+
+        const minRequired = Number(MIN_REQUIRED_MS_BY_FIELD[field]) || 0;
+        if (minRequired > 0) {
+          if (perDocBudgetMs < minRequired) continue;
+          if (remainingRunMs() < minRequired) continue;
+        }
+
+        out.push(field);
+
+        // Single-company mode should do less per cycle rather than slash timeouts.
+        if (singleCompanyMode && out.length >= 2) break;
+      }
+
+      return new Set(out);
+    })();
+
+    const shouldRunField = (field) => fieldsPlanned.has(field);
+
+    // Tagline (Grok authoritative)
+    if (taglineRetryable && shouldRunField("tagline")) {
       const bumped = bumpFieldAttempt(doc, "tagline", requestId);
       if (bumped) changed = true;
 
