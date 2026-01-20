@@ -1,5 +1,4 @@
 import * as React from "react";
-import * as React from "react";
 import { TAB_BLUE, TAB_BLUE_OUTLINE, clampRating } from "./RatingDots";
 
 function clamp01(v: number) {
