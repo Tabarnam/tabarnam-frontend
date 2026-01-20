@@ -1520,7 +1520,7 @@ async function handler(req, context) {
     let resume_gateway_key_attached = null;
     let resume_trigger_request_id = null;
 
-    let resume_status = null;
+    resume_status = null;
     // Resume-worker is invoked in-process (no internal HTTP call), so Azure gateway/host-key requirements
     // do not gate the resume trigger.
     const resumeStalledByGatewayAuth = false;
@@ -1566,6 +1566,15 @@ async function handler(req, context) {
         const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
 
         let resumeStatus = resumeStatusRaw;
+
+        // Blocked should win over queued even if only the session control doc was persisted.
+        const sessionBeaconRaw =
+          typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc.stage_beacon === "string"
+            ? sessionDoc.stage_beacon.trim()
+            : "";
+        if (!forceResume && sessionBeaconRaw === "enrichment_resume_blocked") {
+          resumeStatus = "blocked";
+        }
 
         if (resumeStalledByGatewayAuth) {
           const stalledAt = nowIso();
@@ -1687,6 +1696,8 @@ async function handler(req, context) {
             const errorCode = "resume_worker_stuck_queued_no_progress";
             const details = {
               forced_by: "watchdog_no_progress",
+              blocked_reason: "watchdog_no_progress",
+              blocked_code: errorCode,
               blocked_at: blockedAt,
               watchdog_fired_at: prevWatchdogAt,
               last_entered_at: lastEnteredAt,
@@ -1701,14 +1712,20 @@ async function handler(req, context) {
             resumeStatus = "blocked";
             canTrigger = false;
 
-            await persistResumeBlocked(container, {
+            const blockedPersist = await persistResumeBlocked(container, {
               sessionId,
               forcedAt: blockedAt,
               errorCode,
               details,
               forcedBy: "watchdog_no_progress",
               message: "Watchdog fired but resume-worker did not re-enter on subsequent poll",
-            }).catch(() => null);
+            }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+
+            stageBeaconValues.status_resume_blocked_persist_ok = Boolean(blockedPersist?.ok);
+            stageBeaconValues.status_resume_blocked_persist_error =
+              blockedPersist?.error || blockedPersist?.resume?.error || blockedPersist?.session?.error || null;
+            stageBeaconValues.status_resume_blocked_persist_session_doc_id = blockedPersist?.session_doc_id || null;
+            stageBeaconValues.status_resume_blocked_persist_resume_doc_id = blockedPersist?.resume_doc_id || null;
           } else if (
             prevWatchdogTs &&
             lastEnteredTs &&
@@ -1830,6 +1847,8 @@ async function handler(req, context) {
 
             const details = {
               forced_by: forceDecision.reason,
+              blocked_reason: forceDecision.reason,
+              blocked_code: errorCode,
               blocked_at: forcedAt,
               infra_retryable_missing: infraRetryable,
               last_worker_error: sessionDocForPolicy?.resume_worker_last_error_details || sessionDocForPolicy?.resume_worker_last_error || null,
@@ -1845,14 +1864,20 @@ async function handler(req, context) {
             resume_error = errorCode;
             resume_error_details = details;
 
-            await persistResumeBlocked(container, {
+            const blockedPersist = await persistResumeBlocked(container, {
               sessionId,
               forcedAt,
               errorCode,
               details,
               forcedBy: forceDecision.reason,
               message: "Resume blocked by status watchdog",
-            }).catch(() => null);
+            }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+
+            stageBeaconValues.status_resume_blocked_persist_ok = Boolean(blockedPersist?.ok);
+            stageBeaconValues.status_resume_blocked_persist_error =
+              blockedPersist?.error || blockedPersist?.resume?.error || blockedPersist?.session?.error || null;
+            stageBeaconValues.status_resume_blocked_persist_session_doc_id = blockedPersist?.session_doc_id || null;
+            stageBeaconValues.status_resume_blocked_persist_resume_doc_id = blockedPersist?.resume_doc_id || null;
 
             // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
             resume_needed = true;
@@ -2144,6 +2169,46 @@ async function handler(req, context) {
         ? report.session.stage_beacon.trim()
         : "";
 
+    // Safety net: if the watchdog decided "blocked" but doc persistence failed (or got lost behind routing),
+    // the response must still surface blocked immediately so UI doesn't say "Resume queued" forever.
+    const blockedReasonFromBeacon =
+      typeof stageBeaconValues?.status_resume_blocked_reason === "string" && stageBeaconValues.status_resume_blocked_reason.trim()
+        ? stageBeaconValues.status_resume_blocked_reason.trim()
+        : stageBeaconValues?.status_resume_watchdog_stuck_queued_no_progress
+          ? "watchdog_no_progress"
+          : null;
+
+    const blockedCodeFromBeacon =
+      typeof stageBeaconValues?.status_resume_blocked_code === "string" && stageBeaconValues.status_resume_blocked_code.trim()
+        ? stageBeaconValues.status_resume_blocked_code.trim()
+        : null;
+
+    if (!forceComplete && resume_needed && blockedReasonFromBeacon) {
+      resume_status = "blocked";
+      if (!resume_error && blockedCodeFromBeacon) resume_error = blockedCodeFromBeacon;
+
+      if (!resume_error_details || typeof resume_error_details !== "object") {
+        resume_error_details = {
+          forced_by: blockedReasonFromBeacon,
+          blocked_reason: blockedReasonFromBeacon,
+          blocked_code: blockedCodeFromBeacon,
+          blocked_at:
+            stageBeaconValues.status_resume_blocked ||
+            stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress ||
+            nowIso(),
+          resume_cycle_count: stageBeaconValues.status_resume_cycle_count ?? null,
+          updated_at: nowIso(),
+        };
+      }
+    }
+
+    const persistedResumeDocStatus =
+      typeof resumeDoc !== "undefined" && resumeDoc && typeof resumeDoc.status === "string" ? resumeDoc.status.trim() : "";
+
+    if (!forceComplete && resume_needed && persistedResumeDocStatus === "blocked") {
+      resume_status = "blocked";
+    }
+
     const resumeStatusForBeacon = String(resume_status || "").trim();
 
     const resumeStageBeacon = (() => {
@@ -2198,6 +2263,47 @@ async function handler(req, context) {
       }
     }
 
+    const resumeUpstreamCallsMade = Math.max(
+      typeof resumeDoc !== "undefined" &&
+        resumeDoc &&
+        typeof resumeDoc.upstream_calls_made === "number" &&
+        Number.isFinite(resumeDoc.upstream_calls_made)
+        ? Math.max(0, resumeDoc.upstream_calls_made)
+        : 0,
+      typeof sessionDoc !== "undefined" &&
+        sessionDoc &&
+        typeof sessionDoc.resume_worker_upstream_calls_made === "number" &&
+        Number.isFinite(sessionDoc.resume_worker_upstream_calls_made)
+        ? Math.max(0, sessionDoc.resume_worker_upstream_calls_made)
+        : 0
+    );
+
+    stageBeaconValues.status_resume_upstream_calls_made = resumeUpstreamCallsMade;
+
+    // Ensure resume status/error surface even if the resume-handling block bailed out early.
+    if (!resume_status) {
+      const persistedResumeStatus =
+        typeof resumeDoc !== "undefined" && resumeDoc && typeof resumeDoc.status === "string" ? resumeDoc.status.trim() : null;
+
+      if (persistedResumeStatus) resume_status = persistedResumeStatus;
+
+      if (!resume_error) {
+        const persistedResumeError =
+          typeof resumeDoc !== "undefined" && resumeDoc && typeof resumeDoc.resume_error === "string" && resumeDoc.resume_error.trim()
+            ? resumeDoc.resume_error.trim()
+            : null;
+        if (persistedResumeError) resume_error = persistedResumeError;
+      }
+
+      if (!resume_error_details || typeof resume_error_details !== "object") {
+        const persistedResumeErrorDetails =
+          typeof resumeDoc !== "undefined" && resumeDoc && resumeDoc.resume_error_details && typeof resumeDoc.resume_error_details === "object"
+            ? resumeDoc.resume_error_details
+            : null;
+        if (persistedResumeErrorDetails) resume_error_details = persistedResumeErrorDetails;
+      }
+    }
+
     const out = {
         ok: true,
         session_id: sessionId,
@@ -2214,7 +2320,7 @@ async function handler(req, context) {
         worker_meta: workerResult?.body?.meta || null,
         elapsed_ms: Number(progress?.elapsed_ms),
         remaining_budget_ms: Number(progress?.remaining_budget_ms),
-        upstream_calls_made: Number(progress?.upstream_calls_made),
+        upstream_calls_made: (Number(progress?.upstream_calls_made) || 0) + resumeUpstreamCallsMade,
         companies_candidates_found: Number(progress?.companies_candidates_found),
         early_exit_triggered: Boolean(progress?.early_exit_triggered),
         companies_count:
@@ -2500,7 +2606,14 @@ async function handler(req, context) {
           stage_beacon_values: stageBeaconValues,
           elapsed_ms: null,
           remaining_budget_ms: null,
-          upstream_calls_made: 0,
+          upstream_calls_made: Math.max(
+            typeof sessionDoc !== "undefined" && sessionDoc && Number.isFinite(Number(sessionDoc?.resume_worker_upstream_calls_made))
+              ? Number(sessionDoc.resume_worker_upstream_calls_made)
+              : 0,
+            typeof resumeDoc !== "undefined" && resumeDoc && Number.isFinite(Number(resumeDoc?.upstream_calls_made))
+              ? Number(resumeDoc.upstream_calls_made)
+              : 0
+          ),
           companies_candidates_found: 0,
           early_exit_triggered: false,
           primary_job_state: null,
@@ -2609,7 +2722,14 @@ async function handler(req, context) {
             stage_beacon_values: stageBeaconValues,
             elapsed_ms: null,
             remaining_budget_ms: null,
-            upstream_calls_made: 0,
+            upstream_calls_made: Math.max(
+            typeof sessionDoc !== "undefined" && sessionDoc && Number.isFinite(Number(sessionDoc?.resume_worker_upstream_calls_made))
+              ? Number(sessionDoc.resume_worker_upstream_calls_made)
+              : 0,
+            typeof resumeDoc !== "undefined" && resumeDoc && Number.isFinite(Number(resumeDoc?.upstream_calls_made))
+              ? Number(resumeDoc.upstream_calls_made)
+              : 0
+          ),
             companies_candidates_found: 0,
             early_exit_triggered: false,
             primary_job_state: null,
@@ -3012,7 +3132,8 @@ async function handler(req, context) {
         missing_fields: c.enrichment_health.missing_fields,
       }));
 
-    const resumeDocStatus = typeof resumeDoc?.status === "string" ? resumeDoc.status.trim() : "";
+    const resumeDocStatus =
+      typeof resumeDoc !== "undefined" && resumeDoc && typeof resumeDoc.status === "string" ? resumeDoc.status.trim() : "";
     const forceTerminalComplete = resumeDocStatus === "complete" && resumeMissingAnalysis.total_retryable_missing === 0;
 
     // Terminal-only missing fields must not keep the session "running".
@@ -3036,13 +3157,13 @@ async function handler(req, context) {
     let resume_gateway_key_attached = null;
     let resume_trigger_request_id = null;
 
-    let resume_status = null;
+    resume_status = null;
     const resumeStalledByGatewayAuth = Boolean(resume_needed && !gatewayKeyConfigured);
 
     if (resume_needed) {
       try {
         const resumeDocId = `_import_resume_${sessionId}`;
-        let currentResume = resumeDoc;
+        let currentResume = typeof resumeDoc !== "undefined" ? resumeDoc : null;
 
         if (!currentResume) {
           const now = nowIso();
@@ -3155,6 +3276,8 @@ async function handler(req, context) {
             const errorCode = "resume_worker_stuck_queued_no_progress";
             const details = {
               forced_by: "watchdog_no_progress",
+              blocked_reason: "watchdog_no_progress",
+              blocked_code: errorCode,
               blocked_at: blockedAt,
               watchdog_fired_at: prevWatchdogAt,
               last_entered_at: lastEnteredAt,
@@ -3177,14 +3300,20 @@ async function handler(req, context) {
               sessionDoc.resume_error_details = details;
             }
 
-            await persistResumeBlocked(container, {
+            const blockedPersist = await persistResumeBlocked(container, {
               sessionId,
               forcedAt: blockedAt,
               errorCode,
               details,
               forcedBy: "watchdog_no_progress",
               message: "Watchdog fired but resume-worker did not re-enter on subsequent poll",
-            }).catch(() => null);
+            }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+
+            stageBeaconValues.status_resume_blocked_persist_ok = Boolean(blockedPersist?.ok);
+            stageBeaconValues.status_resume_blocked_persist_error =
+              blockedPersist?.error || blockedPersist?.resume?.error || blockedPersist?.session?.error || null;
+            stageBeaconValues.status_resume_blocked_persist_session_doc_id = blockedPersist?.session_doc_id || null;
+            stageBeaconValues.status_resume_blocked_persist_resume_doc_id = blockedPersist?.resume_doc_id || null;
           } else if (
             prevWatchdogTs &&
             lastEnteredTs &&
@@ -3306,6 +3435,8 @@ async function handler(req, context) {
 
             const details = {
               forced_by: forceDecision.reason,
+              blocked_reason: forceDecision.reason,
+              blocked_code: errorCode,
               blocked_at: forcedAt,
               infra_retryable_missing: infraRetryable,
               last_worker_error: sessionDocForPolicy?.resume_worker_last_error_details || sessionDocForPolicy?.resume_worker_last_error || null,
@@ -3321,14 +3452,20 @@ async function handler(req, context) {
             resume_error = errorCode;
             resume_error_details = details;
 
-            await persistResumeBlocked(container, {
+            const blockedPersist = await persistResumeBlocked(container, {
               sessionId,
               forcedAt,
               errorCode,
               details,
               forcedBy: forceDecision.reason,
               message: "Resume blocked by status watchdog",
-            }).catch(() => null);
+            }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+
+            stageBeaconValues.status_resume_blocked_persist_ok = Boolean(blockedPersist?.ok);
+            stageBeaconValues.status_resume_blocked_persist_error =
+              blockedPersist?.error || blockedPersist?.resume?.error || blockedPersist?.session?.error || null;
+            stageBeaconValues.status_resume_blocked_persist_session_doc_id = blockedPersist?.session_doc_id || null;
+            stageBeaconValues.status_resume_blocked_persist_resume_doc_id = blockedPersist?.resume_doc_id || null;
 
             // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
             resume_needed = true;
@@ -3600,6 +3737,41 @@ async function handler(req, context) {
     }
 
     // Stage beacon must reflect resume control doc status so the UI can back off polling.
+    const blockedReasonFromBeacon =
+      typeof stageBeaconValues?.status_resume_blocked_reason === "string" && stageBeaconValues.status_resume_blocked_reason.trim()
+        ? stageBeaconValues.status_resume_blocked_reason.trim()
+        : stageBeaconValues?.status_resume_watchdog_stuck_queued_no_progress
+          ? "watchdog_no_progress"
+          : null;
+
+    const blockedCodeFromBeacon =
+      typeof stageBeaconValues?.status_resume_blocked_code === "string" && stageBeaconValues.status_resume_blocked_code.trim()
+        ? stageBeaconValues.status_resume_blocked_code.trim()
+        : null;
+
+    if (!forceComplete && resume_needed && blockedReasonFromBeacon) {
+      resume_status = "blocked";
+      if (!sessionDoc?.resume_error && blockedCodeFromBeacon && sessionDoc && typeof sessionDoc === "object") {
+        sessionDoc.resume_error = blockedCodeFromBeacon;
+      }
+      if (!sessionDoc?.resume_error_details && sessionDoc && typeof sessionDoc === "object") {
+        sessionDoc.resume_error_details = {
+          forced_by: blockedReasonFromBeacon,
+          blocked_reason: blockedReasonFromBeacon,
+          blocked_code: blockedCodeFromBeacon,
+          blocked_at: stageBeaconValues.status_resume_blocked || nowIso(),
+          updated_at: nowIso(),
+        };
+      }
+    }
+
+    const persistedResumeDocStatus =
+      typeof resumeDoc !== "undefined" && resumeDoc && typeof resumeDoc.status === "string" ? resumeDoc.status.trim() : "";
+
+    if (!forceComplete && resume_needed && persistedResumeDocStatus === "blocked") {
+      resume_status = "blocked";
+    }
+
     const resumeStatusForBeacon = String(resume_status || "").trim();
 
     const resumeStageBeacon = (() => {
@@ -3683,7 +3855,14 @@ async function handler(req, context) {
           primary_job_state: null,
           elapsed_ms: null,
           remaining_budget_ms: null,
-          upstream_calls_made: 0,
+          upstream_calls_made: Math.max(
+            typeof sessionDoc !== "undefined" && sessionDoc && Number.isFinite(Number(sessionDoc?.resume_worker_upstream_calls_made))
+              ? Number(sessionDoc.resume_worker_upstream_calls_made)
+              : 0,
+            typeof resumeDoc !== "undefined" && resumeDoc && Number.isFinite(Number(resumeDoc?.upstream_calls_made))
+              ? Number(resumeDoc.upstream_calls_made)
+              : 0
+          ),
           companies_candidates_found: 0,
           early_exit_triggered: false,
           last_heartbeat_at: null,
@@ -3830,7 +4009,14 @@ async function handler(req, context) {
           primary_job_state: null,
           elapsed_ms: null,
           remaining_budget_ms: null,
-          upstream_calls_made: 0,
+          upstream_calls_made: Math.max(
+            typeof sessionDoc !== "undefined" && sessionDoc && Number.isFinite(Number(sessionDoc?.resume_worker_upstream_calls_made))
+              ? Number(sessionDoc.resume_worker_upstream_calls_made)
+              : 0,
+            typeof resumeDoc !== "undefined" && resumeDoc && Number.isFinite(Number(resumeDoc?.upstream_calls_made))
+              ? Number(resumeDoc.upstream_calls_made)
+              : 0
+          ),
           companies_candidates_found: 0,
           early_exit_triggered: false,
           last_heartbeat_at: null,
@@ -3939,7 +4125,14 @@ async function handler(req, context) {
           primary_job_state: null,
           elapsed_ms: null,
           remaining_budget_ms: null,
-          upstream_calls_made: 0,
+          upstream_calls_made: Math.max(
+            typeof sessionDoc !== "undefined" && sessionDoc && Number.isFinite(Number(sessionDoc?.resume_worker_upstream_calls_made))
+              ? Number(sessionDoc.resume_worker_upstream_calls_made)
+              : 0,
+            typeof resumeDoc !== "undefined" && resumeDoc && Number.isFinite(Number(resumeDoc?.upstream_calls_made))
+              ? Number(resumeDoc.upstream_calls_made)
+              : 0
+          ),
           companies_candidates_found: 0,
           early_exit_triggered: false,
           last_heartbeat_at: null,
@@ -4079,7 +4272,14 @@ async function handler(req, context) {
         primary_job_state: null,
         elapsed_ms: null,
         remaining_budget_ms: null,
-        upstream_calls_made: 0,
+        upstream_calls_made: Math.max(
+          typeof sessionDoc !== "undefined" && sessionDoc && Number.isFinite(Number(sessionDoc?.resume_worker_upstream_calls_made))
+            ? Number(sessionDoc.resume_worker_upstream_calls_made)
+            : 0,
+          typeof resumeDoc !== "undefined" && resumeDoc && Number.isFinite(Number(resumeDoc?.upstream_calls_made))
+            ? Number(resumeDoc.upstream_calls_made)
+            : 0
+        ),
         companies_candidates_found: 0,
         early_exit_triggered: false,
         last_heartbeat_at: null,

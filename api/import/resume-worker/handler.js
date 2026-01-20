@@ -970,6 +970,18 @@ async function resumeWorkerHandler(req, context) {
     String(req?.headers?.get?.("x-request-id") || req?.headers?.get?.("x-client-request-id") || "").trim() ||
     String(resumeDoc?.last_invoked_at || handler_entered_at);
 
+  let upstreamCallsMade =
+    typeof resumeDoc?.upstream_calls_made === "number" && Number.isFinite(resumeDoc.upstream_calls_made)
+      ? Math.max(0, resumeDoc.upstream_calls_made)
+      : 0;
+
+  let upstreamCallsMadeThisRun = 0;
+
+  const noteUpstreamCall = () => {
+    upstreamCallsMade += 1;
+    upstreamCallsMadeThisRun += 1;
+  };
+
   let seedDocs = await fetchSeedCompanies(container, sessionId, batchLimit).catch(() => []);
 
   // If the session/company docs are missing the session_id markers (e.g. platform kill mid-flight),
@@ -1209,6 +1221,7 @@ async function resumeWorkerHandler(req, context) {
 
       let r;
       try {
+        noteUpstreamCall();
         r = await fetchTagline(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("tagline", "grok_tagline", e);
@@ -1261,6 +1274,7 @@ async function resumeWorkerHandler(req, context) {
 
       let r;
       try {
+        noteUpstreamCall();
         r = await fetchIndustries(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("industries", "grok_industries", e);
@@ -1325,6 +1339,7 @@ async function resumeWorkerHandler(req, context) {
 
       let r;
       try {
+        noteUpstreamCall();
         r = await fetchProductKeywords(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("product_keywords", "grok_keywords", e);
@@ -1394,6 +1409,7 @@ async function resumeWorkerHandler(req, context) {
 
       let r;
       try {
+        noteUpstreamCall();
         r = await fetchHeadquartersLocation(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("headquarters_location", "grok_hq", e);
@@ -1459,6 +1475,7 @@ async function resumeWorkerHandler(req, context) {
 
       let r;
       try {
+        noteUpstreamCall();
         r = await fetchManufacturingLocations(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("manufacturing_locations", "grok_mfg", e);
@@ -1524,6 +1541,7 @@ async function resumeWorkerHandler(req, context) {
 
       let r;
       try {
+        noteUpstreamCall();
         r = await fetchCuratedReviews(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("reviews", "grok_reviews", e);
@@ -2172,6 +2190,8 @@ async function resumeWorkerHandler(req, context) {
 
   await upsertDoc(container, {
     ...resumeDoc,
+    upstream_calls_made: upstreamCallsMade,
+    upstream_calls_made_this_run: upstreamCallsMadeThisRun,
     status: resumeNeeded ? (lastStartOk ? "queued" : "error") : "complete",
     last_error: grokErrorSummary || null,
     missing_by_company,
@@ -2245,6 +2265,8 @@ async function resumeWorkerHandler(req, context) {
 
     await upsertDoc(container, {
       ...sessionDoc,
+      resume_worker_upstream_calls_made: upstreamCallsMade,
+      resume_worker_upstream_calls_made_this_run: upstreamCallsMadeThisRun,
       resume_worker_last_invoked_at: invokedAt,
       resume_worker_last_finished_at: updatedAt,
       resume_worker_last_result: derivedResult,
