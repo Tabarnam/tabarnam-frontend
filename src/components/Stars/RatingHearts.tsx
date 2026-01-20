@@ -1,7 +1,16 @@
 import * as React from "react";
+import * as React from "react";
 import { TAB_BLUE, TAB_BLUE_OUTLINE, clampRating } from "./RatingDots";
 
-export function HeartGlyph({ filled }: { filled: boolean }) {
+function clamp01(v: number) {
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(0, Math.min(1, v));
+}
+
+export function HeartGlyph({ fraction }: { fraction: number }) {
+  const id = React.useId();
+  const fillWidth = 24 * clamp01(fraction);
+
   return (
     <svg
       width="1em"
@@ -11,12 +20,29 @@ export function HeartGlyph({ filled }: { filled: boolean }) {
       focusable="false"
       style={{ verticalAlign: "text-bottom" }}
     >
+      <defs>
+        <clipPath id={id}>
+          <rect x={0} y={0} width={fillWidth} height={24} />
+        </clipPath>
+      </defs>
+
+      {/* Outline */}
       <path
         d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
-        fill={filled ? TAB_BLUE : "transparent"}
+        fill="transparent"
         stroke={TAB_BLUE_OUTLINE}
         strokeWidth={2}
       />
+
+      {/* Fill (clipped left-to-right) */}
+      {fillWidth > 0 && (
+        <g clipPath={`url(#${id})`}>
+          <path
+            d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
+            fill={TAB_BLUE}
+          />
+        </g>
+      )}
     </svg>
   );
 }
@@ -38,7 +64,6 @@ export function RatingHearts({
   className?: string;
 }) {
   const safe = clampRating(value, max);
-  const full = Math.max(0, Math.min(max, Math.round(safe)));
 
   return (
     <div
@@ -46,9 +71,10 @@ export function RatingHearts({
       aria-label={`${formatA11yValue(safe)} out of ${max}`}
       style={{ fontSize: `${size}px`, lineHeight: 1 }}
     >
-      {Array.from({ length: max }).map((_, i) => (
-        <HeartGlyph key={i} filled={i < full} />
-      ))}
+      {Array.from({ length: max }).map((_, i) => {
+        const fraction = clamp01(safe - i);
+        return <HeartGlyph key={i} fraction={fraction} />;
+      })}
     </div>
   );
 }
