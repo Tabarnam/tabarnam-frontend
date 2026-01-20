@@ -44,14 +44,18 @@ export function getQQScore(company: Partial<Company> | null | undefined): number
     return clamp(ratingAsNumber, 0, 5);
   }
 
-  const starRating = toFiniteNumber((company as any).star_rating);
-  if (starRating != null) {
-    return clamp(starRating, 0, 5);
-  }
-
+  // Prefer a precise floating-point score when available.
+  // Many company records include both:
+  // - star_rating (legacy, often rounded integer)
+  // - star_score  (precise, can be fractional like 4.5)
   const starScore = toFiniteNumber((company as any).star_score);
   if (starScore != null) {
     return clamp(starScore, 0, 5);
+  }
+
+  const starRating = toFiniteNumber((company as any).star_rating);
+  if (starRating != null) {
+    return clamp(starRating, 0, 5);
   }
 
   const stars = toFiniteNumber((company as any).stars);
@@ -114,11 +118,11 @@ export function hasQQRating(company: Partial<Company> | null | undefined): boole
   const ratingAsNumber = toFiniteNumber(rating);
   if (ratingAsNumber != null) return ratingAsNumber > 0;
 
-  const starRating = toFiniteNumber((company as any).star_rating);
-  if (starRating != null) return starRating > 0;
-
   const starScore = toFiniteNumber((company as any).star_score);
   if (starScore != null) return starScore > 0;
+
+  const starRating = toFiniteNumber((company as any).star_rating);
+  if (starRating != null) return starRating > 0;
 
   const stars = toFiniteNumber((company as any).stars);
   if (stars != null) return stars > 0;
