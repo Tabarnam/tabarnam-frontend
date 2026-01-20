@@ -3671,6 +3671,34 @@ async function handler(req, context) {
     }
 
     // Stage beacon must reflect resume control doc status so the UI can back off polling.
+    const blockedReasonFromBeacon =
+      typeof stageBeaconValues?.status_resume_blocked_reason === "string" && stageBeaconValues.status_resume_blocked_reason.trim()
+        ? stageBeaconValues.status_resume_blocked_reason.trim()
+        : stageBeaconValues?.status_resume_watchdog_stuck_queued_no_progress
+          ? "watchdog_no_progress"
+          : null;
+
+    const blockedCodeFromBeacon =
+      typeof stageBeaconValues?.status_resume_blocked_code === "string" && stageBeaconValues.status_resume_blocked_code.trim()
+        ? stageBeaconValues.status_resume_blocked_code.trim()
+        : null;
+
+    if (!forceComplete && resume_needed && blockedReasonFromBeacon) {
+      resume_status = "blocked";
+      if (!sessionDoc?.resume_error && blockedCodeFromBeacon && sessionDoc && typeof sessionDoc === "object") {
+        sessionDoc.resume_error = blockedCodeFromBeacon;
+      }
+      if (!sessionDoc?.resume_error_details && sessionDoc && typeof sessionDoc === "object") {
+        sessionDoc.resume_error_details = {
+          forced_by: blockedReasonFromBeacon,
+          blocked_reason: blockedReasonFromBeacon,
+          blocked_code: blockedCodeFromBeacon,
+          blocked_at: stageBeaconValues.status_resume_blocked || nowIso(),
+          updated_at: nowIso(),
+        };
+      }
+    }
+
     const resumeStatusForBeacon = String(resume_status || "").trim();
 
     const resumeStageBeacon = (() => {
