@@ -4,7 +4,7 @@ import { Building2, Globe, Tag } from 'lucide-react';
 import { RatingDots, RatingHearts } from "@/components/Stars";
 import { withAmazonAffiliate } from "@/lib/amazonAffiliate";
 import { getCompanyDisplayName } from "@/lib/companyDisplayName";
-import { getQQDefaultIconType, getQQFilledCount, getQQScore, hasQQRating } from "@/lib/stars/qqRating";
+import { getQQDefaultIconType, getQQScore, hasQQRating } from "@/lib/stars/qqRating";
 
 const CompanyCard = ({ company, index }) => {
   const cardVariants = {
@@ -54,7 +54,7 @@ const CompanyCard = ({ company, index }) => {
           {hasQQRating(company) ? (
             <>
               {getQQDefaultIconType(company) === "heart" ? (
-                <RatingHearts value={getQQFilledCount(company)} size={14} />
+                <RatingHearts value={getQQScore(company)} size={14} />
               ) : (
                 <RatingDots value={getQQScore(company)} size={14} />
               )}

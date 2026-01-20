@@ -49,7 +49,6 @@ export const Stars: React.FC<StarsProps> = ({
     return Number.isFinite(n) ? Math.max(0, Math.min(5, n)) : 0;
   })();
 
-  const full = Math.max(0, Math.min(5, Math.round(safeFinal))); // used for heart icons + sr-only fallback
 
   const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
@@ -61,11 +60,12 @@ export const Stars: React.FC<StarsProps> = ({
   const renderIcon = (starLevel: number) => {
     const iconType = starIcons[starLevel] || "star";
 
+    const fraction = clamp01(safeFinal - (starLevel - 1));
+
     if (iconType === "heart") {
-      return <HeartGlyph key={starLevel} filled={starLevel <= full} />;
+      return <HeartGlyph key={starLevel} fraction={fraction} />;
     }
 
-    const fraction = clamp01(safeFinal - (starLevel - 1));
     return <DotGlyph key={starLevel} fraction={fraction} />;
   };
 

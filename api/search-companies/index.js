@@ -135,11 +135,11 @@ function getQQScoreLike(company) {
   const ratingAsNumber = toFiniteNumber(rating);
   if (ratingAsNumber != null) return clamp(ratingAsNumber, 0, 5);
 
-  const starRating = toFiniteNumber(company.star_rating);
-  if (starRating != null) return clamp(starRating, 0, 5);
-
   const starScore = toFiniteNumber(company.star_score);
   if (starScore != null) return clamp(starScore, 0, 5);
+
+  const starRating = toFiniteNumber(company.star_rating);
+  if (starRating != null) return clamp(starRating, 0, 5);
 
   const stars = toFiniteNumber(company.stars);
   if (stars != null) return clamp(stars, 0, 5);
