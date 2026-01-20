@@ -2265,6 +2265,8 @@ async function resumeWorkerHandler(req, context) {
 
     await upsertDoc(container, {
       ...sessionDoc,
+      resume_worker_upstream_calls_made: upstreamCallsMade,
+      resume_worker_upstream_calls_made_this_run: upstreamCallsMadeThisRun,
       resume_worker_last_invoked_at: invokedAt,
       resume_worker_last_finished_at: updatedAt,
       resume_worker_last_result: derivedResult,
