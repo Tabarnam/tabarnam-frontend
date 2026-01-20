@@ -60,8 +60,10 @@ export const Stars: React.FC<StarsProps> = ({
   const renderIcon = (starLevel: number) => {
     const iconType = starIcons[starLevel] || "star";
 
+    const fraction = clamp01(safeFinal - (starLevel - 1));
+
     if (iconType === "heart") {
-      return <HeartGlyph key={starLevel} filled={starLevel <= full} />;
+      return <HeartGlyph key={starLevel} fraction={fraction} />;
     }
 
     const fraction = clamp01(safeFinal - (starLevel - 1));
