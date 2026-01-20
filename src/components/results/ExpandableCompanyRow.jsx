@@ -7,7 +7,7 @@ import { normalizeExternalUrl } from "@/lib/externalUrl";
 import { getCompanyCanonicalName, getCompanyDisplayName } from "@/lib/companyDisplayName";
 import { toast } from "@/lib/toast";
 import { RatingDots, RatingHearts } from "@/components/Stars";
-import { getQQDefaultIconType, getQQFilledCount } from "@/lib/stars/qqRating";
+import { getQQDefaultIconType, getQQFilledCount, getQQScore } from "@/lib/stars/qqRating";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
 
 async function copyToClipboard(text) {
@@ -384,6 +384,7 @@ export default function ExpandableCompanyRow({
       const reviews = showReviewPreview
         ? getReviewsPreviews().map(normalizeReview).filter(Boolean)
         : [];
+      const score = getQQScore(company);
       const filled = getQQFilledCount(company);
       const iconType = getQQDefaultIconType(company);
 
@@ -393,7 +394,7 @@ export default function ExpandableCompanyRow({
             {iconType === "heart" ? (
               <RatingHearts value={filled} size={18} />
             ) : (
-              <RatingDots value={filled} size={18} />
+              <RatingDots value={score} size={18} />
             )}
           </div>
 
