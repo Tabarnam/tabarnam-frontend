@@ -2555,7 +2555,7 @@ async function resumeWorkerHandler(req, context) {
       resume_worker_last_invoked_at: invokedAt,
       resume_worker_last_finished_at: updatedAt,
       resume_worker_last_result: derivedResult,
-      resume_worker_last_ok: Boolean(lastStartOk),
+      resume_worker_last_ok: Boolean(lastStartOk) && !grokErrorSummary,
       resume_worker_last_http_status: lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0),
       resume_worker_last_error: grokErrorSummary
         ? grokErrorSummary.code
@@ -2563,7 +2563,12 @@ async function resumeWorkerHandler(req, context) {
           ? null
           : lastStartRes?._error?.message || `import_start_http_${lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0)}`,
       resume_worker_last_error_details: grokErrorSummary ? grokErrorSummary : last_error_details || null,
-      resume_worker_last_stage_beacon: lastStartJson?.stage_beacon || null,
+      resume_worker_last_stage_beacon: plannerNoActionableFields
+        ? "resume_planner_no_actionable_fields"
+        : lastStartJson?.stage_beacon || null,
+      resume_worker_planned_fields: planned_fields,
+      resume_worker_planned_fields_reason: planned_fields_reason,
+      resume_worker_planned_fields_detail: plannedFieldsSkipped.slice(0, 10),
       resume_worker_last_resume_needed: resumeNeeded,
       resume_worker_last_company_id: companyIdFromResponse,
       resume_worker_last_resume_doc_upsert_ok: resume_control_doc_upsert_ok,
