@@ -7,7 +7,7 @@ import { normalizeExternalUrl } from "@/lib/externalUrl";
 import { getCompanyCanonicalName, getCompanyDisplayName } from "@/lib/companyDisplayName";
 import { toast } from "@/lib/toast";
 import { RatingDots, RatingHearts } from "@/components/Stars";
-import { getQQDefaultIconType, getQQFilledCount, getQQScore } from "@/lib/stars/qqRating";
+import { getQQDefaultIconType, getQQScore } from "@/lib/stars/qqRating";
 import { getCompanyLogoUrl } from "@/lib/logoUrl";
 
 async function copyToClipboard(text) {
