@@ -1273,7 +1273,7 @@ async function resumeWorkerHandler(req, context) {
         doc.import_missing_reason.tagline = terminal ? "not_found_terminal" : reason;
         doc.tagline_unknown = true;
 
-        if (status === "upstream_unreachable") {
+        if (status === "upstream_unreachable" || status === "upstream_timeout") {
           const entry = recordWorkerError("tagline", "grok_tagline", r?.diagnostics || r);
           markFieldError(doc, "tagline", entry);
           addImportWarning(doc, {
@@ -1338,7 +1338,7 @@ async function resumeWorkerHandler(req, context) {
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.industries = terminal ? terminalReason : retryReason;
 
-        if (status === "upstream_unreachable") {
+        if (status === "upstream_unreachable" || status === "upstream_timeout") {
           const entry = recordWorkerError("industries", "grok_industries", r?.diagnostics || r);
           markFieldError(doc, "industries", entry);
           addImportWarning(doc, {
@@ -1408,7 +1408,7 @@ async function resumeWorkerHandler(req, context) {
         doc.import_missing_reason.product_keywords = terminal ? terminalReason : retryReason;
         doc.product_keywords_unknown = true;
 
-        if (status === "upstream_unreachable") {
+        if (status === "upstream_unreachable" || status === "upstream_timeout") {
           const entry = recordWorkerError("product_keywords", "grok_keywords", r?.diagnostics || r);
           markFieldError(doc, "product_keywords", entry);
           addImportWarning(doc, {
@@ -1468,7 +1468,7 @@ async function resumeWorkerHandler(req, context) {
           ? (status === "upstream_unreachable" || status === "deferred" ? "exhausted" : "not_disclosed")
           : normalized;
 
-        if (status === "upstream_unreachable") {
+        if (status === "upstream_unreachable" || status === "upstream_timeout") {
           const entry = recordWorkerError("headquarters_location", "grok_hq", r?.diagnostics || r, {
             upstream_preview: safeJsonPreview(r?.diagnostics || r),
           });
@@ -1534,7 +1534,7 @@ async function resumeWorkerHandler(req, context) {
           ? (status === "upstream_unreachable" || status === "deferred" ? "exhausted" : "not_disclosed")
           : normalized;
 
-        if (status === "upstream_unreachable") {
+        if (status === "upstream_unreachable" || status === "upstream_timeout") {
           const entry = recordWorkerError("manufacturing_locations", "grok_mfg", r?.diagnostics || r, {
             upstream_preview: safeJsonPreview(r?.diagnostics || r),
           });
@@ -1610,7 +1610,7 @@ async function resumeWorkerHandler(req, context) {
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.reviews = terminal ? "exhausted" : status || "not_found";
 
-        if (status === "upstream_unreachable") {
+        if (status === "upstream_unreachable" || status === "upstream_timeout") {
           const entry = recordWorkerError("reviews", "grok_reviews", r?.diagnostics || r, {
             upstream_preview: safeJsonPreview(r?.diagnostics || r),
           });
