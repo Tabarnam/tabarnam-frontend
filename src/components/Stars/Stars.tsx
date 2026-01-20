@@ -66,7 +66,6 @@ export const Stars: React.FC<StarsProps> = ({
       return <HeartGlyph key={starLevel} fraction={fraction} />;
     }
 
-    const fraction = clamp01(safeFinal - (starLevel - 1));
     return <DotGlyph key={starLevel} fraction={fraction} />;
   };
 
