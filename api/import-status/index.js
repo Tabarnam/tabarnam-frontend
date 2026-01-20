@@ -1520,7 +1520,7 @@ async function handler(req, context) {
     let resume_gateway_key_attached = null;
     let resume_trigger_request_id = null;
 
-    let resume_status = null;
+    resume_status = null;
     // Resume-worker is invoked in-process (no internal HTTP call), so Azure gateway/host-key requirements
     // do not gate the resume trigger.
     const resumeStalledByGatewayAuth = false;
@@ -3154,7 +3154,7 @@ async function handler(req, context) {
     let resume_gateway_key_attached = null;
     let resume_trigger_request_id = null;
 
-    let resume_status = null;
+    resume_status = null;
     const resumeStalledByGatewayAuth = Boolean(resume_needed && !gatewayKeyConfigured);
 
     if (resume_needed) {
