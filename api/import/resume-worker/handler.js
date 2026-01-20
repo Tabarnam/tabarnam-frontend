@@ -2480,16 +2480,30 @@ async function resumeWorkerHandler(req, context) {
 
   await upsertDoc(container, {
     ...resumeDoc,
+    handler_entered_at,
+    planned_fields,
+    planned_fields_reason,
+    planned_fields_detail: plannedFieldsSkipped.slice(0, 10),
     upstream_calls_made: upstreamCallsMade,
     upstream_calls_made_this_run: upstreamCallsMadeThisRun,
     status: resumeNeeded ? (lastStartOk ? "queued" : "error") : "complete",
+    last_finished_at: updatedAt,
+    last_ok: Boolean(lastStartOk) && !grokErrorSummary,
+    last_result: derivedResult,
     last_error: grokErrorSummary || null,
     missing_by_company,
     last_trigger_result: {
       ok: Boolean(lastStartOk),
       status: lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0),
-      stage_beacon: resumeNeeded ? lastStartJson?.stage_beacon || null : completion_beacon,
+      stage_beacon: resumeNeeded
+        ? plannerNoActionableFields
+          ? "resume_planner_no_actionable_fields"
+          : lastStartJson?.stage_beacon || null
+        : completion_beacon,
       resume_needed: resumeNeeded,
+      planned_fields,
+      planned_fields_reason,
+      planned_fields_detail: plannedFieldsSkipped.slice(0, 10),
       iterations: iteration + 1,
       resume_control_doc_upsert_ok: resume_control_doc_upsert_ok,
       ...(lastStartHttpStatus === 400 || !lastStartOk ? { import_start_debug: importStartDebug } : {}),
