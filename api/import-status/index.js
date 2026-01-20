@@ -4224,7 +4224,14 @@ async function handler(req, context) {
         primary_job_state: null,
         elapsed_ms: null,
         remaining_budget_ms: null,
-        upstream_calls_made: 0,
+        upstream_calls_made: Math.max(
+          typeof sessionDoc !== "undefined" && sessionDoc && Number.isFinite(Number(sessionDoc?.resume_worker_upstream_calls_made))
+            ? Number(sessionDoc.resume_worker_upstream_calls_made)
+            : 0,
+          typeof resumeDoc !== "undefined" && resumeDoc && Number.isFinite(Number(resumeDoc?.upstream_calls_made))
+            ? Number(resumeDoc.upstream_calls_made)
+            : 0
+        ),
         companies_candidates_found: 0,
         early_exit_triggered: false,
         last_heartbeat_at: null,
