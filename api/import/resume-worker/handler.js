@@ -970,6 +970,18 @@ async function resumeWorkerHandler(req, context) {
     String(req?.headers?.get?.("x-request-id") || req?.headers?.get?.("x-client-request-id") || "").trim() ||
     String(resumeDoc?.last_invoked_at || handler_entered_at);
 
+  let upstreamCallsMade =
+    typeof resumeDoc?.upstream_calls_made === "number" && Number.isFinite(resumeDoc.upstream_calls_made)
+      ? Math.max(0, resumeDoc.upstream_calls_made)
+      : 0;
+
+  let upstreamCallsMadeThisRun = 0;
+
+  const noteUpstreamCall = () => {
+    upstreamCallsMade += 1;
+    upstreamCallsMadeThisRun += 1;
+  };
+
   let seedDocs = await fetchSeedCompanies(container, sessionId, batchLimit).catch(() => []);
 
   // If the session/company docs are missing the session_id markers (e.g. platform kill mid-flight),
