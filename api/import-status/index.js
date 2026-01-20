@@ -300,11 +300,24 @@ function reconcileLowQualityToTerminal(doc, maxAttempts = 2) {
 
     if (reason === "low_quality" && attempts >= maxAttempts) {
       doc.import_missing_reason[f] = "low_quality_terminal";
-      if (f === "industries") doc.industries = ["Unknown"];
-      if (f === "tagline") doc.tagline = "Unknown";
-      if (f === "product_keywords" && (!doc.product_keywords || doc.product_keywords === "Unknown")) {
-        doc.product_keywords = "Unknown";
+
+      // Placeholder hygiene: keep canonical fields empty and encode missingness via *_unknown.
+      if (f === "industries") {
+        doc.industries = [];
+        doc.industries_unknown = true;
       }
+
+      if (f === "tagline") {
+        doc.tagline = "";
+        doc.tagline_unknown = true;
+      }
+
+      if (f === "product_keywords") {
+        doc.product_keywords = "";
+        if (!Array.isArray(doc.keywords)) doc.keywords = [];
+        doc.product_keywords_unknown = true;
+      }
+
       changed = true;
     }
   }
