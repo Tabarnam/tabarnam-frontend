@@ -3135,7 +3135,7 @@ async function handler(req, context) {
     if (resume_needed) {
       try {
         const resumeDocId = `_import_resume_${sessionId}`;
-        let currentResume = resumeDoc;
+        let currentResume = typeof resumeDoc !== "undefined" ? resumeDoc : null;
 
         if (!currentResume) {
           const now = nowIso();
