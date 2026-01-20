@@ -2280,7 +2280,7 @@ async function handler(req, context) {
         worker_meta: workerResult?.body?.meta || null,
         elapsed_ms: Number(progress?.elapsed_ms),
         remaining_budget_ms: Number(progress?.remaining_budget_ms),
-        upstream_calls_made: Number(progress?.upstream_calls_made),
+        upstream_calls_made: (Number(progress?.upstream_calls_made) || 0) + resumeUpstreamCallsMade,
         companies_candidates_found: Number(progress?.companies_candidates_found),
         early_exit_triggered: Boolean(progress?.early_exit_triggered),
         companies_count:
