@@ -44,14 +44,29 @@ export const Stars: React.FC<StarsProps> = ({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [open]);
 
-  const full = Math.max(0, Math.min(5, Math.round(bundle.final))); // ensure 0..5 int
+  const safeFinal = (() => {
+    const n = typeof bundle.final === "number" ? bundle.final : Number(bundle.final);
+    return Number.isFinite(n) ? Math.max(0, Math.min(5, n)) : 0;
+  })();
 
-  const renderIcon = (starLevel: number, filled: boolean) => {
+  const full = Math.max(0, Math.min(5, Math.round(safeFinal))); // used for heart icons + sr-only fallback
+
+  const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+  const formatA11yValue = (value: number) => {
+    if (Math.abs(value - Math.round(value)) < 1e-9) return String(Math.round(value));
+    return value.toFixed(2).replace(/\.00$/, "").replace(/(\.[0-9])0$/, "$1");
+  };
+
+  const renderIcon = (starLevel: number) => {
     const iconType = starIcons[starLevel] || "star";
+
     if (iconType === "heart") {
-      return <HeartGlyph key={starLevel} filled={filled} />;
+      return <HeartGlyph key={starLevel} filled={starLevel <= full} />;
     }
-    return <DotGlyph key={starLevel} fraction={filled ? 1 : 0} />;
+
+    const fraction = clamp01(safeFinal - (starLevel - 1));
+    return <DotGlyph key={starLevel} fraction={fraction} />;
   };
 
   return (
@@ -74,9 +89,9 @@ export const Stars: React.FC<StarsProps> = ({
         }}
       >
         <div className="flex">
-          {Array.from({ length: 5 }).map((_, i) => renderIcon(i + 1, i < full))}
+          {Array.from({ length: 5 }).map((_, i) => renderIcon(i + 1))}
         </div>
-        <span className="sr-only">{full} out of 5</span>
+        <span className="sr-only">{formatA11yValue(safeFinal)} out of 5</span>
       </button>
 
       {/* Tooltip */}
