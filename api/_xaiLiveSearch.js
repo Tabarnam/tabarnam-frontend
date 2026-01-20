@@ -22,6 +22,57 @@ function isAzureWebsitesUrl(rawUrl) {
   }
 }
 
+function normalizeHeaderKey(key) {
+  return asString(key).trim().toLowerCase();
+}
+
+function pickUpstreamRequestId(headers) {
+  if (!headers) return null;
+
+  const candidates = [
+    "x-request-id",
+    "x-requestid",
+    "x-ms-request-id",
+    "x-correlation-id",
+    "x-amzn-requestid",
+    "request-id",
+    "requestid",
+  ];
+
+  try {
+    // Fetch Headers.
+    if (typeof headers.get === "function") {
+      for (const c of candidates) {
+        const v = asString(headers.get(c)).trim();
+        if (v) return v;
+      }
+      return null;
+    }
+
+    // Axios headers object.
+    if (headers && typeof headers === "object") {
+      const entries = Object.entries(headers);
+      for (const c of candidates) {
+        const needle = normalizeHeaderKey(c);
+        const hit = entries.find(([k]) => normalizeHeaderKey(k) === needle);
+        if (!hit) continue;
+        const v = asString(hit[1]).trim();
+        if (v) return v;
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function isTimeoutLikeMessage(message) {
+  const m = asString(message).toLowerCase();
+  if (!m) return false;
+  return /\b(canceled|cancelled|timeout|timed out|abort|aborted)\b/i.test(m);
+}
+
 function extractTextFromXaiResponse(resp) {
   const r = resp && typeof resp === "object" ? resp : {};
 
@@ -112,8 +163,16 @@ async function xaiLiveSearch({
     };
   }
 
+  const startedAt = Date.now();
+
+  const timeoutUsedMs = Math.max(1000, Math.trunc(Number(timeoutMs) || 12000));
+
   const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs) || 12000));
+  let abortTimerFired = false;
+  const t = setTimeout(() => {
+    abortTimerFired = true;
+    controller.abort();
+  }, timeoutUsedMs);
 
   try {
     const payload = {
@@ -157,11 +216,37 @@ async function xaiLiveSearch({
 
       const resp = json || { text };
 
+      const upstreamRequestId = pickUpstreamRequestId(res.headers);
+      const elapsedMs = Date.now() - startedAt;
+
       if (!res.ok) {
-        return { ok: false, error: `upstream_http_${res.status}`, resp };
+        return {
+          ok: false,
+          error: `upstream_http_${res.status}`,
+          resp,
+          diagnostics: {
+            elapsed_ms: elapsedMs,
+            timeout_ms: timeoutUsedMs,
+            aborted_by_us: Boolean(controller.signal.aborted),
+            abort_timer_fired: abortTimerFired,
+            upstream_http_status: Number(res.status || 0) || 0,
+            upstream_request_id: upstreamRequestId,
+          },
+        };
       }
 
-      return { ok: true, resp };
+      return {
+        ok: true,
+        resp,
+        diagnostics: {
+          elapsed_ms: elapsedMs,
+          timeout_ms: timeoutUsedMs,
+          aborted_by_us: Boolean(controller.signal.aborted),
+          abort_timer_fired: abortTimerFired,
+          upstream_http_status: Number(res.status || 0) || 0,
+          upstream_request_id: upstreamRequestId,
+        },
+      };
     }
 
     const headers = {};
@@ -180,20 +265,55 @@ async function xaiLiveSearch({
     });
 
     const status = Number(resp?.status || 0) || 0;
+    const upstreamRequestId = pickUpstreamRequestId(resp?.headers);
+    const elapsedMs = Date.now() - startedAt;
+
     if (status < 200 || status >= 300) {
       return {
         ok: false,
         error: `upstream_http_${status || 0}`,
         resp,
+        diagnostics: {
+          elapsed_ms: elapsedMs,
+          timeout_ms: timeoutUsedMs,
+          aborted_by_us: Boolean(controller.signal.aborted),
+          abort_timer_fired: abortTimerFired,
+          upstream_http_status: status,
+          upstream_request_id: upstreamRequestId,
+        },
       };
     }
 
-    return { ok: true, resp };
+    return {
+      ok: true,
+      resp,
+      diagnostics: {
+        elapsed_ms: elapsedMs,
+        timeout_ms: timeoutUsedMs,
+        aborted_by_us: Boolean(controller.signal.aborted),
+        abort_timer_fired: abortTimerFired,
+        upstream_http_status: status,
+        upstream_request_id: upstreamRequestId,
+      },
+    };
   } catch (err) {
+    const message = asString(err?.message || err) || "xai_request_failed";
+    const elapsedMs = Date.now() - startedAt;
+
     return {
       ok: false,
-      error: asString(err?.message || err) || "xai_request_failed",
+      error: message,
+      error_code:
+        isTimeoutLikeMessage(message) || abortTimerFired || controller.signal.aborted ? "upstream_timeout" : "upstream_unreachable",
       attempt: Number(attempt) || 0,
+      diagnostics: {
+        elapsed_ms: elapsedMs,
+        timeout_ms: timeoutUsedMs,
+        aborted_by_us: Boolean(controller.signal.aborted),
+        abort_timer_fired: abortTimerFired,
+        upstream_http_status: 0,
+        upstream_request_id: null,
+      },
     };
   } finally {
     clearTimeout(t);
