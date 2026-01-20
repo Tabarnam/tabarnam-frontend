@@ -2190,6 +2190,8 @@ async function resumeWorkerHandler(req, context) {
 
   await upsertDoc(container, {
     ...resumeDoc,
+    upstream_calls_made: upstreamCallsMade,
+    upstream_calls_made_this_run: upstreamCallsMadeThisRun,
     status: resumeNeeded ? (lastStartOk ? "queued" : "error") : "complete",
     last_error: grokErrorSummary || null,
     missing_by_company,
