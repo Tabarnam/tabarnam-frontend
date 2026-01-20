@@ -979,6 +979,7 @@ async function resumeWorkerHandler(req, context) {
     status: "running",
     attempt: attempt + 1,
     last_invoked_at: invokedAt,
+    handler_entered_at,
     lock_expires_at: thisLockExpiresAt,
     updated_at: nowIso(),
   }).catch(() => ({ ok: false }));
