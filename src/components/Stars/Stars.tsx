@@ -49,7 +49,6 @@ export const Stars: React.FC<StarsProps> = ({
     return Number.isFinite(n) ? Math.max(0, Math.min(5, n)) : 0;
   })();
 
-  const full = Math.max(0, Math.min(5, Math.round(safeFinal))); // used for heart icons + sr-only fallback
 
   const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
