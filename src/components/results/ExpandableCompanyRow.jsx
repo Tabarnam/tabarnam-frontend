@@ -385,14 +385,13 @@ export default function ExpandableCompanyRow({
         ? getReviewsPreviews().map(normalizeReview).filter(Boolean)
         : [];
       const score = getQQScore(company);
-      const filled = getQQFilledCount(company);
       const iconType = getQQDefaultIconType(company);
 
       return (
         <div className="space-y-2">
           <div className="flex items-center">
             {iconType === "heart" ? (
-              <RatingHearts value={filled} size={18} />
+              <RatingHearts value={score} size={18} />
             ) : (
               <RatingDots value={score} size={18} />
             )}
