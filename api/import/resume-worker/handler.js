@@ -104,6 +104,12 @@ function normalizeKey(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function isTimeoutLikeMessage(message) {
+  const m = String(message ?? "").toLowerCase();
+  if (!m) return false;
+  return /\b(canceled|cancelled|timeout|timed out|abort|aborted)\b/i.test(m);
+}
+
 function safeJsonStringify(value, limit = 2000) {
   try {
     const text = JSON.stringify(value);
@@ -148,7 +154,14 @@ const GROK_ONLY_FIELDS = new Set([
   "reviews",
 ]);
 
-const GROK_RETRYABLE_STATUSES = new Set(["deferred", "upstream_unreachable", "not_found", "not_disclosed_pending", "not_disclosed_candidate"]);
+const GROK_RETRYABLE_STATUSES = new Set([
+  "deferred",
+  "upstream_unreachable",
+  "upstream_timeout",
+  "not_found",
+  "not_disclosed_pending",
+  "not_disclosed_candidate",
+]);
 
 function envInt(name, fallback, { min = 1, max = 25 } = {}) {
   const raw = Number(process.env[name]);
@@ -1187,8 +1200,24 @@ async function resumeWorkerHandler(req, context) {
               ? err.error
               : null,
       message: safeErrorMessage(err) || "error",
-      ...(details && typeof details === "object" ? details : {}),
     };
+
+    // Persist useful upstream diagnostics when present.
+    if (err && typeof err === "object" && !Array.isArray(err)) {
+      for (const k of [
+        "elapsed_ms",
+        "timeout_ms",
+        "aborted_by_us",
+        "abort_timer_fired",
+        "upstream_http_status",
+        "upstream_request_id",
+      ]) {
+        if (err[k] !== undefined && err[k] !== null) entry[k] = err[k];
+      }
+    }
+
+    if (details && typeof details === "object") Object.assign(entry, details);
+
     workerErrors.push(entry);
     return entry;
   };
