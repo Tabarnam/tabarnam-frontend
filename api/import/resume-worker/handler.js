@@ -2346,6 +2346,14 @@ async function resumeWorkerHandler(req, context) {
   // Resume-needed is ONLY retryable based.
   const resumeNeeded = retryableMissingCount > 0;
 
+  const planned_fields = Array.from(plannedFieldsThisRun.values());
+  const planned_fields_reason =
+    planned_fields.length > 0
+      ? "planned"
+      : plannedFieldsSkipped.length > 0
+        ? String(plannedFieldsSkipped[0]?.reason || "planner_no_actionable_fields")
+        : null;
+
   // Invariant: if we still have retryable missing fields, this invocation must have made at least one
   // real attempt (bumped import_attempts.*). Otherwise, we mark the resume as blocked to prevent no-op loops.
   const attemptedFieldsThisRun = (() => {
