@@ -1671,9 +1671,83 @@ async function handler(req, context) {
 
         // Persisted blocked state: once blocked, /import/status must not keep auto-triggering the worker.
         // The worker may only resume via a manual force_resume=1 request (or future health-check/backoff logic).
+        //
+        // Exception: do NOT treat resume_no_progress_no_attempts as a hard block if we have evidence the resume-worker
+        // entered recently (heartbeat/handler_entered_at) or we can explain "no attempts" via planner/budget state.
         if (!forceResume && resumeStatus === "blocked") {
-          canTrigger = false;
-          stageBeaconValues.status_resume_blocked_persisted = nowIso();
+          const activeResume = typeof currentResume !== "undefined" ? currentResume : resumeDoc;
+          const resumeErr = normalizeKey(activeResume?.resume_error || "");
+
+          if (resumeErr === "resume_no_progress_no_attempts") {
+            const stuckWindowMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
+              ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
+              : 90_000;
+
+            const plannedReason = normalizeKey(
+              activeResume?.planned_fields_reason ||
+                activeResume?.last_trigger_result?.planned_fields_reason ||
+                activeResume?.resume_error_details?.planned_fields_reason ||
+                ""
+            );
+
+            const plannerSkipped =
+              plannedReason === "planner_skipped_due_to_budget" ||
+              plannedReason === "planner_skipped_due_to_deadline" ||
+              plannedReason === "planner_no_actionable_fields";
+
+            const sessionDocForUnblock = await readControlDoc(container, `_import_session_${sessionId}`, sessionId).catch(() => null);
+
+            const evidence = {
+              handler_entered_at:
+                activeResume?.handler_entered_at ||
+                sessionDocForUnblock?.resume_worker_handler_entered_at ||
+                sessionDocForUnblock?.resume_worker_last_trigger_result?.response?.handler_entered_at ||
+                null,
+              last_finished_at: activeResume?.last_finished_at || sessionDocForUnblock?.resume_worker_last_finished_at || null,
+            };
+
+            const hasRecentEntry = hasRecentWorkerProgress(evidence, Date.now(), stuckWindowMs);
+            const hasAnyEvidence = Boolean(evidence.handler_entered_at || evidence.last_finished_at);
+
+            if ((hasAnyEvidence && hasRecentEntry) || plannerSkipped) {
+              const unblockedAt = nowIso();
+              stageBeaconValues.status_resume_unblocked_planner_no_action = unblockedAt;
+
+              if (activeResume && typeof activeResume === "object") {
+                await upsertDoc(container, {
+                  ...activeResume,
+                  status: "queued",
+                  resume_error: null,
+                  resume_error_details: null,
+                  blocked_at: null,
+                  blocked_reason: null,
+                  last_error: null,
+                  lock_expires_at: null,
+                  updated_at: unblockedAt,
+                }).catch(() => null);
+              }
+
+              if (sessionDocForUnblock && typeof sessionDocForUnblock === "object") {
+                await upsertDoc(container, {
+                  ...sessionDocForUnblock,
+                  resume_error: null,
+                  resume_error_details: null,
+                  // Keep session non-terminal; resume is still needed.
+                  status: sessionDocForUnblock?.status === "complete" ? "running" : (sessionDocForUnblock?.status || "running"),
+                  updated_at: unblockedAt,
+                }).catch(() => null);
+              }
+
+              resumeStatus = "queued";
+              resume_status = "queued";
+            } else {
+              canTrigger = false;
+              stageBeaconValues.status_resume_blocked_persisted = nowIso();
+            }
+          } else {
+            canTrigger = false;
+            stageBeaconValues.status_resume_blocked_persisted = nowIso();
+          }
         }
 
         const resumeStuckQueuedMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
@@ -3268,9 +3342,83 @@ async function handler(req, context) {
 
         // Persisted blocked state: once blocked, /import/status must not keep auto-triggering the worker.
         // The worker may only resume via a manual force_resume=1 request (or future health-check/backoff logic).
+        //
+        // Exception: do NOT treat resume_no_progress_no_attempts as a hard block if we have evidence the resume-worker
+        // entered recently (heartbeat/handler_entered_at) or we can explain "no attempts" via planner/budget state.
         if (!forceResume && resumeStatus === "blocked") {
-          canTrigger = false;
-          stageBeaconValues.status_resume_blocked_persisted = nowIso();
+          const activeResume = typeof currentResume !== "undefined" ? currentResume : resumeDoc;
+          const resumeErr = normalizeKey(activeResume?.resume_error || "");
+
+          if (resumeErr === "resume_no_progress_no_attempts") {
+            const stuckWindowMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
+              ? Math.max(30_000, Math.trunc(Number(process.env.RESUME_STUCK_QUEUED_MS)))
+              : 90_000;
+
+            const plannedReason = normalizeKey(
+              activeResume?.planned_fields_reason ||
+                activeResume?.last_trigger_result?.planned_fields_reason ||
+                activeResume?.resume_error_details?.planned_fields_reason ||
+                ""
+            );
+
+            const plannerSkipped =
+              plannedReason === "planner_skipped_due_to_budget" ||
+              plannedReason === "planner_skipped_due_to_deadline" ||
+              plannedReason === "planner_no_actionable_fields";
+
+            const sessionDocForUnblock = await readControlDoc(container, `_import_session_${sessionId}`, sessionId).catch(() => null);
+
+            const evidence = {
+              handler_entered_at:
+                activeResume?.handler_entered_at ||
+                sessionDocForUnblock?.resume_worker_handler_entered_at ||
+                sessionDocForUnblock?.resume_worker_last_trigger_result?.response?.handler_entered_at ||
+                null,
+              last_finished_at: activeResume?.last_finished_at || sessionDocForUnblock?.resume_worker_last_finished_at || null,
+            };
+
+            const hasRecentEntry = hasRecentWorkerProgress(evidence, Date.now(), stuckWindowMs);
+            const hasAnyEvidence = Boolean(evidence.handler_entered_at || evidence.last_finished_at);
+
+            if ((hasAnyEvidence && hasRecentEntry) || plannerSkipped) {
+              const unblockedAt = nowIso();
+              stageBeaconValues.status_resume_unblocked_planner_no_action = unblockedAt;
+
+              if (activeResume && typeof activeResume === "object") {
+                await upsertDoc(container, {
+                  ...activeResume,
+                  status: "queued",
+                  resume_error: null,
+                  resume_error_details: null,
+                  blocked_at: null,
+                  blocked_reason: null,
+                  last_error: null,
+                  lock_expires_at: null,
+                  updated_at: unblockedAt,
+                }).catch(() => null);
+              }
+
+              if (sessionDocForUnblock && typeof sessionDocForUnblock === "object") {
+                await upsertDoc(container, {
+                  ...sessionDocForUnblock,
+                  resume_error: null,
+                  resume_error_details: null,
+                  // Keep session non-terminal; resume is still needed.
+                  status: sessionDocForUnblock?.status === "complete" ? "running" : (sessionDocForUnblock?.status || "running"),
+                  updated_at: unblockedAt,
+                }).catch(() => null);
+              }
+
+              resumeStatus = "queued";
+              resume_status = "queued";
+            } else {
+              canTrigger = false;
+              stageBeaconValues.status_resume_blocked_persisted = nowIso();
+            }
+          } else {
+            canTrigger = false;
+            stageBeaconValues.status_resume_blocked_persisted = nowIso();
+          }
         }
 
         const resumeStuckQueuedMs = Number.isFinite(Number(process.env.RESUME_STUCK_QUEUED_MS))
