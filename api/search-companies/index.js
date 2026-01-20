@@ -312,6 +312,7 @@ const SELECT_FIELDS = [
   // Content
   "c.tagline",
   "c.curated_reviews",
+  "c.notes_entries",
 
   // Ratings + stars
   "c.rating",
@@ -414,6 +415,12 @@ function mapCompanyToPublic(doc) {
 
   const company_id = doc.company_id || doc.id;
 
+  const notes_entries = Array.isArray(doc.notes_entries)
+    ? doc.notes_entries
+        .filter((n) => n && typeof n === "object" && (n.is_public === true || String(n.is_public).toLowerCase() === "true"))
+        .slice(0, 20)
+    : [];
+
   const display_name =
     asString(doc.display_name).trim() ||
     (() => {
@@ -443,6 +450,7 @@ function mapCompanyToPublic(doc) {
     manufacturing_locations,
     headquarters_location: doc.headquarters_location || "",
     tagline: doc.tagline || "",
+    notes_entries,
     product_keywords,
     keywords,
     stars,
