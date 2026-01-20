@@ -312,6 +312,7 @@ const SELECT_FIELDS = [
   // Content
   "c.tagline",
   "c.curated_reviews",
+  "c.notes_entries",
 
   // Ratings + stars
   "c.rating",
