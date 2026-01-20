@@ -327,6 +327,34 @@ function reconcileGrokTerminalState(doc) {
   let changed = false;
   doc.import_missing_reason ||= {};
 
+  // Placeholder hygiene: never persist "Unknown" as a canonical value for retryable fields.
+  // It should stay missing (empty) and be represented via *_unknown flags + import_missing_reason.
+  const industriesList = Array.isArray(doc.industries) ? doc.industries : [];
+  if (
+    industriesList.length === 1 &&
+    normalizeKey(industriesList[0]) === "unknown" &&
+    !isTerminalMissingField(doc, "industries")
+  ) {
+    doc.industries = [];
+    doc.industries_unknown = true;
+    if (!doc.import_missing_reason.industries) {
+      doc.import_missing_reason.industries = normalizeKey(deriveMissingReason(doc, "industries")) || "not_found";
+    }
+    changed = true;
+  }
+
+  const productKeywordsRaw = typeof doc.product_keywords === "string" ? doc.product_keywords : "";
+  if (normalizeKey(productKeywordsRaw) === "unknown" && !isTerminalMissingField(doc, "product_keywords")) {
+    doc.product_keywords = "";
+    if (!Array.isArray(doc.keywords)) doc.keywords = [];
+    doc.product_keywords_unknown = true;
+    if (!doc.import_missing_reason.product_keywords) {
+      doc.import_missing_reason.product_keywords =
+        normalizeKey(deriveMissingReason(doc, "product_keywords")) || "not_found";
+    }
+    changed = true;
+  }
+
   const hqVal = normalizeKey(doc.headquarters_location);
   if (hqVal === "not disclosed" || hqVal === "not_disclosed") {
     const hqReason = normalizeKey(doc.import_missing_reason.headquarters_location || doc.hq_unknown_reason || "");
@@ -919,6 +947,24 @@ async function resumeWorkerHandler(req, context) {
 
   const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
   if (lockUntil && Date.now() < lockUntil) {
+    // Heartbeat: the handler ran, but work is prevented by the resume lock.
+    await upsertDoc(container, {
+      ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+      id: resumeDocId,
+      session_id: sessionId,
+      normalized_domain: "import",
+      partition_key: "import",
+      type: "import_control",
+      last_invoked_at: handler_entered_at,
+      handler_entered_at,
+      last_finished_at: handler_entered_at,
+      last_ok: true,
+      last_result: "resume_locked",
+      last_error: null,
+      lock_expires_at: resumeDoc?.lock_expires_at || null,
+      updated_at: handler_entered_at,
+    }).catch(() => null);
+
     return json(
       {
         ok: false,
@@ -951,6 +997,7 @@ async function resumeWorkerHandler(req, context) {
     status: "running",
     attempt: attempt + 1,
     last_invoked_at: invokedAt,
+    handler_entered_at,
     lock_expires_at: thisLockExpiresAt,
     updated_at: nowIso(),
   }).catch(() => ({ ok: false }));
@@ -1200,6 +1247,11 @@ async function resumeWorkerHandler(req, context) {
 
   const workerErrors = [];
 
+  // Planner telemetry: we want to distinguish "no attempts" because nothing was scheduled (budget/planner)
+  // from a true no-op bug where fields were planned but no attempts were recorded.
+  const plannedFieldsThisRun = new Set();
+  const plannedFieldsSkipped = [];
+
   const safeJsonPreview = (value, limit = 1200) => {
     if (!value) return null;
     try {
@@ -1317,6 +1369,34 @@ async function resumeWorkerHandler(req, context) {
     })();
 
     const shouldRunField = (field) => fieldsPlanned.has(field);
+
+    if (fieldsPlanned.size > 0) {
+      for (const f of fieldsPlanned.values()) plannedFieldsThisRun.add(f);
+    } else if (missingNow.length > 0 || taglineRetryable) {
+      const candidates = Array.from(new Set([...missingNow, ...(taglineRetryable ? ["tagline"] : [])]));
+      const minList = candidates
+        .map((f) => ({ field: f, min_ms: Number(MIN_REQUIRED_MS_BY_FIELD[f]) || 0 }))
+        .filter((x) => x.min_ms > 0);
+
+      const minRequiredAny = minList.length > 0 ? Math.min(...minList.map((x) => x.min_ms)) : 0;
+      const remainingMs = remainingRunMs();
+
+      const reason =
+        minRequiredAny && perDocBudgetMs < minRequiredAny
+          ? "planner_skipped_due_to_budget"
+          : minRequiredAny && remainingMs < minRequiredAny
+            ? "planner_skipped_due_to_deadline"
+            : "planner_no_actionable_fields";
+
+      plannedFieldsSkipped.push({
+        company_id: String(doc?.id || "").trim() || null,
+        company_name: companyName || null,
+        missing_fields: candidates,
+        reason,
+        per_doc_budget_ms: perDocBudgetMs,
+        remaining_run_ms: remainingMs,
+      });
+    }
 
     // Tagline (Grok authoritative)
     if (taglineRetryable && shouldRunField("tagline")) {
@@ -2266,6 +2346,14 @@ async function resumeWorkerHandler(req, context) {
   // Resume-needed is ONLY retryable based.
   const resumeNeeded = retryableMissingCount > 0;
 
+  const planned_fields = Array.from(plannedFieldsThisRun.values());
+  const planned_fields_reason =
+    planned_fields.length > 0
+      ? "planned"
+      : plannedFieldsSkipped.length > 0
+        ? String(plannedFieldsSkipped[0]?.reason || "planner_no_actionable_fields")
+        : null;
+
   // Invariant: if we still have retryable missing fields, this invocation must have made at least one
   // real attempt (bumped import_attempts.*). Otherwise, we mark the resume as blocked to prevent no-op loops.
   const attemptedFieldsThisRun = (() => {
@@ -2292,7 +2380,13 @@ async function resumeWorkerHandler(req, context) {
     return Array.from(attempted.values());
   })();
 
-  if (resumeNeeded && attemptedFieldsThisRun.length === 0) {
+  const noAttemptsThisRun = attemptedFieldsThisRun.length === 0;
+  const plannerHadActionableFields = planned_fields.length > 0;
+
+  // Block ONLY when we expected to attempt fields (planner scheduled work) but we recorded zero attempts.
+  // If the planner scheduled zero actionable fields (budget/deadline/terminalization), that still counts as progress
+  // and must not be surfaced as a misleading blocked state.
+  if (resumeNeeded && noAttemptsThisRun && plannerHadActionableFields) {
     const blockedAt = updatedAt;
     const errorCode = "resume_no_progress_no_attempts";
 
@@ -2304,6 +2398,9 @@ async function resumeWorkerHandler(req, context) {
         blocked_at: blockedAt,
         request_id: requestId,
         missing_by_company,
+        planned_fields,
+        planned_fields_reason,
+        planned_fields_detail: plannedFieldsSkipped.slice(0, 10),
         note: "No import_attempts were bumped during this invocation",
       },
       last_error: {
@@ -2311,6 +2408,9 @@ async function resumeWorkerHandler(req, context) {
         message: "Resume blocked: no progress/no attempts",
         blocked_at: blockedAt,
       },
+      last_finished_at: blockedAt,
+      last_ok: true,
+      last_result: "resume_blocked_no_attempts",
       lock_expires_at: null,
       updated_at: blockedAt,
     }).catch(() => null);
@@ -2325,6 +2425,9 @@ async function resumeWorkerHandler(req, context) {
           blocked_at: blockedAt,
           request_id: requestId,
           missing_by_company,
+          planned_fields,
+          planned_fields_reason,
+          planned_fields_detail: plannedFieldsSkipped.slice(0, 10),
           note: "No import_attempts were bumped during this invocation",
         },
         stage_beacon: "enrichment_resume_blocked",
@@ -2342,6 +2445,8 @@ async function resumeWorkerHandler(req, context) {
         resume_needed: true,
         missing_by_company,
         attempted_fields: attemptedFieldsThisRun,
+        planned_fields,
+        planned_fields_reason,
         stage_beacon: "enrichment_resume_blocked",
       },
       200,
@@ -2360,18 +2465,45 @@ async function resumeWorkerHandler(req, context) {
       }
     : null;
 
+  const plannerNoActionableFields = Boolean(resumeNeeded && noAttemptsThisRun && !plannerHadActionableFields);
+
+  const derivedResult = (() => {
+    if (plannerNoActionableFields) return "resume_planner_no_actionable_fields";
+    if (grokErrorSummary) return resumeNeeded ? "grok_error_incomplete" : "grok_error_complete";
+    if (lastStartOk) return resumeNeeded ? "ok_incomplete" : "ok_complete";
+    const root = typeof lastStartJson?.root_cause === "string" && lastStartJson.root_cause.trim()
+      ? lastStartJson.root_cause.trim()
+      : "import_start_failed";
+    const status = lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0);
+    return status ? `${root}_http_${status}` : root;
+  })();
+
   await upsertDoc(container, {
     ...resumeDoc,
+    handler_entered_at,
+    planned_fields,
+    planned_fields_reason,
+    planned_fields_detail: plannedFieldsSkipped.slice(0, 10),
     upstream_calls_made: upstreamCallsMade,
     upstream_calls_made_this_run: upstreamCallsMadeThisRun,
     status: resumeNeeded ? (lastStartOk ? "queued" : "error") : "complete",
+    last_finished_at: updatedAt,
+    last_ok: Boolean(lastStartOk) && !grokErrorSummary,
+    last_result: derivedResult,
     last_error: grokErrorSummary || null,
     missing_by_company,
     last_trigger_result: {
       ok: Boolean(lastStartOk),
       status: lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0),
-      stage_beacon: resumeNeeded ? lastStartJson?.stage_beacon || null : completion_beacon,
+      stage_beacon: resumeNeeded
+        ? plannerNoActionableFields
+          ? "resume_planner_no_actionable_fields"
+          : lastStartJson?.stage_beacon || null
+        : completion_beacon,
       resume_needed: resumeNeeded,
+      planned_fields,
+      planned_fields_reason,
+      planned_fields_detail: plannedFieldsSkipped.slice(0, 10),
       iterations: iteration + 1,
       resume_control_doc_upsert_ok: resume_control_doc_upsert_ok,
       ...(lastStartHttpStatus === 400 || !lastStartOk ? { import_start_debug: importStartDebug } : {}),
@@ -2414,26 +2546,7 @@ async function resumeWorkerHandler(req, context) {
           ? String(seedDocs[0].id).trim()
           : null;
 
-    const grokErrors = Array.isArray(workerErrors) ? workerErrors : [];
-    const grokErrorSummary = grokErrors.length
-      ? {
-          code: "grok_enrichment_error",
-          message: String(grokErrors[0]?.message || "grok enrichment error").slice(0, 240),
-          fields: Array.from(new Set(grokErrors.map((e) => e?.field).filter(Boolean))).slice(0, 20),
-          last_error: grokErrors[0],
-          errors: grokErrors.slice(0, 5),
-        }
-      : null;
-
-    const derivedResult = (() => {
-      if (grokErrorSummary) return resumeNeeded ? "grok_error_incomplete" : "grok_error_complete";
-      if (lastStartOk) return resumeNeeded ? "ok_incomplete" : "ok_complete";
-      const root = typeof lastStartJson?.root_cause === "string" && lastStartJson.root_cause.trim()
-        ? lastStartJson.root_cause.trim()
-        : "import_start_failed";
-      const status = lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0);
-      return status ? `${root}_http_${status}` : root;
-    })();
+    // grokErrorSummary + derivedResult computed above (used for both resume + session heartbeat).
 
     await upsertDoc(container, {
       ...sessionDoc,
@@ -2442,7 +2555,7 @@ async function resumeWorkerHandler(req, context) {
       resume_worker_last_invoked_at: invokedAt,
       resume_worker_last_finished_at: updatedAt,
       resume_worker_last_result: derivedResult,
-      resume_worker_last_ok: Boolean(lastStartOk),
+      resume_worker_last_ok: Boolean(lastStartOk) && !grokErrorSummary,
       resume_worker_last_http_status: lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0),
       resume_worker_last_error: grokErrorSummary
         ? grokErrorSummary.code
@@ -2450,7 +2563,12 @@ async function resumeWorkerHandler(req, context) {
           ? null
           : lastStartRes?._error?.message || `import_start_http_${lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0)}`,
       resume_worker_last_error_details: grokErrorSummary ? grokErrorSummary : last_error_details || null,
-      resume_worker_last_stage_beacon: lastStartJson?.stage_beacon || null,
+      resume_worker_last_stage_beacon: plannerNoActionableFields
+        ? "resume_planner_no_actionable_fields"
+        : lastStartJson?.stage_beacon || null,
+      resume_worker_planned_fields: planned_fields,
+      resume_worker_planned_fields_reason: planned_fields_reason,
+      resume_worker_planned_fields_detail: plannedFieldsSkipped.slice(0, 10),
       resume_worker_last_resume_needed: resumeNeeded,
       resume_worker_last_company_id: companyIdFromResponse,
       resume_worker_last_resume_doc_upsert_ok: resume_control_doc_upsert_ok,
