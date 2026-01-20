@@ -2465,6 +2465,19 @@ async function resumeWorkerHandler(req, context) {
       }
     : null;
 
+  const plannerNoActionableFields = Boolean(resumeNeeded && noAttemptsThisRun && !plannerHadActionableFields);
+
+  const derivedResult = (() => {
+    if (plannerNoActionableFields) return "resume_planner_no_actionable_fields";
+    if (grokErrorSummary) return resumeNeeded ? "grok_error_incomplete" : "grok_error_complete";
+    if (lastStartOk) return resumeNeeded ? "ok_incomplete" : "ok_complete";
+    const root = typeof lastStartJson?.root_cause === "string" && lastStartJson.root_cause.trim()
+      ? lastStartJson.root_cause.trim()
+      : "import_start_failed";
+    const status = lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0);
+    return status ? `${root}_http_${status}` : root;
+  })();
+
   await upsertDoc(container, {
     ...resumeDoc,
     upstream_calls_made: upstreamCallsMade,
