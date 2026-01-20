@@ -156,6 +156,7 @@ function normalizeKey(value) {
 
 const INFRA_RETRYABLE_MISSING_REASONS = new Set([
   "upstream_unreachable",
+  "upstream_timeout",
   "missing_xai_config",
 ]);
 
@@ -1809,8 +1810,29 @@ async function handler(req, context) {
           stageBeaconValues.status_resume_worker_handler_entered_at = resumeWorkerForProgress.handler_entered_at;
           stageBeaconValues.status_resume_should_force_by_queued_timeout = shouldForceByQueuedTimeout;
 
+          const docsForInfra =
+            typeof savedDocsForHealth !== "undefined"
+              ? savedDocsForHealth
+              : typeof savedDocs !== "undefined"
+                ? savedDocs
+                : [];
+
+          const infraRetryableAtPolicy = collectInfraRetryableMissing(docsForInfra);
+          const infraOnlyTimeout =
+            infraRetryableAtPolicy.length > 0 &&
+            infraRetryableAtPolicy.every((x) => normalizeKey(x?.missing_reason) === "upstream_timeout");
+
+          stageBeaconValues.status_infra_retryable_missing_count = infraRetryableAtPolicy.length;
+          stageBeaconValues.status_infra_retryable_only_timeout = infraOnlyTimeout;
+
           // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
-          const preTriggerCap = Boolean(singleCompanyMode && resume_needed && currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE);
+          const preTriggerCap = Boolean(
+            !forceResume &&
+              singleCompanyMode &&
+              resume_needed &&
+              currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE &&
+              !infraOnlyTimeout
+          );
           const watchdogNoProgress = Boolean(stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress);
 
           const forceDecision = preTriggerCap
@@ -1832,17 +1854,12 @@ async function handler(req, context) {
             const forcedAt = nowIso();
             stageBeaconValues.status_resume_blocked_reason = forceDecision.reason;
 
-            const docsForInfra =
-              typeof savedDocsForHealth !== "undefined"
-                ? savedDocsForHealth
-                : typeof savedDocs !== "undefined"
-                  ? savedDocs
-                  : [];
-
-            const infraRetryable = collectInfraRetryableMissing(docsForInfra);
+            const infraRetryable = infraRetryableAtPolicy;
 
             const errorCode = infraRetryable.length > 0
-              ? "enrichment_upstream_unreachable"
+              ? infraOnlyTimeout
+                ? "enrichment_upstream_timeout"
+                : "enrichment_upstream_unreachable"
               : "resume_worker_stuck_queued_no_progress";
 
             const details = {
@@ -3397,8 +3414,29 @@ async function handler(req, context) {
           stageBeaconValues.status_resume_worker_handler_entered_at = resumeWorkerForProgress.handler_entered_at;
           stageBeaconValues.status_resume_should_force_by_queued_timeout = shouldForceByQueuedTimeout;
 
+          const docsForInfra =
+            typeof savedDocsForHealth !== "undefined"
+              ? savedDocsForHealth
+              : typeof savedDocs !== "undefined"
+                ? savedDocs
+                : [];
+
+          const infraRetryableAtPolicy = collectInfraRetryableMissing(docsForInfra);
+          const infraOnlyTimeout =
+            infraRetryableAtPolicy.length > 0 &&
+            infraRetryableAtPolicy.every((x) => normalizeKey(x?.missing_reason) === "upstream_timeout");
+
+          stageBeaconValues.status_infra_retryable_missing_count = infraRetryableAtPolicy.length;
+          stageBeaconValues.status_infra_retryable_only_timeout = infraOnlyTimeout;
+
           // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
-          const preTriggerCap = Boolean(singleCompanyMode && resume_needed && currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE);
+          const preTriggerCap = Boolean(
+            !forceResume &&
+              singleCompanyMode &&
+              resume_needed &&
+              currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE &&
+              !infraOnlyTimeout
+          );
           const watchdogNoProgress = Boolean(stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress);
 
           const forceDecision = preTriggerCap
@@ -3420,17 +3458,12 @@ async function handler(req, context) {
             const forcedAt = nowIso();
             stageBeaconValues.status_resume_blocked_reason = forceDecision.reason;
 
-            const docsForInfra =
-              typeof savedDocsForHealth !== "undefined"
-                ? savedDocsForHealth
-                : typeof savedDocs !== "undefined"
-                  ? savedDocs
-                  : [];
-
-            const infraRetryable = collectInfraRetryableMissing(docsForInfra);
+            const infraRetryable = infraRetryableAtPolicy;
 
             const errorCode = infraRetryable.length > 0
-              ? "enrichment_upstream_unreachable"
+              ? infraOnlyTimeout
+                ? "enrichment_upstream_timeout"
+                : "enrichment_upstream_unreachable"
               : "resume_worker_stuck_queued_no_progress";
 
             const details = {
