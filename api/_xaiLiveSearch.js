@@ -260,7 +260,7 @@ async function xaiLiveSearch({
     const resp = await axios.post(url, payload, {
       headers,
       signal: controller.signal,
-      timeout: Math.max(1000, Math.trunc(Number(timeoutMs) || 12000)),
+      timeout: timeoutUsedMs,
       validateStatus: () => true,
     });
 
