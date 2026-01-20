@@ -2254,10 +2254,16 @@ async function handler(req, context) {
     }
 
     const resumeUpstreamCallsMade = Math.max(
-      typeof resumeDoc?.upstream_calls_made === "number" && Number.isFinite(resumeDoc.upstream_calls_made)
+      typeof resumeDoc !== "undefined" &&
+        resumeDoc &&
+        typeof resumeDoc.upstream_calls_made === "number" &&
+        Number.isFinite(resumeDoc.upstream_calls_made)
         ? Math.max(0, resumeDoc.upstream_calls_made)
         : 0,
-      typeof sessionDoc?.resume_worker_upstream_calls_made === "number" && Number.isFinite(sessionDoc.resume_worker_upstream_calls_made)
+      typeof sessionDoc !== "undefined" &&
+        sessionDoc &&
+        typeof sessionDoc.resume_worker_upstream_calls_made === "number" &&
+        Number.isFinite(sessionDoc.resume_worker_upstream_calls_made)
         ? Math.max(0, sessionDoc.resume_worker_upstream_calls_made)
         : 0
     );
