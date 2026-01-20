@@ -2380,7 +2380,13 @@ async function resumeWorkerHandler(req, context) {
     return Array.from(attempted.values());
   })();
 
-  if (resumeNeeded && attemptedFieldsThisRun.length === 0) {
+  const noAttemptsThisRun = attemptedFieldsThisRun.length === 0;
+  const plannerHadActionableFields = planned_fields.length > 0;
+
+  // Block ONLY when we expected to attempt fields (planner scheduled work) but we recorded zero attempts.
+  // If the planner scheduled zero actionable fields (budget/deadline/terminalization), that still counts as progress
+  // and must not be surfaced as a misleading blocked state.
+  if (resumeNeeded && noAttemptsThisRun && plannerHadActionableFields) {
     const blockedAt = updatedAt;
     const errorCode = "resume_no_progress_no_attempts";
 
@@ -2392,6 +2398,9 @@ async function resumeWorkerHandler(req, context) {
         blocked_at: blockedAt,
         request_id: requestId,
         missing_by_company,
+        planned_fields,
+        planned_fields_reason,
+        planned_fields_detail: plannedFieldsSkipped.slice(0, 10),
         note: "No import_attempts were bumped during this invocation",
       },
       last_error: {
@@ -2399,6 +2408,9 @@ async function resumeWorkerHandler(req, context) {
         message: "Resume blocked: no progress/no attempts",
         blocked_at: blockedAt,
       },
+      last_finished_at: blockedAt,
+      last_ok: true,
+      last_result: "resume_blocked_no_attempts",
       lock_expires_at: null,
       updated_at: blockedAt,
     }).catch(() => null);
@@ -2413,6 +2425,9 @@ async function resumeWorkerHandler(req, context) {
           blocked_at: blockedAt,
           request_id: requestId,
           missing_by_company,
+          planned_fields,
+          planned_fields_reason,
+          planned_fields_detail: plannedFieldsSkipped.slice(0, 10),
           note: "No import_attempts were bumped during this invocation",
         },
         stage_beacon: "enrichment_resume_blocked",
@@ -2430,6 +2445,8 @@ async function resumeWorkerHandler(req, context) {
         resume_needed: true,
         missing_by_company,
         attempted_fields: attemptedFieldsThisRun,
+        planned_fields,
+        planned_fields_reason,
         stage_beacon: "enrichment_resume_blocked",
       },
       200,
