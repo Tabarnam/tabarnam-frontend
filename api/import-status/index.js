@@ -2166,6 +2166,39 @@ async function handler(req, context) {
         ? report.session.stage_beacon.trim()
         : "";
 
+    // Safety net: if the watchdog decided "blocked" but doc persistence failed (or got lost behind routing),
+    // the response must still surface blocked immediately so UI doesn't say "Resume queued" forever.
+    const blockedReasonFromBeacon =
+      typeof stageBeaconValues?.status_resume_blocked_reason === "string" && stageBeaconValues.status_resume_blocked_reason.trim()
+        ? stageBeaconValues.status_resume_blocked_reason.trim()
+        : stageBeaconValues?.status_resume_watchdog_stuck_queued_no_progress
+          ? "watchdog_no_progress"
+          : null;
+
+    const blockedCodeFromBeacon =
+      typeof stageBeaconValues?.status_resume_blocked_code === "string" && stageBeaconValues.status_resume_blocked_code.trim()
+        ? stageBeaconValues.status_resume_blocked_code.trim()
+        : null;
+
+    if (!forceComplete && resume_needed && blockedReasonFromBeacon) {
+      resume_status = "blocked";
+      if (!resume_error && blockedCodeFromBeacon) resume_error = blockedCodeFromBeacon;
+
+      if (!resume_error_details || typeof resume_error_details !== "object") {
+        resume_error_details = {
+          forced_by: blockedReasonFromBeacon,
+          blocked_reason: blockedReasonFromBeacon,
+          blocked_code: blockedCodeFromBeacon,
+          blocked_at:
+            stageBeaconValues.status_resume_blocked ||
+            stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress ||
+            nowIso(),
+          resume_cycle_count: stageBeaconValues.status_resume_cycle_count ?? null,
+          updated_at: nowIso(),
+        };
+      }
+    }
+
     const resumeStatusForBeacon = String(resume_status || "").trim();
 
     const resumeStageBeacon = (() => {
