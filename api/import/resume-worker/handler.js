@@ -947,6 +947,24 @@ async function resumeWorkerHandler(req, context) {
 
   const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
   if (lockUntil && Date.now() < lockUntil) {
+    // Heartbeat: the handler ran, but work is prevented by the resume lock.
+    await upsertDoc(container, {
+      ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+      id: resumeDocId,
+      session_id: sessionId,
+      normalized_domain: "import",
+      partition_key: "import",
+      type: "import_control",
+      last_invoked_at: handler_entered_at,
+      handler_entered_at,
+      last_finished_at: handler_entered_at,
+      last_ok: true,
+      last_result: "resume_locked",
+      last_error: null,
+      lock_expires_at: resumeDoc?.lock_expires_at || null,
+      updated_at: handler_entered_at,
+    }).catch(() => null);
+
     return json(
       {
         ok: false,
