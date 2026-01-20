@@ -995,7 +995,26 @@ async function resumeWorkerHandler(req, context) {
     upstreamCallsMadeThisRun += 1;
   };
 
-  let seedDocs = await fetchSeedCompanies(container, sessionId, batchLimit).catch(() => []);
+  const savedCompanyIds = Array.isArray(sessionDoc?.saved_company_ids)
+    ? sessionDoc.saved_company_ids
+    : Array.isArray(sessionDoc?.saved_ids)
+      ? sessionDoc.saved_ids
+      : Array.isArray(resumeDoc?.saved_company_ids)
+        ? resumeDoc.saved_company_ids
+        : [];
+  const savedIds = Array.isArray(savedCompanyIds)
+    ? savedCompanyIds.map((v) => String(v || "").trim()).filter(Boolean)
+    : [];
+
+  const requestLimit = Number(sessionDoc?.request?.limit ?? sessionDoc?.request?.Limit ?? 0);
+  const singleCompanyMode = requestLimit === 1 || savedIds.length === 1;
+
+  // In single-company mode, prefer the canonical saved IDs (usually 1 company) so we don't
+  // split the deadline budget across lots of session docs and end up with tiny upstream timeouts.
+  let seedDocs =
+    singleCompanyMode && savedIds.length > 0
+      ? await fetchCompaniesByIds(container, savedIds.slice(0, 5)).catch(() => [])
+      : await fetchSeedCompanies(container, sessionId, batchLimit).catch(() => []);
 
   // If the session/company docs are missing the session_id markers (e.g. platform kill mid-flight),
   // fall back to canonical saved IDs persisted in the resume/session docs.
@@ -1013,6 +1032,11 @@ async function resumeWorkerHandler(req, context) {
 
     if (withMissing.length > 0) {
       seedDocs = withMissing;
+
+      if (singleCompanyMode && seedDocs.length > 1) {
+        const primary = seedDocs.find((d) => d?.primary_candidate) || seedDocs[0];
+        seedDocs = primary ? [primary] : seedDocs.slice(0, 1);
+      }
     } else {
       const updatedAt = nowIso();
 
@@ -1242,9 +1266,60 @@ async function resumeWorkerHandler(req, context) {
 
     if (reconcileGrokTerminalState(doc)) changed = true;
 
-    // Tagline (Grok authoritative)
+    const remainingRunMs = () => Math.max(0, deadlineMs - (Date.now() - startedEnrichmentAt));
+
+    // Field-level planning:
+    // - Avoid doing many missing fields per cycle when the worker has a fixed wall-clock budget.
+    // - Prefer HQ/MFG first, then reviews, then lighter metadata fields.
+    const MIN_REQUIRED_MS_BY_FIELD = {
+      reviews: 20_000 + 1_200,
+      headquarters_location: 12_000 + 1_200,
+      manufacturing_locations: 12_000 + 1_200,
+      tagline: 8_000 + 1_200,
+      industries: 8_000 + 1_200,
+      product_keywords: 8_000 + 1_200,
+    };
+
     const taglineRetryable = !isRealValue("tagline", doc.tagline, doc) && !isTerminalMissingField(doc, "tagline");
-    if (taglineRetryable) {
+
+    const fieldsPlanned = (() => {
+      const priority = [
+        "headquarters_location",
+        "manufacturing_locations",
+        "reviews",
+        "tagline",
+        "industries",
+        "product_keywords",
+      ];
+
+      const out = [];
+
+      for (const field of priority) {
+        if (field === "tagline") {
+          if (!taglineRetryable) continue;
+        } else {
+          if (!missingNow.includes(field)) continue;
+        }
+
+        const minRequired = Number(MIN_REQUIRED_MS_BY_FIELD[field]) || 0;
+        if (minRequired > 0) {
+          if (perDocBudgetMs < minRequired) continue;
+          if (remainingRunMs() < minRequired) continue;
+        }
+
+        out.push(field);
+
+        // Single-company mode should do less per cycle rather than slash timeouts.
+        if (singleCompanyMode && out.length >= 2) break;
+      }
+
+      return new Set(out);
+    })();
+
+    const shouldRunField = (field) => fieldsPlanned.has(field);
+
+    // Tagline (Grok authoritative)
+    if (taglineRetryable && shouldRunField("tagline")) {
       const bumped = bumpFieldAttempt(doc, "tagline", requestId);
       if (bumped) changed = true;
 
@@ -1305,7 +1380,7 @@ async function resumeWorkerHandler(req, context) {
     }
 
     // Industries (Grok authoritative)
-    if (missingNow.includes("industries")) {
+    if (missingNow.includes("industries") && shouldRunField("industries")) {
       const bumped = bumpFieldAttempt(doc, "industries", requestId);
       if (bumped) changed = true;
 
@@ -1378,7 +1453,7 @@ async function resumeWorkerHandler(req, context) {
     }
 
     // Product keywords (Grok authoritative)
-    if (missingNow.includes("product_keywords")) {
+    if (missingNow.includes("product_keywords") && shouldRunField("product_keywords")) {
       const bumped = bumpFieldAttempt(doc, "product_keywords", requestId);
       if (bumped) changed = true;
 
@@ -1459,7 +1534,7 @@ async function resumeWorkerHandler(req, context) {
     }
 
     // HQ
-    if (missingNow.includes("headquarters_location")) {
+    if (missingNow.includes("headquarters_location") && shouldRunField("headquarters_location")) {
       const bumped = bumpFieldAttempt(doc, "headquarters_location", requestId);
       if (bumped) changed = true;
 
@@ -1537,7 +1612,7 @@ async function resumeWorkerHandler(req, context) {
     }
 
     // MFG
-    if (missingNow.includes("manufacturing_locations")) {
+    if (missingNow.includes("manufacturing_locations") && shouldRunField("manufacturing_locations")) {
       const bumped = bumpFieldAttempt(doc, "manufacturing_locations", requestId);
       if (bumped) changed = true;
 
@@ -1618,7 +1693,7 @@ async function resumeWorkerHandler(req, context) {
     }
 
     // Reviews
-    if (missingNow.includes("reviews")) {
+    if (missingNow.includes("reviews") && shouldRunField("reviews")) {
       const bumped = bumpFieldAttempt(doc, "reviews", requestId);
       if (bumped) changed = true;
 
@@ -1650,6 +1725,7 @@ async function resumeWorkerHandler(req, context) {
           : derivedCount;
 
         doc.reviews_stage_status = "ok";
+        doc.review_cursor.reviews_stage_status = "ok";
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.reviews = "ok";
 
@@ -1662,6 +1738,7 @@ async function resumeWorkerHandler(req, context) {
         const terminal = attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS;
 
         doc.reviews_stage_status = status || "not_found";
+        doc.review_cursor.reviews_stage_status = doc.reviews_stage_status;
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.reviews = terminal ? "exhausted" : status || "not_found";
 

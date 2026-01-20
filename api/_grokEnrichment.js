@@ -21,8 +21,15 @@ function clampInt(value, { min, max, fallback }) {
 function resolveXaiStageTimeoutMaxMs(fallback = 25_000) {
   const raw = Number(process.env.XAI_TIMEOUT_MS);
   if (!Number.isFinite(raw)) return fallback;
-  return clampInt(raw, { min: 2_500, max: 30_000, fallback });
+  // Note: individual stage caps may still be lower (see XAI_STAGE_TIMEOUTS_MS).
+  return clampInt(raw, { min: 2_500, max: 60_000, fallback });
 }
+
+const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
+  reviews: { min: 20_000, max: 30_000 },
+  location: { min: 12_000, max: 20_000 },
+  light: { min: 8_000, max: 12_000 },
+});
 
 // Keep upstream calls safely under the SWA gateway wall-clock (~30s) with a buffer.
 function clampStageTimeoutMs({ remainingMs, minMs = 2_500, maxMs = resolveXaiStageTimeoutMaxMs(), safetyMarginMs = 1_200 } = {}) {
@@ -133,13 +140,20 @@ Return JSON array:
 ]
 `.trim();
 
+  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.reviews;
+
   // Budget clamp: if we can't safely run another upstream call, defer without terminalizing.
   const remaining = budgetMs - (Date.now() - started);
-  if (remaining < 3000) {
+  const minRequired = stageTimeout.min + 1_200;
+  if (remaining < minRequired) {
     return {
       curated_reviews: [],
       reviews_stage_status: "deferred",
-      diagnostics: { reason: "budget_too_low", remaining_ms: Math.max(0, remaining) },
+      diagnostics: {
+        reason: "budget_too_low",
+        remaining_ms: Math.max(0, remaining),
+        min_required_ms: minRequired,
+      },
     };
   }
 
@@ -148,9 +162,16 @@ Return JSON array:
     additionalExcludedHosts: excludeDomains,
   });
 
+  const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
+
   const r = await xaiLiveSearch({
     prompt,
-    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: resolveXaiStageTimeoutMaxMs() }),
+    timeoutMs: clampStageTimeoutMs({
+      remainingMs: remaining,
+      minMs: stageTimeout.min,
+      maxMs: maxTimeoutMs,
+      safetyMarginMs: 1_200,
+    }),
     maxTokens: 900,
     model: asString(model).trim() || "grok-4-latest",
     xaiUrl,
@@ -245,18 +266,32 @@ Return:
 { "headquarters_location": "..." }
 `.trim();
 
+  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
+
   const remaining = budgetMs - (Date.now() - started);
-  if (remaining < 2500) {
+  const minRequired = stageTimeout.min + 1_200;
+  if (remaining < minRequired) {
     return {
       headquarters_location: "",
       hq_status: "deferred",
-      diagnostics: { reason: "budget_too_low", remaining_ms: Math.max(0, remaining) },
+      diagnostics: {
+        reason: "budget_too_low",
+        remaining_ms: Math.max(0, remaining),
+        min_required_ms: minRequired,
+      },
     };
   }
 
+  const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
+
   const r = await xaiLiveSearch({
     prompt,
-    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: resolveXaiStageTimeoutMaxMs() }),
+    timeoutMs: clampStageTimeoutMs({
+      remainingMs: remaining,
+      minMs: stageTimeout.min,
+      maxMs: maxTimeoutMs,
+      safetyMarginMs: 1_200,
+    }),
     maxTokens: 300,
     model: resolveSearchModel(),
     xaiUrl,
@@ -318,18 +353,32 @@ Return:
 { "manufacturing_locations": ["..."] }
 `.trim();
 
+  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
+
   const remaining = budgetMs - (Date.now() - started);
-  if (remaining < 2500) {
+  const minRequired = stageTimeout.min + 1_200;
+  if (remaining < minRequired) {
     return {
       manufacturing_locations: [],
       mfg_status: "deferred",
-      diagnostics: { reason: "budget_too_low", remaining_ms: Math.max(0, remaining) },
+      diagnostics: {
+        reason: "budget_too_low",
+        remaining_ms: Math.max(0, remaining),
+        min_required_ms: minRequired,
+      },
     };
   }
 
+  const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
+
   const r = await xaiLiveSearch({
     prompt,
-    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: resolveXaiStageTimeoutMaxMs() }),
+    timeoutMs: clampStageTimeoutMs({
+      remainingMs: remaining,
+      minMs: stageTimeout.min,
+      maxMs: maxTimeoutMs,
+      safetyMarginMs: 1_200,
+    }),
     maxTokens: 400,
     model: resolveSearchModel(),
     xaiUrl,
@@ -395,18 +444,32 @@ Return:
 { "tagline": "..." }
 `.trim();
 
+  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
+
   const remaining = budgetMs - (Date.now() - started);
-  if (remaining < 2500) {
+  const minRequired = stageTimeout.min + 1_200;
+  if (remaining < minRequired) {
     return {
       tagline: "",
       tagline_status: "deferred",
-      diagnostics: { reason: "budget_too_low", remaining_ms: Math.max(0, remaining) },
+      diagnostics: {
+        reason: "budget_too_low",
+        remaining_ms: Math.max(0, remaining),
+        min_required_ms: minRequired,
+      },
     };
   }
 
+  const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
+
   const r = await xaiLiveSearch({
     prompt,
-    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: resolveXaiStageTimeoutMaxMs() }),
+    timeoutMs: clampStageTimeoutMs({
+      remainingMs: remaining,
+      minMs: stageTimeout.min,
+      maxMs: maxTimeoutMs,
+      safetyMarginMs: 1_200,
+    }),
     maxTokens: 180,
     model: resolveSearchModel(model),
     xaiUrl,
@@ -466,18 +529,32 @@ Return:
 { "industries": ["..."] }
 `.trim();
 
+  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
+
   const remaining = budgetMs - (Date.now() - started);
-  if (remaining < 2500) {
+  const minRequired = stageTimeout.min + 1_200;
+  if (remaining < minRequired) {
     return {
       industries: [],
       industries_status: "deferred",
-      diagnostics: { reason: "budget_too_low", remaining_ms: Math.max(0, remaining) },
+      diagnostics: {
+        reason: "budget_too_low",
+        remaining_ms: Math.max(0, remaining),
+        min_required_ms: minRequired,
+      },
     };
   }
 
+  const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
+
   const r = await xaiLiveSearch({
     prompt,
-    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: resolveXaiStageTimeoutMaxMs() }),
+    timeoutMs: clampStageTimeoutMs({
+      remainingMs: remaining,
+      minMs: stageTimeout.min,
+      maxMs: maxTimeoutMs,
+      safetyMarginMs: 1_200,
+    }),
     maxTokens: 220,
     model: resolveSearchModel(model),
     xaiUrl,
@@ -538,18 +615,32 @@ Return:
 { "keywords": ["..."] }
 `.trim();
 
+  const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
+
   const remaining = budgetMs - (Date.now() - started);
-  if (remaining < 2500) {
+  const minRequired = stageTimeout.min + 1_200;
+  if (remaining < minRequired) {
     return {
       keywords: [],
       keywords_status: "deferred",
-      diagnostics: { reason: "budget_too_low", remaining_ms: Math.max(0, remaining) },
+      diagnostics: {
+        reason: "budget_too_low",
+        remaining_ms: Math.max(0, remaining),
+        min_required_ms: minRequired,
+      },
     };
   }
 
+  const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
+
   const r = await xaiLiveSearch({
     prompt,
-    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: resolveXaiStageTimeoutMaxMs() }),
+    timeoutMs: clampStageTimeoutMs({
+      remainingMs: remaining,
+      minMs: stageTimeout.min,
+      maxMs: maxTimeoutMs,
+      safetyMarginMs: 1_200,
+    }),
     maxTokens: 300,
     model: resolveSearchModel(model),
     xaiUrl,

@@ -31,6 +31,10 @@ const MAX_RESUME_CYCLES_SINGLE = Number.isFinite(Number(process.env.MAX_RESUME_C
   ? Math.max(1, Math.trunc(Number(process.env.MAX_RESUME_CYCLES_SINGLE)))
   : 3;
 
+// When all remaining missing fields are retryable upstream *timeouts*, be less aggressive about
+// hard-blocking single-company imports.
+const MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY = 15;
+
 const BUILD_INFO = (() => {
   try {
     return getBuildInfo();
@@ -211,12 +215,16 @@ function shouldForceTerminalizeSingle({
   resume_cycle_count,
   resume_worker,
   resume_stuck_ms,
+  infra_only_timeout,
 }) {
   if (!single) return { force: false, reason: null };
   if (!resume_needed) return { force: false, reason: null };
 
   const cycles = Number(resume_cycle_count || 0) || 0;
-  if (cycles >= MAX_RESUME_CYCLES_SINGLE) return { force: true, reason: "max_cycles" };
+  const maxCycles = infra_only_timeout
+    ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
+    : MAX_RESUME_CYCLES_SINGLE;
+  if (cycles >= maxCycles) return { force: true, reason: "max_cycles" };
 
   const status = String(resume_status || "").trim();
   if (status !== "queued") return { force: false, reason: null };
@@ -1848,6 +1856,7 @@ async function handler(req, context) {
                     resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
                     resume_worker: resumeWorkerForProgress,
                     resume_stuck_ms: resumeStuckQueuedMs,
+                    infra_only_timeout: infraOnlyTimeout,
                   });
 
           if (forceDecision.force) {
@@ -3452,6 +3461,7 @@ async function handler(req, context) {
                     resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
                     resume_worker: resumeWorkerForProgress,
                     resume_stuck_ms: resumeStuckQueuedMs,
+                    infra_only_timeout: infraOnlyTimeout,
                   });
 
           if (forceDecision.force) {
