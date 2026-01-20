@@ -1725,6 +1725,7 @@ async function resumeWorkerHandler(req, context) {
           : derivedCount;
 
         doc.reviews_stage_status = "ok";
+        doc.review_cursor.reviews_stage_status = "ok";
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.reviews = "ok";
 
@@ -1737,6 +1738,7 @@ async function resumeWorkerHandler(req, context) {
         const terminal = attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS;
 
         doc.reviews_stage_status = status || "not_found";
+        doc.review_cursor.reviews_stage_status = doc.reviews_stage_status;
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.reviews = terminal ? "exhausted" : status || "not_found";
 
