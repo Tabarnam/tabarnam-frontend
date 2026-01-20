@@ -450,6 +450,7 @@ function mapCompanyToPublic(doc) {
     manufacturing_locations,
     headquarters_location: doc.headquarters_location || "",
     tagline: doc.tagline || "",
+    notes_entries,
     product_keywords,
     keywords,
     stars,
