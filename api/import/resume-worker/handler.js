@@ -104,6 +104,12 @@ function normalizeKey(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function isTimeoutLikeMessage(message) {
+  const m = String(message ?? "").toLowerCase();
+  if (!m) return false;
+  return /\b(canceled|cancelled|timeout|timed out|abort|aborted)\b/i.test(m);
+}
+
 function safeJsonStringify(value, limit = 2000) {
   try {
     const text = JSON.stringify(value);
@@ -148,7 +154,14 @@ const GROK_ONLY_FIELDS = new Set([
   "reviews",
 ]);
 
-const GROK_RETRYABLE_STATUSES = new Set(["deferred", "upstream_unreachable", "not_found", "not_disclosed_pending", "not_disclosed_candidate"]);
+const GROK_RETRYABLE_STATUSES = new Set([
+  "deferred",
+  "upstream_unreachable",
+  "upstream_timeout",
+  "not_found",
+  "not_disclosed_pending",
+  "not_disclosed_candidate",
+]);
 
 function envInt(name, fallback, { min = 1, max = 25 } = {}) {
   const raw = Number(process.env[name]);
@@ -1187,8 +1200,24 @@ async function resumeWorkerHandler(req, context) {
               ? err.error
               : null,
       message: safeErrorMessage(err) || "error",
-      ...(details && typeof details === "object" ? details : {}),
     };
+
+    // Persist useful upstream diagnostics when present.
+    if (err && typeof err === "object" && !Array.isArray(err)) {
+      for (const k of [
+        "elapsed_ms",
+        "timeout_ms",
+        "aborted_by_us",
+        "abort_timer_fired",
+        "upstream_http_status",
+        "upstream_request_id",
+      ]) {
+        if (err[k] !== undefined && err[k] !== null) entry[k] = err[k];
+      }
+    }
+
+    if (details && typeof details === "object") Object.assign(entry, details);
+
     workerErrors.push(entry);
     return entry;
   };
@@ -1225,7 +1254,8 @@ async function resumeWorkerHandler(req, context) {
         r = await fetchTagline(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("tagline", "grok_tagline", e);
-        r = { tagline: "", tagline_status: "upstream_unreachable", diagnostics: entry };
+        const failure = isTimeoutLikeMessage(entry.message) ? "upstream_timeout" : "upstream_unreachable";
+        r = { tagline: "", tagline_status: failure, diagnostics: entry };
       }
 
       const status = normalizeKey(r?.tagline_status || "");
@@ -1244,19 +1274,26 @@ async function resumeWorkerHandler(req, context) {
         doc.import_missing_reason.tagline = terminal ? "not_found_terminal" : reason;
         doc.tagline_unknown = true;
 
-        if (status === "upstream_unreachable") {
+        if (status === "upstream_unreachable" || status === "upstream_timeout") {
           const entry = recordWorkerError("tagline", "grok_tagline", r?.diagnostics || r);
           markFieldError(doc, "tagline", entry);
           addImportWarning(doc, {
             field: "tagline",
-            missing_reason: "upstream_unreachable",
+            missing_reason: status,
             stage: "grok_tagline",
             retryable: !terminal,
-            message: "Grok tagline fetch failed",
-            error_code: "upstream_unreachable",
+            message: status === "upstream_timeout" ? "Grok tagline request timed out" : "Grok tagline fetch failed",
+            error_code: status,
+            elapsed_ms: entry.elapsed_ms ?? null,
+            timeout_ms: entry.timeout_ms ?? null,
+            aborted_by_us: entry.aborted_by_us ?? null,
+            upstream_request_id: entry.upstream_request_id ?? null,
             at: nowIso(),
           });
-          markEnrichmentIncomplete(doc, { reason: "upstream unreachable", field: "tagline" });
+          markEnrichmentIncomplete(doc, {
+            reason: status === "upstream_timeout" ? "upstream timeout" : "upstream unreachable",
+            field: "tagline",
+          });
         }
 
         if (terminal) {
@@ -1278,7 +1315,8 @@ async function resumeWorkerHandler(req, context) {
         r = await fetchIndustries(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("industries", "grok_industries", e);
-        r = { industries: [], industries_status: "upstream_unreachable", diagnostics: entry };
+        const failure = isTimeoutLikeMessage(entry.message) ? "upstream_timeout" : "upstream_unreachable";
+        r = { industries: [], industries_status: failure, diagnostics: entry };
       }
 
       const status = normalizeKey(r?.industries_status || "");
@@ -1309,19 +1347,26 @@ async function resumeWorkerHandler(req, context) {
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.industries = terminal ? terminalReason : retryReason;
 
-        if (status === "upstream_unreachable") {
+        if (status === "upstream_unreachable" || status === "upstream_timeout") {
           const entry = recordWorkerError("industries", "grok_industries", r?.diagnostics || r);
           markFieldError(doc, "industries", entry);
           addImportWarning(doc, {
             field: "industries",
-            missing_reason: "upstream_unreachable",
+            missing_reason: status,
             stage: "grok_industries",
             retryable: !terminal,
-            message: "Grok industries fetch failed",
-            error_code: "upstream_unreachable",
+            message: status === "upstream_timeout" ? "Grok industries request timed out" : "Grok industries fetch failed",
+            error_code: status,
+            elapsed_ms: entry.elapsed_ms ?? null,
+            timeout_ms: entry.timeout_ms ?? null,
+            aborted_by_us: entry.aborted_by_us ?? null,
+            upstream_request_id: entry.upstream_request_id ?? null,
             at: nowIso(),
           });
-          markEnrichmentIncomplete(doc, { reason: "upstream unreachable", field: "industries" });
+          markEnrichmentIncomplete(doc, {
+            reason: status === "upstream_timeout" ? "upstream timeout" : "upstream unreachable",
+            field: "industries",
+          });
         }
 
         if (terminal) {
@@ -1343,7 +1388,8 @@ async function resumeWorkerHandler(req, context) {
         r = await fetchProductKeywords(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("product_keywords", "grok_keywords", e);
-        r = { keywords: [], keywords_status: "upstream_unreachable", diagnostics: entry };
+        const failure = isTimeoutLikeMessage(entry.message) ? "upstream_timeout" : "upstream_unreachable";
+        r = { keywords: [], keywords_status: failure, diagnostics: entry };
       }
 
       const status = normalizeKey(r?.keywords_status || "");
@@ -1379,19 +1425,29 @@ async function resumeWorkerHandler(req, context) {
         doc.import_missing_reason.product_keywords = terminal ? terminalReason : retryReason;
         doc.product_keywords_unknown = true;
 
-        if (status === "upstream_unreachable") {
+        if (status === "upstream_unreachable" || status === "upstream_timeout") {
           const entry = recordWorkerError("product_keywords", "grok_keywords", r?.diagnostics || r);
           markFieldError(doc, "product_keywords", entry);
           addImportWarning(doc, {
             field: "product_keywords",
-            missing_reason: "upstream_unreachable",
+            missing_reason: status,
             stage: "grok_keywords",
             retryable: !terminal,
-            message: "Grok product keywords fetch failed",
-            error_code: "upstream_unreachable",
+            message:
+              status === "upstream_timeout"
+                ? "Grok product keywords request timed out"
+                : "Grok product keywords fetch failed",
+            error_code: status,
+            elapsed_ms: entry.elapsed_ms ?? null,
+            timeout_ms: entry.timeout_ms ?? null,
+            aborted_by_us: entry.aborted_by_us ?? null,
+            upstream_request_id: entry.upstream_request_id ?? null,
             at: nowIso(),
           });
-          markEnrichmentIncomplete(doc, { reason: "upstream unreachable", field: "product_keywords" });
+          markEnrichmentIncomplete(doc, {
+            reason: status === "upstream_timeout" ? "upstream timeout" : "upstream unreachable",
+            field: "product_keywords",
+          });
         }
 
         if (terminal) {
@@ -1413,7 +1469,8 @@ async function resumeWorkerHandler(req, context) {
         r = await fetchHeadquartersLocation(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("headquarters_location", "grok_hq", e);
-        r = { headquarters_location: "", hq_status: "upstream_unreachable", diagnostics: entry };
+        const failure = isTimeoutLikeMessage(entry.message) ? "upstream_timeout" : "upstream_unreachable";
+        r = { headquarters_location: "", hq_status: failure, diagnostics: entry };
       }
 
       const status = normalizeKey(r?.hq_status || "");
@@ -1436,31 +1493,42 @@ async function resumeWorkerHandler(req, context) {
         doc.hq_unknown_reason = "pending_grok";
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.headquarters_location = terminal
-          ? (status === "upstream_unreachable" || status === "deferred" ? "exhausted" : "not_disclosed")
+          ? (status === "upstream_unreachable" || status === "upstream_timeout" || status === "deferred"
+              ? "exhausted"
+              : "not_disclosed")
           : normalized;
 
-        if (status === "upstream_unreachable") {
+        if (status === "upstream_unreachable" || status === "upstream_timeout") {
           const entry = recordWorkerError("headquarters_location", "grok_hq", r?.diagnostics || r, {
             upstream_preview: safeJsonPreview(r?.diagnostics || r),
           });
           markFieldError(doc, "headquarters_location", entry);
           addImportWarning(doc, {
             field: "headquarters_location",
-            missing_reason: "upstream_unreachable",
+            missing_reason: status,
             stage: "grok_hq",
             retryable: !terminal,
-            message: "Grok HQ fetch failed",
-            error_code: "upstream_unreachable",
+            message: status === "upstream_timeout" ? "Grok HQ request timed out" : "Grok HQ fetch failed",
+            error_code: status,
+            elapsed_ms: entry.elapsed_ms ?? null,
+            timeout_ms: entry.timeout_ms ?? null,
+            aborted_by_us: entry.aborted_by_us ?? null,
+            upstream_request_id: entry.upstream_request_id ?? null,
             at: nowIso(),
           });
-          markEnrichmentIncomplete(doc, { reason: "upstream unreachable", field: "headquarters_location" });
+          markEnrichmentIncomplete(doc, {
+            reason: status === "upstream_timeout" ? "upstream timeout" : "upstream unreachable",
+            field: "headquarters_location",
+          });
         }
 
         if (terminal) {
           terminalizeGrokField(
             doc,
             "headquarters_location",
-            status === "upstream_unreachable" || status === "deferred" ? "exhausted" : "not_disclosed"
+            status === "upstream_unreachable" || status === "upstream_timeout" || status === "deferred"
+              ? "exhausted"
+              : "not_disclosed"
           );
         }
 
@@ -1479,7 +1547,8 @@ async function resumeWorkerHandler(req, context) {
         r = await fetchManufacturingLocations(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("manufacturing_locations", "grok_mfg", e);
-        r = { manufacturing_locations: [], mfg_status: "upstream_unreachable", diagnostics: entry };
+        const failure = isTimeoutLikeMessage(entry.message) ? "upstream_timeout" : "upstream_unreachable";
+        r = { manufacturing_locations: [], mfg_status: failure, diagnostics: entry };
       }
 
       const status = normalizeKey(r?.mfg_status || "");
@@ -1502,31 +1571,45 @@ async function resumeWorkerHandler(req, context) {
         doc.mfg_unknown_reason = "pending_grok";
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.manufacturing_locations = terminal
-          ? (status === "upstream_unreachable" || status === "deferred" ? "exhausted" : "not_disclosed")
+          ? (status === "upstream_unreachable" || status === "upstream_timeout" || status === "deferred"
+              ? "exhausted"
+              : "not_disclosed")
           : normalized;
 
-        if (status === "upstream_unreachable") {
+        if (status === "upstream_unreachable" || status === "upstream_timeout") {
           const entry = recordWorkerError("manufacturing_locations", "grok_mfg", r?.diagnostics || r, {
             upstream_preview: safeJsonPreview(r?.diagnostics || r),
           });
           markFieldError(doc, "manufacturing_locations", entry);
           addImportWarning(doc, {
             field: "manufacturing_locations",
-            missing_reason: "upstream_unreachable",
+            missing_reason: status,
             stage: "grok_mfg",
             retryable: !terminal,
-            message: "Grok manufacturing fetch failed",
-            error_code: "upstream_unreachable",
+            message:
+              status === "upstream_timeout"
+                ? "Grok manufacturing request timed out"
+                : "Grok manufacturing fetch failed",
+            error_code: status,
+            elapsed_ms: entry.elapsed_ms ?? null,
+            timeout_ms: entry.timeout_ms ?? null,
+            aborted_by_us: entry.aborted_by_us ?? null,
+            upstream_request_id: entry.upstream_request_id ?? null,
             at: nowIso(),
           });
-          markEnrichmentIncomplete(doc, { reason: "upstream unreachable", field: "manufacturing_locations" });
+          markEnrichmentIncomplete(doc, {
+            reason: status === "upstream_timeout" ? "upstream timeout" : "upstream unreachable",
+            field: "manufacturing_locations",
+          });
         }
 
         if (terminal) {
           terminalizeGrokField(
             doc,
             "manufacturing_locations",
-            status === "upstream_unreachable" || status === "deferred" ? "exhausted" : "not_disclosed"
+            status === "upstream_unreachable" || status === "upstream_timeout" || status === "deferred"
+              ? "exhausted"
+              : "not_disclosed"
           );
         }
 
@@ -1545,7 +1628,8 @@ async function resumeWorkerHandler(req, context) {
         r = await fetchCuratedReviews(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("reviews", "grok_reviews", e);
-        r = { curated_reviews: [], reviews_stage_status: "upstream_unreachable", diagnostics: entry };
+        const failure = isTimeoutLikeMessage(entry.message) ? "upstream_timeout" : "upstream_unreachable";
+        r = { curated_reviews: [], reviews_stage_status: failure, diagnostics: entry };
       }
 
       const status = normalizeKey(r?.reviews_stage_status || "");
@@ -1581,7 +1665,7 @@ async function resumeWorkerHandler(req, context) {
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.reviews = terminal ? "exhausted" : status || "not_found";
 
-        if (status === "upstream_unreachable") {
+        if (status === "upstream_unreachable" || status === "upstream_timeout") {
           const entry = recordWorkerError("reviews", "grok_reviews", r?.diagnostics || r, {
             upstream_preview: safeJsonPreview(r?.diagnostics || r),
           });
@@ -1589,22 +1673,33 @@ async function resumeWorkerHandler(req, context) {
           markFieldError(doc, "reviews", entry);
 
           doc.review_cursor.last_error = {
-            code: "upstream_unreachable",
+            code: status,
             message: entry.message,
             at: entry.at,
             request_id: requestId || null,
+            elapsed_ms: entry.elapsed_ms ?? null,
+            timeout_ms: entry.timeout_ms ?? null,
+            aborted_by_us: entry.aborted_by_us ?? null,
+            upstream_request_id: entry.upstream_request_id ?? null,
           };
 
           addImportWarning(doc, {
             field: "reviews",
-            missing_reason: "upstream_unreachable",
+            missing_reason: status,
             stage: "grok_reviews",
             retryable: !terminal,
-            message: "Grok reviews fetch failed",
-            error_code: "upstream_unreachable",
+            message: status === "upstream_timeout" ? "Grok reviews request timed out" : "Grok reviews fetch failed",
+            error_code: status,
+            elapsed_ms: entry.elapsed_ms ?? null,
+            timeout_ms: entry.timeout_ms ?? null,
+            aborted_by_us: entry.aborted_by_us ?? null,
+            upstream_request_id: entry.upstream_request_id ?? null,
             at: nowIso(),
           });
-          markEnrichmentIncomplete(doc, { reason: "upstream unreachable", field: "reviews" });
+          markEnrichmentIncomplete(doc, {
+            reason: status === "upstream_timeout" ? "upstream timeout" : "upstream unreachable",
+            field: "reviews",
+          });
         } else if (status === "not_found") {
           doc.review_cursor.last_error = null;
         }

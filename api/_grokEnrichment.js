@@ -18,11 +18,17 @@ function clampInt(value, { min, max, fallback }) {
   return Math.max(min, Math.min(max, i));
 }
 
+function resolveXaiStageTimeoutMaxMs(fallback = 25_000) {
+  const raw = Number(process.env.XAI_TIMEOUT_MS);
+  if (!Number.isFinite(raw)) return fallback;
+  return clampInt(raw, { min: 2_500, max: 30_000, fallback });
+}
+
 // Keep upstream calls safely under the SWA gateway wall-clock (~30s) with a buffer.
-function clampStageTimeoutMs({ remainingMs, minMs = 2_500, maxMs = 8_000, safetyMarginMs = 1_200 } = {}) {
+function clampStageTimeoutMs({ remainingMs, minMs = 2_500, maxMs = resolveXaiStageTimeoutMaxMs(), safetyMarginMs = 1_200 } = {}) {
   const rem = Number.isFinite(Number(remainingMs)) ? Number(remainingMs) : 0;
   const min = clampInt(minMs, { min: 250, max: 60_000, fallback: 2_500 });
-  const max = clampInt(maxMs, { min, max: 60_000, fallback: 8_000 });
+  const max = clampInt(maxMs, { min, max: 60_000, fallback: resolveXaiStageTimeoutMaxMs() });
   const safety = clampInt(safetyMarginMs, { min: 0, max: 20_000, fallback: 1_200 });
 
   const raw = Math.max(0, Math.trunc(rem - safety));
@@ -31,6 +37,21 @@ function clampStageTimeoutMs({ remainingMs, minMs = 2_500, maxMs = 8_000, safety
 
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function classifyXaiFailure(result) {
+  const r = result && typeof result === "object" ? result : {};
+  const code = String(r.error_code || "").trim().toLowerCase();
+  if (code === "upstream_timeout") return "upstream_timeout";
+
+  const msg = String(r.error || "").toLowerCase();
+  const abortedByUs = Boolean(r?.diagnostics?.aborted_by_us);
+
+  if (abortedByUs || /\b(canceled|cancelled|timeout|timed out|abort|aborted)\b/i.test(msg)) {
+    return "upstream_timeout";
+  }
+
+  return "upstream_unreachable";
 }
 
 function resolveChatModel(provided) {
@@ -129,7 +150,7 @@ Return JSON array:
 
   const r = await xaiLiveSearch({
     prompt,
-    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
+    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: resolveXaiStageTimeoutMaxMs() }),
     maxTokens: 900,
     model: asString(model).trim() || "grok-4-latest",
     xaiUrl,
@@ -138,10 +159,15 @@ Return JSON array:
   });
 
   if (!r.ok) {
+    const failure = classifyXaiFailure(r);
     return {
       curated_reviews: [],
-      reviews_stage_status: "upstream_unreachable",
-      diagnostics: { error: r.error },
+      reviews_stage_status: failure,
+      diagnostics: {
+        error: r.error,
+        error_code: failure,
+        ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+      },
       search_telemetry: searchBuild.telemetry,
       excluded_hosts: searchBuild.excluded_hosts,
     };
@@ -230,7 +256,7 @@ Return:
 
   const r = await xaiLiveSearch({
     prompt,
-    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
+    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: resolveXaiStageTimeoutMaxMs() }),
     maxTokens: 300,
     model: resolveSearchModel(),
     xaiUrl,
@@ -239,9 +265,15 @@ Return:
   });
 
   if (!r.ok) {
+    const failure = classifyXaiFailure(r);
     return {
       headquarters_location: "",
-      hq_status: "upstream_unreachable",
+      hq_status: failure,
+      diagnostics: {
+        error: r.error,
+        error_code: failure,
+        ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+      },
     };
   }
 
@@ -297,7 +329,7 @@ Return:
 
   const r = await xaiLiveSearch({
     prompt,
-    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
+    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: resolveXaiStageTimeoutMaxMs() }),
     maxTokens: 400,
     model: resolveSearchModel(),
     xaiUrl,
@@ -306,7 +338,17 @@ Return:
   });
 
   if (!r.ok) {
-    return { manufacturing_locations: [], mfg_status: "upstream_unreachable", diagnostics: { error: r.error, resp: r.resp } };
+    const failure = classifyXaiFailure(r);
+    return {
+      manufacturing_locations: [],
+      mfg_status: failure,
+      diagnostics: {
+        error: r.error,
+        error_code: failure,
+        ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+        resp: r.resp,
+      },
+    };
   }
 
   const out = parseJsonFromXaiResponse(r.resp);
@@ -364,7 +406,7 @@ Return:
 
   const r = await xaiLiveSearch({
     prompt,
-    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
+    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: resolveXaiStageTimeoutMaxMs() }),
     maxTokens: 180,
     model: resolveSearchModel(model),
     xaiUrl,
@@ -373,7 +415,17 @@ Return:
   });
 
   if (!r.ok) {
-    return { tagline: "", tagline_status: "upstream_unreachable", diagnostics: { error: r.error, resp: r.resp } };
+    const failure = classifyXaiFailure(r);
+    return {
+      tagline: "",
+      tagline_status: failure,
+      diagnostics: {
+        error: r.error,
+        error_code: failure,
+        ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+        resp: r.resp,
+      },
+    };
   }
 
   const out = parseJsonFromXaiResponse(r.resp);
@@ -425,7 +477,7 @@ Return:
 
   const r = await xaiLiveSearch({
     prompt,
-    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
+    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: resolveXaiStageTimeoutMaxMs() }),
     maxTokens: 220,
     model: resolveSearchModel(model),
     xaiUrl,
@@ -434,7 +486,17 @@ Return:
   });
 
   if (!r.ok) {
-    return { industries: [], industries_status: "upstream_unreachable", diagnostics: { error: r.error, resp: r.resp } };
+    const failure = classifyXaiFailure(r);
+    return {
+      industries: [],
+      industries_status: failure,
+      diagnostics: {
+        error: r.error,
+        error_code: failure,
+        ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+        resp: r.resp,
+      },
+    };
   }
 
   const out = parseJsonFromXaiResponse(r.resp);
@@ -487,7 +549,7 @@ Return:
 
   const r = await xaiLiveSearch({
     prompt,
-    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: 8_000 }),
+    timeoutMs: clampStageTimeoutMs({ remainingMs: remaining, maxMs: resolveXaiStageTimeoutMaxMs() }),
     maxTokens: 300,
     model: resolveSearchModel(model),
     xaiUrl,
@@ -496,7 +558,17 @@ Return:
   });
 
   if (!r.ok) {
-    return { keywords: [], keywords_status: "upstream_unreachable", diagnostics: { error: r.error, resp: r.resp } };
+    const failure = classifyXaiFailure(r);
+    return {
+      keywords: [],
+      keywords_status: failure,
+      diagnostics: {
+        error: r.error,
+        error_code: failure,
+        ...(r.diagnostics && typeof r.diagnostics === "object" ? r.diagnostics : {}),
+        resp: r.resp,
+      },
+    };
   }
 
   const out = parseJsonFromXaiResponse(r.resp);
