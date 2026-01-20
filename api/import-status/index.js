@@ -2277,6 +2277,30 @@ async function handler(req, context) {
 
     stageBeaconValues.status_resume_upstream_calls_made = resumeUpstreamCallsMade;
 
+    // Ensure resume status/error surface even if the resume-handling block bailed out early.
+    if (!resume_status) {
+      const persistedResumeStatus =
+        typeof resumeDoc !== "undefined" && resumeDoc && typeof resumeDoc.status === "string" ? resumeDoc.status.trim() : null;
+
+      if (persistedResumeStatus) resume_status = persistedResumeStatus;
+
+      if (!resume_error) {
+        const persistedResumeError =
+          typeof resumeDoc !== "undefined" && resumeDoc && typeof resumeDoc.resume_error === "string" && resumeDoc.resume_error.trim()
+            ? resumeDoc.resume_error.trim()
+            : null;
+        if (persistedResumeError) resume_error = persistedResumeError;
+      }
+
+      if (!resume_error_details || typeof resume_error_details !== "object") {
+        const persistedResumeErrorDetails =
+          typeof resumeDoc !== "undefined" && resumeDoc && resumeDoc.resume_error_details && typeof resumeDoc.resume_error_details === "object"
+            ? resumeDoc.resume_error_details
+            : null;
+        if (persistedResumeErrorDetails) resume_error_details = persistedResumeErrorDetails;
+      }
+    }
+
     const out = {
         ok: true,
         session_id: sessionId,
