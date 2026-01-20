@@ -1567,6 +1567,12 @@ async function handler(req, context) {
 
         let resumeStatus = resumeStatusRaw;
 
+        // Blocked should win over queued even if only the session control doc was persisted.
+        const sessionBeaconRaw = typeof sessionDoc?.stage_beacon === "string" ? sessionDoc.stage_beacon.trim() : "";
+        if (!forceResume && sessionBeaconRaw === "enrichment_resume_blocked") {
+          resumeStatus = "blocked";
+        }
+
         if (resumeStalledByGatewayAuth) {
           const stalledAt = nowIso();
           const stall = buildResumeStallError();
@@ -1687,6 +1693,8 @@ async function handler(req, context) {
             const errorCode = "resume_worker_stuck_queued_no_progress";
             const details = {
               forced_by: "watchdog_no_progress",
+              blocked_reason: "watchdog_no_progress",
+              blocked_code: errorCode,
               blocked_at: blockedAt,
               watchdog_fired_at: prevWatchdogAt,
               last_entered_at: lastEnteredAt,
@@ -1701,14 +1709,20 @@ async function handler(req, context) {
             resumeStatus = "blocked";
             canTrigger = false;
 
-            await persistResumeBlocked(container, {
+            const blockedPersist = await persistResumeBlocked(container, {
               sessionId,
               forcedAt: blockedAt,
               errorCode,
               details,
               forcedBy: "watchdog_no_progress",
               message: "Watchdog fired but resume-worker did not re-enter on subsequent poll",
-            }).catch(() => null);
+            }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+
+            stageBeaconValues.status_resume_blocked_persist_ok = Boolean(blockedPersist?.ok);
+            stageBeaconValues.status_resume_blocked_persist_error =
+              blockedPersist?.error || blockedPersist?.resume?.error || blockedPersist?.session?.error || null;
+            stageBeaconValues.status_resume_blocked_persist_session_doc_id = blockedPersist?.session_doc_id || null;
+            stageBeaconValues.status_resume_blocked_persist_resume_doc_id = blockedPersist?.resume_doc_id || null;
           } else if (
             prevWatchdogTs &&
             lastEnteredTs &&
@@ -1830,6 +1844,8 @@ async function handler(req, context) {
 
             const details = {
               forced_by: forceDecision.reason,
+              blocked_reason: forceDecision.reason,
+              blocked_code: errorCode,
               blocked_at: forcedAt,
               infra_retryable_missing: infraRetryable,
               last_worker_error: sessionDocForPolicy?.resume_worker_last_error_details || sessionDocForPolicy?.resume_worker_last_error || null,
@@ -1845,14 +1861,20 @@ async function handler(req, context) {
             resume_error = errorCode;
             resume_error_details = details;
 
-            await persistResumeBlocked(container, {
+            const blockedPersist = await persistResumeBlocked(container, {
               sessionId,
               forcedAt,
               errorCode,
               details,
               forcedBy: forceDecision.reason,
               message: "Resume blocked by status watchdog",
-            }).catch(() => null);
+            }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+
+            stageBeaconValues.status_resume_blocked_persist_ok = Boolean(blockedPersist?.ok);
+            stageBeaconValues.status_resume_blocked_persist_error =
+              blockedPersist?.error || blockedPersist?.resume?.error || blockedPersist?.session?.error || null;
+            stageBeaconValues.status_resume_blocked_persist_session_doc_id = blockedPersist?.session_doc_id || null;
+            stageBeaconValues.status_resume_blocked_persist_resume_doc_id = blockedPersist?.resume_doc_id || null;
 
             // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
             resume_needed = true;
@@ -3155,6 +3177,8 @@ async function handler(req, context) {
             const errorCode = "resume_worker_stuck_queued_no_progress";
             const details = {
               forced_by: "watchdog_no_progress",
+              blocked_reason: "watchdog_no_progress",
+              blocked_code: errorCode,
               blocked_at: blockedAt,
               watchdog_fired_at: prevWatchdogAt,
               last_entered_at: lastEnteredAt,
@@ -3177,14 +3201,20 @@ async function handler(req, context) {
               sessionDoc.resume_error_details = details;
             }
 
-            await persistResumeBlocked(container, {
+            const blockedPersist = await persistResumeBlocked(container, {
               sessionId,
               forcedAt: blockedAt,
               errorCode,
               details,
               forcedBy: "watchdog_no_progress",
               message: "Watchdog fired but resume-worker did not re-enter on subsequent poll",
-            }).catch(() => null);
+            }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+
+            stageBeaconValues.status_resume_blocked_persist_ok = Boolean(blockedPersist?.ok);
+            stageBeaconValues.status_resume_blocked_persist_error =
+              blockedPersist?.error || blockedPersist?.resume?.error || blockedPersist?.session?.error || null;
+            stageBeaconValues.status_resume_blocked_persist_session_doc_id = blockedPersist?.session_doc_id || null;
+            stageBeaconValues.status_resume_blocked_persist_resume_doc_id = blockedPersist?.resume_doc_id || null;
           } else if (
             prevWatchdogTs &&
             lastEnteredTs &&
@@ -3306,6 +3336,8 @@ async function handler(req, context) {
 
             const details = {
               forced_by: forceDecision.reason,
+              blocked_reason: forceDecision.reason,
+              blocked_code: errorCode,
               blocked_at: forcedAt,
               infra_retryable_missing: infraRetryable,
               last_worker_error: sessionDocForPolicy?.resume_worker_last_error_details || sessionDocForPolicy?.resume_worker_last_error || null,
@@ -3321,14 +3353,20 @@ async function handler(req, context) {
             resume_error = errorCode;
             resume_error_details = details;
 
-            await persistResumeBlocked(container, {
+            const blockedPersist = await persistResumeBlocked(container, {
               sessionId,
               forcedAt,
               errorCode,
               details,
               forcedBy: forceDecision.reason,
               message: "Resume blocked by status watchdog",
-            }).catch(() => null);
+            }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+
+            stageBeaconValues.status_resume_blocked_persist_ok = Boolean(blockedPersist?.ok);
+            stageBeaconValues.status_resume_blocked_persist_error =
+              blockedPersist?.error || blockedPersist?.resume?.error || blockedPersist?.session?.error || null;
+            stageBeaconValues.status_resume_blocked_persist_session_doc_id = blockedPersist?.session_doc_id || null;
+            stageBeaconValues.status_resume_blocked_persist_resume_doc_id = blockedPersist?.resume_doc_id || null;
 
             // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
             resume_needed = true;
