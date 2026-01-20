@@ -1221,6 +1221,7 @@ async function resumeWorkerHandler(req, context) {
 
       let r;
       try {
+        noteUpstreamCall();
         r = await fetchTagline(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("tagline", "grok_tagline", e);
@@ -1273,6 +1274,7 @@ async function resumeWorkerHandler(req, context) {
 
       let r;
       try {
+        noteUpstreamCall();
         r = await fetchIndustries(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("industries", "grok_industries", e);
@@ -1337,6 +1339,7 @@ async function resumeWorkerHandler(req, context) {
 
       let r;
       try {
+        noteUpstreamCall();
         r = await fetchProductKeywords(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("product_keywords", "grok_keywords", e);
@@ -1406,6 +1409,7 @@ async function resumeWorkerHandler(req, context) {
 
       let r;
       try {
+        noteUpstreamCall();
         r = await fetchHeadquartersLocation(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("headquarters_location", "grok_hq", e);
@@ -1471,6 +1475,7 @@ async function resumeWorkerHandler(req, context) {
 
       let r;
       try {
+        noteUpstreamCall();
         r = await fetchManufacturingLocations(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("manufacturing_locations", "grok_mfg", e);
@@ -1536,6 +1541,7 @@ async function resumeWorkerHandler(req, context) {
 
       let r;
       try {
+        noteUpstreamCall();
         r = await fetchCuratedReviews(grokArgs);
       } catch (e) {
         const entry = recordWorkerError("reviews", "grok_reviews", e);
