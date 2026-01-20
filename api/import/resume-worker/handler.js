@@ -995,7 +995,26 @@ async function resumeWorkerHandler(req, context) {
     upstreamCallsMadeThisRun += 1;
   };
 
-  let seedDocs = await fetchSeedCompanies(container, sessionId, batchLimit).catch(() => []);
+  const savedCompanyIds = Array.isArray(sessionDoc?.saved_company_ids)
+    ? sessionDoc.saved_company_ids
+    : Array.isArray(sessionDoc?.saved_ids)
+      ? sessionDoc.saved_ids
+      : Array.isArray(resumeDoc?.saved_company_ids)
+        ? resumeDoc.saved_company_ids
+        : [];
+  const savedIds = Array.isArray(savedCompanyIds)
+    ? savedCompanyIds.map((v) => String(v || "").trim()).filter(Boolean)
+    : [];
+
+  const requestLimit = Number(sessionDoc?.request?.limit ?? sessionDoc?.request?.Limit ?? 0);
+  const singleCompanyMode = requestLimit === 1 || savedIds.length === 1;
+
+  // In single-company mode, prefer the canonical saved IDs (usually 1 company) so we don't
+  // split the deadline budget across lots of session docs and end up with tiny upstream timeouts.
+  let seedDocs =
+    singleCompanyMode && savedIds.length > 0
+      ? await fetchCompaniesByIds(container, savedIds.slice(0, 5)).catch(() => [])
+      : await fetchSeedCompanies(container, sessionId, batchLimit).catch(() => []);
 
   // If the session/company docs are missing the session_id markers (e.g. platform kill mid-flight),
   // fall back to canonical saved IDs persisted in the resume/session docs.
@@ -1013,6 +1032,11 @@ async function resumeWorkerHandler(req, context) {
 
     if (withMissing.length > 0) {
       seedDocs = withMissing;
+
+      if (singleCompanyMode && seedDocs.length > 1) {
+        const primary = seedDocs.find((d) => d?.primary_candidate) || seedDocs[0];
+        seedDocs = primary ? [primary] : seedDocs.slice(0, 1);
+      }
     } else {
       const updatedAt = nowIso();
 
