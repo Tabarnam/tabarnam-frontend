@@ -1351,6 +1351,34 @@ async function resumeWorkerHandler(req, context) {
 
     const shouldRunField = (field) => fieldsPlanned.has(field);
 
+    if (fieldsPlanned.size > 0) {
+      for (const f of fieldsPlanned.values()) plannedFieldsThisRun.add(f);
+    } else if (missingNow.length > 0 || taglineRetryable) {
+      const candidates = Array.from(new Set([...missingNow, ...(taglineRetryable ? ["tagline"] : [])]));
+      const minList = candidates
+        .map((f) => ({ field: f, min_ms: Number(MIN_REQUIRED_MS_BY_FIELD[f]) || 0 }))
+        .filter((x) => x.min_ms > 0);
+
+      const minRequiredAny = minList.length > 0 ? Math.min(...minList.map((x) => x.min_ms)) : 0;
+      const remainingMs = remainingRunMs();
+
+      const reason =
+        minRequiredAny && perDocBudgetMs < minRequiredAny
+          ? "planner_skipped_due_to_budget"
+          : minRequiredAny && remainingMs < minRequiredAny
+            ? "planner_skipped_due_to_deadline"
+            : "planner_no_actionable_fields";
+
+      plannedFieldsSkipped.push({
+        company_id: String(doc?.id || "").trim() || null,
+        company_name: companyName || null,
+        missing_fields: candidates,
+        reason,
+        per_doc_budget_ms: perDocBudgetMs,
+        remaining_run_ms: remainingMs,
+      });
+    }
+
     // Tagline (Grok authoritative)
     if (taglineRetryable && shouldRunField("tagline")) {
       const bumped = bumpFieldAttempt(doc, "tagline", requestId);
