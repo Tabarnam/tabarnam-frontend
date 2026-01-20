@@ -1228,6 +1228,11 @@ async function resumeWorkerHandler(req, context) {
 
   const workerErrors = [];
 
+  // Planner telemetry: we want to distinguish "no attempts" because nothing was scheduled (budget/planner)
+  // from a true no-op bug where fields were planned but no attempts were recorded.
+  const plannedFieldsThisRun = new Set();
+  const plannedFieldsSkipped = [];
+
   const safeJsonPreview = (value, limit = 1200) => {
     if (!value) return null;
     try {
