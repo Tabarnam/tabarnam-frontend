@@ -1,7 +1,7 @@
 import React from "react";
 import { Stars } from "@/components/Stars";
 import { calcStars } from "@/lib/stars/calcStars";
-import { getQQFilledCount, getQQScore, getQQStarIcons } from "@/lib/stars/qqRating";
+import { getQQScore, getQQStarIcons } from "@/lib/stars/qqRating";
 import type { StarSignals } from "@/pages/types/stars";
 import type { Company } from "@/types/company";
 
@@ -31,7 +31,6 @@ export function CompanyStarsBlock({ company }: { company: CompanyLike }) {
   }
 
   const score = getQQScore(company);
-  const filled = getQQFilledCount(company);
   const scoreLabel = (() => {
     if (Math.abs(score - Math.round(score)) < 1e-9) return String(Math.round(score));
     return score.toFixed(2).replace(/\.00$/, "").replace(/(\.[0-9])0$/, "$1");
