@@ -2199,6 +2199,13 @@ async function handler(req, context) {
       }
     }
 
+    const persistedResumeDocStatus =
+      typeof resumeDoc !== "undefined" && resumeDoc && typeof resumeDoc.status === "string" ? resumeDoc.status.trim() : "";
+
+    if (!forceComplete && resume_needed && persistedResumeDocStatus === "blocked") {
+      resume_status = "blocked";
+    }
+
     const resumeStatusForBeacon = String(resume_status || "").trim();
 
     const resumeStageBeacon = (() => {
