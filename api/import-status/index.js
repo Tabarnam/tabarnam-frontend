@@ -2037,25 +2037,39 @@ async function handler(req, context) {
             resume_error = errorCode;
             resume_error_details = details;
 
-            const blockedPersist = await persistResumeBlocked(container, {
-              sessionId,
-              forcedAt,
-              errorCode,
-              details,
-              forcedBy: forceDecision.reason,
-              message: "Resume blocked by status watchdog",
-            }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+            // Deterministic convergence: if the policy says we cannot keep retrying, force terminalization
+            // so the session reaches a stable terminal state without manual intervention.
+            stageBeaconValues.status_resume_forced_terminalize = forcedAt;
+            stageBeaconValues.status_resume_forced_terminalize_reason = forceDecision.reason;
 
-            stageBeaconValues.status_resume_blocked_persist_ok = Boolean(blockedPersist?.ok);
-            stageBeaconValues.status_resume_blocked_persist_error =
-              blockedPersist?.error || blockedPersist?.resume?.error || blockedPersist?.session?.error || null;
-            stageBeaconValues.status_resume_blocked_persist_session_doc_id = blockedPersist?.session_doc_id || null;
-            stageBeaconValues.status_resume_blocked_persist_resume_doc_id = blockedPersist?.resume_doc_id || null;
+            const workerRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
 
-            // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
-            resume_needed = true;
-            resume_status = "blocked";
-            resumeStatus = "blocked";
+            const forceRes = await invokeResumeWorkerInProcess({
+              session_id: sessionId,
+              context,
+              workerRequest,
+              force_terminalize_single: true,
+            }).catch((e) => ({
+              ok: false,
+              status: 0,
+              bodyText: "",
+              error: e,
+              gateway_key_attached: Boolean(workerRequest?.gateway_key_attached),
+              request_id: workerRequest?.request_id || null,
+            }));
+
+            stageBeaconValues.status_resume_forced_terminalize_http_status = Number(forceRes?.status || 0) || 0;
+            stageBeaconValues.status_resume_forced_terminalize_ok = Boolean(forceRes?.ok);
+
+            resume_triggered = Boolean(forceRes?.ok);
+            resume_gateway_key_attached = Boolean(forceRes?.gateway_key_attached);
+            resume_trigger_request_id = forceRes?.request_id || workerRequest.request_id;
+
+            stageBeaconValues.status_resume_terminal_only = forcedAt;
+
+            resume_needed = false;
+            resume_status = "complete";
+            resumeStatus = "complete";
             canTrigger = false;
           }
         } catch {}
@@ -3794,25 +3808,39 @@ async function handler(req, context) {
             resume_error = errorCode;
             resume_error_details = details;
 
-            const blockedPersist = await persistResumeBlocked(container, {
-              sessionId,
-              forcedAt,
-              errorCode,
-              details,
-              forcedBy: forceDecision.reason,
-              message: "Resume blocked by status watchdog",
-            }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+            // Deterministic convergence: if the policy says we cannot keep retrying, force terminalization
+            // so the session reaches a stable terminal state without manual intervention.
+            stageBeaconValues.status_resume_forced_terminalize = forcedAt;
+            stageBeaconValues.status_resume_forced_terminalize_reason = forceDecision.reason;
 
-            stageBeaconValues.status_resume_blocked_persist_ok = Boolean(blockedPersist?.ok);
-            stageBeaconValues.status_resume_blocked_persist_error =
-              blockedPersist?.error || blockedPersist?.resume?.error || blockedPersist?.session?.error || null;
-            stageBeaconValues.status_resume_blocked_persist_session_doc_id = blockedPersist?.session_doc_id || null;
-            stageBeaconValues.status_resume_blocked_persist_resume_doc_id = blockedPersist?.resume_doc_id || null;
+            const workerRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
 
-            // Keep status as blocked (not complete). We intentionally do NOT terminal-only-complete while retryables remain.
-            resume_needed = true;
-            resume_status = "blocked";
-            resumeStatus = "blocked";
+            const forceRes = await invokeResumeWorkerInProcess({
+              session_id: sessionId,
+              context,
+              workerRequest,
+              force_terminalize_single: true,
+            }).catch((e) => ({
+              ok: false,
+              status: 0,
+              bodyText: "",
+              error: e,
+              gateway_key_attached: Boolean(workerRequest?.gateway_key_attached),
+              request_id: workerRequest?.request_id || null,
+            }));
+
+            stageBeaconValues.status_resume_forced_terminalize_http_status = Number(forceRes?.status || 0) || 0;
+            stageBeaconValues.status_resume_forced_terminalize_ok = Boolean(forceRes?.ok);
+
+            resume_triggered = Boolean(forceRes?.ok);
+            resume_gateway_key_attached = Boolean(forceRes?.gateway_key_attached);
+            resume_trigger_request_id = forceRes?.request_id || workerRequest.request_id;
+
+            stageBeaconValues.status_resume_terminal_only = forcedAt;
+
+            resume_needed = false;
+            resume_status = "complete";
+            resumeStatus = "complete";
             canTrigger = false;
           }
         } catch {}
