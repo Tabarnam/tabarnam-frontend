@@ -3521,6 +3521,7 @@ async function saveCompaniesToCosmos({
                 ensureMissing("industries", policy.missing_reason, "extract_industries", message, policy.retryable);
               } else {
                 doc.industries = industriesSanitized;
+                doc.industries_unknown = false;
               }
 
               // keywords/product_keywords (required) — sanitize + quality gate
