@@ -2613,6 +2613,8 @@ async function resumeWorkerHandler(req, context) {
       resume_worker_planned_fields: planned_fields,
       resume_worker_planned_fields_reason: planned_fields_reason,
       resume_worker_planned_fields_detail: plannedFieldsSkipped.slice(0, 10),
+      resume_worker_attempted_fields: attemptedFieldsThisRun,
+      resume_worker_attempted_fields_request_id: requestId,
       resume_worker_last_resume_needed: resumeNeeded,
       resume_worker_last_company_id: companyIdFromResponse,
       resume_worker_last_resume_doc_upsert_ok: resume_control_doc_upsert_ok,
