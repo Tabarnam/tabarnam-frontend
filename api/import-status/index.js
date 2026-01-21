@@ -4073,13 +4073,21 @@ async function handler(req, context) {
         ? sessionDoc.save_outcome.trim()
         : typeof completionDoc?.save_outcome === "string" && completionDoc.save_outcome.trim()
           ? completionDoc.save_outcome.trim()
-          : null;
+          : memSaveOutcome;
 
-    const saved_company_urls = Array.isArray(sessionDoc?.saved_company_urls)
+    const saved_company_urls_raw = Array.isArray(sessionDoc?.saved_company_urls)
       ? sessionDoc.saved_company_urls
       : Array.isArray(completionDoc?.saved_company_urls)
         ? completionDoc.saved_company_urls
-        : [];
+        : memSavedCompanyUrls;
+
+    const saved_company_urls =
+      Array.isArray(saved_company_urls_raw) && saved_company_urls_raw.length > 0
+        ? saved_company_urls_raw
+        : (Array.isArray(savedDocs) ? savedDocs : [])
+            .map((d) => String(d?.website_url || d?.url || d?.canonical_url || "").trim())
+            .filter(Boolean)
+            .slice(0, 50);
 
     const resume_error =
       typeof sessionDoc?.resume_error === "string" && sessionDoc.resume_error.trim() ? sessionDoc.resume_error.trim() : null;
