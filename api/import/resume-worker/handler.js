@@ -1915,6 +1915,19 @@ async function resumeWorkerHandler(req, context) {
       }
     }
 
+    const logoRetryable = !isRealValue("logo", doc.logo_url, doc) && !isTerminalMissingField(doc, "logo");
+
+    // Logo is handled by import-start, but we still track attempts here so it can terminalize.
+    if (logoRetryable && shouldRunField("logo")) {
+      const bumped = bumpFieldAttempt(doc, "logo", requestId);
+      if (bumped) changed = true;
+
+      if (attemptsFor(doc, "logo") >= MAX_ATTEMPTS_LOGO) {
+        terminalizeNonGrokField(doc, "logo", "not_found_terminal");
+        changed = true;
+      }
+    }
+
     if (changed) {
       // Recompute missing fields to keep doc consistent with required-fields logic
       doc.import_missing_fields = computeMissingFields(doc);
