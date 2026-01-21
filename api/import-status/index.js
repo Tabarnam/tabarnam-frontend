@@ -1901,7 +1901,7 @@ async function handler(req, context) {
           }
         } catch {}
 
-        if (canTrigger && resumeStatus === "queued" && !forceResume && !watchdog_stuck_queued) {
+        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "blocked") && !forceResume && !watchdog_stuck_queued) {
           const cooldownMs = 60_000;
           let lastTriggeredTs = 0;
 
@@ -2061,7 +2061,7 @@ async function handler(req, context) {
 
         if (
           canTrigger &&
-          (resumeStatus === "queued" || resumeStatus === "error" || resumeStatus === "stalled" || (forceResume && resumeStatus !== "running"))
+          (resumeStatus === "queued" || resumeStatus === "blocked" || resumeStatus === "error" || resumeStatus === "stalled" || (forceResume && resumeStatus !== "running"))
         ) {
           const triggerAttemptAt = nowIso();
           stageBeaconValues.status_trigger_resume_worker = triggerAttemptAt;
@@ -3658,7 +3658,7 @@ async function handler(req, context) {
           }
         } catch {}
 
-        if (canTrigger && resumeStatus === "queued" && !forceResume && !watchdog_stuck_queued) {
+        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "blocked") && !forceResume && !watchdog_stuck_queued) {
           const cooldownMs = 60_000;
           let lastTriggeredTs = 0;
 
@@ -3818,7 +3818,7 @@ async function handler(req, context) {
 
         if (
           canTrigger &&
-          (resumeStatus === "queued" || resumeStatus === "error" || resumeStatus === "stalled" || (forceResume && resumeStatus !== "running"))
+          (resumeStatus === "queued" || resumeStatus === "blocked" || resumeStatus === "error" || resumeStatus === "stalled" || (forceResume && resumeStatus !== "running"))
         ) {
           const triggerAttemptAt = nowIso();
           stageBeaconValues.status_trigger_resume_worker = triggerAttemptAt;
