@@ -29,7 +29,7 @@ const HANDLER_ID = "import-status";
 
 const MAX_RESUME_CYCLES_SINGLE = Number.isFinite(Number(process.env.MAX_RESUME_CYCLES_SINGLE))
   ? Math.max(1, Math.trunc(Number(process.env.MAX_RESUME_CYCLES_SINGLE)))
-  : 3;
+  : 10;
 
 // When all remaining missing fields are retryable upstream *timeouts*, be less aggressive about
 // hard-blocking single-company imports.
