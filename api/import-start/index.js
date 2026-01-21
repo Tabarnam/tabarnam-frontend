@@ -9131,6 +9131,7 @@ Return ONLY the JSON array, no other text.`,
                   ensureMissing("industries", policy.missing_reason, message, policy.retryable);
                 } else {
                   base.industries = industriesSanitized;
+                  base.industries_unknown = false;
                 }
 
                 // product keywords — sanitize + quality gate
