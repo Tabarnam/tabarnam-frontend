@@ -3610,34 +3610,20 @@ async function handler(req, context) {
               updated_at: blockedAt,
             };
 
+            // Auto-retry policy: watchdog is a diagnostic, not a terminal dead-end.
+            // Keep resume queued and allow /import/status to re-trigger resume-worker (with cooldown) automatically.
             resume_error = errorCode;
             resume_error_details = details;
-            resume_status = "blocked";
-            resumeStatus = "blocked";
-            canTrigger = false;
 
             resume_trigger_error ||= errorCode;
             resume_trigger_error_details ||= details;
+
+            stageBeaconValues.status_resume_watchdog_retry_at = blockedAt;
 
             if (sessionDoc && typeof sessionDoc === "object") {
               sessionDoc.resume_error = errorCode;
               sessionDoc.resume_error_details = details;
             }
-
-            const blockedPersist = await persistResumeBlocked(container, {
-              sessionId,
-              forcedAt: blockedAt,
-              errorCode,
-              details,
-              forcedBy: "watchdog_no_progress",
-              message: "Watchdog fired but resume-worker did not re-enter on subsequent poll",
-            }).catch((e) => ({ ok: false, error: e?.message || String(e) }));
-
-            stageBeaconValues.status_resume_blocked_persist_ok = Boolean(blockedPersist?.ok);
-            stageBeaconValues.status_resume_blocked_persist_error =
-              blockedPersist?.error || blockedPersist?.resume?.error || blockedPersist?.session?.error || null;
-            stageBeaconValues.status_resume_blocked_persist_session_doc_id = blockedPersist?.session_doc_id || null;
-            stageBeaconValues.status_resume_blocked_persist_resume_doc_id = blockedPersist?.resume_doc_id || null;
           } else if (
             prevWatchdogTs &&
             lastEnteredTs &&
