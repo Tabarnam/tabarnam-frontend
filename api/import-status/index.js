@@ -2964,7 +2964,26 @@ async function handler(req, context) {
 
     const domainMeta = deriveDomainAndCreatedAfter({ sessionDoc, acceptDoc });
 
-    const items = await fetchRecentCompanies(container, {
+    const memVerifiedIds = Array.isArray(mem?.saved_company_ids_verified)
+      ? mem.saved_company_ids_verified
+      : Array.isArray(mem?.saved_ids)
+        ? mem.saved_ids
+        : [];
+
+    const memUnverifiedIds = Array.isArray(mem?.saved_company_ids_unverified) ? mem.saved_company_ids_unverified : [];
+    const memSavedCompanyUrls = Array.isArray(mem?.saved_company_urls) ? mem.saved_company_urls : [];
+
+    const memSaveOutcome =
+      typeof mem?.save_outcome === "string" && mem.save_outcome.trim() ? mem.save_outcome.trim() : null;
+
+    const saveOutcomeRaw =
+      typeof sessionDoc?.save_outcome === "string" && sessionDoc.save_outcome.trim()
+        ? sessionDoc.save_outcome.trim()
+        : typeof completionDoc?.save_outcome === "string" && completionDoc.save_outcome.trim()
+          ? completionDoc.save_outcome.trim()
+          : memSaveOutcome;
+
+    let items = await fetchRecentCompanies(container, {
       sessionId,
       take,
       normalizedDomain: domainMeta.normalizedDomain,
