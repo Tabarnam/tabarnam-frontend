@@ -4505,6 +4505,21 @@ export default function AdminImport() {
                                       {asString(activeRun?.resume_worker?.last_result).trim() || "—"}
                                     </div>
 
+                                    <div className="mt-1 text-xs text-amber-900/80">
+                                      <span className="font-medium">Planned fields:</span>{" "}
+                                      {Array.isArray(activeRun?.resume_worker?.planned_fields) && activeRun.resume_worker.planned_fields.length > 0
+                                        ? activeRun.resume_worker.planned_fields.join(", ")
+                                        : "—"}
+                                      {asString(activeRun?.resume_worker?.planned_fields_reason).trim()
+                                        ? ` (${asString(activeRun.resume_worker.planned_fields_reason).trim()})`
+                                        : ""}
+                                      <span className="mx-2">·</span>
+                                      <span className="font-medium">Attempted fields:</span>{" "}
+                                      {Array.isArray(activeRun?.resume_worker?.attempted_fields) && activeRun.resume_worker.attempted_fields.length > 0
+                                        ? activeRun.resume_worker.attempted_fields.join(", ")
+                                        : "—"}
+                                    </div>
+
                                     {resumeErrorDetails ? (
                                       <details className="rounded border border-amber-200 bg-amber-100/30 p-2">
                                         <summary className="cursor-pointer select-none text-xs font-medium text-amber-900">Resume error details</summary>
