@@ -1174,6 +1174,32 @@ test("/api/import/status auto-triggers resume-worker when resume status is block
         updated_at: now,
       });
 
+      const resumeWorkerModuleId = require.resolve("../import/resume-worker/handler.js");
+      const originalResumeWorkerExports = require(resumeWorkerModuleId);
+
+      // Stub resume-worker invocation for this test only. The real resume-worker can be slow.
+      require.cache[resumeWorkerModuleId].exports = {
+        ...originalResumeWorkerExports,
+        invokeResumeWorkerInProcess: async ({ session_id }) => {
+          const sid = String(session_id || "").trim();
+          const body = {
+            ok: true,
+            session_id: sid,
+            handler_entered_at: new Date().toISOString(),
+            resume_needed: true,
+          };
+
+          return {
+            ok: true,
+            status: 200,
+            bodyText: JSON.stringify(body),
+            error: null,
+            gateway_key_attached: false,
+            request_id: "contract_test_request",
+          };
+        },
+      };
+
       docsById.set("company_1", companyDoc);
 
       const fakeContainer = {
