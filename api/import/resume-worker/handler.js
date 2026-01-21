@@ -1372,6 +1372,35 @@ async function resumeWorkerHandler(req, context) {
         if (singleCompanyMode && out.length >= 2) break;
       }
 
+      // Fallback: when min-ms thresholds prevent scheduling *any* work but we still have retryable missing
+      // fields, schedule a single best-effort attempt. This prevents no-op resume-worker cycles that can
+      // cause sessions to get stuck/blocked with retryable missing fields.
+      if (out.length === 0 && (missingNow.length > 0 || taglineRetryable)) {
+        const fallbackPriority = [
+          "tagline",
+          "industries",
+          "product_keywords",
+          "headquarters_location",
+          "manufacturing_locations",
+          "reviews",
+        ];
+
+        for (const f of fallbackPriority) {
+          if (f === "tagline") {
+            if (taglineRetryable) {
+              out.push(f);
+              break;
+            }
+            continue;
+          }
+
+          if (missingNow.includes(f)) {
+            out.push(f);
+            break;
+          }
+        }
+      }
+
       return new Set(out);
     })();
 
