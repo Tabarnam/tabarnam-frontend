@@ -846,6 +846,8 @@ test("/api/import/status reports resume_needed=false when only terminal missing 
         website_url: "https://example.com",
 
         industries: [],
+        tagline: "",
+        tagline_unknown: true,
         product_keywords: "",
         keywords: [],
 
@@ -871,6 +873,7 @@ test("/api/import/status reports resume_needed=false when only terminal missing 
 
         import_missing_reason: {
           industries: "low_quality_terminal",
+          tagline: "not_found_terminal",
           product_keywords: "not_found_terminal",
           headquarters_location: "not_disclosed",
           manufacturing_locations: "not_disclosed",

@@ -550,6 +550,7 @@ function computeMissingFields(company, { includeReviews = true } = {}) {
   const missing = [];
 
   if (!isRealValue("industries", c.industries, c)) missing.push("industries");
+  if (!isRealValue("tagline", c.tagline, c)) missing.push("tagline");
   if (!isRealValue("product_keywords", c.product_keywords, c)) missing.push("product_keywords");
   if (!isRealValue("headquarters_location", c.headquarters_location, c)) missing.push("headquarters_location");
   if (!isRealValue("manufacturing_locations", c.manufacturing_locations, c)) missing.push("manufacturing_locations");
