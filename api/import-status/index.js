@@ -2321,8 +2321,22 @@ async function handler(req, context) {
         ((reportSessionStatus === "complete" || reportSessionStageBeacon === "complete") && !resume_needed)
     );
 
-    const effectiveStatus = forceComplete ? "complete" : status === "error" ? "error" : status;
-    const effectiveState = forceComplete ? "complete" : status === "error" ? "failed" : state;
+    const effectiveStatus = forceComplete
+      ? "complete"
+      : status === "error"
+        ? "error"
+        : status === "complete" && resume_needed
+          ? "running"
+          : status;
+
+    const effectiveState = forceComplete
+      ? "complete"
+      : status === "error"
+        ? "failed"
+        : state === "complete" && resume_needed
+          ? "running"
+          : state;
+
     const effectiveJobState = forceComplete ? "complete" : finalJobState;
 
     const stageBeaconFromPrimary =
