@@ -4421,7 +4421,17 @@ export default function AdminImport() {
 
                                     {resumeStatus === "blocked" ? (
                                       <div className="text-amber-900/90">
-                                        Auto-retries are paused while blocked.
+                                        {(() => {
+                                          const nextAutoRetryAt = asString(
+                                            activeRun?.resume?.next_allowed_run_at || stageBeaconValues?.status_resume_next_allowed_at || ""
+                                          ).trim();
+
+                                          return (
+                                            <>
+                                              Auto-retries will continue{nextAutoRetryAt ? ` (next allowed run: ${nextAutoRetryAt}).` : "."}
+                                            </>
+                                          );
+                                        })()}
                                         {(() => {
                                           const reason = asString(
                                             stageBeaconValues?.status_resume_blocked_reason ||
@@ -4437,7 +4447,7 @@ export default function AdminImport() {
                                             </>
                                           ) : null;
                                         })()}
-                                        Fix upstream connectivity (or wait), then click “Retry resume”.
+                                        You can click “Retry resume” to force an immediate attempt.
                                       </div>
                                     ) : resumeStatus === "queued" ? (
                                       <div className="text-amber-900/90">Waiting for the resume worker. Polling will automatically slow down.</div>
