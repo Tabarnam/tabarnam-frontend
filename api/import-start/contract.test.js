@@ -1280,10 +1280,10 @@ test("/api/import/status auto-triggers resume-worker when resume status is block
         assert.equal(statusBody.resume?.status, "blocked");
         assert.equal(statusBody.stage_beacon, "enrichment_resume_blocked");
 
-        // Key behavior: do not keep auto-triggering the resume-worker once a persisted blocked state exists.
-        assert.ok(statusBody.stage_beacon_values?.status_resume_blocked_persisted);
-        assert.equal(statusBody.resume?.triggered, false);
-        assert.equal(statusBody.stage_beacon_values?.status_trigger_resume_worker, undefined);
+        // Key behavior: blocked is treated as a throttled state; status should auto-trigger resume-worker.
+        assert.ok(statusBody.stage_beacon_values?.status_resume_blocked_auto_retry);
+        assert.equal(statusBody.resume?.triggered, true);
+        assert.ok(statusBody.stage_beacon_values?.status_trigger_resume_worker);
 
         // Sanity: resume doc remains blocked.
         assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "blocked");
