@@ -3001,20 +3001,40 @@ async function handler(req, context) {
         ? sessionDoc.saved_ids
         : [];
 
-    let savedIds = (completionVerifiedIds.length > 0 ? completionVerifiedIds : sessionVerifiedIds)
+    let savedIds = (completionVerifiedIds.length > 0
+      ? completionVerifiedIds
+      : sessionVerifiedIds.length > 0
+        ? sessionVerifiedIds
+        : memVerifiedIds)
       .map((id) => String(id || "").trim())
       .filter(Boolean);
+
+    // Duplicate-detected reconciliation: the saved target can be an existing doc not linked to this session.
+    // If the control-plane saved IDs didn't persist, fall back to normalized_domain lookups.
+    if (
+      savedIds.length === 0 &&
+      typeof saveOutcomeRaw === "string" &&
+      normalizeKey(saveOutcomeRaw).startsWith("duplicate_detected") &&
+      domainMeta.normalizedDomain
+    ) {
+      const dupeDoc = await fetchCompanyByNormalizedDomain(container, domainMeta.normalizedDomain).catch(() => null);
+      if (dupeDoc && dupeDoc.id) {
+        savedIds = [String(dupeDoc.id).trim()].filter(Boolean);
+        stageBeaconValues.status_reconciled_duplicate_by_domain = nowIso();
+      }
+    }
 
     const derivedVerifiedCount = savedIds.length;
 
     const savedVerifiedCount =
       (typeof completionDoc?.saved_verified_count === "number" ? completionDoc.saved_verified_count : null) ??
       (typeof sessionDoc?.saved_verified_count === "number" ? sessionDoc.saved_verified_count : null) ??
+      (typeof mem?.saved_verified_count === "number" ? mem.saved_verified_count : null) ??
       (derivedVerifiedCount > 0 ? derivedVerifiedCount : null);
 
     const savedUnverifiedIdsRaw = Array.isArray(sessionDoc?.saved_company_ids_unverified)
       ? sessionDoc.saved_company_ids_unverified
-      : [];
+      : memUnverifiedIds;
 
     const session = sessionDoc && typeof sessionDoc === "object" ? sessionDoc : {};
     session.saved_company_ids_verified = savedIds;
