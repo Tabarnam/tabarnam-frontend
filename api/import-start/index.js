@@ -3571,6 +3571,8 @@ async function saveCompaniesToCosmos({
                   "extract_tagline",
                   "tagline missing; left empty and marked tagline_unknown=true"
                 );
+              } else {
+                doc.tagline_unknown = false;
               }
 
               // headquarters_location + manufacturing_locations are Grok-only (handled in resume-worker).
