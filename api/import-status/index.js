@@ -293,6 +293,32 @@ function reconcileLowQualityToTerminal(doc, maxAttempts = 2) {
 
   let changed = false;
 
+  // Legacy placeholder hygiene: never treat "Unknown" / ["Unknown"] as canonical values.
+  try {
+    const industriesList = Array.isArray(doc.industries) ? doc.industries : [];
+    if (industriesList.length === 1 && normalizeKey(industriesList[0]) === "unknown") {
+      doc.industries = [];
+      doc.industries_unknown = true;
+      if (!doc.import_missing_reason.industries) doc.import_missing_reason.industries = "not_found";
+      changed = true;
+    }
+
+    if (normalizeKey(doc.tagline) === "unknown") {
+      doc.tagline = "";
+      doc.tagline_unknown = true;
+      if (!doc.import_missing_reason.tagline) doc.import_missing_reason.tagline = "not_found";
+      changed = true;
+    }
+
+    if (normalizeKey(doc.product_keywords) === "unknown") {
+      doc.product_keywords = "";
+      if (!Array.isArray(doc.keywords)) doc.keywords = [];
+      doc.product_keywords_unknown = true;
+      if (!doc.import_missing_reason.product_keywords) doc.import_missing_reason.product_keywords = "not_found";
+      changed = true;
+    }
+  } catch {}
+
   const fields = ["industries", "tagline", "product_keywords"];
   for (const f of fields) {
     const reason = String(doc.import_missing_reason[f] || "").trim().toLowerCase();
