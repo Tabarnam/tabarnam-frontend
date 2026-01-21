@@ -11,6 +11,7 @@ const __originalConsole = {
 if (process.env.TEST_VERBOSE !== "1") {
   console.log = () => {};
   console.warn = () => {};
+  console.error = () => {};
 
   process.on("exit", () => {
     console.log = __originalConsole.log;
