@@ -2052,6 +2052,11 @@ async function handler(req, context) {
 
             stageBeaconValues.status_resume_terminal_only = forcedAt;
 
+            resume_error = null;
+            resume_error_details = null;
+            resume_trigger_error = null;
+            resume_trigger_error_details = null;
+
             resume_needed = false;
             resume_status = "complete";
             resumeStatus = "complete";
@@ -3839,6 +3844,11 @@ async function handler(req, context) {
             resume_trigger_request_id = forceRes?.request_id || workerRequest.request_id;
 
             stageBeaconValues.status_resume_terminal_only = forcedAt;
+
+            resume_error = null;
+            resume_error_details = null;
+            resume_trigger_error = null;
+            resume_trigger_error_details = null;
 
             resume_needed = false;
             resume_status = "complete";
