@@ -4367,7 +4367,7 @@ export default function AdminImport() {
                             </div>
                           ) : null}
 
-                          {Boolean(activeRun.resume_needed) && !terminalComplete ? (
+                          {Boolean(activeRun.resume_needed) ? (
                             <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-2">
                               {(() => {
                                 const resumeError =
