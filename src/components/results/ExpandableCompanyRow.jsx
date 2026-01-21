@@ -439,6 +439,19 @@ export default function ExpandableCompanyRow({
     return null;
   };
 
+  const keywordsSource =
+    Array.isArray(company.keywords) && company.keywords.length > 0
+      ? company.keywords
+      : String(company.product_keywords || "")
+          .split(",")
+          .map((kw) => kw.trim())
+          .filter(Boolean);
+
+  const sortedKeywords = [...keywordsSource]
+    .map((kw) => (kw ?? "").toString().trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+
   const handleRowClick = () => {
     setIsExpanded(!isExpanded);
   };
@@ -547,36 +560,28 @@ export default function ExpandableCompanyRow({
               </div>
             )}
             <div className="text-sm font-semibold text-gray-700">Keywords</div>
-            <div className="text-sm text-gray-600 mt-1 flex flex-wrap gap-1">
-              {Array.isArray(company.keywords) && company.keywords.length > 0
-                ? company.keywords.map((kw, idx) => (
-                    <button
-                      key={idx}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onKeywordSearch(kw);
-                      }}
-                      className="text-blue-600 hover:underline text-xs"
-                    >
-                      {kw}
-                    </button>
-                  ))
-                : String(company.product_keywords || "")
-                    .split(",")
-                    .map((kw) => kw.trim())
-                    .filter(Boolean)
-                    .map((kw, idx) => (
-                      <button
-                        key={idx}
+            <div className="mt-1 text-sm text-gray-600">
+              {sortedKeywords.length > 0 ? (
+                <ul className="keywordsCols">
+                  {sortedKeywords.map((kw, idx) => (
+                    <li key={`${kw}-${idx}`}>
+                      <a
+                        href="#"
+                        className="text-blue-600 hover:underline text-xs"
                         onClick={(e) => {
+                          e.preventDefault();
                           e.stopPropagation();
                           onKeywordSearch(kw);
                         }}
-                        className="text-blue-600 hover:underline text-xs"
                       >
                         {kw}
-                      </button>
-                    ))}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="text-sm text-gray-500">—</div>
+              )}
             </div>
           </div>
 

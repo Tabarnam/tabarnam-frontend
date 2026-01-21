@@ -98,3 +98,42 @@ mark {
 .no-scrollbar::-webkit-scrollbar {
   display: none; /* Chrome/Safari */
 }
+
+/* Keywords: expanded company view (multi-column) */
+.keywordsCols {
+  column-count: 4;
+  column-gap: 24px;
+
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  overflow-wrap: anywhere;
+}
+
+.keywordsCols > li {
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
+
+  padding: 4px 0;
+}
+
+/* Responsive fallbacks */
+@media (max-width: 1100px) {
+  .keywordsCols {
+    column-count: 3;
+  }
+}
+
+@media (max-width: 900px) {
+  .keywordsCols {
+    column-count: 2;
+  }
+}
+
+@media (max-width: 600px) {
+  .keywordsCols {
+    column-count: 1;
+  }
+}
