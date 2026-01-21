@@ -3078,6 +3078,23 @@ async function handler(req, context) {
 
     let savedDocs = persistedIds.length > 0 ? await fetchCompaniesByIds(container, persistedIds).catch(() => []) : [];
 
+    // Ensure `items[]` always includes the saved target(s), even when the company doc is pre-existing and
+    // therefore not linked to this session_id (e.g. save_outcome=duplicate_detected).
+    if (Array.isArray(savedDocs) && savedDocs.length > 0) {
+      if (!Array.isArray(items) || items.length === 0) {
+        items = savedDocs;
+        stageBeaconValues.status_items_from_saved_docs = nowIso();
+      } else {
+        const byId = new Map();
+        for (const doc of [...items, ...savedDocs]) {
+          const id = String(doc?.id || doc?.company_id || "").trim();
+          if (!id) continue;
+          if (!byId.has(id)) byId.set(id, doc);
+        }
+        items = Array.from(byId.values());
+      }
+    }
+
     const lowQualityMaxAttempts = Number.isFinite(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS))
       ? Math.max(1, Math.trunc(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS)))
       : 2;
