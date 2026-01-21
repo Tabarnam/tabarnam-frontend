@@ -1149,6 +1149,13 @@ async function resumeWorkerHandler(req, context) {
 
     for (const doc of seedDocs) {
       if (!doc || typeof doc !== "object") continue;
+
+      const missingAll = computeMissingFields(doc);
+      for (const field of Array.isArray(missingAll) ? missingAll : []) {
+        if (field === "headquarters_location") terminalizeGrokField(doc, "headquarters_location", "exhausted");
+        if (field === "manufacturing_locations") terminalizeGrokField(doc, "manufacturing_locations", "exhausted");
+      }
+
       forceTerminalizeNonGrokFields(doc);
       doc.import_missing_fields = computeMissingFields(doc);
       doc.updated_at = updatedAt;
