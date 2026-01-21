@@ -293,6 +293,32 @@ function reconcileLowQualityToTerminal(doc, maxAttempts = 2) {
 
   let changed = false;
 
+  // Legacy placeholder hygiene: never treat "Unknown" / ["Unknown"] as canonical values.
+  try {
+    const industriesList = Array.isArray(doc.industries) ? doc.industries : [];
+    if (industriesList.length === 1 && normalizeKey(industriesList[0]) === "unknown") {
+      doc.industries = [];
+      doc.industries_unknown = true;
+      if (!doc.import_missing_reason.industries) doc.import_missing_reason.industries = "not_found";
+      changed = true;
+    }
+
+    if (normalizeKey(doc.tagline) === "unknown") {
+      doc.tagline = "";
+      doc.tagline_unknown = true;
+      if (!doc.import_missing_reason.tagline) doc.import_missing_reason.tagline = "not_found";
+      changed = true;
+    }
+
+    if (normalizeKey(doc.product_keywords) === "unknown") {
+      doc.product_keywords = "";
+      if (!Array.isArray(doc.keywords)) doc.keywords = [];
+      doc.product_keywords_unknown = true;
+      if (!doc.import_missing_reason.product_keywords) doc.import_missing_reason.product_keywords = "not_found";
+      changed = true;
+    }
+  } catch {}
+
   const fields = ["industries", "tagline", "product_keywords"];
   for (const f of fields) {
     const reason = String(doc.import_missing_reason[f] || "").trim().toLowerCase();
@@ -707,6 +733,40 @@ async function fetchCompaniesByIds(container, ids) {
   const out = Array.isArray(resources) ? resources : [];
   const byId = new Map(out.map((doc) => [String(doc?.id || ""), doc]));
   return list.map((id) => byId.get(id)).filter(Boolean);
+}
+
+async function fetchCompanyByNormalizedDomain(container, normalizedDomain) {
+  if (!container) return null;
+  const domain = String(normalizedDomain || "").trim().toLowerCase();
+  if (!domain) return null;
+
+  const q = {
+    query: `
+      SELECT TOP 1 c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
+        c.normalized_domain, c.import_attempts, c.import_attempts_meta,
+        c.industries, c.product_keywords, c.keywords,
+        c.headquarters_location, c.manufacturing_locations,
+        c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
+        c.tagline, c.logo_url, c.logo_stage_status,
+        c.import_missing_fields, c.import_missing_reason, c.import_warnings,
+        c.hq_unknown, c.hq_unknown_reason,
+        c.mfg_unknown, c.mfg_unknown_reason,
+        c.red_flag, c.red_flag_reason
+      FROM c
+      WHERE NOT STARTSWITH(c.id, '_import_')
+        AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
+        AND IS_DEFINED(c.normalized_domain) AND c.normalized_domain = @domain
+      ORDER BY c.created_at DESC
+    `,
+    parameters: [{ name: "@domain", value: domain }],
+  };
+
+  const { resources } = await container.items
+    .query(q, { enableCrossPartitionQuery: true })
+    .fetchAll();
+
+  const list = Array.isArray(resources) ? resources : [];
+  return list.length > 0 ? list[0] : null;
 }
 
 async function fetchCompaniesByIdsFull(container, ids) {
@@ -1473,16 +1533,16 @@ async function handler(req, context) {
       ? session.saved_company_ids_unverified
       : [];
 
-    // Use case-insensitive id keys to avoid duplicates by casing.
+    // Use case-insensitive id keys to avoid duplicates by casing, while preserving original id values.
     const persistedIds = Array.from(
-      new Set(
+      new Map(
         [...savedCompanyIdsVerified, ...savedCompanyIdsUnverified]
           .filter(Boolean)
           .map(String)
-          .map(s => s.trim())
+          .map((s) => s.trim())
           .filter(Boolean)
-          .map(s => s.toLowerCase())
-      )
+          .map((s) => [s.toLowerCase(), s])
+      ).values()
     );
 
     const persistedCount = Math.max(
@@ -2493,38 +2553,60 @@ async function handler(req, context) {
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
-              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
-              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || null,
-              handler_entered_build_id: sessionDoc?.resume_worker_handler_entered_build_id || null,
-              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || null,
-              last_auth: sessionDoc?.resume_worker_last_auth || null,
-              last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
-              last_result: sessionDoc?.resume_worker_last_result || null,
-              last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
+              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || resumeDoc?.last_invoked_at || null,
+              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || resumeDoc?.handler_entered_at || null,
+              handler_entered_build_id:
+                sessionDoc?.resume_worker_handler_entered_build_id || resumeDoc?.handler_entered_build_id || null,
+              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || resumeDoc?.last_reject_layer || null,
+              last_auth: sessionDoc?.resume_worker_last_auth || resumeDoc?.last_auth || null,
+              last_finished_at: sessionDoc?.resume_worker_last_finished_at || resumeDoc?.last_finished_at || null,
+              last_result: sessionDoc?.resume_worker_last_result || resumeDoc?.last_result || null,
+              last_ok:
+                typeof sessionDoc?.resume_worker_last_ok === "boolean"
+                  ? sessionDoc.resume_worker_last_ok
+                  : typeof resumeDoc?.last_ok === "boolean"
+                    ? resumeDoc.last_ok
+                    : null,
               last_http_status:
-                typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
-              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
-              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || null,
+                typeof sessionDoc?.resume_worker_last_http_status === "number"
+                  ? sessionDoc.resume_worker_last_http_status
+                  : typeof resumeDoc?.last_http_status === "number"
+                    ? resumeDoc.last_http_status
+                    : null,
+              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || resumeDoc?.last_trigger_request_id || null,
+              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || resumeDoc?.last_trigger_result || null,
               last_trigger_ok:
-                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean" ? sessionDoc.resume_worker_last_trigger_ok : null,
+                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean"
+                  ? sessionDoc.resume_worker_last_trigger_ok
+                  : typeof resumeDoc?.last_trigger_ok === "boolean"
+                    ? resumeDoc.last_trigger_ok
+                    : null,
               last_trigger_http_status:
                 typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
                   ? sessionDoc.resume_worker_last_trigger_http_status
-                  : null,
+                  : typeof resumeDoc?.last_trigger_http_status === "number"
+                    ? resumeDoc.last_trigger_http_status
+                    : null,
               last_gateway_key_attached:
                 typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
                   ? sessionDoc.resume_worker_last_gateway_key_attached
-                  : null,
-              last_error: sessionDoc?.resume_worker_last_error || null,
-              last_company_id: sessionDoc?.resume_worker_last_company_id || null,
+                  : typeof resumeDoc?.last_gateway_key_attached === "boolean"
+                    ? resumeDoc.last_gateway_key_attached
+                    : null,
+              last_error: sessionDoc?.resume_worker_last_error || resumeDoc?.last_error || null,
+              last_company_id: sessionDoc?.resume_worker_last_company_id || resumeDoc?.last_company_id || null,
               last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
                 ? sessionDoc.resume_worker_last_written_fields
-                : null,
-              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || null,
+                : Array.isArray(resumeDoc?.last_written_fields)
+                  ? resumeDoc.last_written_fields
+                  : null,
+              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || resumeDoc?.last_stage_beacon || null,
               last_resume_needed:
                 typeof sessionDoc?.resume_worker_last_resume_needed === "boolean"
                   ? sessionDoc.resume_worker_last_resume_needed
-                  : null,
+                  : typeof resumeDoc?.last_resume_needed === "boolean"
+                    ? resumeDoc.last_resume_needed
+                    : null,
             }
           : null,
         enrichment_health_summary,
@@ -2964,7 +3046,26 @@ async function handler(req, context) {
 
     const domainMeta = deriveDomainAndCreatedAfter({ sessionDoc, acceptDoc });
 
-    const items = await fetchRecentCompanies(container, {
+    const memVerifiedIds = Array.isArray(mem?.saved_company_ids_verified)
+      ? mem.saved_company_ids_verified
+      : Array.isArray(mem?.saved_ids)
+        ? mem.saved_ids
+        : [];
+
+    const memUnverifiedIds = Array.isArray(mem?.saved_company_ids_unverified) ? mem.saved_company_ids_unverified : [];
+    const memSavedCompanyUrls = Array.isArray(mem?.saved_company_urls) ? mem.saved_company_urls : [];
+
+    const memSaveOutcome =
+      typeof mem?.save_outcome === "string" && mem.save_outcome.trim() ? mem.save_outcome.trim() : null;
+
+    const saveOutcomeRaw =
+      typeof sessionDoc?.save_outcome === "string" && sessionDoc.save_outcome.trim()
+        ? sessionDoc.save_outcome.trim()
+        : typeof completionDoc?.save_outcome === "string" && completionDoc.save_outcome.trim()
+          ? completionDoc.save_outcome.trim()
+          : memSaveOutcome;
+
+    let items = await fetchRecentCompanies(container, {
       sessionId,
       take,
       normalizedDomain: domainMeta.normalizedDomain,
@@ -2982,20 +3083,40 @@ async function handler(req, context) {
         ? sessionDoc.saved_ids
         : [];
 
-    let savedIds = (completionVerifiedIds.length > 0 ? completionVerifiedIds : sessionVerifiedIds)
+    let savedIds = (completionVerifiedIds.length > 0
+      ? completionVerifiedIds
+      : sessionVerifiedIds.length > 0
+        ? sessionVerifiedIds
+        : memVerifiedIds)
       .map((id) => String(id || "").trim())
       .filter(Boolean);
+
+    // Duplicate-detected reconciliation: the saved target can be an existing doc not linked to this session.
+    // If the control-plane saved IDs didn't persist, fall back to normalized_domain lookups.
+    if (
+      savedIds.length === 0 &&
+      typeof saveOutcomeRaw === "string" &&
+      normalizeKey(saveOutcomeRaw).startsWith("duplicate_detected") &&
+      domainMeta.normalizedDomain
+    ) {
+      const dupeDoc = await fetchCompanyByNormalizedDomain(container, domainMeta.normalizedDomain).catch(() => null);
+      if (dupeDoc && dupeDoc.id) {
+        savedIds = [String(dupeDoc.id).trim()].filter(Boolean);
+        stageBeaconValues.status_reconciled_duplicate_by_domain = nowIso();
+      }
+    }
 
     const derivedVerifiedCount = savedIds.length;
 
     const savedVerifiedCount =
       (typeof completionDoc?.saved_verified_count === "number" ? completionDoc.saved_verified_count : null) ??
       (typeof sessionDoc?.saved_verified_count === "number" ? sessionDoc.saved_verified_count : null) ??
+      (typeof mem?.saved_verified_count === "number" ? mem.saved_verified_count : null) ??
       (derivedVerifiedCount > 0 ? derivedVerifiedCount : null);
 
     const savedUnverifiedIdsRaw = Array.isArray(sessionDoc?.saved_company_ids_unverified)
       ? sessionDoc.saved_company_ids_unverified
-      : [];
+      : memUnverifiedIds;
 
     const session = sessionDoc && typeof sessionDoc === "object" ? sessionDoc : {};
     session.saved_company_ids_verified = savedIds;
@@ -3015,16 +3136,16 @@ async function handler(req, context) {
       ? session.saved_company_ids_unverified
       : [];
 
-    // Use case-insensitive id keys to avoid duplicates by casing.
+    // Use case-insensitive id keys to avoid duplicates by casing, while preserving original id values.
     const persistedIds = Array.from(
-      new Set(
+      new Map(
         [...savedCompanyIdsVerified, ...savedCompanyIdsUnverified]
           .filter(Boolean)
           .map(String)
-          .map(s => s.trim())
+          .map((s) => s.trim())
           .filter(Boolean)
-          .map(s => s.toLowerCase())
-      )
+          .map((s) => [s.toLowerCase(), s])
+      ).values()
     );
 
     const persistedCount = Math.max(
@@ -3038,6 +3159,23 @@ async function handler(req, context) {
     let saved = persistedCount;
 
     let savedDocs = persistedIds.length > 0 ? await fetchCompaniesByIds(container, persistedIds).catch(() => []) : [];
+
+    // Ensure `items[]` always includes the saved target(s), even when the company doc is pre-existing and
+    // therefore not linked to this session_id (e.g. save_outcome=duplicate_detected).
+    if (Array.isArray(savedDocs) && savedDocs.length > 0) {
+      if (!Array.isArray(items) || items.length === 0) {
+        items = savedDocs;
+        stageBeaconValues.status_items_from_saved_docs = nowIso();
+      } else {
+        const byId = new Map();
+        for (const doc of [...items, ...savedDocs]) {
+          const id = String(doc?.id || doc?.company_id || "").trim();
+          if (!id) continue;
+          if (!byId.has(id)) byId.set(id, doc);
+        }
+        items = Array.from(byId.values());
+      }
+    }
 
     const lowQualityMaxAttempts = Number.isFinite(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS))
       ? Math.max(1, Math.trunc(Number(process.env.NON_GROK_LOW_QUALITY_MAX_ATTEMPTS)))
@@ -4010,20 +4148,28 @@ async function handler(req, context) {
 
     const saved_company_ids_unverified = Array.isArray(sessionDoc?.saved_company_ids_unverified)
       ? sessionDoc.saved_company_ids_unverified
-      : [];
+      : memUnverifiedIds;
 
     const save_outcome =
       typeof sessionDoc?.save_outcome === "string" && sessionDoc.save_outcome.trim()
         ? sessionDoc.save_outcome.trim()
         : typeof completionDoc?.save_outcome === "string" && completionDoc.save_outcome.trim()
           ? completionDoc.save_outcome.trim()
-          : null;
+          : memSaveOutcome;
 
-    const saved_company_urls = Array.isArray(sessionDoc?.saved_company_urls)
+    const saved_company_urls_raw = Array.isArray(sessionDoc?.saved_company_urls)
       ? sessionDoc.saved_company_urls
       : Array.isArray(completionDoc?.saved_company_urls)
         ? completionDoc.saved_company_urls
-        : [];
+        : memSavedCompanyUrls;
+
+    const saved_company_urls =
+      Array.isArray(saved_company_urls_raw) && saved_company_urls_raw.length > 0
+        ? saved_company_urls_raw
+        : (Array.isArray(savedDocs) ? savedDocs : [])
+            .map((d) => String(d?.website_url || d?.url || d?.canonical_url || "").trim())
+            .filter(Boolean)
+            .slice(0, 50);
 
     const resume_error =
       typeof sessionDoc?.resume_error === "string" && sessionDoc.resume_error.trim() ? sessionDoc.resume_error.trim() : null;
@@ -4127,38 +4273,60 @@ async function handler(req, context) {
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
-              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
-              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || null,
-              handler_entered_build_id: sessionDoc?.resume_worker_handler_entered_build_id || null,
-              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || null,
-              last_auth: sessionDoc?.resume_worker_last_auth || null,
-              last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
-              last_result: sessionDoc?.resume_worker_last_result || null,
-              last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
+              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || resumeDoc?.last_invoked_at || null,
+              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || resumeDoc?.handler_entered_at || null,
+              handler_entered_build_id:
+                sessionDoc?.resume_worker_handler_entered_build_id || resumeDoc?.handler_entered_build_id || null,
+              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || resumeDoc?.last_reject_layer || null,
+              last_auth: sessionDoc?.resume_worker_last_auth || resumeDoc?.last_auth || null,
+              last_finished_at: sessionDoc?.resume_worker_last_finished_at || resumeDoc?.last_finished_at || null,
+              last_result: sessionDoc?.resume_worker_last_result || resumeDoc?.last_result || null,
+              last_ok:
+                typeof sessionDoc?.resume_worker_last_ok === "boolean"
+                  ? sessionDoc.resume_worker_last_ok
+                  : typeof resumeDoc?.last_ok === "boolean"
+                    ? resumeDoc.last_ok
+                    : null,
               last_http_status:
-                typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
-              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
-              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || null,
+                typeof sessionDoc?.resume_worker_last_http_status === "number"
+                  ? sessionDoc.resume_worker_last_http_status
+                  : typeof resumeDoc?.last_http_status === "number"
+                    ? resumeDoc.last_http_status
+                    : null,
+              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || resumeDoc?.last_trigger_request_id || null,
+              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || resumeDoc?.last_trigger_result || null,
               last_trigger_ok:
-                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean" ? sessionDoc.resume_worker_last_trigger_ok : null,
+                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean"
+                  ? sessionDoc.resume_worker_last_trigger_ok
+                  : typeof resumeDoc?.last_trigger_ok === "boolean"
+                    ? resumeDoc.last_trigger_ok
+                    : null,
               last_trigger_http_status:
                 typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
                   ? sessionDoc.resume_worker_last_trigger_http_status
-                  : null,
+                  : typeof resumeDoc?.last_trigger_http_status === "number"
+                    ? resumeDoc.last_trigger_http_status
+                    : null,
               last_gateway_key_attached:
                 typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
                   ? sessionDoc.resume_worker_last_gateway_key_attached
-                  : null,
-              last_error: sessionDoc?.resume_worker_last_error || null,
-              last_company_id: sessionDoc?.resume_worker_last_company_id || null,
+                  : typeof resumeDoc?.last_gateway_key_attached === "boolean"
+                    ? resumeDoc.last_gateway_key_attached
+                    : null,
+              last_error: sessionDoc?.resume_worker_last_error || resumeDoc?.last_error || null,
+              last_company_id: sessionDoc?.resume_worker_last_company_id || resumeDoc?.last_company_id || null,
               last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
                 ? sessionDoc.resume_worker_last_written_fields
-                : null,
-              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || null,
+                : Array.isArray(resumeDoc?.last_written_fields)
+                  ? resumeDoc.last_written_fields
+                  : null,
+              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || resumeDoc?.last_stage_beacon || null,
               last_resume_needed:
                 typeof sessionDoc?.resume_worker_last_resume_needed === "boolean"
                   ? sessionDoc.resume_worker_last_resume_needed
-                  : null,
+                  : typeof resumeDoc?.last_resume_needed === "boolean"
+                    ? resumeDoc.last_resume_needed
+                    : null,
             }
           : null,
         enrichment_health_summary,
@@ -4271,38 +4439,60 @@ async function handler(req, context) {
           },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
-              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
-              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || null,
-              handler_entered_build_id: sessionDoc?.resume_worker_handler_entered_build_id || null,
-              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || null,
-              last_auth: sessionDoc?.resume_worker_last_auth || null,
-              last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
-              last_result: sessionDoc?.resume_worker_last_result || null,
-              last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
+              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || resumeDoc?.last_invoked_at || null,
+              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || resumeDoc?.handler_entered_at || null,
+              handler_entered_build_id:
+                sessionDoc?.resume_worker_handler_entered_build_id || resumeDoc?.handler_entered_build_id || null,
+              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || resumeDoc?.last_reject_layer || null,
+              last_auth: sessionDoc?.resume_worker_last_auth || resumeDoc?.last_auth || null,
+              last_finished_at: sessionDoc?.resume_worker_last_finished_at || resumeDoc?.last_finished_at || null,
+              last_result: sessionDoc?.resume_worker_last_result || resumeDoc?.last_result || null,
+              last_ok:
+                typeof sessionDoc?.resume_worker_last_ok === "boolean"
+                  ? sessionDoc.resume_worker_last_ok
+                  : typeof resumeDoc?.last_ok === "boolean"
+                    ? resumeDoc.last_ok
+                    : null,
               last_http_status:
-                typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
-              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
-              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || null,
+                typeof sessionDoc?.resume_worker_last_http_status === "number"
+                  ? sessionDoc.resume_worker_last_http_status
+                  : typeof resumeDoc?.last_http_status === "number"
+                    ? resumeDoc.last_http_status
+                    : null,
+              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || resumeDoc?.last_trigger_request_id || null,
+              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || resumeDoc?.last_trigger_result || null,
               last_trigger_ok:
-                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean" ? sessionDoc.resume_worker_last_trigger_ok : null,
+                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean"
+                  ? sessionDoc.resume_worker_last_trigger_ok
+                  : typeof resumeDoc?.last_trigger_ok === "boolean"
+                    ? resumeDoc.last_trigger_ok
+                    : null,
               last_trigger_http_status:
                 typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
                   ? sessionDoc.resume_worker_last_trigger_http_status
-                  : null,
+                  : typeof resumeDoc?.last_trigger_http_status === "number"
+                    ? resumeDoc.last_trigger_http_status
+                    : null,
               last_gateway_key_attached:
                 typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
                   ? sessionDoc.resume_worker_last_gateway_key_attached
-                  : null,
-              last_error: sessionDoc?.resume_worker_last_error || null,
-              last_company_id: sessionDoc?.resume_worker_last_company_id || null,
+                  : typeof resumeDoc?.last_gateway_key_attached === "boolean"
+                    ? resumeDoc.last_gateway_key_attached
+                    : null,
+              last_error: sessionDoc?.resume_worker_last_error || resumeDoc?.last_error || null,
+              last_company_id: sessionDoc?.resume_worker_last_company_id || resumeDoc?.last_company_id || null,
               last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
                 ? sessionDoc.resume_worker_last_written_fields
-                : null,
-              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || null,
+                : Array.isArray(resumeDoc?.last_written_fields)
+                  ? resumeDoc.last_written_fields
+                  : null,
+              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || resumeDoc?.last_stage_beacon || null,
               last_resume_needed:
                 typeof sessionDoc?.resume_worker_last_resume_needed === "boolean"
                   ? sessionDoc.resume_worker_last_resume_needed
-                  : null,
+                  : typeof resumeDoc?.last_resume_needed === "boolean"
+                    ? resumeDoc.last_resume_needed
+                    : null,
             }
           : null,
         enrichment_health_summary,
@@ -4406,38 +4596,60 @@ async function handler(req, context) {
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
-              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
-              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || null,
-              handler_entered_build_id: sessionDoc?.resume_worker_handler_entered_build_id || null,
-              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || null,
-              last_auth: sessionDoc?.resume_worker_last_auth || null,
-              last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
-              last_result: sessionDoc?.resume_worker_last_result || null,
-              last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
+              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || resumeDoc?.last_invoked_at || null,
+              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || resumeDoc?.handler_entered_at || null,
+              handler_entered_build_id:
+                sessionDoc?.resume_worker_handler_entered_build_id || resumeDoc?.handler_entered_build_id || null,
+              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || resumeDoc?.last_reject_layer || null,
+              last_auth: sessionDoc?.resume_worker_last_auth || resumeDoc?.last_auth || null,
+              last_finished_at: sessionDoc?.resume_worker_last_finished_at || resumeDoc?.last_finished_at || null,
+              last_result: sessionDoc?.resume_worker_last_result || resumeDoc?.last_result || null,
+              last_ok:
+                typeof sessionDoc?.resume_worker_last_ok === "boolean"
+                  ? sessionDoc.resume_worker_last_ok
+                  : typeof resumeDoc?.last_ok === "boolean"
+                    ? resumeDoc.last_ok
+                    : null,
               last_http_status:
-                typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
-              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
-              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || null,
+                typeof sessionDoc?.resume_worker_last_http_status === "number"
+                  ? sessionDoc.resume_worker_last_http_status
+                  : typeof resumeDoc?.last_http_status === "number"
+                    ? resumeDoc.last_http_status
+                    : null,
+              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || resumeDoc?.last_trigger_request_id || null,
+              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || resumeDoc?.last_trigger_result || null,
               last_trigger_ok:
-                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean" ? sessionDoc.resume_worker_last_trigger_ok : null,
+                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean"
+                  ? sessionDoc.resume_worker_last_trigger_ok
+                  : typeof resumeDoc?.last_trigger_ok === "boolean"
+                    ? resumeDoc.last_trigger_ok
+                    : null,
               last_trigger_http_status:
                 typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
                   ? sessionDoc.resume_worker_last_trigger_http_status
-                  : null,
+                  : typeof resumeDoc?.last_trigger_http_status === "number"
+                    ? resumeDoc.last_trigger_http_status
+                    : null,
               last_gateway_key_attached:
                 typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
                   ? sessionDoc.resume_worker_last_gateway_key_attached
-                  : null,
-              last_error: sessionDoc?.resume_worker_last_error || null,
-              last_company_id: sessionDoc?.resume_worker_last_company_id || null,
+                  : typeof resumeDoc?.last_gateway_key_attached === "boolean"
+                    ? resumeDoc.last_gateway_key_attached
+                    : null,
+              last_error: sessionDoc?.resume_worker_last_error || resumeDoc?.last_error || null,
+              last_company_id: sessionDoc?.resume_worker_last_company_id || resumeDoc?.last_company_id || null,
               last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
                 ? sessionDoc.resume_worker_last_written_fields
-                : null,
-              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || null,
+                : Array.isArray(resumeDoc?.last_written_fields)
+                  ? resumeDoc.last_written_fields
+                  : null,
+              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || resumeDoc?.last_stage_beacon || null,
               last_resume_needed:
                 typeof sessionDoc?.resume_worker_last_resume_needed === "boolean"
                   ? sessionDoc.resume_worker_last_resume_needed
-                  : null,
+                  : typeof resumeDoc?.last_resume_needed === "boolean"
+                    ? resumeDoc.last_resume_needed
+                    : null,
             }
           : null,
         enrichment_health_summary,
@@ -4542,38 +4754,60 @@ async function handler(req, context) {
         },
         resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
-              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || null,
-              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || null,
-              handler_entered_build_id: sessionDoc?.resume_worker_handler_entered_build_id || null,
-              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || null,
-              last_auth: sessionDoc?.resume_worker_last_auth || null,
-              last_finished_at: sessionDoc?.resume_worker_last_finished_at || null,
-              last_result: sessionDoc?.resume_worker_last_result || null,
-              last_ok: typeof sessionDoc?.resume_worker_last_ok === "boolean" ? sessionDoc.resume_worker_last_ok : null,
+              last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || resumeDoc?.last_invoked_at || null,
+              handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || resumeDoc?.handler_entered_at || null,
+              handler_entered_build_id:
+                sessionDoc?.resume_worker_handler_entered_build_id || resumeDoc?.handler_entered_build_id || null,
+              last_reject_layer: sessionDoc?.resume_worker_last_reject_layer || resumeDoc?.last_reject_layer || null,
+              last_auth: sessionDoc?.resume_worker_last_auth || resumeDoc?.last_auth || null,
+              last_finished_at: sessionDoc?.resume_worker_last_finished_at || resumeDoc?.last_finished_at || null,
+              last_result: sessionDoc?.resume_worker_last_result || resumeDoc?.last_result || null,
+              last_ok:
+                typeof sessionDoc?.resume_worker_last_ok === "boolean"
+                  ? sessionDoc.resume_worker_last_ok
+                  : typeof resumeDoc?.last_ok === "boolean"
+                    ? resumeDoc.last_ok
+                    : null,
               last_http_status:
-                typeof sessionDoc?.resume_worker_last_http_status === "number" ? sessionDoc.resume_worker_last_http_status : null,
-              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || null,
-              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || null,
+                typeof sessionDoc?.resume_worker_last_http_status === "number"
+                  ? sessionDoc.resume_worker_last_http_status
+                  : typeof resumeDoc?.last_http_status === "number"
+                    ? resumeDoc.last_http_status
+                    : null,
+              last_trigger_request_id: sessionDoc?.resume_worker_last_trigger_request_id || resumeDoc?.last_trigger_request_id || null,
+              last_trigger_result: sessionDoc?.resume_worker_last_trigger_result || resumeDoc?.last_trigger_result || null,
               last_trigger_ok:
-                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean" ? sessionDoc.resume_worker_last_trigger_ok : null,
+                typeof sessionDoc?.resume_worker_last_trigger_ok === "boolean"
+                  ? sessionDoc.resume_worker_last_trigger_ok
+                  : typeof resumeDoc?.last_trigger_ok === "boolean"
+                    ? resumeDoc.last_trigger_ok
+                    : null,
               last_trigger_http_status:
                 typeof sessionDoc?.resume_worker_last_trigger_http_status === "number"
                   ? sessionDoc.resume_worker_last_trigger_http_status
-                  : null,
+                  : typeof resumeDoc?.last_trigger_http_status === "number"
+                    ? resumeDoc.last_trigger_http_status
+                    : null,
               last_gateway_key_attached:
                 typeof sessionDoc?.resume_worker_last_gateway_key_attached === "boolean"
                   ? sessionDoc.resume_worker_last_gateway_key_attached
-                  : null,
-              last_error: sessionDoc?.resume_worker_last_error || null,
-              last_company_id: sessionDoc?.resume_worker_last_company_id || null,
+                  : typeof resumeDoc?.last_gateway_key_attached === "boolean"
+                    ? resumeDoc.last_gateway_key_attached
+                    : null,
+              last_error: sessionDoc?.resume_worker_last_error || resumeDoc?.last_error || null,
+              last_company_id: sessionDoc?.resume_worker_last_company_id || resumeDoc?.last_company_id || null,
               last_written_fields: Array.isArray(sessionDoc?.resume_worker_last_written_fields)
                 ? sessionDoc.resume_worker_last_written_fields
-                : null,
-              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || null,
+                : Array.isArray(resumeDoc?.last_written_fields)
+                  ? resumeDoc.last_written_fields
+                  : null,
+              last_stage_beacon: sessionDoc?.resume_worker_last_stage_beacon || resumeDoc?.last_stage_beacon || null,
               last_resume_needed:
                 typeof sessionDoc?.resume_worker_last_resume_needed === "boolean"
                   ? sessionDoc.resume_worker_last_resume_needed
-                  : null,
+                  : typeof resumeDoc?.last_resume_needed === "boolean"
+                    ? resumeDoc.last_resume_needed
+                    : null,
             }
           : null,
         enrichment_health_summary,
