@@ -1033,7 +1033,7 @@ test("/api/import/status reports resume_needed=false when only terminal missing 
   );
 });
 
-test("/api/import/status does not auto-trigger resume-worker when resume status is blocked (mock cosmos)", async () => {
+test("/api/import/status auto-triggers resume-worker when resume status is blocked (mock cosmos)", async () => {
   const session_id = "77777777-8888-9999-0000-111111111111";
 
   await withTempEnv(
