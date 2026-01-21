@@ -3561,9 +3561,15 @@ async function saveCompaniesToCosmos({
               // tagline (required)
               const taglineMeaningful = asMeaningful(doc.tagline);
               if (!taglineMeaningful) {
-                doc.tagline = "Unknown";
+                // Placeholder hygiene: keep canonical field empty.
+                doc.tagline = "";
                 doc.tagline_unknown = true;
-                ensureMissing("tagline", "not_found", "extract_tagline", "tagline missing; set to placeholder 'Unknown'");
+                ensureMissing(
+                  "tagline",
+                  "not_found",
+                  "extract_tagline",
+                  "tagline missing; left empty and marked tagline_unknown=true"
+                );
               }
 
               // headquarters_location + manufacturing_locations are Grok-only (handled in resume-worker).
