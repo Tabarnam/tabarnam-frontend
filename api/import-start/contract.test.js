@@ -846,6 +846,8 @@ test("/api/import/status reports resume_needed=false when only terminal missing 
         website_url: "https://example.com",
 
         industries: [],
+        tagline: "",
+        tagline_unknown: true,
         product_keywords: "",
         keywords: [],
 
