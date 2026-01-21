@@ -1914,6 +1914,7 @@ async function handler(req, context) {
           if (lastTriggeredTs && Date.now() - lastTriggeredTs < cooldownMs) {
             canTrigger = false;
             stageBeaconValues.status_resume_trigger_cooldown = nowIso();
+            stageBeaconValues.status_resume_next_allowed_at = new Date(lastTriggeredTs + cooldownMs).toISOString();
           }
         }
 
@@ -3671,6 +3672,7 @@ async function handler(req, context) {
           if (lastTriggeredTs && Date.now() - lastTriggeredTs < cooldownMs) {
             canTrigger = false;
             stageBeaconValues.status_resume_trigger_cooldown = nowIso();
+            stageBeaconValues.status_resume_next_allowed_at = new Date(lastTriggeredTs + cooldownMs).toISOString();
           }
         }
 
