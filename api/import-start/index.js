@@ -3503,13 +3503,15 @@ async function saveCompaniesToCosmos({
 
               if (industriesSanitized.length === 0) {
                 const hadAny = normalizeStringArray(industriesRaw).length > 0;
-                doc.industries = ["Unknown"];
+
+                // Placeholder hygiene: keep canonical field empty.
+                doc.industries = [];
                 doc.industries_unknown = true;
 
                 const policy = applyLowQualityPolicy("industries", hadAny ? "low_quality" : "not_found");
                 const messageBase = hadAny
-                  ? "Industries present but low-quality (navigation/marketplace buckets); set to placeholder ['Unknown']"
-                  : "Industries missing; set to placeholder ['Unknown']";
+                  ? "Industries present but low-quality; cleared industries and marked industries_unknown=true"
+                  : "Industries missing; left empty and marked industries_unknown=true";
 
                 const message =
                   policy.missing_reason === "low_quality_terminal"
