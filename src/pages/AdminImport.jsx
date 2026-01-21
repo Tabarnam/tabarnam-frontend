@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet-async";
-import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save, Download } from "lucide-react";
+import { Play, Square, RefreshCcw, Copy, AlertTriangle, Save, Download, Loader2 } from "lucide-react";
 
 import AdminHeader from "@/components/AdminHeader";
 import { Button } from "@/components/ui/button";
@@ -451,6 +451,7 @@ export default function AdminImport() {
 
   const [saveLoading, setSaveLoading] = useState(false);
   const [savingSessionId, setSavingSessionId] = useState(null);
+  const [retryingResumeSessionId, setRetryingResumeSessionId] = useState(null);
 
   const [debugQuery, setDebugQuery] = useState("");
   const [debugLimitInput, setDebugLimitInput] = useState("1");
@@ -4419,7 +4420,23 @@ export default function AdminImport() {
 
                                     {resumeStatus === "blocked" ? (
                                       <div className="text-amber-900/90">
-                                        Auto-retries are paused while blocked. Fix upstream connectivity (or wait), then click “Retry resume”.
+                                        Auto-retries are paused while blocked.
+                                        {(() => {
+                                          const reason = asString(
+                                            stageBeaconValues?.status_resume_blocked_reason ||
+                                              stageBeaconValues?.status_resume_blocked_code ||
+                                              resumeError ||
+                                              activeRun?.resume?.trigger_error ||
+                                              ""
+                                          ).trim();
+
+                                          return reason ? (
+                                            <>
+                                              {" "}Reason: <span className="font-medium">{reason}</span>.
+                                            </>
+                                          ) : null;
+                                        })()}
+                                        Fix upstream connectivity (or wait), then click “Retry resume”.
                                       </div>
                                     ) : resumeStatus === "queued" ? (
                                       <div className="text-amber-900/90">Waiting for the resume worker. Polling will automatically slow down.</div>
@@ -4437,9 +4454,26 @@ export default function AdminImport() {
                                         variant="outline"
                                         size="sm"
                                         className="h-8"
-                                        onClick={() => retryResumeWorker({ session_id: activeRun.session_id })}
+                                        disabled={retryingResumeSessionId === activeRun.session_id}
+                                        onClick={async () => {
+                                          const sid = activeRun.session_id;
+                                          if (!sid) return;
+                                          setRetryingResumeSessionId(sid);
+                                          try {
+                                            await retryResumeWorker({ session_id: sid });
+                                          } finally {
+                                            setRetryingResumeSessionId(null);
+                                          }
+                                        }}
                                       >
-                                        Retry resume
+                                        {retryingResumeSessionId === activeRun.session_id ? (
+                                          <>
+                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                            Retrying…
+                                          </>
+                                        ) : (
+                                          "Retry resume"
+                                        )}
                                       </Button>
 
                                       <Button
@@ -4451,6 +4485,13 @@ export default function AdminImport() {
                                       >
                                         Run xAI diag
                                       </Button>
+                                    </div>
+
+                                    <div className="mt-1 text-xs text-amber-900/80">
+                                      <span className="font-medium">Last resume worker:</span>{" "}
+                                      {asString(activeRun?.resume_worker?.last_invoked_at).trim() || "—"} →{" "}
+                                      {asString(activeRun?.resume_worker?.last_finished_at).trim() || "—"} ·{" "}
+                                      {asString(activeRun?.resume_worker?.last_result).trim() || "—"}
                                     </div>
 
                                     {resumeErrorDetails ? (
