@@ -3353,12 +3353,16 @@ async function handler(req, context) {
 
     const sessionStatus = typeof sessionDoc?.status === "string" ? sessionDoc.status.trim() : "";
 
+    const retryableMissingCount = Number(resumeMissingAnalysis?.total_retryable_missing || 0) || 0;
+
+    // resume_needed is derived from retryable missing fields only; it must not drift.
+    let resume_needed = forceResume ? true : retryableMissingCount > 0;
+
     const forceComplete = Boolean(
       stageBeaconValues.status_resume_terminal_only ||
-        (!forceResume && Number(saved || 0) > 0 && Number(resumeMissingAnalysis?.total_retryable_missing || 0) === 0) ||
+        (!forceResume && Number(saved || 0) > 0 && retryableMissingCount === 0) ||
         resumeMissingAnalysis.terminal_only ||
-        sessionStatus === "complete" ||
-        stage_beacon === "complete" ||
+        ((sessionStatus === "complete" || stage_beacon === "complete") && !resume_needed) ||
         stage_beacon === "status_resume_terminal_only"
     );
 
@@ -3388,9 +3392,6 @@ async function handler(req, context) {
     const forceTerminalComplete = resumeDocStatus === "complete" && resumeMissingAnalysis.total_retryable_missing === 0;
 
     // Terminal-only missing fields must not keep the session "running".
-    const retryableMissingCount = Number(resumeMissingAnalysis?.total_retryable_missing || 0) || 0;
-
-    let resume_needed = forceResume ? true : retryableMissingCount > 0;
 
     if ((resumeMissingAnalysis.terminal_only || forceTerminalComplete) && sessionDoc && sessionDoc.resume_needed) {
       const now = nowIso();
