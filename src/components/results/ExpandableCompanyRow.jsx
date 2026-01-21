@@ -559,30 +559,6 @@ export default function ExpandableCompanyRow({
                 )}
               </div>
             )}
-            <div className="text-sm font-semibold text-gray-700">Keywords</div>
-            <div className="mt-1 text-sm text-gray-600">
-              {sortedKeywords.length > 0 ? (
-                <ul className="keywordsCols">
-                  {sortedKeywords.map((kw, idx) => (
-                    <li key={`${kw}-${idx}`}>
-                      <a
-                        href="#"
-                        className="text-blue-600 hover:underline text-xs"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          onKeywordSearch(kw);
-                        }}
-                      >
-                        {kw}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="text-sm text-gray-500">—</div>
-              )}
-            </div>
           </div>
 
           {rightColsOrder.map((colKey) => (
@@ -593,6 +569,33 @@ export default function ExpandableCompanyRow({
               {renderRightColumn(colKey)}
             </div>
           ))}
+        </div>
+
+        <div className="mt-2 keywordsRow">
+          <div className="text-sm font-semibold text-gray-700">Keywords</div>
+          <div className="mt-2 text-sm text-gray-600">
+            {sortedKeywords.length > 0 ? (
+              <ul className="keywordsCols">
+                {sortedKeywords.map((kw, idx) => (
+                  <li key={`${kw}-${idx}`}>
+                    <a
+                      href="#"
+                      className="text-blue-600 hover:underline text-xs"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onKeywordSearch(kw);
+                      }}
+                    >
+                      {kw}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="text-sm text-gray-500">—</div>
+            )}
+          </div>
         </div>
 
         <div className="mt-6 col-span-5 space-y-4">
