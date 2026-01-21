@@ -2610,6 +2610,19 @@ async function handler(req, context) {
                   : typeof resumeDoc?.last_resume_needed === "boolean"
                     ? resumeDoc.last_resume_needed
                     : null,
+              planned_fields: Array.isArray(sessionDoc?.resume_worker_planned_fields)
+                ? sessionDoc.resume_worker_planned_fields
+                : Array.isArray(resumeDoc?.planned_fields)
+                  ? resumeDoc.planned_fields
+                  : null,
+              planned_fields_reason: sessionDoc?.resume_worker_planned_fields_reason || resumeDoc?.planned_fields_reason || null,
+              attempted_fields: Array.isArray(sessionDoc?.resume_worker_attempted_fields)
+                ? sessionDoc.resume_worker_attempted_fields
+                : Array.isArray(resumeDoc?.attempted_fields)
+                  ? resumeDoc.attempted_fields
+                  : null,
+              attempted_fields_request_id:
+                sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
             }
           : null,
         enrichment_health_summary,
@@ -4336,6 +4349,19 @@ async function handler(req, context) {
                   : typeof resumeDoc?.last_resume_needed === "boolean"
                     ? resumeDoc.last_resume_needed
                     : null,
+              planned_fields: Array.isArray(sessionDoc?.resume_worker_planned_fields)
+                ? sessionDoc.resume_worker_planned_fields
+                : Array.isArray(resumeDoc?.planned_fields)
+                  ? resumeDoc.planned_fields
+                  : null,
+              planned_fields_reason: sessionDoc?.resume_worker_planned_fields_reason || resumeDoc?.planned_fields_reason || null,
+              attempted_fields: Array.isArray(sessionDoc?.resume_worker_attempted_fields)
+                ? sessionDoc.resume_worker_attempted_fields
+                : Array.isArray(resumeDoc?.attempted_fields)
+                  ? resumeDoc.attempted_fields
+                  : null,
+              attempted_fields_request_id:
+                sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
             }
           : null,
         enrichment_health_summary,
@@ -4502,6 +4528,19 @@ async function handler(req, context) {
                   : typeof resumeDoc?.last_resume_needed === "boolean"
                     ? resumeDoc.last_resume_needed
                     : null,
+              planned_fields: Array.isArray(sessionDoc?.resume_worker_planned_fields)
+                ? sessionDoc.resume_worker_planned_fields
+                : Array.isArray(resumeDoc?.planned_fields)
+                  ? resumeDoc.planned_fields
+                  : null,
+              planned_fields_reason: sessionDoc?.resume_worker_planned_fields_reason || resumeDoc?.planned_fields_reason || null,
+              attempted_fields: Array.isArray(sessionDoc?.resume_worker_attempted_fields)
+                ? sessionDoc.resume_worker_attempted_fields
+                : Array.isArray(resumeDoc?.attempted_fields)
+                  ? resumeDoc.attempted_fields
+                  : null,
+              attempted_fields_request_id:
+                sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
             }
           : null,
         enrichment_health_summary,
@@ -4663,6 +4702,19 @@ async function handler(req, context) {
                   : typeof resumeDoc?.last_resume_needed === "boolean"
                     ? resumeDoc.last_resume_needed
                     : null,
+              planned_fields: Array.isArray(sessionDoc?.resume_worker_planned_fields)
+                ? sessionDoc.resume_worker_planned_fields
+                : Array.isArray(resumeDoc?.planned_fields)
+                  ? resumeDoc.planned_fields
+                  : null,
+              planned_fields_reason: sessionDoc?.resume_worker_planned_fields_reason || resumeDoc?.planned_fields_reason || null,
+              attempted_fields: Array.isArray(sessionDoc?.resume_worker_attempted_fields)
+                ? sessionDoc.resume_worker_attempted_fields
+                : Array.isArray(resumeDoc?.attempted_fields)
+                  ? resumeDoc.attempted_fields
+                  : null,
+              attempted_fields_request_id:
+                sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
             }
           : null,
         enrichment_health_summary,
@@ -4825,6 +4877,19 @@ async function handler(req, context) {
                   : typeof resumeDoc?.last_resume_needed === "boolean"
                     ? resumeDoc.last_resume_needed
                     : null,
+              planned_fields: Array.isArray(sessionDoc?.resume_worker_planned_fields)
+                ? sessionDoc.resume_worker_planned_fields
+                : Array.isArray(resumeDoc?.planned_fields)
+                  ? resumeDoc.planned_fields
+                  : null,
+              planned_fields_reason: sessionDoc?.resume_worker_planned_fields_reason || resumeDoc?.planned_fields_reason || null,
+              attempted_fields: Array.isArray(sessionDoc?.resume_worker_attempted_fields)
+                ? sessionDoc.resume_worker_attempted_fields
+                : Array.isArray(resumeDoc?.attempted_fields)
+                  ? resumeDoc.attempted_fields
+                  : null,
+              attempted_fields_request_id:
+                sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
             }
           : null,
         enrichment_health_summary,
