@@ -2547,6 +2547,10 @@ async function handler(req, context) {
             (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
               ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
               : null,
+          next_allowed_run_at:
+            typeof stageBeaconValues?.status_resume_next_allowed_at === "string" && stageBeaconValues.status_resume_next_allowed_at.trim()
+              ? stageBeaconValues.status_resume_next_allowed_at.trim()
+              : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -4269,6 +4273,10 @@ async function handler(req, context) {
             (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
               ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
               : null,
+          next_allowed_run_at:
+            typeof stageBeaconValues?.status_resume_next_allowed_at === "string" && stageBeaconValues.status_resume_next_allowed_at.trim()
+              ? stageBeaconValues.status_resume_next_allowed_at.trim()
+              : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -4592,6 +4600,10 @@ async function handler(req, context) {
             (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
               ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
               : null,
+          next_allowed_run_at:
+            typeof stageBeaconValues?.status_resume_next_allowed_at === "string" && stageBeaconValues.status_resume_next_allowed_at.trim()
+              ? stageBeaconValues.status_resume_next_allowed_at.trim()
+              : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -4749,6 +4761,10 @@ async function handler(req, context) {
           last_triggered_at:
             (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
               ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
+              : null,
+          next_allowed_run_at:
+            typeof stageBeaconValues?.status_resume_next_allowed_at === "string" && stageBeaconValues.status_resume_next_allowed_at.trim()
+              ? stageBeaconValues.status_resume_next_allowed_at.trim()
               : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
