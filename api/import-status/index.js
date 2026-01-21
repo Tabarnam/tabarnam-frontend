@@ -1473,16 +1473,16 @@ async function handler(req, context) {
       ? session.saved_company_ids_unverified
       : [];
 
-    // Use case-insensitive id keys to avoid duplicates by casing.
+    // Use case-insensitive id keys to avoid duplicates by casing, while preserving original id values.
     const persistedIds = Array.from(
-      new Set(
+      new Map(
         [...savedCompanyIdsVerified, ...savedCompanyIdsUnverified]
           .filter(Boolean)
           .map(String)
-          .map(s => s.trim())
+          .map((s) => s.trim())
           .filter(Boolean)
-          .map(s => s.toLowerCase())
-      )
+          .map((s) => [s.toLowerCase(), s])
+      ).values()
     );
 
     const persistedCount = Math.max(
@@ -3054,16 +3054,16 @@ async function handler(req, context) {
       ? session.saved_company_ids_unverified
       : [];
 
-    // Use case-insensitive id keys to avoid duplicates by casing.
+    // Use case-insensitive id keys to avoid duplicates by casing, while preserving original id values.
     const persistedIds = Array.from(
-      new Set(
+      new Map(
         [...savedCompanyIdsVerified, ...savedCompanyIdsUnverified]
           .filter(Boolean)
           .map(String)
-          .map(s => s.trim())
+          .map((s) => s.trim())
           .filter(Boolean)
-          .map(s => s.toLowerCase())
-      )
+          .map((s) => [s.toLowerCase(), s])
+      ).values()
     );
 
     const persistedCount = Math.max(
