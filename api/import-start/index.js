@@ -9167,16 +9167,17 @@ Return ONLY the JSON array, no other text.`,
                   ensureMissing("product_keywords", policy.missing_reason, message, policy.retryable);
                 }
 
-                // headquarters
+                // headquarters_location is Grok-only (resume-worker). Do not force terminal sentinels here.
                 if (!isRealValue("headquarters_location", base.headquarters_location, base)) {
-                  const hqReasonRaw = String(base.hq_unknown_reason || "unknown").trim().toLowerCase();
-                  const hqValueRaw = String(base.headquarters_location || "").trim().toLowerCase();
-                  const hqNotDisclosed =
-                    hqReasonRaw === "not_disclosed" || hqValueRaw === "not disclosed" || hqValueRaw === "not_disclosed";
+                  const reasonRaw = String(
+                    base.hq_unknown_reason || base.import_missing_reason?.headquarters_location || "seed_from_company_url"
+                  )
+                    .trim()
+                    .toLowerCase();
 
                   base.hq_unknown = true;
 
-                  if (hqNotDisclosed) {
+                  if (reasonRaw === "not_disclosed") {
                     base.headquarters_location = "Not disclosed";
                     base.hq_unknown_reason = "not_disclosed";
                     ensureMissing(
@@ -9186,20 +9187,18 @@ Return ONLY the JSON array, no other text.`,
                       false
                     );
                   } else {
-                    base.headquarters_location = "Not disclosed";
-                    base.hq_unknown_reason = "not_disclosed";
+                    base.headquarters_location = "";
+                    base.hq_unknown_reason = base.hq_unknown_reason || "seed_from_company_url";
                     ensureMissing(
                       "headquarters_location",
-                      "not_disclosed",
-                      "headquarters_location missing; recorded as terminal sentinel 'Not disclosed'",
-                      false
+                      String(base.hq_unknown_reason || "seed_from_company_url"),
+                      "headquarters_location missing; left empty for resume-worker (hq_unknown=true)",
+                      true
                     );
                   }
                 }
 
-                // manufacturing
-                // Ordering fix: decide the final terminal sentinel first ("Not disclosed") and then generate warnings from that.
-                // Never emit "seed_from_company_url" after extractors have run.
+                // manufacturing_locations is Grok-only (resume-worker). Do not force terminal sentinels here.
                 {
                   const rawList = Array.isArray(base.manufacturing_locations)
                     ? base.manufacturing_locations
@@ -9226,17 +9225,33 @@ Return ONLY the JSON array, no other text.`,
                     isRealValue("manufacturing_locations", base.manufacturing_locations, base) && !hasNotDisclosed && !hasUnknownPlaceholder;
 
                   if (!hasRealMfg) {
-                    base.manufacturing_locations = ["Not disclosed"];
-                    base.manufacturing_locations_reason = "not_disclosed";
-                    base.mfg_unknown = true;
-                    base.mfg_unknown_reason = "not_disclosed";
+                    const reasonRaw = String(
+                      base.mfg_unknown_reason || base.import_missing_reason?.manufacturing_locations || "seed_from_company_url"
+                    )
+                      .trim()
+                      .toLowerCase();
 
-                    ensureMissing(
-                      "manufacturing_locations",
-                      "not_disclosed",
-                      "manufacturing_locations missing; recorded as terminal sentinel ['Not disclosed']",
-                      false
-                    );
+                    base.mfg_unknown = true;
+
+                    if (reasonRaw === "not_disclosed") {
+                      base.manufacturing_locations = ["Not disclosed"];
+                      base.mfg_unknown_reason = "not_disclosed";
+                      ensureMissing(
+                        "manufacturing_locations",
+                        "not_disclosed",
+                        "manufacturing_locations missing; recorded as terminal sentinel ['Not disclosed']",
+                        false
+                      );
+                    } else {
+                      base.manufacturing_locations = [];
+                      base.mfg_unknown_reason = base.mfg_unknown_reason || "seed_from_company_url";
+                      ensureMissing(
+                        "manufacturing_locations",
+                        String(base.mfg_unknown_reason || "seed_from_company_url"),
+                        "manufacturing_locations missing; left empty for resume-worker (mfg_unknown=true)",
+                        true
+                      );
+                    }
                   }
                 }
 
