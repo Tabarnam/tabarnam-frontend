@@ -9145,15 +9145,19 @@ Return ONLY the JSON array, no other text.`,
                 if (meetsKeywordQuality) {
                   base.keywords = keywordStats.sanitized;
                   base.product_keywords = keywordStats.sanitized.join(", ");
+                  base.product_keywords_unknown = false;
                 } else {
                   const hadAny = keywordStats.total_raw > 0;
                   base.keywords = keywordStats.sanitized;
-                  base.product_keywords = "Unknown";
+
+                  // Placeholder hygiene: keep canonical field empty.
+                  base.product_keywords = "";
+                  base.product_keywords_unknown = true;
 
                   const policy = applyLowQualityPolicy("product_keywords", hadAny ? "low_quality" : "not_found");
                   const messageBase = hadAny
-                    ? `product_keywords low quality (raw=${keywordStats.total_raw}, sanitized=${keywordStats.product_relevant_count}); set to placeholder 'Unknown'`
-                    : "product_keywords missing; set to placeholder 'Unknown'";
+                    ? `product_keywords low quality (raw=${keywordStats.total_raw}, sanitized=${keywordStats.product_relevant_count}); cleared and marked product_keywords_unknown=true`
+                    : "product_keywords missing; left empty and marked product_keywords_unknown=true";
 
                   const message =
                     policy.missing_reason === "low_quality_terminal"
