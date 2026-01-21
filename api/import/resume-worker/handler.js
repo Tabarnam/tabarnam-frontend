@@ -2692,11 +2692,13 @@ async function invokeResumeWorkerInProcess({
   if (no_cosmos) inProcessUrl.searchParams.set("no_cosmos", "1");
   if (batch_limit != null) inProcessUrl.searchParams.set("batch_limit", String(batch_limit));
   if (deadline_ms != null) inProcessUrl.searchParams.set("deadline_ms", String(deadline_ms));
+  if (force_terminalize_single || forceTerminalizeSingle) inProcessUrl.searchParams.set("force_terminalize_single", "1");
 
   const body = {
     session_id: sid,
     ...(batch_limit != null ? { batch_limit } : {}),
     ...(deadline_ms != null ? { deadline_ms } : {}),
+    ...(force_terminalize_single || forceTerminalizeSingle ? { force_terminalize_single: "1" } : {}),
   };
 
   const internalReq = {
