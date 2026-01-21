@@ -2662,6 +2662,8 @@ async function invokeResumeWorkerInProcess({
   no_cosmos,
   batch_limit,
   deadline_ms,
+  force_terminalize_single,
+  forceTerminalizeSingle,
 } = {}) {
   const sid = String(session_id || sessionId || "").trim();
   if (!sid) {
