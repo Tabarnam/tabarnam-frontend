@@ -2318,8 +2318,7 @@ async function handler(req, context) {
           (Number(saved || 0) > 0 || (Array.isArray(saved_companies) && saved_companies.length > 0)) &&
           Number(resumeMissingAnalysis?.total_retryable_missing || 0) === 0) ||
         resumeMissingAnalysis?.terminal_only ||
-        reportSessionStatus === "complete" ||
-        reportSessionStageBeacon === "complete"
+        ((reportSessionStatus === "complete" || reportSessionStageBeacon === "complete") && !resume_needed)
     );
 
     const effectiveStatus = forceComplete ? "complete" : status === "error" ? "error" : status;
