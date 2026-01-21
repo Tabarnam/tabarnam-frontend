@@ -439,6 +439,19 @@ export default function ExpandableCompanyRow({
     return null;
   };
 
+  const keywordsSource =
+    Array.isArray(company.keywords) && company.keywords.length > 0
+      ? company.keywords
+      : String(company.product_keywords || "")
+          .split(",")
+          .map((kw) => kw.trim())
+          .filter(Boolean);
+
+  const sortedKeywords = [...keywordsSource]
+    .map((kw) => (kw ?? "").toString().trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+
   const handleRowClick = () => {
     setIsExpanded(!isExpanded);
   };
