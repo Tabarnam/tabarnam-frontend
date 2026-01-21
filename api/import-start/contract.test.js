@@ -1298,7 +1298,7 @@ test("/api/import/status auto-triggers resume-worker when resume status is block
   );
 });
 
-test("/api/import/status forces resume into blocked state when cycle cap reached (mock cosmos)", async () => {
+test("/api/import/status force-terminalizes and completes when cycle cap reached (mock cosmos)", async () => {
   const session_id = "88888888-9999-0000-1111-222222222222";
 
   await withTempEnv(
