@@ -1357,6 +1357,7 @@ async function resumeWorkerHandler(req, context) {
         "tagline",
         "industries",
         "product_keywords",
+        "logo",
       ];
 
       const out = [];
@@ -1388,6 +1389,7 @@ async function resumeWorkerHandler(req, context) {
           "tagline",
           "industries",
           "product_keywords",
+          "logo",
           "headquarters_location",
           "manufacturing_locations",
           "reviews",
