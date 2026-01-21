@@ -4207,7 +4207,7 @@ export default function AdminImport() {
                       const retryableMissingCount = Number(stageBeaconValues.status_resume_missing_retryable);
                       const resumeStatus = asString(activeRun.resume?.status || activeRun.report?.resume?.status).trim().toLowerCase();
                       const terminalComplete = Boolean(
-                        stageBeacon === "complete" ||
+                        (!activeRun.resume_needed && stageBeacon === "complete") ||
                           (resumeStatus === "complete" && Number.isFinite(retryableMissingCount) && retryableMissingCount === 0)
                       );
 
