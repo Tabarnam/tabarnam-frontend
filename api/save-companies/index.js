@@ -775,7 +775,7 @@ app.http("save-companies", {
               if (!hasKeywords) missing_fields.push("product_keywords");
 
               const hqMeaningful = asMeaningful(doc.headquarters_location);
-              if (!hqMeaningful) missing_fields.push("hq");
+              if (!hqMeaningful) missing_fields.push("headquarters_location");
 
               const mfgList = Array.isArray(doc.manufacturing_locations) ? doc.manufacturing_locations : [];
               const mfgHas = mfgList.some((m) => {
@@ -785,7 +785,7 @@ app.http("save-companies", {
                 }
                 return false;
               });
-              if (!mfgHas) missing_fields.push("mfg");
+              if (!mfgHas) missing_fields.push("manufacturing_locations");
 
               const curated = Array.isArray(doc.curated_reviews) ? doc.curated_reviews : [];
               const reviewCount = Number.isFinite(Number(doc.review_count)) ? Number(doc.review_count) : curated.length;
