@@ -1152,6 +1152,7 @@ async function resumeWorkerHandler(req, context) {
 
       const missingAll = computeMissingFields(doc);
       for (const field of Array.isArray(missingAll) ? missingAll : []) {
+        bumpFieldAttempt(doc, field, requestId);
         if (field === "headquarters_location") terminalizeGrokField(doc, "headquarters_location", "exhausted");
         if (field === "manufacturing_locations") terminalizeGrokField(doc, "manufacturing_locations", "exhausted");
       }
