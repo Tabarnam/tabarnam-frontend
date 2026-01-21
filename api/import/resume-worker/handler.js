@@ -918,7 +918,9 @@ async function resumeWorkerHandler(req, context) {
         ? sessionDoc.saved_ids
         : Array.isArray(sessionDoc?.saved_company_ids_verified)
           ? sessionDoc.saved_company_ids_verified
-          : [];
+          : Array.isArray(sessionDoc?.saved_company_ids_unverified)
+            ? sessionDoc.saved_company_ids_unverified
+            : [];
 
     const created = {
       id: resumeDocId,
@@ -1046,9 +1048,14 @@ async function resumeWorkerHandler(req, context) {
     ? sessionDoc.saved_company_ids
     : Array.isArray(sessionDoc?.saved_ids)
       ? sessionDoc.saved_ids
-      : Array.isArray(resumeDoc?.saved_company_ids)
-        ? resumeDoc.saved_company_ids
-        : [];
+      : Array.isArray(sessionDoc?.saved_company_ids_verified)
+        ? sessionDoc.saved_company_ids_verified
+        : Array.isArray(sessionDoc?.saved_company_ids_unverified)
+          ? sessionDoc.saved_company_ids_unverified
+          : Array.isArray(resumeDoc?.saved_company_ids)
+            ? resumeDoc.saved_company_ids
+            : [];
+
   const savedIds = Array.isArray(savedCompanyIds)
     ? savedCompanyIds.map((v) => String(v || "").trim()).filter(Boolean)
     : [];
