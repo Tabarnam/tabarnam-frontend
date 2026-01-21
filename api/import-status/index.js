@@ -709,6 +709,40 @@ async function fetchCompaniesByIds(container, ids) {
   return list.map((id) => byId.get(id)).filter(Boolean);
 }
 
+async function fetchCompanyByNormalizedDomain(container, normalizedDomain) {
+  if (!container) return null;
+  const domain = String(normalizedDomain || "").trim().toLowerCase();
+  if (!domain) return null;
+
+  const q = {
+    query: `
+      SELECT TOP 1 c.id, c.company_name, c.name, c.url, c.website_url, c.created_at,
+        c.normalized_domain, c.import_attempts, c.import_attempts_meta,
+        c.industries, c.product_keywords, c.keywords,
+        c.headquarters_location, c.manufacturing_locations,
+        c.curated_reviews, c.review_count, c.review_cursor, c.reviews_stage_status, c.no_valid_reviews_found,
+        c.tagline, c.logo_url, c.logo_stage_status,
+        c.import_missing_fields, c.import_missing_reason, c.import_warnings,
+        c.hq_unknown, c.hq_unknown_reason,
+        c.mfg_unknown, c.mfg_unknown_reason,
+        c.red_flag, c.red_flag_reason
+      FROM c
+      WHERE NOT STARTSWITH(c.id, '_import_')
+        AND (NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)
+        AND IS_DEFINED(c.normalized_domain) AND c.normalized_domain = @domain
+      ORDER BY c.created_at DESC
+    `,
+    parameters: [{ name: "@domain", value: domain }],
+  };
+
+  const { resources } = await container.items
+    .query(q, { enableCrossPartitionQuery: true })
+    .fetchAll();
+
+  const list = Array.isArray(resources) ? resources : [];
+  return list.length > 0 ? list[0] : null;
+}
+
 async function fetchCompaniesByIdsFull(container, ids) {
   if (!container) return [];
   const list = Array.isArray(ids) ? ids.map((id) => String(id || "").trim()).filter(Boolean) : [];
