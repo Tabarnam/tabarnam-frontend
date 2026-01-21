@@ -4066,7 +4066,7 @@ async function handler(req, context) {
 
     const saved_company_ids_unverified = Array.isArray(sessionDoc?.saved_company_ids_unverified)
       ? sessionDoc.saved_company_ids_unverified
-      : [];
+      : memUnverifiedIds;
 
     const save_outcome =
       typeof sessionDoc?.save_outcome === "string" && sessionDoc.save_outcome.trim()
