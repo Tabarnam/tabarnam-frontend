@@ -101,14 +101,15 @@ mark {
 
 /* Keywords: expanded company view (multi-column) */
 .keywordsCols {
-  column-count: 4;
-  column-gap: 24px;
+  columns: 4 220px;
+  column-gap: 28px;
 
   margin: 0;
   padding: 0;
   list-style: none;
 
-  overflow-wrap: anywhere;
+  word-break: normal;
+  overflow-wrap: break-word;
 }
 
 .keywordsCols > li {
