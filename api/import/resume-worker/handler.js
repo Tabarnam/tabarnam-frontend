@@ -2528,6 +2528,8 @@ async function resumeWorkerHandler(req, context) {
     planned_fields,
     planned_fields_reason,
     planned_fields_detail: plannedFieldsSkipped.slice(0, 10),
+    attempted_fields: attemptedFieldsThisRun,
+    attempted_fields_request_id: requestId,
     upstream_calls_made: upstreamCallsMade,
     upstream_calls_made_this_run: upstreamCallsMadeThisRun,
     status: resumeNeeded ? (lastStartOk ? "queued" : "error") : "complete",
