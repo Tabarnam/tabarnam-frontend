@@ -1814,8 +1814,7 @@ async function handler(req, context) {
               resumeStatus = "queued";
               resume_status = "queued";
             } else {
-              canTrigger = false;
-              stageBeaconValues.status_resume_blocked_persisted = nowIso();
+              stageBeaconValues.status_resume_blocked_auto_retry = nowIso();
             }
           } else {
             canTrigger = false;
@@ -3594,8 +3593,7 @@ async function handler(req, context) {
               resumeStatus = "queued";
               resume_status = "queued";
             } else {
-              canTrigger = false;
-              stageBeaconValues.status_resume_blocked_persisted = nowIso();
+              stageBeaconValues.status_resume_blocked_auto_retry = nowIso();
             }
           } else {
             canTrigger = false;
