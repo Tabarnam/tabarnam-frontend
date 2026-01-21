@@ -1817,8 +1817,7 @@ async function handler(req, context) {
               stageBeaconValues.status_resume_blocked_auto_retry = nowIso();
             }
           } else {
-            canTrigger = false;
-            stageBeaconValues.status_resume_blocked_persisted = nowIso();
+            stageBeaconValues.status_resume_blocked_auto_retry = nowIso();
           }
         }
 
@@ -3601,8 +3600,7 @@ async function handler(req, context) {
               stageBeaconValues.status_resume_blocked_auto_retry = nowIso();
             }
           } else {
-            canTrigger = false;
-            stageBeaconValues.status_resume_blocked_persisted = nowIso();
+            stageBeaconValues.status_resume_blocked_auto_retry = nowIso();
           }
         }
 
