@@ -174,6 +174,7 @@ const MAX_ATTEMPTS_LOCATION = envInt("MAX_ATTEMPTS_LOCATION", 3, { min: 1, max: 
 const MAX_ATTEMPTS_INDUSTRIES = envInt("MAX_ATTEMPTS_INDUSTRIES", 3, { min: 1, max: 10 });
 const MAX_ATTEMPTS_TAGLINE = envInt("MAX_ATTEMPTS_TAGLINE", 3, { min: 1, max: 10 });
 const MAX_ATTEMPTS_KEYWORDS = envInt("MAX_ATTEMPTS_KEYWORDS", 3, { min: 1, max: 10 });
+const MAX_ATTEMPTS_LOGO = envInt("MAX_ATTEMPTS_LOGO", 3, { min: 1, max: 10 });
 
 const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = envInt("NON_GROK_LOW_QUALITY_MAX_ATTEMPTS", 2, { min: 1, max: 10 });
 
