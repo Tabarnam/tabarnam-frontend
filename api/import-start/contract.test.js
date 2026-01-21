@@ -1289,8 +1289,10 @@ test("/api/import/status auto-triggers resume-worker when resume status is block
         assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "blocked");
       } finally {
         require.cache[cosmosModuleId].exports = originalCosmosExports;
+        require.cache[resumeWorkerModuleId].exports = originalResumeWorkerExports;
         delete require.cache[importStatusModuleId];
         delete require.cache[primaryJobStoreModuleId];
+        delete require.cache[resumeWorkerModuleId];
       }
     }
   );
