@@ -1513,20 +1513,20 @@ test("/api/import/status force-terminalizes and completes when cycle cap reached
         assert.equal(statusBody.ok, true);
         assert.equal(statusBody.session_id, session_id);
 
-        assert.equal(statusBody.resume_needed, true);
-        assert.equal(statusBody.resume?.status, "blocked");
-        assert.equal(statusBody.stage_beacon, "enrichment_resume_blocked");
+        assert.equal(statusBody.resume_needed, false);
+        assert.equal(statusBody.stage_beacon, "status_resume_terminal_only");
+        assert.equal(statusBody.resume?.status, "complete");
 
-        assert.ok(statusBody.stage_beacon_values?.status_resume_blocked);
-        assert.equal(statusBody.stage_beacon_values?.status_resume_blocked_reason, "max_cycles_pre_trigger");
+        assert.ok(statusBody.stage_beacon_values?.status_resume_terminal_only);
+        assert.equal(statusBody.stage_beacon_values?.status_resume_forced_terminalize_reason, "max_cycles_pre_trigger");
 
-        assert.equal(statusBody.resume_error, "resume_worker_stuck_queued_no_progress");
-        assert.equal(statusBody.resume_error_details?.forced_by, "max_cycles_pre_trigger");
+        // Forced terminalization should clear resume_error; remaining missing fields become terminalized.
+        assert.equal(statusBody.resume_error, null);
 
         // Best-effort persistence to control docs.
-        assert.equal(docsById.get(`_import_session_${session_id}`)?.stage_beacon, "enrichment_resume_blocked");
-        assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "blocked");
-        assert.equal(docsById.get(`_import_resume_${session_id}`)?.blocked_reason, "max_cycles_pre_trigger");
+        assert.equal(docsById.get(`_import_session_${session_id}`)?.stage_beacon, "status_resume_terminal_only");
+        assert.equal(docsById.get(`_import_session_${session_id}`)?.resume_needed, false);
+        assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "complete");
       } finally {
         require.cache[cosmosModuleId].exports = originalCosmosExports;
         delete require.cache[importStatusModuleId];
