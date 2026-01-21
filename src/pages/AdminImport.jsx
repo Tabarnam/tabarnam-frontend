@@ -716,14 +716,15 @@ export default function AdminImport() {
 
         const isTerminalError = state === "failed" || status === "error" || jobState === "error";
         const isTerminalComplete =
-          stageBeaconComplete ||
           reportSessionComplete ||
           resumeNeededExplicitlyFalse ||
-          state === "complete" ||
-          status === "complete" ||
-          (!resumeNeeded && jobState === "complete") ||
-          (completed && !resumeNeeded) ||
-          terminalOnlyFlag;
+          terminalOnlyFlag ||
+          (!resumeNeeded &&
+            (stageBeaconComplete ||
+              state === "complete" ||
+              status === "complete" ||
+              jobState === "complete" ||
+              completed));
 
         // If at least one company is already saved (verified), we can pause polling while resume-worker
         // continues enrichment. This is NOT a terminal "Completed" state.
