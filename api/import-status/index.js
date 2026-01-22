@@ -2783,6 +2783,50 @@ async function handler(req, context) {
         report,
       };
 
+    // Fallback: if we ever observe a max-cycles blocked state, converge to terminal-only completion.
+    // (This ensures we never return resume_needed=true + resume.status=blocked indefinitely.)
+    try {
+      const blockedReason = String(
+        stageBeaconValues.status_resume_blocked_reason || out?.resume_error_details?.blocked_reason || ""
+      ).trim();
+
+      const cap = stageBeaconValues.status_infra_retryable_only_timeout
+        ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
+        : MAX_RESUME_CYCLES_SINGLE;
+
+      const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
+      const maxCyclesBlocked = out?.resume_needed === true && (blockedReason.startsWith("max_cycles") || cycleCount >= cap);
+
+      if (maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
+        stageBeaconValues.status_resume_force_terminalize_selected = true;
+        stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
+
+        const forcedAt = nowIso();
+        stageBeaconValues.status_resume_forced_terminalize = forcedAt;
+        stageBeaconValues.status_resume_forced_terminalize_reason = blockedReason || "max_cycles";
+
+        const workerRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
+        const forceRes = await invokeResumeWorkerInProcess({
+          session_id: sessionId,
+          context,
+          workerRequest,
+          force_terminalize_single: true,
+        }).catch((e) => ({
+          ok: false,
+          status: 0,
+          bodyText: "",
+          error: e,
+          gateway_key_attached: Boolean(workerRequest?.gateway_key_attached),
+          request_id: workerRequest?.request_id || null,
+        }));
+
+        stageBeaconValues.status_resume_forced_terminalize_http_status = Number(forceRes?.status || 0) || 0;
+        stageBeaconValues.status_resume_forced_terminalize_ok = Boolean(forceRes?.ok);
+
+        stageBeaconValues.status_resume_terminal_only = forcedAt;
+      }
+    } catch {}
+
     const terminalOnlyReason =
       stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only
         ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
@@ -4937,12 +4981,56 @@ async function handler(req, context) {
           report,
         };
 
-      const terminalOnlyReason =
+      // Fallback: if we ever observe a max-cycles blocked state, converge to terminal-only completion.
+    // (This ensures we never return resume_needed=true + resume.status=blocked indefinitely.)
+    try {
+      const blockedReason = String(
+        stageBeaconValues.status_resume_blocked_reason || out?.resume_error_details?.blocked_reason || ""
+      ).trim();
+
+      const cap = stageBeaconValues.status_infra_retryable_only_timeout
+        ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
+        : MAX_RESUME_CYCLES_SINGLE;
+
+      const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
+      const maxCyclesBlocked = out?.resume_needed === true && (blockedReason.startsWith("max_cycles") || cycleCount >= cap);
+
+      if (maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
+        stageBeaconValues.status_resume_force_terminalize_selected = true;
+        stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
+
+        const forcedAt = nowIso();
+        stageBeaconValues.status_resume_forced_terminalize = forcedAt;
+        stageBeaconValues.status_resume_forced_terminalize_reason = blockedReason || "max_cycles";
+
+        const workerRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
+        const forceRes = await invokeResumeWorkerInProcess({
+          session_id: sessionId,
+          context,
+          workerRequest,
+          force_terminalize_single: true,
+        }).catch((e) => ({
+          ok: false,
+          status: 0,
+          bodyText: "",
+          error: e,
+          gateway_key_attached: Boolean(workerRequest?.gateway_key_attached),
+          request_id: workerRequest?.request_id || null,
+        }));
+
+        stageBeaconValues.status_resume_forced_terminalize_http_status = Number(forceRes?.status || 0) || 0;
+        stageBeaconValues.status_resume_forced_terminalize_ok = Boolean(forceRes?.ok);
+
+        stageBeaconValues.status_resume_terminal_only = forcedAt;
+      }
+    } catch {}
+
+    const terminalOnlyReason =
       stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only
         ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
         : null;
 
-      if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
+    if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
       else {
         out.completed = true;
         out.terminal_only = false;
@@ -5113,6 +5201,50 @@ async function handler(req, context) {
         lastCreatedAt,
         report,
       };
+
+    // Fallback: if we ever observe a max-cycles blocked state, converge to terminal-only completion.
+    // (This ensures we never return resume_needed=true + resume.status=blocked indefinitely.)
+    try {
+      const blockedReason = String(
+        stageBeaconValues.status_resume_blocked_reason || out?.resume_error_details?.blocked_reason || ""
+      ).trim();
+
+      const cap = stageBeaconValues.status_infra_retryable_only_timeout
+        ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
+        : MAX_RESUME_CYCLES_SINGLE;
+
+      const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
+      const maxCyclesBlocked = out?.resume_needed === true && (blockedReason.startsWith("max_cycles") || cycleCount >= cap);
+
+      if (maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
+        stageBeaconValues.status_resume_force_terminalize_selected = true;
+        stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
+
+        const forcedAt = nowIso();
+        stageBeaconValues.status_resume_forced_terminalize = forcedAt;
+        stageBeaconValues.status_resume_forced_terminalize_reason = blockedReason || "max_cycles";
+
+        const workerRequest = buildInternalFetchRequest({ job_kind: "import_resume" });
+        const forceRes = await invokeResumeWorkerInProcess({
+          session_id: sessionId,
+          context,
+          workerRequest,
+          force_terminalize_single: true,
+        }).catch((e) => ({
+          ok: false,
+          status: 0,
+          bodyText: "",
+          error: e,
+          gateway_key_attached: Boolean(workerRequest?.gateway_key_attached),
+          request_id: workerRequest?.request_id || null,
+        }));
+
+        stageBeaconValues.status_resume_forced_terminalize_http_status = Number(forceRes?.status || 0) || 0;
+        stageBeaconValues.status_resume_forced_terminalize_ok = Boolean(forceRes?.ok);
+
+        stageBeaconValues.status_resume_terminal_only = forcedAt;
+      }
+    } catch {}
 
     const terminalOnlyReason =
       stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only
