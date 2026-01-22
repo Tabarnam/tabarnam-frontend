@@ -875,15 +875,28 @@ async function fetchTagline({
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
 
-  const prompt = `
-Find the company tagline/slogan for:
-Name: ${name}
-Domain: ${domain}
+  const cacheKey = domain ? `tagline:${domain}` : "";
+  const cached = cacheKey ? readStageCache(cacheKey) : null;
+  if (cached) {
+    return {
+      ...cached,
+      diagnostics: {
+        ...(cached.diagnostics && typeof cached.diagnostics === "object" ? cached.diagnostics : {}),
+        cache: "hit",
+      },
+    };
+  }
+
+  const websiteUrlForPrompt = domain ? `https://${domain}` : "";
+
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+
+Task: Provide ONLY the company tagline/slogan.
 
 Rules:
 - Use web search.
 - Return a short marketing-style tagline (a sentence fragment is fine).
-- Do not return navigation labels, legal text, or "Unknown".
+- Do NOT return navigation labels, promos, or legal text.
 - Output STRICT JSON only.
 
 Return:
