@@ -126,6 +126,31 @@ async function xaiLiveSearch({
     (Array.isArray(process.argv) && process.argv.includes("--test"));
 
   if (isNodeTestRunner) {
+    // Contract tests should never hit the real network, but they may want to exercise
+    // higher-level enrichment logic. Allow a global stub to provide deterministic responses.
+    const stub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function" ? globalThis.__xaiLiveSearchStub : null;
+    if (stub) {
+      try {
+        const stubResult = await stub({
+          prompt: asString(prompt),
+          maxTokens,
+          timeoutMs,
+          attempt,
+          model: resolvedModel,
+          xaiUrl,
+          xaiKey,
+          search_parameters,
+        });
+        if (stubResult && typeof stubResult === "object") return stubResult;
+      } catch (e) {
+        return {
+          ok: false,
+          error: asString(e?.message || e || "xai_test_stub_failed") || "xai_test_stub_failed",
+          details: { reason: "node_test_runner_stub_threw", model: resolvedModel },
+        };
+      }
+    }
+
     return {
       ok: false,
       error: "test_mode_xai_disabled",
