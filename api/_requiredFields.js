@@ -282,7 +282,8 @@ function normalizeKeyword(value) {
 }
 
 function isKeywordJunk(keyword) {
-  const key = normalizeKey(keyword);
+  const raw = asString(keyword).trim();
+  const key = normalizeKey(raw);
   if (!key) return true;
 
   if (PLACEHOLDER_STRINGS.has(key)) return true;
