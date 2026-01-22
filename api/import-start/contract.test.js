@@ -1033,7 +1033,7 @@ test("/api/import/status reports resume_needed=false when only terminal missing 
   );
 });
 
-test("/api/import/status does not auto-trigger resume-worker when resume status is blocked (mock cosmos)", async () => {
+test("/api/import/status auto-triggers resume-worker when resume status is blocked (mock cosmos)", async () => {
   const session_id = "77777777-8888-9999-0000-111111111111";
 
   await withTempEnv(
@@ -1174,6 +1174,32 @@ test("/api/import/status does not auto-trigger resume-worker when resume status 
         updated_at: now,
       });
 
+      const resumeWorkerModuleId = require.resolve("../import/resume-worker/handler.js");
+      const originalResumeWorkerExports = require(resumeWorkerModuleId);
+
+      // Stub resume-worker invocation for this test only. The real resume-worker can be slow.
+      require.cache[resumeWorkerModuleId].exports = {
+        ...originalResumeWorkerExports,
+        invokeResumeWorkerInProcess: async ({ session_id }) => {
+          const sid = String(session_id || "").trim();
+          const body = {
+            ok: true,
+            session_id: sid,
+            handler_entered_at: new Date().toISOString(),
+            resume_needed: true,
+          };
+
+          return {
+            ok: true,
+            status: 200,
+            bodyText: JSON.stringify(body),
+            error: null,
+            gateway_key_attached: false,
+            request_id: "contract_test_request",
+          };
+        },
+      };
+
       docsById.set("company_1", companyDoc);
 
       const fakeContainer = {
@@ -1254,23 +1280,27 @@ test("/api/import/status does not auto-trigger resume-worker when resume status 
         assert.equal(statusBody.resume?.status, "blocked");
         assert.equal(statusBody.stage_beacon, "enrichment_resume_blocked");
 
-        // Key behavior: do not keep auto-triggering the resume-worker once a persisted blocked state exists.
-        assert.ok(statusBody.stage_beacon_values?.status_resume_blocked_persisted);
-        assert.equal(statusBody.resume?.triggered, false);
-        assert.equal(statusBody.stage_beacon_values?.status_trigger_resume_worker, undefined);
+        // Key behavior: blocked is treated as a throttled state; status should auto-trigger resume-worker.
+        assert.ok(statusBody.stage_beacon_values?.status_resume_blocked_auto_retry);
+        assert.equal(statusBody.resume?.triggered, true);
+        assert.ok(statusBody.stage_beacon_values?.status_trigger_resume_worker);
 
         // Sanity: resume doc remains blocked.
         assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "blocked");
       } finally {
         require.cache[cosmosModuleId].exports = originalCosmosExports;
+        if (require.cache[resumeWorkerModuleId]) {
+          require.cache[resumeWorkerModuleId].exports = originalResumeWorkerExports;
+        }
         delete require.cache[importStatusModuleId];
         delete require.cache[primaryJobStoreModuleId];
+        delete require.cache[resumeWorkerModuleId];
       }
     }
   );
 });
 
-test("/api/import/status forces resume into blocked state when cycle cap reached (mock cosmos)", async () => {
+test("/api/import/status force-terminalizes and completes when cycle cap reached (mock cosmos)", async () => {
   const session_id = "88888888-9999-0000-1111-222222222222";
 
   await withTempEnv(
@@ -1485,20 +1515,20 @@ test("/api/import/status forces resume into blocked state when cycle cap reached
         assert.equal(statusBody.ok, true);
         assert.equal(statusBody.session_id, session_id);
 
-        assert.equal(statusBody.resume_needed, true);
-        assert.equal(statusBody.resume?.status, "blocked");
-        assert.equal(statusBody.stage_beacon, "enrichment_resume_blocked");
+        assert.equal(statusBody.resume_needed, false);
+        assert.equal(statusBody.stage_beacon, "status_resume_terminal_only");
+        assert.equal(statusBody.resume?.status, "complete");
 
-        assert.ok(statusBody.stage_beacon_values?.status_resume_blocked);
-        assert.equal(statusBody.stage_beacon_values?.status_resume_blocked_reason, "max_cycles_pre_trigger");
+        assert.ok(statusBody.stage_beacon_values?.status_resume_terminal_only);
+        assert.equal(statusBody.stage_beacon_values?.status_resume_forced_terminalize_reason, "max_cycles_pre_trigger");
 
-        assert.equal(statusBody.resume_error, "resume_worker_stuck_queued_no_progress");
-        assert.equal(statusBody.resume_error_details?.forced_by, "max_cycles_pre_trigger");
+        // Forced terminalization should clear resume_error; remaining missing fields become terminalized.
+        assert.equal(statusBody.resume_error, null);
 
         // Best-effort persistence to control docs.
-        assert.equal(docsById.get(`_import_session_${session_id}`)?.stage_beacon, "enrichment_resume_blocked");
-        assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "blocked");
-        assert.equal(docsById.get(`_import_resume_${session_id}`)?.blocked_reason, "max_cycles_pre_trigger");
+        assert.equal(docsById.get(`_import_session_${session_id}`)?.stage_beacon, "status_resume_terminal_only");
+        assert.equal(docsById.get(`_import_session_${session_id}`)?.resume_needed, false);
+        assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "complete");
       } finally {
         require.cache[cosmosModuleId].exports = originalCosmosExports;
         delete require.cache[importStatusModuleId];

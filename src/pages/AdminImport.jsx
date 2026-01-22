@@ -716,14 +716,15 @@ export default function AdminImport() {
 
         const isTerminalError = state === "failed" || status === "error" || jobState === "error";
         const isTerminalComplete =
-          stageBeaconComplete ||
           reportSessionComplete ||
           resumeNeededExplicitlyFalse ||
-          state === "complete" ||
-          status === "complete" ||
-          (!resumeNeeded && jobState === "complete") ||
-          (completed && !resumeNeeded) ||
-          terminalOnlyFlag;
+          terminalOnlyFlag ||
+          (!resumeNeeded &&
+            (stageBeaconComplete ||
+              state === "complete" ||
+              status === "complete" ||
+              jobState === "complete" ||
+              completed));
 
         // If at least one company is already saved (verified), we can pause polling while resume-worker
         // continues enrichment. This is NOT a terminal "Completed" state.
@@ -4206,7 +4207,7 @@ export default function AdminImport() {
                       const retryableMissingCount = Number(stageBeaconValues.status_resume_missing_retryable);
                       const resumeStatus = asString(activeRun.resume?.status || activeRun.report?.resume?.status).trim().toLowerCase();
                       const terminalComplete = Boolean(
-                        stageBeacon === "complete" ||
+                        (!activeRun.resume_needed && stageBeacon === "complete") ||
                           (resumeStatus === "complete" && Number.isFinite(retryableMissingCount) && retryableMissingCount === 0)
                       );
 
@@ -4366,7 +4367,7 @@ export default function AdminImport() {
                             </div>
                           ) : null}
 
-                          {Boolean(activeRun.resume_needed) && !terminalComplete ? (
+                          {Boolean(activeRun.resume_needed) ? (
                             <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-2">
                               {(() => {
                                 const resumeError =
@@ -4420,7 +4421,17 @@ export default function AdminImport() {
 
                                     {resumeStatus === "blocked" ? (
                                       <div className="text-amber-900/90">
-                                        Auto-retries are paused while blocked.
+                                        {(() => {
+                                          const nextAutoRetryAt = asString(
+                                            activeRun?.resume?.next_allowed_run_at || stageBeaconValues?.status_resume_next_allowed_at || ""
+                                          ).trim();
+
+                                          return (
+                                            <>
+                                              Auto-retries will continue{nextAutoRetryAt ? ` (next allowed run: ${nextAutoRetryAt}).` : "."}
+                                            </>
+                                          );
+                                        })()}
                                         {(() => {
                                           const reason = asString(
                                             stageBeaconValues?.status_resume_blocked_reason ||
@@ -4436,7 +4447,7 @@ export default function AdminImport() {
                                             </>
                                           ) : null;
                                         })()}
-                                        Fix upstream connectivity (or wait), then click “Retry resume”.
+                                        You can click “Retry resume” to force an immediate attempt.
                                       </div>
                                     ) : resumeStatus === "queued" ? (
                                       <div className="text-amber-900/90">Waiting for the resume worker. Polling will automatically slow down.</div>
@@ -4492,6 +4503,27 @@ export default function AdminImport() {
                                       {asString(activeRun?.resume_worker?.last_invoked_at).trim() || "—"} →{" "}
                                       {asString(activeRun?.resume_worker?.last_finished_at).trim() || "—"} ·{" "}
                                       {asString(activeRun?.resume_worker?.last_result).trim() || "—"}
+                                    </div>
+
+                                    <div className="mt-1 text-xs text-amber-900/80">
+                                      <span className="font-medium">Planned fields:</span>{" "}
+                                      {Array.isArray(activeRun?.resume_worker?.planned_fields) && activeRun.resume_worker.planned_fields.length > 0
+                                        ? activeRun.resume_worker.planned_fields.join(", ")
+                                        : "—"}
+                                      {asString(activeRun?.resume_worker?.planned_fields_reason).trim()
+                                        ? ` (${asString(activeRun.resume_worker.planned_fields_reason).trim()})`
+                                        : ""}
+                                      <span className="mx-2">·</span>
+                                      <span className="font-medium">Attempted fields:</span>{" "}
+                                      {Array.isArray(activeRun?.resume_worker?.attempted_fields) && activeRun.resume_worker.attempted_fields.length > 0
+                                        ? activeRun.resume_worker.attempted_fields.join(", ")
+                                        : "—"}
+                                      <span className="mx-2">·</span>
+                                      <span className="font-medium">Last field:</span>{" "}
+                                      {asString(activeRun?.resume_worker?.last_field_attempted).trim() || "—"}
+                                      {asString(activeRun?.resume_worker?.last_field_result).trim()
+                                        ? ` (${asString(activeRun.resume_worker.last_field_result).trim()})`
+                                        : ""}
                                     </div>
 
                                     {resumeErrorDetails ? (

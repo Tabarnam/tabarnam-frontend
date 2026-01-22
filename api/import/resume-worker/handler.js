@@ -174,6 +174,7 @@ const MAX_ATTEMPTS_LOCATION = envInt("MAX_ATTEMPTS_LOCATION", 3, { min: 1, max: 
 const MAX_ATTEMPTS_INDUSTRIES = envInt("MAX_ATTEMPTS_INDUSTRIES", 3, { min: 1, max: 10 });
 const MAX_ATTEMPTS_TAGLINE = envInt("MAX_ATTEMPTS_TAGLINE", 3, { min: 1, max: 10 });
 const MAX_ATTEMPTS_KEYWORDS = envInt("MAX_ATTEMPTS_KEYWORDS", 3, { min: 1, max: 10 });
+const MAX_ATTEMPTS_LOGO = envInt("MAX_ATTEMPTS_LOGO", 3, { min: 1, max: 10 });
 
 const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = envInt("NON_GROK_LOW_QUALITY_MAX_ATTEMPTS", 2, { min: 1, max: 10 });
 
@@ -1148,6 +1149,14 @@ async function resumeWorkerHandler(req, context) {
 
     for (const doc of seedDocs) {
       if (!doc || typeof doc !== "object") continue;
+
+      const missingAll = computeMissingFields(doc);
+      for (const field of Array.isArray(missingAll) ? missingAll : []) {
+        bumpFieldAttempt(doc, field, requestId);
+        if (field === "headquarters_location") terminalizeGrokField(doc, "headquarters_location", "exhausted");
+        if (field === "manufacturing_locations") terminalizeGrokField(doc, "manufacturing_locations", "exhausted");
+      }
+
       forceTerminalizeNonGrokFields(doc);
       doc.import_missing_fields = computeMissingFields(doc);
       doc.updated_at = updatedAt;
@@ -1349,6 +1358,7 @@ async function resumeWorkerHandler(req, context) {
         "tagline",
         "industries",
         "product_keywords",
+        "logo",
       ];
 
       const out = [];
@@ -1380,6 +1390,7 @@ async function resumeWorkerHandler(req, context) {
           "tagline",
           "industries",
           "product_keywords",
+          "logo",
           "headquarters_location",
           "manufacturing_locations",
           "reviews",
@@ -1901,6 +1912,19 @@ async function resumeWorkerHandler(req, context) {
           terminalizeGrokField(doc, "reviews", "exhausted");
         }
 
+        changed = true;
+      }
+    }
+
+    const logoRetryable = !isRealValue("logo", doc.logo_url, doc) && !isTerminalMissingField(doc, "logo");
+
+    // Logo is handled by import-start, but we still track attempts here so it can terminalize.
+    if (logoRetryable && shouldRunField("logo")) {
+      const bumped = bumpFieldAttempt(doc, "logo", requestId);
+      if (bumped) changed = true;
+
+      if (attemptsFor(doc, "logo") >= MAX_ATTEMPTS_LOGO) {
+        terminalizeNonGrokField(doc, "logo", "not_found_terminal");
         changed = true;
       }
     }
@@ -2520,6 +2544,10 @@ async function resumeWorkerHandler(req, context) {
     planned_fields,
     planned_fields_reason,
     planned_fields_detail: plannedFieldsSkipped.slice(0, 10),
+    attempted_fields: attemptedFieldsThisRun,
+    attempted_fields_request_id: requestId,
+    last_field_attempted: attemptedFieldsThisRun.length > 0 ? attemptedFieldsThisRun[0] : null,
+    last_field_result: derivedResult,
     upstream_calls_made: upstreamCallsMade,
     upstream_calls_made_this_run: upstreamCallsMadeThisRun,
     status: resumeNeeded ? (lastStartOk ? "queued" : "error") : "complete",
@@ -2556,6 +2584,11 @@ async function resumeWorkerHandler(req, context) {
       resume: {
         status: resumeNeeded ? (lastStartOk ? "queued" : "error") : "complete",
         updated_at: updatedAt,
+        planned_fields,
+        planned_fields_reason,
+        attempted_fields: attemptedFieldsThisRun,
+        last_field_attempted: attemptedFieldsThisRun.length > 0 ? attemptedFieldsThisRun[0] : null,
+        last_field_result: derivedResult,
       },
       resume_updated_at: updatedAt,
       ...(resumeNeeded
@@ -2605,6 +2638,10 @@ async function resumeWorkerHandler(req, context) {
       resume_worker_planned_fields: planned_fields,
       resume_worker_planned_fields_reason: planned_fields_reason,
       resume_worker_planned_fields_detail: plannedFieldsSkipped.slice(0, 10),
+      resume_worker_attempted_fields: attemptedFieldsThisRun,
+      resume_worker_attempted_fields_request_id: requestId,
+      resume_worker_last_field_attempted: attemptedFieldsThisRun.length > 0 ? attemptedFieldsThisRun[0] : null,
+      resume_worker_last_field_result: derivedResult,
       resume_worker_last_resume_needed: resumeNeeded,
       resume_worker_last_company_id: companyIdFromResponse,
       resume_worker_last_resume_doc_upsert_ok: resume_control_doc_upsert_ok,
@@ -2654,6 +2691,8 @@ async function invokeResumeWorkerInProcess({
   no_cosmos,
   batch_limit,
   deadline_ms,
+  force_terminalize_single,
+  forceTerminalizeSingle,
 } = {}) {
   const sid = String(session_id || sessionId || "").trim();
   if (!sid) {
@@ -2682,11 +2721,13 @@ async function invokeResumeWorkerInProcess({
   if (no_cosmos) inProcessUrl.searchParams.set("no_cosmos", "1");
   if (batch_limit != null) inProcessUrl.searchParams.set("batch_limit", String(batch_limit));
   if (deadline_ms != null) inProcessUrl.searchParams.set("deadline_ms", String(deadline_ms));
+  if (force_terminalize_single || forceTerminalizeSingle) inProcessUrl.searchParams.set("force_terminalize_single", "1");
 
   const body = {
     session_id: sid,
     ...(batch_limit != null ? { batch_limit } : {}),
     ...(deadline_ms != null ? { deadline_ms } : {}),
+    ...(force_terminalize_single || forceTerminalizeSingle ? { force_terminalize_single: "1" } : {}),
   };
 
   const internalReq = {
