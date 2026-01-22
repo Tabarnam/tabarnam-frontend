@@ -553,7 +553,7 @@ Output STRICT JSON only as:
     if (!hasTwoBlog) reasonParts.push("missing_blog_reviews");
     if (curated_reviews.length < 4) reasonParts.push("insufficient_verified_reviews");
 
-    return {
+    const value = {
       curated_reviews,
       reviews_stage_status: "incomplete",
       incomplete_reason: reasonParts.join(",") || "insufficient_verified_reviews",
@@ -567,6 +567,8 @@ Output STRICT JSON only as:
       search_telemetry: searchBuild.telemetry,
       excluded_hosts: searchBuild.excluded_hosts,
     };
+    if (cacheKey) writeStageCache(cacheKey, value);
+    return value;
   }
 
   return {
