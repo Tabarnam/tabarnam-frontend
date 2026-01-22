@@ -1642,7 +1642,7 @@ async function resumeWorkerHandler(req, context) {
       }
 
       const status = normalizeKey(r?.keywords_status || "");
-      const list = Array.isArray(r?.keywords) ? r.keywords : [];
+      const list = Array.isArray(r?.product_keywords) ? r.product_keywords : Array.isArray(r?.keywords) ? r.keywords : [];
 
       const sanitized = (() => {
         try {
@@ -1666,8 +1666,9 @@ async function resumeWorkerHandler(req, context) {
         markFieldSuccess(doc, "product_keywords");
         changed = true;
       } else {
+        const hadAny = Array.isArray(list) && list.length > 0;
         const terminal = attemptsFor(doc, "product_keywords") >= MAX_ATTEMPTS_KEYWORDS;
-        const retryReason = status || "not_found";
+        const retryReason = status === "ok" && hadAny ? "low_quality" : status || "not_found";
         const terminalReason = retryReason === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
 
         doc.import_missing_reason ||= {};
