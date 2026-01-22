@@ -365,7 +365,7 @@ Hard rules:
 
 Output STRICT JSON only as:
 {
-  "review_candidates": [
+  "reviews_url_candidates": [
     { "source_url": "https://...", "category": "youtube" },
     { "source_url": "https://...", "category": "blog" }
   ]
