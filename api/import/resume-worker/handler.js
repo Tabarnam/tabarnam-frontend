@@ -1422,7 +1422,11 @@ async function resumeWorkerHandler(req, context) {
         out.push(field);
 
         // Single-company mode should do less per cycle rather than slash timeouts.
-        if (singleCompanyMode && out.length >= 2) break;
+        // In particular, do at most one heavy upstream stage per cycle to reduce timeouts.
+        if (singleCompanyMode) {
+          const heavy = field === "headquarters_location" || field === "manufacturing_locations" || field === "reviews";
+          if (heavy || out.length >= 2) break;
+        }
       }
 
       // Fallback: when min-ms thresholds prevent scheduling *any* work but we still have retryable missing
