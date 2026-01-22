@@ -1067,14 +1067,30 @@ Return:
   }
 
   const out = parseJsonFromXaiResponse(r.resp);
-  const list = Array.isArray(out?.industries) ? out.industries : Array.isArray(out) ? out : [];
 
-  const cleaned = list.map((x) => asString(x).trim()).filter(Boolean);
-  if (cleaned.length === 0) {
-    return { industries: [], industries_status: "not_found" };
+  if (!out || typeof out !== "object" || Array.isArray(out) || !Object.prototype.hasOwnProperty.call(out, "industries")) {
+    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    return {
+      industries: [],
+      industries_status: "invalid_json",
+      diagnostics: {
+        reason: "missing_industries_key",
+        raw_preview: rawText ? rawText.slice(0, 1200) : null,
+      },
+    };
   }
 
-  return { industries: cleaned.slice(0, 5), industries_status: "ok" };
+  const list = Array.isArray(out?.industries) ? out.industries : [];
+  const cleaned = list.map((x) => asString(x).trim()).filter(Boolean);
+  if (cleaned.length === 0) {
+    const valueOut = { industries: [], industries_status: "not_found" };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
+  }
+
+  const valueOut = { industries: cleaned.slice(0, 5), industries_status: "ok" };
+  if (cacheKey) writeStageCache(cacheKey, valueOut);
+  return valueOut;
 }
 
 async function fetchProductKeywords({
