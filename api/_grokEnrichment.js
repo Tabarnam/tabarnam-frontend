@@ -474,13 +474,15 @@ Output STRICT JSON only as:
     .filter((x) => !excludeDomains.some((d) => x.source_url.includes(d)));
 
   if (candidates.length === 0) {
-    return {
+    const value = {
       curated_reviews: [],
       reviews_stage_status: "not_found",
       diagnostics: { candidate_count: 0, verified_count: 0 },
       search_telemetry: searchBuild.telemetry,
       excluded_hosts: searchBuild.excluded_hosts,
     };
+    if (cacheKey) writeStageCache(cacheKey, value);
+    return value;
   }
 
   const deduped = [];
