@@ -1178,6 +1178,11 @@ test("/api/import/status surfaces resume_worker telemetry from resume doc when s
                 return { resources };
               }
 
+              // import-status uses this query to decide whether a session exists.
+              if (q.includes("SELECT TOP 1 c.id FROM c") && q.includes("NOT STARTSWITH(c.id, '_import_')")) {
+                return { resources: [{ id: companyDoc.id }] };
+              }
+
               return { resources: [] };
             },
           }),
@@ -1432,6 +1437,11 @@ test("/api/import/status auto-triggers resume-worker when resume status is block
                 const ids = Array.isArray(idsParam?.value) ? idsParam.value : [];
                 const resources = ids.map((id) => docsById.get(String(id))).filter(Boolean);
                 return { resources };
+              }
+
+              // import-status uses this query to decide whether a session exists.
+              if (q.includes("SELECT TOP 1 c.id FROM c") && q.includes("NOT STARTSWITH(c.id, '_import_')")) {
+                return { resources: [{ id: companyDoc.id }] };
               }
 
               return { resources: [] };
@@ -1703,6 +1713,11 @@ test("/api/import/status reopens completed resume doc when retryable missing fie
                 return { resources };
               }
 
+              // import-status uses this query to decide whether a session exists.
+              if (q.includes("SELECT TOP 1 c.id FROM c") && q.includes("NOT STARTSWITH(c.id, '_import_')")) {
+                return { resources: [{ id: companyDoc.id }] };
+              }
+
               return { resources: [] };
             },
           }),
@@ -1938,6 +1953,11 @@ test("/api/import/status force-terminalizes and completes when cycle cap reached
                 const ids = Array.isArray(idsParam?.value) ? idsParam.value : [];
                 const resources = ids.map((id) => docsById.get(String(id))).filter(Boolean);
                 return { resources };
+              }
+
+              // import-status uses this query to decide whether a session exists.
+              if (q.includes("SELECT TOP 1 c.id FROM c") && q.includes("NOT STARTSWITH(c.id, '_import_')")) {
+                return { resources: [{ id: companyDoc.id }] };
               }
 
               return { resources: [] };
