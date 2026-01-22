@@ -4470,8 +4470,7 @@ async function handler(req, context) {
             ? { code: "IMPORT_STOPPED", message: "Import was stopped" }
             : null);
 
-      return jsonWithSessionId(
-        {
+      const out = {
           ok: true,
           session_id: sessionId,
           status: "error",
@@ -4631,10 +4630,18 @@ async function handler(req, context) {
           timedOut,
           stopped,
           report,
-        },
-        200,
-        req
-      );
+        };
+
+      if (stageBeaconValues?.status_resume_force_terminalize_selected === true) {
+        const forcedReason =
+          typeof stageBeaconValues.status_resume_blocked_reason === "string" && stageBeaconValues.status_resume_blocked_reason.trim()
+            ? stageBeaconValues.status_resume_blocked_reason.trim()
+            : "force_terminalize_selected";
+
+        applyTerminalOnlyCompletion(out, forcedReason);
+      }
+
+      return jsonWithSessionId(out, 200, req);
     }
 
     const persistedSeedCount =
