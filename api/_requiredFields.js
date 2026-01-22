@@ -112,7 +112,13 @@ const INDUSTRY_CANONICAL_MAP = [
   { match: ["oral care", "dental", "tooth", "teeth", "whitening", "mouth"], canonical: "Oral Care" },
   { match: ["skin", "skincare", "cosmetic", "beauty", "dermat"], canonical: "Skincare" },
   { match: ["personal care", "hygiene", "groom"], canonical: "Personal Care" },
-  { match: ["household", "clean", "laundry", "disinfect", "soap", "detergent"], canonical: "Household Cleaning" },
+
+  // Prefer these for brands like Pachasoap (avoid mapping "soap" into household cleaning).
+  { match: ["soap", "bar soap", "hand soap", "handmade soap"], canonical: "Soap" },
+  { match: ["bath", "bath & body", "bath and body", "body", "body wash", "shower", "shampoo", "conditioner"], canonical: "Bath & Body" },
+  { match: ["home fragrance", "fragrance", "candle", "candles", "diffuser", "aromatherapy", "essential oil"], canonical: "Home Fragrance" },
+
+  { match: ["household", "clean", "laundry", "disinfect", "detergent"], canonical: "Household Cleaning" },
   { match: ["pet", "veterinary", "dog", "cat"], canonical: "Pet Care" },
   { match: ["medical", "healthcare", "health care", "clinic", "pharma", "pharmaceutical"], canonical: "Healthcare" },
   { match: ["apparel", "clothing", "fashion"], canonical: "Apparel" },
