@@ -265,6 +265,14 @@ const KEYWORD_DISALLOW_TERMS = [
   "menu",
   "sitemap",
 
+  // Social / external profiles
+  "instagram",
+  "facebook",
+  "tiktok",
+  "pinterest",
+  "youtube",
+  "twitter",
+
   // Not products
   "blog",
   "press",
@@ -308,6 +316,10 @@ function isKeywordJunk(keyword) {
   if (/^(w|h|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr)-\d+/i.test(key)) return true;
   if (/stroke-\d+/i.test(key)) return true;
   if (/^text-[a-z0-9-]+$/i.test(key)) return true;
+
+  // Common UI control tokens
+  if (/^icon[-_]/i.test(key)) return true;
+  if (key === "close" || key === "view" || key === "order") return true;
 
   // URLs / fragments
   if (key.includes("http://") || key.includes("https://")) return true;
