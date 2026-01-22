@@ -24,6 +24,7 @@ const { test } = require("node:test");
 
 
 const { _test } = require("./index.js");
+const grokEnrichment = require("../_grokEnrichment");
 const { _test: importStatusTest } = require("../import-status/index.js");
 const { getBuildInfo } = require("../_buildInfo");
 
