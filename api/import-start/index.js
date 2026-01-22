@@ -8002,17 +8002,16 @@ Output JSON only:
               }
             }
 
-            const initialList = normalizeProductKeywords(company?.keywords || company?.product_keywords, {
+            const siteTerms = normalizeProductKeywords(company?.keywords || company?.product_keywords, {
               companyName,
               websiteUrl,
             });
 
-            let finalList = initialList.slice(0, 25);
             const debugEntry = {
               company_name: companyName,
               website_url: websiteUrl,
-              initial_count: initialList.length,
-              initial_keywords: initialList,
+              initial_count: siteTerms.length,
+              initial_keywords: siteTerms,
               generated: false,
               generated_count: 0,
               final_count: 0,
@@ -8021,10 +8020,23 @@ Output JSON only:
               raw_response: null,
             };
 
-            let keywordsAll = finalList;
+            // Canonical keywords are Grok-only. Website-derived tokens may be stored for debugging,
+            // but must not populate product_keywords/keywords.
+            const existingSource = String(company?.product_keywords_source || company?.keywords_source || "")
+              .trim()
+              .toLowerCase();
+
+            const existingKeywords = Array.isArray(company?.keywords) ? company.keywords : [];
+            let keywordsAll = existingSource === "grok"
+              ? normalizeProductKeywords(existingKeywords, { companyName, websiteUrl }).slice(0, 50)
+              : [];
+
+            company.enrichment_debug =
+              company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+            company.enrichment_debug.raw_site_terms = siteTerms.slice(0, 50);
 
             // Primary source of truth: Grok live search (not the company website parser).
-            if (companyName && websiteUrl && keywordsAll.length < 10) {
+            if (companyName && websiteUrl && keywordsAll.length < 20) {
               const normalizedDomain = String(company?.normalized_domain || toNormalizedDomain(websiteUrl)).trim();
               const budgetMs = Math.min(
                 12_000,
@@ -8068,56 +8080,21 @@ Output JSON only:
                 if (e instanceof AcceptedResponseError) throw e;
               }
 
-              // If Grok did not populate anything (or we didn't have budget), fall back to the website-based generator.
-              if (keywordsAll.length < 10) {
-                try {
-                  const gen = await generateProductKeywords(company, { timeoutMs: Math.min(timeout, 20000) });
-                  debugEntry.generated = true;
-                  debugEntry.prompt = gen.prompt;
-                  debugEntry.raw_response = gen.raw_response;
-                  debugEntry.generated_count = gen.keywords.length;
-
-                  company.enrichment_debug =
-                    company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
-                  company.enrichment_debug.keywords = {
-                    prompt_hash: gen.prompt_hash || null,
-                    source_url: gen.source_url || websiteUrl || null,
-                    source_text_preview: typeof gen.source_text_preview === "string" ? gen.source_text_preview : null,
-                    raw_response_preview: typeof gen.raw_response === "string" ? gen.raw_response.slice(0, 1200) : null,
-                    error: null,
-                    stage_status: "website_fallback",
-                    completeness: null,
-                    incomplete_reason: null,
-                    keyword_count: gen.keywords.length,
-                  };
-
-                  const merged = [...keywordsAll, ...gen.keywords];
-                  keywordsAll = normalizeProductKeywords(merged, { companyName, websiteUrl });
-                } catch (e) {
-                  if (e instanceof AcceptedResponseError) throw e;
-                  debugEntry.generated = true;
-                  debugEntry.raw_response = e?.message || String(e);
-
-                  company.enrichment_debug =
-                    company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
-                  company.enrichment_debug.keywords = {
-                    prompt_hash: null,
-                    source_url: websiteUrl || null,
-                    source_text_preview: null,
-                    raw_response_preview: null,
-                    error: e?.message || String(e),
-                    stage_status: "website_fallback_failed",
-                    completeness: null,
-                    incomplete_reason: null,
-                    keyword_count: 0,
-                  };
-                }
-              }
+              // No website fallback: if Grok cannot produce a usable keyword list, keep the field missing.
             }
 
-            // Store an exhaustive product list in product_keywords, but keep keywords[] clamped for UI/search.
-            company.keywords = Array.isArray(keywordsAll) ? keywordsAll.slice(0, 25) : [];
-            company.product_keywords = keywordListToString(Array.isArray(keywordsAll) ? keywordsAll : []);
+            // Store canonical product keywords only when Grok succeeded.
+            const canonicalKeywordsSource = String(company?.product_keywords_source || company?.keywords_source || "")
+              .trim()
+              .toLowerCase();
+
+            if (canonicalKeywordsSource === "grok" && Array.isArray(keywordsAll) && keywordsAll.length > 0) {
+              company.keywords = keywordsAll.slice(0, 25);
+              company.product_keywords = keywordListToString(keywordsAll);
+            } else {
+              company.keywords = [];
+              company.product_keywords = "";
+            }
 
             // Industries are required for a "complete enough" profile. Primary source: Grok live search.
             const existingIndustries = normalizeIndustries(company?.industries);
@@ -8144,6 +8121,7 @@ Output JSON only:
 
                 if (Array.isArray(sanitized) && sanitized.length > 0) {
                   industriesFinal = sanitized;
+                  company.industries_source = "grok";
                   company.enrichment_debug =
                     company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
                   company.enrichment_debug.industries = {
@@ -8159,66 +8137,17 @@ Output JSON only:
                 if (e instanceof AcceptedResponseError) throw e;
               }
 
-              // If Grok didn't help, fall back to the website-based classifier.
-              if (industriesFinal.length === 0) {
-                try {
-                  const inferred = await generateIndustries(company, { timeoutMs: Math.min(timeout, 15000) });
-                  industriesFinal = normalizeIndustries(inferred.industries);
-
-                  company.enrichment_debug =
-                    company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
-                  company.enrichment_debug.industries = {
-                    prompt_hash: inferred.prompt_hash || null,
-                    source_url: inferred.source_url || websiteUrl || null,
-                    raw_response_preview: typeof inferred.raw_response === "string" ? inferred.raw_response.slice(0, 1200) : null,
-                    industries: industriesFinal,
-                    error: null,
-                    stage_status: "website_fallback",
-                  };
-
-                  if (debugOutput) {
-                    debugOutput.keywords_debug.push({
-                      company_name: companyName,
-                      website_url: websiteUrl,
-                      industries_generated: true,
-                      industries: industriesFinal,
-                      industries_prompt: inferred.prompt,
-                      industries_raw_response: inferred.raw_response,
-                    });
-                  }
-                } catch (e) {
-                  if (e instanceof AcceptedResponseError) throw e;
-
-                  company.enrichment_debug =
-                    company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
-                  company.enrichment_debug.industries = {
-                    prompt_hash: null,
-                    source_url: websiteUrl || null,
-                    raw_response_preview: null,
-                    industries: [],
-                    error: e?.message || String(e),
-                    stage_status: "website_fallback_failed",
-                  };
-
-                  if (debugOutput) {
-                    debugOutput.keywords_debug.push({
-                      company_name: companyName,
-                      website_url: websiteUrl,
-                      industries_generated: true,
-                      industries: [],
-                      industries_error: e?.message || String(e),
-                    });
-                  }
-                }
-              }
+              // No website fallback: if Grok cannot produce industries, keep the field missing.
             }
 
             if (industriesFinal.length === 0) {
-              industriesFinal = ["Unknown"];
+              industriesFinal = [];
               company.industries_unknown = true;
             }
 
-            company.industries = industriesFinal;
+            // Canonical industries are Grok-only.
+            const industriesSource = String(company?.industries_source || "").trim().toLowerCase();
+            company.industries = industriesSource === "grok" ? industriesFinal : [];
 
             debugEntry.final_keywords = Array.isArray(keywordsAll) ? keywordsAll : [];
             debugEntry.final_count = Array.isArray(keywordsAll) ? keywordsAll.length : 0;
