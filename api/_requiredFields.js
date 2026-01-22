@@ -168,6 +168,9 @@ function sanitizeIndustries(value) {
     const key = normalizeKey(item);
     if (!key) continue;
 
+    // "Baby" alone is too ambiguous and has caused bad defaults; require a more specific label.
+    if (key === "baby" || key === "babies") continue;
+
     if (INDUSTRY_MARKETPLACE_BUCKETS.has(key)) continue;
 
     // Reject obvious navigation labels.
