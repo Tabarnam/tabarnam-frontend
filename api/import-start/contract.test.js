@@ -1827,6 +1827,9 @@ test("/api/import/status surfaces last_field_attempted/result after blocked auto
         assert.equal(statusBody2.resume_needed, true);
         assert.equal(statusBody2.resume?.status, "blocked");
 
+        assert.ok(statusBody2.resume_worker && typeof statusBody2.resume_worker === "object");
+        assert.ok(Object.prototype.hasOwnProperty.call(statusBody2.resume_worker, "last_field_attempted"));
+
         assert.equal(statusBody2.resume_worker?.last_field_attempted, "reviews");
         assert.equal(statusBody2.resume_worker?.last_field_result, "grok_error_incomplete");
       } finally {
