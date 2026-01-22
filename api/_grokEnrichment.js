@@ -752,7 +752,10 @@ Rules:
 - Output STRICT JSON only.
 
 Return:
-{ "manufacturing_locations": ["City, Country"], "source_urls": ["https://...", "https://..."] }
+{
+  "manufacturing_locations": ["City, Country"],
+  "location_source_urls": { "mfg_source_urls": ["https://...", "https://..."] }
+}
 `.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
