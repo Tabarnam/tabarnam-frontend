@@ -819,22 +819,47 @@ Return:
 
   const out = parseJsonFromXaiResponse(r.resp);
 
-  const source_urls = Array.isArray(out?.source_urls)
-    ? out.source_urls.map((x) => safeUrl(x)).filter(Boolean).slice(0, 12)
+  if (!out || typeof out !== "object" || Array.isArray(out) || !Object.prototype.hasOwnProperty.call(out, "manufacturing_locations")) {
+    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    return {
+      manufacturing_locations: [],
+      mfg_status: "invalid_json",
+      source_urls: [],
+      location_source_urls: { mfg_source_urls: [] },
+      diagnostics: {
+        reason: "missing_manufacturing_locations_key",
+        raw_preview: rawText ? rawText.slice(0, 1200) : null,
+      },
+    };
+  }
+
+  const mfg_source_urls_raw =
+    Array.isArray(out?.location_source_urls?.mfg_source_urls) ? out.location_source_urls.mfg_source_urls : out?.source_urls;
+
+  const source_urls = Array.isArray(mfg_source_urls_raw)
+    ? mfg_source_urls_raw.map((x) => safeUrl(x)).filter(Boolean).slice(0, 12)
     : [];
+
+  const location_source_urls = { mfg_source_urls: source_urls };
 
   const arr = Array.isArray(out?.manufacturing_locations) ? out.manufacturing_locations : [];
   const cleaned = arr.map((x) => asString(x).trim()).filter(Boolean);
 
   if (cleaned.length === 0) {
-    return { manufacturing_locations: [], mfg_status: "not_found", source_urls };
+    const valueOut = { manufacturing_locations: [], mfg_status: "not_found", source_urls, location_source_urls };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
   }
 
   if (cleaned.length === 1 && cleaned[0].toLowerCase().includes("not disclosed")) {
-    return { manufacturing_locations: ["Not disclosed"], mfg_status: "not_disclosed", source_urls };
+    const valueOut = { manufacturing_locations: ["Not disclosed"], mfg_status: "not_disclosed", source_urls, location_source_urls };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
   }
 
-  return { manufacturing_locations: cleaned, mfg_status: "ok", source_urls };
+  const valueOut = { manufacturing_locations: cleaned, mfg_status: "ok", source_urls, location_source_urls };
+  if (cacheKey) writeStageCache(cacheKey, valueOut);
+  return valueOut;
 }
 
 async function fetchTagline({
