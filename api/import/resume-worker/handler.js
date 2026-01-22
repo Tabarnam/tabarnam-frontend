@@ -1162,9 +1162,42 @@ async function resumeWorkerHandler(req, context) {
 
       const missingAll = computeMissingFields(doc);
       for (const field of Array.isArray(missingAll) ? missingAll : []) {
+        const previousAttempts = attemptsFor(doc, field);
         bumpFieldAttempt(doc, field, requestId);
         if (field === "headquarters_location") terminalizeGrokField(doc, "headquarters_location", "exhausted");
         if (field === "manufacturing_locations") terminalizeGrokField(doc, "manufacturing_locations", "exhausted");
+
+        if (field === "reviews") {
+          doc.review_cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
+          if (!Array.isArray(doc.curated_reviews)) doc.curated_reviews = [];
+          if (!Number.isFinite(Number(doc.review_count))) doc.review_count = doc.curated_reviews.length;
+
+          const attemptedUrls = Array.isArray(doc.review_cursor.attempted_urls) ? doc.review_cursor.attempted_urls : [];
+          const hadAttempts = previousAttempts > 0 || attemptedUrls.length > 0 || Boolean(doc.review_cursor.last_error);
+
+          const reasonsObj = doc.import_missing_reason && typeof doc.import_missing_reason === "object" ? doc.import_missing_reason : {};
+          const anyTimeout = Object.values(reasonsObj).some((v) => normalizeKey(v) === "upstream_timeout");
+
+          const incompleteReasonRaw =
+            normalizeKey(doc.review_cursor.incomplete_reason || "") ||
+            normalizeKey(reasonsObj.reviews || "") ||
+            (hadAttempts ? "attempted_but_incomplete" : "");
+
+          const incomplete_reason = incompleteReasonRaw || (anyTimeout ? "upstream_timeout" : "terminalized_without_attempt");
+
+          // Required invariant: terminal-only completion must never leave reviews_stage_status="pending".
+          doc.reviews_stage_status = "incomplete";
+          doc.review_cursor.reviews_stage_status = "incomplete";
+          doc.review_cursor.incomplete_reason = incomplete_reason;
+          doc.review_cursor.attempted_urls = attemptedUrls;
+
+          // Mark terminal for required-fields logic while keeping user-facing stage as "incomplete".
+          doc.review_cursor.exhausted = true;
+          doc.review_cursor.exhausted_at = updatedAt;
+
+          doc.import_missing_reason ||= {};
+          doc.import_missing_reason.reviews = "exhausted";
+        }
       }
 
       forceTerminalizeNonGrokFields(doc);
