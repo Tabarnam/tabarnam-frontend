@@ -2585,8 +2585,8 @@ test("/api/import/status converges to terminal-only even when stopped (mock cosm
         assert.ok(statusBody.stage_beacon_values?.status_resume_terminal_only);
 
         // Force-terminalization must override stopped/IMPORT_STOPPED shaping.
-        assert.equal(statusBody.last_error, null);
-        assert.equal(statusBody.error, null);
+        assert.ok(statusBody.last_error == null);
+        assert.ok(statusBody.error == null);
       } finally {
         require.cache[cosmosModuleId].exports = originalCosmosExports;
         delete require.cache[importStatusModuleId];
