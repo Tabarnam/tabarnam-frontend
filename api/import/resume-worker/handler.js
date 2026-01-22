@@ -2181,15 +2181,22 @@ async function resumeWorkerHandler(req, context) {
     lastImportStartResponse = lastStartJson || (lastStartText ? { text: lastStartText.slice(0, 8000) } : null);
 
     if (!lastStartOk || lastStartHttpStatus >= 400) {
-      const msg =
-        typeof lastStartJson?.error_message === "string" && lastStartJson.error_message.trim()
-          ? lastStartJson.error_message.trim()
-          : typeof lastStartJson?.root_cause === "string" && lastStartJson.root_cause.trim()
-            ? lastStartJson.root_cause.trim()
-            : lastStartHttpStatus
-              ? `import_start_http_${lastStartHttpStatus}`
-              : "import_start_failed";
-      last_error_details = String(msg).slice(0, 240);
+      const errObj = lastStartJson?.error && typeof lastStartJson.error === "object" ? lastStartJson.error : null;
+
+      const code =
+        (typeof errObj?.code === "string" && errObj.code.trim() ? errObj.code.trim() : null) ||
+        (typeof lastStartJson?.error_code === "string" && lastStartJson.error_code.trim() ? lastStartJson.error_code.trim() : null) ||
+        (typeof lastStartJson?.root_cause === "string" && lastStartJson.root_cause.trim() ? lastStartJson.root_cause.trim() : null) ||
+        (typeof lastStartJson?.stage === "string" && lastStartJson.stage.trim() ? `stage_${lastStartJson.stage.trim()}` : null) ||
+        (lastStartHttpStatus ? `import_start_http_${lastStartHttpStatus}` : "import_start_failed");
+
+      const message =
+        (typeof errObj?.message === "string" && errObj.message.trim() ? errObj.message.trim() : null) ||
+        (typeof lastStartJson?.message === "string" && lastStartJson.message.trim() ? lastStartJson.message.trim() : null) ||
+        (typeof lastStartJson?.error_message === "string" && lastStartJson.error_message.trim() ? lastStartJson.error_message.trim() : null) ||
+        null;
+
+      last_error_details = String(message ? `${code}: ${message}` : code).slice(0, 240);
     }
 
     // Re-load docs and re-check contract.
@@ -2541,9 +2548,22 @@ async function resumeWorkerHandler(req, context) {
     if (plannerNoActionableFields) return "resume_planner_no_actionable_fields";
     if (grokErrorSummary) return resumeNeeded ? "grok_error_incomplete" : "grok_error_complete";
     if (lastStartOk) return resumeNeeded ? "ok_incomplete" : "ok_complete";
-    const root = typeof lastStartJson?.root_cause === "string" && lastStartJson.root_cause.trim()
-      ? lastStartJson.root_cause.trim()
-      : "import_start_failed";
+    const toToken = (value) => {
+      const raw = normalizeKey(value);
+      const token = raw.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      return token || "";
+    };
+
+    const errObj = lastStartJson?.error && typeof lastStartJson.error === "object" ? lastStartJson.error : null;
+
+    const rootRaw =
+      (typeof lastStartJson?.root_cause === "string" && lastStartJson.root_cause.trim() ? lastStartJson.root_cause.trim() : "") ||
+      (typeof errObj?.code === "string" && errObj.code.trim() ? errObj.code.trim() : "") ||
+      (typeof lastStartJson?.error_code === "string" && lastStartJson.error_code.trim() ? lastStartJson.error_code.trim() : "") ||
+      (typeof lastStartJson?.stage === "string" && lastStartJson.stage.trim() ? `stage_${lastStartJson.stage.trim()}` : "") ||
+      "import_start_failed";
+
+    const root = toToken(rootRaw) || "import_start_failed";
     const status = lastStartHttpStatus || (Number(lastStartRes?.status || 0) || 0);
     return status ? `${root}_http_${status}` : root;
   })();

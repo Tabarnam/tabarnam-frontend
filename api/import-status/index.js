@@ -354,9 +354,16 @@ function reconcileLowQualityToTerminal(doc, maxAttempts = 2) {
 function applyTerminalOnlyCompletion(out, reason) {
   const stamp = new Date().toISOString();
 
+  out.ok = true;
+
   // Force canonical completion state.
   out.completed = true;
   out.terminal_only = true;
+
+  // Clear UI-facing error surface; diagnostics remain in stage_beacon_values.
+  if ("error" in out) out.error = null;
+  if ("last_error" in out) out.last_error = null;
+  if ("root_cause" in out) out.root_cause = null;
 
   out.status = "complete";
   out.state = "complete";
@@ -4463,8 +4470,7 @@ async function handler(req, context) {
             ? { code: "IMPORT_STOPPED", message: "Import was stopped" }
             : null);
 
-      return jsonWithSessionId(
-        {
+      const out = {
           ok: true,
           session_id: sessionId,
           status: "error",
@@ -4624,10 +4630,18 @@ async function handler(req, context) {
           timedOut,
           stopped,
           report,
-        },
-        200,
-        req
-      );
+        };
+
+      if (stageBeaconValues?.status_resume_force_terminalize_selected === true) {
+        const forcedReason =
+          typeof stageBeaconValues.status_resume_blocked_reason === "string" && stageBeaconValues.status_resume_blocked_reason.trim()
+            ? stageBeaconValues.status_resume_blocked_reason.trim()
+            : "force_terminalize_selected";
+
+        applyTerminalOnlyCompletion(out, forcedReason);
+      }
+
+      return jsonWithSessionId(out, 200, req);
     }
 
     const persistedSeedCount =
