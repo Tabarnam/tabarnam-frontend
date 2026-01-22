@@ -904,10 +904,12 @@ async function resumeWorkerHandler(req, context) {
 
   const resumeDocId = `_import_resume_${sessionId}`;
   const sessionDocId = `_import_session_${sessionId}`;
+  const completionDocId = `_import_complete_${sessionId}`;
 
-  let [resumeDoc, sessionDoc] = await Promise.all([
+  let [resumeDoc, sessionDoc, completionDoc] = await Promise.all([
     readControlDoc(container, resumeDocId, sessionId).catch(() => null),
     readControlDoc(container, sessionDocId, sessionId).catch(() => null),
+    readControlDoc(container, completionDocId, sessionId).catch(() => null),
   ]);
 
   // Required: resume worker must always upsert a resume control doc every run.
@@ -921,7 +923,11 @@ async function resumeWorkerHandler(req, context) {
           ? sessionDoc.saved_company_ids_verified
           : Array.isArray(sessionDoc?.saved_company_ids_unverified)
             ? sessionDoc.saved_company_ids_unverified
-            : [];
+            : Array.isArray(completionDoc?.saved_company_ids_verified)
+              ? completionDoc.saved_company_ids_verified
+              : Array.isArray(completionDoc?.saved_ids)
+                ? completionDoc.saved_ids
+                : [];
 
     const created = {
       id: resumeDocId,
@@ -1055,7 +1061,11 @@ async function resumeWorkerHandler(req, context) {
           ? sessionDoc.saved_company_ids_unverified
           : Array.isArray(resumeDoc?.saved_company_ids)
             ? resumeDoc.saved_company_ids
-            : [];
+            : Array.isArray(completionDoc?.saved_company_ids_verified)
+              ? completionDoc.saved_company_ids_verified
+              : Array.isArray(completionDoc?.saved_ids)
+                ? completionDoc.saved_ids
+                : [];
 
   const savedIds = Array.isArray(savedCompanyIds)
     ? savedCompanyIds.map((v) => String(v || "").trim()).filter(Boolean)
