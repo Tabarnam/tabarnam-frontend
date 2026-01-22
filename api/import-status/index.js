@@ -354,9 +354,16 @@ function reconcileLowQualityToTerminal(doc, maxAttempts = 2) {
 function applyTerminalOnlyCompletion(out, reason) {
   const stamp = new Date().toISOString();
 
+  out.ok = true;
+
   // Force canonical completion state.
   out.completed = true;
   out.terminal_only = true;
+
+  // Clear UI-facing error surface; diagnostics remain in stage_beacon_values.
+  if ("error" in out) out.error = null;
+  if ("last_error" in out) out.last_error = null;
+  if ("root_cause" in out) out.root_cause = null;
 
   out.status = "complete";
   out.state = "complete";
