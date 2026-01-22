@@ -2126,6 +2126,22 @@ async function handler(req, context) {
                   updated_at: nowIso(),
                 }).catch(() => null);
               }
+
+              const resumeDocId = `_import_resume_${sessionId}`;
+              const resumeDocForTerminal = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+              if (resumeDocForTerminal && typeof resumeDocForTerminal === "object") {
+                await upsertDoc(container, {
+                  ...resumeDocForTerminal,
+                  status: "complete",
+                  resume_error: null,
+                  resume_error_details: null,
+                  blocked_at: null,
+                  blocked_reason: null,
+                  last_error: null,
+                  lock_expires_at: null,
+                  updated_at: nowIso(),
+                }).catch(() => null);
+              }
             } catch {}
           }
         } catch {}
@@ -3969,6 +3985,22 @@ async function handler(req, context) {
                   resume_terminal_only: true,
                   resume_terminalized_at: forcedAt,
                   resume_terminalized_reason: forceDecision.reason,
+                  updated_at: nowIso(),
+                }).catch(() => null);
+              }
+
+              const resumeDocId = `_import_resume_${sessionId}`;
+              const resumeDocForTerminal = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
+              if (resumeDocForTerminal && typeof resumeDocForTerminal === "object") {
+                await upsertDoc(container, {
+                  ...resumeDocForTerminal,
+                  status: "complete",
+                  resume_error: null,
+                  resume_error_details: null,
+                  blocked_at: null,
+                  blocked_reason: null,
+                  last_error: null,
+                  lock_expires_at: null,
                   updated_at: nowIso(),
                 }).catch(() => null);
               }
