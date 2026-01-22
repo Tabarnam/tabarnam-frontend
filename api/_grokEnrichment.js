@@ -681,21 +681,48 @@ Return:
   }
 
   const out = parseJsonFromXaiResponse(r.resp);
+
+  if (!out || typeof out !== "object" || Array.isArray(out) || !Object.prototype.hasOwnProperty.call(out, "headquarters_location")) {
+    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    return {
+      headquarters_location: "",
+      hq_status: "invalid_json",
+      source_urls: [],
+      location_source_urls: { hq_source_urls: [] },
+      diagnostics: {
+        reason: "missing_headquarters_location_key",
+        raw_preview: rawText ? rawText.slice(0, 1200) : null,
+      },
+    };
+  }
+
   const value = asString(out?.headquarters_location).trim();
-  const source_urls = Array.isArray(out?.source_urls)
-    ? out.source_urls.map((x) => safeUrl(x)).filter(Boolean).slice(0, 12)
+
+  const hq_source_urls_raw =
+    Array.isArray(out?.location_source_urls?.hq_source_urls) ? out.location_source_urls.hq_source_urls : out?.source_urls;
+
+  const source_urls = Array.isArray(hq_source_urls_raw)
+    ? hq_source_urls_raw.map((x) => safeUrl(x)).filter(Boolean).slice(0, 12)
     : [];
 
+  const location_source_urls = { hq_source_urls: source_urls };
+
   if (!value) {
-    return { headquarters_location: "", hq_status: "not_found", source_urls };
+    const valueOut = { headquarters_location: "", hq_status: "not_found", source_urls, location_source_urls };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
   }
 
   // "Not disclosed" is a terminal sentinel (downstream treats it as complete).
   if (value.toLowerCase() === "not disclosed" || value.toLowerCase() === "not_disclosed") {
-    return { headquarters_location: "Not disclosed", hq_status: "not_disclosed", source_urls };
+    const valueOut = { headquarters_location: "Not disclosed", hq_status: "not_disclosed", source_urls, location_source_urls };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
   }
 
-  return { headquarters_location: value, hq_status: "ok", source_urls };
+  const valueOut = { headquarters_location: value, hq_status: "ok", source_urls, location_source_urls };
+  if (cacheKey) writeStageCache(cacheKey, valueOut);
+  return valueOut;
 }
 
 async function fetchManufacturingLocations({
