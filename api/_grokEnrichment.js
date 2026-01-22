@@ -506,19 +506,23 @@ async function fetchHeadquartersLocation({
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
 
-  const prompt = `
-Find the headquarters location for the company:
-Name: ${name}
-Domain: ${domain}
+  const websiteUrlForPrompt = domain ? `https://${domain}` : "";
+
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+
+Task: Determine the company's HEADQUARTERS location.
 
 Rules:
-- Use web search.
+- Use web search (do not rely only on the company website).
 - Prefer authoritative sources like LinkedIn, official filings, reputable business directories.
-- Return best available as: "City, ST, Country" (minimum "City, Country" or "Country" if truly all you can find).
+- Return best available HQ as a single formatted string: "City, State/Province, Country".
+  - If state/province is not applicable, use "City, Country".
+  - If only country is known, return "Country".
+- Provide the supporting URLs you used for the HQ determination.
 - Output STRICT JSON only.
 
 Return:
-{ "headquarters_location": "..." }
+{ "headquarters_location": "...", "source_urls": ["https://...", "https://..."] }
 `.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
