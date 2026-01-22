@@ -24,6 +24,7 @@ const { test } = require("node:test");
 
 
 const { _test } = require("./index.js");
+const grokEnrichment = require("../_grokEnrichment");
 const { _test: importStatusTest } = require("../import-status/index.js");
 const { getBuildInfo } = require("../_buildInfo");
 
@@ -76,6 +77,22 @@ async function withTempEnv(overrides, fn) {
   }
 }
 
+async function withTempGlobals(overrides, fn) {
+  const originals = {};
+  for (const [k, v] of Object.entries(overrides || {})) {
+    originals[k] = globalThis[k];
+    globalThis[k] = v;
+  }
+
+  try {
+    return await fn();
+  } finally {
+    for (const [k, v] of Object.entries(originals)) {
+      globalThis[k] = v;
+    }
+  }
+}
+
 function parseJsonResponse(res) {
   assert.ok(res);
   assert.equal(res.headers?.["Content-Type"] || res.headers?.["content-type"], "application/json");
@@ -92,6 +109,227 @@ const NO_NETWORK_ENV = {
   COSMOS_DB_DB_ENDPOINT: "",
   COSMOS_DB_DB_KEY: "",
 };
+
+function makeFetchResponse({ status = 200, headers = {}, body = "" } = {}) {
+  const hdrMap = Object.fromEntries(Object.entries(headers).map(([k, v]) => [String(k).toLowerCase(), String(v)]));
+  return {
+    status,
+    headers: {
+      get(name) {
+        return hdrMap[String(name).toLowerCase()] || null;
+      },
+    },
+    async text() {
+      return body;
+    },
+  };
+}
+
+test("grokEnrichment.fetchCuratedReviews returns 4 verified reviews (2 YouTube + 2 blog) with no hallucinated metadata", async () => {
+  const originalFetch = globalThis.fetch;
+
+  const youtube1 = "https://www.youtube.com/watch?v=abc123";
+  const youtube2 = "https://www.youtube.com/watch?v=def456";
+  const blog1 = "https://reviews.example.com/widget-review";
+  const blog2 = "https://mag.example.org/gadget";
+  const soft404 = "https://bad.example.com/missing";
+
+  const fetchStub = async (url, init = {}) => {
+    const method = String(init?.method || "GET").toUpperCase();
+    if (method === "HEAD") return makeFetchResponse({ status: 405, headers: { "content-type": "text/html" } });
+
+    if (url === soft404) {
+      return makeFetchResponse({
+        status: 200,
+        headers: { "content-type": "text/html" },
+        body: "<html><head><title>404 Not Found</title></head><body>not found</body></html>",
+      });
+    }
+
+    if (url === youtube1 || url === youtube2) {
+      return makeFetchResponse({
+        status: 200,
+        headers: { "content-type": "text/html" },
+        body: `<html><head><meta property=\"og:title\" content=\"Video Title\" /><meta property=\"og:description\" content=\"Video Desc\" /></head><body></body></html>`,
+      });
+    }
+
+    if (url === blog1) {
+      return makeFetchResponse({
+        status: 200,
+        headers: { "content-type": "text/html" },
+        body: `<html><head><title>Blog Review</title><meta name=\"author\" content=\"Jane Doe\" /><meta property=\"article:published_time\" content=\"2024-01-01\" /><meta name=\"description\" content=\"Short excerpt\" /></head><body></body></html>`,
+      });
+    }
+
+    if (url === blog2) {
+      // Missing author/date on purpose: should come back as null (no hallucination).
+      return makeFetchResponse({
+        status: 200,
+        headers: { "content-type": "text/html" },
+        body: `<html><head><title>Magazine Review</title><meta name=\"description\" content=\"Another excerpt\" /></head><body></body></html>`,
+      });
+    }
+
+    return makeFetchResponse({ status: 404, headers: { "content-type": "text/html" }, body: "<html><head><title>404</title></head></html>" });
+  };
+
+  const xaiStub = async ({ prompt }) => {
+    // Return a mixed candidate list including a soft-404 that should be rejected.
+    if (!String(prompt || "").includes("review_candidates")) {
+      return { ok: false, error: "unexpected_prompt" };
+    }
+
+    return {
+      ok: true,
+      resp: {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                review_candidates: [
+                  { source_url: youtube1, category: "youtube" },
+                  { source_url: youtube2, category: "youtube" },
+                  { source_url: blog1, category: "blog" },
+                  { source_url: soft404, category: "blog" },
+                  { source_url: blog2, category: "blog" },
+                ],
+              }),
+            },
+          },
+        ],
+      },
+      diagnostics: {},
+    };
+  };
+
+  await withTempGlobals({ fetch: fetchStub, __xaiLiveSearchStub: xaiStub }, async () => {
+    const out = await grokEnrichment.fetchCuratedReviews({
+      companyName: "Acme",
+      normalizedDomain: "acme.example",
+      budgetMs: 25_000,
+      xaiUrl: "https://xai.example.com",
+      xaiKey: "test",
+      model: "grok-4-latest",
+    });
+
+    assert.equal(out.reviews_stage_status, "ok");
+    assert.equal(out.curated_reviews.length, 4);
+
+    const youtubeCount = out.curated_reviews.filter((r) => String(r?.source_url || "").includes("youtube.com")).length;
+    assert.equal(youtubeCount, 2);
+
+    // Blog2 intentionally has no author/date; must not be fabricated.
+    const blog2Review = out.curated_reviews.find((r) => r?.source_url === blog2);
+    assert.ok(blog2Review);
+    assert.equal(blog2Review.author, null);
+    assert.equal(blog2Review.date, null);
+  });
+
+  globalThis.fetch = originalFetch;
+});
+
+test("grokEnrichment.fetchCuratedReviews returns incomplete with attempted URLs when fewer than 4 valid reviews exist", async () => {
+  const originalFetch = globalThis.fetch;
+
+  const youtube1 = "https://www.youtube.com/watch?v=abc123";
+  const blog1 = "https://reviews.example.com/widget-review";
+  const bad1 = "https://bad.example.com/404";
+
+  const fetchStub = async (url, init = {}) => {
+    const method = String(init?.method || "GET").toUpperCase();
+    if (method === "HEAD") return makeFetchResponse({ status: 405, headers: { "content-type": "text/html" } });
+
+    if (url === youtube1 || url === blog1) {
+      return makeFetchResponse({ status: 200, headers: { "content-type": "text/html" }, body: "<html><head><title>Ok</title></head></html>" });
+    }
+
+    return makeFetchResponse({ status: 404, headers: { "content-type": "text/html" }, body: "<html><head><title>404</title></head></html>" });
+  };
+
+  const xaiStub = async ({ prompt }) => {
+    if (!String(prompt || "").includes("review_candidates")) {
+      return { ok: false, error: "unexpected_prompt" };
+    }
+
+    return {
+      ok: true,
+      resp: {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                review_candidates: [
+                  { source_url: youtube1, category: "youtube" },
+                  { source_url: blog1, category: "blog" },
+                  { source_url: bad1, category: "blog" },
+                ],
+              }),
+            },
+          },
+        ],
+      },
+      diagnostics: {},
+    };
+  };
+
+  await withTempGlobals({ fetch: fetchStub, __xaiLiveSearchStub: xaiStub }, async () => {
+    const out = await grokEnrichment.fetchCuratedReviews({
+      companyName: "Acme",
+      normalizedDomain: "acme.example",
+      budgetMs: 25_000,
+      xaiUrl: "https://xai.example.com",
+      xaiKey: "test",
+      model: "grok-4-latest",
+    });
+
+    assert.equal(out.reviews_stage_status, "incomplete");
+    assert.ok(Array.isArray(out.attempted_urls));
+    assert.ok(out.attempted_urls.length >= 2);
+    assert.ok(out.incomplete_reason);
+  });
+
+  globalThis.fetch = originalFetch;
+});
+
+test("grokEnrichment.fetchHeadquartersLocation returns HQ + source_urls", async () => {
+  const xaiStub = async ({ prompt }) => {
+    if (!String(prompt || "").includes("headquarters_location")) {
+      return { ok: false, error: "unexpected_prompt" };
+    }
+
+    return {
+      ok: true,
+      resp: {
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                headquarters_location: "Austin, TX, United States",
+                source_urls: ["https://example.com/source1", "https://example.com/source2"],
+              }),
+            },
+          },
+        ],
+      },
+      diagnostics: {},
+    };
+  };
+
+  await withTempGlobals({ __xaiLiveSearchStub: xaiStub }, async () => {
+    const out = await grokEnrichment.fetchHeadquartersLocation({
+      companyName: "Acme",
+      normalizedDomain: "acme.example",
+      budgetMs: 20_000,
+      xaiUrl: "https://xai.example.com",
+      xaiKey: "test",
+    });
+
+    assert.equal(out.hq_status, "ok");
+    assert.equal(out.headquarters_location, "Austin, TX, United States");
+    assert.deepEqual(out.source_urls, ["https://example.com/source1", "https://example.com/source2"]);
+  });
+});
 
 test("/api/import/start safeHandler returns HTTP 200 JSON on unhandled exception", async () => {
   const throwingHandler = _test.createSafeHandler(async () => {

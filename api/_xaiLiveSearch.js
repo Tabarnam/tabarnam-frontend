@@ -121,6 +121,31 @@ async function xaiLiveSearch({
   ).trim();
   const resolvedModel = asString(model).trim() || configuredModel || "grok-4-latest";
 
+  // Contract tests should never hit the real network, but they may want to exercise
+  // higher-level enrichment logic. Allow a global stub to provide deterministic responses.
+  const stub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function" ? globalThis.__xaiLiveSearchStub : null;
+  if (stub) {
+    try {
+      const stubResult = await stub({
+        prompt: asString(prompt),
+        maxTokens,
+        timeoutMs,
+        attempt,
+        model: resolvedModel,
+        xaiUrl,
+        xaiKey,
+        search_parameters,
+      });
+      if (stubResult && typeof stubResult === "object") return stubResult;
+    } catch (e) {
+      return {
+        ok: false,
+        error: asString(e?.message || e || "xai_test_stub_failed") || "xai_test_stub_failed",
+        details: { reason: "xai_global_stub_threw", model: resolvedModel },
+      };
+    }
+  }
+
   const isNodeTestRunner =
     (Array.isArray(process.execArgv) && process.execArgv.includes("--test")) ||
     (Array.isArray(process.argv) && process.argv.includes("--test"));

@@ -1619,7 +1619,7 @@ async function resumeWorkerHandler(req, context) {
 
       if (status === "ok" && sanitized.length > 0) {
         doc.keywords = sanitized.slice(0, 25);
-        doc.product_keywords = doc.keywords.join(", ");
+        doc.product_keywords = sanitized.join(", ");
         doc.keywords_source = "grok";
         doc.product_keywords_source = "grok";
 
@@ -1849,7 +1849,7 @@ async function resumeWorkerHandler(req, context) {
 
       doc.review_cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
 
-      if (status === "ok" && curated.length > 0) {
+      if (status === "ok" && curated.length === 4) {
         doc.curated_reviews = curated.slice(0, 10);
 
         const counts = curated
@@ -1868,18 +1868,30 @@ async function resumeWorkerHandler(req, context) {
 
         doc.review_cursor.last_success_at = nowIso();
         doc.review_cursor.last_error = null;
+        doc.review_cursor.incomplete_reason = null;
+        doc.review_cursor.attempted_urls = Array.isArray(r?.attempted_urls) ? r.attempted_urls : undefined;
 
         markFieldSuccess(doc, "reviews");
         changed = true;
       } else {
         const terminal = attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS;
 
-        doc.reviews_stage_status = status || "not_found";
+        // Persist partial results if we got any (e.g., status=incomplete).
+        if (curated.length > 0) {
+          doc.curated_reviews = curated.slice(0, 10);
+          doc.review_count = curated.length;
+        }
+
+        const inferredStatus = status || (curated.length > 0 ? "incomplete" : "not_found");
+        doc.reviews_stage_status = inferredStatus;
         doc.review_cursor.reviews_stage_status = doc.reviews_stage_status;
         doc.import_missing_reason ||= {};
-        doc.import_missing_reason.reviews = terminal ? "exhausted" : status || "not_found";
+        doc.import_missing_reason.reviews = terminal ? "exhausted" : inferredStatus;
 
-        if (status === "upstream_unreachable" || status === "upstream_timeout") {
+        doc.review_cursor.incomplete_reason = r?.incomplete_reason ?? null;
+        doc.review_cursor.attempted_urls = Array.isArray(r?.attempted_urls) ? r.attempted_urls : undefined;
+
+        if (inferredStatus === "upstream_unreachable" || inferredStatus === "upstream_timeout") {
           const entry = recordWorkerError("reviews", "grok_reviews", r?.diagnostics || r, {
             upstream_preview: safeJsonPreview(r?.diagnostics || r),
           });
@@ -1887,7 +1899,7 @@ async function resumeWorkerHandler(req, context) {
           markFieldError(doc, "reviews", entry);
 
           doc.review_cursor.last_error = {
-            code: status,
+            code: inferredStatus,
             message: entry.message,
             at: entry.at,
             request_id: requestId || null,
@@ -1899,11 +1911,12 @@ async function resumeWorkerHandler(req, context) {
 
           addImportWarning(doc, {
             field: "reviews",
-            missing_reason: status,
+            missing_reason: inferredStatus,
             stage: "grok_reviews",
             retryable: !terminal,
-            message: status === "upstream_timeout" ? "Grok reviews request timed out" : "Grok reviews fetch failed",
-            error_code: status,
+            message:
+              inferredStatus === "upstream_timeout" ? "Grok reviews request timed out" : "Grok reviews fetch failed",
+            error_code: inferredStatus,
             elapsed_ms: entry.elapsed_ms ?? null,
             timeout_ms: entry.timeout_ms ?? null,
             aborted_by_us: entry.aborted_by_us ?? null,
@@ -1911,10 +1924,11 @@ async function resumeWorkerHandler(req, context) {
             at: nowIso(),
           });
           markEnrichmentIncomplete(doc, {
-            reason: status === "upstream_timeout" ? "upstream timeout" : "upstream unreachable",
+            reason: inferredStatus === "upstream_timeout" ? "upstream timeout" : "upstream unreachable",
             field: "reviews",
           });
-        } else if (status === "not_found") {
+        } else {
+          // No fabricated metadata: treat non-upstream failures as informational.
           doc.review_cursor.last_error = null;
         }
 

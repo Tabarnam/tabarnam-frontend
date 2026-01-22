@@ -39,7 +39,14 @@ const {
   checkUrlHealthAndFetchText,
 } = require("../_reviewQuality");
 const { fillCompanyBaselineFromWebsite } = require("../_websiteBaseline");
-const { fetchCuratedReviews: fetchCuratedReviewsGrok } = require("../_grokEnrichment");
+const {
+  fetchCuratedReviews: fetchCuratedReviewsGrok,
+  fetchHeadquartersLocation: fetchHeadquartersLocationGrok,
+  fetchManufacturingLocations: fetchManufacturingLocationsGrok,
+  fetchTagline: fetchTaglineGrok,
+  fetchIndustries: fetchIndustriesGrok,
+  fetchProductKeywords: fetchProductKeywordsGrok,
+} = require("../_grokEnrichment");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { mergeCompanyDocsForSession: mergeCompanyDocsForSessionExternal } = require("../_companyDocMerge");
 const { applyEnrichment } = require("../_applyEnrichment");
@@ -7961,6 +7968,24 @@ Output JSON only:
             const companyName = String(company?.company_name || company?.name || "").trim();
             const websiteUrl = String(company?.website_url || company?.url || "").trim();
 
+            // Tagline: prefer Grok live search over website scraping (sites are often incomplete).
+            if (!String(company?.tagline || "").trim() && companyName && websiteUrl) {
+              const normalizedDomain = String(company?.normalized_domain || toNormalizedDomain(websiteUrl)).trim();
+              const budgetMs = Math.min(
+                8_000,
+                Math.max(3_000, (typeof getRemainingMs === "function" ? getRemainingMs() : timeout) - DEADLINE_SAFETY_BUFFER_MS)
+              );
+
+              try {
+                const grok = await fetchTaglineGrok({ companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey, model: "grok-4-latest" });
+                if (String(grok?.tagline_status || "").trim() === "ok" && String(grok?.tagline || "").trim()) {
+                  company.tagline = String(grok.tagline).trim();
+                }
+              } catch (e) {
+                if (e instanceof AcceptedResponseError) throw e;
+              }
+            }
+
             const initialList = normalizeProductKeywords(company?.keywords || company?.product_keywords, {
               companyName,
               websiteUrl,
@@ -7980,92 +8005,194 @@ Output JSON only:
               raw_response: null,
             };
 
-            if (finalList.length < 10 && companyName && websiteUrl) {
+            let keywordsAll = finalList;
+
+            // Primary source of truth: Grok live search (not the company website parser).
+            if (companyName && websiteUrl && keywordsAll.length < 10) {
+              const normalizedDomain = String(company?.normalized_domain || toNormalizedDomain(websiteUrl)).trim();
+              const budgetMs = Math.min(
+                12_000,
+                Math.max(4_000, (typeof getRemainingMs === "function" ? getRemainingMs() : timeout) - DEADLINE_SAFETY_BUFFER_MS)
+              );
+
               try {
-                const gen = await generateProductKeywords(company, { timeoutMs: Math.min(timeout, 20000) });
-                debugEntry.generated = true;
-                debugEntry.prompt = gen.prompt;
-                debugEntry.raw_response = gen.raw_response;
-                debugEntry.generated_count = gen.keywords.length;
+                const grok = await fetchProductKeywordsGrok({
+                  companyName,
+                  normalizedDomain,
+                  budgetMs,
+                  xaiUrl,
+                  xaiKey,
+                  model: "grok-4-latest",
+                });
 
-                company.enrichment_debug = company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
-                company.enrichment_debug.keywords = {
-                  prompt_hash: gen.prompt_hash || null,
-                  source_url: gen.source_url || websiteUrl || null,
-                  source_text_preview: typeof gen.source_text_preview === "string" ? gen.source_text_preview : null,
-                  raw_response_preview: typeof gen.raw_response === "string" ? gen.raw_response.slice(0, 1200) : null,
-                  error: null,
-                };
+                const listRaw = Array.isArray(grok?.keywords) ? grok.keywords : [];
+                const stats = sanitizeKeywords({ product_keywords: listRaw.join(", "), keywords: [] });
+                const sanitized = Array.isArray(stats?.sanitized) ? stats.sanitized : [];
 
-                const merged = [...finalList, ...gen.keywords];
-                finalList = normalizeProductKeywords(merged, { companyName, websiteUrl }).slice(0, 25);
+                if (sanitized.length > 0) {
+                  keywordsAll = sanitized;
+                  company.keywords_source = "grok";
+                  company.product_keywords_source = "grok";
+
+                  company.enrichment_debug =
+                    company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+                  company.enrichment_debug.keywords = {
+                    prompt_hash: null,
+                    source_url: null,
+                    source_text_preview: null,
+                    raw_response_preview: null,
+                    error: null,
+                    stage_status: String(grok?.keywords_status || "").trim() || null,
+                    completeness: String(grok?.keywords_completeness || "").trim() || null,
+                    incomplete_reason: grok?.keywords_incomplete_reason ?? null,
+                    keyword_count: sanitized.length,
+                  };
+                }
               } catch (e) {
                 if (e instanceof AcceptedResponseError) throw e;
-                debugEntry.generated = true;
-                debugEntry.raw_response = e?.message || String(e);
+              }
 
-                company.enrichment_debug = company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
-                company.enrichment_debug.keywords = {
-                  prompt_hash: null,
-                  source_url: websiteUrl || null,
-                  source_text_preview: null,
-                  raw_response_preview: null,
-                  error: e?.message || String(e),
-                };
+              // If Grok did not populate anything (or we didn't have budget), fall back to the website-based generator.
+              if (keywordsAll.length < 10) {
+                try {
+                  const gen = await generateProductKeywords(company, { timeoutMs: Math.min(timeout, 20000) });
+                  debugEntry.generated = true;
+                  debugEntry.prompt = gen.prompt;
+                  debugEntry.raw_response = gen.raw_response;
+                  debugEntry.generated_count = gen.keywords.length;
+
+                  company.enrichment_debug =
+                    company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+                  company.enrichment_debug.keywords = {
+                    prompt_hash: gen.prompt_hash || null,
+                    source_url: gen.source_url || websiteUrl || null,
+                    source_text_preview: typeof gen.source_text_preview === "string" ? gen.source_text_preview : null,
+                    raw_response_preview: typeof gen.raw_response === "string" ? gen.raw_response.slice(0, 1200) : null,
+                    error: null,
+                    stage_status: "website_fallback",
+                    completeness: null,
+                    incomplete_reason: null,
+                    keyword_count: gen.keywords.length,
+                  };
+
+                  const merged = [...keywordsAll, ...gen.keywords];
+                  keywordsAll = normalizeProductKeywords(merged, { companyName, websiteUrl });
+                } catch (e) {
+                  if (e instanceof AcceptedResponseError) throw e;
+                  debugEntry.generated = true;
+                  debugEntry.raw_response = e?.message || String(e);
+
+                  company.enrichment_debug =
+                    company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+                  company.enrichment_debug.keywords = {
+                    prompt_hash: null,
+                    source_url: websiteUrl || null,
+                    source_text_preview: null,
+                    raw_response_preview: null,
+                    error: e?.message || String(e),
+                    stage_status: "website_fallback_failed",
+                    completeness: null,
+                    incomplete_reason: null,
+                    keyword_count: 0,
+                  };
+                }
               }
             }
 
-            company.keywords = finalList;
-            company.product_keywords = keywordListToString(finalList);
+            // Store an exhaustive product list in product_keywords, but keep keywords[] clamped for UI/search.
+            company.keywords = Array.isArray(keywordsAll) ? keywordsAll.slice(0, 25) : [];
+            company.product_keywords = keywordListToString(Array.isArray(keywordsAll) ? keywordsAll : []);
 
-            // Industries are required for a "complete enough" profile. If missing, infer them.
+            // Industries are required for a "complete enough" profile. Primary source: Grok live search.
             const existingIndustries = normalizeIndustries(company?.industries);
             let industriesFinal = existingIndustries;
 
             if (industriesFinal.length === 0 && companyName && websiteUrl) {
+              const normalizedDomain = String(company?.normalized_domain || toNormalizedDomain(websiteUrl)).trim();
+              const budgetMs = Math.min(
+                10_000,
+                Math.max(3_500, (typeof getRemainingMs === "function" ? getRemainingMs() : timeout) - DEADLINE_SAFETY_BUFFER_MS)
+              );
+
               try {
-                const inferred = await generateIndustries(company, { timeoutMs: Math.min(timeout, 15000) });
-                industriesFinal = normalizeIndustries(inferred.industries);
+                const grok = await fetchIndustriesGrok({
+                  companyName,
+                  normalizedDomain,
+                  budgetMs,
+                  xaiUrl,
+                  xaiKey,
+                  model: "grok-4-latest",
+                });
+                const list = Array.isArray(grok?.industries) ? grok.industries : [];
+                const sanitized = sanitizeIndustries(list);
 
-                company.enrichment_debug = company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
-                company.enrichment_debug.industries = {
-                  prompt_hash: inferred.prompt_hash || null,
-                  source_url: inferred.source_url || websiteUrl || null,
-                  raw_response_preview: typeof inferred.raw_response === "string" ? inferred.raw_response.slice(0, 1200) : null,
-                  industries: industriesFinal,
-                  error: null,
-                };
-
-                if (debugOutput) {
-                  debugOutput.keywords_debug.push({
-                    company_name: companyName,
-                    website_url: websiteUrl,
-                    industries_generated: true,
+                if (Array.isArray(sanitized) && sanitized.length > 0) {
+                  industriesFinal = sanitized;
+                  company.enrichment_debug =
+                    company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+                  company.enrichment_debug.industries = {
+                    prompt_hash: null,
+                    source_url: null,
+                    raw_response_preview: null,
                     industries: industriesFinal,
-                    industries_prompt: inferred.prompt,
-                    industries_raw_response: inferred.raw_response,
-                  });
+                    error: null,
+                    stage_status: String(grok?.industries_status || "").trim() || null,
+                  };
                 }
               } catch (e) {
                 if (e instanceof AcceptedResponseError) throw e;
+              }
 
-                company.enrichment_debug = company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
-                company.enrichment_debug.industries = {
-                  prompt_hash: null,
-                  source_url: websiteUrl || null,
-                  raw_response_preview: null,
-                  industries: [],
-                  error: e?.message || String(e),
-                };
+              // If Grok didn't help, fall back to the website-based classifier.
+              if (industriesFinal.length === 0) {
+                try {
+                  const inferred = await generateIndustries(company, { timeoutMs: Math.min(timeout, 15000) });
+                  industriesFinal = normalizeIndustries(inferred.industries);
 
-                if (debugOutput) {
-                  debugOutput.keywords_debug.push({
-                    company_name: companyName,
-                    website_url: websiteUrl,
-                    industries_generated: true,
+                  company.enrichment_debug =
+                    company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+                  company.enrichment_debug.industries = {
+                    prompt_hash: inferred.prompt_hash || null,
+                    source_url: inferred.source_url || websiteUrl || null,
+                    raw_response_preview: typeof inferred.raw_response === "string" ? inferred.raw_response.slice(0, 1200) : null,
+                    industries: industriesFinal,
+                    error: null,
+                    stage_status: "website_fallback",
+                  };
+
+                  if (debugOutput) {
+                    debugOutput.keywords_debug.push({
+                      company_name: companyName,
+                      website_url: websiteUrl,
+                      industries_generated: true,
+                      industries: industriesFinal,
+                      industries_prompt: inferred.prompt,
+                      industries_raw_response: inferred.raw_response,
+                    });
+                  }
+                } catch (e) {
+                  if (e instanceof AcceptedResponseError) throw e;
+
+                  company.enrichment_debug =
+                    company.enrichment_debug && typeof company.enrichment_debug === "object" ? company.enrichment_debug : {};
+                  company.enrichment_debug.industries = {
+                    prompt_hash: null,
+                    source_url: websiteUrl || null,
+                    raw_response_preview: null,
                     industries: [],
-                    industries_error: e?.message || String(e),
-                  });
+                    error: e?.message || String(e),
+                    stage_status: "website_fallback_failed",
+                  };
+
+                  if (debugOutput) {
+                    debugOutput.keywords_debug.push({
+                      company_name: companyName,
+                      website_url: websiteUrl,
+                      industries_generated: true,
+                      industries: [],
+                      industries_error: e?.message || String(e),
+                    });
+                  }
                 }
               }
             }
@@ -8077,8 +8204,8 @@ Output JSON only:
 
             company.industries = industriesFinal;
 
-            debugEntry.final_keywords = finalList;
-            debugEntry.final_count = finalList.length;
+            debugEntry.final_keywords = Array.isArray(keywordsAll) ? keywordsAll : [];
+            debugEntry.final_count = Array.isArray(keywordsAll) ? keywordsAll.length : 0;
 
             if (debugOutput) debugOutput.keywords_debug.push(debugEntry);
 
@@ -8659,159 +8786,123 @@ Output JSON only:
             console.log(`[import-start] ${companiesNeedingLocationRefinement.length} companies need location refinement`);
 
             try {
-              // Build refinement prompt focusing only on HQ + manufacturing locations
-              const refinementMessage = {
-                role: "user",
-                content: `You are a research assistant specializing in company location data.
-For the following companies, you previously found some information but HQ and/or manufacturing locations were missing or unclear.
-AGGRESSIVELY re-check ONLY for headquarters location and manufacturing locations using ALL available sources.
+              // HQ + Manufacturing are Grok-only fields. Use Grok live search and record source URLs.
+              ensureStageBudgetOrThrow("location", "grok_location_enrichment_start");
 
-SOURCES TO CHECK (in order):
-1. Official website (About, Contact, Facilities, Manufacturing, Where We Make pages)
-2. Government Buyer Guides (like Yumpu entries) - often list exact headquarters and "made in USA" claims
-3. B2B/Industrial Manufacturer Directories (Thomas Register, SIC/NAICS registries, manufacturer databases)
-4. LinkedIn company profile and product pages
-5. Public import/export records and trade data showing manufacturing origin countries
-6. Supplier databases and known manufacturing partners
-7. Packaging labels and product descriptions mentioning "Made in..."
-8. Media articles, product reviews, and third-party sources
-9. Crunchbase and other business databases
+              const deadlineBeforeLocation = checkDeadlineOrReturn("grok_location_enrichment_start", "location");
+              if (deadlineBeforeLocation) return deadlineBeforeLocation;
 
-CRITICAL RULES FOR MANUFACTURING LOCATIONS:
-- Government Buyer Guide entries (Yumpu, GSA, etc.) listing "all made in USA" or similar → INCLUDE "United States" in manufacturing_locations
-- B2B directories explicitly noting "Manufacturer" status + location → INCLUDE that location
-- Repeated origin countries in trade/customs data → INCLUDE those countries
-- Packaging claims "Made in [X]" → INCLUDE X
-- Do NOT return empty manufacturing_locations arrays - prefer country-only entries (e.g., "United States", "China") if that's all that's known
-- Country-only manufacturing locations are FULLY ACCEPTABLE and PREFERRED
+              mark("grok_location_enrichment_start");
+              setStage("grokLocationEnrichment");
 
-Companies needing refinement:
-${companiesNeedingLocationRefinement.map(c => `- ${c.company_name} (${c.url || 'N/A'}) - missing: ${!c.headquarters_location ? 'HQ' : ''} ${!c.manufacturing_locations || c.manufacturing_locations.length === 0 ? 'Manufacturing' : ''}`).join('\n')}
+              const locationSourcesDebug = [];
 
-For EACH company, return ONLY:
-{
-  "company_name": "exact name",
-  "headquarters_location": "City, State/Region, Country OR empty string ONLY if truly not found after checking all sources",
-  "manufacturing_locations": ["location1", "location2", ...] (MUST include countries/locations from all sources checked - never empty unless exhaustively confirmed unknown),
-  "red_flag": true/false,
-  "red_flag_reason": "explanation if red_flag true, empty string if false; may note inference source (e.g., 'Inferred from customs records')",
-  "location_confidence": "high|medium|low"
-}
-
-IMPORTANT:
-- NEVER return empty manufacturing_locations after checking government guides, B2B directories, and trade data
-- ALWAYS prefer "United States" or "China" over empty array
-- Inferred locations from secondary sources are valid and do NOT require red_flag: true
-
-Focus ONLY on location accuracy. Return a JSON array with these objects.
-Return ONLY the JSON array, no other text.`,
-              };
-
-              const refinementPayload = {
-                model: "grok-4-latest",
-                messages: [
-                  { role: "system", content: XAI_SYSTEM_PROMPT },
-                  refinementMessage,
-                ],
-                // HQ/MFG are Grok-only: enforce live search.
-                search_parameters: { mode: "on" },
-                temperature: 0.1,
-                stream: false,
-              };
-
-              console.log(
-                `[import-start] Running location refinement pass for ${companiesNeedingLocationRefinement.length} companies (upstream=${toHostPathOnlyForLog(
-                  xaiUrl
-                )})`
-              );
-
-              ensureStageBudgetOrThrow("location", "xai_location_refinement_fetch_start");
-
-              const deadlineBeforeLocationRefinement = checkDeadlineOrReturn(
-                "xai_location_refinement_fetch_start",
-                "location"
-              );
-              if (deadlineBeforeLocationRefinement) return deadlineBeforeLocationRefinement;
-
-              mark("xai_location_refinement_fetch_start");
-              const refinementResponse = await postXaiJsonWithBudgetRetry({
-                stageKey: "location",
-                stageBeacon: "xai_location_refinement_fetch_start",
-                body: JSON.stringify(refinementPayload),
-                stageCapMsOverride: Math.min(timeout, 25000),
-              });
-
-              if (refinementResponse.status >= 200 && refinementResponse.status < 300) {
-                const refinementText = refinementResponse.data?.choices?.[0]?.message?.content || "";
-                console.log(`[import-start] Refinement response preview: ${refinementText.substring(0, 100)}...`);
-
-                let refinedLocations = [];
-                try {
-                  const jsonMatch = refinementText.match(/\[[\s\S]*\]/);
-                  if (jsonMatch) {
-                    refinedLocations = JSON.parse(jsonMatch[0]);
-                    if (!Array.isArray(refinedLocations)) refinedLocations = [];
-                  }
-                } catch (parseErr) {
-                  console.warn(`[import-start] Failed to parse refinement response: ${parseErr.message}`);
+              for (let i = 0; i < enriched.length; i++) {
+                if (getRemainingMs() < MIN_STAGE_REMAINING_MS) {
+                  downstreamDeferredByBudget = true;
+                  deferredStages.add("location");
+                  break;
                 }
 
-                console.log(`[import-start] Refinement returned ${refinedLocations.length} location updates`);
+                const company = enriched[i];
+                const needsHq = !String(company?.headquarters_location || "").trim();
+                const needsMfg = !Array.isArray(company?.manufacturing_locations) || company.manufacturing_locations.length === 0;
+                if (!needsHq && !needsMfg) continue;
 
-                // Merge refinement results back into enriched companies
-                if (refinedLocations.length > 0) {
-                  const refinementMap = new Map();
-                  refinedLocations.forEach(rl => {
-                    const name = (rl.company_name || "").toLowerCase();
-                    if (name) refinementMap.set(name, rl);
-                  });
+                const companyName = String(company?.company_name || company?.name || "").trim();
+                const websiteUrl = String(company?.website_url || company?.canonical_url || company?.url || "").trim();
+                const normalizedDomain = String(company?.normalized_domain || toNormalizedDomain(websiteUrl)).trim();
 
-                  enriched = enriched.map(company => {
-                    const companyName = (company.company_name || "").toLowerCase();
-                    const refinement = refinementMap.get(companyName);
-                    if (refinement) {
-                      // Properly handle manufacturing_locations which might be a string or array
-                      let refinedMfgLocations = refinement.manufacturing_locations || company.manufacturing_locations || [];
-                      if (typeof refinedMfgLocations === 'string') {
-                        refinedMfgLocations = refinedMfgLocations.trim() ? [refinedMfgLocations.trim()] : [];
-                      }
+                if (!companyName || !normalizedDomain) continue;
 
-                      return {
-                        ...company,
-                        headquarters_location: refinement.headquarters_location || company.headquarters_location || "",
-                        manufacturing_locations: refinedMfgLocations,
-                        red_flag: refinement.red_flag !== undefined ? refinement.red_flag : company.red_flag,
-                        red_flag_reason: refinement.red_flag_reason !== undefined ? refinement.red_flag_reason : company.red_flag_reason || "",
-                        location_confidence: refinement.location_confidence || company.location_confidence || "medium",
-                      };
-                    }
-                    return company;
-                  });
+                const perCompanyBudgetMs = Math.min(
+                  18_000,
+                  Math.max(6_000, getRemainingMs() - DEADLINE_SAFETY_BUFFER_MS)
+                );
 
-                  // Re-geocode refined companies (HQ + manufacturing)
-                  console.log(`[import-start] Re-geocoding refined companies`);
-                  for (let i = 0; i < enriched.length; i++) {
-                    const company = enriched[i];
-                    const wasUpdated = refinedLocations.some(
-                      (rl) => (rl.company_name || "").toLowerCase() === (company.company_name || "").toLowerCase()
-                    );
-                    if (!wasUpdated) continue;
-                    try {
-                      enriched[i] = await geocodeCompanyLocations(company, { timeoutMs: 5000 });
-                    } catch (e) {
-                      console.log(`[import-start] Re-geocoding failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`);
-                    }
+                const hqResult = needsHq
+                  ? await fetchHeadquartersLocationGrok({ companyName, normalizedDomain, budgetMs: perCompanyBudgetMs, xaiUrl, xaiKey })
+                  : null;
+
+                const mfgResult = needsMfg
+                  ? await fetchManufacturingLocationsGrok({ companyName, normalizedDomain, budgetMs: perCompanyBudgetMs, xaiUrl, xaiKey })
+                  : null;
+
+                const next = { ...company };
+
+                if (hqResult) {
+                  const status = String(hqResult?.hq_status || "").trim();
+                  const value = String(hqResult?.headquarters_location || "").trim();
+                  if (status === "ok" && value) {
+                    next.headquarters_location = value;
+                    next.hq_unknown = false;
+                    next.hq_unknown_reason = null;
+                  } else if (status === "not_disclosed") {
+                    next.headquarters_location = "Not disclosed";
+                    next.hq_unknown = true;
+                    next.hq_unknown_reason = "not_disclosed";
                   }
 
-                  console.log(`[import-start] Merged refinement data back into companies`);
+                  next.enrichment_debug = next.enrichment_debug && typeof next.enrichment_debug === "object" ? next.enrichment_debug : {};
+                  next.enrichment_debug.location_sources = next.enrichment_debug.location_sources && typeof next.enrichment_debug.location_sources === "object"
+                    ? next.enrichment_debug.location_sources
+                    : {};
+                  next.enrichment_debug.location_sources.hq_source_urls = Array.isArray(hqResult?.source_urls) ? hqResult.source_urls : [];
                 }
+
+                if (mfgResult) {
+                  const status = String(mfgResult?.mfg_status || "").trim();
+                  const list = Array.isArray(mfgResult?.manufacturing_locations) ? mfgResult.manufacturing_locations : [];
+                  if (status === "ok" && list.length > 0) {
+                    next.manufacturing_locations = list;
+                    next.mfg_unknown = false;
+                    next.mfg_unknown_reason = null;
+                  } else if (status === "not_disclosed") {
+                    next.manufacturing_locations = ["Not disclosed"];
+                    next.mfg_unknown = true;
+                    next.mfg_unknown_reason = "not_disclosed";
+                  }
+
+                  next.enrichment_debug = next.enrichment_debug && typeof next.enrichment_debug === "object" ? next.enrichment_debug : {};
+                  next.enrichment_debug.location_sources = next.enrichment_debug.location_sources && typeof next.enrichment_debug.location_sources === "object"
+                    ? next.enrichment_debug.location_sources
+                    : {};
+                  next.enrichment_debug.location_sources.mfg_source_urls = Array.isArray(mfgResult?.source_urls) ? mfgResult.source_urls : [];
+                }
+
+                // Company doc (debug-only) + session diagnostics.
+                if (next?.enrichment_debug?.location_sources) {
+                  locationSourcesDebug.push({
+                    company_name: companyName,
+                    normalized_domain: normalizedDomain,
+                    hq_source_urls: next.enrichment_debug.location_sources.hq_source_urls || [],
+                    mfg_source_urls: next.enrichment_debug.location_sources.mfg_source_urls || [],
+                  });
+                }
+
+                enriched[i] = next;
+              }
+
+              if (debugOutput && locationSourcesDebug.length) {
+                debugOutput.location_sources_debug = locationSourcesDebug;
+              }
+
+              if (!noUpstreamMode && cosmosEnabled && locationSourcesDebug.length) {
+                await upsertCosmosImportSessionDoc({
+                  sessionId,
+                  requestId,
+                  patch: {
+                    location_sources_debug: locationSourcesDebug,
+                    location_sources_updated_at: new Date().toISOString(),
+                  },
+                }).catch(() => null);
               }
             } catch (refinementErr) {
               if (refinementErr instanceof AcceptedResponseError) throw refinementErr;
-              console.warn(`[import-start] Location refinement pass failed: ${refinementErr.message}`);
-              // Continue with original data if refinement fails
+              console.warn(`[import-start] Grok location enrichment failed: ${refinementErr.message}`);
+              // Continue with original data if enrichment fails
             } finally {
-              mark("xai_location_refinement_fetch_done");
+              mark("grok_location_enrichment_done");
             }
           }
 
