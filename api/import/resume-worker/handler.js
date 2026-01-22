@@ -302,17 +302,33 @@ function terminalizeGrokField(doc, field, terminalReason) {
   }
 
   if (field === "reviews") {
-    doc.curated_reviews = [];
-    doc.review_count = typeof doc.review_count === "number" ? doc.review_count : 0;
-    doc.reviews_stage_status = "exhausted";
+    if (!Array.isArray(doc.curated_reviews)) doc.curated_reviews = [];
+    doc.review_count = typeof doc.review_count === "number" ? doc.review_count : doc.curated_reviews.length;
+
     const cursor =
       doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
+
+    const attemptedUrls = Array.isArray(cursor.attempted_urls) ? cursor.attempted_urls : [];
+    const lastErrCode = normalizeKey(cursor?.last_error?.code || "");
+
+    const incompleteReason =
+      normalizeKey(cursor.incomplete_reason || "") ||
+      (lastErrCode === "upstream_timeout" || lastErrCode === "upstream_unreachable" ? lastErrCode : "") ||
+      "exhausted";
+
+    // Required invariant: terminal completion must never leave reviews_stage_status="pending".
+    // We keep the user-facing stage as "incomplete" and rely on cursor.exhausted for terminality.
+    doc.reviews_stage_status = "incomplete";
+
     doc.review_cursor = {
       ...cursor,
       exhausted: true,
-      reviews_stage_status: "exhausted",
+      reviews_stage_status: "incomplete",
+      incomplete_reason: incompleteReason,
+      attempted_urls: attemptedUrls,
       exhausted_at: nowIso(),
     };
+
     doc.import_missing_reason.reviews = "exhausted";
   }
 }
