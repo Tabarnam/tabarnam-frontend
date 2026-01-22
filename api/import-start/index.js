@@ -7968,6 +7968,24 @@ Output JSON only:
             const companyName = String(company?.company_name || company?.name || "").trim();
             const websiteUrl = String(company?.website_url || company?.url || "").trim();
 
+            // Tagline: prefer Grok live search over website scraping (sites are often incomplete).
+            if (!String(company?.tagline || "").trim() && companyName && websiteUrl) {
+              const normalizedDomain = String(company?.normalized_domain || toNormalizedDomain(websiteUrl)).trim();
+              const budgetMs = Math.min(
+                8_000,
+                Math.max(3_000, (typeof getRemainingMs === "function" ? getRemainingMs() : timeout) - DEADLINE_SAFETY_BUFFER_MS)
+              );
+
+              try {
+                const grok = await fetchTaglineGrok({ companyName, normalizedDomain, budgetMs, xaiUrl, xaiKey, model: "grok-4-latest" });
+                if (String(grok?.tagline_status || "").trim() === "ok" && String(grok?.tagline || "").trim()) {
+                  company.tagline = String(grok.tagline).trim();
+                }
+              } catch (e) {
+                if (e instanceof AcceptedResponseError) throw e;
+              }
+            }
+
             const initialList = normalizeProductKeywords(company?.keywords || company?.product_keywords, {
               companyName,
               websiteUrl,
