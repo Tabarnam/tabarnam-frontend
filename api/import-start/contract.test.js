@@ -1542,6 +1542,7 @@ test("/api/import/status reopens completed resume doc when retryable missing fie
 
         // Core invariant: drift is repaired automatically.
         assert.ok(statusBody.stage_beacon_values?.status_resume_reopened_from_complete);
+        assert.equal(statusBody.resume?.status, "queued");
         assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "queued");
         assert.equal(docsById.get(`_import_session_${session_id}`)?.status, "running");
         assert.equal(docsById.get(`_import_session_${session_id}`)?.resume_needed, true);
