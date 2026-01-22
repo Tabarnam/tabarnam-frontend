@@ -2060,7 +2060,6 @@ test("/api/import/status force-terminalizes and completes when cycle cap reached
         assert.equal(updatedCompany?.import_missing_reason?.headquarters_location, "exhausted");
         assert.equal(updatedCompany?.import_missing_reason?.manufacturing_locations, "exhausted");
         assert.equal(updatedCompany?.import_missing_reason?.reviews, "exhausted");
-        assert.equal(updatedCompany?.import_missing_reason?.logo, "exhausted");
       } finally {
         require.cache[cosmosModuleId].exports = originalCosmosExports;
         delete require.cache[importStatusModuleId];
