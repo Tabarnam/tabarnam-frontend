@@ -1811,7 +1811,9 @@ test("/api/import/status surfaces last_field_attempted/result after blocked auto
 
         // Second poll should surface last_field_attempted/last_field_result.
         const statusReq2 = makeReq({
-          url: `https://example.test/api/import/status?session_id=${encodeURIComponent(session_id)}`,
+          // Force a second trigger immediately (bypasses cooldown) so we can validate the
+          // last_field_attempted/last_field_result values change across runs.
+          url: `https://example.test/api/import/status?session_id=${encodeURIComponent(session_id)}&force_resume=1`,
           method: "GET",
         });
 
