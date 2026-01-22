@@ -2014,8 +2014,7 @@ async function handler(req, context) {
 
           // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
           const preTriggerCap = Boolean(
-            !forceResume &&
-              singleCompanyMode &&
+            singleCompanyMode &&
               resume_needed &&
               currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE &&
               !infraOnlyTimeout
@@ -2037,6 +2036,25 @@ async function handler(req, context) {
                     resume_stuck_ms: resumeStuckQueuedMs,
                     infra_only_timeout: infraOnlyTimeout,
                   });
+
+          // Instrumentation for max-cycles stalls (and other force-terminalize policies).
+          stageBeaconValues.status_resume_force_terminalize_selected = Boolean(forceDecision.force);
+          if (!forceDecision.force) {
+            const cap = infraOnlyTimeout
+              ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
+              : MAX_RESUME_CYCLES_SINGLE;
+            stageBeaconValues.status_resume_force_terminalize_skip_reason = !singleCompanyMode
+              ? "not_single_company_mode"
+              : !resume_needed
+                ? "resume_not_needed"
+                : currentCycleCount + 1 < cap
+                  ? "below_cycle_cap"
+                  : infraOnlyTimeout
+                    ? "infra_timeout_only"
+                    : "policy_not_met";
+          } else {
+            stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
+          }
 
           if (forceDecision.force) {
             const forcedAt = nowIso();
@@ -3876,8 +3894,7 @@ async function handler(req, context) {
 
           // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
           const preTriggerCap = Boolean(
-            !forceResume &&
-              singleCompanyMode &&
+            singleCompanyMode &&
               resume_needed &&
               currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE &&
               !infraOnlyTimeout
@@ -3899,6 +3916,25 @@ async function handler(req, context) {
                     resume_stuck_ms: resumeStuckQueuedMs,
                     infra_only_timeout: infraOnlyTimeout,
                   });
+
+          // Instrumentation for max-cycles stalls (and other force-terminalize policies).
+          stageBeaconValues.status_resume_force_terminalize_selected = Boolean(forceDecision.force);
+          if (!forceDecision.force) {
+            const cap = infraOnlyTimeout
+              ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
+              : MAX_RESUME_CYCLES_SINGLE;
+            stageBeaconValues.status_resume_force_terminalize_skip_reason = !singleCompanyMode
+              ? "not_single_company_mode"
+              : !resume_needed
+                ? "resume_not_needed"
+                : currentCycleCount + 1 < cap
+                  ? "below_cycle_cap"
+                  : infraOnlyTimeout
+                    ? "infra_timeout_only"
+                    : "policy_not_met";
+          } else {
+            stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
+          }
 
           if (forceDecision.force) {
             const forcedAt = nowIso();
