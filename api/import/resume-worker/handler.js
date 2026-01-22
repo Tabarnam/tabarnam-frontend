@@ -1225,6 +1225,46 @@ async function resumeWorkerHandler(req, context) {
         }
       }
 
+      // Defensive: if required-fields computation failed to include reviews, still never leave them pending on forced completion.
+      try {
+        const stageRaw = normalizeKey(doc?.reviews_stage_status || doc?.review_cursor?.reviews_stage_status || "");
+        const curatedCount = Array.isArray(doc?.curated_reviews) ? doc.curated_reviews.length : 0;
+        const cursorExhausted = Boolean(doc?.review_cursor && typeof doc.review_cursor === "object" && doc.review_cursor.exhausted === true);
+        const isOk = stageRaw === "ok" && curatedCount >= 4;
+
+        if (!isOk && (stageRaw === "pending" || !cursorExhausted)) {
+          const prevAttempts = attemptsFor(doc, "reviews");
+          bumpFieldAttempt(doc, "reviews", requestId);
+
+          doc.review_cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
+          if (!Array.isArray(doc.curated_reviews)) doc.curated_reviews = [];
+          if (!Number.isFinite(Number(doc.review_count))) doc.review_count = doc.curated_reviews.length;
+
+          const attemptedUrls = Array.isArray(doc.review_cursor.attempted_urls) ? doc.review_cursor.attempted_urls : [];
+          const hadAttempts = prevAttempts > 0 || attemptedUrls.length > 0 || Boolean(doc.review_cursor.last_error);
+
+          const reasonsObj = doc.import_missing_reason && typeof doc.import_missing_reason === "object" ? doc.import_missing_reason : {};
+          const anyTimeout = Object.values(reasonsObj).some((v) => normalizeKey(v) === "upstream_timeout");
+
+          const incompleteReasonRaw =
+            normalizeKey(doc.review_cursor.incomplete_reason || "") ||
+            normalizeKey(reasonsObj.reviews || "") ||
+            (hadAttempts ? "attempted_but_incomplete" : "");
+
+          const incomplete_reason = incompleteReasonRaw || (anyTimeout ? "upstream_timeout" : "terminalized_without_attempt");
+
+          doc.reviews_stage_status = "incomplete";
+          doc.review_cursor.reviews_stage_status = "incomplete";
+          doc.review_cursor.incomplete_reason = incomplete_reason;
+          doc.review_cursor.attempted_urls = attemptedUrls;
+          doc.review_cursor.exhausted = true;
+          doc.review_cursor.exhausted_at = updatedAt;
+
+          doc.import_missing_reason ||= {};
+          doc.import_missing_reason.reviews = "exhausted";
+        }
+      } catch {}
+
       forceTerminalizeNonGrokFields(doc);
       doc.import_missing_fields = computeMissingFields(doc);
       doc.updated_at = updatedAt;
