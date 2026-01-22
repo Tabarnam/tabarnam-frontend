@@ -1,5 +1,4 @@
 const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
-const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
 const { extractJsonFromText } = require("./_curatedReviewsXai");
 const { buildSearchParameters } = require("./_buildSearchParameters");
 
