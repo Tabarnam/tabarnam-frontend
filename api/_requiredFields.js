@@ -278,6 +278,16 @@ const KEYWORD_DISALLOW_TERMS = [
   "press",
   "wholesale",
 
+  // Generic glue words / content scaffolding
+  "free",
+  "matters",
+  "product",
+  "products",
+  "why",
+  "because",
+  "what",
+  "leave",
+
   // HTML/CSS/JS junk
   "svg",
   "path",
@@ -532,6 +542,8 @@ function isRealValue(field, value, doc) {
   const f = normalizeKey(field);
 
   if (f === "industries") {
+    const source = normalizeKey(doc?.industries_source || "");
+    if (source !== "grok") return false;
     return isValidIndustries(value);
   }
 
@@ -543,17 +555,12 @@ function isRealValue(field, value, doc) {
 
     const source = normalizeKey(doc?.product_keywords_source || doc?.keywords_source || "");
 
-    // Default quality gate (website/XAI extraction can be noisy).
-    // - must have at least 20 total raw keywords
-    // - must have at least 10 product-relevant keywords after sanitization
-    if (source !== "grok") {
-      if (stats.total_raw < 20) return false;
-      if (stats.product_relevant_count < 10) return false;
-      return true;
-    }
+    // Canonical keywords must come from Grok. Anything derived from the site scrape
+    // or other fallbacks should be treated as debug-only and NOT satisfy required-fields.
+    if (source !== "grok") return false;
 
-    // Grok-sourced keywords tend to be shorter but higher quality.
-    if (stats.product_relevant_count < 8) return false;
+    // Quality gate: require at least 20 product-relevant keywords after sanitization.
+    if (stats.product_relevant_count < 20) return false;
     return true;
   }
 

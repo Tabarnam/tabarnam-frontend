@@ -152,6 +152,8 @@ const GROK_ONLY_FIELDS = new Set([
   "headquarters_location",
   "manufacturing_locations",
   "reviews",
+  "industries",
+  "product_keywords",
 ]);
 
 const GROK_RETRYABLE_STATUSES = new Set([
@@ -197,36 +199,49 @@ function classifyLocationSource({ source_url, normalized_domain }) {
     host = "";
   }
 
-  if (host) {
-    if (domain && domain !== "unknown" && (host === domain || host.endsWith(`.${domain}`))) {
-      out.source_type = "official_website";
-      return out;
-    }
+  if (!host) return out;
 
-    if (
-      host.includes("zoominfo.com") ||
-      host.includes("crunchbase.com") ||
-      host.includes("dnb.com") ||
-      host.includes("linkedin.com")
-    ) {
-      out.source_type = "b2b_directory";
-      return out;
-    }
+  if (domain && domain !== "unknown" && (host === domain || host.endsWith(`.${domain}`))) {
+    out.source_type = "official_site";
+    return out;
+  }
 
-    if (host.endsWith(".gov") || host.includes(".gov.")) {
-      out.source_type = "government_guide";
-      return out;
-    }
+  if (
+    host.includes("zoominfo.com") ||
+    host.includes("crunchbase.com") ||
+    host.includes("dnb.com") ||
+    host.includes("linkedin.com")
+  ) {
+    out.source_type = "b2b_directory";
+    return out;
+  }
 
-    if (
-      host.includes("news") ||
-      host.includes("press") ||
-      host.includes("magazine") ||
-      host.includes("journal")
-    ) {
-      out.source_type = "media";
-      return out;
-    }
+  if (
+    host.includes("instagram.com") ||
+    host.includes("facebook.com") ||
+    host.includes("tiktok.com") ||
+    host.includes("pinterest.com") ||
+    host.includes("youtube.com") ||
+    host === "x.com" ||
+    host.includes("twitter.com")
+  ) {
+    out.source_type = "social";
+    return out;
+  }
+
+  if (host.includes("amazon.") || host.includes("etsy.com") || host.includes("ebay.com") || host.includes("walmart.com")) {
+    out.source_type = "marketplace";
+    return out;
+  }
+
+  if (host.endsWith(".gov") || host.includes(".gov.")) {
+    out.source_type = "government";
+    return out;
+  }
+
+  if (host.includes("news") || host.includes("press") || host.includes("magazine") || host.includes("journal")) {
+    out.source_type = "news";
+    return out;
   }
 
   return out;
@@ -1513,23 +1528,21 @@ async function resumeWorkerHandler(req, context) {
     const taglineRetryable = !isRealValue("tagline", doc.tagline, doc) && !isTerminalMissingField(doc, "tagline");
 
     const fieldsPlanned = (() => {
-      // Single-company mode must eventually attempt heavy fields (HQ/MFG/Reviews) across cycles.
-      // If budget heuristics would otherwise keep selecting only light fields (e.g., tagline),
-      // prefer one heavy field per cycle, chosen by lowest attempt count.
-      if (singleCompanyMode) {
-        const heavy = ["headquarters_location", "manufacturing_locations", "reviews"].filter((f) => missingNow.includes(f));
-        if (heavy.length > 0) {
-          const remainingMs = remainingRunMs();
-          if (remainingMs >= 4000) {
-            heavy.sort((a, b) => {
-              const da = attemptsFor(doc, a);
-              const db = attemptsFor(doc, b);
-              if (da !== db) return da - db;
-              return a === "headquarters_location" ? -1 : b === "headquarters_location" ? 1 : 0;
-            });
-            return new Set([heavy[0]]);
-          }
-        }
+      const HEAVY_FIELDS = ["headquarters_location", "manufacturing_locations", "reviews", "industries", "product_keywords"];
+      const heavyMissing = HEAVY_FIELDS.some((f) => missingNow.includes(f));
+
+      // Single-company mode must eventually attempt heavy fields across cycles.
+      // If any heavy field is missing+retryable, schedule exactly 1 heavy field per cycle,
+      // chosen by lowest attempt count (ties prefer HQ).
+      if (singleCompanyMode && heavyMissing) {
+        const heavy = HEAVY_FIELDS.filter((f) => missingNow.includes(f));
+        heavy.sort((a, b) => {
+          const da = attemptsFor(doc, a);
+          const db = attemptsFor(doc, b);
+          if (da !== db) return da - db;
+          return a === "headquarters_location" ? -1 : b === "headquarters_location" ? 1 : 0;
+        });
+        return new Set([heavy[0]]);
       }
 
       const priority = [
@@ -1562,7 +1575,12 @@ async function resumeWorkerHandler(req, context) {
         // Single-company mode should do less per cycle rather than slash timeouts.
         // In particular, do at most one heavy upstream stage per cycle to reduce timeouts.
         if (singleCompanyMode) {
-          const heavy = field === "headquarters_location" || field === "manufacturing_locations" || field === "reviews";
+          const heavy =
+            field === "headquarters_location" ||
+            field === "manufacturing_locations" ||
+            field === "reviews" ||
+            field === "industries" ||
+            field === "product_keywords";
           if (heavy || out.length >= 2) break;
         }
       }
@@ -1571,19 +1589,24 @@ async function resumeWorkerHandler(req, context) {
       // fields, schedule a single best-effort attempt. This prevents no-op resume-worker cycles that can
       // cause sessions to get stuck/blocked with retryable missing fields.
       if (out.length === 0 && (missingNow.length > 0 || taglineRetryable)) {
-        const fallbackPriority = [
-          "tagline",
-          "industries",
-          "product_keywords",
-          "logo",
-          "headquarters_location",
-          "manufacturing_locations",
-          "reviews",
-        ];
+        const taglineAttempts = attemptsFor(doc, "tagline");
+
+        // If any heavy field is missing, never plan "tagline only" (and never retry tagline endlessly).
+        const fallbackPriority = heavyMissing
+          ? ["headquarters_location", "manufacturing_locations", "reviews", "industries", "product_keywords", "logo"]
+          : [
+              "tagline",
+              "industries",
+              "product_keywords",
+              "logo",
+              "headquarters_location",
+              "manufacturing_locations",
+              "reviews",
+            ];
 
         for (const f of fallbackPriority) {
           if (f === "tagline") {
-            if (taglineRetryable) {
+            if (taglineRetryable && (!heavyMissing || taglineAttempts < 2)) {
               out.push(f);
               break;
             }
@@ -1719,6 +1742,7 @@ async function resumeWorkerHandler(req, context) {
 
       if (status === "ok" && sanitized.length > 0) {
         doc.industries = sanitized;
+        doc.industries_source = "grok";
         doc.industries_unknown = false;
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.industries = "ok";
@@ -1792,7 +1816,7 @@ async function resumeWorkerHandler(req, context) {
         }
       })();
 
-      if (status === "ok" && sanitized.length > 0) {
+      if (status === "ok" && sanitized.length >= 20) {
         doc.keywords = sanitized.slice(0, 25);
         doc.product_keywords = sanitized.join(", ");
         doc.keywords_source = "grok";
@@ -1908,6 +1932,8 @@ async function resumeWorkerHandler(req, context) {
             source_url: sourceUrl,
             source_type: prov.source_type,
             source_method: prov.source_method,
+            extracted_field: "headquarters_location",
+            extracted_at: nowIso(),
           });
         }
 
@@ -2029,6 +2055,8 @@ async function resumeWorkerHandler(req, context) {
               source_url: primaryMfgSourceUrl,
               source_type: prov.source_type,
               source_method: prov.source_method,
+              extracted_field: "manufacturing_locations",
+              extracted_at: nowIso(),
             });
           }
         }
