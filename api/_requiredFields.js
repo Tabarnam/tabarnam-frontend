@@ -299,6 +299,15 @@ function isKeywordJunk(keyword) {
   // Legal/nav terms
   if (KEYWORD_DISALLOW_TERMS.some((t) => key.includes(normalizeKey(t)))) return true;
 
+  // Heuristic: ALL CAPS labels ("SHOP ALL", "BEST SELLERS") are rarely real product names.
+  // Keep anything with digits (SKUs) or longer descriptive phrases.
+  const hasDigits = /\d/.test(raw);
+  const isAllCaps = raw.length > 0 && raw === raw.toUpperCase() && /[A-Z]/.test(raw);
+  if (isAllCaps && !hasDigits) {
+    const words = raw.split(/\s+/).filter(Boolean);
+    if (words.length > 0 && words.length <= 4 && raw.length <= 30) return true;
+  }
+
   // Too short or just symbols
   if (key.length < 3) return true;
   if (!/[a-z]/i.test(key)) return true;
