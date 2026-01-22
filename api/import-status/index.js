@@ -398,10 +398,10 @@ function applyTerminalOnlyCompletion(out, reason) {
     if (typeof out.resume_worker.last_resume_needed === "boolean") out.resume_worker.last_resume_needed = false;
   }
 
-  out.resume_error = out.resume_error || null;
-  out.resume_error_details = out.resume_error_details || null;
+  out.resume_error = null;
+  out.resume_error_details = null;
 
-  out.progress_error = out.progress_error || "Saved with warnings: post_save_warning";
+  out.progress_error = null;
   out.progress_notice =
     "Completed (terminal-only): remaining missing fields are terminal (Not disclosed / exhausted / not found).";
 
@@ -1070,7 +1070,22 @@ async function handler(req, context) {
   }
 
   const extraHeaders = { "x-session-id": sessionId };
-  const jsonWithSessionId = (obj, status = 200) => json(obj, status, req, extraHeaders);
+  const jsonWithSessionId = (obj, status = 200) => {
+    try {
+      if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+        const sbv = obj.stage_beacon_values && typeof obj.stage_beacon_values === "object" ? obj.stage_beacon_values : null;
+        if (sbv?.status_resume_force_terminalize_selected === true) {
+          const forcedReason =
+            typeof sbv.status_resume_blocked_reason === "string" && sbv.status_resume_blocked_reason.trim()
+              ? sbv.status_resume_blocked_reason.trim()
+              : "force_terminalize_selected";
+          applyTerminalOnlyCompletion(obj, forcedReason);
+        }
+      }
+    } catch {}
+
+    return json(obj, status, req, extraHeaders);
+  };
 
   const statusCheckedAt = nowIso();
   const stageBeaconValues = {
