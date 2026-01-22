@@ -1840,6 +1840,39 @@ async function resumeWorkerHandler(req, context) {
         doc.mfg_unknown_reason = null;
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.manufacturing_locations = "ok";
+
+        const mfgSourceUrls = Array.isArray(r?.location_source_urls?.mfg_source_urls)
+          ? r.location_source_urls.mfg_source_urls
+          : Array.isArray(r?.source_urls)
+            ? r.source_urls
+            : [];
+
+        doc.enrichment_debug = doc.enrichment_debug && typeof doc.enrichment_debug === "object" ? doc.enrichment_debug : {};
+        doc.enrichment_debug.location_sources =
+          doc.enrichment_debug.location_sources && typeof doc.enrichment_debug.location_sources === "object"
+            ? doc.enrichment_debug.location_sources
+            : {};
+        doc.enrichment_debug.location_sources.mfg_source_urls = mfgSourceUrls;
+
+        doc.location_sources = Array.isArray(doc.location_sources) ? doc.location_sources : [];
+        const primaryMfgSourceUrl = mfgSourceUrls.map((u) => String(u || "").trim()).filter(Boolean)[0] || "";
+        if (primaryMfgSourceUrl) {
+          for (const loc of locs) {
+            const locStr = String(loc || "").trim();
+            if (!locStr) continue;
+            const exists = doc.location_sources.some(
+              (x) => x && typeof x === "object" && x.location_type === "mfg" && x.location === locStr && x.source_url === primaryMfgSourceUrl
+            );
+            if (exists) continue;
+            doc.location_sources.push({
+              location_type: "mfg",
+              location: locStr,
+              source_url: primaryMfgSourceUrl,
+              source_type: "grok_search",
+            });
+          }
+        }
+
         markFieldSuccess(doc, "manufacturing_locations");
         changed = true;
       } else {
