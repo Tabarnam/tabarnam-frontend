@@ -1619,7 +1619,7 @@ async function resumeWorkerHandler(req, context) {
 
       if (status === "ok" && sanitized.length > 0) {
         doc.keywords = sanitized.slice(0, 25);
-        doc.product_keywords = doc.keywords.join(", ");
+        doc.product_keywords = sanitized.join(", ");
         doc.keywords_source = "grok";
         doc.product_keywords_source = "grok";
 
