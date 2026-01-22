@@ -197,36 +197,49 @@ function classifyLocationSource({ source_url, normalized_domain }) {
     host = "";
   }
 
-  if (host) {
-    if (domain && domain !== "unknown" && (host === domain || host.endsWith(`.${domain}`))) {
-      out.source_type = "official_website";
-      return out;
-    }
+  if (!host) return out;
 
-    if (
-      host.includes("zoominfo.com") ||
-      host.includes("crunchbase.com") ||
-      host.includes("dnb.com") ||
-      host.includes("linkedin.com")
-    ) {
-      out.source_type = "b2b_directory";
-      return out;
-    }
+  if (domain && domain !== "unknown" && (host === domain || host.endsWith(`.${domain}`))) {
+    out.source_type = "official_site";
+    return out;
+  }
 
-    if (host.endsWith(".gov") || host.includes(".gov.")) {
-      out.source_type = "government_guide";
-      return out;
-    }
+  if (
+    host.includes("zoominfo.com") ||
+    host.includes("crunchbase.com") ||
+    host.includes("dnb.com") ||
+    host.includes("linkedin.com")
+  ) {
+    out.source_type = "b2b_directory";
+    return out;
+  }
 
-    if (
-      host.includes("news") ||
-      host.includes("press") ||
-      host.includes("magazine") ||
-      host.includes("journal")
-    ) {
-      out.source_type = "media";
-      return out;
-    }
+  if (
+    host.includes("instagram.com") ||
+    host.includes("facebook.com") ||
+    host.includes("tiktok.com") ||
+    host.includes("pinterest.com") ||
+    host.includes("youtube.com") ||
+    host === "x.com" ||
+    host.includes("twitter.com")
+  ) {
+    out.source_type = "social";
+    return out;
+  }
+
+  if (host.includes("amazon.") || host.includes("etsy.com") || host.includes("ebay.com") || host.includes("walmart.com")) {
+    out.source_type = "marketplace";
+    return out;
+  }
+
+  if (host.endsWith(".gov") || host.includes(".gov.")) {
+    out.source_type = "government";
+    return out;
+  }
+
+  if (host.includes("news") || host.includes("press") || host.includes("magazine") || host.includes("journal")) {
+    out.source_type = "news";
+    return out;
   }
 
   return out;
