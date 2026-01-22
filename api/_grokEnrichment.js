@@ -784,15 +784,17 @@ async function fetchIndustries({
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
 
-  const prompt = `
-Identify the primary industries for the company:
-Name: ${name}
-Domain: ${domain}
+  const websiteUrlForPrompt = domain ? `https://${domain}` : "";
+
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+
+Task: Identify the company's industries.
 
 Rules:
 - Use web search.
-- Return 1-3 broad industries (not store navigation categories like "New Arrivals", "Shop", etc.).
-- Examples of good outputs: "Supplements", "Oral Care", "Skincare", "Household Cleaning", "Pet Care".
+- Return a list of industries/categories that best describe what the company makes/sells.
+- Avoid store navigation terms (e.g. "New Arrivals", "Shop", "Sale") and legal terms.
+- Prefer industry labels that can be mapped to an internal taxonomy.
 - Output STRICT JSON only.
 
 Return:
