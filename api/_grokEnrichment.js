@@ -109,6 +109,170 @@ function normalizeExcludeDomains({ normalizedDomain } = {}) {
   return Array.from(new Set(out));
 }
 
+function safeUrl(raw) {
+  const s = asString(raw).trim();
+  if (!s) return "";
+  try {
+    const u = new URL(s);
+    u.hash = "";
+    return u.toString();
+  } catch {
+    return s;
+  }
+}
+
+function urlHost(raw) {
+  const s = asString(raw).trim();
+  if (!s) return "";
+  try {
+    const u = new URL(s);
+    return asString(u.hostname).trim().toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function normalizeHostForDedupe(host) {
+  const h = asString(host).trim().toLowerCase();
+  return h.replace(/^www\./, "").replace(/\.+$/, "");
+}
+
+function isYouTubeUrl(raw) {
+  const host = normalizeHostForDedupe(urlHost(raw));
+  return host === "youtube.com" || host === "m.youtube.com" || host === "youtu.be";
+}
+
+function parseHtmlMeta(html, { key, property } = {}) {
+  const source = asString(html);
+  if (!source) return null;
+
+  const tryAttr = (attrName, attrValue) => {
+    if (!attrValue) return null;
+    const needle = String(attrValue).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(
+      `<meta[^>]+(?:${attrName}\\s*=\\s*"${needle}"|${attrName}\\s*=\\s*'${needle}'|${attrName}\\s*=\\s*${needle})[^>]+content\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))[^>]*>`,
+      "i"
+    );
+    const m = source.match(re);
+    return (m && (m[1] || m[2] || m[3])) ? asString(m[1] || m[2] || m[3]).trim() : null;
+  };
+
+  if (key) {
+    const byName = tryAttr("name", key);
+    if (byName) return byName;
+  }
+
+  if (property) {
+    const byProp = tryAttr("property", property);
+    if (byProp) return byProp;
+  }
+
+  return null;
+}
+
+function parseHtmlTitle(html) {
+  const source = asString(html);
+  if (!source) return null;
+  const m = source.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (!m) return null;
+  const text = asString(m[1]).replace(/\s+/g, " ").trim();
+  return text || null;
+}
+
+async function fetchWithTimeout(url, { method = "GET", timeoutMs = 8000, headers } = {}) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), Math.max(500, Math.trunc(Number(timeoutMs) || 8000)));
+  try {
+    const res = await fetch(url, {
+      method,
+      redirect: "follow",
+      headers: headers && typeof headers === "object" ? headers : undefined,
+      signal: controller.signal,
+    });
+    return res;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function verifyUrlReachable(url, { timeoutMs = 8000, soft404Bytes = 12_000 } = {}) {
+  const attempted = safeUrl(url);
+  if (!attempted) return { ok: false, url: attempted, status: 0, reason: "empty_url" };
+
+  // HEAD first, but many sites block it.
+  try {
+    const headRes = await fetchWithTimeout(attempted, { method: "HEAD", timeoutMs });
+    const status = Number(headRes.status || 0) || 0;
+    if (status >= 200 && status < 300) {
+      return { ok: true, url: attempted, status };
+    }
+    // Fall through to GET.
+  } catch {
+    // ignore and fall back to GET
+  }
+
+  try {
+    const res = await fetchWithTimeout(attempted, { method: "GET", timeoutMs, headers: { "User-Agent": "Mozilla/5.0" } });
+    const status = Number(res.status || 0) || 0;
+    if (status < 200 || status >= 300) {
+      return { ok: false, url: attempted, status, reason: `http_${status}` };
+    }
+
+    const ct = asString(res.headers?.get ? res.headers.get("content-type") : "").toLowerCase();
+    const isHtml = ct.includes("text/html") || ct.includes("application/xhtml");
+    if (!isHtml) return { ok: true, url: attempted, status };
+
+    const text = await res.text();
+    const head = text.slice(0, soft404Bytes);
+    const title = parseHtmlTitle(head);
+    const soft404 =
+      (title && /\b(404|not found|page not found)\b/i.test(title)) ||
+      /\b(404|page not found|sorry, we can\s*'t find)\b/i.test(head);
+
+    if (soft404) return { ok: false, url: attempted, status, reason: "soft_404" };
+
+    return { ok: true, url: attempted, status, html_preview: head };
+  } catch (e) {
+    return { ok: false, url: attempted, status: 0, reason: asString(e?.message || e || "fetch_failed") };
+  }
+}
+
+function buildReviewMetadataFromHtml(url, html) {
+  const host = normalizeHostForDedupe(urlHost(url));
+  const source_name = host ? host.replace(/^www\./, "") : "";
+
+  const title =
+    parseHtmlMeta(html, { property: "og:title" }) ||
+    parseHtmlMeta(html, { key: "title" }) ||
+    parseHtmlTitle(html);
+
+  const excerpt =
+    parseHtmlMeta(html, { property: "og:description" }) ||
+    parseHtmlMeta(html, { key: "description" }) ||
+    null;
+
+  const author =
+    parseHtmlMeta(html, { key: "author" }) ||
+    parseHtmlMeta(html, { property: "article:author" }) ||
+    null;
+
+  const date =
+    parseHtmlMeta(html, { property: "article:published_time" }) ||
+    parseHtmlMeta(html, { key: "date" }) ||
+    parseHtmlMeta(html, { key: "pubdate" }) ||
+    parseHtmlMeta(html, { key: "publishdate" }) ||
+    null;
+
+  return {
+    source_name: source_name || null,
+    author: author ? author : null,
+    source_url: safeUrl(url) || url,
+    title: title ? title : null,
+    date: date ? date : null,
+    excerpt: excerpt ? excerpt : null,
+  };
+}
+
 async function fetchCuratedReviews({
   companyName,
   normalizedDomain,
