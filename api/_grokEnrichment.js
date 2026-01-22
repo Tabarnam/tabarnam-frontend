@@ -1191,31 +1191,60 @@ Return:
   }
 
   const out = parseJsonFromXaiResponse(r.resp);
-  const list = Array.isArray(out?.keywords)
-    ? out.keywords
-    : Array.isArray(out?.product_keywords)
-      ? out.product_keywords
-      : Array.isArray(out)
-        ? out
-        : [];
+
+  if (!out || typeof out !== "object" || Array.isArray(out) || !Object.prototype.hasOwnProperty.call(out, "completeness")) {
+    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    return {
+      product_keywords: [],
+      keywords: [],
+      keywords_status: "invalid_json",
+      diagnostics: {
+        reason: "missing_completeness_key",
+        raw_preview: rawText ? rawText.slice(0, 1200) : null,
+      },
+    };
+  }
+
+  const hasProductKeywordsKey = Object.prototype.hasOwnProperty.call(out, "product_keywords");
+  const hasKeywordsKey = Object.prototype.hasOwnProperty.call(out, "keywords");
+
+  if (!hasProductKeywordsKey && !hasKeywordsKey) {
+    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    return {
+      product_keywords: [],
+      keywords: [],
+      keywords_status: "invalid_json",
+      diagnostics: {
+        reason: "missing_product_keywords_key",
+        raw_preview: rawText ? rawText.slice(0, 1200) : null,
+      },
+    };
+  }
+
+  const list = Array.isArray(out?.product_keywords) ? out.product_keywords : Array.isArray(out?.keywords) ? out.keywords : [];
 
   const cleaned = list.map((x) => asString(x).trim()).filter(Boolean);
   const deduped = Array.from(new Set(cleaned));
 
   if (deduped.length === 0) {
-    return { keywords: [], keywords_status: "not_found" };
+    const valueOut = { product_keywords: [], keywords: [], keywords_status: "not_found" };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
   }
 
   const completenessRaw = asString(out?.completeness).trim().toLowerCase();
   const completeness = completenessRaw === "incomplete" ? "incomplete" : "complete";
   const incomplete_reason = completeness === "incomplete" ? (asString(out?.incomplete_reason).trim() || null) : null;
 
-  return {
+  const valueOut = {
+    product_keywords: deduped,
     keywords: deduped,
     keywords_status: completeness === "incomplete" ? "incomplete" : "ok",
     keywords_completeness: completeness,
     keywords_incomplete_reason: incomplete_reason,
   };
+  if (cacheKey) writeStageCache(cacheKey, valueOut);
+  return valueOut;
 }
 
 module.exports = {
