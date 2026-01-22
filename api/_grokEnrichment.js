@@ -426,12 +426,29 @@ Output STRICT JSON only as:
   }
 
   const parsed = parseJsonFromXaiResponse(r.resp);
+
   const rawCandidates =
-    parsed && typeof parsed === "object" && Array.isArray(parsed.review_candidates)
-      ? parsed.review_candidates
-      : Array.isArray(parsed)
-        ? parsed
-        : [];
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? Array.isArray(parsed.reviews_url_candidates)
+        ? parsed.reviews_url_candidates
+        : Array.isArray(parsed.review_candidates)
+          ? parsed.review_candidates
+          : null
+      : null;
+
+  if (!rawCandidates) {
+    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    return {
+      curated_reviews: [],
+      reviews_stage_status: "invalid_json",
+      diagnostics: {
+        reason: "missing_reviews_url_candidates",
+        raw_preview: rawText ? rawText.slice(0, 1200) : null,
+      },
+      search_telemetry: searchBuild.telemetry,
+      excluded_hosts: searchBuild.excluded_hosts,
+    };
+  }
 
   const candidates = rawCandidates
     .filter((x) => x && typeof x === "object")
