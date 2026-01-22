@@ -1649,6 +1649,53 @@ async function handler(req, context) {
 
         let resumeStatus = resumeStatusRaw;
 
+        // Drift repair: if retryable missing fields still exist but the resume control doc says "complete",
+        // reopen it so /import/status polling can keep auto-driving enrichment without requiring a manual click.
+        if (!forceResume && resume_needed && resumeStatus === "complete") {
+          const reopenedAt = nowIso();
+          stageBeaconValues.status_resume_reopened_from_complete = reopenedAt;
+          resumeStatus = "queued";
+
+          try {
+            await upsertDoc(container, {
+              ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+              id: resumeDocId,
+              session_id: sessionId,
+              normalized_domain: "import",
+              partition_key: "import",
+              type: "import_control",
+              status: "queued",
+              resume_error: null,
+              resume_error_details: null,
+              blocked_at: null,
+              blocked_reason: null,
+              last_error: null,
+              lock_expires_at: null,
+              updated_at: reopenedAt,
+              missing_by_company,
+            }).catch(() => null);
+          } catch {}
+
+          try {
+            const sessionDocId = `_import_session_${sessionId}`;
+            const sessionDocForReopen = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+            if (sessionDocForReopen && typeof sessionDocForReopen === "object") {
+              const sessionStatusRaw = String(sessionDocForReopen?.status || "").trim();
+              const shouldDemote = sessionStatusRaw === "complete";
+
+              await upsertDoc(container, {
+                ...sessionDocForReopen,
+                resume_needed: true,
+                status: shouldDemote ? "running" : (sessionDocForReopen?.status || "running"),
+                stage_beacon: shouldDemote
+                  ? "enrichment_incomplete_retryable"
+                  : (sessionDocForReopen?.stage_beacon || "enrichment_incomplete_retryable"),
+                updated_at: reopenedAt,
+              }).catch(() => null);
+            }
+          } catch {}
+        }
+
         // Blocked should win over queued even if only the session control doc was persisted.
         const sessionBeaconRaw =
           typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc.stage_beacon === "string"
@@ -3477,6 +3524,38 @@ async function handler(req, context) {
 
         let resumeStatus = String(currentResume?.status || "").trim();
         const lockUntil = Date.parse(String(currentResume?.lock_expires_at || "")) || 0;
+
+        // Drift repair: if retryable missing fields still exist but the resume control doc says "complete",
+        // reopen it so /import/status polling can keep auto-driving enrichment without requiring a manual click.
+        if (!forceResume && resume_needed && resumeStatus === "complete") {
+          const reopenedAt = nowIso();
+          stageBeaconValues.status_resume_reopened_from_complete = reopenedAt;
+          resumeStatus = "queued";
+
+          await upsertDoc(container, {
+            ...(currentResume && typeof currentResume === "object" ? currentResume : {}),
+            status: "queued",
+            resume_error: null,
+            resume_error_details: null,
+            blocked_at: null,
+            blocked_reason: null,
+            last_error: null,
+            lock_expires_at: null,
+            updated_at: reopenedAt,
+            missing_by_company,
+          }).catch(() => null);
+
+          if (sessionDoc && typeof sessionDoc === "object") {
+            const sessionStatusRaw = String(sessionDoc?.status || "").trim();
+            if (sessionStatusRaw === "complete") {
+              sessionDoc.status = "running";
+              sessionDoc.stage_beacon = "enrichment_incomplete_retryable";
+              sessionDoc.updated_at = reopenedAt;
+              sessionDoc.resume_needed = true;
+              await upsertDoc(container, { ...sessionDoc }).catch(() => null);
+            }
+          }
+        }
 
         if (resumeStalledByGatewayAuth) {
           const stalledAt = nowIso();
