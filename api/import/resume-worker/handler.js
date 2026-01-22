@@ -1983,13 +1983,20 @@ async function resumeWorkerHandler(req, context) {
           doc.review_count = curated.length;
         }
 
-        const inferredStatus = status || (curated.length > 0 ? "incomplete" : "not_found");
-        doc.reviews_stage_status = inferredStatus;
-        doc.review_cursor.reviews_stage_status = doc.reviews_stage_status;
-        doc.import_missing_reason ||= {};
-        doc.import_missing_reason.reviews = terminal ? "exhausted" : inferredStatus;
+        const upstreamFailure = status === "upstream_unreachable" || status === "upstream_timeout";
 
-        doc.review_cursor.incomplete_reason = r?.incomplete_reason ?? null;
+        const incompleteReason =
+          asString(r?.incomplete_reason).trim() ||
+          (upstreamFailure ? status : "") ||
+          (curated.length > 0 ? "insufficient_verified_reviews" : "no_valid_reviews_found");
+
+        // Required invariant: once we attempt reviews, the status must not stay "pending".
+        doc.reviews_stage_status = "incomplete";
+        doc.review_cursor.reviews_stage_status = "incomplete";
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.reviews = terminal ? "exhausted" : upstreamFailure ? status : "incomplete";
+
+        doc.review_cursor.incomplete_reason = incompleteReason;
         doc.review_cursor.attempted_urls = Array.isArray(r?.attempted_urls) ? r.attempted_urls : undefined;
 
         if (inferredStatus === "upstream_unreachable" || inferredStatus === "upstream_timeout") {
