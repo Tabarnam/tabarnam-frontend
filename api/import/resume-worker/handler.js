@@ -1727,6 +1727,7 @@ async function resumeWorkerHandler(req, context) {
 
       if (status === "ok" && sanitized.length > 0) {
         doc.industries = sanitized;
+        doc.industries_source = "grok";
         doc.industries_unknown = false;
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.industries = "ok";
@@ -1800,7 +1801,7 @@ async function resumeWorkerHandler(req, context) {
         }
       })();
 
-      if (status === "ok" && sanitized.length > 0) {
+      if (status === "ok" && sanitized.length >= 20) {
         doc.keywords = sanitized.slice(0, 25);
         doc.product_keywords = sanitized.join(", ");
         doc.keywords_source = "grok";
