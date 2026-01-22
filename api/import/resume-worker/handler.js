@@ -152,6 +152,8 @@ const GROK_ONLY_FIELDS = new Set([
   "headquarters_location",
   "manufacturing_locations",
   "reviews",
+  "industries",
+  "product_keywords",
 ]);
 
 const GROK_RETRYABLE_STATUSES = new Set([
