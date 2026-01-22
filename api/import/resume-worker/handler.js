@@ -1732,6 +1732,36 @@ async function resumeWorkerHandler(req, context) {
         doc.hq_unknown_reason = null;
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.headquarters_location = "ok";
+
+        const hqSourceUrls = Array.isArray(r?.location_source_urls?.hq_source_urls)
+          ? r.location_source_urls.hq_source_urls
+          : Array.isArray(r?.source_urls)
+            ? r.source_urls
+            : [];
+
+        doc.enrichment_debug = doc.enrichment_debug && typeof doc.enrichment_debug === "object" ? doc.enrichment_debug : {};
+        doc.enrichment_debug.location_sources =
+          doc.enrichment_debug.location_sources && typeof doc.enrichment_debug.location_sources === "object"
+            ? doc.enrichment_debug.location_sources
+            : {};
+        doc.enrichment_debug.location_sources.hq_source_urls = hqSourceUrls;
+
+        doc.location_sources = Array.isArray(doc.location_sources) ? doc.location_sources : [];
+        for (const url of hqSourceUrls) {
+          const sourceUrl = String(url || "").trim();
+          if (!sourceUrl) continue;
+          const exists = doc.location_sources.some(
+            (x) => x && typeof x === "object" && x.location_type === "hq" && x.location === value && x.source_url === sourceUrl
+          );
+          if (exists) continue;
+          doc.location_sources.push({
+            location_type: "hq",
+            location: value,
+            source_url: sourceUrl,
+            source_type: "grok_search",
+          });
+        }
+
         markFieldSuccess(doc, "headquarters_location");
         changed = true;
       } else {
