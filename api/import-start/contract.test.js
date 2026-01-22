@@ -973,6 +973,11 @@ test("/api/import/status reports resume_needed=false when only terminal missing 
                 return { resources };
               }
 
+              // import-status uses this query to decide whether a session exists.
+              if (q.includes("SELECT TOP 1 c.id FROM c") && q.includes("NOT STARTSWITH(c.id, '_import_')")) {
+                return { resources: [{ id: companyDoc.id }] };
+              }
+
               // Minimal support: return empty for any other query shapes.
               return { resources: [] };
             },
@@ -1025,6 +1030,207 @@ test("/api/import/status reports resume_needed=false when only terminal missing 
         assert.equal(statusBody.report?.session?.stage_beacon, "complete");
       } finally {
         // Restore real Cosmos exports for subsequent tests.
+        require.cache[cosmosModuleId].exports = originalCosmosExports;
+        delete require.cache[importStatusModuleId];
+        delete require.cache[primaryJobStoreModuleId];
+      }
+    }
+  );
+});
+
+test("/api/import/status surfaces resume_worker telemetry from resume doc when session control doc is missing (mock cosmos)", async () => {
+  const session_id = "66666666-7777-8888-9999-telemetry000001";
+
+  await withTempEnv(
+    {
+      ...NO_NETWORK_ENV,
+      COSMOS_DB_ENDPOINT: "https://cosmos.fake.local",
+      COSMOS_DB_KEY: "fake_key",
+      COSMOS_DB_DATABASE: "tabarnam-db",
+      COSMOS_DB_COMPANIES_CONTAINER: "companies",
+    },
+    async () => {
+      const docsById = new Map();
+      const now = new Date().toISOString();
+
+      const companyDoc = {
+        id: "company_1",
+        session_id,
+        import_session_id: session_id,
+        normalized_domain: "example.com",
+        company_name: "Example Co",
+        website_url: "https://example.com",
+
+        industries: [],
+        industries_unknown: true,
+        tagline: "",
+        tagline_unknown: true,
+        product_keywords: "",
+        product_keywords_unknown: true,
+        keywords: [],
+
+        headquarters_location: "",
+        hq_unknown: true,
+        hq_unknown_reason: "not_found",
+
+        manufacturing_locations: [],
+        mfg_unknown: true,
+        mfg_unknown_reason: "not_found",
+
+        curated_reviews: [],
+        review_count: 0,
+        reviews_stage_status: "missing",
+        review_cursor: {
+          source: "xai_reviews",
+          last_offset: 0,
+          total_fetched: 0,
+          exhausted: false,
+          reviews_stage_status: "missing",
+        },
+
+        logo_stage_status: "missing",
+        logo_url: "",
+
+        import_missing_reason: {
+          industries: "not_found",
+          tagline: "not_found",
+          product_keywords: "not_found",
+          headquarters_location: "not_found",
+          manufacturing_locations: "not_found",
+          reviews: "not_found",
+          logo: "not_found",
+        },
+
+        created_at: now,
+        updated_at: now,
+      };
+
+      // Note: intentionally DO NOT write the session control doc (`_import_session_${session_id}`).
+
+      docsById.set(`_import_primary_${session_id}`, {
+        id: `_import_primary_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_primary_job",
+        job_state: "complete",
+        stage_beacon: "primary_complete",
+        attempt: 1,
+        companies_count: 1,
+        companies: [companyDoc],
+        created_at: now,
+        updated_at: now,
+      });
+
+      docsById.set(`_import_resume_${session_id}`, {
+        id: `_import_resume_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        status: "queued",
+        missing_by_company: {
+          [companyDoc.id]: {
+            industries: "not_found",
+            tagline: "not_found",
+          },
+        },
+        last_field_attempted: "tagline",
+        last_field_result: "throttled",
+        attempted_fields: ["tagline"],
+        planned_fields: ["tagline", "headquarters_location"],
+        planned_fields_reason: "planner_ordered_by_missing",
+        handler_entered_at: now,
+        last_finished_at: now,
+        updated_at: now,
+      });
+
+      docsById.set(companyDoc.id, companyDoc);
+
+      const fakeContainer = {
+        read: async () => ({
+          resource: {
+            partitionKey: {
+              paths: ["/normalized_domain"],
+            },
+          },
+        }),
+        item: (id) => ({
+          read: async () => {
+            if (docsById.has(id)) return { resource: docsById.get(id) };
+            const err = new Error("Not Found");
+            err.code = 404;
+            throw err;
+          },
+        }),
+        items: {
+          upsert: async (doc) => {
+            if (doc && doc.id) docsById.set(String(doc.id), doc);
+            return { resource: doc };
+          },
+          query: (spec) => ({
+            fetchAll: async () => {
+              const q = String(spec?.query || "");
+              if (q.includes("ARRAY_CONTAINS(@ids, c.id)")) {
+                const idsParam = spec?.parameters?.find((p) => p?.name === "@ids");
+                const ids = Array.isArray(idsParam?.value) ? idsParam.value : [];
+                const resources = ids.map((id) => docsById.get(String(id))).filter(Boolean);
+                return { resources };
+              }
+
+              // import-status uses this query to decide whether a session exists.
+              if (q.includes("SELECT TOP 1 c.id FROM c") && q.includes("NOT STARTSWITH(c.id, '_import_')")) {
+                return { resources: [{ id: companyDoc.id }] };
+              }
+
+              return { resources: [] };
+            },
+          }),
+        },
+        database: () => fakeContainer,
+        container: () => fakeContainer,
+      };
+
+      class FakeCosmosClient {
+        constructor() {}
+        database() {
+          return {
+            container: () => fakeContainer,
+          };
+        }
+      }
+
+      const cosmosModuleId = require.resolve("@azure/cosmos");
+      const originalCosmosExports = require("@azure/cosmos");
+      require.cache[cosmosModuleId].exports = { ...originalCosmosExports, CosmosClient: FakeCosmosClient };
+
+      const importStatusModuleId = require.resolve("../import-status/index.js");
+      const primaryJobStoreModuleId = require.resolve("../_importPrimaryJobStore.js");
+      delete require.cache[importStatusModuleId];
+      delete require.cache[primaryJobStoreModuleId];
+
+      try {
+        const { _test: freshImportStatusTest } = require("../import-status/index.js");
+
+        const statusReq = makeReq({
+          url: `https://example.test/api/import/status?session_id=${encodeURIComponent(session_id)}`,
+          method: "GET",
+        });
+
+        const statusRes = await freshImportStatusTest.handler(statusReq, { log() {} });
+        const statusBody = JSON.parse(String(statusRes.body || "{}"));
+
+        assert.equal(statusRes.status, 200);
+        assert.equal(statusBody.ok, true);
+        assert.equal(statusBody.session_id, session_id);
+
+        // Repro: the UI depends on resume_worker telemetry; ensure it is present even if the session doc is missing.
+        assert.ok(statusBody.resume_worker);
+        assert.equal(statusBody.resume_worker?.last_field_attempted, "tagline");
+        assert.equal(statusBody.resume_worker?.last_field_result, "throttled");
+        assert.deepEqual(statusBody.resume_worker?.attempted_fields, ["tagline"]);
+        assert.deepEqual(statusBody.resume_worker?.planned_fields, ["tagline", "headquarters_location"]);
+      } finally {
         require.cache[cosmosModuleId].exports = originalCosmosExports;
         delete require.cache[importStatusModuleId];
         delete require.cache[primaryJobStoreModuleId];
@@ -1233,6 +1439,11 @@ test("/api/import/status auto-triggers resume-worker when resume status is block
                 return { resources };
               }
 
+              // import-status uses this query to decide whether a session exists.
+              if (q.includes("SELECT TOP 1 c.id FROM c") && q.includes("NOT STARTSWITH(c.id, '_import_')")) {
+                return { resources: [{ id: companyDoc.id }] };
+              }
+
               return { resources: [] };
             },
           }),
@@ -1287,6 +1498,278 @@ test("/api/import/status auto-triggers resume-worker when resume status is block
 
         // Sanity: resume doc remains blocked.
         assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "blocked");
+      } finally {
+        require.cache[cosmosModuleId].exports = originalCosmosExports;
+        if (require.cache[resumeWorkerModuleId]) {
+          require.cache[resumeWorkerModuleId].exports = originalResumeWorkerExports;
+        }
+        delete require.cache[importStatusModuleId];
+        delete require.cache[primaryJobStoreModuleId];
+        delete require.cache[resumeWorkerModuleId];
+      }
+    }
+  );
+});
+
+test("/api/import/status reopens completed resume doc when retryable missing fields still exist (mock cosmos)", async () => {
+  const session_id = "11111111-2222-3333-4444-555555555555";
+
+  await withTempEnv(
+    {
+      ...NO_NETWORK_ENV,
+      // Force the import-status handler down the Cosmos-backed code path.
+      COSMOS_DB_ENDPOINT: "https://cosmos.fake.local",
+      COSMOS_DB_KEY: "fake_key",
+      COSMOS_DB_DATABASE: "tabarnam-db",
+      COSMOS_DB_COMPANIES_CONTAINER: "companies",
+    },
+    async () => {
+      const docsById = new Map();
+      const now = new Date().toISOString();
+
+      const companyDoc = {
+        id: "company_1",
+        session_id,
+        import_session_id: session_id,
+        normalized_domain: "example.com",
+        company_name: "Example Co",
+        website_url: "https://example.com",
+
+        industries: [],
+        industries_unknown: true,
+        product_keywords: "",
+        product_keywords_unknown: true,
+        keywords: [],
+
+        tagline: "",
+
+        headquarters_location: "",
+        hq_unknown: true,
+        hq_unknown_reason: "not_found",
+
+        manufacturing_locations: [],
+        mfg_unknown: true,
+        mfg_unknown_reason: "not_found",
+
+        curated_reviews: [],
+        review_count: 0,
+        reviews_stage_status: "missing",
+        review_cursor: {
+          source: "xai_reviews",
+          last_offset: 0,
+          total_fetched: 0,
+          exhausted: false,
+          reviews_stage_status: "missing",
+        },
+
+        logo_stage_status: "missing",
+        logo_url: "",
+
+        import_missing_reason: {
+          industries: "not_found",
+          product_keywords: "not_found",
+          tagline: "not_found",
+          headquarters_location: "not_found",
+          manufacturing_locations: "not_found",
+          reviews: "not_found",
+          logo: "not_found",
+        },
+
+        created_at: now,
+        updated_at: now,
+      };
+
+      // Session doc drifted to complete, but company still has retryable missing fields.
+      docsById.set(`_import_session_${session_id}`, {
+        id: `_import_session_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        status: "complete",
+        stage_beacon: "complete",
+        resume_needed: false,
+        // Simulate a real drift scenario: the resume worker has run recently, so we should NOT
+        // force-terminalize immediately just because we reopened the resume doc.
+        resume_worker_last_finished_at: now,
+        resume_worker_handler_entered_at: now,
+        request: { limit: 1 },
+        created_at: now,
+        updated_at: now,
+      });
+
+      docsById.set(`_import_accept_${session_id}`, {
+        id: `_import_accept_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        accepted: true,
+        created_at: now,
+        updated_at: now,
+      });
+
+      docsById.set(`_import_complete_${session_id}`, {
+        id: `_import_complete_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        saved: 1,
+        saved_ids: ["company_1"],
+        saved_company_ids_verified: ["company_1"],
+        saved_verified_count: 1,
+        save_outcome: "saved",
+        created_at: now,
+        updated_at: now,
+      });
+
+      docsById.set(`_import_primary_job_${session_id}`, {
+        id: `_import_primary_job_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_primary_job",
+        job_state: "complete",
+        stage_beacon: "primary_complete",
+        attempt: 1,
+        companies_count: 1,
+        companies: [companyDoc],
+        created_at: now,
+        updated_at: now,
+      });
+
+      // Drifted resume doc is incorrectly marked complete.
+      docsById.set(`_import_resume_${session_id}`, {
+        id: `_import_resume_${session_id}`,
+        session_id,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        status: "complete",
+        lock_expires_at: null,
+        missing_by_company: {
+          company_1: ["tagline", "headquarters_location", "manufacturing_locations", "reviews"],
+        },
+        created_at: now,
+        updated_at: now,
+      });
+
+      const resumeWorkerModuleId = require.resolve("../import/resume-worker/handler.js");
+      const originalResumeWorkerExports = require(resumeWorkerModuleId);
+
+      require.cache[resumeWorkerModuleId].exports = {
+        ...originalResumeWorkerExports,
+        invokeResumeWorkerInProcess: async ({ session_id }) => {
+          const sid = String(session_id || "").trim();
+          const body = {
+            ok: true,
+            session_id: sid,
+            handler_entered_at: new Date().toISOString(),
+            resume_needed: true,
+          };
+
+          return {
+            ok: true,
+            status: 200,
+            bodyText: JSON.stringify(body),
+            error: null,
+            gateway_key_attached: false,
+            request_id: "contract_test_request",
+          };
+        },
+      };
+
+      docsById.set("company_1", companyDoc);
+
+      const fakeContainer = {
+        read: async () => ({
+          resource: {
+            partitionKey: {
+              paths: ["/normalized_domain"],
+            },
+          },
+        }),
+        item: (id) => ({
+          read: async () => {
+            if (docsById.has(id)) return { resource: docsById.get(id) };
+            const err = new Error("Not Found");
+            err.code = 404;
+            throw err;
+          },
+        }),
+        items: {
+          upsert: async (doc) => {
+            if (doc && doc.id) docsById.set(String(doc.id), doc);
+            return { resource: doc };
+          },
+          query: (spec) => ({
+            fetchAll: async () => {
+              const q = String(spec?.query || "");
+              if (q.includes("ARRAY_CONTAINS(@ids, c.id)")) {
+                const idsParam = spec?.parameters?.find((p) => p?.name === "@ids");
+                const ids = Array.isArray(idsParam?.value) ? idsParam.value : [];
+                const resources = ids.map((id) => docsById.get(String(id))).filter(Boolean);
+                return { resources };
+              }
+
+              // import-status uses this query to decide whether a session exists.
+              if (q.includes("SELECT TOP 1 c.id FROM c") && q.includes("NOT STARTSWITH(c.id, '_import_')")) {
+                return { resources: [{ id: companyDoc.id }] };
+              }
+
+              return { resources: [] };
+            },
+          }),
+        },
+        database: () => fakeContainer,
+        container: () => fakeContainer,
+      };
+
+      class FakeCosmosClient {
+        constructor() {}
+        database() {
+          return {
+            container: () => fakeContainer,
+          };
+        }
+      }
+
+      const cosmosModuleId = require.resolve("@azure/cosmos");
+      const originalCosmosExports = require("@azure/cosmos");
+      require.cache[cosmosModuleId].exports = { ...originalCosmosExports, CosmosClient: FakeCosmosClient };
+
+      const importStatusModuleId = require.resolve("../import-status/index.js");
+      const primaryJobStoreModuleId = require.resolve("../_importPrimaryJobStore.js");
+
+      delete require.cache[importStatusModuleId];
+      delete require.cache[primaryJobStoreModuleId];
+
+      try {
+        const { _test: freshImportStatusTest } = require("../import-status/index.js");
+
+        const statusReq = makeReq({
+          url: `https://example.test/api/import/status?session_id=${encodeURIComponent(session_id)}`,
+          method: "GET",
+        });
+
+        const statusRes = await freshImportStatusTest.handler(statusReq, { log() {} });
+        const statusBody = JSON.parse(String(statusRes.body || "{}"));
+
+        assert.equal(statusRes.status, 200);
+        assert.equal(statusBody.ok, true);
+        assert.equal(statusBody.session_id, session_id);
+
+        // Core invariant: drift is repaired automatically.
+        assert.ok(statusBody.stage_beacon_values?.status_resume_reopened_from_complete);
+        assert.equal(statusBody.resume?.status, "queued");
+        assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "queued");
+        assert.equal(docsById.get(`_import_session_${session_id}`)?.status, "running");
+        assert.equal(docsById.get(`_import_session_${session_id}`)?.resume_needed, true);
+
+        // And it auto-triggers the resume worker without manual force_resume.
+        assert.ok(statusBody.stage_beacon_values?.status_trigger_resume_worker);
+        assert.equal(statusBody.resume?.triggered, true);
       } finally {
         require.cache[cosmosModuleId].exports = originalCosmosExports;
         if (require.cache[resumeWorkerModuleId]) {
@@ -1470,6 +1953,11 @@ test("/api/import/status force-terminalizes and completes when cycle cap reached
                 const ids = Array.isArray(idsParam?.value) ? idsParam.value : [];
                 const resources = ids.map((id) => docsById.get(String(id))).filter(Boolean);
                 return { resources };
+              }
+
+              // import-status uses this query to decide whether a session exists.
+              if (q.includes("SELECT TOP 1 c.id FROM c") && q.includes("NOT STARTSWITH(c.id, '_import_')")) {
+                return { resources: [{ id: companyDoc.id }] };
               }
 
               return { resources: [] };
