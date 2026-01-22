@@ -288,22 +288,29 @@ async function fetchCuratedReviews({
 
   const excludeDomains = normalizeExcludeDomains({ normalizedDomain: domain });
 
-  const prompt = `
-Find independent third-party reviews for the company:
-Name: ${name}
-Domain: ${domain}
+  const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-Rules:
-- Use web search. Provide up to 10 candidates.
+  // Required query language (basis for prompt):
+  // “For the company (https://www.xxxxxxxxxxxx.com/) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.”
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+
+Task: Find EXACTLY 4 third-party product/company reviews we can show in the UI.
+
+Hard rules:
+- Use web search.
+- 2 reviews must be YouTube videos focused on the company or one of its products.
+- 2 reviews must be magazine or blog reviews (NOT the company website).
+- Provide MORE than 4 candidates (up to 20) so we can verify URLs.
 - Exclude sources from these domains or subdomains: ${excludeDomains.join(", ")}
-- Each item must include: source_name, source_url, excerpt, and if available rating and review_count.
-- Output STRICT JSON array only.
+- Do NOT invent titles/authors/dates/excerpts; we will extract metadata ourselves.
 
-Return JSON array:
-[
-  { "source_name": "...", "source_url": "...", "excerpt": "...", "rating": 4.5, "review_count": 123 }
-]
-`.trim();
+Output STRICT JSON only as:
+{
+  "review_candidates": [
+    { "source_url": "https://...", "category": "youtube" },
+    { "source_url": "https://...", "category": "blog" }
+  ]
+}`.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.reviews;
 
@@ -337,7 +344,7 @@ Return JSON array:
       maxMs: maxTimeoutMs,
       safetyMarginMs: 1_200,
     }),
-    maxTokens: 900,
+    maxTokens: 1400,
     model: asString(model).trim() || "grok-4-latest",
     xaiUrl,
     xaiKey,
@@ -360,36 +367,113 @@ Return JSON array:
   }
 
   const parsed = parseJsonFromXaiResponse(r.resp);
+  const rawCandidates =
+    parsed && typeof parsed === "object" && Array.isArray(parsed.review_candidates)
+      ? parsed.review_candidates
+      : Array.isArray(parsed)
+        ? parsed
+        : [];
 
-  let candidates = [];
-  if (Array.isArray(parsed)) candidates = parsed;
-  else if (parsed && typeof parsed === "object") {
-    if (Array.isArray(parsed.reviews)) candidates = parsed.reviews;
-    else if (Array.isArray(parsed.items)) candidates = parsed.items;
-  }
-
-  const validated = (Array.isArray(candidates) ? candidates : [])
+  const candidates = rawCandidates
     .filter((x) => x && typeof x === "object")
-    .map((x) => ({
-      source_name: asString(x.source_name || x.source || x.site || x.provider).trim(),
-      source_url: asString(x.source_url || x.url || x.link).trim(),
-      excerpt: asString(x.excerpt || x.text || x.snippet || x.summary).trim(),
-      rating: x.rating ?? null,
-      review_count: x.review_count ?? null,
-      title: asString(x.title || "").trim() || null,
-    }))
-    .filter((x) => x.source_url && x.excerpt && x.source_name)
+    .map((x) => {
+      const url = safeUrl(x.source_url || x.url || x.link);
+      const categoryRaw = asString(x.category || x.type || "").trim().toLowerCase();
+      const category = categoryRaw === "youtube" || isYouTubeUrl(url) ? "youtube" : "blog";
+      return { source_url: url, category };
+    })
+    .filter((x) => x.source_url)
     .filter((x) => !excludeDomains.some((d) => x.source_url.includes(d)));
 
-  const curated_reviews = validated.slice(0, 2);
-
-  if (curated_reviews.length === 0) {
-    // Important: "not_found" is retryable and attempt-capped by the resume worker.
-    // "exhausted" is reserved for terminalization (e.g. after GROK_MAX_ATTEMPTS).
+  if (candidates.length === 0) {
     return {
       curated_reviews: [],
       reviews_stage_status: "not_found",
-      diagnostics: { candidate_count: candidates.length, validated_count: 0 },
+      diagnostics: { candidate_count: 0, verified_count: 0 },
+      search_telemetry: searchBuild.telemetry,
+      excluded_hosts: searchBuild.excluded_hosts,
+    };
+  }
+
+  const deduped = [];
+  const seenUrls = new Set();
+  for (const c of candidates) {
+    const u = safeUrl(c.source_url);
+    if (!u || seenUrls.has(u)) continue;
+    seenUrls.add(u);
+    deduped.push({ ...c, source_url: u });
+  }
+
+  const attempted_urls = [];
+  const verified_youtube = [];
+  const verified_blog = [];
+  const usedBlogHosts = new Set();
+
+  const perUrlTimeoutMs = clampInt(remaining / 6, { min: 2500, max: 9000, fallback: 8000 });
+
+  for (const c of deduped) {
+    if (Date.now() - started > budgetMs - 1500) break;
+    if (verified_youtube.length >= 2 && verified_blog.length >= 2) break;
+
+    const needsYoutube = verified_youtube.length < 2;
+    const needsBlog = verified_blog.length < 2;
+
+    if (c.category === "youtube" && !needsYoutube) continue;
+    if (c.category === "blog" && !needsBlog) continue;
+
+    const host = normalizeHostForDedupe(urlHost(c.source_url));
+    if (c.category === "blog" && usedBlogHosts.has(host) && deduped.some((x) => x.category === "blog" && normalizeHostForDedupe(urlHost(x.source_url)) !== host)) {
+      // Prefer unique blog/magazine domains when possible.
+      continue;
+    }
+
+    attempted_urls.push(c.source_url);
+    const verified = await verifyUrlReachable(c.source_url, { timeoutMs: perUrlTimeoutMs });
+    if (!verified.ok) continue;
+
+    const html = typeof verified.html_preview === "string" ? verified.html_preview : "";
+    const meta = buildReviewMetadataFromHtml(c.source_url, html);
+
+    const review = {
+      source_name: isYouTubeUrl(c.source_url) ? "YouTube" : meta.source_name,
+      author: meta.author,
+      source_url: meta.source_url,
+      title: meta.title,
+      date: meta.date,
+      excerpt: meta.excerpt,
+    };
+
+    if (c.category === "youtube") {
+      verified_youtube.push(review);
+    } else {
+      verified_blog.push(review);
+      if (host) usedBlogHosts.add(host);
+    }
+  }
+
+  const curated_reviews = [...verified_youtube.slice(0, 2), ...verified_blog.slice(0, 2)];
+  const hasTwoYoutube = curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length >= 2;
+  const hasTwoBlog = curated_reviews.length - curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length >= 2;
+
+  const ok = curated_reviews.length === 4 && hasTwoYoutube && hasTwoBlog;
+
+  if (!ok) {
+    const reasonParts = [];
+    if (!hasTwoYoutube) reasonParts.push("missing_youtube_reviews");
+    if (!hasTwoBlog) reasonParts.push("missing_blog_reviews");
+    if (curated_reviews.length < 4) reasonParts.push("insufficient_verified_reviews");
+
+    return {
+      curated_reviews,
+      reviews_stage_status: "incomplete",
+      incomplete_reason: reasonParts.join(",") || "insufficient_verified_reviews",
+      attempted_urls,
+      diagnostics: {
+        candidate_count: candidates.length,
+        verified_count: curated_reviews.length,
+        youtube_verified: verified_youtube.length,
+        blog_verified: verified_blog.length,
+      },
       search_telemetry: searchBuild.telemetry,
       excluded_hosts: searchBuild.excluded_hosts,
     };
@@ -398,7 +482,13 @@ Return JSON array:
   return {
     curated_reviews,
     reviews_stage_status: "ok",
-    diagnostics: { candidate_count: candidates.length, validated_count: validated.length },
+    diagnostics: {
+      candidate_count: candidates.length,
+      verified_count: curated_reviews.length,
+      youtube_verified: verified_youtube.length,
+      blog_verified: verified_blog.length,
+    },
+    attempted_urls,
     search_telemetry: searchBuild.telemetry,
     excluded_hosts: searchBuild.excluded_hosts,
   };
