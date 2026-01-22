@@ -4518,6 +4518,12 @@ export default function AdminImport() {
                                       {Array.isArray(activeRun?.resume_worker?.attempted_fields) && activeRun.resume_worker.attempted_fields.length > 0
                                         ? activeRun.resume_worker.attempted_fields.join(", ")
                                         : "—"}
+                                      <span className="mx-2">·</span>
+                                      <span className="font-medium">Last field:</span>{" "}
+                                      {asString(activeRun?.resume_worker?.last_field_attempted).trim() || "—"}
+                                      {asString(activeRun?.resume_worker?.last_field_result).trim()
+                                        ? ` (${asString(activeRun.resume_worker.last_field_result).trim()})`
+                                        : ""}
                                     </div>
 
                                     {resumeErrorDetails ? (
