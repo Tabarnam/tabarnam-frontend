@@ -2688,6 +2688,8 @@ async function handler(req, context) {
                   : null,
               attempted_fields_request_id:
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
+              last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
+              last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
             }
           : null,
         enrichment_health_summary,
@@ -4463,6 +4465,8 @@ async function handler(req, context) {
                   : null,
               attempted_fields_request_id:
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
+              last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
+              last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
             }
           : null,
         enrichment_health_summary,
@@ -4642,6 +4646,8 @@ async function handler(req, context) {
                   : null,
               attempted_fields_request_id:
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
+              last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
+              last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
             }
           : null,
         enrichment_health_summary,
@@ -4816,6 +4822,8 @@ async function handler(req, context) {
                   : null,
               attempted_fields_request_id:
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
+              last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
+              last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
             }
           : null,
         enrichment_health_summary,
@@ -4991,6 +4999,8 @@ async function handler(req, context) {
                   : null,
               attempted_fields_request_id:
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
+              last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
+              last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
             }
           : null,
         enrichment_health_summary,
