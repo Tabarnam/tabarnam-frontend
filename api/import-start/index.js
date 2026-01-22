@@ -8786,159 +8786,123 @@ Output JSON only:
             console.log(`[import-start] ${companiesNeedingLocationRefinement.length} companies need location refinement`);
 
             try {
-              // Build refinement prompt focusing only on HQ + manufacturing locations
-              const refinementMessage = {
-                role: "user",
-                content: `You are a research assistant specializing in company location data.
-For the following companies, you previously found some information but HQ and/or manufacturing locations were missing or unclear.
-AGGRESSIVELY re-check ONLY for headquarters location and manufacturing locations using ALL available sources.
+              // HQ + Manufacturing are Grok-only fields. Use Grok live search and record source URLs.
+              ensureStageBudgetOrThrow("location", "grok_location_enrichment_start");
 
-SOURCES TO CHECK (in order):
-1. Official website (About, Contact, Facilities, Manufacturing, Where We Make pages)
-2. Government Buyer Guides (like Yumpu entries) - often list exact headquarters and "made in USA" claims
-3. B2B/Industrial Manufacturer Directories (Thomas Register, SIC/NAICS registries, manufacturer databases)
-4. LinkedIn company profile and product pages
-5. Public import/export records and trade data showing manufacturing origin countries
-6. Supplier databases and known manufacturing partners
-7. Packaging labels and product descriptions mentioning "Made in..."
-8. Media articles, product reviews, and third-party sources
-9. Crunchbase and other business databases
+              const deadlineBeforeLocation = checkDeadlineOrReturn("grok_location_enrichment_start", "location");
+              if (deadlineBeforeLocation) return deadlineBeforeLocation;
 
-CRITICAL RULES FOR MANUFACTURING LOCATIONS:
-- Government Buyer Guide entries (Yumpu, GSA, etc.) listing "all made in USA" or similar → INCLUDE "United States" in manufacturing_locations
-- B2B directories explicitly noting "Manufacturer" status + location → INCLUDE that location
-- Repeated origin countries in trade/customs data → INCLUDE those countries
-- Packaging claims "Made in [X]" → INCLUDE X
-- Do NOT return empty manufacturing_locations arrays - prefer country-only entries (e.g., "United States", "China") if that's all that's known
-- Country-only manufacturing locations are FULLY ACCEPTABLE and PREFERRED
+              mark("grok_location_enrichment_start");
+              setStage("grokLocationEnrichment");
 
-Companies needing refinement:
-${companiesNeedingLocationRefinement.map(c => `- ${c.company_name} (${c.url || 'N/A'}) - missing: ${!c.headquarters_location ? 'HQ' : ''} ${!c.manufacturing_locations || c.manufacturing_locations.length === 0 ? 'Manufacturing' : ''}`).join('\n')}
+              const locationSourcesDebug = [];
 
-For EACH company, return ONLY:
-{
-  "company_name": "exact name",
-  "headquarters_location": "City, State/Region, Country OR empty string ONLY if truly not found after checking all sources",
-  "manufacturing_locations": ["location1", "location2", ...] (MUST include countries/locations from all sources checked - never empty unless exhaustively confirmed unknown),
-  "red_flag": true/false,
-  "red_flag_reason": "explanation if red_flag true, empty string if false; may note inference source (e.g., 'Inferred from customs records')",
-  "location_confidence": "high|medium|low"
-}
-
-IMPORTANT:
-- NEVER return empty manufacturing_locations after checking government guides, B2B directories, and trade data
-- ALWAYS prefer "United States" or "China" over empty array
-- Inferred locations from secondary sources are valid and do NOT require red_flag: true
-
-Focus ONLY on location accuracy. Return a JSON array with these objects.
-Return ONLY the JSON array, no other text.`,
-              };
-
-              const refinementPayload = {
-                model: "grok-4-latest",
-                messages: [
-                  { role: "system", content: XAI_SYSTEM_PROMPT },
-                  refinementMessage,
-                ],
-                // HQ/MFG are Grok-only: enforce live search.
-                search_parameters: { mode: "on" },
-                temperature: 0.1,
-                stream: false,
-              };
-
-              console.log(
-                `[import-start] Running location refinement pass for ${companiesNeedingLocationRefinement.length} companies (upstream=${toHostPathOnlyForLog(
-                  xaiUrl
-                )})`
-              );
-
-              ensureStageBudgetOrThrow("location", "xai_location_refinement_fetch_start");
-
-              const deadlineBeforeLocationRefinement = checkDeadlineOrReturn(
-                "xai_location_refinement_fetch_start",
-                "location"
-              );
-              if (deadlineBeforeLocationRefinement) return deadlineBeforeLocationRefinement;
-
-              mark("xai_location_refinement_fetch_start");
-              const refinementResponse = await postXaiJsonWithBudgetRetry({
-                stageKey: "location",
-                stageBeacon: "xai_location_refinement_fetch_start",
-                body: JSON.stringify(refinementPayload),
-                stageCapMsOverride: Math.min(timeout, 25000),
-              });
-
-              if (refinementResponse.status >= 200 && refinementResponse.status < 300) {
-                const refinementText = refinementResponse.data?.choices?.[0]?.message?.content || "";
-                console.log(`[import-start] Refinement response preview: ${refinementText.substring(0, 100)}...`);
-
-                let refinedLocations = [];
-                try {
-                  const jsonMatch = refinementText.match(/\[[\s\S]*\]/);
-                  if (jsonMatch) {
-                    refinedLocations = JSON.parse(jsonMatch[0]);
-                    if (!Array.isArray(refinedLocations)) refinedLocations = [];
-                  }
-                } catch (parseErr) {
-                  console.warn(`[import-start] Failed to parse refinement response: ${parseErr.message}`);
+              for (let i = 0; i < enriched.length; i++) {
+                if (getRemainingMs() < MIN_STAGE_REMAINING_MS) {
+                  downstreamDeferredByBudget = true;
+                  deferredStages.add("location");
+                  break;
                 }
 
-                console.log(`[import-start] Refinement returned ${refinedLocations.length} location updates`);
+                const company = enriched[i];
+                const needsHq = !String(company?.headquarters_location || "").trim();
+                const needsMfg = !Array.isArray(company?.manufacturing_locations) || company.manufacturing_locations.length === 0;
+                if (!needsHq && !needsMfg) continue;
 
-                // Merge refinement results back into enriched companies
-                if (refinedLocations.length > 0) {
-                  const refinementMap = new Map();
-                  refinedLocations.forEach(rl => {
-                    const name = (rl.company_name || "").toLowerCase();
-                    if (name) refinementMap.set(name, rl);
-                  });
+                const companyName = String(company?.company_name || company?.name || "").trim();
+                const websiteUrl = String(company?.website_url || company?.canonical_url || company?.url || "").trim();
+                const normalizedDomain = String(company?.normalized_domain || toNormalizedDomain(websiteUrl)).trim();
 
-                  enriched = enriched.map(company => {
-                    const companyName = (company.company_name || "").toLowerCase();
-                    const refinement = refinementMap.get(companyName);
-                    if (refinement) {
-                      // Properly handle manufacturing_locations which might be a string or array
-                      let refinedMfgLocations = refinement.manufacturing_locations || company.manufacturing_locations || [];
-                      if (typeof refinedMfgLocations === 'string') {
-                        refinedMfgLocations = refinedMfgLocations.trim() ? [refinedMfgLocations.trim()] : [];
-                      }
+                if (!companyName || !normalizedDomain) continue;
 
-                      return {
-                        ...company,
-                        headquarters_location: refinement.headquarters_location || company.headquarters_location || "",
-                        manufacturing_locations: refinedMfgLocations,
-                        red_flag: refinement.red_flag !== undefined ? refinement.red_flag : company.red_flag,
-                        red_flag_reason: refinement.red_flag_reason !== undefined ? refinement.red_flag_reason : company.red_flag_reason || "",
-                        location_confidence: refinement.location_confidence || company.location_confidence || "medium",
-                      };
-                    }
-                    return company;
-                  });
+                const perCompanyBudgetMs = Math.min(
+                  18_000,
+                  Math.max(6_000, getRemainingMs() - DEADLINE_SAFETY_BUFFER_MS)
+                );
 
-                  // Re-geocode refined companies (HQ + manufacturing)
-                  console.log(`[import-start] Re-geocoding refined companies`);
-                  for (let i = 0; i < enriched.length; i++) {
-                    const company = enriched[i];
-                    const wasUpdated = refinedLocations.some(
-                      (rl) => (rl.company_name || "").toLowerCase() === (company.company_name || "").toLowerCase()
-                    );
-                    if (!wasUpdated) continue;
-                    try {
-                      enriched[i] = await geocodeCompanyLocations(company, { timeoutMs: 5000 });
-                    } catch (e) {
-                      console.log(`[import-start] Re-geocoding failed for ${company?.company_name || "(unknown)"}: ${e?.message || String(e)}`);
-                    }
+                const hqResult = needsHq
+                  ? await fetchHeadquartersLocationGrok({ companyName, normalizedDomain, budgetMs: perCompanyBudgetMs, xaiUrl, xaiKey })
+                  : null;
+
+                const mfgResult = needsMfg
+                  ? await fetchManufacturingLocationsGrok({ companyName, normalizedDomain, budgetMs: perCompanyBudgetMs, xaiUrl, xaiKey })
+                  : null;
+
+                const next = { ...company };
+
+                if (hqResult) {
+                  const status = String(hqResult?.hq_status || "").trim();
+                  const value = String(hqResult?.headquarters_location || "").trim();
+                  if (status === "ok" && value) {
+                    next.headquarters_location = value;
+                    next.hq_unknown = false;
+                    next.hq_unknown_reason = null;
+                  } else if (status === "not_disclosed") {
+                    next.headquarters_location = "Not disclosed";
+                    next.hq_unknown = true;
+                    next.hq_unknown_reason = "not_disclosed";
                   }
 
-                  console.log(`[import-start] Merged refinement data back into companies`);
+                  next.enrichment_debug = next.enrichment_debug && typeof next.enrichment_debug === "object" ? next.enrichment_debug : {};
+                  next.enrichment_debug.location_sources = next.enrichment_debug.location_sources && typeof next.enrichment_debug.location_sources === "object"
+                    ? next.enrichment_debug.location_sources
+                    : {};
+                  next.enrichment_debug.location_sources.hq_source_urls = Array.isArray(hqResult?.source_urls) ? hqResult.source_urls : [];
                 }
+
+                if (mfgResult) {
+                  const status = String(mfgResult?.mfg_status || "").trim();
+                  const list = Array.isArray(mfgResult?.manufacturing_locations) ? mfgResult.manufacturing_locations : [];
+                  if (status === "ok" && list.length > 0) {
+                    next.manufacturing_locations = list;
+                    next.mfg_unknown = false;
+                    next.mfg_unknown_reason = null;
+                  } else if (status === "not_disclosed") {
+                    next.manufacturing_locations = ["Not disclosed"];
+                    next.mfg_unknown = true;
+                    next.mfg_unknown_reason = "not_disclosed";
+                  }
+
+                  next.enrichment_debug = next.enrichment_debug && typeof next.enrichment_debug === "object" ? next.enrichment_debug : {};
+                  next.enrichment_debug.location_sources = next.enrichment_debug.location_sources && typeof next.enrichment_debug.location_sources === "object"
+                    ? next.enrichment_debug.location_sources
+                    : {};
+                  next.enrichment_debug.location_sources.mfg_source_urls = Array.isArray(mfgResult?.source_urls) ? mfgResult.source_urls : [];
+                }
+
+                // Company doc (debug-only) + session diagnostics.
+                if (next?.enrichment_debug?.location_sources) {
+                  locationSourcesDebug.push({
+                    company_name: companyName,
+                    normalized_domain: normalizedDomain,
+                    hq_source_urls: next.enrichment_debug.location_sources.hq_source_urls || [],
+                    mfg_source_urls: next.enrichment_debug.location_sources.mfg_source_urls || [],
+                  });
+                }
+
+                enriched[i] = next;
+              }
+
+              if (debugOutput && locationSourcesDebug.length) {
+                debugOutput.location_sources_debug = locationSourcesDebug;
+              }
+
+              if (!noUpstreamMode && cosmosEnabled && locationSourcesDebug.length) {
+                await upsertCosmosImportSessionDoc({
+                  sessionId,
+                  requestId,
+                  patch: {
+                    location_sources_debug: locationSourcesDebug,
+                    location_sources_updated_at: new Date().toISOString(),
+                  },
+                }).catch(() => null);
               }
             } catch (refinementErr) {
               if (refinementErr instanceof AcceptedResponseError) throw refinementErr;
-              console.warn(`[import-start] Location refinement pass failed: ${refinementErr.message}`);
-              // Continue with original data if refinement fails
+              console.warn(`[import-start] Grok location enrichment failed: ${refinementErr.message}`);
+              // Continue with original data if enrichment fails
             } finally {
-              mark("xai_location_refinement_fetch_done");
+              mark("grok_location_enrichment_done");
             }
           }
 
