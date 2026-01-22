@@ -3539,7 +3539,11 @@ async function saveCompaniesToCosmos({
                 keywords: doc.keywords,
               });
 
-              const meetsKeywordQuality = keywordStats.total_raw >= 20 && keywordStats.product_relevant_count >= 10;
+              const meetsKeywordQuality = isRealValue(
+                "product_keywords",
+                keywordStats.sanitized.join(", "),
+                { ...doc, keywords: keywordStats.sanitized }
+              );
 
               if (meetsKeywordQuality) {
                 doc.keywords = keywordStats.sanitized;
@@ -9235,7 +9239,11 @@ Output JSON only:
                   keywords: base.keywords,
                 });
 
-                const meetsKeywordQuality = keywordStats.total_raw >= 20 && keywordStats.product_relevant_count >= 10;
+                const meetsKeywordQuality = isRealValue(
+                "product_keywords",
+                keywordStats.sanitized.join(", "),
+                { ...doc, keywords: keywordStats.sanitized }
+              );
 
                 if (meetsKeywordQuality) {
                   base.keywords = keywordStats.sanitized;
