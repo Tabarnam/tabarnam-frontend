@@ -1986,7 +1986,7 @@ async function resumeWorkerHandler(req, context) {
         const upstreamFailure = status === "upstream_unreachable" || status === "upstream_timeout";
 
         const incompleteReason =
-          asString(r?.incomplete_reason).trim() ||
+          (typeof r?.incomplete_reason === "string" ? r.incomplete_reason.trim() : "") ||
           (upstreamFailure ? status : "") ||
           (curated.length > 0 ? "insufficient_verified_reviews" : "no_valid_reviews_found");
 
