@@ -616,7 +616,10 @@ Rules:
 - Output STRICT JSON only.
 
 Return:
-{ "headquarters_location": "...", "source_urls": ["https://...", "https://..."] }
+{
+  "headquarters_location": "...",
+  "location_source_urls": { "hq_source_urls": ["https://...", "https://..."] }
+}
 `.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
