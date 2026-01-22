@@ -76,6 +76,22 @@ async function withTempEnv(overrides, fn) {
   }
 }
 
+async function withTempGlobals(overrides, fn) {
+  const originals = {};
+  for (const [k, v] of Object.entries(overrides || {})) {
+    originals[k] = globalThis[k];
+    globalThis[k] = v;
+  }
+
+  try {
+    return await fn();
+  } finally {
+    for (const [k, v] of Object.entries(originals)) {
+      globalThis[k] = v;
+    }
+  }
+}
+
 function parseJsonResponse(res) {
   assert.ok(res);
   assert.equal(res.headers?.["Content-Type"] || res.headers?.["content-type"], "application/json");
