@@ -601,19 +601,22 @@ async function fetchManufacturingLocations({
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
 
-  const prompt = `
-Find manufacturing locations for the company:
-Name: ${name}
-Domain: ${domain}
+  const websiteUrlForPrompt = domain ? `https://${domain}` : "";
+
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+
+Task: Determine the company's MANUFACTURING locations.
 
 Rules:
-- Use web search.
-- Return an array of locations. Prefer "Country" or "City, ST, Country" when known.
-- If manufacturing is not publicly disclosed, return ["Not disclosed"].
+- Use web search (do not rely only on the company website).
+- Return an array of one or more locations. Include city + country when known; include multiple cities when applicable.
+- If only country-level is available, country-only entries are acceptable.
+- If manufacturing is not publicly disclosed after searching, return ["Not disclosed"].
+- Provide the supporting URLs you used for the manufacturing determination.
 - Output STRICT JSON only.
 
 Return:
-{ "manufacturing_locations": ["..."] }
+{ "manufacturing_locations": ["City, Country"], "source_urls": ["https://...", "https://..."] }
 `.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
