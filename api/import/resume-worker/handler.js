@@ -612,6 +612,48 @@ function computeRetryableMissingFields(doc) {
   return (Array.isArray(baseMissing) ? baseMissing : []).filter((f) => !isTerminalMissingField(doc, f));
 }
 
+function recomputeImportMissingReasonFromDoc(doc) {
+  if (!doc || typeof doc !== "object") return;
+  doc.import_missing_reason ||= {};
+
+  const fields = [
+    "industries",
+    "product_keywords",
+    "tagline",
+    "headquarters_location",
+    "manufacturing_locations",
+    "reviews",
+    "logo",
+  ];
+
+  for (const field of fields) {
+    const hasValue = isRealValue(field, doc[field], doc);
+
+    // If the value is actually present, the missing reason cannot be non-ok.
+    if (hasValue) {
+      doc.import_missing_reason[field] = "ok";
+      continue;
+    }
+
+    // If the field is terminal, keep (or set) the derived terminal reason.
+    if (isTerminalMissingField(doc, field)) {
+      doc.import_missing_reason[field] = deriveMissingReason(doc, field) || doc.import_missing_reason[field] || "exhausted";
+      continue;
+    }
+
+    const existing = normalizeKey(doc.import_missing_reason[field] || "");
+    const derived = normalizeKey(deriveMissingReason(doc, field) || "");
+
+    // Never allow impossible "ok" while missing.
+    if (existing === "ok") {
+      doc.import_missing_reason[field] = derived || "not_found";
+      continue;
+    }
+
+    doc.import_missing_reason[field] = existing || derived || "not_found";
+  }
+}
+
 function terminalizeNonGrokField(doc, field, reason) {
   doc.import_missing_reason ||= {};
 
