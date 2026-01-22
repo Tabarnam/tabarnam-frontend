@@ -278,6 +278,16 @@ const KEYWORD_DISALLOW_TERMS = [
   "press",
   "wholesale",
 
+  // Generic glue words / content scaffolding
+  "free",
+  "matters",
+  "product",
+  "products",
+  "why",
+  "because",
+  "what",
+  "leave",
+
   // HTML/CSS/JS junk
   "svg",
   "path",
