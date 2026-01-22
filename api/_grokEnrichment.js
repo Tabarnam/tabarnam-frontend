@@ -77,7 +77,7 @@ async function xaiLiveSearchWithRetry({ maxAttempts = 2, baseBackoffMs = 350, ..
 
   let last = null;
   for (let i = 0; i < attempts; i += 1) {
-    last = await xaiLiveSearchWithRetry({ ...args, attempt: i });
+    last = await xaiLiveSearch({ ...args, attempt: i });
     if (last && last.ok) return last;
 
     if (i < attempts - 1 && isRetryableUpstreamFailure(last)) {
