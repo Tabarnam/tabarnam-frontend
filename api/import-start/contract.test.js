@@ -1378,6 +1378,10 @@ test("/api/import/status reopens completed resume doc when retryable missing fie
         status: "complete",
         stage_beacon: "complete",
         resume_needed: false,
+        // Simulate a real drift scenario: the resume worker has run recently, so we should NOT
+        // force-terminalize immediately just because we reopened the resume doc.
+        resume_worker_last_finished_at: now,
+        resume_worker_handler_entered_at: now,
         request: { limit: 1 },
         created_at: now,
         updated_at: now,
