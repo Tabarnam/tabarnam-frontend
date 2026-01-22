@@ -1007,7 +1007,6 @@ test("/api/import/status reports resume_needed=false when only terminal missing 
 
       delete require.cache[importStatusModuleId];
       delete require.cache[primaryJobStoreModuleId];
-      delete require.cache[require.resolve("../import/resume-worker/handler.js")];
 
       try {
         const { _test: freshImportStatusTest } = require("../import-status/index.js");
@@ -1034,7 +1033,6 @@ test("/api/import/status reports resume_needed=false when only terminal missing 
         require.cache[cosmosModuleId].exports = originalCosmosExports;
         delete require.cache[importStatusModuleId];
       delete require.cache[primaryJobStoreModuleId];
-      delete require.cache[require.resolve("../import/resume-worker/handler.js")];
       }
     }
   );
@@ -1210,7 +1208,6 @@ test("/api/import/status surfaces resume_worker telemetry from resume doc when s
       const primaryJobStoreModuleId = require.resolve("../_importPrimaryJobStore.js");
       delete require.cache[importStatusModuleId];
       delete require.cache[primaryJobStoreModuleId];
-      delete require.cache[require.resolve("../import/resume-worker/handler.js")];
 
       try {
         const { _test: freshImportStatusTest } = require("../import-status/index.js");
@@ -1237,7 +1234,6 @@ test("/api/import/status surfaces resume_worker telemetry from resume doc when s
         require.cache[cosmosModuleId].exports = originalCosmosExports;
         delete require.cache[importStatusModuleId];
       delete require.cache[primaryJobStoreModuleId];
-      delete require.cache[require.resolve("../import/resume-worker/handler.js")];
       }
     }
   );
@@ -1475,7 +1471,6 @@ test("/api/import/status auto-triggers resume-worker when resume status is block
 
       delete require.cache[importStatusModuleId];
       delete require.cache[primaryJobStoreModuleId];
-      delete require.cache[require.resolve("../import/resume-worker/handler.js")];
 
       try {
         const { _test: freshImportStatusTest } = require("../import-status/index.js");
@@ -1510,7 +1505,6 @@ test("/api/import/status auto-triggers resume-worker when resume status is block
         }
         delete require.cache[importStatusModuleId];
       delete require.cache[primaryJobStoreModuleId];
-      delete require.cache[require.resolve("../import/resume-worker/handler.js")];
         delete require.cache[resumeWorkerModuleId];
       }
     }
@@ -1750,7 +1744,6 @@ test("/api/import/status reopens completed resume doc when retryable missing fie
 
       delete require.cache[importStatusModuleId];
       delete require.cache[primaryJobStoreModuleId];
-      delete require.cache[require.resolve("../import/resume-worker/handler.js")];
 
       try {
         const { _test: freshImportStatusTest } = require("../import-status/index.js");
@@ -1784,7 +1777,6 @@ test("/api/import/status reopens completed resume doc when retryable missing fie
         }
         delete require.cache[importStatusModuleId];
       delete require.cache[primaryJobStoreModuleId];
-      delete require.cache[require.resolve("../import/resume-worker/handler.js")];
         delete require.cache[resumeWorkerModuleId];
       }
     }
@@ -1995,7 +1987,6 @@ test("/api/import/status force-terminalizes and completes when cycle cap reached
 
       delete require.cache[importStatusModuleId];
       delete require.cache[primaryJobStoreModuleId];
-      delete require.cache[require.resolve("../import/resume-worker/handler.js")];
 
       try {
         const { _test: freshImportStatusTest } = require("../import-status/index.js");
@@ -2039,7 +2030,6 @@ test("/api/import/status force-terminalizes and completes when cycle cap reached
         require.cache[cosmosModuleId].exports = originalCosmosExports;
         delete require.cache[importStatusModuleId];
       delete require.cache[primaryJobStoreModuleId];
-      delete require.cache[require.resolve("../import/resume-worker/handler.js")];
       }
     }
   );
@@ -2259,7 +2249,6 @@ test("/api/import/status force-terminalizes max_cycles even when already blocked
 
       delete require.cache[importStatusModuleId];
       delete require.cache[primaryJobStoreModuleId];
-      delete require.cache[require.resolve("../import/resume-worker/handler.js")];
 
       try {
         const { _test: freshImportStatusTest } = require("../import-status/index.js");
@@ -2291,7 +2280,6 @@ test("/api/import/status force-terminalizes max_cycles even when already blocked
         require.cache[cosmosModuleId].exports = originalCosmosExports;
         delete require.cache[importStatusModuleId];
       delete require.cache[primaryJobStoreModuleId];
-      delete require.cache[require.resolve("../import/resume-worker/handler.js")];
       }
     }
   );
