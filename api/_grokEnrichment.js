@@ -668,18 +668,22 @@ Return:
 
   const out = parseJsonFromXaiResponse(r.resp);
 
+  const source_urls = Array.isArray(out?.source_urls)
+    ? out.source_urls.map((x) => safeUrl(x)).filter(Boolean).slice(0, 12)
+    : [];
+
   const arr = Array.isArray(out?.manufacturing_locations) ? out.manufacturing_locations : [];
   const cleaned = arr.map((x) => asString(x).trim()).filter(Boolean);
 
   if (cleaned.length === 0) {
-    return { manufacturing_locations: [], mfg_status: "not_found" };
+    return { manufacturing_locations: [], mfg_status: "not_found", source_urls };
   }
 
   if (cleaned.length === 1 && cleaned[0].toLowerCase().includes("not disclosed")) {
-    return { manufacturing_locations: ["Not disclosed"], mfg_status: "not_disclosed" };
+    return { manufacturing_locations: ["Not disclosed"], mfg_status: "not_disclosed", source_urls };
   }
 
-  return { manufacturing_locations: cleaned, mfg_status: "ok" };
+  return { manufacturing_locations: cleaned, mfg_status: "ok", source_urls };
 }
 
 async function fetchTagline({
