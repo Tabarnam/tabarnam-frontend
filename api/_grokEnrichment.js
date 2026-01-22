@@ -375,7 +375,7 @@ Hard rules:
 - Exclude sources from these domains or subdomains: ${excludeDomains.join(", ")}
 - Do NOT invent titles/authors/dates/excerpts; we will extract metadata ourselves.
 
-Output STRICT JSON only as:
+Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "review_candidates"):
 {
   "reviews_url_candidates": [
     { "source_url": "https://...", "category": "youtube" },
