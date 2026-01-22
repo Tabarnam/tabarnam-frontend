@@ -966,6 +966,13 @@ test("/api/import/status reports resume_needed=false when only terminal missing 
           query: (spec) => ({
             fetchAll: async () => {
               const q = String(spec?.query || "");
+              if (q.includes("SELECT * FROM c WHERE c.id IN (") || q.includes("WHERE c.id IN (")) {
+                const params = Array.isArray(spec?.parameters) ? spec.parameters : [];
+                const ids = params.map((p) => p?.value).filter(Boolean);
+                const resources = ids.map((id) => docsById.get(String(id))).filter(Boolean);
+                return { resources };
+              }
+
               if (q.includes("ARRAY_CONTAINS(@ids, c.id)")) {
                 const idsParam = spec?.parameters?.find((p) => p?.name === "@ids");
                 const ids = Array.isArray(idsParam?.value) ? idsParam.value : [];
@@ -1171,6 +1178,13 @@ test("/api/import/status surfaces resume_worker telemetry from resume doc when s
           query: (spec) => ({
             fetchAll: async () => {
               const q = String(spec?.query || "");
+              if (q.includes("SELECT * FROM c WHERE c.id IN (") || q.includes("WHERE c.id IN (")) {
+                const params = Array.isArray(spec?.parameters) ? spec.parameters : [];
+                const ids = params.map((p) => p?.value).filter(Boolean);
+                const resources = ids.map((id) => docsById.get(String(id))).filter(Boolean);
+                return { resources };
+              }
+
               if (q.includes("ARRAY_CONTAINS(@ids, c.id)")) {
                 const idsParam = spec?.parameters?.find((p) => p?.name === "@ids");
                 const ids = Array.isArray(idsParam?.value) ? idsParam.value : [];
@@ -1432,6 +1446,13 @@ test("/api/import/status auto-triggers resume-worker when resume status is block
           query: (spec) => ({
             fetchAll: async () => {
               const q = String(spec?.query || "");
+              if (q.includes("SELECT * FROM c WHERE c.id IN (") || q.includes("WHERE c.id IN (")) {
+                const params = Array.isArray(spec?.parameters) ? spec.parameters : [];
+                const ids = params.map((p) => p?.value).filter(Boolean);
+                const resources = ids.map((id) => docsById.get(String(id))).filter(Boolean);
+                return { resources };
+              }
+
               if (q.includes("ARRAY_CONTAINS(@ids, c.id)")) {
                 const idsParam = spec?.parameters?.find((p) => p?.name === "@ids");
                 const ids = Array.isArray(idsParam?.value) ? idsParam.value : [];
@@ -1706,6 +1727,13 @@ test("/api/import/status reopens completed resume doc when retryable missing fie
           query: (spec) => ({
             fetchAll: async () => {
               const q = String(spec?.query || "");
+              if (q.includes("SELECT * FROM c WHERE c.id IN (") || q.includes("WHERE c.id IN (")) {
+                const params = Array.isArray(spec?.parameters) ? spec.parameters : [];
+                const ids = params.map((p) => p?.value).filter(Boolean);
+                const resources = ids.map((id) => docsById.get(String(id))).filter(Boolean);
+                return { resources };
+              }
+
               if (q.includes("ARRAY_CONTAINS(@ids, c.id)")) {
                 const idsParam = spec?.parameters?.find((p) => p?.name === "@ids");
                 const ids = Array.isArray(idsParam?.value) ? idsParam.value : [];
@@ -1948,6 +1976,13 @@ test("/api/import/status force-terminalizes and completes when cycle cap reached
           query: (spec) => ({
             fetchAll: async () => {
               const q = String(spec?.query || "");
+              if (q.includes("SELECT * FROM c WHERE c.id IN (") || q.includes("WHERE c.id IN (")) {
+                const params = Array.isArray(spec?.parameters) ? spec.parameters : [];
+                const ids = params.map((p) => p?.value).filter(Boolean);
+                const resources = ids.map((id) => docsById.get(String(id))).filter(Boolean);
+                return { resources };
+              }
+
               if (q.includes("ARRAY_CONTAINS(@ids, c.id)")) {
                 const idsParam = spec?.parameters?.find((p) => p?.name === "@ids");
                 const ids = Array.isArray(idsParam?.value) ? idsParam.value : [];
@@ -2211,6 +2246,13 @@ test("/api/import/status force-terminalizes max_cycles even when already blocked
           query: (spec) => ({
             fetchAll: async () => {
               const q = String(spec?.query || "");
+              if (q.includes("SELECT * FROM c WHERE c.id IN (") || q.includes("WHERE c.id IN (")) {
+                const params = Array.isArray(spec?.parameters) ? spec.parameters : [];
+                const ids = params.map((p) => p?.value).filter(Boolean);
+                const resources = ids.map((id) => docsById.get(String(id))).filter(Boolean);
+                return { resources };
+              }
+
               if (q.includes("ARRAY_CONTAINS(@ids, c.id)")) {
                 const idsParam = spec?.parameters?.find((p) => p?.name === "@ids");
                 const ids = Array.isArray(idsParam?.value) ? idsParam.value : [];
