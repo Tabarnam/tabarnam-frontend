@@ -41,7 +41,8 @@ const IS_NODE_TEST_RUNNER =
   (Array.isArray(process.argv) && process.argv.includes("--test"));
 
 function readStageCache(key) {
-  if (IS_NODE_TEST_RUNNER) return null;
+  const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
+  if (IS_NODE_TEST_RUNNER || hasStub) return null;
   const entry = GROK_STAGE_CACHE.get(key);
   if (!entry) return null;
   if (Date.now() > (entry.expires_at || 0)) {
@@ -52,7 +53,8 @@ function readStageCache(key) {
 }
 
 function writeStageCache(key, value, ttlMs = GROK_STAGE_CACHE_TTL_MS) {
-  if (IS_NODE_TEST_RUNNER) return;
+  const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
+  if (IS_NODE_TEST_RUNNER || hasStub) return;
   const ttl = Math.max(1_000, Math.trunc(Number(ttlMs) || GROK_STAGE_CACHE_TTL_MS));
   GROK_STAGE_CACHE.set(key, { value, expires_at: Date.now() + ttl });
 }
