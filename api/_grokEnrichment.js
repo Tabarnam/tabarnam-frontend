@@ -31,6 +31,66 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
   light: { min: 8_000, max: 12_000 },
 });
 
+// Short-TTL cache to avoid re-paying the same Grok searches on resume cycles.
+// This is best-effort (in-memory) and only caches non-transient outcomes.
+const GROK_STAGE_CACHE = new Map();
+const GROK_STAGE_CACHE_TTL_MS = 10 * 60 * 1000;
+
+function readStageCache(key) {
+  const entry = GROK_STAGE_CACHE.get(key);
+  if (!entry) return null;
+  if (Date.now() > (entry.expires_at || 0)) {
+    GROK_STAGE_CACHE.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function writeStageCache(key, value, ttlMs = GROK_STAGE_CACHE_TTL_MS) {
+  const ttl = Math.max(1_000, Math.trunc(Number(ttlMs) || GROK_STAGE_CACHE_TTL_MS));
+  GROK_STAGE_CACHE.set(key, { value, expires_at: Date.now() + ttl });
+}
+
+function sleepMs(ms) {
+  const wait = Math.max(0, Math.trunc(Number(ms) || 0));
+  if (wait <= 0) return Promise.resolve();
+  return new Promise((r) => setTimeout(r, wait));
+}
+
+function isRetryableUpstreamFailure(result) {
+  const r = result && typeof result === "object" ? result : {};
+  const code = String(r.error_code || "").trim().toLowerCase();
+  if (code === "upstream_timeout") return true;
+
+  const http = Number(r?.diagnostics?.upstream_http_status || 0) || 0;
+  if (http === 429) return true;
+  if (http >= 500 && http <= 599) return true;
+
+  const msg = String(r.error || "").toLowerCase();
+  if (msg.includes("upstream_http_429") || msg.includes("upstream_http_5")) return true;
+
+  return false;
+}
+
+async function xaiLiveSearchWithRetry({ maxAttempts = 2, baseBackoffMs = 350, ...args } = {}) {
+  const attempts = Math.max(1, Math.min(3, Math.trunc(Number(maxAttempts) || 2)));
+
+  let last = null;
+  for (let i = 0; i < attempts; i += 1) {
+    last = await xaiLiveSearch({ ...args, attempt: i });
+    if (last && last.ok) return last;
+
+    if (i < attempts - 1 && isRetryableUpstreamFailure(last)) {
+      await sleepMs(baseBackoffMs * Math.pow(2, i));
+      continue;
+    }
+
+    return last;
+  }
+
+  return last;
+}
+
 // Keep upstream calls safely under the SWA gateway wall-clock (~30s) with a buffer.
 function clampStageTimeoutMs({ remainingMs, minMs = 2_500, maxMs = resolveXaiStageTimeoutMaxMs(), safetyMarginMs = 1_200 } = {}) {
   const rem = Number.isFinite(Number(remainingMs)) ? Number(remainingMs) : 0;
