@@ -8186,8 +8186,8 @@ Output JSON only:
 
             company.industries = industriesFinal;
 
-            debugEntry.final_keywords = finalList;
-            debugEntry.final_count = finalList.length;
+            debugEntry.final_keywords = Array.isArray(keywordsAll) ? keywordsAll : [];
+            debugEntry.final_count = Array.isArray(keywordsAll) ? keywordsAll.length : 0;
 
             if (debugOutput) debugOutput.keywords_debug.push(debugEntry);
 
