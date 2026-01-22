@@ -485,25 +485,34 @@ function reconcileGrokTerminalState(doc) {
   const cursorExhausted = Boolean(doc.review_cursor && typeof doc.review_cursor === "object" && doc.review_cursor.exhausted === true);
 
   if (reviewsStage === "exhausted" || cursorExhausted) {
-    if (normalizeKey(doc.reviews_stage_status) !== "exhausted") {
-      doc.reviews_stage_status = "exhausted";
-      changed = true;
-    }
-
+    // Terminal completion marker for reviews is cursor.exhausted.
+    // We keep the *user-facing* stage as "incomplete" (never "pending"/"exhausted").
     const cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
 
     if (cursor.exhausted !== true) {
       cursor.exhausted = true;
       changed = true;
     }
-    if (normalizeKey(cursor.reviews_stage_status) !== "exhausted") {
-      cursor.reviews_stage_status = "exhausted";
+
+    const nextStage = "incomplete";
+
+    if (!doc.reviews_stage_status || normalizeKey(doc.reviews_stage_status) === "pending" || normalizeKey(doc.reviews_stage_status) === "exhausted") {
+      doc.reviews_stage_status = nextStage;
       changed = true;
     }
+
+    if (!cursor.reviews_stage_status || normalizeKey(cursor.reviews_stage_status) === "pending" || normalizeKey(cursor.reviews_stage_status) === "exhausted") {
+      cursor.reviews_stage_status = nextStage;
+      changed = true;
+    }
+
     if (!cursor.exhausted_at) {
       cursor.exhausted_at = nowIso();
       changed = true;
     }
+
+    cursor.attempted_urls = Array.isArray(cursor.attempted_urls) ? cursor.attempted_urls : [];
+    cursor.incomplete_reason = normalizeKey(cursor.incomplete_reason || "") || "exhausted";
 
     doc.review_cursor = cursor;
 
