@@ -1449,13 +1449,25 @@ function enrichCompany(company, center) {
 
   // Ensure each location_source has required fields
   c.location_sources = c.location_sources
-    .filter(s => s && s.location)
-    .map(s => ({
-      location: String(s.location || "").trim(),
-      source_url: String(s.source_url || "").trim(),
-      source_type: s.source_type || "other",
-      location_type: s.location_type || "other",
-    }));
+    .filter((s) => s && s.location)
+    .map((s) => {
+      const locationTypeRaw = String(s.location_type || s.locationType || "other").trim() || "other";
+      const location_type = locationTypeRaw === "hq"
+        ? "headquarters"
+        : locationTypeRaw === "mfg"
+          ? "manufacturing"
+          : locationTypeRaw;
+
+      const sourceMethod = String(s.source_method || s.sourceMethod || "").trim();
+
+      return {
+        location: String(s.location || "").trim(),
+        source_url: String(s.source_url || "").trim(),
+        source_type: s.source_type || "other",
+        location_type,
+        ...(sourceMethod ? { source_method: sourceMethod } : {}),
+      };
+    });
 
   // Handle tagline
   c.tagline = String(c.tagline || "").trim();

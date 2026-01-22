@@ -216,6 +216,7 @@ function shouldForceTerminalizeSingle({
   resume_worker,
   resume_stuck_ms,
   infra_only_timeout,
+  retryable_missing_count,
 }) {
   if (!single) return { force: false, reason: null };
   if (!resume_needed) return { force: false, reason: null };
@@ -224,6 +225,14 @@ function shouldForceTerminalizeSingle({
   const maxCycles = infra_only_timeout
     ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
     : MAX_RESUME_CYCLES_SINGLE;
+
+  const retryableMissing = Number(retryable_missing_count || 0) || 0;
+
+  // Never force terminal-only completion while we still have retryable missing fields
+  // and remaining cycles. In that case, the correct action is to keep resuming (or show blocked),
+  // not to mark fields as exhausted.
+  if (retryableMissing > 0 && cycles < maxCycles) return { force: false, reason: null };
+
   if (cycles >= maxCycles) return { force: true, reason: "max_cycles" };
 
   const status = String(resume_status || "").trim();
@@ -262,10 +271,14 @@ function forceTerminalizeCompanyDocForSingle(doc) {
   d.import_missing_reason.product_keywords = d.import_missing_reason.product_keywords || "exhausted";
 
   // reviews
-  d.reviews_stage_status = "exhausted";
+  // Contract: once terminalized, reviews_stage_status must never remain "pending".
+  // Use user-facing "incomplete" while marking cursor.exhausted=true for terminality.
+  d.reviews_stage_status = "incomplete";
   d.review_cursor = d.review_cursor && typeof d.review_cursor === "object" ? d.review_cursor : {};
+  if (!Array.isArray(d.review_cursor.attempted_urls)) d.review_cursor.attempted_urls = [];
   d.review_cursor.exhausted = true;
-  d.review_cursor.reviews_stage_status = "exhausted";
+  d.review_cursor.reviews_stage_status = "incomplete";
+  d.review_cursor.incomplete_reason = d.review_cursor.incomplete_reason || "exhausted";
   d.review_cursor.exhausted_at = d.review_cursor.exhausted_at || nowIso();
   d.import_missing_reason.reviews = "exhausted";
 
@@ -1969,7 +1982,7 @@ async function handler(req, context) {
           }
         } catch {}
 
-        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "blocked") && !forceResume && !watchdog_stuck_queued) {
+        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "blocked") && !forceResume) {
           const cooldownMs = 60_000;
           let lastTriggeredTs = 0;
 
@@ -2008,7 +2021,7 @@ async function handler(req, context) {
           const nowMs = Date.now();
           const queued = resumeStatus === "queued" && resume_needed === true;
           const noRecentProgress = !hasRecentWorkerProgress(resumeWorkerForProgress, nowMs, resumeStuckQueuedMs);
-          const shouldForceByQueuedTimeout = Boolean(singleCompanyMode && queued && noRecentProgress);
+          const shouldForceByQueuedTimeout = Boolean(singleCompanyMode && queued && noRecentProgress && retryableMissingCount === 0);
 
           stageBeaconValues.status_single_company_mode = Boolean(singleCompanyMode);
           stageBeaconValues.status_resume_cycle_count = currentCycleCount;
@@ -2045,7 +2058,7 @@ async function handler(req, context) {
 
           const forceDecision = preTriggerCap
             ? { force: true, reason: "max_cycles_pre_trigger" }
-            : watchdogNoProgress && singleCompanyMode && queued
+            : watchdogNoProgress && singleCompanyMode && queued && retryableMissingCount === 0
               ? { force: true, reason: "watchdog_no_progress" }
               : shouldForceByQueuedTimeout
                 ? { force: true, reason: "queued_timeout_no_progress" }
@@ -2057,6 +2070,7 @@ async function handler(req, context) {
                     resume_worker: resumeWorkerForProgress,
                     resume_stuck_ms: resumeStuckQueuedMs,
                     infra_only_timeout: infraOnlyTimeout,
+                    retryable_missing_count: retryableMissingCount,
                   });
 
           // Instrumentation for max-cycles stalls (and other force-terminalize policies).
@@ -3893,7 +3907,7 @@ async function handler(req, context) {
           }
         } catch {}
 
-        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "blocked") && !forceResume && !watchdog_stuck_queued) {
+        if (canTrigger && (resumeStatus === "queued" || resumeStatus === "blocked") && !forceResume) {
           const cooldownMs = 60_000;
           let lastTriggeredTs = 0;
 
@@ -3932,7 +3946,7 @@ async function handler(req, context) {
           const nowMs = Date.now();
           const queued = resumeStatus === "queued" && resume_needed === true;
           const noRecentProgress = !hasRecentWorkerProgress(resumeWorkerForProgress, nowMs, resumeStuckQueuedMs);
-          const shouldForceByQueuedTimeout = Boolean(singleCompanyMode && queued && noRecentProgress);
+          const shouldForceByQueuedTimeout = Boolean(singleCompanyMode && queued && noRecentProgress && retryableMissingCount === 0);
 
           stageBeaconValues.status_single_company_mode = Boolean(singleCompanyMode);
           stageBeaconValues.status_resume_cycle_count = currentCycleCount;
@@ -3969,7 +3983,7 @@ async function handler(req, context) {
 
           const forceDecision = preTriggerCap
             ? { force: true, reason: "max_cycles_pre_trigger" }
-            : watchdogNoProgress && singleCompanyMode && queued
+            : watchdogNoProgress && singleCompanyMode && queued && retryableMissingCount === 0
               ? { force: true, reason: "watchdog_no_progress" }
               : shouldForceByQueuedTimeout
                 ? { force: true, reason: "queued_timeout_no_progress" }
@@ -3981,6 +3995,7 @@ async function handler(req, context) {
                     resume_worker: resumeWorkerForProgress,
                     resume_stuck_ms: resumeStuckQueuedMs,
                     infra_only_timeout: infraOnlyTimeout,
+                    retryable_missing_count: retryableMissingCount,
                   });
 
           // Instrumentation for max-cycles stalls (and other force-terminalize policies).

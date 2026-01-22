@@ -178,6 +178,60 @@ const MAX_ATTEMPTS_LOGO = envInt("MAX_ATTEMPTS_LOGO", 3, { min: 1, max: 10 });
 
 const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = envInt("NON_GROK_LOW_QUALITY_MAX_ATTEMPTS", 2, { min: 1, max: 10 });
 
+function classifyLocationSource({ source_url, normalized_domain }) {
+  const urlRaw = String(source_url || "").trim();
+  const domain = String(normalized_domain || "").trim().toLowerCase();
+
+  const out = {
+    source_type: "other",
+    source_method: "xai_live_search",
+  };
+
+  if (!urlRaw) return out;
+
+  let host = "";
+  try {
+    const u = new URL(urlRaw);
+    host = String(u.hostname || "").toLowerCase();
+  } catch {
+    host = "";
+  }
+
+  if (host) {
+    if (domain && domain !== "unknown" && (host === domain || host.endsWith(`.${domain}`))) {
+      out.source_type = "official_website";
+      return out;
+    }
+
+    if (
+      host.includes("zoominfo.com") ||
+      host.includes("crunchbase.com") ||
+      host.includes("dnb.com") ||
+      host.includes("linkedin.com")
+    ) {
+      out.source_type = "b2b_directory";
+      return out;
+    }
+
+    if (host.endsWith(".gov") || host.includes(".gov.")) {
+      out.source_type = "government_guide";
+      return out;
+    }
+
+    if (
+      host.includes("news") ||
+      host.includes("press") ||
+      host.includes("magazine") ||
+      host.includes("journal")
+    ) {
+      out.source_type = "media";
+      return out;
+    }
+  }
+
+  return out;
+}
+
 function ensureAttemptsDetail(doc, field) {
   doc.import_attempts_detail ||= {};
   const existing = doc.import_attempts_detail[field];
@@ -1225,6 +1279,46 @@ async function resumeWorkerHandler(req, context) {
         }
       }
 
+      // Defensive: if required-fields computation failed to include reviews, still never leave them pending on forced completion.
+      try {
+        const stageRaw = normalizeKey(doc?.reviews_stage_status || doc?.review_cursor?.reviews_stage_status || "");
+        const curatedCount = Array.isArray(doc?.curated_reviews) ? doc.curated_reviews.length : 0;
+        const cursorExhausted = Boolean(doc?.review_cursor && typeof doc.review_cursor === "object" && doc.review_cursor.exhausted === true);
+        const isOk = stageRaw === "ok" && curatedCount >= 4;
+
+        if (!isOk && (stageRaw === "pending" || !cursorExhausted)) {
+          const prevAttempts = attemptsFor(doc, "reviews");
+          bumpFieldAttempt(doc, "reviews", requestId);
+
+          doc.review_cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
+          if (!Array.isArray(doc.curated_reviews)) doc.curated_reviews = [];
+          if (!Number.isFinite(Number(doc.review_count))) doc.review_count = doc.curated_reviews.length;
+
+          const attemptedUrls = Array.isArray(doc.review_cursor.attempted_urls) ? doc.review_cursor.attempted_urls : [];
+          const hadAttempts = prevAttempts > 0 || attemptedUrls.length > 0 || Boolean(doc.review_cursor.last_error);
+
+          const reasonsObj = doc.import_missing_reason && typeof doc.import_missing_reason === "object" ? doc.import_missing_reason : {};
+          const anyTimeout = Object.values(reasonsObj).some((v) => normalizeKey(v) === "upstream_timeout");
+
+          const incompleteReasonRaw =
+            normalizeKey(doc.review_cursor.incomplete_reason || "") ||
+            normalizeKey(reasonsObj.reviews || "") ||
+            (hadAttempts ? "attempted_but_incomplete" : "");
+
+          const incomplete_reason = incompleteReasonRaw || (anyTimeout ? "upstream_timeout" : "terminalized_without_attempt");
+
+          doc.reviews_stage_status = "incomplete";
+          doc.review_cursor.reviews_stage_status = "incomplete";
+          doc.review_cursor.incomplete_reason = incomplete_reason;
+          doc.review_cursor.attempted_urls = attemptedUrls;
+          doc.review_cursor.exhausted = true;
+          doc.review_cursor.exhausted_at = updatedAt;
+
+          doc.import_missing_reason ||= {};
+          doc.import_missing_reason.reviews = "exhausted";
+        }
+      } catch {}
+
       forceTerminalizeNonGrokFields(doc);
       doc.import_missing_fields = computeMissingFields(doc);
       doc.updated_at = updatedAt;
@@ -1419,6 +1513,25 @@ async function resumeWorkerHandler(req, context) {
     const taglineRetryable = !isRealValue("tagline", doc.tagline, doc) && !isTerminalMissingField(doc, "tagline");
 
     const fieldsPlanned = (() => {
+      // Single-company mode must eventually attempt heavy fields (HQ/MFG/Reviews) across cycles.
+      // If budget heuristics would otherwise keep selecting only light fields (e.g., tagline),
+      // prefer one heavy field per cycle, chosen by lowest attempt count.
+      if (singleCompanyMode) {
+        const heavy = ["headquarters_location", "manufacturing_locations", "reviews"].filter((f) => missingNow.includes(f));
+        if (heavy.length > 0) {
+          const remainingMs = remainingRunMs();
+          if (remainingMs >= 4000) {
+            heavy.sort((a, b) => {
+              const da = attemptsFor(doc, a);
+              const db = attemptsFor(doc, b);
+              if (da !== db) return da - db;
+              return a === "headquarters_location" ? -1 : b === "headquarters_location" ? 1 : 0;
+            });
+            return new Set([heavy[0]]);
+          }
+        }
+      }
+
       const priority = [
         "headquarters_location",
         "manufacturing_locations",
@@ -1775,15 +1888,26 @@ async function resumeWorkerHandler(req, context) {
         for (const url of hqSourceUrls) {
           const sourceUrl = String(url || "").trim();
           if (!sourceUrl) continue;
-          const exists = doc.location_sources.some(
-            (x) => x && typeof x === "object" && x.location_type === "hq" && x.location === value && x.source_url === sourceUrl
-          );
+
+          const exists = doc.location_sources.some((x) => {
+            if (!x || typeof x !== "object") return false;
+            const locType = String(x.location_type || "").trim();
+            return (
+              (locType === "headquarters" || locType === "hq") &&
+              x.location === value &&
+              x.source_url === sourceUrl
+            );
+          });
           if (exists) continue;
+
+          const prov = classifyLocationSource({ source_url: sourceUrl, normalized_domain: normalizedDomain });
+
           doc.location_sources.push({
-            location_type: "hq",
+            location_type: "headquarters",
             location: value,
             source_url: sourceUrl,
-            source_type: "grok_search",
+            source_type: prov.source_type,
+            source_method: prov.source_method,
           });
         }
 
@@ -1882,18 +2006,29 @@ async function resumeWorkerHandler(req, context) {
         doc.location_sources = Array.isArray(doc.location_sources) ? doc.location_sources : [];
         const primaryMfgSourceUrl = mfgSourceUrls.map((u) => String(u || "").trim()).filter(Boolean)[0] || "";
         if (primaryMfgSourceUrl) {
+          const prov = classifyLocationSource({ source_url: primaryMfgSourceUrl, normalized_domain: normalizedDomain });
+
           for (const loc of locs) {
             const locStr = String(loc || "").trim();
             if (!locStr) continue;
-            const exists = doc.location_sources.some(
-              (x) => x && typeof x === "object" && x.location_type === "mfg" && x.location === locStr && x.source_url === primaryMfgSourceUrl
-            );
+
+            const exists = doc.location_sources.some((x) => {
+              if (!x || typeof x !== "object") return false;
+              const locType = String(x.location_type || "").trim();
+              return (
+                (locType === "manufacturing" || locType === "mfg") &&
+                x.location === locStr &&
+                x.source_url === primaryMfgSourceUrl
+              );
+            });
             if (exists) continue;
+
             doc.location_sources.push({
-              location_type: "mfg",
+              location_type: "manufacturing",
               location: locStr,
               source_url: primaryMfgSourceUrl,
-              source_type: "grok_search",
+              source_type: prov.source_type,
+              source_method: prov.source_method,
             });
           }
         }
