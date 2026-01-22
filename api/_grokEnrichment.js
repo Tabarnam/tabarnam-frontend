@@ -345,6 +345,18 @@ async function fetchCuratedReviews({
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
 
+  const cacheKey = domain ? `reviews:${domain}` : "";
+  const cached = cacheKey ? readStageCache(cacheKey) : null;
+  if (cached) {
+    return {
+      ...cached,
+      diagnostics: {
+        ...(cached.diagnostics && typeof cached.diagnostics === "object" ? cached.diagnostics : {}),
+        cache: "hit",
+      },
+    };
+  }
+
   const excludeDomains = normalizeExcludeDomains({ normalizedDomain: domain });
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
