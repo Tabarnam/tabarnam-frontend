@@ -573,16 +573,20 @@ Return:
 
   const out = parseJsonFromXaiResponse(r.resp);
   const value = asString(out?.headquarters_location).trim();
+  const source_urls = Array.isArray(out?.source_urls)
+    ? out.source_urls.map((x) => safeUrl(x)).filter(Boolean).slice(0, 12)
+    : [];
+
   if (!value) {
-    return { headquarters_location: "", hq_status: "not_found" };
+    return { headquarters_location: "", hq_status: "not_found", source_urls };
   }
 
   // "Not disclosed" is a terminal sentinel (downstream treats it as complete).
   if (value.toLowerCase() === "not disclosed" || value.toLowerCase() === "not_disclosed") {
-    return { headquarters_location: "Not disclosed", hq_status: "not_disclosed" };
+    return { headquarters_location: "Not disclosed", hq_status: "not_disclosed", source_urls };
   }
 
-  return { headquarters_location: value, hq_status: "ok" };
+  return { headquarters_location: value, hq_status: "ok", source_urls };
 }
 
 async function fetchManufacturingLocations({
