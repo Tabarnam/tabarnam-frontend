@@ -1741,6 +1741,8 @@ test("/api/import/status surfaces last_field_attempted/result after blocked auto
         },
       };
 
+      const readIds = [];
+
       const fakeContainer = {
         read: async () => ({
           resource: {
