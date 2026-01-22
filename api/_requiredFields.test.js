@@ -10,6 +10,11 @@ test("sanitizeKeywords strips navigation/collection noise and preserves products
       "Store Locator",
       "Best Sellers",
       "New Arrivals",
+      "icon-x",
+      "close",
+      "instagram",
+      "order",
+      "view",
       "All-Natural Goat Milk Soap",
       "Shampoo Bar",
       "Privacy Policy",
@@ -18,7 +23,7 @@ test("sanitizeKeywords strips navigation/collection noise and preserves products
   });
 
   assert.deepEqual(stats.sanitized, ["All-Natural Goat Milk Soap", "Shampoo Bar"]);
-  assert.equal(stats.total_raw, 7);
+  assert.equal(stats.total_raw, 12);
   assert.equal(stats.sanitized_count, 2);
 });
 
