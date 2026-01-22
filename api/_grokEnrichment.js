@@ -943,14 +943,31 @@ Return:
   }
 
   const out = parseJsonFromXaiResponse(r.resp);
-  const list = Array.isArray(out?.keywords) ? out.keywords : Array.isArray(out) ? out : [];
+  const list = Array.isArray(out?.keywords)
+    ? out.keywords
+    : Array.isArray(out?.product_keywords)
+      ? out.product_keywords
+      : Array.isArray(out)
+        ? out
+        : [];
 
   const cleaned = list.map((x) => asString(x).trim()).filter(Boolean);
-  if (cleaned.length === 0) {
+  const deduped = Array.from(new Set(cleaned));
+
+  if (deduped.length === 0) {
     return { keywords: [], keywords_status: "not_found" };
   }
 
-  return { keywords: cleaned.slice(0, 30), keywords_status: "ok" };
+  const completenessRaw = asString(out?.completeness).trim().toLowerCase();
+  const completeness = completenessRaw === "incomplete" ? "incomplete" : "complete";
+  const incomplete_reason = completeness === "incomplete" ? (asString(out?.incomplete_reason).trim() || null) : null;
+
+  return {
+    keywords: deduped,
+    keywords_status: completeness === "incomplete" ? "incomplete" : "ok",
+    keywords_completeness: completeness,
+    keywords_incomplete_reason: incomplete_reason,
+  };
 }
 
 module.exports = {
