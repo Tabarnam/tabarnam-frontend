@@ -1753,6 +1753,7 @@ test("/api/import/status surfaces last_field_attempted/result after blocked auto
         }),
         item: (id) => ({
           read: async () => {
+            readIds.push(String(id));
             if (docsById.has(id)) return { resource: docsById.get(id) };
             const err = new Error("Not Found");
             err.code = 404;
