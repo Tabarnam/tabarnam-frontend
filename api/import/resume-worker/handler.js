@@ -1917,6 +1917,8 @@ async function resumeWorkerHandler(req, context) {
             source_url: sourceUrl,
             source_type: prov.source_type,
             source_method: prov.source_method,
+            extracted_field: "headquarters_location",
+            extracted_at: nowIso(),
           });
         }
 
@@ -2038,6 +2040,8 @@ async function resumeWorkerHandler(req, context) {
               source_url: primaryMfgSourceUrl,
               source_type: prov.source_type,
               source_method: prov.source_method,
+              extracted_field: "manufacturing_locations",
+              extracted_at: nowIso(),
             });
           }
         }
