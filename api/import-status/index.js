@@ -2654,7 +2654,7 @@ async function handler(req, context) {
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
-        resume_worker: true
+        resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || resumeDoc?.last_invoked_at || null,
               handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || resumeDoc?.handler_entered_at || null,
@@ -4466,7 +4466,7 @@ async function handler(req, context) {
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
-        resume_worker: true
+        resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || resumeDoc?.last_invoked_at || null,
               handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || resumeDoc?.handler_entered_at || null,
@@ -4647,7 +4647,7 @@ async function handler(req, context) {
             trigger_error: null,
             missing_by_company: [],
           },
-        resume_worker: true
+        resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || resumeDoc?.last_invoked_at || null,
               handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || resumeDoc?.handler_entered_at || null,
@@ -4823,7 +4823,7 @@ async function handler(req, context) {
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
-        resume_worker: true
+        resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || resumeDoc?.last_invoked_at || null,
               handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || resumeDoc?.handler_entered_at || null,
@@ -5000,7 +5000,7 @@ async function handler(req, context) {
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
-        resume_worker: true
+        resume_worker: (typeof sessionDoc !== "undefined" && sessionDoc)
           ? {
               last_invoked_at: sessionDoc?.resume_worker_last_invoked_at || resumeDoc?.last_invoked_at || null,
               handler_entered_at: sessionDoc?.resume_worker_handler_entered_at || resumeDoc?.handler_entered_at || null,
