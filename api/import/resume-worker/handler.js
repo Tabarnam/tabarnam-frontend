@@ -1888,15 +1888,26 @@ async function resumeWorkerHandler(req, context) {
         for (const url of hqSourceUrls) {
           const sourceUrl = String(url || "").trim();
           if (!sourceUrl) continue;
-          const exists = doc.location_sources.some(
-            (x) => x && typeof x === "object" && x.location_type === "hq" && x.location === value && x.source_url === sourceUrl
-          );
+
+          const exists = doc.location_sources.some((x) => {
+            if (!x || typeof x !== "object") return false;
+            const locType = String(x.location_type || "").trim();
+            return (
+              (locType === "headquarters" || locType === "hq") &&
+              x.location === value &&
+              x.source_url === sourceUrl
+            );
+          });
           if (exists) continue;
+
+          const prov = classifyLocationSource({ source_url: sourceUrl, normalized_domain: normalizedDomain });
+
           doc.location_sources.push({
-            location_type: "hq",
+            location_type: "headquarters",
             location: value,
             source_url: sourceUrl,
-            source_type: "grok_search",
+            source_type: prov.source_type,
+            source_method: prov.source_method,
           });
         }
 
@@ -1995,18 +2006,29 @@ async function resumeWorkerHandler(req, context) {
         doc.location_sources = Array.isArray(doc.location_sources) ? doc.location_sources : [];
         const primaryMfgSourceUrl = mfgSourceUrls.map((u) => String(u || "").trim()).filter(Boolean)[0] || "";
         if (primaryMfgSourceUrl) {
+          const prov = classifyLocationSource({ source_url: primaryMfgSourceUrl, normalized_domain: normalizedDomain });
+
           for (const loc of locs) {
             const locStr = String(loc || "").trim();
             if (!locStr) continue;
-            const exists = doc.location_sources.some(
-              (x) => x && typeof x === "object" && x.location_type === "mfg" && x.location === locStr && x.source_url === primaryMfgSourceUrl
-            );
+
+            const exists = doc.location_sources.some((x) => {
+              if (!x || typeof x !== "object") return false;
+              const locType = String(x.location_type || "").trim();
+              return (
+                (locType === "manufacturing" || locType === "mfg") &&
+                x.location === locStr &&
+                x.source_url === primaryMfgSourceUrl
+              );
+            });
             if (exists) continue;
+
             doc.location_sources.push({
-              location_type: "mfg",
+              location_type: "manufacturing",
               location: locStr,
               source_url: primaryMfgSourceUrl,
-              source_type: "grok_search",
+              source_type: prov.source_type,
+              source_method: prov.source_method,
             });
           }
         }
