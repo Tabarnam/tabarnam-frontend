@@ -271,10 +271,14 @@ function forceTerminalizeCompanyDocForSingle(doc) {
   d.import_missing_reason.product_keywords = d.import_missing_reason.product_keywords || "exhausted";
 
   // reviews
-  d.reviews_stage_status = "exhausted";
+  // Contract: once terminalized, reviews_stage_status must never remain "pending".
+  // Use user-facing "incomplete" while marking cursor.exhausted=true for terminality.
+  d.reviews_stage_status = "incomplete";
   d.review_cursor = d.review_cursor && typeof d.review_cursor === "object" ? d.review_cursor : {};
+  if (!Array.isArray(d.review_cursor.attempted_urls)) d.review_cursor.attempted_urls = [];
   d.review_cursor.exhausted = true;
-  d.review_cursor.reviews_stage_status = "exhausted";
+  d.review_cursor.reviews_stage_status = "incomplete";
+  d.review_cursor.incomplete_reason = d.review_cursor.incomplete_reason || "exhausted";
   d.review_cursor.exhausted_at = d.review_cursor.exhausted_at || nowIso();
   d.import_missing_reason.reviews = "exhausted";
 
