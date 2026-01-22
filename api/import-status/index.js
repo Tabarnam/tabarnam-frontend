@@ -1645,7 +1645,7 @@ async function handler(req, context) {
 
         const resumeDoc = currentResume || (await readControlDoc(container, resumeDocId, sessionId).catch(() => null));
         const resumeStatusRaw = String(resumeDoc?.status || "").trim();
-        const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
+        let lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
 
         let resumeStatus = resumeStatusRaw;
 
@@ -1655,6 +1655,7 @@ async function handler(req, context) {
           const reopenedAt = nowIso();
           stageBeaconValues.status_resume_reopened_from_complete = reopenedAt;
           resumeStatus = "queued";
+          lockUntil = 0;
 
           try {
             await upsertDoc(container, {
@@ -3523,7 +3524,7 @@ async function handler(req, context) {
         }
 
         let resumeStatus = String(currentResume?.status || "").trim();
-        const lockUntil = Date.parse(String(currentResume?.lock_expires_at || "")) || 0;
+        let lockUntil = Date.parse(String(currentResume?.lock_expires_at || "")) || 0;
 
         // Drift repair: if retryable missing fields still exist but the resume control doc says "complete",
         // reopen it so /import/status polling can keep auto-driving enrichment without requiring a manual click.
@@ -3531,6 +3532,7 @@ async function handler(req, context) {
           const reopenedAt = nowIso();
           stageBeaconValues.status_resume_reopened_from_complete = reopenedAt;
           resumeStatus = "queued";
+          lockUntil = 0;
 
           await upsertDoc(container, {
             ...(currentResume && typeof currentResume === "object" ? currentResume : {}),
