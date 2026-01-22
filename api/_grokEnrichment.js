@@ -1110,11 +1110,13 @@ async function fetchProductKeywords({
 
   const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
 
-Task: Provide an EXHAUSTIVE, all-inclusive list of the PRODUCTS this company produces.
+Task: Provide an EXHAUSTIVE list of the PRODUCTS (SKUs/product names/product lines) this company sells.
 
 Hard rules:
 - Use web search (not just the company website).
-- The list MUST be exhaustive (everything the company produces).
+- Return ONLY products/product lines. Do NOT include navigation/UX taxonomy such as: Shop All, Collections, New, Best Sellers, Sale, Account, Cart, Store Locator, FAQ, Shipping, Returns, Contact, About, Blog.
+- Do NOT include generic category labels unless they are actual product lines.
+- The list should be materially more complete than the top nav.
 - If you are uncertain about completeness, expand the search and keep going until you can either:
   (a) justify completeness, OR
   (b) explicitly mark it incomplete with a reason.
@@ -1123,7 +1125,7 @@ Hard rules:
 
 Return:
 {
-  "keywords": ["Product 1", "Product 2"],
+  "product_keywords": ["Product 1", "Product 2"],
   "completeness": "complete" | "incomplete",
   "incomplete_reason": null | "..."
 }
