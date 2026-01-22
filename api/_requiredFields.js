@@ -189,12 +189,46 @@ function isValidIndustries(value) {
 
 // Product keywords quality gate
 const KEYWORD_DISALLOW_TERMS = [
+  // Legal / policy
   "unknown",
   "privacy",
   "terms",
   "policy",
   "cookie",
   "cookies",
+
+  // Store UX / navigation
+  "shop",
+  "shop all",
+  "all products",
+  "collections",
+  "collection",
+  "new",
+  "new arrivals",
+  "best sellers",
+  "bestsellers",
+  "featured",
+  "sale",
+  "clearance",
+  "promotions",
+  "promo",
+  "gift",
+  "gifts",
+  "gift card",
+  "gift cards",
+  "bundles",
+  "bundle",
+  "subscription",
+  "subscribe",
+  "rewards",
+  "loyalty",
+  "store locator",
+  "locator",
+  "track order",
+  "wishlist",
+  "favorites",
+
+  // Customer support
   "shipping",
   "returns",
   "refund",
@@ -202,6 +236,8 @@ const KEYWORD_DISALLOW_TERMS = [
   "contact",
   "about",
   "careers",
+
+  // Account / commerce
   "login",
   "sign in",
   "signup",
@@ -212,6 +248,13 @@ const KEYWORD_DISALLOW_TERMS = [
   "search",
   "menu",
   "sitemap",
+
+  // Not products
+  "blog",
+  "press",
+  "wholesale",
+
+  // HTML/CSS/JS junk
   "svg",
   "path",
   "stroke",
