@@ -973,6 +973,11 @@ test("/api/import/status reports resume_needed=false when only terminal missing 
                 return { resources };
               }
 
+              // import-status uses this query to decide whether a session exists.
+              if (q.includes("SELECT TOP 1 c.id FROM c") && q.includes("NOT STARTSWITH(c.id, '_import_')")) {
+                return { resources: [{ id: companyDoc.id }] };
+              }
+
               // Minimal support: return empty for any other query shapes.
               return { resources: [] };
             },
