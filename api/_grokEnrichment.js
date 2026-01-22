@@ -77,7 +77,7 @@ async function xaiLiveSearchWithRetry({ maxAttempts = 2, baseBackoffMs = 350, ..
 
   let last = null;
   for (let i = 0; i < attempts; i += 1) {
-    last = await xaiLiveSearch({ ...args, attempt: i });
+    last = await xaiLiveSearchWithRetry({ ...args, attempt: i });
     if (last && last.ok) return last;
 
     if (i < attempts - 1 && isRetryableUpstreamFailure(last)) {
@@ -395,7 +395,7 @@ Output STRICT JSON only as:
 
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
-  const r = await xaiLiveSearch({
+  const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
@@ -602,7 +602,7 @@ Return:
 
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
-  const r = await xaiLiveSearch({
+  const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
@@ -696,7 +696,7 @@ Return:
 
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
-  const r = await xaiLiveSearch({
+  const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
@@ -791,7 +791,7 @@ Return:
 
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
-  const r = await xaiLiveSearch({
+  const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
@@ -878,7 +878,7 @@ Return:
 
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
-  const r = await xaiLiveSearch({
+  const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
@@ -972,7 +972,7 @@ Return:
 
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
-  const r = await xaiLiveSearch({
+  const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
