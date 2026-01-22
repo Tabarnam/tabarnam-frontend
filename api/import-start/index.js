@@ -39,7 +39,14 @@ const {
   checkUrlHealthAndFetchText,
 } = require("../_reviewQuality");
 const { fillCompanyBaselineFromWebsite } = require("../_websiteBaseline");
-const { fetchCuratedReviews: fetchCuratedReviewsGrok } = require("../_grokEnrichment");
+const {
+  fetchCuratedReviews: fetchCuratedReviewsGrok,
+  fetchHeadquartersLocation: fetchHeadquartersLocationGrok,
+  fetchManufacturingLocations: fetchManufacturingLocationsGrok,
+  fetchTagline: fetchTaglineGrok,
+  fetchIndustries: fetchIndustriesGrok,
+  fetchProductKeywords: fetchProductKeywordsGrok,
+} = require("../_grokEnrichment");
 const { computeProfileCompleteness } = require("../_profileCompleteness");
 const { mergeCompanyDocsForSession: mergeCompanyDocsForSessionExternal } = require("../_companyDocMerge");
 const { applyEnrichment } = require("../_applyEnrichment");
