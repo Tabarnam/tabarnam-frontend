@@ -951,13 +951,30 @@ Return:
   }
 
   const out = parseJsonFromXaiResponse(r.resp);
+
+  if (!out || typeof out !== "object" || Array.isArray(out) || (!Object.prototype.hasOwnProperty.call(out, "tagline") && !Object.prototype.hasOwnProperty.call(out, "slogan"))) {
+    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    return {
+      tagline: "",
+      tagline_status: "invalid_json",
+      diagnostics: {
+        reason: "missing_tagline_key",
+        raw_preview: rawText ? rawText.slice(0, 1200) : null,
+      },
+    };
+  }
+
   const tagline = asString(out?.tagline || out?.slogan || "").trim();
 
   if (!tagline || /^(unknown|n\/a|not disclosed)$/i.test(tagline)) {
-    return { tagline: "", tagline_status: "not_found" };
+    const valueOut = { tagline: "", tagline_status: "not_found" };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
   }
 
-  return { tagline, tagline_status: "ok" };
+  const valueOut = { tagline, tagline_status: "ok" };
+  if (cacheKey) writeStageCache(cacheKey, valueOut);
+  return valueOut;
 }
 
 async function fetchIndustries({
