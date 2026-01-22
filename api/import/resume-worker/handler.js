@@ -197,9 +197,11 @@ function classifyLocationSource({ source_url, normalized_domain }) {
     host = "";
   }
 
+  const isHost = (needle) => host === needle || host.endsWith(`.${needle}`);
+
   if (host) {
     if (domain && domain !== "unknown" && (host === domain || host.endsWith(`.${domain}`))) {
-      out.source_type = "official_website";
+      out.source_type = "official_site";
       return out;
     }
 
@@ -214,7 +216,7 @@ function classifyLocationSource({ source_url, normalized_domain }) {
     }
 
     if (host.endsWith(".gov") || host.includes(".gov.")) {
-      out.source_type = "government_guide";
+      out.source_type = "government";
       return out;
     }
 
@@ -224,7 +226,33 @@ function classifyLocationSource({ source_url, normalized_domain }) {
       host.includes("magazine") ||
       host.includes("journal")
     ) {
-      out.source_type = "media";
+      out.source_type = "news";
+      return out;
+    }
+
+    if (
+      isHost("amazon.com") ||
+      isHost("etsy.com") ||
+      isHost("walmart.com") ||
+      isHost("target.com") ||
+      isHost("ebay.com") ||
+      host.includes("shopify.com")
+    ) {
+      out.source_type = "marketplace";
+      return out;
+    }
+
+    if (
+      host.includes("instagram.com") ||
+      host.includes("facebook.com") ||
+      host.includes("tiktok.com") ||
+      host.includes("pinterest.com") ||
+      host.includes("youtube.com") ||
+      host.includes("youtu.be") ||
+      host.includes("twitter.com") ||
+      host.includes("x.com")
+    ) {
+      out.source_type = "social";
       return out;
     }
   }
