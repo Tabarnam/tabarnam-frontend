@@ -1459,6 +1459,25 @@ async function resumeWorkerHandler(req, context) {
     const taglineRetryable = !isRealValue("tagline", doc.tagline, doc) && !isTerminalMissingField(doc, "tagline");
 
     const fieldsPlanned = (() => {
+      // Single-company mode must eventually attempt heavy fields (HQ/MFG/Reviews) across cycles.
+      // If budget heuristics would otherwise keep selecting only light fields (e.g., tagline),
+      // prefer one heavy field per cycle, chosen by lowest attempt count.
+      if (singleCompanyMode) {
+        const heavy = ["headquarters_location", "manufacturing_locations", "reviews"].filter((f) => missingNow.includes(f));
+        if (heavy.length > 0) {
+          const remainingMs = remainingRunMs();
+          if (remainingMs >= 4000) {
+            heavy.sort((a, b) => {
+              const da = attemptsFor(doc, a);
+              const db = attemptsFor(doc, b);
+              if (da !== db) return da - db;
+              return a === "headquarters_location" ? -1 : b === "headquarters_location" ? 1 : 0;
+            });
+            return new Set([heavy[0]]);
+          }
+        }
+      }
+
       const priority = [
         "headquarters_location",
         "manufacturing_locations",
