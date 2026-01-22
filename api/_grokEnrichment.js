@@ -872,19 +872,27 @@ async function fetchProductKeywords({
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
 
-  const prompt = `
-List product-related keywords for the company's main products:
-Name: ${name}
-Domain: ${domain}
+  const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
-Rules:
-- Use web search.
-- Return 8-20 product-related keywords/phrases.
-- Avoid generic navigation terms (e.g. "Shop", "Sale", "Login") and legal terms.
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+
+Task: Provide an EXHAUSTIVE, all-inclusive list of the PRODUCTS this company produces.
+
+Hard rules:
+- Use web search (not just the company website).
+- The list MUST be exhaustive (everything the company produces).
+- If you are uncertain about completeness, expand the search and keep going until you can either:
+  (a) justify completeness, OR
+  (b) explicitly mark it incomplete with a reason.
+- Do NOT return a short/partial list without marking it incomplete.
 - Output STRICT JSON only.
 
 Return:
-{ "keywords": ["..."] }
+{
+  "keywords": ["Product 1", "Product 2"],
+  "completeness": "complete" | "incomplete",
+  "incomplete_reason": null | "..."
+}
 `.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.light;
