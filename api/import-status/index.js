@@ -2047,31 +2047,22 @@ async function handler(req, context) {
           stageBeaconValues.status_infra_retryable_missing_count = infraRetryableAtPolicy.length;
           stageBeaconValues.status_infra_retryable_only_timeout = infraOnlyTimeout;
 
-          // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
-          const preTriggerCap = Boolean(
-            singleCompanyMode &&
-              resume_needed &&
-              currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE &&
-              !infraOnlyTimeout
-          );
           const watchdogNoProgress = Boolean(stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress);
 
-          const forceDecision = preTriggerCap
-            ? { force: true, reason: "max_cycles_pre_trigger" }
-            : watchdogNoProgress && singleCompanyMode && queued && retryableMissingCount === 0
-              ? { force: true, reason: "watchdog_no_progress" }
-              : shouldForceByQueuedTimeout
-                ? { force: true, reason: "queued_timeout_no_progress" }
-                : shouldForceTerminalizeSingle({
-                    single: singleCompanyMode,
-                    resume_needed,
-                    resume_status: resumeStatus,
-                    resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
-                    resume_worker: resumeWorkerForProgress,
-                    resume_stuck_ms: resumeStuckQueuedMs,
-                    infra_only_timeout: infraOnlyTimeout,
-                    retryable_missing_count: retryableMissingCount,
-                  });
+          const forceDecision = watchdogNoProgress && singleCompanyMode && queued && retryableMissingCount === 0
+            ? { force: true, reason: "watchdog_no_progress" }
+            : shouldForceByQueuedTimeout
+              ? { force: true, reason: "queued_timeout_no_progress" }
+              : shouldForceTerminalizeSingle({
+                  single: singleCompanyMode,
+                  resume_needed,
+                  resume_status: resumeStatus,
+                  resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
+                  resume_worker: resumeWorkerForProgress,
+                  resume_stuck_ms: resumeStuckQueuedMs,
+                  infra_only_timeout: infraOnlyTimeout,
+                  retryable_missing_count: retryableMissingCount,
+                });
 
           // Instrumentation for max-cycles stalls (and other force-terminalize policies).
           stageBeaconValues.status_resume_force_terminalize_selected = Boolean(forceDecision.force);
@@ -3972,31 +3963,22 @@ async function handler(req, context) {
           stageBeaconValues.status_infra_retryable_missing_count = infraRetryableAtPolicy.length;
           stageBeaconValues.status_infra_retryable_only_timeout = infraOnlyTimeout;
 
-          // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
-          const preTriggerCap = Boolean(
-            singleCompanyMode &&
-              resume_needed &&
-              currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE &&
-              !infraOnlyTimeout
-          );
           const watchdogNoProgress = Boolean(stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress);
 
-          const forceDecision = preTriggerCap
-            ? { force: true, reason: "max_cycles_pre_trigger" }
-            : watchdogNoProgress && singleCompanyMode && queued && retryableMissingCount === 0
-              ? { force: true, reason: "watchdog_no_progress" }
-              : shouldForceByQueuedTimeout
-                ? { force: true, reason: "queued_timeout_no_progress" }
-                : shouldForceTerminalizeSingle({
-                    single: singleCompanyMode,
-                    resume_needed,
-                    resume_status: resumeStatus,
-                    resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
-                    resume_worker: resumeWorkerForProgress,
-                    resume_stuck_ms: resumeStuckQueuedMs,
-                    infra_only_timeout: infraOnlyTimeout,
-                    retryable_missing_count: retryableMissingCount,
-                  });
+          const forceDecision = watchdogNoProgress && singleCompanyMode && queued && retryableMissingCount === 0
+            ? { force: true, reason: "watchdog_no_progress" }
+            : shouldForceByQueuedTimeout
+              ? { force: true, reason: "queued_timeout_no_progress" }
+              : shouldForceTerminalizeSingle({
+                  single: singleCompanyMode,
+                  resume_needed,
+                  resume_status: resumeStatus,
+                  resume_cycle_count: sessionDocForPolicy?.resume_cycle_count,
+                  resume_worker: resumeWorkerForProgress,
+                  resume_stuck_ms: resumeStuckQueuedMs,
+                  infra_only_timeout: infraOnlyTimeout,
+                  retryable_missing_count: retryableMissingCount,
+                });
 
           // Instrumentation for max-cycles stalls (and other force-terminalize policies).
           stageBeaconValues.status_resume_force_terminalize_selected = Boolean(forceDecision.force);
