@@ -2108,6 +2108,25 @@ async function handler(req, context) {
             resume_status = "complete";
             resumeStatus = "complete";
             canTrigger = false;
+
+            // Best-effort: persist stable terminal state onto the session doc so the UI
+            // can rely on a single canonical completion beacon.
+            try {
+              const sessionDocId = `_import_session_${sessionId}`;
+              const sessionDocForTerminal = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+              if (sessionDocForTerminal && typeof sessionDocForTerminal === "object") {
+                await upsertDoc(container, {
+                  ...sessionDocForTerminal,
+                  resume_needed: false,
+                  status: "complete",
+                  stage_beacon: "status_resume_terminal_only",
+                  resume_terminal_only: true,
+                  resume_terminalized_at: forcedAt,
+                  resume_terminalized_reason: forceDecision.reason,
+                  updated_at: nowIso(),
+                }).catch(() => null);
+              }
+            } catch {}
           }
         } catch {}
 
@@ -3935,6 +3954,25 @@ async function handler(req, context) {
             resume_status = "complete";
             resumeStatus = "complete";
             canTrigger = false;
+
+            // Best-effort: persist stable terminal state onto the session doc so the UI
+            // can rely on a single canonical completion beacon.
+            try {
+              const sessionDocId = `_import_session_${sessionId}`;
+              const sessionDocForTerminal = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+              if (sessionDocForTerminal && typeof sessionDocForTerminal === "object") {
+                await upsertDoc(container, {
+                  ...sessionDocForTerminal,
+                  resume_needed: false,
+                  status: "complete",
+                  stage_beacon: "status_resume_terminal_only",
+                  resume_terminal_only: true,
+                  resume_terminalized_at: forcedAt,
+                  resume_terminalized_reason: forceDecision.reason,
+                  updated_at: nowIso(),
+                }).catch(() => null);
+              }
+            } catch {}
           }
         } catch {}
 
