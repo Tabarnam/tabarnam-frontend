@@ -571,7 +571,7 @@ Output STRICT JSON only as:
     return value;
   }
 
-  return {
+  const value = {
     curated_reviews,
     reviews_stage_status: "ok",
     diagnostics: {
@@ -584,6 +584,8 @@ Output STRICT JSON only as:
     search_telemetry: searchBuild.telemetry,
     excluded_hosts: searchBuild.excluded_hosts,
   };
+  if (cacheKey) writeStageCache(cacheKey, value);
+  return value;
 }
 
 async function fetchHeadquartersLocation({
