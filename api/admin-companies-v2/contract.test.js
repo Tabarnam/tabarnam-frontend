@@ -423,9 +423,11 @@ test("xadmin-api-companies: contract issues do not flag keywords when product_ke
           "water flosser",
           "teeth whitening gel",
           "tooth powder",
-          "fluoride-free toothpaste",
           "charcoal toothpaste",
           "toothpaste tablets",
+          "remineralizing toothpaste",
+          "dental picks",
+          "orthodontic toothbrush",
         ],
 
         // Ensure we cover the exact legacy case: keywords array is missing/empty.
