@@ -31,6 +31,74 @@ const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
   light: { min: 8_000, max: 12_000 },
 });
 
+// Short-TTL cache to avoid re-paying the same Grok searches on resume cycles.
+// This is best-effort (in-memory) and only caches non-transient outcomes.
+const GROK_STAGE_CACHE = new Map();
+const GROK_STAGE_CACHE_TTL_MS = 10 * 60 * 1000;
+
+const IS_NODE_TEST_RUNNER =
+  (Array.isArray(process.execArgv) && process.execArgv.includes("--test")) ||
+  (Array.isArray(process.argv) && process.argv.includes("--test"));
+
+function readStageCache(key) {
+  const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
+  if (IS_NODE_TEST_RUNNER || hasStub) return null;
+  const entry = GROK_STAGE_CACHE.get(key);
+  if (!entry) return null;
+  if (Date.now() > (entry.expires_at || 0)) {
+    GROK_STAGE_CACHE.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function writeStageCache(key, value, ttlMs = GROK_STAGE_CACHE_TTL_MS) {
+  const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
+  if (IS_NODE_TEST_RUNNER || hasStub) return;
+  const ttl = Math.max(1_000, Math.trunc(Number(ttlMs) || GROK_STAGE_CACHE_TTL_MS));
+  GROK_STAGE_CACHE.set(key, { value, expires_at: Date.now() + ttl });
+}
+
+function sleepMs(ms) {
+  const wait = Math.max(0, Math.trunc(Number(ms) || 0));
+  if (wait <= 0) return Promise.resolve();
+  return new Promise((r) => setTimeout(r, wait));
+}
+
+function isRetryableUpstreamFailure(result) {
+  const r = result && typeof result === "object" ? result : {};
+  const code = String(r.error_code || "").trim().toLowerCase();
+  if (code === "upstream_timeout") return true;
+
+  const http = Number(r?.diagnostics?.upstream_http_status || 0) || 0;
+  if (http === 429) return true;
+  if (http >= 500 && http <= 599) return true;
+
+  const msg = String(r.error || "").toLowerCase();
+  if (msg.includes("upstream_http_429") || msg.includes("upstream_http_5")) return true;
+
+  return false;
+}
+
+async function xaiLiveSearchWithRetry({ maxAttempts = 2, baseBackoffMs = 350, ...args } = {}) {
+  const attempts = Math.max(1, Math.min(3, Math.trunc(Number(maxAttempts) || 2)));
+
+  let last = null;
+  for (let i = 0; i < attempts; i += 1) {
+    last = await xaiLiveSearch({ ...args, attempt: i });
+    if (last && last.ok) return last;
+
+    if (i < attempts - 1 && isRetryableUpstreamFailure(last)) {
+      await sleepMs(baseBackoffMs * Math.pow(2, i));
+      continue;
+    }
+
+    return last;
+  }
+
+  return last;
+}
+
 // Keep upstream calls safely under the SWA gateway wall-clock (~30s) with a buffer.
 function clampStageTimeoutMs({ remainingMs, minMs = 2_500, maxMs = resolveXaiStageTimeoutMaxMs(), safetyMarginMs = 1_200 } = {}) {
   const rem = Number.isFinite(Number(remainingMs)) ? Number(remainingMs) : 0;
@@ -285,6 +353,18 @@ async function fetchCuratedReviews({
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
 
+  const cacheKey = domain ? `reviews:${domain}` : "";
+  const cached = cacheKey ? readStageCache(cacheKey) : null;
+  if (cached) {
+    return {
+      ...cached,
+      diagnostics: {
+        ...(cached.diagnostics && typeof cached.diagnostics === "object" ? cached.diagnostics : {}),
+        cache: "hit",
+      },
+    };
+  }
+
   const excludeDomains = normalizeExcludeDomains({ normalizedDomain: domain });
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
@@ -303,9 +383,9 @@ Hard rules:
 - Exclude sources from these domains or subdomains: ${excludeDomains.join(", ")}
 - Do NOT invent titles/authors/dates/excerpts; we will extract metadata ourselves.
 
-Output STRICT JSON only as:
+Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "review_candidates"):
 {
-  "review_candidates": [
+  "reviews_url_candidates": [
     { "source_url": "https://...", "category": "youtube" },
     { "source_url": "https://...", "category": "blog" }
   ]
@@ -335,7 +415,7 @@ Output STRICT JSON only as:
 
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
-  const r = await xaiLiveSearch({
+  const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
@@ -366,12 +446,29 @@ Output STRICT JSON only as:
   }
 
   const parsed = parseJsonFromXaiResponse(r.resp);
+
   const rawCandidates =
-    parsed && typeof parsed === "object" && Array.isArray(parsed.review_candidates)
-      ? parsed.review_candidates
-      : Array.isArray(parsed)
-        ? parsed
-        : [];
+    parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? Array.isArray(parsed.reviews_url_candidates)
+        ? parsed.reviews_url_candidates
+        : Array.isArray(parsed.review_candidates)
+          ? parsed.review_candidates
+          : null
+      : null;
+
+  if (!rawCandidates) {
+    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    return {
+      curated_reviews: [],
+      reviews_stage_status: "invalid_json",
+      diagnostics: {
+        reason: "missing_reviews_url_candidates",
+        raw_preview: rawText ? rawText.slice(0, 1200) : null,
+      },
+      search_telemetry: searchBuild.telemetry,
+      excluded_hosts: searchBuild.excluded_hosts,
+    };
+  }
 
   const candidates = rawCandidates
     .filter((x) => x && typeof x === "object")
@@ -385,13 +482,15 @@ Output STRICT JSON only as:
     .filter((x) => !excludeDomains.some((d) => x.source_url.includes(d)));
 
   if (candidates.length === 0) {
-    return {
+    const value = {
       curated_reviews: [],
       reviews_stage_status: "not_found",
       diagnostics: { candidate_count: 0, verified_count: 0 },
       search_telemetry: searchBuild.telemetry,
       excluded_hosts: searchBuild.excluded_hosts,
     };
+    if (cacheKey) writeStageCache(cacheKey, value);
+    return value;
   }
 
   const deduped = [];
@@ -462,7 +561,7 @@ Output STRICT JSON only as:
     if (!hasTwoBlog) reasonParts.push("missing_blog_reviews");
     if (curated_reviews.length < 4) reasonParts.push("insufficient_verified_reviews");
 
-    return {
+    const value = {
       curated_reviews,
       reviews_stage_status: "incomplete",
       incomplete_reason: reasonParts.join(",") || "insufficient_verified_reviews",
@@ -476,9 +575,11 @@ Output STRICT JSON only as:
       search_telemetry: searchBuild.telemetry,
       excluded_hosts: searchBuild.excluded_hosts,
     };
+    if (cacheKey) writeStageCache(cacheKey, value);
+    return value;
   }
 
-  return {
+  const value = {
     curated_reviews,
     reviews_stage_status: "ok",
     diagnostics: {
@@ -491,6 +592,8 @@ Output STRICT JSON only as:
     search_telemetry: searchBuild.telemetry,
     excluded_hosts: searchBuild.excluded_hosts,
   };
+  if (cacheKey) writeStageCache(cacheKey, value);
+  return value;
 }
 
 async function fetchHeadquartersLocation({
@@ -504,6 +607,18 @@ async function fetchHeadquartersLocation({
 
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
+
+  const cacheKey = domain ? `hq:${domain}` : "";
+  const cached = cacheKey ? readStageCache(cacheKey) : null;
+  if (cached) {
+    return {
+      ...cached,
+      diagnostics: {
+        ...(cached.diagnostics && typeof cached.diagnostics === "object" ? cached.diagnostics : {}),
+        cache: "hit",
+      },
+    };
+  }
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
@@ -521,7 +636,10 @@ Rules:
 - Output STRICT JSON only.
 
 Return:
-{ "headquarters_location": "...", "source_urls": ["https://...", "https://..."] }
+{
+  "headquarters_location": "...",
+  "location_source_urls": { "hq_source_urls": ["https://...", "https://..."] }
+}
 `.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
@@ -542,7 +660,7 @@ Return:
 
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
-  const r = await xaiLiveSearch({
+  const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
@@ -571,21 +689,48 @@ Return:
   }
 
   const out = parseJsonFromXaiResponse(r.resp);
+
+  if (!out || typeof out !== "object" || Array.isArray(out) || !Object.prototype.hasOwnProperty.call(out, "headquarters_location")) {
+    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    return {
+      headquarters_location: "",
+      hq_status: "invalid_json",
+      source_urls: [],
+      location_source_urls: { hq_source_urls: [] },
+      diagnostics: {
+        reason: "missing_headquarters_location_key",
+        raw_preview: rawText ? rawText.slice(0, 1200) : null,
+      },
+    };
+  }
+
   const value = asString(out?.headquarters_location).trim();
-  const source_urls = Array.isArray(out?.source_urls)
-    ? out.source_urls.map((x) => safeUrl(x)).filter(Boolean).slice(0, 12)
+
+  const hq_source_urls_raw =
+    Array.isArray(out?.location_source_urls?.hq_source_urls) ? out.location_source_urls.hq_source_urls : out?.source_urls;
+
+  const source_urls = Array.isArray(hq_source_urls_raw)
+    ? hq_source_urls_raw.map((x) => safeUrl(x)).filter(Boolean).slice(0, 12)
     : [];
 
+  const location_source_urls = { hq_source_urls: source_urls };
+
   if (!value) {
-    return { headquarters_location: "", hq_status: "not_found", source_urls };
+    const valueOut = { headquarters_location: "", hq_status: "not_found", source_urls, location_source_urls };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
   }
 
   // "Not disclosed" is a terminal sentinel (downstream treats it as complete).
   if (value.toLowerCase() === "not disclosed" || value.toLowerCase() === "not_disclosed") {
-    return { headquarters_location: "Not disclosed", hq_status: "not_disclosed", source_urls };
+    const valueOut = { headquarters_location: "Not disclosed", hq_status: "not_disclosed", source_urls, location_source_urls };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
   }
 
-  return { headquarters_location: value, hq_status: "ok", source_urls };
+  const valueOut = { headquarters_location: value, hq_status: "ok", source_urls, location_source_urls };
+  if (cacheKey) writeStageCache(cacheKey, valueOut);
+  return valueOut;
 }
 
 async function fetchManufacturingLocations({
@@ -599,6 +744,18 @@ async function fetchManufacturingLocations({
 
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
+
+  const cacheKey = domain ? `mfg:${domain}` : "";
+  const cached = cacheKey ? readStageCache(cacheKey) : null;
+  if (cached) {
+    return {
+      ...cached,
+      diagnostics: {
+        ...(cached.diagnostics && typeof cached.diagnostics === "object" ? cached.diagnostics : {}),
+        cache: "hit",
+      },
+    };
+  }
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
@@ -615,7 +772,10 @@ Rules:
 - Output STRICT JSON only.
 
 Return:
-{ "manufacturing_locations": ["City, Country"], "source_urls": ["https://...", "https://..."] }
+{
+  "manufacturing_locations": ["City, Country"],
+  "location_source_urls": { "mfg_source_urls": ["https://...", "https://..."] }
+}
 `.trim();
 
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.location;
@@ -636,7 +796,7 @@ Return:
 
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
-  const r = await xaiLiveSearch({
+  const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
@@ -667,22 +827,47 @@ Return:
 
   const out = parseJsonFromXaiResponse(r.resp);
 
-  const source_urls = Array.isArray(out?.source_urls)
-    ? out.source_urls.map((x) => safeUrl(x)).filter(Boolean).slice(0, 12)
+  if (!out || typeof out !== "object" || Array.isArray(out) || !Object.prototype.hasOwnProperty.call(out, "manufacturing_locations")) {
+    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    return {
+      manufacturing_locations: [],
+      mfg_status: "invalid_json",
+      source_urls: [],
+      location_source_urls: { mfg_source_urls: [] },
+      diagnostics: {
+        reason: "missing_manufacturing_locations_key",
+        raw_preview: rawText ? rawText.slice(0, 1200) : null,
+      },
+    };
+  }
+
+  const mfg_source_urls_raw =
+    Array.isArray(out?.location_source_urls?.mfg_source_urls) ? out.location_source_urls.mfg_source_urls : out?.source_urls;
+
+  const source_urls = Array.isArray(mfg_source_urls_raw)
+    ? mfg_source_urls_raw.map((x) => safeUrl(x)).filter(Boolean).slice(0, 12)
     : [];
+
+  const location_source_urls = { mfg_source_urls: source_urls };
 
   const arr = Array.isArray(out?.manufacturing_locations) ? out.manufacturing_locations : [];
   const cleaned = arr.map((x) => asString(x).trim()).filter(Boolean);
 
   if (cleaned.length === 0) {
-    return { manufacturing_locations: [], mfg_status: "not_found", source_urls };
+    const valueOut = { manufacturing_locations: [], mfg_status: "not_found", source_urls, location_source_urls };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
   }
 
   if (cleaned.length === 1 && cleaned[0].toLowerCase().includes("not disclosed")) {
-    return { manufacturing_locations: ["Not disclosed"], mfg_status: "not_disclosed", source_urls };
+    const valueOut = { manufacturing_locations: ["Not disclosed"], mfg_status: "not_disclosed", source_urls, location_source_urls };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
   }
 
-  return { manufacturing_locations: cleaned, mfg_status: "ok", source_urls };
+  const valueOut = { manufacturing_locations: cleaned, mfg_status: "ok", source_urls, location_source_urls };
+  if (cacheKey) writeStageCache(cacheKey, valueOut);
+  return valueOut;
 }
 
 async function fetchTagline({
@@ -698,15 +883,28 @@ async function fetchTagline({
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
 
-  const prompt = `
-Find the company tagline/slogan for:
-Name: ${name}
-Domain: ${domain}
+  const cacheKey = domain ? `tagline:${domain}` : "";
+  const cached = cacheKey ? readStageCache(cacheKey) : null;
+  if (cached) {
+    return {
+      ...cached,
+      diagnostics: {
+        ...(cached.diagnostics && typeof cached.diagnostics === "object" ? cached.diagnostics : {}),
+        cache: "hit",
+      },
+    };
+  }
+
+  const websiteUrlForPrompt = domain ? `https://${domain}` : "";
+
+  const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
+
+Task: Provide ONLY the company tagline/slogan.
 
 Rules:
 - Use web search.
 - Return a short marketing-style tagline (a sentence fragment is fine).
-- Do not return navigation labels, legal text, or "Unknown".
+- Do NOT return navigation labels, promos, or legal text.
 - Output STRICT JSON only.
 
 Return:
@@ -731,7 +929,7 @@ Return:
 
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
-  const r = await xaiLiveSearch({
+  const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
@@ -761,13 +959,30 @@ Return:
   }
 
   const out = parseJsonFromXaiResponse(r.resp);
+
+  if (!out || typeof out !== "object" || Array.isArray(out) || (!Object.prototype.hasOwnProperty.call(out, "tagline") && !Object.prototype.hasOwnProperty.call(out, "slogan"))) {
+    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    return {
+      tagline: "",
+      tagline_status: "invalid_json",
+      diagnostics: {
+        reason: "missing_tagline_key",
+        raw_preview: rawText ? rawText.slice(0, 1200) : null,
+      },
+    };
+  }
+
   const tagline = asString(out?.tagline || out?.slogan || "").trim();
 
   if (!tagline || /^(unknown|n\/a|not disclosed)$/i.test(tagline)) {
-    return { tagline: "", tagline_status: "not_found" };
+    const valueOut = { tagline: "", tagline_status: "not_found" };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
   }
 
-  return { tagline, tagline_status: "ok" };
+  const valueOut = { tagline, tagline_status: "ok" };
+  if (cacheKey) writeStageCache(cacheKey, valueOut);
+  return valueOut;
 }
 
 async function fetchIndustries({
@@ -782,6 +997,18 @@ async function fetchIndustries({
 
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
+
+  const cacheKey = domain ? `industries:${domain}` : "";
+  const cached = cacheKey ? readStageCache(cacheKey) : null;
+  if (cached) {
+    return {
+      ...cached,
+      diagnostics: {
+        ...(cached.diagnostics && typeof cached.diagnostics === "object" ? cached.diagnostics : {}),
+        cache: "hit",
+      },
+    };
+  }
 
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
@@ -818,7 +1045,7 @@ Return:
 
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
-  const r = await xaiLiveSearch({
+  const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
@@ -848,14 +1075,30 @@ Return:
   }
 
   const out = parseJsonFromXaiResponse(r.resp);
-  const list = Array.isArray(out?.industries) ? out.industries : Array.isArray(out) ? out : [];
 
-  const cleaned = list.map((x) => asString(x).trim()).filter(Boolean);
-  if (cleaned.length === 0) {
-    return { industries: [], industries_status: "not_found" };
+  if (!out || typeof out !== "object" || Array.isArray(out) || !Object.prototype.hasOwnProperty.call(out, "industries")) {
+    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    return {
+      industries: [],
+      industries_status: "invalid_json",
+      diagnostics: {
+        reason: "missing_industries_key",
+        raw_preview: rawText ? rawText.slice(0, 1200) : null,
+      },
+    };
   }
 
-  return { industries: cleaned.slice(0, 5), industries_status: "ok" };
+  const list = Array.isArray(out?.industries) ? out.industries : [];
+  const cleaned = list.map((x) => asString(x).trim()).filter(Boolean);
+  if (cleaned.length === 0) {
+    const valueOut = { industries: [], industries_status: "not_found" };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
+  }
+
+  const valueOut = { industries: cleaned.slice(0, 5), industries_status: "ok" };
+  if (cacheKey) writeStageCache(cacheKey, valueOut);
+  return valueOut;
 }
 
 async function fetchProductKeywords({
@@ -871,15 +1114,29 @@ async function fetchProductKeywords({
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
 
+  const cacheKey = domain ? `products:${domain}` : "";
+  const cached = cacheKey ? readStageCache(cacheKey) : null;
+  if (cached) {
+    return {
+      ...cached,
+      diagnostics: {
+        ...(cached.diagnostics && typeof cached.diagnostics === "object" ? cached.diagnostics : {}),
+        cache: "hit",
+      },
+    };
+  }
+
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
   const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
 
-Task: Provide an EXHAUSTIVE, all-inclusive list of the PRODUCTS this company produces.
+Task: Provide an EXHAUSTIVE list of the PRODUCTS (SKUs/product names/product lines) this company sells.
 
 Hard rules:
 - Use web search (not just the company website).
-- The list MUST be exhaustive (everything the company produces).
+- Return ONLY products/product lines. Do NOT include navigation/UX taxonomy such as: Shop All, Collections, New, Best Sellers, Sale, Account, Cart, Store Locator, FAQ, Shipping, Returns, Contact, About, Blog.
+- Do NOT include generic category labels unless they are actual product lines.
+- The list should be materially more complete than the top nav.
 - If you are uncertain about completeness, expand the search and keep going until you can either:
   (a) justify completeness, OR
   (b) explicitly mark it incomplete with a reason.
@@ -888,7 +1145,7 @@ Hard rules:
 
 Return:
 {
-  "keywords": ["Product 1", "Product 2"],
+  "product_keywords": ["Product 1", "Product 2"],
   "completeness": "complete" | "incomplete",
   "incomplete_reason": null | "..."
 }
@@ -912,7 +1169,7 @@ Return:
 
   const maxTimeoutMs = Math.min(stageTimeout.max, resolveXaiStageTimeoutMaxMs());
 
-  const r = await xaiLiveSearch({
+  const r = await xaiLiveSearchWithRetry({
     prompt,
     timeoutMs: clampStageTimeoutMs({
       remainingMs: remaining,
@@ -942,31 +1199,60 @@ Return:
   }
 
   const out = parseJsonFromXaiResponse(r.resp);
-  const list = Array.isArray(out?.keywords)
-    ? out.keywords
-    : Array.isArray(out?.product_keywords)
-      ? out.product_keywords
-      : Array.isArray(out)
-        ? out
-        : [];
+
+  if (!out || typeof out !== "object" || Array.isArray(out) || !Object.prototype.hasOwnProperty.call(out, "completeness")) {
+    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    return {
+      product_keywords: [],
+      keywords: [],
+      keywords_status: "invalid_json",
+      diagnostics: {
+        reason: "missing_completeness_key",
+        raw_preview: rawText ? rawText.slice(0, 1200) : null,
+      },
+    };
+  }
+
+  const hasProductKeywordsKey = Object.prototype.hasOwnProperty.call(out, "product_keywords");
+  const hasKeywordsKey = Object.prototype.hasOwnProperty.call(out, "keywords");
+
+  if (!hasProductKeywordsKey && !hasKeywordsKey) {
+    const rawText = asString(extractTextFromXaiResponse(r.resp));
+    return {
+      product_keywords: [],
+      keywords: [],
+      keywords_status: "invalid_json",
+      diagnostics: {
+        reason: "missing_product_keywords_key",
+        raw_preview: rawText ? rawText.slice(0, 1200) : null,
+      },
+    };
+  }
+
+  const list = Array.isArray(out?.product_keywords) ? out.product_keywords : Array.isArray(out?.keywords) ? out.keywords : [];
 
   const cleaned = list.map((x) => asString(x).trim()).filter(Boolean);
   const deduped = Array.from(new Set(cleaned));
 
   if (deduped.length === 0) {
-    return { keywords: [], keywords_status: "not_found" };
+    const valueOut = { product_keywords: [], keywords: [], keywords_status: "not_found" };
+    if (cacheKey) writeStageCache(cacheKey, valueOut);
+    return valueOut;
   }
 
   const completenessRaw = asString(out?.completeness).trim().toLowerCase();
   const completeness = completenessRaw === "incomplete" ? "incomplete" : "complete";
   const incomplete_reason = completeness === "incomplete" ? (asString(out?.incomplete_reason).trim() || null) : null;
 
-  return {
+  const valueOut = {
+    product_keywords: deduped,
     keywords: deduped,
     keywords_status: completeness === "incomplete" ? "incomplete" : "ok",
     keywords_completeness: completeness,
     keywords_incomplete_reason: incomplete_reason,
   };
+  if (cacheKey) writeStageCache(cacheKey, valueOut);
+  return valueOut;
 }
 
 module.exports = {

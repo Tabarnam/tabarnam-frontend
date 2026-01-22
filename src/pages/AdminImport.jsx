@@ -4367,6 +4367,99 @@ export default function AdminImport() {
                             </div>
                           ) : null}
 
+                          {primaryDoc ? (
+                            <details className="mt-2 rounded border border-slate-200 bg-white p-3">
+                              <summary className="cursor-pointer text-xs font-medium text-slate-800">
+                                Location sources (admin debug)
+                              </summary>
+                              {(() => {
+                                const locationSources = Array.isArray(primaryDoc?.location_sources) ? primaryDoc.location_sources : [];
+                                const debugSources =
+                                  primaryDoc?.enrichment_debug &&
+                                  typeof primaryDoc.enrichment_debug === "object" &&
+                                  primaryDoc.enrichment_debug.location_sources &&
+                                  typeof primaryDoc.enrichment_debug.location_sources === "object"
+                                    ? primaryDoc.enrichment_debug.location_sources
+                                    : null;
+
+                                const hqUrls = Array.isArray(debugSources?.hq_source_urls) ? debugSources.hq_source_urls : [];
+                                const mfgUrls = Array.isArray(debugSources?.mfg_source_urls) ? debugSources.mfg_source_urls : [];
+
+                                if (locationSources.length === 0 && hqUrls.length === 0 && mfgUrls.length === 0) {
+                                  return <div className="mt-2 text-xs text-slate-600">No location sources recorded.</div>;
+                                }
+
+                                return (
+                                  <div className="mt-2 space-y-3">
+                                    {locationSources.length > 0 ? (
+                                      <div>
+                                        <div className="text-xs font-medium text-slate-800">location_sources</div>
+                                        <ul className="mt-1 space-y-1 text-xs text-slate-700">
+                                          {locationSources.slice(0, 20).map((s, idx) => {
+                                            const location = asString(s?.location).trim();
+                                            const type = asString(s?.location_type).trim();
+                                            const url = asString(s?.source_url).trim();
+                                            return (
+                                              <li key={`${type || "loc"}-${idx}`} className="break-words">
+                                                <span className="font-medium">{type || "loc"}</span>
+                                                {location ? `: ${location}` : ""}
+                                                {url ? (
+                                                  <>
+                                                    {" "}
+                                                    ·{" "}
+                                                    <a className="text-blue-700 underline" href={url} target="_blank" rel="noreferrer">
+                                                      {url}
+                                                    </a>
+                                                  </>
+                                                ) : null}
+                                              </li>
+                                            );
+                                          })}
+                                        </ul>
+                                      </div>
+                                    ) : null}
+
+                                    {hqUrls.length > 0 ? (
+                                      <div>
+                                        <div className="text-xs font-medium text-slate-800">enrichment_debug.location_sources.hq_source_urls</div>
+                                        <ul className="mt-1 space-y-1 text-xs text-slate-700">
+                                          {hqUrls.slice(0, 12).map((url, idx) => {
+                                            const u = asString(url).trim();
+                                            return u ? (
+                                              <li key={`hq-${idx}`} className="break-words">
+                                                <a className="text-blue-700 underline" href={u} target="_blank" rel="noreferrer">
+                                                  {u}
+                                                </a>
+                                              </li>
+                                            ) : null;
+                                          })}
+                                        </ul>
+                                      </div>
+                                    ) : null}
+
+                                    {mfgUrls.length > 0 ? (
+                                      <div>
+                                        <div className="text-xs font-medium text-slate-800">enrichment_debug.location_sources.mfg_source_urls</div>
+                                        <ul className="mt-1 space-y-1 text-xs text-slate-700">
+                                          {mfgUrls.slice(0, 12).map((url, idx) => {
+                                            const u = asString(url).trim();
+                                            return u ? (
+                                              <li key={`mfg-${idx}`} className="break-words">
+                                                <a className="text-blue-700 underline" href={u} target="_blank" rel="noreferrer">
+                                                  {u}
+                                                </a>
+                                              </li>
+                                            ) : null;
+                                          })}
+                                        </ul>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })()}
+                            </details>
+                          ) : null}
+
                           {Boolean(activeRun.resume_needed) ? (
                             <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-2">
                               {(() => {

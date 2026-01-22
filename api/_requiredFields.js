@@ -78,15 +78,22 @@ const INDUSTRY_ALLOWLIST = [
   "dental",
   "dental hygiene",
   "personal care",
+  "bath & body",
+  "bath and body",
+  "soap",
+  "skincare",
+  "cosmetics",
+  "home fragrance",
+  "fragrance",
+  "candle",
+  "candles",
+  "consumer goods",
+  "manufacturing",
+  "supplements",
   "healthcare",
   "medical",
   "pharmaceutical",
   "biotech",
-  "cosmetics",
-  "skincare",
-  "consumer goods",
-  "manufacturing",
-  "supplements",
 ];
 
 function toTitleCase(input) {
@@ -105,7 +112,13 @@ const INDUSTRY_CANONICAL_MAP = [
   { match: ["oral care", "dental", "tooth", "teeth", "whitening", "mouth"], canonical: "Oral Care" },
   { match: ["skin", "skincare", "cosmetic", "beauty", "dermat"], canonical: "Skincare" },
   { match: ["personal care", "hygiene", "groom"], canonical: "Personal Care" },
-  { match: ["household", "clean", "laundry", "disinfect", "soap", "detergent"], canonical: "Household Cleaning" },
+
+  // Prefer these for brands like Pachasoap (avoid mapping "soap" into household cleaning).
+  { match: ["soap", "bar soap", "hand soap", "handmade soap"], canonical: "Soap" },
+  { match: ["bath", "bath & body", "bath and body", "body", "body wash", "shower", "shampoo", "conditioner"], canonical: "Bath & Body" },
+  { match: ["home fragrance", "fragrance", "candle", "candles", "diffuser", "aromatherapy", "essential oil"], canonical: "Home Fragrance" },
+
+  { match: ["household", "clean", "laundry", "disinfect", "detergent"], canonical: "Household Cleaning" },
   { match: ["pet", "veterinary", "dog", "cat"], canonical: "Pet Care" },
   { match: ["medical", "healthcare", "health care", "clinic", "pharma", "pharmaceutical"], canonical: "Healthcare" },
   { match: ["apparel", "clothing", "fashion"], canonical: "Apparel" },
@@ -155,6 +168,9 @@ function sanitizeIndustries(value) {
     const key = normalizeKey(item);
     if (!key) continue;
 
+    // "Baby" alone is too ambiguous and has caused bad defaults; require a more specific label.
+    if (key === "baby" || key === "babies") continue;
+
     if (INDUSTRY_MARKETPLACE_BUCKETS.has(key)) continue;
 
     // Reject obvious navigation labels.
@@ -189,12 +205,46 @@ function isValidIndustries(value) {
 
 // Product keywords quality gate
 const KEYWORD_DISALLOW_TERMS = [
+  // Legal / policy
   "unknown",
   "privacy",
   "terms",
   "policy",
   "cookie",
   "cookies",
+
+  // Store UX / navigation
+  "shop",
+  "shop all",
+  "all products",
+  "collections",
+  "collection",
+  "new",
+  "new arrivals",
+  "best sellers",
+  "bestsellers",
+  "featured",
+  "sale",
+  "clearance",
+  "promotions",
+  "promo",
+  "gift",
+  "gifts",
+  "gift card",
+  "gift cards",
+  "bundles",
+  "bundle",
+  "subscription",
+  "subscribe",
+  "rewards",
+  "loyalty",
+  "store locator",
+  "locator",
+  "track order",
+  "wishlist",
+  "favorites",
+
+  // Customer support
   "shipping",
   "returns",
   "refund",
@@ -202,6 +252,8 @@ const KEYWORD_DISALLOW_TERMS = [
   "contact",
   "about",
   "careers",
+
+  // Account / commerce
   "login",
   "sign in",
   "signup",
@@ -212,6 +264,13 @@ const KEYWORD_DISALLOW_TERMS = [
   "search",
   "menu",
   "sitemap",
+
+  // Not products
+  "blog",
+  "press",
+  "wholesale",
+
+  // HTML/CSS/JS junk
   "svg",
   "path",
   "stroke",
@@ -239,7 +298,8 @@ function normalizeKeyword(value) {
 }
 
 function isKeywordJunk(keyword) {
-  const key = normalizeKey(keyword);
+  const raw = asString(keyword).trim();
+  const key = normalizeKey(raw);
   if (!key) return true;
 
   if (PLACEHOLDER_STRINGS.has(key)) return true;
@@ -254,6 +314,15 @@ function isKeywordJunk(keyword) {
 
   // Legal/nav terms
   if (KEYWORD_DISALLOW_TERMS.some((t) => key.includes(normalizeKey(t)))) return true;
+
+  // Heuristic: ALL CAPS labels ("SHOP ALL", "BEST SELLERS") are rarely real product names.
+  // Keep anything with digits (SKUs) or longer descriptive phrases.
+  const hasDigits = /\d/.test(raw);
+  const isAllCaps = raw.length > 0 && raw === raw.toUpperCase() && /[A-Z]/.test(raw);
+  if (isAllCaps && !hasDigits) {
+    const words = raw.split(/\s+/).filter(Boolean);
+    if (words.length > 0 && words.length <= 4 && raw.length <= 30) return true;
+  }
 
   // Too short or just symbols
   if (key.length < 3) return true;

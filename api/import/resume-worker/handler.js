@@ -302,17 +302,33 @@ function terminalizeGrokField(doc, field, terminalReason) {
   }
 
   if (field === "reviews") {
-    doc.curated_reviews = [];
-    doc.review_count = typeof doc.review_count === "number" ? doc.review_count : 0;
-    doc.reviews_stage_status = "exhausted";
+    if (!Array.isArray(doc.curated_reviews)) doc.curated_reviews = [];
+    doc.review_count = typeof doc.review_count === "number" ? doc.review_count : doc.curated_reviews.length;
+
     const cursor =
       doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
+
+    const attemptedUrls = Array.isArray(cursor.attempted_urls) ? cursor.attempted_urls : [];
+    const lastErrCode = normalizeKey(cursor?.last_error?.code || "");
+
+    const incompleteReason =
+      normalizeKey(cursor.incomplete_reason || "") ||
+      (lastErrCode === "upstream_timeout" || lastErrCode === "upstream_unreachable" ? lastErrCode : "") ||
+      "exhausted";
+
+    // Required invariant: terminal completion must never leave reviews_stage_status="pending".
+    // We keep the user-facing stage as "incomplete" and rely on cursor.exhausted for terminality.
+    doc.reviews_stage_status = "incomplete";
+
     doc.review_cursor = {
       ...cursor,
       exhausted: true,
-      reviews_stage_status: "exhausted",
+      reviews_stage_status: "incomplete",
+      incomplete_reason: incompleteReason,
+      attempted_urls: attemptedUrls,
       exhausted_at: nowIso(),
     };
+
     doc.import_missing_reason.reviews = "exhausted";
   }
 }
@@ -469,25 +485,34 @@ function reconcileGrokTerminalState(doc) {
   const cursorExhausted = Boolean(doc.review_cursor && typeof doc.review_cursor === "object" && doc.review_cursor.exhausted === true);
 
   if (reviewsStage === "exhausted" || cursorExhausted) {
-    if (normalizeKey(doc.reviews_stage_status) !== "exhausted") {
-      doc.reviews_stage_status = "exhausted";
-      changed = true;
-    }
-
+    // Terminal completion marker for reviews is cursor.exhausted.
+    // We keep the *user-facing* stage as "incomplete" (never "pending"/"exhausted").
     const cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
 
     if (cursor.exhausted !== true) {
       cursor.exhausted = true;
       changed = true;
     }
-    if (normalizeKey(cursor.reviews_stage_status) !== "exhausted") {
-      cursor.reviews_stage_status = "exhausted";
+
+    const nextStage = "incomplete";
+
+    if (!doc.reviews_stage_status || normalizeKey(doc.reviews_stage_status) === "pending" || normalizeKey(doc.reviews_stage_status) === "exhausted") {
+      doc.reviews_stage_status = nextStage;
       changed = true;
     }
+
+    if (!cursor.reviews_stage_status || normalizeKey(cursor.reviews_stage_status) === "pending" || normalizeKey(cursor.reviews_stage_status) === "exhausted") {
+      cursor.reviews_stage_status = nextStage;
+      changed = true;
+    }
+
     if (!cursor.exhausted_at) {
       cursor.exhausted_at = nowIso();
       changed = true;
     }
+
+    cursor.attempted_urls = Array.isArray(cursor.attempted_urls) ? cursor.attempted_urls : [];
+    cursor.incomplete_reason = normalizeKey(cursor.incomplete_reason || "") || "exhausted";
 
     doc.review_cursor = cursor;
 
@@ -1162,9 +1187,42 @@ async function resumeWorkerHandler(req, context) {
 
       const missingAll = computeMissingFields(doc);
       for (const field of Array.isArray(missingAll) ? missingAll : []) {
+        const previousAttempts = attemptsFor(doc, field);
         bumpFieldAttempt(doc, field, requestId);
         if (field === "headquarters_location") terminalizeGrokField(doc, "headquarters_location", "exhausted");
         if (field === "manufacturing_locations") terminalizeGrokField(doc, "manufacturing_locations", "exhausted");
+
+        if (field === "reviews") {
+          doc.review_cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
+          if (!Array.isArray(doc.curated_reviews)) doc.curated_reviews = [];
+          if (!Number.isFinite(Number(doc.review_count))) doc.review_count = doc.curated_reviews.length;
+
+          const attemptedUrls = Array.isArray(doc.review_cursor.attempted_urls) ? doc.review_cursor.attempted_urls : [];
+          const hadAttempts = previousAttempts > 0 || attemptedUrls.length > 0 || Boolean(doc.review_cursor.last_error);
+
+          const reasonsObj = doc.import_missing_reason && typeof doc.import_missing_reason === "object" ? doc.import_missing_reason : {};
+          const anyTimeout = Object.values(reasonsObj).some((v) => normalizeKey(v) === "upstream_timeout");
+
+          const incompleteReasonRaw =
+            normalizeKey(doc.review_cursor.incomplete_reason || "") ||
+            normalizeKey(reasonsObj.reviews || "") ||
+            (hadAttempts ? "attempted_but_incomplete" : "");
+
+          const incomplete_reason = incompleteReasonRaw || (anyTimeout ? "upstream_timeout" : "terminalized_without_attempt");
+
+          // Required invariant: terminal-only completion must never leave reviews_stage_status="pending".
+          doc.reviews_stage_status = "incomplete";
+          doc.review_cursor.reviews_stage_status = "incomplete";
+          doc.review_cursor.incomplete_reason = incomplete_reason;
+          doc.review_cursor.attempted_urls = attemptedUrls;
+
+          // Mark terminal for required-fields logic while keeping user-facing stage as "incomplete".
+          doc.review_cursor.exhausted = true;
+          doc.review_cursor.exhausted_at = updatedAt;
+
+          doc.import_missing_reason ||= {};
+          doc.import_missing_reason.reviews = "exhausted";
+        }
       }
 
       forceTerminalizeNonGrokFields(doc);
@@ -1389,7 +1447,11 @@ async function resumeWorkerHandler(req, context) {
         out.push(field);
 
         // Single-company mode should do less per cycle rather than slash timeouts.
-        if (singleCompanyMode && out.length >= 2) break;
+        // In particular, do at most one heavy upstream stage per cycle to reduce timeouts.
+        if (singleCompanyMode) {
+          const heavy = field === "headquarters_location" || field === "manufacturing_locations" || field === "reviews";
+          if (heavy || out.length >= 2) break;
+        }
       }
 
       // Fallback: when min-ms thresholds prevent scheduling *any* work but we still have retryable missing
@@ -1605,7 +1667,7 @@ async function resumeWorkerHandler(req, context) {
       }
 
       const status = normalizeKey(r?.keywords_status || "");
-      const list = Array.isArray(r?.keywords) ? r.keywords : [];
+      const list = Array.isArray(r?.product_keywords) ? r.product_keywords : Array.isArray(r?.keywords) ? r.keywords : [];
 
       const sanitized = (() => {
         try {
@@ -1629,8 +1691,9 @@ async function resumeWorkerHandler(req, context) {
         markFieldSuccess(doc, "product_keywords");
         changed = true;
       } else {
+        const hadAny = Array.isArray(list) && list.length > 0;
         const terminal = attemptsFor(doc, "product_keywords") >= MAX_ATTEMPTS_KEYWORDS;
-        const retryReason = status || "not_found";
+        const retryReason = status === "ok" && hadAny ? "low_quality" : status || "not_found";
         const terminalReason = retryReason === "low_quality" ? "low_quality_terminal" : "not_found_terminal";
 
         doc.import_missing_reason ||= {};
@@ -1694,6 +1757,36 @@ async function resumeWorkerHandler(req, context) {
         doc.hq_unknown_reason = null;
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.headquarters_location = "ok";
+
+        const hqSourceUrls = Array.isArray(r?.location_source_urls?.hq_source_urls)
+          ? r.location_source_urls.hq_source_urls
+          : Array.isArray(r?.source_urls)
+            ? r.source_urls
+            : [];
+
+        doc.enrichment_debug = doc.enrichment_debug && typeof doc.enrichment_debug === "object" ? doc.enrichment_debug : {};
+        doc.enrichment_debug.location_sources =
+          doc.enrichment_debug.location_sources && typeof doc.enrichment_debug.location_sources === "object"
+            ? doc.enrichment_debug.location_sources
+            : {};
+        doc.enrichment_debug.location_sources.hq_source_urls = hqSourceUrls;
+
+        doc.location_sources = Array.isArray(doc.location_sources) ? doc.location_sources : [];
+        for (const url of hqSourceUrls) {
+          const sourceUrl = String(url || "").trim();
+          if (!sourceUrl) continue;
+          const exists = doc.location_sources.some(
+            (x) => x && typeof x === "object" && x.location_type === "hq" && x.location === value && x.source_url === sourceUrl
+          );
+          if (exists) continue;
+          doc.location_sources.push({
+            location_type: "hq",
+            location: value,
+            source_url: sourceUrl,
+            source_type: "grok_search",
+          });
+        }
+
         markFieldSuccess(doc, "headquarters_location");
         changed = true;
       } else {
@@ -1772,6 +1865,39 @@ async function resumeWorkerHandler(req, context) {
         doc.mfg_unknown_reason = null;
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.manufacturing_locations = "ok";
+
+        const mfgSourceUrls = Array.isArray(r?.location_source_urls?.mfg_source_urls)
+          ? r.location_source_urls.mfg_source_urls
+          : Array.isArray(r?.source_urls)
+            ? r.source_urls
+            : [];
+
+        doc.enrichment_debug = doc.enrichment_debug && typeof doc.enrichment_debug === "object" ? doc.enrichment_debug : {};
+        doc.enrichment_debug.location_sources =
+          doc.enrichment_debug.location_sources && typeof doc.enrichment_debug.location_sources === "object"
+            ? doc.enrichment_debug.location_sources
+            : {};
+        doc.enrichment_debug.location_sources.mfg_source_urls = mfgSourceUrls;
+
+        doc.location_sources = Array.isArray(doc.location_sources) ? doc.location_sources : [];
+        const primaryMfgSourceUrl = mfgSourceUrls.map((u) => String(u || "").trim()).filter(Boolean)[0] || "";
+        if (primaryMfgSourceUrl) {
+          for (const loc of locs) {
+            const locStr = String(loc || "").trim();
+            if (!locStr) continue;
+            const exists = doc.location_sources.some(
+              (x) => x && typeof x === "object" && x.location_type === "mfg" && x.location === locStr && x.source_url === primaryMfgSourceUrl
+            );
+            if (exists) continue;
+            doc.location_sources.push({
+              location_type: "mfg",
+              location: locStr,
+              source_url: primaryMfgSourceUrl,
+              source_type: "grok_search",
+            });
+          }
+        }
+
         markFieldSuccess(doc, "manufacturing_locations");
         changed = true;
       } else {
@@ -1882,13 +2008,20 @@ async function resumeWorkerHandler(req, context) {
           doc.review_count = curated.length;
         }
 
-        const inferredStatus = status || (curated.length > 0 ? "incomplete" : "not_found");
-        doc.reviews_stage_status = inferredStatus;
-        doc.review_cursor.reviews_stage_status = doc.reviews_stage_status;
-        doc.import_missing_reason ||= {};
-        doc.import_missing_reason.reviews = terminal ? "exhausted" : inferredStatus;
+        const upstreamFailure = status === "upstream_unreachable" || status === "upstream_timeout";
 
-        doc.review_cursor.incomplete_reason = r?.incomplete_reason ?? null;
+        const incompleteReason =
+          (typeof r?.incomplete_reason === "string" ? r.incomplete_reason.trim() : "") ||
+          (upstreamFailure ? status : "") ||
+          (curated.length > 0 ? "insufficient_verified_reviews" : "no_valid_reviews_found");
+
+        // Required invariant: once we attempt reviews, the status must not stay "pending".
+        doc.reviews_stage_status = "incomplete";
+        doc.review_cursor.reviews_stage_status = "incomplete";
+        doc.import_missing_reason ||= {};
+        doc.import_missing_reason.reviews = terminal ? "exhausted" : upstreamFailure ? status : "incomplete";
+
+        doc.review_cursor.incomplete_reason = incompleteReason;
         doc.review_cursor.attempted_urls = Array.isArray(r?.attempted_urls) ? r.attempted_urls : undefined;
 
         if (inferredStatus === "upstream_unreachable" || inferredStatus === "upstream_timeout") {

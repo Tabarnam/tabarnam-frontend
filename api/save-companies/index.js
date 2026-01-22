@@ -540,6 +540,17 @@ app.http("save-companies", {
 
           const existing = await findExistingCompany(container, normalizedDomain, companyName);
           if (existing) {
+            const incomingId = String(company?.company_id || company?.id || company?.companyId || "").trim();
+            const existingId = String(existing?.id || "").trim();
+
+            // Idempotency: if the caller is re-submitting the SAME company id, treat as success
+            // (avoid confusing operators with "Saved 0 / 1" when the doc already exists).
+            if (incomingId && existingId && incomingId === existingId) {
+              saved += 1;
+              saved_ids.push(existingId);
+              continue;
+            }
+
             skipped += 1;
             if (existing?.id) skipped_ids.push(existing.id);
             skipped_duplicates.push({
