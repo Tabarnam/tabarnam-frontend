@@ -1513,23 +1513,50 @@ async function resumeWorkerHandler(req, context) {
     const taglineRetryable = !isRealValue("tagline", doc.tagline, doc) && !isTerminalMissingField(doc, "tagline");
 
     const fieldsPlanned = (() => {
-      // Single-company mode must eventually attempt heavy fields (HQ/MFG/Reviews) across cycles.
-      // If budget heuristics would otherwise keep selecting only light fields (e.g., tagline),
-      // prefer one heavy field per cycle, chosen by lowest attempt count.
+      // Single-company mode must behave deterministically: heavy fields cannot starve.
+      // Rule:
+      // - If *any* heavy field is missing+retryable, schedule exactly ONE heavy field per cycle,
+      //   chosen by lowest attempt count.
+      // - Otherwise, schedule exactly ONE light field.
       if (singleCompanyMode) {
-        const heavy = ["headquarters_location", "manufacturing_locations", "reviews"].filter((f) => missingNow.includes(f));
-        if (heavy.length > 0) {
+        const HEAVY_FIELDS = [
+          "headquarters_location",
+          "manufacturing_locations",
+          "reviews",
+          "industries",
+          "product_keywords",
+        ];
+
+        const heavyMissing = HEAVY_FIELDS.filter((f) => missingNow.includes(f));
+
+        if (heavyMissing.length > 0) {
           const remainingMs = remainingRunMs();
           if (remainingMs >= 4000) {
-            heavy.sort((a, b) => {
+            const rank = {
+              headquarters_location: 0,
+              manufacturing_locations: 1,
+              reviews: 2,
+              industries: 3,
+              product_keywords: 4,
+            };
+
+            heavyMissing.sort((a, b) => {
               const da = attemptsFor(doc, a);
               const db = attemptsFor(doc, b);
               if (da !== db) return da - db;
-              return a === "headquarters_location" ? -1 : b === "headquarters_location" ? 1 : 0;
+              return (rank[a] ?? 99) - (rank[b] ?? 99);
             });
-            return new Set([heavy[0]]);
+
+            return new Set([heavyMissing[0]]);
           }
         }
+
+        // No heavy missing: plan a single light field.
+        const taglineAttempts = attemptsFor(doc, "tagline");
+        const logoRetryable = !isRealValue("logo", doc.logo_url, doc) && !isTerminalMissingField(doc, "logo");
+
+        if (taglineRetryable && taglineAttempts < 2) return new Set(["tagline"]);
+        if (logoRetryable) return new Set(["logo"]);
       }
 
       const priority = [
@@ -1719,6 +1746,7 @@ async function resumeWorkerHandler(req, context) {
 
       if (status === "ok" && sanitized.length > 0) {
         doc.industries = sanitized;
+        doc.industries_source = "grok";
         doc.industries_unknown = false;
         doc.import_missing_reason ||= {};
         doc.import_missing_reason.industries = "ok";
@@ -1908,6 +1936,8 @@ async function resumeWorkerHandler(req, context) {
             source_url: sourceUrl,
             source_type: prov.source_type,
             source_method: prov.source_method,
+            extracted_field: "hq",
+            extracted_at: nowIso(),
           });
         }
 
@@ -2029,6 +2059,8 @@ async function resumeWorkerHandler(req, context) {
               source_url: primaryMfgSourceUrl,
               source_type: prov.source_type,
               source_method: prov.source_method,
+              extracted_field: "mfg",
+              extracted_at: nowIso(),
             });
           }
         }
