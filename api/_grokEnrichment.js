@@ -990,6 +990,18 @@ async function fetchIndustries({
   const name = asString(companyName).trim();
   const domain = normalizeDomain(normalizedDomain);
 
+  const cacheKey = domain ? `industries:${domain}` : "";
+  const cached = cacheKey ? readStageCache(cacheKey) : null;
+  if (cached) {
+    return {
+      ...cached,
+      diagnostics: {
+        ...(cached.diagnostics && typeof cached.diagnostics === "object" ? cached.diagnostics : {}),
+        cache: "hit",
+      },
+    };
+  }
+
   const websiteUrlForPrompt = domain ? `https://${domain}` : "";
 
   const prompt = `For the company (${websiteUrlForPrompt || "(unknown website)"}) please provide HQ, manufacturing (including city or cities), industries, keywords (products), and reviews.
