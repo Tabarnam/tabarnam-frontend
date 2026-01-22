@@ -2324,7 +2324,8 @@ async function resumeWorkerHandler(req, context) {
     }
 
     if (changed) {
-      // Recompute missing fields to keep doc consistent with required-fields logic
+      // Keep required-fields meta consistent with the persisted doc shape.
+      recomputeImportMissingReasonFromDoc(doc);
       doc.import_missing_fields = computeMissingFields(doc);
       doc.updated_at = nowIso();
       await upsertDoc(container, doc).catch(() => null);
