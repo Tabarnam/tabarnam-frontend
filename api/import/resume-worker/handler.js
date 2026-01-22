@@ -178,6 +178,60 @@ const MAX_ATTEMPTS_LOGO = envInt("MAX_ATTEMPTS_LOGO", 3, { min: 1, max: 10 });
 
 const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = envInt("NON_GROK_LOW_QUALITY_MAX_ATTEMPTS", 2, { min: 1, max: 10 });
 
+function classifyLocationSource({ source_url, normalized_domain }) {
+  const urlRaw = String(source_url || "").trim();
+  const domain = String(normalized_domain || "").trim().toLowerCase();
+
+  const out = {
+    source_type: "other",
+    source_method: "xai_live_search",
+  };
+
+  if (!urlRaw) return out;
+
+  let host = "";
+  try {
+    const u = new URL(urlRaw);
+    host = String(u.hostname || "").toLowerCase();
+  } catch {
+    host = "";
+  }
+
+  if (host) {
+    if (domain && domain !== "unknown" && (host === domain || host.endsWith(`.${domain}`))) {
+      out.source_type = "official_website";
+      return out;
+    }
+
+    if (
+      host.includes("zoominfo.com") ||
+      host.includes("crunchbase.com") ||
+      host.includes("dnb.com") ||
+      host.includes("linkedin.com")
+    ) {
+      out.source_type = "b2b_directory";
+      return out;
+    }
+
+    if (host.endsWith(".gov") || host.includes(".gov.")) {
+      out.source_type = "government_guide";
+      return out;
+    }
+
+    if (
+      host.includes("news") ||
+      host.includes("press") ||
+      host.includes("magazine") ||
+      host.includes("journal")
+    ) {
+      out.source_type = "media";
+      return out;
+    }
+  }
+
+  return out;
+}
+
 function ensureAttemptsDetail(doc, field) {
   doc.import_attempts_detail ||= {};
   const existing = doc.import_attempts_detail[field];
