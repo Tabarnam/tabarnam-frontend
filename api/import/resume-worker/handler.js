@@ -1337,6 +1337,7 @@ async function resumeWorkerHandler(req, context) {
         ...cycleSessionDoc,
         resume_cycle_count: nextCycleCount,
         resume_last_triggered_at: invokedAt,
+        resume_worker_handler_entered_at: invokedAt,
         updated_at: nowIso(),
       };
       await upsertDoc(container, patched).catch(() => null);
