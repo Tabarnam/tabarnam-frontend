@@ -1204,6 +1204,54 @@ async function resumeWorkerHandler(req, context) {
     return gracefulExit("stopped");
   }
 
+  const nextAllowedMs = Date.parse(String(resumeDoc?.next_allowed_run_at || "")) || 0;
+  if (nextAllowedMs && Date.now() < nextAllowedMs) {
+    const delayMs = Math.max(0, nextAllowedMs - Date.now());
+    const cycleCount = Number.isFinite(Number(resumeDoc?.cycle_count)) ? Number(resumeDoc.cycle_count) : 0;
+
+    const enqueueRes = await enqueueResumeRun({
+      session_id: sessionId,
+      reason: "backoff_retry",
+      requested_by: "resume_worker",
+      enqueue_at: nowIso(),
+      cycle_count: cycleCount,
+      run_after_ms: delayMs,
+    }).catch(() => ({ ok: false }));
+
+    if (enqueueRes?.ok) {
+      const queuedAt = nowIso();
+      await upsertDoc(container, {
+        ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+        id: resumeDocId,
+        session_id: sessionId,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        status: "queued",
+        last_result: "backoff_wait",
+        last_ok: true,
+        last_error: null,
+        lock_expires_at: null,
+        updated_at: queuedAt,
+      }).catch(() => null);
+
+      await bestEffortPatchSessionDoc({
+        container,
+        sessionId,
+        patch: {
+          resume_worker_last_enqueued_at: queuedAt,
+          resume_worker_last_enqueue_reason: "backoff_retry",
+          resume_worker_last_enqueue_ok: true,
+          resume_worker_last_enqueue_error: null,
+          resume_updated_at: queuedAt,
+          updated_at: queuedAt,
+        },
+      }).catch(() => null);
+    }
+
+    return gracefulExit("backoff_wait");
+  }
+
   const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
   if (lockUntil && Date.now() < lockUntil) {
     // Heartbeat: the handler ran, but work is prevented by the resume lock.
