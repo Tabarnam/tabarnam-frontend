@@ -650,8 +650,6 @@ async function ensurePrimaryJobProgressFields({ sessionId, job, hardMaxRuntimeMs
   const nowTs = Date.now();
   const progress = computePrimaryProgress(job, nowTs, hardMaxRuntimeMs);
 
-  if (STATUS_NO_ORCHESTRATION) return { job, progress };
-
   const patch = {};
 
   if (!(typeof job?.stage_beacon === "string" && job.stage_beacon.trim())) {
@@ -688,7 +686,6 @@ async function ensurePrimaryJobProgressFields({ sessionId, job, hardMaxRuntimeMs
 }
 
 async function markPrimaryJobError({ sessionId, code, message, stageBeacon, details, stageBeaconValues }) {
-  if (STATUS_NO_ORCHESTRATION) return null;
   stageBeaconValues.status_marked_error = nowIso();
   if (code) stageBeaconValues.status_marked_error_code = String(code);
 
@@ -1368,7 +1365,7 @@ async function handler(req, context) {
     progress = ensured.progress;
 
     const jobState = String(primaryJob.job_state);
-    const shouldDrive = !STATUS_NO_ORCHESTRATION && (jobState === "queued" || jobState === "running");
+    const shouldDrive = jobState === "queued" || jobState === "running";
 
     if (jobState === "running") stageBeaconValues.status_seen_running = nowIso();
 
