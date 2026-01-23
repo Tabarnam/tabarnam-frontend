@@ -33,6 +33,8 @@ const {
   fetchProductKeywords,
 } = require("../../_grokEnrichment");
 
+const { enqueueResumeRun } = require("../../_enrichmentQueue");
+
 const HANDLER_ID = "import-resume-worker";
 
 const BUILD_INFO = (() => {
