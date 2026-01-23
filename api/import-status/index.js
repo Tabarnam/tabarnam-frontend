@@ -27,6 +27,70 @@ const { getBuildInfo } = require("../_buildInfo");
 
 const HANDLER_ID = "import-status";
 
+// Non-negotiable: status is read-only + watchdog only.
+// It must never trigger enrichment or force-terminalize.
+const STATUS_NO_ORCHESTRATION = true;
+
+const RESUME_WATCHDOG_STALE_MS = Number.isFinite(Number(process.env.RESUME_WATCHDOG_STALE_MS))
+  ? Math.max(5_000, Math.trunc(Number(process.env.RESUME_WATCHDOG_STALE_MS)))
+  : 2 * 60_000;
+
+function computeEffectiveResumeStatus({ resumeDoc, sessionDoc, stopDoc }) {
+  if (stopDoc) {
+    return { effective_resume_status: "stopped", progress_notice: null };
+  }
+
+  const statusRaw = String(resumeDoc?.status || "").trim().toLowerCase();
+  if (statusRaw === "done" || statusRaw === "complete") {
+    return { effective_resume_status: "done", progress_notice: null };
+  }
+
+  const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
+  if (lockUntil && Date.now() < lockUntil) {
+    return { effective_resume_status: "running", progress_notice: null };
+  }
+
+  const lastActivityIso =
+    String(
+      sessionDoc?.resume_worker_last_finished_at ||
+        sessionDoc?.resume_worker_handler_entered_at ||
+        resumeDoc?.last_finished_at ||
+        resumeDoc?.handler_entered_at ||
+        resumeDoc?.last_invoked_at ||
+        ""
+    ).trim();
+
+  const lastActivityMs = Date.parse(lastActivityIso) || 0;
+  const stale = Boolean(lastActivityMs) && Date.now() - lastActivityMs > RESUME_WATCHDOG_STALE_MS;
+
+  const resumeError =
+    sessionDoc?.resume_error ||
+    sessionDoc?.resume_worker_last_error ||
+    resumeDoc?.resume_error ||
+    resumeDoc?.last_error ||
+    null;
+
+  if (stale && resumeError) {
+    return {
+      effective_resume_status: "stalled",
+      progress_notice: "Enrichment stalled. Manual intervention required.",
+    };
+  }
+
+  if (statusRaw === "running") return { effective_resume_status: "running", progress_notice: null };
+  if (statusRaw === "queued") return { effective_resume_status: "queued", progress_notice: null };
+
+  // Unknown/legacy statuses converge to stalled when stale.
+  if (stale) {
+    return {
+      effective_resume_status: "stalled",
+      progress_notice: "Enrichment stalled. Manual intervention required.",
+    };
+  }
+
+  return { effective_resume_status: statusRaw || "queued", progress_notice: null };
+}
+
 const MAX_RESUME_CYCLES_SINGLE = Number.isFinite(Number(process.env.MAX_RESUME_CYCLES_SINGLE))
   ? Math.max(1, Math.trunc(Number(process.env.MAX_RESUME_CYCLES_SINGLE)))
   : 10;
