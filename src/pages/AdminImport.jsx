@@ -959,22 +959,22 @@ export default function AdminImport() {
       const sid = asString(session_id).trim();
       if (!sid) return;
 
-      const encoded = encodeURIComponent(sid);
-      const path = `/import/status?session_id=${encoded}&force_resume=1`;
+      const path = `/import/resume-enqueue`;
       const endpointUrl = join(API_BASE, path);
 
       const requestHeaders = { "Content-Type": "application/json" };
+      const requestBody = { session_id: sid, reason: "manual_retry", requested_by: "admin" };
 
       const initialBundle = {
         kind: "retry_resume",
         captured_at: new Date().toISOString(),
         endpoint_url: endpointUrl,
-        request_payload: { session_id: sid, force_resume: true },
+        request_payload: requestBody,
         request_explain: {
           url: endpointUrl,
-          method: "GET",
+          method: "POST",
           headers: requestHeaders,
-          body_preview: "",
+          body_preview: JSON.stringify(requestBody).slice(0, 1200),
         },
         network_error: null,
         exception_message: null,
@@ -997,8 +997,9 @@ export default function AdminImport() {
 
       try {
         const r = await apiFetchParsed(path, {
-          method: "GET",
+          method: "POST",
           headers: requestHeaders,
+          body: JSON.stringify(requestBody),
           keepalive: true,
         });
 
@@ -1036,17 +1037,15 @@ export default function AdminImport() {
           },
         };
 
-        const triggered = Boolean(body?.resume?.triggered);
-        const triggerError = asString(
-          body?.resume?.trigger_error || body?.resume_error || body?.error || body?.message || ""
-        ).trim();
+        const enqueued = Boolean(body?.ok);
+        const triggerError = asString(body?.error || body?.message || "").trim();
 
-        if (triggered) {
-          toast.success("Resume requested");
+        if (enqueued) {
+          toast.success("Resume enqueued");
         } else if (triggerError) {
           toast.error(triggerError);
         } else {
-          const msg = (await getUserFacingConfigMessage(res)) || `Retry resume failed (HTTP ${res.status})`;
+          const msg = (await getUserFacingConfigMessage(res)) || `Enqueue resume failed (HTTP ${res.status})`;
           toast.error(msg);
         }
       } catch (e) {
@@ -4596,6 +4595,17 @@ export default function AdminImport() {
                                       {asString(activeRun?.resume_worker?.last_invoked_at).trim() || "—"} →{" "}
                                       {asString(activeRun?.resume_worker?.last_finished_at).trim() || "—"} ·{" "}
                                       {asString(activeRun?.resume_worker?.last_result).trim() || "—"}
+                                    </div>
+
+                                    <div className="mt-1 text-xs text-amber-900/80">
+                                      <span className="font-medium">Last enqueue:</span>{" "}
+                                      {asString(activeRun?.resume_worker?.last_enqueued_at).trim() || "—"}
+                                      {asString(activeRun?.resume_worker?.last_enqueue_reason).trim()
+                                        ? ` (${asString(activeRun.resume_worker.last_enqueue_reason).trim()})`
+                                        : ""}
+                                      {asString(activeRun?.resume_worker?.last_enqueue_ok) === "false" && asString(activeRun?.resume_worker?.last_enqueue_error).trim()
+                                        ? ` · error: ${asString(activeRun.resume_worker.last_enqueue_error).trim()}`
+                                        : ""}
                                     </div>
 
                                     <div className="mt-1 text-xs text-amber-900/80">

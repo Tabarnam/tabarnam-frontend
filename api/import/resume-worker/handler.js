@@ -33,6 +33,8 @@ const {
   fetchProductKeywords,
 } = require("../../_grokEnrichment");
 
+const { enqueueResumeRun } = require("../../_enrichmentQueue");
+
 const HANDLER_ID = "import-resume-worker";
 
 const BUILD_INFO = (() => {
@@ -179,6 +181,8 @@ const MAX_ATTEMPTS_KEYWORDS = envInt("MAX_ATTEMPTS_KEYWORDS", 3, { min: 1, max: 
 const MAX_ATTEMPTS_LOGO = envInt("MAX_ATTEMPTS_LOGO", 3, { min: 1, max: 10 });
 
 const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = envInt("NON_GROK_LOW_QUALITY_MAX_ATTEMPTS", 2, { min: 1, max: 10 });
+
+const MAX_RESUME_CYCLES = envInt("MAX_RESUME_CYCLES", 10, { min: 1, max: 50 });
 
 function classifyLocationSource({ source_url, normalized_domain }) {
   const urlRaw = String(source_url || "").trim();
@@ -1101,11 +1105,12 @@ async function resumeWorkerHandler(req, context) {
     return json(
       {
         ok: true,
+        result: reason,
         session_id: sessionId,
         handler_entered_at,
         did_work: false,
         did_work_reason: reason,
-        resume_needed: true,
+        resume_needed: reason === "stopped" ? false : true,
         stopped: reason === "stopped",
       },
       200,
@@ -1113,9 +1118,6 @@ async function resumeWorkerHandler(req, context) {
     );
   };
 
-  if (await isSessionStopped(container, sessionId)) {
-    return gracefulExit("stopped");
-  }
 
   const resumeDocId = `_import_resume_${sessionId}`;
   const sessionDocId = `_import_session_${sessionId}`;
@@ -1169,6 +1171,97 @@ async function resumeWorkerHandler(req, context) {
     }
   }
 
+  // Stop doc is authoritative: if stopped, persist status and exit (no self-scheduling).
+  if (await isSessionStopped(container, sessionId)) {
+    const stoppedAt = nowIso();
+
+    await upsertDoc(container, {
+      ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+      id: resumeDocId,
+      session_id: sessionId,
+      normalized_domain: "import",
+      partition_key: "import",
+      type: "import_control",
+      status: "stopped",
+      last_result: "stopped",
+      last_error: null,
+      next_allowed_run_at: null,
+      lock_expires_at: null,
+      last_finished_at: stoppedAt,
+      updated_at: stoppedAt,
+    }).catch(() => null);
+
+    await bestEffortPatchSessionDoc({
+      container,
+      sessionId,
+      patch: {
+        resume_needed: false,
+        resume_updated_at: stoppedAt,
+        resume_worker_last_finished_at: stoppedAt,
+        resume_worker_last_result: "stopped",
+        updated_at: stoppedAt,
+      },
+    }).catch(() => null);
+
+    return gracefulExit("stopped");
+  }
+
+  const nextAllowedMs = Date.parse(String(resumeDoc?.next_allowed_run_at || "")) || 0;
+  if (nextAllowedMs && Date.now() < nextAllowedMs) {
+    const delayMs = Math.max(0, nextAllowedMs - Date.now());
+    const cycleCount = Number.isFinite(Number(resumeDoc?.cycle_count)) ? Number(resumeDoc.cycle_count) : 0;
+
+    const enqueueRes = await enqueueResumeRun({
+      session_id: sessionId,
+      reason: "backoff_retry",
+      requested_by: "resume_worker",
+      enqueue_at: nowIso(),
+      cycle_count: cycleCount,
+      run_after_ms: delayMs,
+    }).catch(() => ({ ok: false }));
+
+    if (enqueueRes?.ok) {
+      const queuedAt = nowIso();
+      await upsertDoc(container, {
+        ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+        id: resumeDocId,
+        session_id: sessionId,
+        normalized_domain: "import",
+        partition_key: "import",
+        type: "import_control",
+        status: "queued",
+        last_result: "backoff_wait",
+        last_ok: true,
+        last_error: null,
+        lock_expires_at: null,
+        updated_at: queuedAt,
+      }).catch(() => null);
+
+      await bestEffortPatchSessionDoc({
+        container,
+        sessionId,
+        patch: {
+          resume_worker_last_enqueued_at: queuedAt,
+          resume_worker_last_enqueue_reason: "backoff_retry",
+          resume_worker_last_enqueue_ok: true,
+          resume_worker_last_enqueue_error: null,
+          resume_updated_at: queuedAt,
+          updated_at: queuedAt,
+        },
+      }).catch(() => null);
+    }
+
+    return gracefulExit("backoff_wait");
+  }
+
+  // Queue idempotency: if a message is for a different cycle than the current resume doc,
+  // treat it as stale/duplicate to avoid duplicate work storms.
+  const msgCycleCount = Number.isFinite(Number(body?.cycle_count)) ? Number(body.cycle_count) : null;
+  const docCycleCount = Number.isFinite(Number(resumeDoc?.cycle_count)) ? Number(resumeDoc.cycle_count) : null;
+  if (msgCycleCount !== null && docCycleCount !== null && msgCycleCount !== docCycleCount) {
+    return gracefulExit(msgCycleCount < docCycleCount ? "duplicate" : "future_message");
+  }
+
   const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
   if (lockUntil && Date.now() < lockUntil) {
     // Heartbeat: the handler ran, but work is prevented by the resume lock.
@@ -1191,12 +1284,12 @@ async function resumeWorkerHandler(req, context) {
 
     return json(
       {
-        ok: false,
+        ok: true,
+        result: "locked",
         session_id: sessionId,
         handler_entered_at,
         did_work,
         did_work_reason: "resume_locked",
-        error: "resume_locked",
         lock_expires_at: resumeDoc.lock_expires_at,
       },
       200,
@@ -1220,6 +1313,7 @@ async function resumeWorkerHandler(req, context) {
     doc_created: true,
     status: "running",
     attempt: attempt + 1,
+    enrichment_started_at: resumeDoc?.enrichment_started_at || invokedAt,
     last_invoked_at: invokedAt,
     handler_entered_at,
     lock_expires_at: thisLockExpiresAt,
@@ -1243,6 +1337,7 @@ async function resumeWorkerHandler(req, context) {
         ...cycleSessionDoc,
         resume_cycle_count: nextCycleCount,
         resume_last_triggered_at: invokedAt,
+        resume_worker_handler_entered_at: invokedAt,
         updated_at: nowIso(),
       };
       await upsertDoc(container, patched).catch(() => null);
@@ -1578,6 +1673,9 @@ async function resumeWorkerHandler(req, context) {
     const cycleCount = Number.isFinite(Number(resumeDoc?.cycle_count)) ? Number(resumeDoc.cycle_count) : 0;
     const isFreshSeed = cycleCount === 0;
 
+    const MAX_XAI_FIELDS_PER_RUN = isFreshSeed ? 9999 : 2;
+    let xaiFieldsAttemptedThisRun = 0;
+
     // Fresh seed invariant: no stage skipping.
     const skipStages = isFreshSeed ? [] : Array.isArray(resumeDoc?.skip_stages) ? resumeDoc.skip_stages : [];
     void skipStages;
@@ -1627,6 +1725,9 @@ async function resumeWorkerHandler(req, context) {
     const attemptedFieldsThisRun = [];
     const savedFieldsThisRun = [];
 
+    let lastFieldAttemptedThisRun = null;
+    let lastFieldResultThisRun = null;
+
     const updateLastXaiAttempt = async (nowIsoStr, meta = {}) => {
       try {
         await bestEffortPatchSessionDoc({
@@ -1634,6 +1735,7 @@ async function resumeWorkerHandler(req, context) {
           sessionId,
           patch: {
             last_xai_attempt_at: nowIsoStr,
+            resume_worker_last_xai_attempt_at: nowIsoStr,
             ...(meta && typeof meta === "object" ? meta : {}),
             updated_at: nowIsoStr,
           },
@@ -1709,11 +1811,22 @@ async function resumeWorkerHandler(req, context) {
 
         const minMs = Number(MIN_REQUIRED_MS_BY_FIELD[field]) || 0;
         if (!isFreshSeed && minMs && budgetRemainingMs() < minMs) {
+          fieldProgress.attempts = (Number(fieldProgress.attempts) || 0) + 1;
           fieldProgress.status = "retryable";
           fieldProgress.last_error = "budget_exhausted";
           fieldProgress.last_attempt_at = nowIso();
           fieldProgress.last_cycle_attempted = cycleCount;
+          fieldProgress.xai_diag = null;
+
+          attemptedFieldsThisRun.push(field);
+          lastFieldAttemptedThisRun = field;
+          lastFieldResultThisRun = "budget_exhausted";
           progressRoot.enrichment_progress[companyId][field] = fieldProgress;
+          continue;
+        }
+
+        if (!isFreshSeed && xaiFieldsAttemptedThisRun >= MAX_XAI_FIELDS_PER_RUN) {
+          // Leave remaining missing fields for the next queue-driven cycle.
           continue;
         }
 
@@ -1727,14 +1840,13 @@ async function resumeWorkerHandler(req, context) {
         const grokArgsForField = freshSeedBudgetMs ? { ...grokArgs, budgetMs: freshSeedBudgetMs } : grokArgs;
 
         // xAI attempt (explicit)
+        xaiFieldsAttemptedThisRun += 1;
         const attemptAt = nowIso();
         fieldProgress.attempts = (Number(fieldProgress.attempts) || 0) + 1;
         fieldProgress.last_attempt_at = attemptAt;
         fieldProgress.last_error = null;
         fieldProgress.last_cycle_attempted = cycleCount;
         attemptedFieldsThisRun.push(field);
-
-        await updateLastXaiAttempt(attemptAt);
 
         let r = null;
         let status = "";
@@ -1761,6 +1873,48 @@ async function resumeWorkerHandler(req, context) {
         else if (field === "reviews") status = normalizeKey(r?.reviews_stage_status || r?._failure || "");
 
         upstream_http_status = r?.diagnostics?.upstream_http_status ?? r?.diagnostics?.upstream_status ?? null;
+
+        fieldProgress.xai_diag = {
+          xai_request_id:
+            r?.diagnostics?.xai_request_id ||
+            r?.diagnostics?.xai_requestId ||
+            r?.diagnostics?.request_id ||
+            r?.diagnostics?.requestId ||
+            null,
+          xai_model:
+            String(process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "").trim() || null,
+          xai_http_status: upstream_http_status,
+          xai_error_code:
+            r?.diagnostics?.error_code ||
+            r?.diagnostics?.code ||
+            (status && status !== "ok" ? status : null),
+        };
+
+        const xaiAttempted = status !== "deferred";
+        lastFieldAttemptedThisRun = field;
+        lastFieldResultThisRun = status || null;
+        if (xaiAttempted) {
+          await updateLastXaiAttempt(attemptAt);
+        }
+
+        // Never persist "deferred" after an attempt: treat it as budget exhaustion.
+        if (status === "deferred") {
+          fieldProgress.status = "retryable";
+          fieldProgress.last_error = "budget_exhausted";
+
+          try {
+            doc.import_missing_reason ||= {};
+            if (!doc.import_missing_reason[field] || doc.import_missing_reason[field] === "deferred") {
+              doc.import_missing_reason[field] = "budget_exhausted";
+            }
+            doc.import_missing_fields = computeMissingFields(doc);
+            doc.updated_at = nowIso();
+            await upsertDoc(container, doc).catch(() => null);
+          } catch {}
+
+          progressRoot.enrichment_progress[companyId][field] = fieldProgress;
+          continue;
+        }
 
         try {
           console.log(`[${HANDLER_ID}] xai_attempt`, {
@@ -1984,6 +2138,7 @@ async function resumeWorkerHandler(req, context) {
         } catch (e) {
           fieldProgress.status = "retryable";
           fieldProgress.last_error = safeErrorMessage(e) || "apply_failed";
+          lastFieldResultThisRun = fieldProgress.last_error;
         }
 
         progressRoot.enrichment_progress[companyId][field] = fieldProgress;
@@ -2013,7 +2168,142 @@ async function resumeWorkerHandler(req, context) {
       })
       .filter((e) => String(e?.company_id || "").trim());
 
+    const attempted_fields = Array.from(new Set(attemptedFieldsThisRun)).slice(0, 50);
+    const last_written_fields = Array.from(new Set(savedFieldsThisRun)).slice(0, 50);
+
     const resumeNeeded = nextMissingByCompany.some((e) => Array.isArray(e?.missing_fields) && e.missing_fields.length > 0);
+    const nextCycleCount = cycleCount + 1;
+
+    const deriveBackoff = () => {
+      const attemptedProgress = [];
+      try {
+        for (const company_id of plannedIds) {
+          const companyId = String(company_id || "").trim();
+          if (!companyId) continue;
+          const byField = progressRoot?.enrichment_progress?.[companyId];
+          if (!byField || typeof byField !== "object") continue;
+
+          for (const f of ENRICH_FIELDS) {
+            const p = byField?.[f];
+            if (!p || typeof p !== "object") continue;
+            if (Number(p.last_cycle_attempted) !== cycleCount) continue;
+            attemptedProgress.push(p);
+          }
+        }
+      } catch {}
+
+      const has429 = attemptedProgress.some((p) => Number(p?.xai_diag?.xai_http_status || 0) === 429);
+      if (has429) {
+        const schedule = [60_000, 120_000, 300_000, 600_000];
+        const idx = Math.min(schedule.length - 1, Math.max(0, nextCycleCount - 1));
+        return { reason: "rate_limit", backoff_ms: schedule[idx] };
+      }
+
+      const hasTimeout = attemptedProgress.some((p) => String(p?.last_error || "") === "upstream_timeout");
+      if (hasTimeout) {
+        const schedule = [30_000, 60_000, 120_000];
+        const idx = Math.min(schedule.length - 1, Math.max(0, nextCycleCount - 1));
+        return { reason: "timeout", backoff_ms: schedule[idx] };
+      }
+
+      const hasNetwork = attemptedProgress.some((p) => String(p?.last_error || "") === "upstream_unreachable");
+      if (hasNetwork) {
+        const schedule = [30_000, 60_000, 120_000];
+        const idx = Math.min(schedule.length - 1, Math.max(0, nextCycleCount - 1));
+        return { reason: "network", backoff_ms: schedule[idx] };
+      }
+
+      const hasNotFound = attemptedProgress.some((p) => String(p?.last_error || "") === "not_found");
+      if (hasNotFound) {
+        return { reason: "not_found", backoff_ms: 60_000 };
+      }
+
+      const hasBudget = attemptedProgress.some((p) => String(p?.last_error || "") === "budget_exhausted");
+      if (hasBudget) {
+        return { reason: "budget_exhausted", backoff_ms: 30_000 };
+      }
+
+      return { reason: "default", backoff_ms: 30_000 };
+    };
+
+    let finalStatus = null;
+    let finalResumeNeeded = resumeNeeded;
+    let nextAllowedRunAt = null;
+    let lastBackoffReason = null;
+    let lastBackoffMs = null;
+    let enqueueRes = null;
+    let resume_error = null;
+
+    const capReached = resumeNeeded && nextCycleCount >= MAX_RESUME_CYCLES;
+
+    if (!resumeNeeded) {
+      finalStatus = "complete";
+      finalResumeNeeded = false;
+    } else if (capReached) {
+      finalStatus = "terminal";
+      finalResumeNeeded = false;
+
+      // Terminalize remaining fields so required-field contract will treat this session as done.
+      for (const entry of nextMissingByCompany) {
+        const companyId = String(entry?.company_id || "").trim();
+        if (!companyId) continue;
+        const d = docsById.get(companyId);
+        if (!d) continue;
+
+        const missingFields = Array.isArray(entry?.missing_fields) ? entry.missing_fields : [];
+        let changed = false;
+
+        d.import_missing_reason ||= {};
+
+        for (const field of missingFields) {
+          if (!field) continue;
+          if (isTerminalMissingField(d, field)) continue;
+
+          d.import_missing_reason[field] = "cycle_cap_exhausted";
+          if (field === "headquarters_location" || field === "manufacturing_locations" || field === "reviews") {
+            terminalizeGrokField(d, field, "cycle_cap_exhausted");
+          } else {
+            terminalizeNonGrokField(d, field, "cycle_cap_exhausted");
+          }
+          changed = true;
+        }
+
+        if (changed) {
+          d.import_missing_fields = computeMissingFields(d);
+          d.updated_at = nowIso();
+          await upsertDoc(container, d).catch(() => null);
+        }
+      }
+    } else {
+      const backoff = deriveBackoff();
+      lastBackoffReason = backoff.reason;
+      lastBackoffMs = backoff.backoff_ms;
+      nextAllowedRunAt = new Date(Date.now() + backoff.backoff_ms).toISOString();
+
+      // Check stop doc again before self-scheduling.
+      const stopped = await isSessionStopped(container, sessionId);
+      if (!stopped) {
+        enqueueRes = await enqueueResumeRun({
+          session_id: sessionId,
+          reason: "auto_retry",
+          requested_by: "resume_worker",
+          enqueue_at: updatedAt,
+          cycle_count: nextCycleCount,
+          run_after_ms: backoff.backoff_ms,
+        }).catch((e) => ({ ok: false, error: e?.message || String(e || "enqueue_failed") }));
+      }
+
+      if (enqueueRes?.ok) {
+        finalStatus = "queued";
+      } else {
+        finalStatus = "stalled";
+        resume_error = {
+          code: "ENQUEUE_FAILED",
+          message: String(enqueueRes?.error || "enqueue_failed"),
+          at: updatedAt,
+        };
+      }
+    }
 
     const nextResumeDoc = {
       ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
@@ -2022,45 +2312,85 @@ async function resumeWorkerHandler(req, context) {
       normalized_domain: "import",
       partition_key: "import",
       type: "import_control",
-      status: resumeNeeded ? "queued" : "done",
-      cycle_count: cycleCount + 1,
+      status: finalStatus,
+      cycle_count: nextCycleCount,
       missing_by_company: nextMissingByCompany,
       enrichment_progress: progressRoot.enrichment_progress,
-      last_attempted_fields: attemptedFieldsThisRun.slice(0, 50),
-      last_saved_fields: savedFieldsThisRun.slice(0, 50),
+      attempted_fields,
+      last_written_fields,
+      last_xai_attempt_at: resumeDoc?.last_xai_attempt_at || null,
+      last_field_attempted: lastFieldAttemptedThisRun,
+      last_field_result: lastFieldResultThisRun,
+      next_allowed_run_at: nextAllowedRunAt,
+      last_backoff_reason: lastBackoffReason,
+      last_backoff_ms: lastBackoffMs,
+      ...(resume_error ? { resume_error } : {}),
       last_finished_at: updatedAt,
-      ...(resumeNeeded ? {} : { completed_at: updatedAt }),
+      ...(finalStatus === "complete" ? { completed_at: updatedAt } : {}),
       lock_expires_at: null,
       updated_at: updatedAt,
     };
 
     await upsertDoc(container, nextResumeDoc).catch(() => null);
 
+    const sessionPatch = {
+      resume_needed: finalResumeNeeded,
+      resume_updated_at: updatedAt,
+      resume_worker_last_finished_at: updatedAt,
+      resume_worker_last_result: finalStatus,
+      resume_worker_attempted_fields: attempted_fields,
+      resume_worker_last_written_fields: last_written_fields,
+      resume_worker_last_field_attempted: lastFieldAttemptedThisRun,
+      resume_worker_last_field_result: lastFieldResultThisRun,
+      resume_next_allowed_run_at: nextAllowedRunAt,
+      resume_last_backoff_reason: lastBackoffReason,
+      resume_last_backoff_ms: lastBackoffMs,
+      ...(enqueueRes?.ok
+        ? {
+            resume_worker_last_enqueued_at: updatedAt,
+            resume_worker_last_enqueue_reason: "auto_retry",
+            resume_worker_last_enqueue_ok: true,
+            resume_worker_last_enqueue_error: null,
+          }
+        : enqueueRes
+          ? {
+              resume_worker_last_enqueued_at: updatedAt,
+              resume_worker_last_enqueue_reason: "auto_retry",
+              resume_worker_last_enqueue_ok: false,
+              resume_worker_last_enqueue_error: String(enqueueRes?.error || "enqueue_failed"),
+            }
+          : {}),
+      updated_at: updatedAt,
+    };
+
     await bestEffortPatchSessionDoc({
       container,
       sessionId,
-      patch: {
-        resume_needed: resumeNeeded,
-        resume_updated_at: updatedAt,
-        resume_worker_last_finished_at: updatedAt,
-        resume_worker_last_result: resumeNeeded ? "ok_incomplete" : "done",
-        resume_worker_last_written_fields: savedFieldsThisRun.slice(0, 50),
-        updated_at: updatedAt,
-      },
+      patch: sessionPatch,
     }).catch(() => null);
 
     return json(
       {
         ok: true,
+        result: finalStatus,
         session_id: sessionId,
         handler_entered_at,
         did_work: true,
         did_work_reason: isFreshSeed ? "fresh_seed_enrichment" : "resume_enrichment",
-        resume_needed: resumeNeeded,
-        cycle_count: cycleCount + 1,
+        resume_needed: finalResumeNeeded,
+        cycle_count: nextCycleCount,
+        next_allowed_run_at: nextAllowedRunAt,
+        last_backoff_reason: lastBackoffReason,
+        last_backoff_ms: lastBackoffMs,
+        enqueued: Boolean(enqueueRes?.ok),
+        queue: enqueueRes?.queue || null,
+        message_id: enqueueRes?.message_id || null,
         missing_by_company: nextMissingByCompany,
-        attempted_fields: attemptedFieldsThisRun.slice(0, 50),
-        saved_fields: savedFieldsThisRun.slice(0, 50),
+        attempted_fields,
+        last_written_fields,
+        last_xai_attempt_at: resumeDoc?.last_xai_attempt_at || null,
+        last_field_attempted: lastFieldAttemptedThisRun,
+        last_field_result: lastFieldResultThisRun,
       },
       200,
       req

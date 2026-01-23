@@ -172,12 +172,43 @@ app.http("import-stop", {
         context.log(`[import-stop] session=${sessionId} WARNING: stop signal not verified after write`);
       }
 
+      // Best-effort: also mark the resume control doc stopped so status is truthful.
+      let resume_marked_stopped = false;
+      try {
+        const resumeDocId = `_import_resume_${sessionId}`;
+        const resumeDoc = await readWithPkCandidates(container, resumeDocId, sessionId).catch(() => null);
+        if (resumeDoc && typeof resumeDoc === "object") {
+          const stoppedAt = now.toISOString();
+          const patched = {
+            ...resumeDoc,
+            id: resumeDocId,
+            session_id: sessionId,
+            normalized_domain: "import",
+            partition_key: "import",
+            type: "import_control",
+            status: "stopped",
+            last_result: "stopped",
+            last_error: null,
+            next_allowed_run_at: null,
+            lock_expires_at: null,
+            last_finished_at: stoppedAt,
+            updated_at: stoppedAt,
+          };
+
+          const up = await upsertWithPkCandidates(container, patched).catch(() => ({ ok: false }));
+          resume_marked_stopped = Boolean(up.ok);
+        }
+      } catch {
+        resume_marked_stopped = false;
+      }
+
       return json(
         {
           ok: true,
           session_id: sessionId,
           message: "Import stop signal sent",
           written: !!verified,
+          resume_marked_stopped,
           ...(upsertResult.ok ? {} : { write_error: upsertResult.error }),
         },
         200,

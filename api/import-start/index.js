@@ -68,6 +68,8 @@ const {
   getAcceptableInternalSecretsInfo,
 } = require("../_internalJobAuth");
 
+const { enqueueResumeRun, resolveQueueConfig } = require("../_enrichmentQueue");
+
 // IMPORTANT: pure handler module only (no app.http registrations). Loaded at cold start.
 const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
 
@@ -2993,6 +2995,10 @@ async function upsertResumeDoc({
   resume_error,
   blocked_at,
   lock_expires_at,
+  enrichment_queued_at,
+  next_allowed_run_at,
+  last_backoff_reason,
+  last_backoff_ms,
 }) {
   const sid = String(session_id || "").trim();
   if (!sid) return { ok: false, error: "missing_session_id" };
@@ -3022,6 +3028,22 @@ async function upsertResumeDoc({
     resume_error: resume_error === undefined ? (existing?.resume_error ?? null) : resume_error,
     blocked_at: blocked_at === undefined ? (existing?.blocked_at ?? null) : blocked_at,
     lock_expires_at: lock_expires_at === undefined ? (existing?.lock_expires_at ?? null) : lock_expires_at,
+    enrichment_queued_at:
+      enrichment_queued_at === undefined
+        ? (existing?.enrichment_queued_at ?? null)
+        : enrichment_queued_at,
+    next_allowed_run_at:
+      next_allowed_run_at === undefined
+        ? (existing?.next_allowed_run_at ?? null)
+        : next_allowed_run_at,
+    last_backoff_reason:
+      last_backoff_reason === undefined
+        ? (existing?.last_backoff_reason ?? null)
+        : last_backoff_reason,
+    last_backoff_ms:
+      last_backoff_ms === undefined
+        ? (existing?.last_backoff_ms ?? null)
+        : last_backoff_ms,
   };
 
   const upserted = await upsertItemWithPkCandidates(container, resumeDoc).catch((e) => ({ ok: false, error: e?.message || String(e) }));
@@ -3065,6 +3087,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     missing_fields: [...MANDATORY_ENRICH_FIELDS],
   }));
 
+  // Optimistically mark queued, but we will correct status if enqueue fails.
   await upsertResumeDoc({
     session_id: sessionId,
     status: "queued",
@@ -3072,12 +3095,26 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     missing_by_company,
     created_at: now,
     updated_at: now,
+    enrichment_queued_at: now,
+    next_allowed_run_at: now,
+    last_backoff_reason: null,
+    last_backoff_ms: null,
     resume_error: null,
     blocked_at: null,
     lock_expires_at: null,
   }).catch(() => null);
 
-  // Telemetry proving enrichment was queued.
+  const enqueueRes = await enqueueResumeRun({
+    session_id: sessionId,
+    company_ids: ids,
+    reason: reason || "seed_complete",
+    requested_by: "import_start",
+    enqueue_at: now,
+    cycle_count: 0,
+    run_after_ms: 0,
+  }).catch((e) => ({ ok: false, error: e?.message || String(e || "enqueue_failed") }));
+
+  // Persist queue enqueue telemetry on the session doc.
   await upsertCosmosImportSessionDoc({
     sessionId,
     requestId,
@@ -3085,36 +3122,44 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       enrichment_queued_at: now,
       resume_needed: true,
       resume_updated_at: now,
+      resume_worker_last_enqueued_at: now,
+      resume_worker_last_enqueue_reason: "seed_complete",
+      resume_worker_last_enqueue_ok: Boolean(enqueueRes?.ok),
+      resume_worker_last_enqueue_error: enqueueRes?.ok ? null : String(enqueueRes?.error || "enqueue_failed"),
+      resume_worker_last_enqueue_queue:
+        enqueueRes?.queue || (resolveQueueConfig()?.queueName ? { provider: "azure_storage_queue", name: resolveQueueConfig().queueName } : null),
       updated_at: now,
     },
   }).catch(() => null);
 
-  let invoked = false;
-  let invocation_mode = "in_process";
-
-  try {
-    const workerRequestMeta = buildInternalFetchRequest({ job_kind: "import_resume" });
-    const invokeRes = await invokeResumeWorkerInProcess({
+  if (!enqueueRes?.ok) {
+    // Status must never claim "queued" unless a next run is actually queued.
+    await upsertResumeDoc({
       session_id: sessionId,
-      context,
-      workerRequest: {
-        ...workerRequestMeta,
-        body: { reason: reason || "seed_complete_auto_enrich" },
+      status: "stalled",
+      updated_at: now,
+      resume_error: {
+        code: "ENQUEUE_FAILED",
+        message: String(enqueueRes?.error || "enqueue_failed"),
+        at: now,
       },
-    });
-    invoked = Boolean(invokeRes?.ok);
-  } catch {
-    invoked = false;
+    }).catch(() => null);
   }
 
   logInfo(context, {
     session_id: sessionId,
     company_ids: ids.slice(0, 5),
-    resume_worker_invoked: true,
-    invocation_mode,
+    resume_worker_enqueued: Boolean(enqueueRes?.ok),
+    queue: enqueueRes?.queue || null,
+    message_id: enqueueRes?.message_id || null,
   });
 
-  return { queued: true, invoked, invocation_mode };
+  return {
+    queued: Boolean(enqueueRes?.ok),
+    enqueued: Boolean(enqueueRes?.ok),
+    queue: enqueueRes?.queue || null,
+    message_id: enqueueRes?.message_id || null,
+  };
 }
 
 async function upsertCosmosImportSessionDoc({ sessionId, requestId, patch }) {
@@ -7033,7 +7078,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               } catch {}
 
               // Non-negotiable: fresh seeds must immediately queue + run xAI enrichment.
-              await maybeQueueAndInvokeMandatoryEnrichment({
+              const resumeEnqueue = await maybeQueueAndInvokeMandatoryEnrichment({
                 sessionId,
                 requestId,
                 context,
@@ -7053,9 +7098,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   status: "running",
                   resume_needed: true,
                   resume: {
-                    status: "queued",
+                    status: resumeEnqueue?.enqueued ? "queued" : "stalled",
+                    enqueued: Boolean(resumeEnqueue?.enqueued),
+                    queue: resumeEnqueue?.queue || null,
+                    message_id: resumeEnqueue?.message_id || null,
                     internal_auth_configured: Boolean(internalAuthConfigured),
-                    triggered_in_process: true,
                     ...buildResumeAuthDiagnostics(),
                   },
                   missing_by_company,
@@ -10291,98 +10338,25 @@ Return ONLY the JSON array, no other text.`,
               const resumeWorkerRequested = !(bodyObj?.auto_resume === false || bodyObj?.autoResume === false);
               const invocationIsResumeWorker = String(new URL(req.url).searchParams.get("resume_worker") || "") === "1";
 
+              let resumeEnqueue = null;
+
               if (resumeWorkerRequested && !invocationIsResumeWorker && resumeDocPersisted) {
-                const deadlineMs = Math.max(
-                  1000,
-                  Math.min(Number(process.env.RESUME_WORKER_DEADLINE_MS || 20000) || 20000, 60000)
-                );
-                const batchLimit = Math.max(
-                  1,
-                  Math.min(Number(process.env.RESUME_WORKER_BATCH_LIMIT || 8) || 8, 50)
-                );
+                const resumeCompanyIds = Array.isArray(saveResult?.saved_ids_write)
+                  ? saveResult.saved_ids_write
+                  : Array.isArray(saveResult?.saved_company_ids_verified)
+                    ? saveResult.saved_company_ids_verified
+                    : Array.isArray(saveResult?.saved_ids)
+                      ? saveResult.saved_ids
+                      : [];
 
-                setTimeout(() => {
-                  (async () => {
-                    const workerRequest = buildInternalFetchRequest({
-                      job_kind: "import_resume",
-                    });
-
-                    let statusCode = 0;
-                    let workerOk = false;
-                    let workerText = "";
-                    let workerError = null;
-
-                    let invokeRequestId = workerRequest.request_id || null;
-                    let invokeGatewayKeyAttached = Boolean(workerRequest.gateway_key_attached);
-
-                    try {
-                      const invokeRes = await invokeResumeWorkerInProcess({
-                        session_id: sessionId,
-                        context,
-                        workerRequest,
-                        no_cosmos: !cosmosEnabled,
-                        batch_limit: batchLimit,
-                        deadline_ms: deadlineMs,
-                      });
-
-                      invokeRequestId = invokeRes.request_id || invokeRequestId;
-                      invokeGatewayKeyAttached = Boolean(invokeRes.gateway_key_attached);
-
-                      statusCode = Number(invokeRes.status || 0) || 0;
-                      workerOk = Boolean(invokeRes.ok);
-                      workerText = typeof invokeRes.bodyText === "string" ? invokeRes.bodyText : "";
-                      workerError = invokeRes.error;
-                    } catch (e) {
-                      workerError = e;
-                    }
-
-                    if (workerOk) return;
-
-                    const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
-                    const resume_error = workerError?.message || (statusCode ? `resume_worker_in_process_${statusCode}` : "resume_worker_in_process_error");
-                    const resume_error_details = {
-                      invocation: "in_process",
-                      http_status: statusCode,
-                      response_text_preview: preview || null,
-                      gateway_key_attached: Boolean(invokeGatewayKeyAttached),
-                      request_id: invokeRequestId,
-                    };
-
-                    try {
-                      upsertImportSession({
-                        session_id: sessionId,
-                        request_id: requestId,
-                        status: "running",
-                        stage_beacon,
-                        resume_needed: true,
-                        resume_error,
-                        resume_error_details,
-                        resume_worker_last_http_status: statusCode,
-                        resume_worker_last_reject_layer: "in_process",
-                      });
-                    } catch {}
-
-                    if (cosmosEnabled) {
-                      const now = new Date().toISOString();
-                      try {
-                        await upsertCosmosImportSessionDoc({
-                          sessionId,
-                          requestId,
-                          patch: {
-                            resume_error,
-                            resume_error_details,
-                            resume_worker_last_http_status: statusCode,
-                            resume_worker_last_reject_layer: "in_process",
-                            resume_worker_last_trigger_request_id: workerRequest.request_id || null,
-                            resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
-                            resume_error_at: now,
-                            updated_at: now,
-                          },
-                        }).catch(() => null);
-                      } catch {}
-                    }
-                  })().catch(() => {});
-                }, 0);
+                resumeEnqueue = await maybeQueueAndInvokeMandatoryEnrichment({
+                  sessionId,
+                  requestId,
+                  context,
+                  companyIds: resumeCompanyIds,
+                  reason: "seed_complete_auto_enrich",
+                  cosmosEnabled,
+                }).catch(() => null);
               }
             } catch {}
 
@@ -10395,9 +10369,11 @@ Return ONLY the JSON array, no other text.`,
                 status: "running",
                 resume_needed: true,
                 resume: {
-                  status: "queued",
+                  status: resumeEnqueue?.enqueued ? "queued" : resumeWorkerRequested ? "stalled" : "skipped",
+                  enqueued: Boolean(resumeEnqueue?.enqueued),
+                  queue: resumeEnqueue?.queue || null,
+                  message_id: resumeEnqueue?.message_id || null,
                   internal_auth_configured: Boolean(internalAuthConfigured),
-                  triggered_in_process: true,
                   ...buildResumeAuthDiagnostics(),
                 },
                 deferred_stages: Array.from(deferredStages),
