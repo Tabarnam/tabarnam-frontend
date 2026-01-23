@@ -10338,98 +10338,25 @@ Return ONLY the JSON array, no other text.`,
               const resumeWorkerRequested = !(bodyObj?.auto_resume === false || bodyObj?.autoResume === false);
               const invocationIsResumeWorker = String(new URL(req.url).searchParams.get("resume_worker") || "") === "1";
 
+              let resumeEnqueue = null;
+
               if (resumeWorkerRequested && !invocationIsResumeWorker && resumeDocPersisted) {
-                const deadlineMs = Math.max(
-                  1000,
-                  Math.min(Number(process.env.RESUME_WORKER_DEADLINE_MS || 20000) || 20000, 60000)
-                );
-                const batchLimit = Math.max(
-                  1,
-                  Math.min(Number(process.env.RESUME_WORKER_BATCH_LIMIT || 8) || 8, 50)
-                );
+                const resumeCompanyIds = Array.isArray(saveResult?.saved_ids_write)
+                  ? saveResult.saved_ids_write
+                  : Array.isArray(saveResult?.saved_company_ids_verified)
+                    ? saveResult.saved_company_ids_verified
+                    : Array.isArray(saveResult?.saved_ids)
+                      ? saveResult.saved_ids
+                      : [];
 
-                setTimeout(() => {
-                  (async () => {
-                    const workerRequest = buildInternalFetchRequest({
-                      job_kind: "import_resume",
-                    });
-
-                    let statusCode = 0;
-                    let workerOk = false;
-                    let workerText = "";
-                    let workerError = null;
-
-                    let invokeRequestId = workerRequest.request_id || null;
-                    let invokeGatewayKeyAttached = Boolean(workerRequest.gateway_key_attached);
-
-                    try {
-                      const invokeRes = await invokeResumeWorkerInProcess({
-                        session_id: sessionId,
-                        context,
-                        workerRequest,
-                        no_cosmos: !cosmosEnabled,
-                        batch_limit: batchLimit,
-                        deadline_ms: deadlineMs,
-                      });
-
-                      invokeRequestId = invokeRes.request_id || invokeRequestId;
-                      invokeGatewayKeyAttached = Boolean(invokeRes.gateway_key_attached);
-
-                      statusCode = Number(invokeRes.status || 0) || 0;
-                      workerOk = Boolean(invokeRes.ok);
-                      workerText = typeof invokeRes.bodyText === "string" ? invokeRes.bodyText : "";
-                      workerError = invokeRes.error;
-                    } catch (e) {
-                      workerError = e;
-                    }
-
-                    if (workerOk) return;
-
-                    const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
-                    const resume_error = workerError?.message || (statusCode ? `resume_worker_in_process_${statusCode}` : "resume_worker_in_process_error");
-                    const resume_error_details = {
-                      invocation: "in_process",
-                      http_status: statusCode,
-                      response_text_preview: preview || null,
-                      gateway_key_attached: Boolean(invokeGatewayKeyAttached),
-                      request_id: invokeRequestId,
-                    };
-
-                    try {
-                      upsertImportSession({
-                        session_id: sessionId,
-                        request_id: requestId,
-                        status: "running",
-                        stage_beacon,
-                        resume_needed: true,
-                        resume_error,
-                        resume_error_details,
-                        resume_worker_last_http_status: statusCode,
-                        resume_worker_last_reject_layer: "in_process",
-                      });
-                    } catch {}
-
-                    if (cosmosEnabled) {
-                      const now = new Date().toISOString();
-                      try {
-                        await upsertCosmosImportSessionDoc({
-                          sessionId,
-                          requestId,
-                          patch: {
-                            resume_error,
-                            resume_error_details,
-                            resume_worker_last_http_status: statusCode,
-                            resume_worker_last_reject_layer: "in_process",
-                            resume_worker_last_trigger_request_id: workerRequest.request_id || null,
-                            resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
-                            resume_error_at: now,
-                            updated_at: now,
-                          },
-                        }).catch(() => null);
-                      } catch {}
-                    }
-                  })().catch(() => {});
-                }, 0);
+                resumeEnqueue = await maybeQueueAndInvokeMandatoryEnrichment({
+                  sessionId,
+                  requestId,
+                  context,
+                  companyIds: resumeCompanyIds,
+                  reason: "seed_complete_auto_enrich",
+                  cosmosEnabled,
+                }).catch(() => null);
               }
             } catch {}
 
