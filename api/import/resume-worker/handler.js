@@ -3669,6 +3669,7 @@ async function invokeResumeWorkerInProcess({
 
   const body = {
     session_id: sid,
+    ...(reqMeta?.body && typeof reqMeta.body === "object" && !Array.isArray(reqMeta.body) ? reqMeta.body : {}),
     ...(batch_limit != null ? { batch_limit } : {}),
     ...(deadline_ms != null ? { deadline_ms } : {}),
     ...(force_terminalize_single || forceTerminalizeSingle ? { force_terminalize_single: "1" } : {}),
