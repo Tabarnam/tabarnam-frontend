@@ -3087,6 +3087,7 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     missing_fields: [...MANDATORY_ENRICH_FIELDS],
   }));
 
+  // Optimistically mark queued, but we will correct status if enqueue fails.
   await upsertResumeDoc({
     session_id: sessionId,
     status: "queued",
@@ -3094,12 +3095,26 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     missing_by_company,
     created_at: now,
     updated_at: now,
+    enrichment_queued_at: now,
+    next_allowed_run_at: now,
+    last_backoff_reason: null,
+    last_backoff_ms: null,
     resume_error: null,
     blocked_at: null,
     lock_expires_at: null,
   }).catch(() => null);
 
-  // Telemetry proving enrichment was queued.
+  const enqueueRes = await enqueueResumeRun({
+    session_id: sessionId,
+    company_ids: ids,
+    reason: reason || "seed_complete",
+    requested_by: "import_start",
+    enqueue_at: now,
+    cycle_count: 0,
+    run_after_ms: 0,
+  }).catch((e) => ({ ok: false, error: e?.message || String(e || "enqueue_failed") }));
+
+  // Persist queue enqueue telemetry on the session doc.
   await upsertCosmosImportSessionDoc({
     sessionId,
     requestId,
@@ -3107,36 +3122,43 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       enrichment_queued_at: now,
       resume_needed: true,
       resume_updated_at: now,
+      resume_worker_last_enqueued_at: now,
+      resume_worker_last_enqueue_reason: "seed_complete",
+      resume_worker_last_enqueue_ok: Boolean(enqueueRes?.ok),
+      resume_worker_last_enqueue_error: enqueueRes?.ok ? null : String(enqueueRes?.error || "enqueue_failed"),
+      resume_worker_last_enqueue_queue: enqueueRes?.queue || resolveQueueConfig(),
       updated_at: now,
     },
   }).catch(() => null);
 
-  let invoked = false;
-  let invocation_mode = "in_process";
-
-  try {
-    const workerRequestMeta = buildInternalFetchRequest({ job_kind: "import_resume" });
-    const invokeRes = await invokeResumeWorkerInProcess({
+  if (!enqueueRes?.ok) {
+    // Status must never claim "queued" unless a next run is actually queued.
+    await upsertResumeDoc({
       session_id: sessionId,
-      context,
-      workerRequest: {
-        ...workerRequestMeta,
-        body: { reason: reason || "seed_complete_auto_enrich" },
+      status: "stalled",
+      updated_at: now,
+      resume_error: {
+        code: "ENQUEUE_FAILED",
+        message: String(enqueueRes?.error || "enqueue_failed"),
+        at: now,
       },
-    });
-    invoked = Boolean(invokeRes?.ok);
-  } catch {
-    invoked = false;
+    }).catch(() => null);
   }
 
   logInfo(context, {
     session_id: sessionId,
     company_ids: ids.slice(0, 5),
-    resume_worker_invoked: true,
-    invocation_mode,
+    resume_worker_enqueued: Boolean(enqueueRes?.ok),
+    queue: enqueueRes?.queue || null,
+    message_id: enqueueRes?.message_id || null,
   });
 
-  return { queued: true, invoked, invocation_mode };
+  return {
+    queued: Boolean(enqueueRes?.ok),
+    enqueued: Boolean(enqueueRes?.ok),
+    queue: enqueueRes?.queue || null,
+    message_id: enqueueRes?.message_id || null,
+  };
 }
 
 async function upsertCosmosImportSessionDoc({ sessionId, requestId, patch }) {
