@@ -1037,17 +1037,15 @@ export default function AdminImport() {
           },
         };
 
-        const triggered = Boolean(body?.resume?.triggered);
-        const triggerError = asString(
-          body?.resume?.trigger_error || body?.resume_error || body?.error || body?.message || ""
-        ).trim();
+        const enqueued = Boolean(body?.ok);
+        const triggerError = asString(body?.error || body?.message || "").trim();
 
-        if (triggered) {
-          toast.success("Resume requested");
+        if (enqueued) {
+          toast.success("Resume enqueued");
         } else if (triggerError) {
           toast.error(triggerError);
         } else {
-          const msg = (await getUserFacingConfigMessage(res)) || `Retry resume failed (HTTP ${res.status})`;
+          const msg = (await getUserFacingConfigMessage(res)) || `Enqueue resume failed (HTTP ${res.status})`;
           toast.error(msg);
         }
       } catch (e) {
