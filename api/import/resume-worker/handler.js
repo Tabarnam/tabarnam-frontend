@@ -1661,6 +1661,9 @@ async function resumeWorkerHandler(req, context) {
     const cycleCount = Number.isFinite(Number(resumeDoc?.cycle_count)) ? Number(resumeDoc.cycle_count) : 0;
     const isFreshSeed = cycleCount === 0;
 
+    const MAX_XAI_FIELDS_PER_RUN = isFreshSeed ? 9999 : 2;
+    let xaiFieldsAttemptedThisRun = 0;
+
     // Fresh seed invariant: no stage skipping.
     const skipStages = isFreshSeed ? [] : Array.isArray(resumeDoc?.skip_stages) ? resumeDoc.skip_stages : [];
     void skipStages;
