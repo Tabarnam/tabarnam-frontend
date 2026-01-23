@@ -959,22 +959,22 @@ export default function AdminImport() {
       const sid = asString(session_id).trim();
       if (!sid) return;
 
-      const encoded = encodeURIComponent(sid);
-      const path = `/import/status?session_id=${encoded}&force_resume=1`;
+      const path = `/import/resume-enqueue`;
       const endpointUrl = join(API_BASE, path);
 
       const requestHeaders = { "Content-Type": "application/json" };
+      const requestBody = { session_id: sid, reason: "manual_retry", requested_by: "admin" };
 
       const initialBundle = {
         kind: "retry_resume",
         captured_at: new Date().toISOString(),
         endpoint_url: endpointUrl,
-        request_payload: { session_id: sid, force_resume: true },
+        request_payload: requestBody,
         request_explain: {
           url: endpointUrl,
-          method: "GET",
+          method: "POST",
           headers: requestHeaders,
-          body_preview: "",
+          body_preview: JSON.stringify(requestBody).slice(0, 1200),
         },
         network_error: null,
         exception_message: null,
@@ -997,8 +997,9 @@ export default function AdminImport() {
 
       try {
         const r = await apiFetchParsed(path, {
-          method: "GET",
+          method: "POST",
           headers: requestHeaders,
+          body: JSON.stringify(requestBody),
           keepalive: true,
         });
 
