@@ -298,6 +298,72 @@ function forceTerminalizeCompanyDocForSingle(doc) {
   return d;
 }
 
+function finalizeReviewsForCompletion(doc, { reason } = {}) {
+  if (!doc || typeof doc !== "object") return false;
+
+  const curated = Array.isArray(doc?.curated_reviews)
+    ? doc.curated_reviews.filter((r) => r && typeof r === "object")
+    : [];
+
+  const stageRaw = String(doc?.reviews_stage_status || doc?.review_cursor?.reviews_stage_status || "").trim();
+  const stage = normalizeKey(stageRaw);
+
+  // Contract: "ok" is only allowed when we actually have 4 curated reviews.
+  const okWithFour = stage === "ok" && curated.length >= 4;
+  if (okWithFour) return false;
+
+  const needsFinalize = !stage || stage === "pending" || stage === "exhausted" || stage === "ok";
+  if (!needsFinalize && stage !== "incomplete") return false;
+
+  let changed = false;
+
+  // Terminal completion marker for reviews is cursor.exhausted.
+  doc.review_cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? doc.review_cursor : {};
+
+  if (!Array.isArray(doc.review_cursor.attempted_urls)) {
+    doc.review_cursor.attempted_urls = [];
+    changed = true;
+  }
+
+  const nextReason = String(reason || "").trim() || "exhausted";
+
+  if (normalizeKey(doc.review_cursor.incomplete_reason || "") !== normalizeKey(nextReason)) {
+    // Only set if missing; don't overwrite a real reason.
+    if (!doc.review_cursor.incomplete_reason) {
+      doc.review_cursor.incomplete_reason = nextReason;
+      changed = true;
+    }
+  }
+
+  if (doc.review_cursor.exhausted !== true) {
+    doc.review_cursor.exhausted = true;
+    changed = true;
+  }
+
+  if (!doc.review_cursor.exhausted_at) {
+    doc.review_cursor.exhausted_at = nowIso();
+    changed = true;
+  }
+
+  if (normalizeKey(doc.review_cursor.reviews_stage_status) !== "incomplete") {
+    doc.review_cursor.reviews_stage_status = "incomplete";
+    changed = true;
+  }
+
+  if (normalizeKey(doc.reviews_stage_status) !== "incomplete") {
+    doc.reviews_stage_status = "incomplete";
+    changed = true;
+  }
+
+  doc.import_missing_reason ||= {};
+  if (normalizeKey(doc.import_missing_reason.reviews) !== "exhausted") {
+    doc.import_missing_reason.reviews = "exhausted";
+    changed = true;
+  }
+
+  return changed;
+}
+
 function reconcileLowQualityToTerminal(doc, maxAttempts = 2) {
   if (!doc || typeof doc !== "object") return false;
 
@@ -2899,6 +2965,19 @@ async function handler(req, context) {
       }
     }
 
+    // Reviews terminal contract: never return completed/terminal-only with reviews still pending.
+    try {
+      if ((out.completed || out.terminal_only) && Array.isArray(savedDocsForHealth)) {
+        let finalized = 0;
+        for (const doc of savedDocsForHealth) {
+          if (finalizeReviewsForCompletion(doc, { reason: out.terminal_only ? terminalOnlyReason : "complete" })) {
+            finalized += 1;
+          }
+        }
+        if (finalized > 0) stageBeaconValues.status_reviews_finalized_on_completion = nowIso();
+      }
+    } catch {}
+
     return jsonWithSessionId(out, 200, req);
   }
 
@@ -5113,6 +5192,20 @@ async function handler(req, context) {
         out.resume.status = out.resume.status || "complete";
       }
 
+      // Reviews terminal contract: never return completed/terminal-only with reviews still pending.
+      try {
+        if ((out.completed || out.terminal_only) && Array.isArray(savedDocs) && savedDocs.length > 0) {
+          let finalized = 0;
+          for (const doc of savedDocs) {
+            const changed = finalizeReviewsForCompletion(doc, { reason: out.terminal_only ? terminalOnlyReason : "complete" });
+            if (!changed) continue;
+            finalized += 1;
+            await upsertDoc(container, { ...doc, updated_at: nowIso() }).catch(() => null);
+          }
+          if (finalized > 0) stageBeaconValues.status_reviews_finalized_on_completion = nowIso();
+        }
+      } catch {}
+
       return jsonWithSessionId(out, 200, req);
     }
 
@@ -5343,6 +5436,20 @@ async function handler(req, context) {
       out.completed = false;
       out.terminal_only = false;
     }
+
+    // Reviews terminal contract: never return completed/terminal-only with reviews still pending.
+    try {
+      if ((out.completed || out.terminal_only) && Array.isArray(savedDocs) && savedDocs.length > 0) {
+        let finalized = 0;
+        for (const doc of savedDocs) {
+          const changed = finalizeReviewsForCompletion(doc, { reason: out.terminal_only ? terminalOnlyReason : "complete" });
+          if (!changed) continue;
+          finalized += 1;
+          await upsertDoc(container, { ...doc, updated_at: nowIso() }).catch(() => null);
+        }
+        if (finalized > 0) stageBeaconValues.status_reviews_finalized_on_completion = nowIso();
+      }
+    } catch {}
 
     return jsonWithSessionId(out, 200, req);
   } catch (e) {
