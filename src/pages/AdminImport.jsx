@@ -4598,6 +4598,17 @@ export default function AdminImport() {
                                     </div>
 
                                     <div className="mt-1 text-xs text-amber-900/80">
+                                      <span className="font-medium">Last enqueue:</span>{" "}
+                                      {asString(activeRun?.resume_worker?.last_enqueued_at).trim() || "—"}
+                                      {asString(activeRun?.resume_worker?.last_enqueue_reason).trim()
+                                        ? ` (${asString(activeRun.resume_worker.last_enqueue_reason).trim()})`
+                                        : ""}
+                                      {asString(activeRun?.resume_worker?.last_enqueue_ok) === "false" && asString(activeRun?.resume_worker?.last_enqueue_error).trim()
+                                        ? ` · error: ${asString(activeRun.resume_worker.last_enqueue_error).trim()}`
+                                        : ""}
+                                    </div>
+
+                                    <div className="mt-1 text-xs text-amber-900/80">
                                       <span className="font-medium">Planned fields:</span>{" "}
                                       {Array.isArray(activeRun?.resume_worker?.planned_fields) && activeRun.resume_worker.planned_fields.length > 0
                                         ? activeRun.resume_worker.planned_fields.join(", ")
