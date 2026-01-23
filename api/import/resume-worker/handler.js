@@ -182,6 +182,8 @@ const MAX_ATTEMPTS_LOGO = envInt("MAX_ATTEMPTS_LOGO", 3, { min: 1, max: 10 });
 
 const NON_GROK_LOW_QUALITY_MAX_ATTEMPTS = envInt("NON_GROK_LOW_QUALITY_MAX_ATTEMPTS", 2, { min: 1, max: 10 });
 
+const MAX_RESUME_CYCLES = envInt("MAX_RESUME_CYCLES", 10, { min: 1, max: 50 });
+
 function classifyLocationSource({ source_url, normalized_domain }) {
   const urlRaw = String(source_url || "").trim();
   const domain = String(normalized_domain || "").trim().toLowerCase();
