@@ -2124,7 +2124,7 @@ async function handler(req, context) {
           const watchdogNoProgress = Boolean(stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress);
 
           const forceDecision = preTriggerCap
-            ? { force: true, reason: "max_cycles_pre_trigger" }
+            ? { force: true, reason: "max_cycles" }
             : watchdogNoProgress && singleCompanyMode && queued && retryableMissingCount === 0
               ? { force: true, reason: "watchdog_no_progress" }
               : shouldForceByQueuedTimeout
@@ -4080,7 +4080,7 @@ async function handler(req, context) {
           const watchdogNoProgress = Boolean(stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress);
 
           const forceDecision = preTriggerCap
-            ? { force: true, reason: "max_cycles_pre_trigger" }
+            ? { force: true, reason: "max_cycles" }
             : watchdogNoProgress && singleCompanyMode && queued && retryableMissingCount === 0
               ? { force: true, reason: "watchdog_no_progress" }
               : shouldForceByQueuedTimeout
