@@ -1313,6 +1313,7 @@ async function resumeWorkerHandler(req, context) {
     doc_created: true,
     status: "running",
     attempt: attempt + 1,
+    enrichment_started_at: resumeDoc?.enrichment_started_at || invokedAt,
     last_invoked_at: invokedAt,
     handler_entered_at,
     lock_expires_at: thisLockExpiresAt,
