@@ -220,6 +220,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: import/resume-enqueue");
+  require("./import/resume-enqueue/index.js");
+} catch (e) {
+  console.error("[api] Failed to load import/resume-enqueue:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: import-progress");
   require("./import-progress/index.js");
 } catch (e) {
