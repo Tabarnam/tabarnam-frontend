@@ -2802,6 +2802,8 @@ async function handler(req, context) {
         reconcile_strategy,
         reconciled_saved_ids,
         saved_companies,
+        effective_resume_status,
+        ...(progress_notice ? { progress_notice } : {}),
         resume_needed,
         resume_cycle_count:
           (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
@@ -4708,6 +4710,8 @@ async function handler(req, context) {
           reconcile_strategy,
           reconciled_saved_ids,
         saved_companies,
+        effective_resume_status,
+        ...(progress_notice ? { progress_notice } : {}),
         resume_needed,
         resume_cycle_count:
           (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
@@ -5073,6 +5077,8 @@ async function handler(req, context) {
           reconcile_strategy,
           reconciled_saved_ids,
         saved_companies,
+        effective_resume_status,
+        ...(progress_notice ? { progress_notice } : {}),
         resume_needed,
         resume_cycle_count:
           (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
@@ -5323,6 +5329,8 @@ async function handler(req, context) {
         reconcile_strategy,
         reconciled_saved_ids,
         saved_companies,
+        effective_resume_status,
+        ...(progress_notice ? { progress_notice } : {}),
         resume_needed,
         resume_cycle_count:
           (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
