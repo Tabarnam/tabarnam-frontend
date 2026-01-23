@@ -3420,6 +3420,11 @@ async function handler(req, context) {
     const timedOut = Boolean(timeoutDoc);
     const stopped = Boolean(stopDoc);
     const completed = Boolean(completionDoc);
+    const completionOverride = Boolean(completionDoc && typeof completionDoc.completed_at === "string" && completionDoc.completed_at.trim());
+
+    const effectiveResumeMeta = computeEffectiveResumeStatus({ resumeDoc, sessionDoc, stopDoc });
+    const effective_resume_status = effectiveResumeMeta.effective_resume_status;
+    const progress_notice = effectiveResumeMeta.progress_notice;
 
     const domainMeta = deriveDomainAndCreatedAfter({ sessionDoc, acceptDoc });
 
