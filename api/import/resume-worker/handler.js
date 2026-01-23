@@ -1822,8 +1822,6 @@ async function resumeWorkerHandler(req, context) {
         fieldProgress.last_cycle_attempted = cycleCount;
         attemptedFieldsThisRun.push(field);
 
-        await updateLastXaiAttempt(attemptAt);
-
         let r = null;
         let status = "";
         let upstream_http_status = null;
