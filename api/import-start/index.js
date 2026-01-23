@@ -3126,7 +3126,8 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
       resume_worker_last_enqueue_reason: "seed_complete",
       resume_worker_last_enqueue_ok: Boolean(enqueueRes?.ok),
       resume_worker_last_enqueue_error: enqueueRes?.ok ? null : String(enqueueRes?.error || "enqueue_failed"),
-      resume_worker_last_enqueue_queue: enqueueRes?.queue || resolveQueueConfig(),
+      resume_worker_last_enqueue_queue:
+        enqueueRes?.queue || (resolveQueueConfig()?.queueName ? { provider: "azure_storage_queue", name: resolveQueueConfig().queueName } : null),
       updated_at: now,
     },
   }).catch(() => null);
