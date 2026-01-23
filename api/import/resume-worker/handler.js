@@ -1710,6 +1710,9 @@ async function resumeWorkerHandler(req, context) {
     const attemptedFieldsThisRun = [];
     const savedFieldsThisRun = [];
 
+    let lastFieldAttemptedThisRun = null;
+    let lastFieldResultThisRun = null;
+
     const updateLastXaiAttempt = async (nowIsoStr, meta = {}) => {
       try {
         await bestEffortPatchSessionDoc({
