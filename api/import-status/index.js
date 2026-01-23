@@ -2946,6 +2946,50 @@ async function handler(req, context) {
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
               last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
               last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
+              ...(() => {
+                const missing_fields = [];
+                const session_missing_fields = [];
+                const resume_missing_fields = [];
+
+                const check = (field, sessionHas, resumeHas) => {
+                  if (!sessionHas) session_missing_fields.push(field);
+                  if (!resumeHas) resume_missing_fields.push(field);
+                  if (!sessionHas && !resumeHas) missing_fields.push(field);
+                };
+
+                check(
+                  "attempted_fields",
+                  Array.isArray(sessionDoc?.resume_worker_attempted_fields),
+                  Array.isArray(resumeDoc?.attempted_fields)
+                );
+
+                check(
+                  "last_written_fields",
+                  Array.isArray(sessionDoc?.resume_worker_last_written_fields),
+                  Array.isArray(resumeDoc?.last_written_fields)
+                );
+
+                check(
+                  "last_xai_attempt_at",
+                  Boolean(sessionDoc?.resume_worker_last_xai_attempt_at || sessionDoc?.last_xai_attempt_at),
+                  Boolean(resumeDoc?.last_xai_attempt_at)
+                );
+
+                check(
+                  "next_allowed_run_at",
+                  Boolean(sessionDoc?.resume_next_allowed_run_at),
+                  Boolean(resumeDoc?.next_allowed_run_at)
+                );
+
+                const telemetry_missing = missing_fields.length > 0;
+
+                return {
+                  telemetry_missing,
+                  telemetry_missing_fields: missing_fields,
+                  telemetry_missing_session_fields: session_missing_fields,
+                  telemetry_missing_resume_fields: resume_missing_fields,
+                };
+              })(),
             }
           : null,
         enrichment_health_summary,
@@ -4866,6 +4910,50 @@ async function handler(req, context) {
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
               last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
               last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
+              ...(() => {
+                const missing_fields = [];
+                const session_missing_fields = [];
+                const resume_missing_fields = [];
+
+                const check = (field, sessionHas, resumeHas) => {
+                  if (!sessionHas) session_missing_fields.push(field);
+                  if (!resumeHas) resume_missing_fields.push(field);
+                  if (!sessionHas && !resumeHas) missing_fields.push(field);
+                };
+
+                check(
+                  "attempted_fields",
+                  Array.isArray(sessionDoc?.resume_worker_attempted_fields),
+                  Array.isArray(resumeDoc?.attempted_fields)
+                );
+
+                check(
+                  "last_written_fields",
+                  Array.isArray(sessionDoc?.resume_worker_last_written_fields),
+                  Array.isArray(resumeDoc?.last_written_fields)
+                );
+
+                check(
+                  "last_xai_attempt_at",
+                  Boolean(sessionDoc?.resume_worker_last_xai_attempt_at || sessionDoc?.last_xai_attempt_at),
+                  Boolean(resumeDoc?.last_xai_attempt_at)
+                );
+
+                check(
+                  "next_allowed_run_at",
+                  Boolean(sessionDoc?.resume_next_allowed_run_at),
+                  Boolean(resumeDoc?.next_allowed_run_at)
+                );
+
+                const telemetry_missing = missing_fields.length > 0;
+
+                return {
+                  telemetry_missing,
+                  telemetry_missing_fields: missing_fields,
+                  telemetry_missing_session_fields: session_missing_fields,
+                  telemetry_missing_resume_fields: resume_missing_fields,
+                };
+              })(),
             }
           : null,
         enrichment_health_summary,
@@ -5075,6 +5163,50 @@ async function handler(req, context) {
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
               last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
               last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
+              ...(() => {
+                const missing_fields = [];
+                const session_missing_fields = [];
+                const resume_missing_fields = [];
+
+                const check = (field, sessionHas, resumeHas) => {
+                  if (!sessionHas) session_missing_fields.push(field);
+                  if (!resumeHas) resume_missing_fields.push(field);
+                  if (!sessionHas && !resumeHas) missing_fields.push(field);
+                };
+
+                check(
+                  "attempted_fields",
+                  Array.isArray(sessionDoc?.resume_worker_attempted_fields),
+                  Array.isArray(resumeDoc?.attempted_fields)
+                );
+
+                check(
+                  "last_written_fields",
+                  Array.isArray(sessionDoc?.resume_worker_last_written_fields),
+                  Array.isArray(resumeDoc?.last_written_fields)
+                );
+
+                check(
+                  "last_xai_attempt_at",
+                  Boolean(sessionDoc?.resume_worker_last_xai_attempt_at || sessionDoc?.last_xai_attempt_at),
+                  Boolean(resumeDoc?.last_xai_attempt_at)
+                );
+
+                check(
+                  "next_allowed_run_at",
+                  Boolean(sessionDoc?.resume_next_allowed_run_at),
+                  Boolean(resumeDoc?.next_allowed_run_at)
+                );
+
+                const telemetry_missing = missing_fields.length > 0;
+
+                return {
+                  telemetry_missing,
+                  telemetry_missing_fields: missing_fields,
+                  telemetry_missing_session_fields: session_missing_fields,
+                  telemetry_missing_resume_fields: resume_missing_fields,
+                };
+              })(),
             }
           : null,
         enrichment_health_summary,
@@ -5265,6 +5397,50 @@ async function handler(req, context) {
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
               last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
               last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
+              ...(() => {
+                const missing_fields = [];
+                const session_missing_fields = [];
+                const resume_missing_fields = [];
+
+                const check = (field, sessionHas, resumeHas) => {
+                  if (!sessionHas) session_missing_fields.push(field);
+                  if (!resumeHas) resume_missing_fields.push(field);
+                  if (!sessionHas && !resumeHas) missing_fields.push(field);
+                };
+
+                check(
+                  "attempted_fields",
+                  Array.isArray(sessionDoc?.resume_worker_attempted_fields),
+                  Array.isArray(resumeDoc?.attempted_fields)
+                );
+
+                check(
+                  "last_written_fields",
+                  Array.isArray(sessionDoc?.resume_worker_last_written_fields),
+                  Array.isArray(resumeDoc?.last_written_fields)
+                );
+
+                check(
+                  "last_xai_attempt_at",
+                  Boolean(sessionDoc?.resume_worker_last_xai_attempt_at || sessionDoc?.last_xai_attempt_at),
+                  Boolean(resumeDoc?.last_xai_attempt_at)
+                );
+
+                check(
+                  "next_allowed_run_at",
+                  Boolean(sessionDoc?.resume_next_allowed_run_at),
+                  Boolean(resumeDoc?.next_allowed_run_at)
+                );
+
+                const telemetry_missing = missing_fields.length > 0;
+
+                return {
+                  telemetry_missing,
+                  telemetry_missing_fields: missing_fields,
+                  telemetry_missing_session_fields: session_missing_fields,
+                  telemetry_missing_resume_fields: resume_missing_fields,
+                };
+              })(),
             }
           : null,
         enrichment_health_summary,
@@ -5541,6 +5717,50 @@ async function handler(req, context) {
                 sessionDoc?.resume_worker_attempted_fields_request_id || resumeDoc?.attempted_fields_request_id || null,
               last_field_attempted: sessionDoc?.resume_worker_last_field_attempted || resumeDoc?.last_field_attempted || null,
               last_field_result: sessionDoc?.resume_worker_last_field_result || resumeDoc?.last_field_result || null,
+              ...(() => {
+                const missing_fields = [];
+                const session_missing_fields = [];
+                const resume_missing_fields = [];
+
+                const check = (field, sessionHas, resumeHas) => {
+                  if (!sessionHas) session_missing_fields.push(field);
+                  if (!resumeHas) resume_missing_fields.push(field);
+                  if (!sessionHas && !resumeHas) missing_fields.push(field);
+                };
+
+                check(
+                  "attempted_fields",
+                  Array.isArray(sessionDoc?.resume_worker_attempted_fields),
+                  Array.isArray(resumeDoc?.attempted_fields)
+                );
+
+                check(
+                  "last_written_fields",
+                  Array.isArray(sessionDoc?.resume_worker_last_written_fields),
+                  Array.isArray(resumeDoc?.last_written_fields)
+                );
+
+                check(
+                  "last_xai_attempt_at",
+                  Boolean(sessionDoc?.resume_worker_last_xai_attempt_at || sessionDoc?.last_xai_attempt_at),
+                  Boolean(resumeDoc?.last_xai_attempt_at)
+                );
+
+                check(
+                  "next_allowed_run_at",
+                  Boolean(sessionDoc?.resume_next_allowed_run_at),
+                  Boolean(resumeDoc?.next_allowed_run_at)
+                );
+
+                const telemetry_missing = missing_fields.length > 0;
+
+                return {
+                  telemetry_missing,
+                  telemetry_missing_fields: missing_fields,
+                  telemetry_missing_session_fields: session_missing_fields,
+                  telemetry_missing_resume_fields: resume_missing_fields,
+                };
+              })(),
             }
           : null,
         enrichment_health_summary,
