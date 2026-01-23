@@ -1870,6 +1870,8 @@ async function resumeWorkerHandler(req, context) {
         };
 
         const xaiAttempted = status !== "deferred";
+        lastFieldAttemptedThisRun = field;
+        lastFieldResultThisRun = status || null;
         if (xaiAttempted) {
           await updateLastXaiAttempt(attemptAt);
         }
