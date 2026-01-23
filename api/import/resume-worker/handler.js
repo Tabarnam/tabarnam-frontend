@@ -1926,9 +1926,12 @@ async function resumeWorkerHandler(req, context) {
             r?.diagnostics?.error_code ||
             r?.diagnostics?.code ||
             (status && status !== "ok" ? status : null),
+          xai_attempted: false,
         };
 
         const xaiAttempted = status !== "deferred";
+        fieldProgress.xai_diag.xai_attempted = xaiAttempted;
+
         lastFieldAttemptedThisRun = field;
         lastFieldResultThisRun = status || null;
         if (xaiAttempted) {
