@@ -1672,7 +1672,7 @@ async function resumeWorkerHandler(req, context) {
           ? progressRoot.enrichment_progress[companyId]
           : {};
 
-      for (const field of ENRICH_FIELDS) {
+      for (const [fieldIndex, field] of ENRICH_FIELDS.entries()) {
         if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
 
         const fieldProgress =
@@ -1708,7 +1708,7 @@ async function resumeWorkerHandler(req, context) {
         }
 
         const minMs = Number(MIN_REQUIRED_MS_BY_FIELD[field]) || 0;
-        if (minMs && budgetRemainingMs() < minMs) {
+        if (!isFreshSeed && minMs && budgetRemainingMs() < minMs) {
           fieldProgress.status = "retryable";
           fieldProgress.last_error = "budget_exhausted";
           fieldProgress.last_attempt_at = nowIso();
@@ -1716,6 +1716,15 @@ async function resumeWorkerHandler(req, context) {
           progressRoot.enrichment_progress[companyId][field] = fieldProgress;
           continue;
         }
+
+        const freshSeedBudgetMs = (() => {
+          if (!isFreshSeed) return null;
+          const remainingFields = Math.max(1, ENRICH_FIELDS.length - Number(fieldIndex || 0));
+          const slice = Math.trunc(budgetRemainingMs() / remainingFields);
+          return Math.max(1500, Math.min(perDocBudgetMs, slice));
+        })();
+
+        const grokArgsForField = freshSeedBudgetMs ? { ...grokArgs, budgetMs: freshSeedBudgetMs } : grokArgs;
 
         // xAI attempt (explicit)
         const attemptAt = nowIso();
@@ -1732,12 +1741,12 @@ async function resumeWorkerHandler(req, context) {
         let upstream_http_status = null;
 
         try {
-          if (field === "tagline") r = await fetchTagline(grokArgs);
-          if (field === "headquarters_location") r = await fetchHeadquartersLocation(grokArgs);
-          if (field === "manufacturing_locations") r = await fetchManufacturingLocations(grokArgs);
-          if (field === "industries") r = await fetchIndustries(grokArgs);
-          if (field === "product_keywords") r = await fetchProductKeywords(grokArgs);
-          if (field === "reviews") r = await fetchCuratedReviews(grokArgs);
+          if (field === "tagline") r = await fetchTagline(grokArgsForField);
+          if (field === "headquarters_location") r = await fetchHeadquartersLocation(grokArgsForField);
+          if (field === "manufacturing_locations") r = await fetchManufacturingLocations(grokArgsForField);
+          if (field === "industries") r = await fetchIndustries(grokArgsForField);
+          if (field === "product_keywords") r = await fetchProductKeywords(grokArgsForField);
+          if (field === "reviews") r = await fetchCuratedReviews(grokArgsForField);
         } catch (e) {
           const failure = isTimeoutLikeMessage(e?.message) ? "upstream_timeout" : "upstream_unreachable";
           r = { diagnostics: { message: safeErrorMessage(e), upstream_http_status: null }, _failure: failure };

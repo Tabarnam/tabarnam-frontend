@@ -1036,6 +1036,8 @@ function normalizeErrorPayload(value) {
 }
 
 async function upsertDoc(container, doc) {
+  // Status endpoint must be read-only.
+  if (STATUS_NO_ORCHESTRATION) return { ok: true, skipped: true };
   if (!container || !doc) return { ok: false, error: "no_container" };
   const id = String(doc?.id || "").trim();
   if (!id) return { ok: false, error: "missing_id" };
