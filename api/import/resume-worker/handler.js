@@ -1804,6 +1804,8 @@ async function resumeWorkerHandler(req, context) {
           fieldProgress.xai_diag = null;
 
           attemptedFieldsThisRun.push(field);
+          lastFieldAttemptedThisRun = field;
+          lastFieldResultThisRun = "budget_exhausted";
           progressRoot.enrichment_progress[companyId][field] = fieldProgress;
           continue;
         }
