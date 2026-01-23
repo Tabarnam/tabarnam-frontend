@@ -7078,7 +7078,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
               } catch {}
 
               // Non-negotiable: fresh seeds must immediately queue + run xAI enrichment.
-              await maybeQueueAndInvokeMandatoryEnrichment({
+              const resumeEnqueue = await maybeQueueAndInvokeMandatoryEnrichment({
                 sessionId,
                 requestId,
                 context,
