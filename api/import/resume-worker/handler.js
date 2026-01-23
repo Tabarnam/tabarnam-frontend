@@ -1813,6 +1813,11 @@ async function resumeWorkerHandler(req, context) {
           continue;
         }
 
+        if (!isFreshSeed && xaiFieldsAttemptedThisRun >= MAX_XAI_FIELDS_PER_RUN) {
+          // Leave remaining missing fields for the next queue-driven cycle.
+          continue;
+        }
+
         const freshSeedBudgetMs = (() => {
           if (!isFreshSeed) return null;
           const remainingFields = Math.max(1, ENRICH_FIELDS.length - Number(fieldIndex || 0));
