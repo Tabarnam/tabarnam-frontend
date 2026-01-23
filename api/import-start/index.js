@@ -7055,7 +7055,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   resume: {
                     status: "queued",
                     internal_auth_configured: Boolean(internalAuthConfigured),
-                    triggered_in_process: Boolean(resumeDocPersisted),
+                    triggered_in_process: true,
                     ...buildResumeAuthDiagnostics(),
                   },
                   missing_by_company,
