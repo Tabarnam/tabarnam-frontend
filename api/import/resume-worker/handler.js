@@ -1115,9 +1115,6 @@ async function resumeWorkerHandler(req, context) {
     );
   };
 
-  if (await isSessionStopped(container, sessionId)) {
-    return gracefulExit("stopped");
-  }
 
   const resumeDocId = `_import_resume_${sessionId}`;
   const sessionDocId = `_import_session_${sessionId}`;
