@@ -208,6 +208,7 @@ app.http("import-stop", {
           session_id: sessionId,
           message: "Import stop signal sent",
           written: !!verified,
+          resume_marked_stopped,
           ...(upsertResult.ok ? {} : { write_error: upsertResult.error }),
         },
         200,
