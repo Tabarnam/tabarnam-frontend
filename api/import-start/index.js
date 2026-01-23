@@ -9428,6 +9428,28 @@ Output JSON only:
                   status: "running",
                 },
               }).catch(() => null);
+
+              const mandatoryCompanyIds = Array.from(
+                new Set(
+                  [
+                    ...(Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : []),
+                    ...(Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : []),
+                    ...(Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : []),
+                    ...(Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : []),
+                  ]
+                    .map((v) => String(v || "").trim())
+                    .filter(Boolean)
+                )
+              );
+
+              await maybeQueueAndInvokeMandatoryEnrichment({
+                sessionId,
+                requestId,
+                context,
+                companyIds: mandatoryCompanyIds,
+                reason: "seed_complete_auto_enrich",
+                cosmosEnabled,
+              }).catch(() => null);
             } catch {}
           }
 
