@@ -2223,7 +2223,7 @@ async function handler(req, context) {
             stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
           }
 
-          if (forceDecision.force) {
+          if (!STATUS_NO_ORCHESTRATION && forceDecision.force) {
             const forcedAt = nowIso();
             stageBeaconValues.status_resume_blocked_reason = forceDecision.reason;
 
@@ -2331,7 +2331,7 @@ async function handler(req, context) {
           }
         } catch {}
 
-        if (
+        if (!STATUS_NO_ORCHESTRATION &&
           canTrigger &&
           (resumeStatus === "queued" || resumeStatus === "blocked" || resumeStatus === "error" || resumeStatus === "stalled" || (forceResume && resumeStatus !== "running"))
         ) {
@@ -2964,7 +2964,7 @@ async function handler(req, context) {
       const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
       const maxCyclesBlocked = out?.resume_needed === true && (blockedReason.startsWith("max_cycles") || cycleCount >= cap);
 
-      if (maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
+      if (!STATUS_NO_ORCHESTRATION && maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
         stageBeaconValues.status_resume_force_terminalize_selected = true;
         stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
 
@@ -4179,7 +4179,7 @@ async function handler(req, context) {
             stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
           }
 
-          if (forceDecision.force) {
+          if (!STATUS_NO_ORCHESTRATION && forceDecision.force) {
             const forcedAt = nowIso();
             stageBeaconValues.status_resume_blocked_reason = forceDecision.reason;
 
@@ -4287,7 +4287,7 @@ async function handler(req, context) {
           }
         } catch {}
 
-        if (
+        if (!STATUS_NO_ORCHESTRATION &&
           canTrigger &&
           (resumeStatus === "queued" || resumeStatus === "blocked" || resumeStatus === "error" || resumeStatus === "stalled" || (forceResume && resumeStatus !== "running"))
         ) {
@@ -4820,7 +4820,7 @@ async function handler(req, context) {
           report,
         };
 
-      if (stageBeaconValues?.status_resume_force_terminalize_selected === true) {
+      if (!STATUS_NO_ORCHESTRATION && stageBeaconValues?.status_resume_force_terminalize_selected === true) {
         const forcedReason =
           typeof stageBeaconValues.status_resume_blocked_reason === "string" && stageBeaconValues.status_resume_blocked_reason.trim()
             ? stageBeaconValues.status_resume_blocked_reason.trim()
@@ -5197,7 +5197,7 @@ async function handler(req, context) {
       const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
       const maxCyclesBlocked = out?.resume_needed === true && (blockedReason.startsWith("max_cycles") || cycleCount >= cap);
 
-      if (maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
+      if (!STATUS_NO_ORCHESTRATION && maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
         stageBeaconValues.status_resume_force_terminalize_selected = true;
         stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
 
@@ -5447,7 +5447,7 @@ async function handler(req, context) {
       const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
       const maxCyclesBlocked = out?.resume_needed === true && (blockedReason.startsWith("max_cycles") || cycleCount >= cap);
 
-      if (maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
+      if (!STATUS_NO_ORCHESTRATION && maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
         stageBeaconValues.status_resume_force_terminalize_selected = true;
         stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
 
