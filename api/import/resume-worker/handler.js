@@ -247,6 +247,78 @@ function classifyLocationSource({ source_url, normalized_domain }) {
   return out;
 }
 
+const DISALLOWED_LOCATION_PROVENANCE_HOSTS = new Set([
+  "fiverr.com",
+  "www.fiverr.com",
+  "upwork.com",
+  "www.upwork.com",
+]);
+
+function isDisallowedLocationSourceUrl(url) {
+  const raw = String(url || "").trim();
+  if (!raw) return false;
+  try {
+    const host = String(new URL(raw).hostname || "").toLowerCase();
+    return DISALLOWED_LOCATION_PROVENANCE_HOSTS.has(host);
+  } catch {
+    return false;
+  }
+}
+
+function mergeLocationSource(doc, { location_type, location, source_url, extracted_field, normalized_domain } = {}) {
+  if (!doc || typeof doc !== "object") return false;
+
+  const locType = String(location_type || "").trim();
+  const loc = String(location || "").trim();
+  const src = String(source_url || "").trim();
+  if (!locType || !loc || !src) return false;
+
+  if (isDisallowedLocationSourceUrl(src)) return false;
+
+  doc.location_sources = Array.isArray(doc.location_sources) ? doc.location_sources : [];
+
+  const prov = classifyLocationSource({ source_url: src, normalized_domain });
+
+  const existing = doc.location_sources.find((x) => {
+    if (!x || typeof x !== "object") return false;
+    return String(x.location_type || "").trim() === locType && String(x.location || "").trim() === loc;
+  });
+
+  if (existing) {
+    const urls = Array.isArray(existing.source_urls)
+      ? existing.source_urls.map((u) => String(u || "").trim()).filter(Boolean)
+      : String(existing.source_url || "").trim()
+        ? [String(existing.source_url).trim()]
+        : [];
+
+    if (!urls.includes(src)) urls.push(src);
+
+    existing.source_urls = urls;
+    if (!String(existing.source_url || "").trim()) existing.source_url = urls[0] || src;
+
+    if (!String(existing.source_method || "").trim()) existing.source_method = prov.source_method;
+    if (!String(existing.source_type || "").trim() || existing.source_type === "other") existing.source_type = prov.source_type;
+
+    if (!String(existing.extracted_field || "").trim() && extracted_field) existing.extracted_field = extracted_field;
+    existing.extracted_at = nowIso();
+
+    return true;
+  }
+
+  doc.location_sources.push({
+    location_type: locType,
+    location: loc,
+    source_url: src,
+    source_urls: [src],
+    source_type: prov.source_type,
+    source_method: prov.source_method,
+    extracted_field: extracted_field || null,
+    extracted_at: nowIso(),
+  });
+
+  return true;
+}
+
 function ensureAttemptsDetail(doc, field) {
   doc.import_attempts_detail ||= {};
   const existing = doc.import_attempts_detail[field];
@@ -1536,10 +1608,22 @@ async function resumeWorkerHandler(req, context) {
       // chosen by lowest attempt count (ties prefer HQ).
       if (singleCompanyMode && heavyMissing) {
         const heavy = HEAVY_FIELDS.filter((f) => missingNow.includes(f));
+        const lastAttemptMs = (field) => {
+          const ts = String(doc?.import_attempts_detail?.[field]?.last_attempt_at || "");
+          const ms = Date.parse(ts) || 0;
+          return ms;
+        };
+
         heavy.sort((a, b) => {
           const da = attemptsFor(doc, a);
           const db = attemptsFor(doc, b);
           if (da !== db) return da - db;
+
+          // Prefer the field we haven't tried recently.
+          const la = lastAttemptMs(a);
+          const lb = lastAttemptMs(b);
+          if (la !== lb) return la - lb;
+
           return a === "headquarters_location" ? -1 : b === "headquarters_location" ? 1 : 0;
         });
         return new Set([heavy[0]]);
@@ -1908,32 +1992,15 @@ async function resumeWorkerHandler(req, context) {
             : {};
         doc.enrichment_debug.location_sources.hq_source_urls = hqSourceUrls;
 
-        doc.location_sources = Array.isArray(doc.location_sources) ? doc.location_sources : [];
         for (const url of hqSourceUrls) {
           const sourceUrl = String(url || "").trim();
           if (!sourceUrl) continue;
-
-          const exists = doc.location_sources.some((x) => {
-            if (!x || typeof x !== "object") return false;
-            const locType = String(x.location_type || "").trim();
-            return (
-              (locType === "headquarters" || locType === "hq") &&
-              x.location === value &&
-              x.source_url === sourceUrl
-            );
-          });
-          if (exists) continue;
-
-          const prov = classifyLocationSource({ source_url: sourceUrl, normalized_domain: normalizedDomain });
-
-          doc.location_sources.push({
+          mergeLocationSource(doc, {
             location_type: "headquarters",
             location: value,
             source_url: sourceUrl,
-            source_type: prov.source_type,
-            source_method: prov.source_method,
             extracted_field: "headquarters_location",
-            extracted_at: nowIso(),
+            normalized_domain: normalizedDomain,
           });
         }
 
@@ -2029,34 +2096,20 @@ async function resumeWorkerHandler(req, context) {
             : {};
         doc.enrichment_debug.location_sources.mfg_source_urls = mfgSourceUrls;
 
-        doc.location_sources = Array.isArray(doc.location_sources) ? doc.location_sources : [];
-        const primaryMfgSourceUrl = mfgSourceUrls.map((u) => String(u || "").trim()).filter(Boolean)[0] || "";
-        if (primaryMfgSourceUrl) {
-          const prov = classifyLocationSource({ source_url: primaryMfgSourceUrl, normalized_domain: normalizedDomain });
+        for (const loc of locs) {
+          const locStr = String(loc || "").trim();
+          if (!locStr) continue;
 
-          for (const loc of locs) {
-            const locStr = String(loc || "").trim();
-            if (!locStr) continue;
+          for (const url of mfgSourceUrls) {
+            const sourceUrl = String(url || "").trim();
+            if (!sourceUrl) continue;
 
-            const exists = doc.location_sources.some((x) => {
-              if (!x || typeof x !== "object") return false;
-              const locType = String(x.location_type || "").trim();
-              return (
-                (locType === "manufacturing" || locType === "mfg") &&
-                x.location === locStr &&
-                x.source_url === primaryMfgSourceUrl
-              );
-            });
-            if (exists) continue;
-
-            doc.location_sources.push({
+            mergeLocationSource(doc, {
               location_type: "manufacturing",
               location: locStr,
-              source_url: primaryMfgSourceUrl,
-              source_type: prov.source_type,
-              source_method: prov.source_method,
+              source_url: sourceUrl,
               extracted_field: "manufacturing_locations",
-              extracted_at: nowIso(),
+              normalized_domain: normalizedDomain,
             });
           }
         }

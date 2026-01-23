@@ -2116,7 +2116,7 @@ test("/api/import/status force-terminalizes and completes when cycle cap reached
         updated_at: now,
       };
 
-      // Critical setup: cycle_count is about to hit the cap (2 + 1 >= 3 => block).
+      // Critical setup: cycle_count has reached the cap (3 >= 3 => terminalize).
       docsById.set(`_import_session_${session_id}`, {
         id: `_import_session_${session_id}`,
         session_id,
@@ -2126,7 +2126,7 @@ test("/api/import/status force-terminalizes and completes when cycle cap reached
         status: "running",
         stage_beacon: "save",
         resume_needed: true,
-        resume_cycle_count: 2,
+        resume_cycle_count: 3,
         request: { limit: 1 },
         created_at: now,
         updated_at: now,
@@ -2281,7 +2281,7 @@ test("/api/import/status force-terminalizes and completes when cycle cap reached
         assert.equal(statusBody.resume?.status, "complete");
 
         assert.ok(statusBody.stage_beacon_values?.status_resume_terminal_only);
-        assert.equal(statusBody.stage_beacon_values?.status_resume_forced_terminalize_reason, "max_cycles_pre_trigger");
+        assert.equal(statusBody.stage_beacon_values?.status_resume_forced_terminalize_reason, "max_cycles");
 
         // Forced terminalization should clear resume_error; remaining missing fields become terminalized.
         assert.equal(statusBody.resume_error, null);

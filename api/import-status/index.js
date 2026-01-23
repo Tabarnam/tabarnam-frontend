@@ -298,6 +298,72 @@ function forceTerminalizeCompanyDocForSingle(doc) {
   return d;
 }
 
+function finalizeReviewsForCompletion(doc, { reason } = {}) {
+  if (!doc || typeof doc !== "object") return false;
+
+  const curated = Array.isArray(doc?.curated_reviews)
+    ? doc.curated_reviews.filter((r) => r && typeof r === "object")
+    : [];
+
+  const stageRaw = String(doc?.reviews_stage_status || doc?.review_cursor?.reviews_stage_status || "").trim();
+  const stage = normalizeKey(stageRaw);
+
+  // Contract: "ok" is only allowed when we actually have 4 curated reviews.
+  const okWithFour = stage === "ok" && curated.length >= 4;
+  if (okWithFour) return false;
+
+  const needsFinalize = !stage || stage === "pending" || stage === "exhausted" || stage === "ok";
+  if (!needsFinalize && stage !== "incomplete") return false;
+
+  let changed = false;
+
+  // Terminal completion marker for reviews is cursor.exhausted.
+  doc.review_cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? doc.review_cursor : {};
+
+  if (!Array.isArray(doc.review_cursor.attempted_urls)) {
+    doc.review_cursor.attempted_urls = [];
+    changed = true;
+  }
+
+  const nextReason = String(reason || "").trim() || "exhausted";
+
+  if (normalizeKey(doc.review_cursor.incomplete_reason || "") !== normalizeKey(nextReason)) {
+    // Only set if missing; don't overwrite a real reason.
+    if (!doc.review_cursor.incomplete_reason) {
+      doc.review_cursor.incomplete_reason = nextReason;
+      changed = true;
+    }
+  }
+
+  if (doc.review_cursor.exhausted !== true) {
+    doc.review_cursor.exhausted = true;
+    changed = true;
+  }
+
+  if (!doc.review_cursor.exhausted_at) {
+    doc.review_cursor.exhausted_at = nowIso();
+    changed = true;
+  }
+
+  if (normalizeKey(doc.review_cursor.reviews_stage_status) !== "incomplete") {
+    doc.review_cursor.reviews_stage_status = "incomplete";
+    changed = true;
+  }
+
+  if (normalizeKey(doc.reviews_stage_status) !== "incomplete") {
+    doc.reviews_stage_status = "incomplete";
+    changed = true;
+  }
+
+  doc.import_missing_reason ||= {};
+  if (normalizeKey(doc.import_missing_reason.reviews) !== "exhausted") {
+    doc.import_missing_reason.reviews = "exhausted";
+    changed = true;
+  }
+
+  return changed;
+}
+
 function reconcileLowQualityToTerminal(doc, maxAttempts = 2) {
   if (!doc || typeof doc !== "object") return false;
 
@@ -2047,17 +2113,18 @@ async function handler(req, context) {
           stageBeaconValues.status_infra_retryable_missing_count = infraRetryableAtPolicy.length;
           stageBeaconValues.status_infra_retryable_only_timeout = infraOnlyTimeout;
 
-          // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
+          // Enforce the cap only once it is actually reached.
+          // (resume-worker increments resume_cycle_count on entry; allowing a final cycle at count==max is expected.)
           const preTriggerCap = Boolean(
             singleCompanyMode &&
               resume_needed &&
-              currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE &&
+              currentCycleCount >= MAX_RESUME_CYCLES_SINGLE &&
               !infraOnlyTimeout
           );
           const watchdogNoProgress = Boolean(stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress);
 
           const forceDecision = preTriggerCap
-            ? { force: true, reason: "max_cycles_pre_trigger" }
+            ? { force: true, reason: "max_cycles" }
             : watchdogNoProgress && singleCompanyMode && queued && retryableMissingCount === 0
               ? { force: true, reason: "watchdog_no_progress" }
               : shouldForceByQueuedTimeout
@@ -2863,8 +2930,25 @@ async function handler(req, context) {
       }
     } catch {}
 
+    const cap = stageBeaconValues.status_infra_retryable_only_timeout
+      ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
+      : MAX_RESUME_CYCLES_SINGLE;
+
+    const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
+
+    // Never apply terminal-only completion while retryable missing remains AND cycles remain.
+    // This prevents a stale persisted status_resume_terminal_only from incorrectly stopping resumable runs.
+    const allowTerminalOnly = retryableMissingCount === 0 || cycleCount >= cap;
+
+    if (!allowTerminalOnly && stageBeaconValues.status_resume_terminal_only) {
+      stageBeaconValues.status_resume_terminal_only = null;
+      stageBeaconValues.status_resume_forced_terminalize_reason = null;
+      stageBeaconValues.status_resume_force_terminalize_selected = false;
+      stageBeaconValues.status_resume_force_terminalize_skip_reason = "retryable_missing_remains";
+    }
+
     const terminalOnlyReason =
-      stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only
+      allowTerminalOnly && (stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only)
         ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
         : null;
 
@@ -2881,6 +2965,19 @@ async function handler(req, context) {
         out.resume.status = out.resume.status || "complete";
       }
     }
+
+    // Reviews terminal contract: never return completed/terminal-only with reviews still pending.
+    try {
+      if ((out.completed || out.terminal_only) && Array.isArray(savedDocsForHealth)) {
+        let finalized = 0;
+        for (const doc of savedDocsForHealth) {
+          if (finalizeReviewsForCompletion(doc, { reason: out.terminal_only ? terminalOnlyReason : "complete" })) {
+            finalized += 1;
+          }
+        }
+        if (finalized > 0) stageBeaconValues.status_reviews_finalized_on_completion = nowIso();
+      }
+    } catch {}
 
     return jsonWithSessionId(out, 200, req);
   }
@@ -3501,7 +3598,7 @@ async function handler(req, context) {
       (typeof errorDoc?.error?.step === "string" && errorDoc.error.step.trim() ? errorDoc.error.step.trim() : null) ||
       (typeof sessionDoc?.stage_beacon === "string" && sessionDoc.stage_beacon.trim() ? sessionDoc.stage_beacon.trim() : null) ||
       (typeof acceptDoc?.stage_beacon === "string" && acceptDoc.stage_beacon.trim() ? acceptDoc.stage_beacon.trim() : null) ||
-      (completed ? "complete" : timedOut ? "timeout" : stopped ? "stopped" : "running");
+      (completed ? "complete" : stopped ? "stopped" : "running");
 
     const cosmosTarget = (() => {
       const pick = (key) =>
@@ -3972,17 +4069,18 @@ async function handler(req, context) {
           stageBeaconValues.status_infra_retryable_missing_count = infraRetryableAtPolicy.length;
           stageBeaconValues.status_infra_retryable_only_timeout = infraOnlyTimeout;
 
-          // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
+          // Enforce the cap only once it is actually reached.
+          // (resume-worker increments resume_cycle_count on entry; allowing a final cycle at count==max is expected.)
           const preTriggerCap = Boolean(
             singleCompanyMode &&
               resume_needed &&
-              currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE &&
+              currentCycleCount >= MAX_RESUME_CYCLES_SINGLE &&
               !infraOnlyTimeout
           );
           const watchdogNoProgress = Boolean(stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress);
 
           const forceDecision = preTriggerCap
-            ? { force: true, reason: "max_cycles_pre_trigger" }
+            ? { force: true, reason: "max_cycles" }
             : watchdogNoProgress && singleCompanyMode && queued && retryableMissingCount === 0
               ? { force: true, reason: "watchdog_no_progress" }
               : shouldForceByQueuedTimeout
@@ -4491,14 +4589,10 @@ async function handler(req, context) {
       : [];
     const isCompanyUrlImport = requestQueryTypes.includes("company_url");
 
-    if (errorPayload || timedOut || stopped) {
-      const errorOut =
-        errorPayload ||
-        (timedOut
-          ? { code: "IMPORT_TIMEOUT", message: "Import timed out" }
-          : stopped
-            ? { code: "IMPORT_STOPPED", message: "Import was stopped" }
-            : null);
+    // IMPORTANT: _import_timeout_* is a control-doc signal that the *client/start handler* hit a deadline.
+    // It must never be treated as a hard job failure, because resume cycles may still be queued/running.
+    if (errorPayload || stopped) {
+      const errorOut = errorPayload || (stopped ? { code: "IMPORT_STOPPED", message: "Import was stopped" } : null);
 
       const out = {
           ok: true,
@@ -5069,8 +5163,23 @@ async function handler(req, context) {
       }
     } catch {}
 
+    const cap = stageBeaconValues.status_infra_retryable_only_timeout
+      ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
+      : MAX_RESUME_CYCLES_SINGLE;
+
+    const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
+
+    const allowTerminalOnly = retryableMissingCount === 0 || cycleCount >= cap;
+
+    if (!allowTerminalOnly && stageBeaconValues.status_resume_terminal_only) {
+      stageBeaconValues.status_resume_terminal_only = null;
+      stageBeaconValues.status_resume_forced_terminalize_reason = null;
+      stageBeaconValues.status_resume_force_terminalize_selected = false;
+      stageBeaconValues.status_resume_force_terminalize_skip_reason = "retryable_missing_remains";
+    }
+
     const terminalOnlyReason =
-      stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only
+      allowTerminalOnly && (stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only)
         ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
         : null;
 
@@ -5084,6 +5193,20 @@ async function handler(req, context) {
         out.resume.needed = false;
         out.resume.status = out.resume.status || "complete";
       }
+
+      // Reviews terminal contract: never return completed/terminal-only with reviews still pending.
+      try {
+        if ((out.completed || out.terminal_only) && Array.isArray(savedDocs) && savedDocs.length > 0) {
+          let finalized = 0;
+          for (const doc of savedDocs) {
+            const changed = finalizeReviewsForCompletion(doc, { reason: out.terminal_only ? terminalOnlyReason : "complete" });
+            if (!changed) continue;
+            finalized += 1;
+            await upsertDoc(container, { ...doc, updated_at: nowIso() }).catch(() => null);
+          }
+          if (finalized > 0) stageBeaconValues.status_reviews_finalized_on_completion = nowIso();
+        }
+      } catch {}
 
       return jsonWithSessionId(out, 200, req);
     }
@@ -5290,8 +5413,23 @@ async function handler(req, context) {
       }
     } catch {}
 
+    const cap = stageBeaconValues.status_infra_retryable_only_timeout
+      ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
+      : MAX_RESUME_CYCLES_SINGLE;
+
+    const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
+
+    const allowTerminalOnly = retryableMissingCount === 0 || cycleCount >= cap;
+
+    if (!allowTerminalOnly && stageBeaconValues.status_resume_terminal_only) {
+      stageBeaconValues.status_resume_terminal_only = null;
+      stageBeaconValues.status_resume_forced_terminalize_reason = null;
+      stageBeaconValues.status_resume_force_terminalize_selected = false;
+      stageBeaconValues.status_resume_force_terminalize_skip_reason = "retryable_missing_remains";
+    }
+
     const terminalOnlyReason =
-      stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only
+      allowTerminalOnly && (stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only)
         ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
         : null;
 
@@ -5300,6 +5438,20 @@ async function handler(req, context) {
       out.completed = false;
       out.terminal_only = false;
     }
+
+    // Reviews terminal contract: never return completed/terminal-only with reviews still pending.
+    try {
+      if ((out.completed || out.terminal_only) && Array.isArray(savedDocs) && savedDocs.length > 0) {
+        let finalized = 0;
+        for (const doc of savedDocs) {
+          const changed = finalizeReviewsForCompletion(doc, { reason: out.terminal_only ? terminalOnlyReason : "complete" });
+          if (!changed) continue;
+          finalized += 1;
+          await upsertDoc(container, { ...doc, updated_at: nowIso() }).catch(() => null);
+        }
+        if (finalized > 0) stageBeaconValues.status_reviews_finalized_on_completion = nowIso();
+      }
+    } catch {}
 
     return jsonWithSessionId(out, 200, req);
   } catch (e) {
