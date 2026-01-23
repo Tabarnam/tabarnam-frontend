@@ -2995,6 +2995,10 @@ async function upsertResumeDoc({
   resume_error,
   blocked_at,
   lock_expires_at,
+  enrichment_queued_at,
+  next_allowed_run_at,
+  last_backoff_reason,
+  last_backoff_ms,
 }) {
   const sid = String(session_id || "").trim();
   if (!sid) return { ok: false, error: "missing_session_id" };
@@ -3024,6 +3028,22 @@ async function upsertResumeDoc({
     resume_error: resume_error === undefined ? (existing?.resume_error ?? null) : resume_error,
     blocked_at: blocked_at === undefined ? (existing?.blocked_at ?? null) : blocked_at,
     lock_expires_at: lock_expires_at === undefined ? (existing?.lock_expires_at ?? null) : lock_expires_at,
+    enrichment_queued_at:
+      enrichment_queued_at === undefined
+        ? (existing?.enrichment_queued_at ?? null)
+        : enrichment_queued_at,
+    next_allowed_run_at:
+      next_allowed_run_at === undefined
+        ? (existing?.next_allowed_run_at ?? null)
+        : next_allowed_run_at,
+    last_backoff_reason:
+      last_backoff_reason === undefined
+        ? (existing?.last_backoff_reason ?? null)
+        : last_backoff_reason,
+    last_backoff_ms:
+      last_backoff_ms === undefined
+        ? (existing?.last_backoff_ms ?? null)
+        : last_backoff_ms,
   };
 
   const upserted = await upsertItemWithPkCandidates(container, resumeDoc).catch((e) => ({ ok: false, error: e?.message || String(e) }));
