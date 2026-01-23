@@ -2,300 +2,209 @@ TAP version 13
 # Subtest: grokEnrichment.fetchCuratedReviews returns 4 verified reviews (2 YouTube + 2 blog) with no hallucinated metadata
 ok 1 - grokEnrichment.fetchCuratedReviews returns 4 verified reviews (2 YouTube + 2 blog) with no hallucinated metadata
   ---
-  duration_ms: 19.104815
+  duration_ms: 19.098643
   ...
 # Subtest: grokEnrichment.fetchCuratedReviews returns incomplete with attempted URLs when fewer than 4 valid reviews exist
 ok 2 - grokEnrichment.fetchCuratedReviews returns incomplete with attempted URLs when fewer than 4 valid reviews exist
   ---
-  duration_ms: 1.251677
+  duration_ms: 1.268258
   ...
 # Subtest: grokEnrichment.fetchHeadquartersLocation returns HQ + source_urls
 ok 3 - grokEnrichment.fetchHeadquartersLocation returns HQ + source_urls
   ---
-  duration_ms: 1.301811
+  duration_ms: 1.262187
   ...
 # Subtest: /api/import/start safeHandler returns HTTP 200 JSON on unhandled exception
 ok 4 - /api/import/start safeHandler returns HTTP 200 JSON on unhandled exception
   ---
-  duration_ms: 0.851367
+  duration_ms: 0.796975
   ...
 # Subtest: /api/import/start parses body with proxy=false boolean
 ok 5 - /api/import/start parses body with proxy=false boolean
   ---
-  duration_ms: 13.11895
+  duration_ms: 12.566915
   ...
 # Subtest: /api/import/start parses body with proxy='false' string
 ok 6 - /api/import/start parses body with proxy='false' string
   ---
-  duration_ms: 1.016345
+  duration_ms: 1.025482
   ...
 # Subtest: /api/import/start returns INVALID_JSON_BODY for malformed JSON
 ok 7 - /api/import/start returns INVALID_JSON_BODY for malformed JSON
   ---
-  duration_ms: 2.871204
+  duration_ms: 2.660068
   ...
 # Subtest: /api/import/start includes parse diagnostics for INVALID_JSON_BODY when x-debug header is present
 ok 8 - /api/import/start includes parse diagnostics for INVALID_JSON_BODY when x-debug header is present
   ---
-  duration_ms: 3.702302
+  duration_ms: 1.33318
   ...
 # Subtest: /api/import/start respects query proxy=false when body has no proxy
 ok 9 - /api/import/start respects query proxy=false when body has no proxy
   ---
-  duration_ms: 1.369728
+  duration_ms: 3.27948
   ...
 # Subtest: /api/import/start uses req.body object even when rawBody is present
 ok 10 - /api/import/start uses req.body object even when rawBody is present
   ---
-  duration_ms: 1.092018
+  duration_ms: 0.953077
   ...
 # Subtest: /api/import/start parses stream body when req.body is stream-like
 ok 11 - /api/import/start parses stream body when req.body is stream-like
   ---
-  duration_ms: 4.403487
+  duration_ms: 4.006893
   ...
 # Subtest: /api/import/start parses WHATWG ReadableStream body
 ok 12 - /api/import/start parses WHATWG ReadableStream body
   ---
-  duration_ms: 2.88009
+  duration_ms: 2.622056
   ...
 # Subtest: /api/import/start includes diagnostics on 400 when x-debug header is present
 ok 13 - /api/import/start includes diagnostics on 400 when x-debug header is present
   ---
-  duration_ms: 2.250139
+  duration_ms: 2.242155
   ...
 # Subtest: /api/import/start rejects ambiguous queryType + queryTypes
 ok 14 - /api/import/start rejects ambiguous queryType + queryTypes
   ---
-  duration_ms: 1.156078
+  duration_ms: 1.144235
   ...
 # Subtest: /api/import/start rejects URL query without company_url
 ok 15 - /api/import/start rejects URL query without company_url
   ---
-  duration_ms: 1.06119
+  duration_ms: 0.973456
   ...
 # Subtest: /api/import/start treats URL query as company_url when selected
 ok 16 - /api/import/start treats URL query as company_url when selected
   ---
-  duration_ms: 0.939802
+  duration_ms: 0.914646
   ...
 # Subtest: getBuildInfo uses WEBSITE_COMMIT_HASH when set
 ok 17 - getBuildInfo uses WEBSITE_COMMIT_HASH when set
   ---
-  duration_ms: 0.312817
+  duration_ms: 0.323647
   ...
 # Subtest: /api/import/start live mode builds >=2 messages and hits /v1/chat/completions (fetch payload)
 ok 18 - /api/import/start live mode builds >=2 messages and hits /v1/chat/completions (fetch payload)
   ---
-  duration_ms: 4.880822
+  duration_ms: 4.6233
   ...
 # Subtest: import-start reviews upstream payload caps excluded websites to 5 and spills to prompt
 ok 19 - import-start reviews upstream payload caps excluded websites to 5 and spills to prompt
   ---
-  duration_ms: 0.785893
+  duration_ms: 0.68813
   ...
 # Subtest: /api/import/start auto-generates messages when messages is [] and prompt is empty (fetch payload)
 ok 20 - /api/import/start auto-generates messages when messages is [] and prompt is empty (fetch payload)
   ---
-  duration_ms: 2.050385
+  duration_ms: 2.114735
   ...
 # Subtest: /api/import/start returns 400 when any message has empty/non-string content (EMPTY_MESSAGE_CONTENT_BUILDER_BUG)
 ok 21 - /api/import/start returns 400 when any message has empty/non-string content (EMPTY_MESSAGE_CONTENT_BUILDER_BUG)
   ---
-  duration_ms: 1.442124
+  duration_ms: 1.478342
   ...
 # Subtest: /api/import/start explain=1 returns outbound payload meta and does not call upstream
 ok 22 - /api/import/start explain=1 returns outbound payload meta and does not call upstream
   ---
-  duration_ms: 1.416286
+  duration_ms: 1.359229
   ...
 # Subtest: getBuildInfo uses __build_id.txt when env vars are absent
 ok 23 - getBuildInfo uses __build_id.txt when env vars are absent
   ---
-  duration_ms: 0.818635
+  duration_ms: 0.941375
   ...
 # Subtest: /api/import/start?explain=1 echoes client-provided session_id (and sets x-session-id)
 ok 24 - /api/import/start?explain=1 echoes client-provided session_id (and sets x-session-id)
   ---
-  duration_ms: 9.189472
+  duration_ms: 10.948961
   ...
 # Subtest: /api/import/status surfaces verified save fields while running (memory fallback)
 ok 25 - /api/import/status surfaces verified save fields while running (memory fallback)
   ---
-  duration_ms: 0.970369
+  duration_ms: 1.45061
   ...
 # Subtest: /api/import/status does not throw when session store has missing saved fields
 ok 26 - /api/import/status does not throw when session store has missing saved fields
   ---
-  duration_ms: 0.524333
+  duration_ms: 0.531055
   ...
 # Subtest: /api/import/status reports resume_needed=false when only terminal missing fields remain (mock cosmos)
-not ok 27 - /api/import/status reports resume_needed=false when only terminal missing fields remain (mock cosmos)
+ok 27 - /api/import/status reports resume_needed=false when only terminal missing fields remain (mock cosmos)
   ---
-  duration_ms: 18.182936
-  location: '/root/app/code/api/import-start/contract.test.js:1061:1'
-  failureType: 'testCodeFailure'
-  error: 'resumeDoc is not defined'
-  code: 'ERR_TEST_FAILURE'
-  name: 'ReferenceError'
-  stack: |-
-    Object.handler (/root/app/code/api/import-status/index.js:2850:20)
-    process.processTicksAndRejections (node:internal/process/task_queues:95:5)
-    async /root/app/code/api/import-start/contract.test.js:1264:27
-    async withTempEnv (/root/app/code/api/import-start/contract.test.js:71:12)
-    async TestContext.<anonymous> (/root/app/code/api/import-start/contract.test.js:1066:3)
-    async Test.run (node:internal/test_runner/test:797:9)
-    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  duration_ms: 18.632319
   ...
 # Subtest: /api/import/status surfaces resume_worker telemetry from resume doc when session control doc is missing (mock cosmos)
 ok 28 - /api/import/status surfaces resume_worker telemetry from resume doc when session control doc is missing (mock cosmos)
   ---
-  duration_ms: 15.199843
+  duration_ms: 16.214455
   ...
 # Subtest: /api/import/status auto-triggers resume-worker when resume status is blocked (mock cosmos)
-not ok 29 - /api/import/status auto-triggers resume-worker when resume status is blocked (mock cosmos)
+ok 29 - /api/import/status auto-triggers resume-worker when resume status is blocked (mock cosmos)
   ---
-  duration_ms: 16.839717
-  location: '/root/app/code/api/import-start/contract.test.js:1494:1'
-  failureType: 'testCodeFailure'
-  error: 'resumeDoc is not defined'
-  code: 'ERR_TEST_FAILURE'
-  name: 'ReferenceError'
-  stack: |-
-    Object.handler (/root/app/code/api/import-status/index.js:2850:20)
-    process.processTicksAndRejections (node:internal/process/task_queues:95:5)
-    async /root/app/code/api/import-start/contract.test.js:1742:27
-    async withTempEnv (/root/app/code/api/import-start/contract.test.js:71:12)
-    async TestContext.<anonymous> (/root/app/code/api/import-start/contract.test.js:1497:3)
-    async Test.run (node:internal/test_runner/test:797:9)
-    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  duration_ms: 16.594778
   ...
 # Subtest: /api/import/status reopens completed resume doc when retryable missing fields still exist (mock cosmos)
-not ok 30 - /api/import/status reopens completed resume doc when retryable missing fields still exist (mock cosmos)
+ok 30 - /api/import/status reopens completed resume doc when retryable missing fields still exist (mock cosmos)
   ---
-  duration_ms: 19.880038
-  location: '/root/app/code/api/import-start/contract.test.js:1771:1'
-  failureType: 'testCodeFailure'
-  error: 'resumeDoc is not defined'
-  code: 'ERR_TEST_FAILURE'
-  name: 'ReferenceError'
-  stack: |-
-    Object.handler (/root/app/code/api/import-status/index.js:2850:20)
-    process.processTicksAndRejections (node:internal/process/task_queues:95:5)
-    async /root/app/code/api/import-start/contract.test.js:2020:27
-    async withTempEnv (/root/app/code/api/import-start/contract.test.js:71:12)
-    async TestContext.<anonymous> (/root/app/code/api/import-start/contract.test.js:1774:3)
-    async Test.run (node:internal/test_runner/test:797:9)
-    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  duration_ms: 20.063802
   ...
 # Subtest: /api/import/status force-terminalizes and completes when cycle cap reached (mock cosmos)
-not ok 31 - /api/import/status force-terminalizes and completes when cycle cap reached (mock cosmos)
+ok 31 - /api/import/status force-terminalizes and completes when cycle cap reached (mock cosmos)
   ---
-  duration_ms: 22.784074
-  location: '/root/app/code/api/import-start/contract.test.js:2052:1'
-  failureType: 'testCodeFailure'
-  error: 'resumeDoc is not defined'
-  code: 'ERR_TEST_FAILURE'
-  name: 'ReferenceError'
-  stack: |-
-    Object.handler (/root/app/code/api/import-status/index.js:2850:20)
-    process.processTicksAndRejections (node:internal/process/task_queues:95:5)
-    async /root/app/code/api/import-start/contract.test.js:2272:27
-    async withTempEnv (/root/app/code/api/import-start/contract.test.js:71:12)
-    async TestContext.<anonymous> (/root/app/code/api/import-start/contract.test.js:2055:3)
-    async Test.run (node:internal/test_runner/test:797:9)
-    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  duration_ms: 19.890087
   ...
 # Subtest: /api/import/status force-terminalizes max_cycles even when already blocked and force_resume=1 (mock cosmos)
-not ok 32 - /api/import/status force-terminalizes max_cycles even when already blocked and force_resume=1 (mock cosmos)
+ok 32 - /api/import/status force-terminalizes max_cycles even when already blocked and force_resume=1 (mock cosmos)
   ---
-  duration_ms: 18.042342
-  location: '/root/app/code/api/import-start/contract.test.js:2306:1'
-  failureType: 'testCodeFailure'
-  error: 'resumeDoc is not defined'
-  code: 'ERR_TEST_FAILURE'
-  name: 'ReferenceError'
-  stack: |-
-    Object.handler (/root/app/code/api/import-status/index.js:2850:20)
-    process.processTicksAndRejections (node:internal/process/task_queues:95:5)
-    async /root/app/code/api/import-start/contract.test.js:2536:27
-    async withTempEnv (/root/app/code/api/import-start/contract.test.js:71:12)
-    async TestContext.<anonymous> (/root/app/code/api/import-start/contract.test.js:2309:3)
-    async Test.run (node:internal/test_runner/test:797:9)
-    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  duration_ms: 16.834568
   ...
 # Subtest: /api/import/status converges to terminal-only even when stopped (mock cosmos)
-not ok 33 - /api/import/status converges to terminal-only even when stopped (mock cosmos)
+ok 33 - /api/import/status converges to terminal-only even when stopped (mock cosmos)
   ---
-  duration_ms: 16.290688
-  location: '/root/app/code/api/import-start/contract.test.js:2563:1'
-  failureType: 'testCodeFailure'
-  error: 'resumeDoc is not defined'
-  code: 'ERR_TEST_FAILURE'
-  name: 'ReferenceError'
-  stack: |-
-    Object.handler (/root/app/code/api/import-status/index.js:2850:20)
-    process.processTicksAndRejections (node:internal/process/task_queues:95:5)
-    async /root/app/code/api/import-start/contract.test.js:2804:27
-    async withTempEnv (/root/app/code/api/import-start/contract.test.js:71:12)
-    async TestContext.<anonymous> (/root/app/code/api/import-start/contract.test.js:2566:3)
-    async Test.run (node:internal/test_runner/test:797:9)
-    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  duration_ms: 16.628571
   ...
 # Subtest: /api/import/start buildReviewsUpstreamPayloadForImportStart uses live search mode and caps excluded websites
 ok 34 - /api/import/start buildReviewsUpstreamPayloadForImportStart uses live search mode and caps excluded websites
   ---
-  duration_ms: 0.354845
+  duration_ms: 0.358973
   ...
 # Subtest: /api/import/start uses provided session_id for async primary job and import-status reaches terminal state
-not ok 35 - /api/import/start uses provided session_id for async primary job and import-status reaches terminal state
+ok 35 - /api/import/start uses provided session_id for async primary job and import-status reaches terminal state
   ---
-  duration_ms: 9.23162
-  location: '/root/app/code/api/import-start/contract.test.js:2859:1'
-  failureType: 'testCodeFailure'
-  error: 'resumeDoc is not defined'
-  code: 'ERR_TEST_FAILURE'
-  name: 'ReferenceError'
-  stack: |-
-    Object.handler (/root/app/code/api/import-status/index.js:2850:20)
-    process.processTicksAndRejections (node:internal/process/task_queues:95:5)
-    async /root/app/code/api/import-start/contract.test.js:2907:29
-    async withTempEnv (/root/app/code/api/import-start/contract.test.js:71:12)
-    async TestContext.<anonymous> (/root/app/code/api/import-start/contract.test.js:2860:3)
-    async Test.run (node:internal/test_runner/test:797:9)
-    async Test.processPendingSubtests (node:internal/test_runner/test:526:7)
+  duration_ms: 9.379768
   ...
 # Subtest: /api/import/start?max_stage=primary does not mark session complete in /api/import/status
 ok 36 - /api/import/start?max_stage=primary does not mark session complete in /api/import/status
   ---
-  duration_ms: 1577.379392
+  duration_ms: 1167.190404
   ...
 # Subtest: /api/import/start rejects skip_stages=primary without seed companies
 ok 37 - /api/import/start rejects skip_stages=primary without seed companies
   ---
-  duration_ms: 1.04559
+  duration_ms: 1.02915
   ...
 # Subtest: /api/import/start rejects skip_stages=primary with only invalid seed companies
 ok 38 - /api/import/start rejects skip_stages=primary with only invalid seed companies
   ---
-  duration_ms: 0.891672
+  duration_ms: 0.874029
   ...
 # Subtest: /api/import/start company_url_seed_fallback persists and verifies seed company
 ok 39 - /api/import/start company_url_seed_fallback persists and verifies seed company
   ---
-  duration_ms: 8517.599949
+  duration_ms: 8702.542474
   ...
 # Subtest: /api/import/start company_url_seed_fallback duplicate_detected returns verified existing company
 ok 40 - /api/import/start company_url_seed_fallback duplicate_detected returns verified existing company
   ---
-  duration_ms: 8997.573942
+  duration_ms: 9007.882073
   ...
 1..40
 # tests 40
 # suites 0
-# pass 33
-# fail 7
+# pass 40
+# fail 0
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 19614.214889
+# duration_ms 19391.405689
