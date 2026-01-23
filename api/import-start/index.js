@@ -6979,36 +6979,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             const canResume = canPersist && resumeCompanyIds.length > 0;
 
             if (canResume) {
-              let resumeDocPersisted = false;
-
               if (cosmosEnabled) {
                 try {
-                  const container = getCompaniesCosmosContainer();
-                  if (container) {
-                    const resumeDocId = `_import_resume_${sessionId}`;
-                    const nowResumeIso = new Date().toISOString();
-
-                    const resumeDoc = {
-                      id: resumeDocId,
-                      ...buildImportControlDocBase(sessionId),
-                      created_at: nowResumeIso,
-                      updated_at: nowResumeIso,
-                      request_id: requestId,
-                      status: "queued",
-                      resume_auth: buildResumeAuthDiagnostics(),
-                      saved_count: resumeCompanyIds.length,
-                      saved_company_ids: resumeCompanyIds,
-                      saved_company_urls: [String(seed.company_url || seed.website_url || seed.url || "").trim()].filter(Boolean),
-                      missing_by_company,
-                      keywords_stage_completed: false,
-                      reviews_stage_completed: false,
-                      location_stage_completed: false,
-                    };
-
-                    const resumeUpsert = await upsertItemWithPkCandidates(container, resumeDoc).catch(() => ({ ok: false }));
-                  resumeDocPersisted = Boolean(resumeUpsert && resumeUpsert.ok);
-                  }
-
                   const cosmosTarget = await getCompaniesCosmosTargetDiagnostics().catch(() => null);
 
                   const verifiedCount = Number(saveResult?.saved_verified_count ?? saveResult?.saved ?? 0) || 0;
