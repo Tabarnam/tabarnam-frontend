@@ -2117,6 +2117,7 @@ async function resumeWorkerHandler(req, context) {
         } catch (e) {
           fieldProgress.status = "retryable";
           fieldProgress.last_error = safeErrorMessage(e) || "apply_failed";
+          lastFieldResultThisRun = fieldProgress.last_error;
         }
 
         progressRoot.enrichment_progress[companyId][field] = fieldProgress;
