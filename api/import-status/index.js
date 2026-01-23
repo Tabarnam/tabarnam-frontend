@@ -2859,9 +2859,11 @@ async function handler(req, context) {
               ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
               : null,
           next_allowed_run_at:
-            typeof stageBeaconValues?.status_resume_next_allowed_at === "string" && stageBeaconValues.status_resume_next_allowed_at.trim()
-              ? stageBeaconValues.status_resume_next_allowed_at.trim()
-              : null,
+            (typeof resumeDoc?.next_allowed_run_at === "string" && resumeDoc.next_allowed_run_at.trim())
+              ? resumeDoc.next_allowed_run_at.trim()
+              : (typeof sessionDoc?.resume_next_allowed_run_at === "string" && sessionDoc.resume_next_allowed_run_at.trim())
+                ? sessionDoc.resume_next_allowed_run_at.trim()
+                : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -4769,9 +4771,11 @@ async function handler(req, context) {
               ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
               : null,
           next_allowed_run_at:
-            typeof stageBeaconValues?.status_resume_next_allowed_at === "string" && stageBeaconValues.status_resume_next_allowed_at.trim()
-              ? stageBeaconValues.status_resume_next_allowed_at.trim()
-              : null,
+            (typeof resumeDoc?.next_allowed_run_at === "string" && resumeDoc.next_allowed_run_at.trim())
+              ? resumeDoc.next_allowed_run_at.trim()
+              : (typeof sessionDoc?.resume_next_allowed_run_at === "string" && sessionDoc.resume_next_allowed_run_at.trim())
+                ? sessionDoc.resume_next_allowed_run_at.trim()
+                : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -5150,9 +5154,11 @@ async function handler(req, context) {
               ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
               : null,
           next_allowed_run_at:
-            typeof stageBeaconValues?.status_resume_next_allowed_at === "string" && stageBeaconValues.status_resume_next_allowed_at.trim()
-              ? stageBeaconValues.status_resume_next_allowed_at.trim()
-              : null,
+            (typeof resumeDoc?.next_allowed_run_at === "string" && resumeDoc.next_allowed_run_at.trim())
+              ? resumeDoc.next_allowed_run_at.trim()
+              : (typeof sessionDoc?.resume_next_allowed_run_at === "string" && sessionDoc.resume_next_allowed_run_at.trim())
+                ? sessionDoc.resume_next_allowed_run_at.trim()
+                : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
@@ -5416,9 +5422,11 @@ async function handler(req, context) {
               ? sessionDoc?.resume_last_triggered_at || sessionDoc?.resume_worker_last_triggered_at || null
               : null,
           next_allowed_run_at:
-            typeof stageBeaconValues?.status_resume_next_allowed_at === "string" && stageBeaconValues.status_resume_next_allowed_at.trim()
-              ? stageBeaconValues.status_resume_next_allowed_at.trim()
-              : null,
+            (typeof resumeDoc?.next_allowed_run_at === "string" && resumeDoc.next_allowed_run_at.trim())
+              ? resumeDoc.next_allowed_run_at.trim()
+              : (typeof sessionDoc?.resume_next_allowed_run_at === "string" && sessionDoc.resume_next_allowed_run_at.trim())
+                ? sessionDoc.resume_next_allowed_run_at.trim()
+                : null,
           ...buildResumeAuthDiagnostics(),
           missing_by_company,
         },
