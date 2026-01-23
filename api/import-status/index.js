@@ -41,8 +41,16 @@ function computeEffectiveResumeStatus({ resumeDoc, sessionDoc, stopDoc }) {
   }
 
   const statusRaw = String(resumeDoc?.status || "").trim().toLowerCase();
-  if (statusRaw === "done" || statusRaw === "complete") {
-    return { effective_resume_status: "done", progress_notice: null };
+  if (statusRaw === "terminal" || statusRaw === "exhausted") {
+    return { effective_resume_status: "terminal", progress_notice: null };
+  }
+
+  if (statusRaw === "complete") {
+    return { effective_resume_status: "complete", progress_notice: null };
+  }
+
+  if (statusRaw === "done") {
+    return { effective_resume_status: "complete", progress_notice: null };
   }
 
   const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
