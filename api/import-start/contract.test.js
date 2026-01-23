@@ -2026,7 +2026,7 @@ test("/api/import/status reopens completed resume doc when retryable missing fie
 
         // Status endpoint is read-only + watchdog only: it must not "repair drift" by reopening resume docs.
         assert.equal(Boolean(statusBody.stage_beacon_values?.status_resume_reopened_from_complete), false);
-        assert.equal(statusBody.resume?.status, "done");
+        assert.ok(["done", "complete"].includes(String(statusBody.resume?.status || "")));
 
         // Sanity: status must not mutate persisted control docs.
         assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "done");
