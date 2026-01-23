@@ -1168,6 +1168,41 @@ async function resumeWorkerHandler(req, context) {
     }
   }
 
+  // Stop doc is authoritative: if stopped, persist status and exit (no self-scheduling).
+  if (await isSessionStopped(container, sessionId)) {
+    const stoppedAt = nowIso();
+
+    await upsertDoc(container, {
+      ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+      id: resumeDocId,
+      session_id: sessionId,
+      normalized_domain: "import",
+      partition_key: "import",
+      type: "import_control",
+      status: "stopped",
+      last_result: "stopped",
+      last_error: null,
+      next_allowed_run_at: null,
+      lock_expires_at: null,
+      last_finished_at: stoppedAt,
+      updated_at: stoppedAt,
+    }).catch(() => null);
+
+    await bestEffortPatchSessionDoc({
+      container,
+      sessionId,
+      patch: {
+        resume_needed: false,
+        resume_updated_at: stoppedAt,
+        resume_worker_last_finished_at: stoppedAt,
+        resume_worker_last_result: "stopped",
+        updated_at: stoppedAt,
+      },
+    }).catch(() => null);
+
+    return gracefulExit("stopped");
+  }
+
   const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
   if (lockUntil && Date.now() < lockUntil) {
     // Heartbeat: the handler ran, but work is prevented by the resume lock.
