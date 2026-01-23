@@ -4545,6 +4545,10 @@ export default function AdminImport() {
                                       <div className="text-amber-900/90">Waiting for the resume worker. Polling will automatically slow down.</div>
                                     ) : resumeStatus === "running" ? (
                                       <div className="text-amber-900/90">Resume worker is running. Polling will automatically slow down.</div>
+                                    ) : resumeStatus === "stalled" ? (
+                                      <div className="text-amber-900/90">
+                                        Auto-retry is not running because the last enqueue failed. Click “Retry resume” to enqueue a new run.
+                                      </div>
                                     ) : (
                                       <div className="text-amber-900/90">
                                         Enrichment is still in progress. You can retry the resume worker if it stalled.

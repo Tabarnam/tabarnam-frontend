@@ -1249,9 +1249,47 @@ async function resumeWorkerHandler(req, context) {
           updated_at: queuedAt,
         },
       }).catch(() => null);
+
+      return gracefulExit("backoff_wait");
     }
 
-    return gracefulExit("backoff_wait");
+    const stalledAt = nowIso();
+    const enqueueErr = String(enqueueRes?.error || "enqueue_failed");
+
+    await upsertDoc(container, {
+      ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+      id: resumeDocId,
+      session_id: sessionId,
+      normalized_domain: "import",
+      partition_key: "import",
+      type: "import_control",
+      status: "stalled",
+      last_result: "backoff_enqueue_failed",
+      last_ok: false,
+      last_error: enqueueErr,
+      resume_error: {
+        code: "ENQUEUE_FAILED",
+        message: enqueueErr,
+        at: stalledAt,
+      },
+      lock_expires_at: null,
+      updated_at: stalledAt,
+    }).catch(() => null);
+
+    await bestEffortPatchSessionDoc({
+      container,
+      sessionId,
+      patch: {
+        resume_worker_last_enqueued_at: stalledAt,
+        resume_worker_last_enqueue_reason: "backoff_retry",
+        resume_worker_last_enqueue_ok: false,
+        resume_worker_last_enqueue_error: enqueueErr,
+        resume_updated_at: stalledAt,
+        updated_at: stalledAt,
+      },
+    }).catch(() => null);
+
+    return gracefulExit("stalled");
   }
 
   // Queue idempotency: if a message is for a different cycle than the current resume doc,
@@ -1888,9 +1926,12 @@ async function resumeWorkerHandler(req, context) {
             r?.diagnostics?.error_code ||
             r?.diagnostics?.code ||
             (status && status !== "ok" ? status : null),
+          xai_attempted: false,
         };
 
         const xaiAttempted = status !== "deferred";
+        fieldProgress.xai_diag.xai_attempted = xaiAttempted;
+
         lastFieldAttemptedThisRun = field;
         lastFieldResultThisRun = status || null;
         if (xaiAttempted) {

@@ -13,11 +13,12 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+let didLogConfig = false;
+
 function resolveQueueConfig() {
-  const connectionString =
-    asString(process.env.ENRICHMENT_QUEUE_CONNECTION_STRING).trim() ||
-    asString(process.env.AzureWebJobsStorage).trim() ||
-    asString(process.env.AZURE_STORAGE_CONNECTION_STRING).trim();
+  const directConn = asString(process.env.ENRICHMENT_QUEUE_CONNECTION_STRING).trim();
+  const webJobsConn = asString(process.env.AzureWebJobsStorage).trim();
+  const legacyConn = asString(process.env.AZURE_STORAGE_CONNECTION_STRING).trim();
 
   const queueNameRaw = asString(process.env.ENRICHMENT_QUEUE_NAME).trim() || "import-resume-worker";
   const queueName = queueNameRaw
@@ -28,11 +29,40 @@ function resolveQueueConfig() {
     .replace(/-+$/, "")
     .slice(0, 63);
 
+  const connectionString = directConn || webJobsConn || legacyConn || null;
+  const connection_source = directConn
+    ? "ENRICHMENT_QUEUE_CONNECTION_STRING"
+    : webJobsConn
+      ? "AzureWebJobsStorage"
+      : legacyConn
+        ? "AZURE_STORAGE_CONNECTION_STRING"
+        : null;
+
   return {
     provider: "azure_storage_queue",
-    connectionString: connectionString || null,
+    connectionString,
+    connection_source,
     queueName,
+    // For Azure Functions triggers (bindings), this is the *setting name* that holds the connection string.
+    binding_connection_setting_name: asString(process.env.ENRICHMENT_QUEUE_CONNECTION_SETTING).trim() || "AzureWebJobsStorage",
   };
+}
+
+function logQueueConfigOnce(cfg) {
+  if (didLogConfig) return;
+  didLogConfig = true;
+
+  try {
+    console.info("[enrichmentQueue] resolved config", {
+      provider: cfg?.provider,
+      queue_name: cfg?.queueName,
+      connection_source: cfg?.connection_source,
+      has_connection_string: Boolean(cfg?.connectionString),
+      binding_connection_setting_name: cfg?.binding_connection_setting_name,
+    });
+  } catch {
+    // Ignore logging failures.
+  }
 }
 
 let cachedQueueClient = null;
@@ -40,6 +70,7 @@ let cachedQueueKey = null;
 
 async function getQueueClient() {
   const cfg = resolveQueueConfig();
+  logQueueConfigOnce(cfg);
   if (!cfg.connectionString) return { ok: false, error: "missing_queue_connection" };
   if (!QueueClient) return { ok: false, error: "storage_queue_sdk_unavailable" };
 
