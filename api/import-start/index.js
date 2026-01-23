@@ -133,6 +133,16 @@ const GROK_ONLY_FIELDS = new Set([
   "reviews",
 ]);
 
+// Non-negotiable: every fresh seed must attempt these fields via xAI (resume-worker is authoritative).
+const MANDATORY_ENRICH_FIELDS = [
+  "tagline",
+  "headquarters_location",
+  "manufacturing_locations",
+  "industries",
+  "product_keywords",
+  "reviews",
+];
+
 function assertNoWebsiteFallback(field) {
   if (GROK_ONLY_FIELDS.has(field)) return true;
   return false;
@@ -2971,6 +2981,140 @@ function buildImportControlDocBase(sessionId) {
     type: "import_control",
     updated_at: new Date().toISOString(),
   };
+}
+
+async function upsertResumeDoc({
+  session_id,
+  status,
+  cycle_count,
+  missing_by_company,
+  created_at,
+  updated_at,
+  resume_error,
+  blocked_at,
+  lock_expires_at,
+}) {
+  const sid = String(session_id || "").trim();
+  if (!sid) return { ok: false, error: "missing_session_id" };
+
+  const container = getCompaniesCosmosContainer();
+  if (!container) return { ok: false, error: "no_container" };
+
+  const id = `_import_resume_${sid}`;
+  const nowIso = new Date().toISOString();
+
+  // Preserve previously-written state (progress, errors, etc.).
+  const existing = await readItemWithPkCandidates(container, id, {
+    id,
+    ...buildImportControlDocBase(sid),
+    created_at: "",
+  }).catch(() => null);
+
+  const resumeDoc = {
+    ...(existing && typeof existing === "object" ? existing : {}),
+    id,
+    ...buildImportControlDocBase(sid),
+    status: typeof status === "string" && status.trim() ? status.trim() : "queued",
+    cycle_count: Number.isFinite(Number(cycle_count)) ? Number(cycle_count) : Number(existing?.cycle_count || 0) || 0,
+    missing_by_company: Array.isArray(missing_by_company) ? missing_by_company : Array.isArray(existing?.missing_by_company) ? existing.missing_by_company : [],
+    created_at: typeof created_at === "string" && created_at.trim() ? created_at : String(existing?.created_at || nowIso),
+    updated_at: typeof updated_at === "string" && updated_at.trim() ? updated_at : nowIso,
+    resume_error: resume_error === undefined ? (existing?.resume_error ?? null) : resume_error,
+    blocked_at: blocked_at === undefined ? (existing?.blocked_at ?? null) : blocked_at,
+    lock_expires_at: lock_expires_at === undefined ? (existing?.lock_expires_at ?? null) : lock_expires_at,
+  };
+
+  const upserted = await upsertItemWithPkCandidates(container, resumeDoc).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+  return upserted;
+}
+
+function logInfo(context, payload) {
+  try {
+    const logger = context?.log;
+    const fn = logger?.info || logger;
+    if (typeof fn === "function") return fn(payload);
+  } catch {}
+  try {
+    console.log(payload);
+  } catch {}
+}
+
+async function maybeQueueAndInvokeMandatoryEnrichment({
+  sessionId,
+  requestId,
+  context,
+  companyIds,
+  reason,
+  cosmosEnabled,
+}) {
+  if (!cosmosEnabled) return { queued: false, invoked: false, invocation_mode: null };
+
+  const ids = Array.from(
+    new Set(
+      (Array.isArray(companyIds) ? companyIds : [])
+        .map((v) => String(v || "").trim())
+        .filter(Boolean)
+        .slice(0, 50)
+    )
+  );
+  if (ids.length === 0) return { queued: false, invoked: false, invocation_mode: null };
+
+  const now = new Date().toISOString();
+  const missing_by_company = ids.map((company_id) => ({
+    company_id,
+    missing_fields: [...MANDATORY_ENRICH_FIELDS],
+  }));
+
+  await upsertResumeDoc({
+    session_id: sessionId,
+    status: "queued",
+    cycle_count: 0,
+    missing_by_company,
+    created_at: now,
+    updated_at: now,
+    resume_error: null,
+    blocked_at: null,
+    lock_expires_at: null,
+  }).catch(() => null);
+
+  // Telemetry proving enrichment was queued.
+  await upsertCosmosImportSessionDoc({
+    sessionId,
+    requestId,
+    patch: {
+      enrichment_queued_at: now,
+      resume_needed: true,
+      resume_updated_at: now,
+      updated_at: now,
+    },
+  }).catch(() => null);
+
+  let invoked = false;
+  let invocation_mode = "in_process";
+
+  try {
+    const workerRequestMeta = buildInternalFetchRequest({ job_kind: "import_resume" });
+    const invokeRes = await invokeResumeWorkerInProcess({
+      session_id: sessionId,
+      context,
+      workerRequest: {
+        ...workerRequestMeta,
+        body: { reason: reason || "seed_complete_auto_enrich" },
+      },
+    });
+    invoked = Boolean(invokeRes?.ok);
+  } catch {
+    invoked = false;
+  }
+
+  logInfo(context, {
+    session_id: sessionId,
+    company_ids: ids.slice(0, 5),
+    resume_worker_invoked: true,
+    invocation_mode,
+  });
+
+  return { queued: true, invoked, invocation_mode };
 }
 
 async function upsertCosmosImportSessionDoc({ sessionId, requestId, patch }) {
