@@ -1103,11 +1103,12 @@ async function resumeWorkerHandler(req, context) {
     return json(
       {
         ok: true,
+        result: reason,
         session_id: sessionId,
         handler_entered_at,
         did_work: false,
         did_work_reason: reason,
-        resume_needed: true,
+        resume_needed: reason === "stopped" ? false : true,
         stopped: reason === "stopped",
       },
       200,
