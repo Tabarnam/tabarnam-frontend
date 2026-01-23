@@ -1254,6 +1254,14 @@ async function resumeWorkerHandler(req, context) {
     return gracefulExit("backoff_wait");
   }
 
+  // Queue idempotency: if a message is for a different cycle than the current resume doc,
+  // treat it as stale/duplicate to avoid duplicate work storms.
+  const msgCycleCount = Number.isFinite(Number(body?.cycle_count)) ? Number(body.cycle_count) : null;
+  const docCycleCount = Number.isFinite(Number(resumeDoc?.cycle_count)) ? Number(resumeDoc.cycle_count) : null;
+  if (msgCycleCount !== null && docCycleCount !== null && msgCycleCount !== docCycleCount) {
+    return gracefulExit(msgCycleCount < docCycleCount ? "duplicate" : "future_message");
+  }
+
   const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
   if (lockUntil && Date.now() < lockUntil) {
     // Heartbeat: the handler ran, but work is prevented by the resume lock.
