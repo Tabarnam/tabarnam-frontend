@@ -145,12 +145,16 @@ app.http("import-stop", {
       // Store stop signal as a reserved document in the companies container
       // This avoids needing a separate container and ensures reliability
       const stopDocId = `_import_stop_${sessionId}`;
+      const now = new Date();
       const stopControlDoc = {
         id: stopDocId,
         session_id: sessionId,
         normalized_domain: "import",
         partition_key: "import",
-        stopped_at: new Date().toISOString(),
+        stopped: true,
+        stopped_at: now.toISOString(),
+        // Best-effort expiry for safety; new imports use new session IDs.
+        expires_at: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
         type: "import_stop",
       };
 
