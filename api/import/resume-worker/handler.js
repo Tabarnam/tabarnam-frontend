@@ -1717,6 +1717,7 @@ async function resumeWorkerHandler(req, context) {
           sessionId,
           patch: {
             last_xai_attempt_at: nowIsoStr,
+            resume_worker_last_xai_attempt_at: nowIsoStr,
             ...(meta && typeof meta === "object" ? meta : {}),
             updated_at: nowIsoStr,
           },
