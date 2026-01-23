@@ -2113,11 +2113,12 @@ async function handler(req, context) {
           stageBeaconValues.status_infra_retryable_missing_count = infraRetryableAtPolicy.length;
           stageBeaconValues.status_infra_retryable_only_timeout = infraOnlyTimeout;
 
-          // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
+          // Enforce the cap only once it is actually reached.
+          // (resume-worker increments resume_cycle_count on entry; allowing a final cycle at count==max is expected.)
           const preTriggerCap = Boolean(
             singleCompanyMode &&
               resume_needed &&
-              currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE &&
+              currentCycleCount >= MAX_RESUME_CYCLES_SINGLE &&
               !infraOnlyTimeout
           );
           const watchdogNoProgress = Boolean(stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress);
@@ -4068,11 +4069,12 @@ async function handler(req, context) {
           stageBeaconValues.status_infra_retryable_missing_count = infraRetryableAtPolicy.length;
           stageBeaconValues.status_infra_retryable_only_timeout = infraOnlyTimeout;
 
-          // Since we increment cycles on trigger attempts, enforce the cap *before* issuing the next trigger.
+          // Enforce the cap only once it is actually reached.
+          // (resume-worker increments resume_cycle_count on entry; allowing a final cycle at count==max is expected.)
           const preTriggerCap = Boolean(
             singleCompanyMode &&
               resume_needed &&
-              currentCycleCount + 1 >= MAX_RESUME_CYCLES_SINGLE &&
+              currentCycleCount >= MAX_RESUME_CYCLES_SINGLE &&
               !infraOnlyTimeout
           );
           const watchdogNoProgress = Boolean(stageBeaconValues.status_resume_watchdog_stuck_queued_no_progress);
