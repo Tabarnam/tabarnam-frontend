@@ -7098,9 +7098,11 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   status: "running",
                   resume_needed: true,
                   resume: {
-                    status: "queued",
+                    status: resumeEnqueue?.enqueued ? "queued" : "stalled",
+                    enqueued: Boolean(resumeEnqueue?.enqueued),
+                    queue: resumeEnqueue?.queue || null,
+                    message_id: resumeEnqueue?.message_id || null,
                     internal_auth_configured: Boolean(internalAuthConfigured),
-                    triggered_in_process: true,
                     ...buildResumeAuthDiagnostics(),
                   },
                   missing_by_company,
