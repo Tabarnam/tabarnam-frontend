@@ -1410,7 +1410,11 @@ const toNormalizedDomain = (s = "") => {
 // Helper: enrich company data with location fields
 function enrichCompany(company, center) {
   const c = { ...(company || {}) };
-  c.industries = normalizeIndustries(c.industries);
+
+  // IMPORTANT: canonical industries must be Grok-only.
+  // If a doc carries industries without industries_source="grok", treat it as debug-only.
+  const industriesSource = String(c.industries_source || "").trim().toLowerCase();
+  c.industries = industriesSource === "grok" ? normalizeIndustries(c.industries) : [];
 
   const websiteUrl = c.website_url || c.canonical_url || c.url || c.amazon_url || "";
   const companyName = c.company_name || c.name || "";
