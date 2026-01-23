@@ -1208,6 +1208,10 @@ async function handler(req, context) {
         ""
     ).trim() === "1";
 
+  // Always defined (some response branches don't load Cosmos).
+  let effective_resume_status = null;
+  let progress_notice = null;
+
   if (!sessionId) {
     return json({ ok: false, error: "Missing session_id", ...EMPTY_RESUME_DIAGNOSTICS }, 400, req);
   }
@@ -1217,7 +1221,7 @@ async function handler(req, context) {
     try {
       if (obj && typeof obj === "object" && !Array.isArray(obj)) {
         const sbv = obj.stage_beacon_values && typeof obj.stage_beacon_values === "object" ? obj.stage_beacon_values : null;
-        if (sbv?.status_resume_force_terminalize_selected === true) {
+        if (!STATUS_NO_ORCHESTRATION && sbv?.status_resume_force_terminalize_selected === true) {
           const forcedReason =
             typeof sbv.status_resume_blocked_reason === "string" && sbv.status_resume_blocked_reason.trim()
               ? sbv.status_resume_blocked_reason.trim()
@@ -3425,8 +3429,8 @@ async function handler(req, context) {
     const completionOverride = Boolean(completionDoc && typeof completionDoc.completed_at === "string" && completionDoc.completed_at.trim());
 
     const effectiveResumeMeta = computeEffectiveResumeStatus({ resumeDoc, sessionDoc, stopDoc });
-    const effective_resume_status = effectiveResumeMeta.effective_resume_status;
-    const progress_notice = effectiveResumeMeta.progress_notice;
+    effective_resume_status = effectiveResumeMeta.effective_resume_status;
+    progress_notice = effectiveResumeMeta.progress_notice;
 
     const domainMeta = deriveDomainAndCreatedAfter({ sessionDoc, acceptDoc });
 
