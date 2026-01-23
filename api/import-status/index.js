@@ -2847,9 +2847,11 @@ async function handler(req, context) {
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
           cycle_count:
-            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-              ? Number(sessionDoc?.resume_cycle_count || 0) || 0
-              : null,
+            typeof resumeDoc?.cycle_count === "number" && Number.isFinite(Number(resumeDoc.cycle_count))
+              ? Number(resumeDoc.cycle_count)
+              : (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+                ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+                : null,
           max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
           max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
           last_triggered_at:
@@ -4755,9 +4757,11 @@ async function handler(req, context) {
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
           cycle_count:
-            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-              ? Number(sessionDoc?.resume_cycle_count || 0) || 0
-              : null,
+            typeof resumeDoc?.cycle_count === "number" && Number.isFinite(Number(resumeDoc.cycle_count))
+              ? Number(resumeDoc.cycle_count)
+              : (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+                ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+                : null,
           max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
           max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
           last_triggered_at:
@@ -5134,9 +5138,11 @@ async function handler(req, context) {
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
           cycle_count:
-            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-              ? Number(sessionDoc?.resume_cycle_count || 0) || 0
-              : null,
+            typeof resumeDoc?.cycle_count === "number" && Number.isFinite(Number(resumeDoc.cycle_count))
+              ? Number(resumeDoc.cycle_count)
+              : (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+                ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+                : null,
           max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
           max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
           last_triggered_at:
@@ -5398,9 +5404,11 @@ async function handler(req, context) {
           trigger_request_id: resume_trigger_request_id || null,
           internal_auth_configured: Boolean(internalAuthConfigured),
           cycle_count:
-            (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
-              ? Number(sessionDoc?.resume_cycle_count || 0) || 0
-              : null,
+            typeof resumeDoc?.cycle_count === "number" && Number.isFinite(Number(resumeDoc.cycle_count))
+              ? Number(resumeDoc.cycle_count)
+              : (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
+                ? Number(sessionDoc?.resume_cycle_count || 0) || 0
+                : null,
           max_cycles_single: MAX_RESUME_CYCLES_SINGLE,
           max_resume_cycles_single: MAX_RESUME_CYCLES_SINGLE,
           last_triggered_at:
