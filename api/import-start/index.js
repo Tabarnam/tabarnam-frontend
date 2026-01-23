@@ -1415,13 +1415,21 @@ function enrichCompany(company, center) {
   const websiteUrl = c.website_url || c.canonical_url || c.url || c.amazon_url || "";
   const companyName = c.company_name || c.name || "";
 
+  // IMPORTANT: canonical product_keywords must be Grok-only.
+  // We still normalize + keep site-derived terms in keywords[] for non-canonical/debug/search usage.
   const productKeywords = normalizeProductKeywords(c.product_keywords, {
     companyName,
     websiteUrl,
   });
 
   c.keywords = productKeywords;
-  c.product_keywords = keywordListToString(productKeywords);
+
+  const keywordsSource = String(c.product_keywords_source || c.keywords_source || "").trim().toLowerCase();
+  if (keywordsSource === "grok") {
+    c.product_keywords = keywordListToString(productKeywords);
+  } else {
+    c.product_keywords = "";
+  }
 
   const urlForDomain = c.canonical_url || c.website_url || c.url || c.amazon_url || "";
   c.normalized_domain = toNormalizedDomain(urlForDomain);
