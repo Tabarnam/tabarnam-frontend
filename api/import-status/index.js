@@ -2877,6 +2877,14 @@ async function handler(req, context) {
               last_auth: sessionDoc?.resume_worker_last_auth || resumeDoc?.last_auth || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || resumeDoc?.last_finished_at || null,
               last_result: sessionDoc?.resume_worker_last_result || resumeDoc?.last_result || null,
+              last_enqueued_at: sessionDoc?.resume_worker_last_enqueued_at || null,
+              last_enqueue_reason: sessionDoc?.resume_worker_last_enqueue_reason || null,
+              last_enqueue_ok:
+                typeof sessionDoc?.resume_worker_last_enqueue_ok === "boolean" ? sessionDoc.resume_worker_last_enqueue_ok : null,
+              last_enqueue_error: sessionDoc?.resume_worker_last_enqueue_error || null,
+              last_enqueue_queue: sessionDoc?.resume_worker_last_enqueue_queue || null,
+              last_xai_attempt_at:
+                sessionDoc?.resume_worker_last_xai_attempt_at || resumeDoc?.last_xai_attempt_at || sessionDoc?.last_xai_attempt_at || null,
               last_ok:
                 typeof sessionDoc?.resume_worker_last_ok === "boolean"
                   ? sessionDoc.resume_worker_last_ok
@@ -4789,6 +4797,14 @@ async function handler(req, context) {
               last_auth: sessionDoc?.resume_worker_last_auth || resumeDoc?.last_auth || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || resumeDoc?.last_finished_at || null,
               last_result: sessionDoc?.resume_worker_last_result || resumeDoc?.last_result || null,
+              last_enqueued_at: sessionDoc?.resume_worker_last_enqueued_at || null,
+              last_enqueue_reason: sessionDoc?.resume_worker_last_enqueue_reason || null,
+              last_enqueue_ok:
+                typeof sessionDoc?.resume_worker_last_enqueue_ok === "boolean" ? sessionDoc.resume_worker_last_enqueue_ok : null,
+              last_enqueue_error: sessionDoc?.resume_worker_last_enqueue_error || null,
+              last_enqueue_queue: sessionDoc?.resume_worker_last_enqueue_queue || null,
+              last_xai_attempt_at:
+                sessionDoc?.resume_worker_last_xai_attempt_at || resumeDoc?.last_xai_attempt_at || sessionDoc?.last_xai_attempt_at || null,
               last_ok:
                 typeof sessionDoc?.resume_worker_last_ok === "boolean"
                   ? sessionDoc.resume_worker_last_ok
@@ -4990,6 +5006,14 @@ async function handler(req, context) {
               last_auth: sessionDoc?.resume_worker_last_auth || resumeDoc?.last_auth || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || resumeDoc?.last_finished_at || null,
               last_result: sessionDoc?.resume_worker_last_result || resumeDoc?.last_result || null,
+              last_enqueued_at: sessionDoc?.resume_worker_last_enqueued_at || null,
+              last_enqueue_reason: sessionDoc?.resume_worker_last_enqueue_reason || null,
+              last_enqueue_ok:
+                typeof sessionDoc?.resume_worker_last_enqueue_ok === "boolean" ? sessionDoc.resume_worker_last_enqueue_ok : null,
+              last_enqueue_error: sessionDoc?.resume_worker_last_enqueue_error || null,
+              last_enqueue_queue: sessionDoc?.resume_worker_last_enqueue_queue || null,
+              last_xai_attempt_at:
+                sessionDoc?.resume_worker_last_xai_attempt_at || resumeDoc?.last_xai_attempt_at || sessionDoc?.last_xai_attempt_at || null,
               last_ok:
                 typeof sessionDoc?.resume_worker_last_ok === "boolean"
                   ? sessionDoc.resume_worker_last_ok
@@ -5172,6 +5196,14 @@ async function handler(req, context) {
               last_auth: sessionDoc?.resume_worker_last_auth || resumeDoc?.last_auth || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || resumeDoc?.last_finished_at || null,
               last_result: sessionDoc?.resume_worker_last_result || resumeDoc?.last_result || null,
+              last_enqueued_at: sessionDoc?.resume_worker_last_enqueued_at || null,
+              last_enqueue_reason: sessionDoc?.resume_worker_last_enqueue_reason || null,
+              last_enqueue_ok:
+                typeof sessionDoc?.resume_worker_last_enqueue_ok === "boolean" ? sessionDoc.resume_worker_last_enqueue_ok : null,
+              last_enqueue_error: sessionDoc?.resume_worker_last_enqueue_error || null,
+              last_enqueue_queue: sessionDoc?.resume_worker_last_enqueue_queue || null,
+              last_xai_attempt_at:
+                sessionDoc?.resume_worker_last_xai_attempt_at || resumeDoc?.last_xai_attempt_at || sessionDoc?.last_xai_attempt_at || null,
               last_ok:
                 typeof sessionDoc?.resume_worker_last_ok === "boolean"
                   ? sessionDoc.resume_worker_last_ok
@@ -5440,6 +5472,14 @@ async function handler(req, context) {
               last_auth: sessionDoc?.resume_worker_last_auth || resumeDoc?.last_auth || null,
               last_finished_at: sessionDoc?.resume_worker_last_finished_at || resumeDoc?.last_finished_at || null,
               last_result: sessionDoc?.resume_worker_last_result || resumeDoc?.last_result || null,
+              last_enqueued_at: sessionDoc?.resume_worker_last_enqueued_at || null,
+              last_enqueue_reason: sessionDoc?.resume_worker_last_enqueue_reason || null,
+              last_enqueue_ok:
+                typeof sessionDoc?.resume_worker_last_enqueue_ok === "boolean" ? sessionDoc.resume_worker_last_enqueue_ok : null,
+              last_enqueue_error: sessionDoc?.resume_worker_last_enqueue_error || null,
+              last_enqueue_queue: sessionDoc?.resume_worker_last_enqueue_queue || null,
+              last_xai_attempt_at:
+                sessionDoc?.resume_worker_last_xai_attempt_at || resumeDoc?.last_xai_attempt_at || sessionDoc?.last_xai_attempt_at || null,
               last_ok:
                 typeof sessionDoc?.resume_worker_last_ok === "boolean"
                   ? sessionDoc.resume_worker_last_ok
