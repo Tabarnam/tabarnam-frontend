@@ -10194,12 +10194,9 @@ Return ONLY the JSON array, no other text.`,
 
           // Only mark the session as resume-needed if we successfully persisted at least one company.
           // Otherwise we can get stuck in "running" forever because resume-worker has nothing to load.
-          const needsResume =
-            !dryRunRequested &&
-            cosmosEnabled &&
-            hasMissingRequired &&
-            hasPersistedWrite &&
-            allowResumeWorker;
+          // Status must never be the orchestrator; import-start already queued + invoked resume-worker
+          // immediately after the seed save.
+          const needsResume = false;
 
           if (needsResume) {
             let resumeDocPersisted = false;
