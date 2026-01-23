@@ -68,6 +68,8 @@ const {
   getAcceptableInternalSecretsInfo,
 } = require("../_internalJobAuth");
 
+const { enqueueResumeRun, resolveQueueConfig } = require("../_enrichmentQueue");
+
 // IMPORTANT: pure handler module only (no app.http registrations). Loaded at cold start.
 const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
 
