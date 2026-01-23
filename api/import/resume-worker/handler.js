@@ -1084,6 +1084,39 @@ async function resumeWorkerHandler(req, context) {
   const client = new CosmosClient({ endpoint, key });
   const container = client.database(databaseId).container(containerId);
 
+  const gracefulExit = async (reason) => {
+    const updatedAt = nowIso();
+    try {
+      await bestEffortPatchSessionDoc({
+        container,
+        sessionId,
+        patch: {
+          resume_worker_last_finished_at: updatedAt,
+          resume_worker_last_result: reason,
+          updated_at: updatedAt,
+        },
+      }).catch(() => null);
+    } catch {}
+
+    return json(
+      {
+        ok: true,
+        session_id: sessionId,
+        handler_entered_at,
+        did_work: false,
+        did_work_reason: reason,
+        resume_needed: true,
+        stopped: reason === "stopped",
+      },
+      200,
+      req
+    );
+  };
+
+  if (await isSessionStopped(container, sessionId)) {
+    return gracefulExit("stopped");
+  }
+
   const resumeDocId = `_import_resume_${sessionId}`;
   const sessionDocId = `_import_session_${sessionId}`;
   const completionDocId = `_import_complete_${sessionId}`;
