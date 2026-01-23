@@ -1554,8 +1554,510 @@ async function resumeWorkerHandler(req, context) {
     }
   }
 
-  // Grok enrichment pass for required fields.
-  // This must run before import-start, and import-start must always skip reviews/location.
+  // Mandatory ordered enrichment pass for required fields.
+  // Resume-worker is authoritative; status must never orchestrate.
+  {
+    const ENRICH_FIELDS = [
+      "tagline",
+      "headquarters_location",
+      "manufacturing_locations",
+      "industries",
+      "product_keywords",
+      "reviews",
+    ];
+
+    const MIN_REQUIRED_MS_BY_FIELD = {
+      tagline: 8_000 + 1_200,
+      headquarters_location: 12_000 + 1_200,
+      manufacturing_locations: 12_000 + 1_200,
+      industries: 8_000 + 1_200,
+      product_keywords: 8_000 + 1_200,
+      reviews: 20_000 + 1_200,
+    };
+
+    const cycleCount = Number.isFinite(Number(resumeDoc?.cycle_count)) ? Number(resumeDoc.cycle_count) : 0;
+    const isFreshSeed = cycleCount === 0;
+
+    // Fresh seed invariant: no stage skipping.
+    const skipStages = isFreshSeed ? [] : Array.isArray(resumeDoc?.skip_stages) ? resumeDoc.skip_stages : [];
+    void skipStages;
+
+    const nowAtStart = nowIso();
+    const startedAtMs = Date.now();
+
+    // Worker-written lifecycle timestamp (once).
+    try {
+      const existingStarted = String(sessionDoc?.enrichment_started_at || "").trim();
+      if (!existingStarted) {
+        await bestEffortPatchSessionDoc({
+          container,
+          sessionId,
+          patch: {
+            enrichment_started_at: nowAtStart,
+            updated_at: nowAtStart,
+          },
+        }).catch(() => null);
+        sessionDoc = { ...(sessionDoc && typeof sessionDoc === "object" ? sessionDoc : {}), enrichment_started_at: nowAtStart };
+      }
+    } catch {}
+
+    const progressRoot = (resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {});
+    progressRoot.enrichment_progress =
+      progressRoot.enrichment_progress && typeof progressRoot.enrichment_progress === "object" && !Array.isArray(progressRoot.enrichment_progress)
+        ? progressRoot.enrichment_progress
+        : {};
+
+    const budgetRemainingMs = () => Math.max(0, deadlineMs - (Date.now() - startedAtMs));
+
+    const plannedByCompany = Array.isArray(resumeDoc?.missing_by_company)
+      ? resumeDoc.missing_by_company
+      : (Array.isArray(resumeDoc?.saved_company_ids) ? resumeDoc.saved_company_ids : []).map((company_id) => ({
+          company_id,
+          missing_fields: [...ENRICH_FIELDS],
+        }));
+
+    const plannedIds = plannedByCompany
+      .map((e) => String(e?.company_id || "").trim())
+      .filter(Boolean)
+      .slice(0, 50);
+
+    const plannedDocs = plannedIds.length > 0 ? await fetchCompaniesByIds(container, plannedIds).catch(() => []) : [];
+    const docsById = new Map(plannedDocs.map((d) => [String(d?.id || "").trim(), d]));
+
+    const attemptedFieldsThisRun = [];
+    const savedFieldsThisRun = [];
+
+    const updateLastXaiAttempt = async (nowIsoStr, meta = {}) => {
+      try {
+        await bestEffortPatchSessionDoc({
+          container,
+          sessionId,
+          patch: {
+            last_xai_attempt_at: nowIsoStr,
+            ...(meta && typeof meta === "object" ? meta : {}),
+            updated_at: nowIsoStr,
+          },
+        }).catch(() => null);
+      } catch {}
+
+      try {
+        resumeDoc.last_xai_attempt_at = nowIsoStr;
+      } catch {}
+    };
+
+    for (const entry of plannedByCompany) {
+      if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
+
+      const companyId = String(entry?.company_id || "").trim();
+      if (!companyId) continue;
+
+      let doc = docsById.get(companyId) || null;
+      if (!doc) continue;
+
+      const companyName = String(doc.company_name || doc.name || "").trim();
+      const normalizedDomain = String(doc.normalized_domain || "").trim();
+
+      const perDocBudgetMs = Math.max(4000, Math.trunc(deadlineMs / Math.max(1, plannedIds.length || 1)));
+
+      const grokArgs = {
+        companyName,
+        normalizedDomain,
+        budgetMs: perDocBudgetMs,
+        xaiUrl: process.env.XAI_API_URL,
+        xaiKey: process.env.XAI_API_KEY,
+      };
+
+      progressRoot.enrichment_progress[companyId] =
+        progressRoot.enrichment_progress[companyId] && typeof progressRoot.enrichment_progress[companyId] === "object"
+          ? progressRoot.enrichment_progress[companyId]
+          : {};
+
+      for (const field of ENRICH_FIELDS) {
+        if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
+
+        const fieldProgress =
+          progressRoot.enrichment_progress[companyId][field] && typeof progressRoot.enrichment_progress[companyId][field] === "object"
+            ? progressRoot.enrichment_progress[companyId][field]
+            : { attempts: 0, last_attempt_at: null, last_error: null, status: null, last_cycle_attempted: null };
+
+        // Per-cycle idempotency: attempt xAI at most once per field per cycle.
+        if (fieldProgress.last_cycle_attempted === cycleCount) {
+          progressRoot.enrichment_progress[companyId][field] = fieldProgress;
+          continue;
+        }
+
+        // Skip if already populated.
+        const alreadyHas = (() => {
+          if (field === "reviews") return isRealValue("reviews", doc.curated_reviews, doc);
+          return isRealValue(field, doc?.[field], doc);
+        })();
+
+        if (alreadyHas) {
+          fieldProgress.status = "ok";
+          fieldProgress.last_error = null;
+          progressRoot.enrichment_progress[companyId][field] = fieldProgress;
+          continue;
+        }
+
+        // Skip if terminal.
+        if (isTerminalMissingField(doc, field)) {
+          fieldProgress.status = "terminal";
+          fieldProgress.last_error = String(deriveMissingReason(doc, field) || "terminal");
+          progressRoot.enrichment_progress[companyId][field] = fieldProgress;
+          continue;
+        }
+
+        const minMs = Number(MIN_REQUIRED_MS_BY_FIELD[field]) || 0;
+        if (minMs && budgetRemainingMs() < minMs) {
+          fieldProgress.status = "retryable";
+          fieldProgress.last_error = "budget_exhausted";
+          fieldProgress.last_attempt_at = nowIso();
+          fieldProgress.last_cycle_attempted = cycleCount;
+          progressRoot.enrichment_progress[companyId][field] = fieldProgress;
+          continue;
+        }
+
+        // xAI attempt (explicit)
+        const attemptAt = nowIso();
+        fieldProgress.attempts = (Number(fieldProgress.attempts) || 0) + 1;
+        fieldProgress.last_attempt_at = attemptAt;
+        fieldProgress.last_error = null;
+        fieldProgress.last_cycle_attempted = cycleCount;
+        attemptedFieldsThisRun.push(field);
+
+        await updateLastXaiAttempt(attemptAt);
+
+        let r = null;
+        let status = "";
+        let upstream_http_status = null;
+
+        try {
+          if (field === "tagline") r = await fetchTagline(grokArgs);
+          if (field === "headquarters_location") r = await fetchHeadquartersLocation(grokArgs);
+          if (field === "manufacturing_locations") r = await fetchManufacturingLocations(grokArgs);
+          if (field === "industries") r = await fetchIndustries(grokArgs);
+          if (field === "product_keywords") r = await fetchProductKeywords(grokArgs);
+          if (field === "reviews") r = await fetchCuratedReviews(grokArgs);
+        } catch (e) {
+          const failure = isTimeoutLikeMessage(e?.message) ? "upstream_timeout" : "upstream_unreachable";
+          r = { diagnostics: { message: safeErrorMessage(e), upstream_http_status: null }, _failure: failure };
+        }
+
+        // Normalize per-field status key.
+        if (field === "tagline") status = normalizeKey(r?.tagline_status || r?._failure || "");
+        else if (field === "headquarters_location") status = normalizeKey(r?.hq_status || r?._failure || "");
+        else if (field === "manufacturing_locations") status = normalizeKey(r?.mfg_status || r?._failure || "");
+        else if (field === "industries") status = normalizeKey(r?.industries_status || r?._failure || "");
+        else if (field === "product_keywords") status = normalizeKey(r?.keywords_status || r?._failure || "");
+        else if (field === "reviews") status = normalizeKey(r?.reviews_stage_status || r?._failure || "");
+
+        upstream_http_status = r?.diagnostics?.upstream_http_status ?? r?.diagnostics?.upstream_status ?? null;
+
+        try {
+          console.log(`[${HANDLER_ID}] xai_attempt`, {
+            session_id: sessionId,
+            company_id: companyId,
+            field,
+            cycle_count: cycleCount,
+            status,
+            upstream_http_status,
+            at: attemptAt,
+          });
+        } catch {}
+
+        // Apply result (partial saves are required).
+        try {
+          doc.import_missing_reason ||= {};
+
+          if (field === "tagline") {
+            bumpFieldAttempt(doc, "tagline", requestId);
+            if (status === "ok" && typeof r?.tagline === "string" && r.tagline.trim()) {
+              doc.tagline = r.tagline.trim();
+              doc.tagline_unknown = false;
+              doc.import_missing_reason.tagline = "ok";
+              markFieldSuccess(doc, "tagline");
+              fieldProgress.status = "ok";
+              savedFieldsThisRun.push("tagline");
+            } else {
+              const terminal = attemptsFor(doc, "tagline") >= MAX_ATTEMPTS_TAGLINE;
+              doc.tagline = "";
+              doc.tagline_unknown = true;
+              doc.import_missing_reason.tagline = terminal ? "not_found_terminal" : status || "not_found";
+              fieldProgress.status = terminal ? "terminal" : "retryable";
+              fieldProgress.last_error = status || "not_found";
+              if (terminal) terminalizeNonGrokField(doc, "tagline", "not_found_terminal");
+            }
+          }
+
+          if (field === "headquarters_location") {
+            bumpFieldAttempt(doc, "headquarters_location", requestId);
+            const value = typeof r?.headquarters_location === "string" ? r.headquarters_location.trim() : "";
+            if (status === "ok" && value) {
+              doc.headquarters_location = value;
+              doc.hq_unknown = false;
+              doc.import_missing_reason.headquarters_location = "ok";
+              markFieldSuccess(doc, "headquarters_location");
+              fieldProgress.status = "ok";
+              savedFieldsThisRun.push("headquarters_location");
+            } else {
+              const terminal = attemptsFor(doc, "headquarters_location") >= MAX_ATTEMPTS_LOCATION;
+              doc.hq_unknown = true;
+              doc.headquarters_location = status === "not_disclosed" ? "Not disclosed" : "";
+              doc.import_missing_reason.headquarters_location = terminal
+                ? (status === "not_disclosed" ? "not_disclosed" : "exhausted")
+                : status || "not_found";
+              fieldProgress.status = terminal ? "terminal" : "retryable";
+              fieldProgress.last_error = status || "not_found";
+              if (terminal) {
+                terminalizeGrokField(doc, "headquarters_location", status === "not_disclosed" ? "not_disclosed" : "exhausted");
+              }
+            }
+          }
+
+          if (field === "manufacturing_locations") {
+            bumpFieldAttempt(doc, "manufacturing_locations", requestId);
+            const locs = Array.isArray(r?.manufacturing_locations)
+              ? r.manufacturing_locations.map((x) => String(x || "").trim()).filter(Boolean)
+              : [];
+            if (status === "ok" && locs.length > 0) {
+              doc.manufacturing_locations = locs;
+              doc.mfg_unknown = false;
+              doc.import_missing_reason.manufacturing_locations = "ok";
+              markFieldSuccess(doc, "manufacturing_locations");
+              fieldProgress.status = "ok";
+              savedFieldsThisRun.push("manufacturing_locations");
+            } else {
+              const terminal = attemptsFor(doc, "manufacturing_locations") >= MAX_ATTEMPTS_LOCATION;
+              doc.mfg_unknown = true;
+              doc.manufacturing_locations = status === "not_disclosed" ? ["Not disclosed"] : [];
+              doc.import_missing_reason.manufacturing_locations = terminal
+                ? (status === "not_disclosed" ? "not_disclosed" : "exhausted")
+                : status || "not_found";
+              fieldProgress.status = terminal ? "terminal" : "retryable";
+              fieldProgress.last_error = status || "not_found";
+              if (terminal) {
+                terminalizeGrokField(doc, "manufacturing_locations", status === "not_disclosed" ? "not_disclosed" : "exhausted");
+              }
+            }
+          }
+
+          if (field === "industries") {
+            bumpFieldAttempt(doc, "industries", requestId);
+            const list = Array.isArray(r?.industries) ? r.industries : [];
+            const sanitized = (() => {
+              try {
+                const { sanitizeIndustries } = require("../../_requiredFields");
+                return sanitizeIndustries(list);
+              } catch {
+                return list.map((x) => String(x || "").trim()).filter(Boolean);
+              }
+            })();
+
+            if (status === "ok" && sanitized.length > 0) {
+              doc.industries = sanitized;
+              doc.industries_source = "grok";
+              doc.industries_unknown = false;
+              doc.import_missing_reason.industries = "ok";
+              markFieldSuccess(doc, "industries");
+              fieldProgress.status = "ok";
+              savedFieldsThisRun.push("industries");
+            } else {
+              const terminal = attemptsFor(doc, "industries") >= MAX_ATTEMPTS_INDUSTRIES;
+              doc.industries = [];
+              doc.industries_unknown = true;
+              doc.import_missing_reason.industries = terminal ? "not_found_terminal" : status || "not_found";
+              fieldProgress.status = terminal ? "terminal" : "retryable";
+              fieldProgress.last_error = status || "not_found";
+              if (terminal) terminalizeNonGrokField(doc, "industries", "not_found_terminal");
+            }
+          }
+
+          if (field === "product_keywords") {
+            bumpFieldAttempt(doc, "product_keywords", requestId);
+            const list = Array.isArray(r?.product_keywords)
+              ? r.product_keywords
+              : Array.isArray(r?.keywords)
+                ? r.keywords
+                : [];
+
+            const sanitized = (() => {
+              try {
+                const { sanitizeKeywords } = require("../../_requiredFields");
+                const stats = sanitizeKeywords({ product_keywords: list, keywords: list });
+                return Array.isArray(stats?.sanitized) ? stats.sanitized : [];
+              } catch {
+                return list.map((x) => String(x || "").trim()).filter(Boolean);
+              }
+            })();
+
+            if (status === "ok" && sanitized.length > 0) {
+              doc.keywords = sanitized.slice(0, 25);
+              doc.product_keywords = sanitized.join(", ");
+              doc.keywords_source = "grok";
+              doc.product_keywords_source = "grok";
+              doc.product_keywords_unknown = false;
+              doc.import_missing_reason.product_keywords = "ok";
+              markFieldSuccess(doc, "product_keywords");
+              fieldProgress.status = "ok";
+              savedFieldsThisRun.push("product_keywords");
+            } else {
+              const terminal = attemptsFor(doc, "product_keywords") >= MAX_ATTEMPTS_KEYWORDS;
+              doc.product_keywords = "";
+              doc.product_keywords_unknown = true;
+              if (!Array.isArray(doc.keywords)) doc.keywords = [];
+              doc.import_missing_reason.product_keywords = terminal ? "not_found_terminal" : status || "not_found";
+              fieldProgress.status = terminal ? "terminal" : "retryable";
+              fieldProgress.last_error = status || "not_found";
+              if (terminal) terminalizeNonGrokField(doc, "product_keywords", "not_found_terminal");
+            }
+          }
+
+          if (field === "reviews") {
+            bumpFieldAttempt(doc, "reviews", requestId);
+            const curated = Array.isArray(r?.curated_reviews) ? r.curated_reviews : [];
+
+            doc.review_cursor = doc.review_cursor && typeof doc.review_cursor === "object" ? { ...doc.review_cursor } : {};
+            if (!Array.isArray(doc.curated_reviews)) doc.curated_reviews = [];
+            if (!Number.isFinite(Number(doc.review_count))) doc.review_count = doc.curated_reviews.length;
+
+            if (status === "ok" && curated.length === 4) {
+              doc.curated_reviews = curated.slice(0, 10);
+              doc.review_count = curated.length;
+              doc.reviews_stage_status = "ok";
+              doc.review_cursor.reviews_stage_status = "ok";
+              doc.import_missing_reason.reviews = "ok";
+              doc.review_cursor.last_success_at = nowIso();
+              doc.review_cursor.last_error = null;
+              doc.review_cursor.incomplete_reason = null;
+              doc.review_cursor.attempted_urls = Array.isArray(r?.attempted_urls) ? r.attempted_urls : undefined;
+              markFieldSuccess(doc, "reviews");
+              fieldProgress.status = "ok";
+              savedFieldsThisRun.push("reviews");
+            } else {
+              const terminal = attemptsFor(doc, "reviews") >= MAX_ATTEMPTS_REVIEWS;
+              if (curated.length > 0) {
+                doc.curated_reviews = curated.slice(0, 10);
+                doc.review_count = curated.length;
+              }
+
+              const upstreamFailure = status === "upstream_unreachable" || status === "upstream_timeout";
+              const incompleteReason =
+                (typeof r?.incomplete_reason === "string" ? r.incomplete_reason.trim() : "") ||
+                (upstreamFailure ? status : "") ||
+                (curated.length > 0 ? "insufficient_verified_reviews" : "no_valid_reviews_found");
+
+              doc.reviews_stage_status = "incomplete";
+              doc.review_cursor.reviews_stage_status = "incomplete";
+              doc.import_missing_reason.reviews = terminal ? "exhausted" : upstreamFailure ? status : "incomplete";
+              doc.review_cursor.incomplete_reason = incompleteReason;
+              doc.review_cursor.attempted_urls = Array.isArray(r?.attempted_urls) ? r.attempted_urls : undefined;
+              doc.review_cursor.last_error = upstreamFailure
+                ? {
+                    code: status,
+                    message: String(r?.diagnostics?.message || status || "reviews_incomplete"),
+                    at: attemptAt,
+                    request_id: requestId || null,
+                    upstream_http_status,
+                  }
+                : null;
+
+              fieldProgress.status = terminal ? "terminal" : "retryable";
+              fieldProgress.last_error = upstreamFailure ? status : "incomplete";
+              if (terminal) terminalizeGrokField(doc, "reviews", "exhausted");
+            }
+          }
+
+          doc.import_missing_fields = computeMissingFields(doc);
+          doc.updated_at = nowIso();
+
+          await upsertDoc(container, doc).catch(() => null);
+          if (await isSessionStopped(container, sessionId)) return gracefulExit("stopped");
+        } catch (e) {
+          fieldProgress.status = "retryable";
+          fieldProgress.last_error = safeErrorMessage(e) || "apply_failed";
+        }
+
+        progressRoot.enrichment_progress[companyId][field] = fieldProgress;
+      }
+
+      docsById.set(companyId, doc);
+    }
+
+    const updatedAt = nowIso();
+
+    // Compute remaining required fields using the authoritative contract.
+    const nextMissingByCompany = plannedIds
+      .map((company_id) => {
+        const d = docsById.get(String(company_id || "").trim());
+        if (!d) return { company_id, missing_fields: [...ENRICH_FIELDS] };
+
+        const missing = ENRICH_FIELDS.filter((f) => {
+          if (f === "reviews") {
+            if (isRealValue("reviews", d.curated_reviews, d)) return false;
+          } else {
+            if (isRealValue(f, d?.[f], d)) return false;
+          }
+          return !isTerminalMissingField(d, f);
+        });
+
+        return { company_id, missing_fields: missing };
+      })
+      .filter((e) => String(e?.company_id || "").trim());
+
+    const resumeNeeded = nextMissingByCompany.some((e) => Array.isArray(e?.missing_fields) && e.missing_fields.length > 0);
+
+    const nextResumeDoc = {
+      ...(resumeDoc && typeof resumeDoc === "object" ? resumeDoc : {}),
+      id: resumeDocId,
+      session_id: sessionId,
+      normalized_domain: "import",
+      partition_key: "import",
+      type: "import_control",
+      status: resumeNeeded ? "queued" : "done",
+      cycle_count: cycleCount + 1,
+      missing_by_company: nextMissingByCompany,
+      enrichment_progress: progressRoot.enrichment_progress,
+      last_attempted_fields: attemptedFieldsThisRun.slice(0, 50),
+      last_saved_fields: savedFieldsThisRun.slice(0, 50),
+      last_finished_at: updatedAt,
+      ...(resumeNeeded ? {} : { completed_at: updatedAt }),
+      lock_expires_at: null,
+      updated_at: updatedAt,
+    };
+
+    await upsertDoc(container, nextResumeDoc).catch(() => null);
+
+    await bestEffortPatchSessionDoc({
+      container,
+      sessionId,
+      patch: {
+        resume_needed: resumeNeeded,
+        resume_updated_at: updatedAt,
+        resume_worker_last_finished_at: updatedAt,
+        resume_worker_last_result: resumeNeeded ? "ok_incomplete" : "done",
+        resume_worker_last_written_fields: savedFieldsThisRun.slice(0, 50),
+        updated_at: updatedAt,
+      },
+    }).catch(() => null);
+
+    return json(
+      {
+        ok: true,
+        session_id: sessionId,
+        handler_entered_at,
+        did_work: true,
+        did_work_reason: isFreshSeed ? "fresh_seed_enrichment" : "resume_enrichment",
+        resume_needed: resumeNeeded,
+        cycle_count: cycleCount + 1,
+        missing_by_company: nextMissingByCompany,
+        attempted_fields: attemptedFieldsThisRun.slice(0, 50),
+        saved_fields: savedFieldsThisRun.slice(0, 50),
+      },
+      200,
+      req
+    );
+  }
+
   const startedEnrichmentAt = Date.now();
   const perDocBudgetMs = Math.max(4000, Math.trunc(deadlineMs / Math.max(1, seedDocs.length)));
 
