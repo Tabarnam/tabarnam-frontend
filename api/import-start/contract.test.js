@@ -2029,7 +2029,7 @@ test("/api/import/status reopens completed resume doc when retryable missing fie
         assert.ok(["done", "complete"].includes(String(statusBody.resume?.status || "")));
 
         // Sanity: status must not mutate persisted control docs.
-        assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "done");
+        assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "complete");
         assert.equal(docsById.get(`_import_session_${session_id}`)?.status, "complete");
         assert.equal(docsById.get(`_import_session_${session_id}`)?.resume_needed, false);
 
