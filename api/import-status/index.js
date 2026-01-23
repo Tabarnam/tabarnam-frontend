@@ -4838,6 +4838,16 @@ async function handler(req, context) {
         applyTerminalOnlyCompletion(out, forcedReason);
       }
 
+      if (completionOverride) {
+        out.completed = true;
+        out.terminal_only = true;
+        out.resume_needed = false;
+        out.resume = out.resume && typeof out.resume === "object" ? out.resume : {};
+        out.resume.needed = false;
+        out.resume.status = "done";
+        out.effective_resume_status = "done";
+      }
+
       return jsonWithSessionId(out, 200, req);
     }
 
@@ -5282,6 +5292,16 @@ async function handler(req, context) {
           if (finalized > 0) stageBeaconValues.status_reviews_finalized_on_completion = nowIso();
         }
       } catch {}
+
+      if (completionOverride) {
+        out.completed = true;
+        out.terminal_only = true;
+        out.resume_needed = false;
+        out.resume = out.resume && typeof out.resume === "object" ? out.resume : {};
+        out.resume.needed = false;
+        out.resume.status = "done";
+        out.effective_resume_status = "done";
+      }
 
       return jsonWithSessionId(out, 200, req);
     }
