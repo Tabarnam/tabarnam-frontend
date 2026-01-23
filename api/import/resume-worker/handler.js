@@ -1793,10 +1793,14 @@ async function resumeWorkerHandler(req, context) {
 
         const minMs = Number(MIN_REQUIRED_MS_BY_FIELD[field]) || 0;
         if (!isFreshSeed && minMs && budgetRemainingMs() < minMs) {
+          fieldProgress.attempts = (Number(fieldProgress.attempts) || 0) + 1;
           fieldProgress.status = "retryable";
           fieldProgress.last_error = "budget_exhausted";
           fieldProgress.last_attempt_at = nowIso();
           fieldProgress.last_cycle_attempted = cycleCount;
+          fieldProgress.xai_diag = null;
+
+          attemptedFieldsThisRun.push(field);
           progressRoot.enrichment_progress[companyId][field] = fieldProgress;
           continue;
         }
