@@ -1848,6 +1848,46 @@ async function resumeWorkerHandler(req, context) {
 
         upstream_http_status = r?.diagnostics?.upstream_http_status ?? r?.diagnostics?.upstream_status ?? null;
 
+        fieldProgress.xai_diag = {
+          xai_request_id:
+            r?.diagnostics?.xai_request_id ||
+            r?.diagnostics?.xai_requestId ||
+            r?.diagnostics?.request_id ||
+            r?.diagnostics?.requestId ||
+            null,
+          xai_model:
+            String(process.env.XAI_SEARCH_MODEL || process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "").trim() || null,
+          xai_http_status: upstream_http_status,
+          xai_error_code:
+            r?.diagnostics?.error_code ||
+            r?.diagnostics?.code ||
+            (status && status !== "ok" ? status : null),
+        };
+
+        const xaiAttempted = status !== "deferred";
+        if (xaiAttempted) {
+          await updateLastXaiAttempt(attemptAt);
+        }
+
+        // Never persist "deferred" after an attempt: treat it as budget exhaustion.
+        if (status === "deferred") {
+          fieldProgress.status = "retryable";
+          fieldProgress.last_error = "budget_exhausted";
+
+          try {
+            doc.import_missing_reason ||= {};
+            if (!doc.import_missing_reason[field] || doc.import_missing_reason[field] === "deferred") {
+              doc.import_missing_reason[field] = "budget_exhausted";
+            }
+            doc.import_missing_fields = computeMissingFields(doc);
+            doc.updated_at = nowIso();
+            await upsertDoc(container, doc).catch(() => null);
+          } catch {}
+
+          progressRoot.enrichment_progress[companyId][field] = fieldProgress;
+          continue;
+        }
+
         try {
           console.log(`[${HANDLER_ID}] xai_attempt`, {
             session_id: sessionId,
