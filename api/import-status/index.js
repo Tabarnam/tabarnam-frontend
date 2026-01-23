@@ -2216,7 +2216,7 @@ async function handler(req, context) {
                   });
 
           // Instrumentation for max-cycles stalls (and other force-terminalize policies).
-          stageBeaconValues.status_resume_force_terminalize_selected = Boolean(forceDecision.force);
+          stageBeaconValues.status_resume_force_terminalize_selected = !STATUS_NO_ORCHESTRATION && Boolean(forceDecision.force);
           if (!forceDecision.force) {
             const cap = infraOnlyTimeout
               ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
@@ -4180,7 +4180,7 @@ async function handler(req, context) {
                   });
 
           // Instrumentation for max-cycles stalls (and other force-terminalize policies).
-          stageBeaconValues.status_resume_force_terminalize_selected = Boolean(forceDecision.force);
+          stageBeaconValues.status_resume_force_terminalize_selected = !STATUS_NO_ORCHESTRATION && Boolean(forceDecision.force);
           if (!forceDecision.force) {
             const cap = infraOnlyTimeout
               ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
