@@ -4841,6 +4841,8 @@ async function handler(req, context) {
       if (completionOverride) {
         out.completed = true;
         out.terminal_only = true;
+        out.status = "complete";
+        out.state = "complete";
         out.resume_needed = false;
         out.resume = out.resume && typeof out.resume === "object" ? out.resume : {};
         out.resume.needed = false;
@@ -5296,6 +5298,8 @@ async function handler(req, context) {
       if (completionOverride) {
         out.completed = true;
         out.terminal_only = true;
+        out.status = "complete";
+        out.state = "complete";
         out.resume_needed = false;
         out.resume = out.resume && typeof out.resume === "object" ? out.resume : {};
         out.resume.needed = false;
