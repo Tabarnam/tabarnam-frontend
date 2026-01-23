@@ -2863,8 +2863,25 @@ async function handler(req, context) {
       }
     } catch {}
 
+    const cap = stageBeaconValues.status_infra_retryable_only_timeout
+      ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
+      : MAX_RESUME_CYCLES_SINGLE;
+
+    const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
+
+    // Never apply terminal-only completion while retryable missing remains AND cycles remain.
+    // This prevents a stale persisted status_resume_terminal_only from incorrectly stopping resumable runs.
+    const allowTerminalOnly = retryableMissingCount === 0 || cycleCount >= cap;
+
+    if (!allowTerminalOnly && stageBeaconValues.status_resume_terminal_only) {
+      stageBeaconValues.status_resume_terminal_only = null;
+      stageBeaconValues.status_resume_forced_terminalize_reason = null;
+      stageBeaconValues.status_resume_force_terminalize_selected = false;
+      stageBeaconValues.status_resume_force_terminalize_skip_reason = "retryable_missing_remains";
+    }
+
     const terminalOnlyReason =
-      stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only
+      allowTerminalOnly && (stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only)
         ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
         : null;
 
@@ -3501,7 +3518,7 @@ async function handler(req, context) {
       (typeof errorDoc?.error?.step === "string" && errorDoc.error.step.trim() ? errorDoc.error.step.trim() : null) ||
       (typeof sessionDoc?.stage_beacon === "string" && sessionDoc.stage_beacon.trim() ? sessionDoc.stage_beacon.trim() : null) ||
       (typeof acceptDoc?.stage_beacon === "string" && acceptDoc.stage_beacon.trim() ? acceptDoc.stage_beacon.trim() : null) ||
-      (completed ? "complete" : timedOut ? "timeout" : stopped ? "stopped" : "running");
+      (completed ? "complete" : stopped ? "stopped" : "running");
 
     const cosmosTarget = (() => {
       const pick = (key) =>
@@ -4491,14 +4508,10 @@ async function handler(req, context) {
       : [];
     const isCompanyUrlImport = requestQueryTypes.includes("company_url");
 
-    if (errorPayload || timedOut || stopped) {
-      const errorOut =
-        errorPayload ||
-        (timedOut
-          ? { code: "IMPORT_TIMEOUT", message: "Import timed out" }
-          : stopped
-            ? { code: "IMPORT_STOPPED", message: "Import was stopped" }
-            : null);
+    // IMPORTANT: _import_timeout_* is a control-doc signal that the *client/start handler* hit a deadline.
+    // It must never be treated as a hard job failure, because resume cycles may still be queued/running.
+    if (errorPayload || stopped) {
+      const errorOut = errorPayload || (stopped ? { code: "IMPORT_STOPPED", message: "Import was stopped" } : null);
 
       const out = {
           ok: true,
@@ -5069,8 +5082,23 @@ async function handler(req, context) {
       }
     } catch {}
 
+    const cap = stageBeaconValues.status_infra_retryable_only_timeout
+      ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
+      : MAX_RESUME_CYCLES_SINGLE;
+
+    const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
+
+    const allowTerminalOnly = retryableMissingCount === 0 || cycleCount >= cap;
+
+    if (!allowTerminalOnly && stageBeaconValues.status_resume_terminal_only) {
+      stageBeaconValues.status_resume_terminal_only = null;
+      stageBeaconValues.status_resume_forced_terminalize_reason = null;
+      stageBeaconValues.status_resume_force_terminalize_selected = false;
+      stageBeaconValues.status_resume_force_terminalize_skip_reason = "retryable_missing_remains";
+    }
+
     const terminalOnlyReason =
-      stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only
+      allowTerminalOnly && (stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only)
         ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
         : null;
 
@@ -5290,8 +5318,23 @@ async function handler(req, context) {
       }
     } catch {}
 
+    const cap = stageBeaconValues.status_infra_retryable_only_timeout
+      ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
+      : MAX_RESUME_CYCLES_SINGLE;
+
+    const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
+
+    const allowTerminalOnly = retryableMissingCount === 0 || cycleCount >= cap;
+
+    if (!allowTerminalOnly && stageBeaconValues.status_resume_terminal_only) {
+      stageBeaconValues.status_resume_terminal_only = null;
+      stageBeaconValues.status_resume_forced_terminalize_reason = null;
+      stageBeaconValues.status_resume_force_terminalize_selected = false;
+      stageBeaconValues.status_resume_force_terminalize_skip_reason = "retryable_missing_remains";
+    }
+
     const terminalOnlyReason =
-      stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only
+      allowTerminalOnly && (stageBeaconValues.status_resume_terminal_only || resumeMissingAnalysis?.terminal_only)
         ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
         : null;
 
