@@ -1423,6 +1423,7 @@ async function handler(req, context) {
     let save_outcome = null;
     let resume_error = null;
     let resume_error_details = null;
+    let stopped = false;
 
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
@@ -1434,12 +1435,18 @@ async function handler(req, context) {
         const client = new CosmosClient({ endpoint, key });
         const container = client.database(databaseId).container(containerId);
 
-        const [sessionDoc, completionDoc, acceptDoc, resumeDoc] = await Promise.all([
+        const [sessionDoc, completionDoc, acceptDoc, resumeDoc, stopDoc] = await Promise.all([
           readControlDoc(container, `_import_session_${sessionId}`, sessionId),
           readControlDoc(container, `_import_complete_${sessionId}`, sessionId),
           readControlDoc(container, `_import_accept_${sessionId}`, sessionId),
           readControlDoc(container, `_import_resume_${sessionId}`, sessionId),
+          readControlDoc(container, `_import_stop_${sessionId}`, sessionId),
         ]);
+
+        stopped = Boolean(stopDoc);
+        const effectiveResumeMeta = computeEffectiveResumeStatus({ resumeDoc, sessionDoc, stopDoc });
+        effective_resume_status = effectiveResumeMeta.effective_resume_status;
+        progress_notice = effectiveResumeMeta.progress_notice;
 
         const domainMeta = deriveDomainAndCreatedAfter({ sessionDoc, acceptDoc });
 
@@ -1789,7 +1796,7 @@ async function handler(req, context) {
 
         const currentResume = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
 
-        if (!currentResume) {
+        if (!currentResume && !STATUS_NO_ORCHESTRATION) {
           const now = nowIso();
           await upsertDoc(container, {
             id: resumeDocId,
@@ -1820,7 +1827,7 @@ async function handler(req, context) {
 
         // Drift repair: if retryable missing fields still exist but the resume control doc says "complete",
         // reopen it so /import/status polling can keep auto-driving enrichment without requiring a manual click.
-        if (!forceResume && resume_needed && resumeStatus === "complete") {
+        if (!STATUS_NO_ORCHESTRATION && !forceResume && resume_needed && resumeStatus === "complete") {
           const reopenedAt = nowIso();
           stageBeaconValues.status_resume_reopened_from_complete = reopenedAt;
           resumeStatus = "queued";
@@ -2770,6 +2777,7 @@ async function handler(req, context) {
         session_id: sessionId,
         status: effectiveStatus,
         state: effectiveState,
+        stopped,
         job_state: effectiveJobState,
         stage_beacon: effectiveStageBeacon,
         stage_beacon_values: stageBeaconValues,
@@ -3022,7 +3030,7 @@ async function handler(req, context) {
         ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
         : null;
 
-    if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
+    if (!STATUS_NO_ORCHESTRATION && terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
     else {
       // "complete" status can mean the *primary* job is finished, while enrichment may still be incomplete.
       // Only mark the overall import as completed when resume is not needed.
@@ -3805,7 +3813,7 @@ async function handler(req, context) {
         const resumeDocId = `_import_resume_${sessionId}`;
         let currentResume = typeof resumeDoc !== "undefined" ? resumeDoc : null;
 
-        if (!currentResume) {
+        if (!currentResume && !STATUS_NO_ORCHESTRATION) {
           const now = nowIso();
           await upsertDoc(container, {
             id: resumeDocId,
@@ -3835,7 +3843,7 @@ async function handler(req, context) {
 
         // Drift repair: if retryable missing fields still exist but the resume control doc says "complete",
         // reopen it so /import/status polling can keep auto-driving enrichment without requiring a manual click.
-        if (!forceResume && resume_needed && resumeStatus === "complete") {
+        if (!STATUS_NO_ORCHESTRATION && !forceResume && resume_needed && resumeStatus === "complete") {
           const reopenedAt = nowIso();
           stageBeaconValues.status_resume_reopened_from_complete = reopenedAt;
           resumeStatus = "queued";
@@ -5274,8 +5282,8 @@ async function handler(req, context) {
         ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
         : null;
 
-    if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
-      else {
+    if (!STATUS_NO_ORCHESTRATION && terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
+    else {
         out.completed = true;
         out.terminal_only = false;
 
@@ -5538,7 +5546,7 @@ async function handler(req, context) {
         ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
         : null;
 
-    if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
+    if (!STATUS_NO_ORCHESTRATION && terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
     else {
       out.completed = false;
       out.terminal_only = false;
