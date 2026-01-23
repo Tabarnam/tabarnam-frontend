@@ -817,6 +817,22 @@ async function upsertDoc(container, doc) {
   return { ok: false, error: lastErr?.message || String(lastErr || "upsert_failed") };
 }
 
+async function readStopControl(container, sessionId) {
+  const sid = String(sessionId || "").trim();
+  if (!sid) return null;
+  const id = `_import_stop_${sid}`;
+  return await readControlDoc(container, id, sid).catch(() => null);
+}
+
+async function isSessionStopped(container, sessionId) {
+  const doc = await readStopControl(container, sessionId);
+  if (!doc) return false;
+  // Accept both legacy stop docs (type=import_stop) and the newer control-shaped docs (stopped=true).
+  if (doc.stopped === true) return true;
+  if (String(doc.type || "").trim() === "import_stop") return true;
+  return true;
+}
+
 async function fetchSeedCompanies(container, sessionId, limit = 25) {
   if (!container) return [];
   const n = Math.max(1, Math.min(Number(limit) || 10, 50));
