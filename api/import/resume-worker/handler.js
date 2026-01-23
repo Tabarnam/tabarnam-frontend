@@ -1274,12 +1274,12 @@ async function resumeWorkerHandler(req, context) {
 
     return json(
       {
-        ok: false,
+        ok: true,
+        result: "locked",
         session_id: sessionId,
         handler_entered_at,
         did_work,
         did_work_reason: "resume_locked",
-        error: "resume_locked",
         lock_expires_at: resumeDoc.lock_expires_at,
       },
       200,
