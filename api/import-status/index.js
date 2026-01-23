@@ -1435,6 +1435,12 @@ async function handler(req, context) {
     let resume_error_details = null;
     let stopped = false;
 
+    let sessionDoc = null;
+    let completionDoc = null;
+    let acceptDoc = null;
+    let resumeDoc = null;
+    let stopDoc = null;
+
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
       const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
@@ -1445,13 +1451,13 @@ async function handler(req, context) {
         const client = new CosmosClient({ endpoint, key });
         const container = client.database(databaseId).container(containerId);
 
-        const [sessionDoc, completionDoc, acceptDoc, resumeDoc, stopDoc] = await Promise.all([
+        ([sessionDoc, completionDoc, acceptDoc, resumeDoc, stopDoc] = await Promise.all([
           readControlDoc(container, `_import_session_${sessionId}`, sessionId),
           readControlDoc(container, `_import_complete_${sessionId}`, sessionId),
           readControlDoc(container, `_import_accept_${sessionId}`, sessionId),
           readControlDoc(container, `_import_resume_${sessionId}`, sessionId),
           readControlDoc(container, `_import_stop_${sessionId}`, sessionId),
-        ]);
+        ]));
 
         stopped = Boolean(stopDoc);
         const effectiveResumeMeta = computeEffectiveResumeStatus({ resumeDoc, sessionDoc, stopDoc });
