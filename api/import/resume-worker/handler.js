@@ -1828,6 +1828,7 @@ async function resumeWorkerHandler(req, context) {
         const grokArgsForField = freshSeedBudgetMs ? { ...grokArgs, budgetMs: freshSeedBudgetMs } : grokArgs;
 
         // xAI attempt (explicit)
+        xaiFieldsAttemptedThisRun += 1;
         const attemptAt = nowIso();
         fieldProgress.attempts = (Number(fieldProgress.attempts) || 0) + 1;
         fieldProgress.last_attempt_at = attemptAt;
