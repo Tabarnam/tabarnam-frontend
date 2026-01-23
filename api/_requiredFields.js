@@ -496,10 +496,6 @@ function hasNonPlaceholderLocationEntry(list) {
         asString(loc.address).trim() ||
         asString(loc.location).trim();
 
-      const lat = toFiniteNumber(loc.lat ?? loc.latitude);
-      const lng = toFiniteNumber(loc.lng ?? loc.longitude);
-      if (isValidLatLngPair(lat, lng)) return true;
-
       const key = normalizeKey(raw);
       if (!key) continue;
       if (PLACEHOLDER_STRINGS.has(key)) continue;
@@ -571,8 +567,6 @@ function isRealValue(field, value, doc) {
   if (f === "headquarters_location" || f === "hq") {
     if (isTrueish(doc?.hq_unknown)) return false;
 
-    // If we have real coordinates, treat HQ as present even if the formatted label is missing.
-    if (isValidLatLngPair(doc?.hq_lat, doc?.hq_lng)) return true;
 
     if (value && typeof value === "object" && !Array.isArray(value)) {
       const formattedRaw = asString(value.formatted || value.full_address || value.address || value.location).trim();
@@ -586,9 +580,7 @@ function isRealValue(field, value, doc) {
       const country = asMeaningfulString(value.country);
       if (city && (region || country)) return true;
 
-      const lat = toFiniteNumber(value.lat ?? value.latitude);
-      const lng = toFiniteNumber(value.lng ?? value.longitude);
-      return isValidLatLngPair(lat, lng);
+      return false;
     }
 
     if (isSentinelString(value)) return false;
