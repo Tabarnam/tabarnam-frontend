@@ -133,6 +133,16 @@ const GROK_ONLY_FIELDS = new Set([
   "reviews",
 ]);
 
+// Non-negotiable: every fresh seed must attempt these fields via xAI (resume-worker is authoritative).
+const MANDATORY_ENRICH_FIELDS = [
+  "tagline",
+  "headquarters_location",
+  "manufacturing_locations",
+  "industries",
+  "product_keywords",
+  "reviews",
+];
+
 function assertNoWebsiteFallback(field) {
   if (GROK_ONLY_FIELDS.has(field)) return true;
   return false;
@@ -2971,6 +2981,140 @@ function buildImportControlDocBase(sessionId) {
     type: "import_control",
     updated_at: new Date().toISOString(),
   };
+}
+
+async function upsertResumeDoc({
+  session_id,
+  status,
+  cycle_count,
+  missing_by_company,
+  created_at,
+  updated_at,
+  resume_error,
+  blocked_at,
+  lock_expires_at,
+}) {
+  const sid = String(session_id || "").trim();
+  if (!sid) return { ok: false, error: "missing_session_id" };
+
+  const container = getCompaniesCosmosContainer();
+  if (!container) return { ok: false, error: "no_container" };
+
+  const id = `_import_resume_${sid}`;
+  const nowIso = new Date().toISOString();
+
+  // Preserve previously-written state (progress, errors, etc.).
+  const existing = await readItemWithPkCandidates(container, id, {
+    id,
+    ...buildImportControlDocBase(sid),
+    created_at: "",
+  }).catch(() => null);
+
+  const resumeDoc = {
+    ...(existing && typeof existing === "object" ? existing : {}),
+    id,
+    ...buildImportControlDocBase(sid),
+    status: typeof status === "string" && status.trim() ? status.trim() : "queued",
+    cycle_count: Number.isFinite(Number(cycle_count)) ? Number(cycle_count) : Number(existing?.cycle_count || 0) || 0,
+    missing_by_company: Array.isArray(missing_by_company) ? missing_by_company : Array.isArray(existing?.missing_by_company) ? existing.missing_by_company : [],
+    created_at: typeof created_at === "string" && created_at.trim() ? created_at : String(existing?.created_at || nowIso),
+    updated_at: typeof updated_at === "string" && updated_at.trim() ? updated_at : nowIso,
+    resume_error: resume_error === undefined ? (existing?.resume_error ?? null) : resume_error,
+    blocked_at: blocked_at === undefined ? (existing?.blocked_at ?? null) : blocked_at,
+    lock_expires_at: lock_expires_at === undefined ? (existing?.lock_expires_at ?? null) : lock_expires_at,
+  };
+
+  const upserted = await upsertItemWithPkCandidates(container, resumeDoc).catch((e) => ({ ok: false, error: e?.message || String(e) }));
+  return upserted;
+}
+
+function logInfo(context, payload) {
+  try {
+    const logger = context?.log;
+    const fn = logger?.info || logger;
+    if (typeof fn === "function") return fn(payload);
+  } catch {}
+  try {
+    console.log(payload);
+  } catch {}
+}
+
+async function maybeQueueAndInvokeMandatoryEnrichment({
+  sessionId,
+  requestId,
+  context,
+  companyIds,
+  reason,
+  cosmosEnabled,
+}) {
+  if (!cosmosEnabled) return { queued: false, invoked: false, invocation_mode: null };
+
+  const ids = Array.from(
+    new Set(
+      (Array.isArray(companyIds) ? companyIds : [])
+        .map((v) => String(v || "").trim())
+        .filter(Boolean)
+        .slice(0, 50)
+    )
+  );
+  if (ids.length === 0) return { queued: false, invoked: false, invocation_mode: null };
+
+  const now = new Date().toISOString();
+  const missing_by_company = ids.map((company_id) => ({
+    company_id,
+    missing_fields: [...MANDATORY_ENRICH_FIELDS],
+  }));
+
+  await upsertResumeDoc({
+    session_id: sessionId,
+    status: "queued",
+    cycle_count: 0,
+    missing_by_company,
+    created_at: now,
+    updated_at: now,
+    resume_error: null,
+    blocked_at: null,
+    lock_expires_at: null,
+  }).catch(() => null);
+
+  // Telemetry proving enrichment was queued.
+  await upsertCosmosImportSessionDoc({
+    sessionId,
+    requestId,
+    patch: {
+      enrichment_queued_at: now,
+      resume_needed: true,
+      resume_updated_at: now,
+      updated_at: now,
+    },
+  }).catch(() => null);
+
+  let invoked = false;
+  let invocation_mode = "in_process";
+
+  try {
+    const workerRequestMeta = buildInternalFetchRequest({ job_kind: "import_resume" });
+    const invokeRes = await invokeResumeWorkerInProcess({
+      session_id: sessionId,
+      context,
+      workerRequest: {
+        ...workerRequestMeta,
+        body: { reason: reason || "seed_complete_auto_enrich" },
+      },
+    });
+    invoked = Boolean(invokeRes?.ok);
+  } catch {
+    invoked = false;
+  }
+
+  logInfo(context, {
+    session_id: sessionId,
+    company_ids: ids.slice(0, 5),
+    resume_worker_invoked: true,
+    invocation_mode,
+  });
+
+  return { queued: true, invoked, invocation_mode };
 }
 
 async function upsertCosmosImportSessionDoc({ sessionId, requestId, patch }) {
@@ -6835,36 +6979,8 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
             const canResume = canPersist && resumeCompanyIds.length > 0;
 
             if (canResume) {
-              let resumeDocPersisted = false;
-
               if (cosmosEnabled) {
                 try {
-                  const container = getCompaniesCosmosContainer();
-                  if (container) {
-                    const resumeDocId = `_import_resume_${sessionId}`;
-                    const nowResumeIso = new Date().toISOString();
-
-                    const resumeDoc = {
-                      id: resumeDocId,
-                      ...buildImportControlDocBase(sessionId),
-                      created_at: nowResumeIso,
-                      updated_at: nowResumeIso,
-                      request_id: requestId,
-                      status: "queued",
-                      resume_auth: buildResumeAuthDiagnostics(),
-                      saved_count: resumeCompanyIds.length,
-                      saved_company_ids: resumeCompanyIds,
-                      saved_company_urls: [String(seed.company_url || seed.website_url || seed.url || "").trim()].filter(Boolean),
-                      missing_by_company,
-                      keywords_stage_completed: false,
-                      reviews_stage_completed: false,
-                      location_stage_completed: false,
-                    };
-
-                    const resumeUpsert = await upsertItemWithPkCandidates(container, resumeDoc).catch(() => ({ ok: false }));
-                  resumeDocPersisted = Boolean(resumeUpsert && resumeUpsert.ok);
-                  }
-
                   const cosmosTarget = await getCompaniesCosmosTargetDiagnostics().catch(() => null);
 
                   const verifiedCount = Number(saveResult?.saved_verified_count ?? saveResult?.saved ?? 0) || 0;
@@ -6916,105 +7032,15 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                 });
               } catch {}
 
-              // Auto-trigger the resume worker so missing enrichment stages get another chance.
-              try {
-                const resumeWorkerRequested = !(bodyObj?.auto_resume === false || bodyObj?.autoResume === false);
-                const invocationIsResumeWorker = String(new URL(req.url).searchParams.get("resume_worker") || "") === "1";
-
-                if (resumeWorkerRequested && !invocationIsResumeWorker && resumeDocPersisted) {
-                  const deadlineMs = Math.max(
-                    1000,
-                    Math.min(Number(process.env.RESUME_WORKER_DEADLINE_MS || 20000) || 20000, 60000)
-                  );
-                  const batchLimit = Math.max(
-                    1,
-                    Math.min(Number(process.env.RESUME_WORKER_BATCH_LIMIT || 8) || 8, 50)
-                  );
-
-                  setTimeout(() => {
-                    (async () => {
-                      const workerRequest = buildInternalFetchRequest({
-                        job_kind: "import_resume",
-                      });
-
-                      let statusCode = 0;
-                      let workerOk = false;
-                      let workerText = "";
-                      let workerError = null;
-
-                      let invokeRequestId = workerRequest.request_id || null;
-                      let invokeGatewayKeyAttached = Boolean(workerRequest.gateway_key_attached);
-
-                      try {
-                        const invokeRes = await invokeResumeWorkerInProcess({
-                          session_id: sessionId,
-                          context,
-                          workerRequest,
-                          no_cosmos: !cosmosEnabled,
-                          batch_limit: batchLimit,
-                          deadline_ms: deadlineMs,
-                        });
-
-                        invokeRequestId = invokeRes.request_id || invokeRequestId;
-                        invokeGatewayKeyAttached = Boolean(invokeRes.gateway_key_attached);
-
-                        statusCode = Number(invokeRes.status || 0) || 0;
-                        workerOk = Boolean(invokeRes.ok);
-                        workerText = typeof invokeRes.bodyText === "string" ? invokeRes.bodyText : "";
-                        workerError = invokeRes.error;
-                      } catch (e) {
-                        workerError = e;
-                      }
-
-                      if (workerOk) return;
-
-                      const preview = typeof workerText === "string" && workerText ? workerText.slice(0, 2000) : "";
-                      const resume_error = workerError?.message || (statusCode ? `resume_worker_in_process_${statusCode}` : "resume_worker_in_process_error");
-                      const resume_error_details = {
-                        invocation: "in_process",
-                        http_status: statusCode,
-                        response_text_preview: preview || null,
-                        gateway_key_attached: Boolean(invokeGatewayKeyAttached),
-                        request_id: invokeRequestId,
-                      };
-
-                      try {
-                        upsertImportSession({
-                          session_id: sessionId,
-                          request_id: requestId,
-                          status: "running",
-                          stage_beacon: "company_url_seed_fallback",
-                          resume_needed: true,
-                          resume_error,
-                          resume_error_details,
-                          resume_worker_last_http_status: statusCode,
-                          resume_worker_last_reject_layer: "in_process",
-                        });
-                      } catch {}
-
-                      if (cosmosEnabled) {
-                        const now = new Date().toISOString();
-                        try {
-                          await upsertCosmosImportSessionDoc({
-                            sessionId,
-                            requestId,
-                            patch: {
-                              resume_error,
-                              resume_error_details,
-                              resume_worker_last_http_status: statusCode,
-                              resume_worker_last_reject_layer: "in_process",
-                              resume_worker_last_trigger_request_id: workerRequest.request_id || null,
-                              resume_worker_last_gateway_key_attached: Boolean(workerRequest.gateway_key_attached),
-                              resume_error_at: now,
-                              updated_at: now,
-                            },
-                          }).catch(() => null);
-                        } catch {}
-                      }
-                    })().catch(() => {});
-                  }, 0);
-                }
-              } catch {}
+              // Non-negotiable: fresh seeds must immediately queue + run xAI enrichment.
+              await maybeQueueAndInvokeMandatoryEnrichment({
+                sessionId,
+                requestId,
+                context,
+                companyIds: resumeCompanyIds,
+                reason: "seed_complete_auto_enrich",
+                cosmosEnabled,
+              }).catch(() => null);
 
               const cosmosTarget = await getCompaniesCosmosTargetDiagnostics().catch(() => null);
 
@@ -7029,7 +7055,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
                   resume: {
                     status: "queued",
                     internal_auth_configured: Boolean(internalAuthConfigured),
-                    triggered_in_process: Boolean(resumeDocPersisted),
+                    triggered_in_process: true,
                     ...buildResumeAuthDiagnostics(),
                   },
                   missing_by_company,
@@ -9402,6 +9428,28 @@ Output JSON only:
                   status: "running",
                 },
               }).catch(() => null);
+
+              const mandatoryCompanyIds = Array.from(
+                new Set(
+                  [
+                    ...(Array.isArray(saveResult.saved_ids_write) ? saveResult.saved_ids_write : []),
+                    ...(Array.isArray(saveResult.saved_company_ids_verified) ? saveResult.saved_company_ids_verified : []),
+                    ...(Array.isArray(saveResult.saved_company_ids_unverified) ? saveResult.saved_company_ids_unverified : []),
+                    ...(Array.isArray(saveResult.saved_ids) ? saveResult.saved_ids : []),
+                  ]
+                    .map((v) => String(v || "").trim())
+                    .filter(Boolean)
+                )
+              );
+
+              await maybeQueueAndInvokeMandatoryEnrichment({
+                sessionId,
+                requestId,
+                context,
+                companyIds: mandatoryCompanyIds,
+                reason: "seed_complete_auto_enrich",
+                cosmosEnabled,
+              }).catch(() => null);
             } catch {}
           }
 
@@ -10146,12 +10194,9 @@ Return ONLY the JSON array, no other text.`,
 
           // Only mark the session as resume-needed if we successfully persisted at least one company.
           // Otherwise we can get stuck in "running" forever because resume-worker has nothing to load.
-          const needsResume =
-            !dryRunRequested &&
-            cosmosEnabled &&
-            hasMissingRequired &&
-            hasPersistedWrite &&
-            allowResumeWorker;
+          // Status must never be the orchestrator; import-start already queued + invoked resume-worker
+          // immediately after the seed save.
+          const needsResume = false;
 
           if (needsResume) {
             let resumeDocPersisted = false;

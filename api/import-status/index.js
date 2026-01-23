@@ -27,6 +27,70 @@ const { getBuildInfo } = require("../_buildInfo");
 
 const HANDLER_ID = "import-status";
 
+// Non-negotiable: status is read-only + watchdog only.
+// It must never trigger enrichment or force-terminalize.
+const STATUS_NO_ORCHESTRATION = true;
+
+const RESUME_WATCHDOG_STALE_MS = Number.isFinite(Number(process.env.RESUME_WATCHDOG_STALE_MS))
+  ? Math.max(5_000, Math.trunc(Number(process.env.RESUME_WATCHDOG_STALE_MS)))
+  : 2 * 60_000;
+
+function computeEffectiveResumeStatus({ resumeDoc, sessionDoc, stopDoc }) {
+  if (stopDoc) {
+    return { effective_resume_status: "stopped", progress_notice: null };
+  }
+
+  const statusRaw = String(resumeDoc?.status || "").trim().toLowerCase();
+  if (statusRaw === "done" || statusRaw === "complete") {
+    return { effective_resume_status: "done", progress_notice: null };
+  }
+
+  const lockUntil = Date.parse(String(resumeDoc?.lock_expires_at || "")) || 0;
+  if (lockUntil && Date.now() < lockUntil) {
+    return { effective_resume_status: "running", progress_notice: null };
+  }
+
+  const lastActivityIso =
+    String(
+      sessionDoc?.resume_worker_last_finished_at ||
+        sessionDoc?.resume_worker_handler_entered_at ||
+        resumeDoc?.last_finished_at ||
+        resumeDoc?.handler_entered_at ||
+        resumeDoc?.last_invoked_at ||
+        ""
+    ).trim();
+
+  const lastActivityMs = Date.parse(lastActivityIso) || 0;
+  const stale = Boolean(lastActivityMs) && Date.now() - lastActivityMs > RESUME_WATCHDOG_STALE_MS;
+
+  const resumeError =
+    sessionDoc?.resume_error ||
+    sessionDoc?.resume_worker_last_error ||
+    resumeDoc?.resume_error ||
+    resumeDoc?.last_error ||
+    null;
+
+  if (stale && resumeError) {
+    return {
+      effective_resume_status: "stalled",
+      progress_notice: "Enrichment stalled. Manual intervention required.",
+    };
+  }
+
+  if (statusRaw === "running") return { effective_resume_status: "running", progress_notice: null };
+  if (statusRaw === "queued") return { effective_resume_status: "queued", progress_notice: null };
+
+  // Unknown/legacy statuses converge to stalled when stale.
+  if (stale) {
+    return {
+      effective_resume_status: "stalled",
+      progress_notice: "Enrichment stalled. Manual intervention required.",
+    };
+  }
+
+  return { effective_resume_status: statusRaw || "queued", progress_notice: null };
+}
+
 const MAX_RESUME_CYCLES_SINGLE = Number.isFinite(Number(process.env.MAX_RESUME_CYCLES_SINGLE))
   ? Math.max(1, Math.trunc(Number(process.env.MAX_RESUME_CYCLES_SINGLE)))
   : 10;
@@ -1144,6 +1208,10 @@ async function handler(req, context) {
         ""
     ).trim() === "1";
 
+  // Always defined (some response branches don't load Cosmos).
+  let effective_resume_status = null;
+  let progress_notice = null;
+
   if (!sessionId) {
     return json({ ok: false, error: "Missing session_id", ...EMPTY_RESUME_DIAGNOSTICS }, 400, req);
   }
@@ -1153,7 +1221,7 @@ async function handler(req, context) {
     try {
       if (obj && typeof obj === "object" && !Array.isArray(obj)) {
         const sbv = obj.stage_beacon_values && typeof obj.stage_beacon_values === "object" ? obj.stage_beacon_values : null;
-        if (sbv?.status_resume_force_terminalize_selected === true) {
+        if (!STATUS_NO_ORCHESTRATION && sbv?.status_resume_force_terminalize_selected === true) {
           const forcedReason =
             typeof sbv.status_resume_blocked_reason === "string" && sbv.status_resume_blocked_reason.trim()
               ? sbv.status_resume_blocked_reason.trim()
@@ -1355,6 +1423,7 @@ async function handler(req, context) {
     let save_outcome = null;
     let resume_error = null;
     let resume_error_details = null;
+    let stopped = false;
 
     try {
       const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
@@ -1366,12 +1435,18 @@ async function handler(req, context) {
         const client = new CosmosClient({ endpoint, key });
         const container = client.database(databaseId).container(containerId);
 
-        const [sessionDoc, completionDoc, acceptDoc, resumeDoc] = await Promise.all([
+        const [sessionDoc, completionDoc, acceptDoc, resumeDoc, stopDoc] = await Promise.all([
           readControlDoc(container, `_import_session_${sessionId}`, sessionId),
           readControlDoc(container, `_import_complete_${sessionId}`, sessionId),
           readControlDoc(container, `_import_accept_${sessionId}`, sessionId),
           readControlDoc(container, `_import_resume_${sessionId}`, sessionId),
+          readControlDoc(container, `_import_stop_${sessionId}`, sessionId),
         ]);
+
+        stopped = Boolean(stopDoc);
+        const effectiveResumeMeta = computeEffectiveResumeStatus({ resumeDoc, sessionDoc, stopDoc });
+        effective_resume_status = effectiveResumeMeta.effective_resume_status;
+        progress_notice = effectiveResumeMeta.progress_notice;
 
         const domainMeta = deriveDomainAndCreatedAfter({ sessionDoc, acceptDoc });
 
@@ -1721,7 +1796,7 @@ async function handler(req, context) {
 
         const currentResume = await readControlDoc(container, resumeDocId, sessionId).catch(() => null);
 
-        if (!currentResume) {
+        if (!currentResume && !STATUS_NO_ORCHESTRATION) {
           const now = nowIso();
           await upsertDoc(container, {
             id: resumeDocId,
@@ -1752,7 +1827,7 @@ async function handler(req, context) {
 
         // Drift repair: if retryable missing fields still exist but the resume control doc says "complete",
         // reopen it so /import/status polling can keep auto-driving enrichment without requiring a manual click.
-        if (!forceResume && resume_needed && resumeStatus === "complete") {
+        if (!STATUS_NO_ORCHESTRATION && !forceResume && resume_needed && resumeStatus === "complete") {
           const reopenedAt = nowIso();
           stageBeaconValues.status_resume_reopened_from_complete = reopenedAt;
           resumeStatus = "queued";
@@ -2141,7 +2216,7 @@ async function handler(req, context) {
                   });
 
           // Instrumentation for max-cycles stalls (and other force-terminalize policies).
-          stageBeaconValues.status_resume_force_terminalize_selected = Boolean(forceDecision.force);
+          stageBeaconValues.status_resume_force_terminalize_selected = !STATUS_NO_ORCHESTRATION && Boolean(forceDecision.force);
           if (!forceDecision.force) {
             const cap = infraOnlyTimeout
               ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
@@ -2159,7 +2234,7 @@ async function handler(req, context) {
             stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
           }
 
-          if (forceDecision.force) {
+          if (!STATUS_NO_ORCHESTRATION && forceDecision.force) {
             const forcedAt = nowIso();
             stageBeaconValues.status_resume_blocked_reason = forceDecision.reason;
 
@@ -2267,7 +2342,7 @@ async function handler(req, context) {
           }
         } catch {}
 
-        if (
+        if (!STATUS_NO_ORCHESTRATION &&
           canTrigger &&
           (resumeStatus === "queued" || resumeStatus === "blocked" || resumeStatus === "error" || resumeStatus === "stalled" || (forceResume && resumeStatus !== "running"))
         ) {
@@ -2702,6 +2777,7 @@ async function handler(req, context) {
         session_id: sessionId,
         status: effectiveStatus,
         state: effectiveState,
+        stopped,
         job_state: effectiveJobState,
         stage_beacon: effectiveStageBeacon,
         stage_beacon_values: stageBeaconValues,
@@ -2738,6 +2814,8 @@ async function handler(req, context) {
         reconcile_strategy,
         reconciled_saved_ids,
         saved_companies,
+        effective_resume_status,
+        ...(progress_notice ? { progress_notice } : {}),
         resume_needed,
         resume_cycle_count:
           (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
@@ -2900,7 +2978,7 @@ async function handler(req, context) {
       const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
       const maxCyclesBlocked = out?.resume_needed === true && (blockedReason.startsWith("max_cycles") || cycleCount >= cap);
 
-      if (maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
+      if (!STATUS_NO_ORCHESTRATION && maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
         stageBeaconValues.status_resume_force_terminalize_selected = true;
         stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
 
@@ -2952,7 +3030,7 @@ async function handler(req, context) {
         ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
         : null;
 
-    if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
+    if (!STATUS_NO_ORCHESTRATION && terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
     else {
       // "complete" status can mean the *primary* job is finished, while enrichment may still be incomplete.
       // Only mark the overall import as completed when resume is not needed.
@@ -3356,6 +3434,11 @@ async function handler(req, context) {
     const timedOut = Boolean(timeoutDoc);
     const stopped = Boolean(stopDoc);
     const completed = Boolean(completionDoc);
+    const completionOverride = Boolean(completionDoc && typeof completionDoc.completed_at === "string" && completionDoc.completed_at.trim());
+
+    const effectiveResumeMeta = computeEffectiveResumeStatus({ resumeDoc, sessionDoc, stopDoc });
+    effective_resume_status = effectiveResumeMeta.effective_resume_status;
+    progress_notice = effectiveResumeMeta.progress_notice;
 
     const domainMeta = deriveDomainAndCreatedAfter({ sessionDoc, acceptDoc });
 
@@ -3730,7 +3813,7 @@ async function handler(req, context) {
         const resumeDocId = `_import_resume_${sessionId}`;
         let currentResume = typeof resumeDoc !== "undefined" ? resumeDoc : null;
 
-        if (!currentResume) {
+        if (!currentResume && !STATUS_NO_ORCHESTRATION) {
           const now = nowIso();
           await upsertDoc(container, {
             id: resumeDocId,
@@ -3760,7 +3843,7 @@ async function handler(req, context) {
 
         // Drift repair: if retryable missing fields still exist but the resume control doc says "complete",
         // reopen it so /import/status polling can keep auto-driving enrichment without requiring a manual click.
-        if (!forceResume && resume_needed && resumeStatus === "complete") {
+        if (!STATUS_NO_ORCHESTRATION && !forceResume && resume_needed && resumeStatus === "complete") {
           const reopenedAt = nowIso();
           stageBeaconValues.status_resume_reopened_from_complete = reopenedAt;
           resumeStatus = "queued";
@@ -4097,7 +4180,7 @@ async function handler(req, context) {
                   });
 
           // Instrumentation for max-cycles stalls (and other force-terminalize policies).
-          stageBeaconValues.status_resume_force_terminalize_selected = Boolean(forceDecision.force);
+          stageBeaconValues.status_resume_force_terminalize_selected = !STATUS_NO_ORCHESTRATION && Boolean(forceDecision.force);
           if (!forceDecision.force) {
             const cap = infraOnlyTimeout
               ? Math.max(MAX_RESUME_CYCLES_SINGLE, MAX_RESUME_CYCLES_SINGLE_TIMEOUT_ONLY)
@@ -4115,7 +4198,7 @@ async function handler(req, context) {
             stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
           }
 
-          if (forceDecision.force) {
+          if (!STATUS_NO_ORCHESTRATION && forceDecision.force) {
             const forcedAt = nowIso();
             stageBeaconValues.status_resume_blocked_reason = forceDecision.reason;
 
@@ -4223,7 +4306,7 @@ async function handler(req, context) {
           }
         } catch {}
 
-        if (
+        if (!STATUS_NO_ORCHESTRATION &&
           canTrigger &&
           (resumeStatus === "queued" || resumeStatus === "blocked" || resumeStatus === "error" || resumeStatus === "stalled" || (forceResume && resumeStatus !== "running"))
         ) {
@@ -4639,6 +4722,8 @@ async function handler(req, context) {
           reconcile_strategy,
           reconciled_saved_ids,
         saved_companies,
+        effective_resume_status,
+        ...(progress_notice ? { progress_notice } : {}),
         resume_needed,
         resume_cycle_count:
           (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
@@ -4756,13 +4841,25 @@ async function handler(req, context) {
           report,
         };
 
-      if (stageBeaconValues?.status_resume_force_terminalize_selected === true) {
+      if (!STATUS_NO_ORCHESTRATION && stageBeaconValues?.status_resume_force_terminalize_selected === true) {
         const forcedReason =
           typeof stageBeaconValues.status_resume_blocked_reason === "string" && stageBeaconValues.status_resume_blocked_reason.trim()
             ? stageBeaconValues.status_resume_blocked_reason.trim()
             : "force_terminalize_selected";
 
         applyTerminalOnlyCompletion(out, forcedReason);
+      }
+
+      if (completionOverride) {
+        out.completed = true;
+        out.terminal_only = true;
+        out.status = "complete";
+        out.state = "complete";
+        out.resume_needed = false;
+        out.resume = out.resume && typeof out.resume === "object" ? out.resume : {};
+        out.resume.needed = false;
+        out.resume.status = "done";
+        out.effective_resume_status = "done";
       }
 
       return jsonWithSessionId(out, 200, req);
@@ -5004,6 +5101,8 @@ async function handler(req, context) {
           reconcile_strategy,
           reconciled_saved_ids,
         saved_companies,
+        effective_resume_status,
+        ...(progress_notice ? { progress_notice } : {}),
         resume_needed,
         resume_cycle_count:
           (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
@@ -5133,7 +5232,7 @@ async function handler(req, context) {
       const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
       const maxCyclesBlocked = out?.resume_needed === true && (blockedReason.startsWith("max_cycles") || cycleCount >= cap);
 
-      if (maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
+      if (!STATUS_NO_ORCHESTRATION && maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
         stageBeaconValues.status_resume_force_terminalize_selected = true;
         stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
 
@@ -5183,8 +5282,8 @@ async function handler(req, context) {
         ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
         : null;
 
-    if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
-      else {
+    if (!STATUS_NO_ORCHESTRATION && terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
+    else {
         out.completed = true;
         out.terminal_only = false;
 
@@ -5207,6 +5306,18 @@ async function handler(req, context) {
           if (finalized > 0) stageBeaconValues.status_reviews_finalized_on_completion = nowIso();
         }
       } catch {}
+
+      if (completionOverride) {
+        out.completed = true;
+        out.terminal_only = true;
+        out.status = "complete";
+        out.state = "complete";
+        out.resume_needed = false;
+        out.resume = out.resume && typeof out.resume === "object" ? out.resume : {};
+        out.resume.needed = false;
+        out.resume.status = "done";
+        out.effective_resume_status = "done";
+      }
 
       return jsonWithSessionId(out, 200, req);
     }
@@ -5254,6 +5365,8 @@ async function handler(req, context) {
         reconcile_strategy,
         reconciled_saved_ids,
         saved_companies,
+        effective_resume_status,
+        ...(progress_notice ? { progress_notice } : {}),
         resume_needed,
         resume_cycle_count:
           (typeof sessionDoc !== "undefined" && sessionDoc && typeof sessionDoc === "object")
@@ -5383,7 +5496,7 @@ async function handler(req, context) {
       const cycleCount = Number(stageBeaconValues.status_resume_cycle_count || out?.resume_cycle_count || 0) || 0;
       const maxCyclesBlocked = out?.resume_needed === true && (blockedReason.startsWith("max_cycles") || cycleCount >= cap);
 
-      if (maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
+      if (!STATUS_NO_ORCHESTRATION && maxCyclesBlocked && !stageBeaconValues.status_resume_terminal_only) {
         stageBeaconValues.status_resume_force_terminalize_selected = true;
         stageBeaconValues.status_resume_force_terminalize_skip_reason = null;
 
@@ -5433,7 +5546,7 @@ async function handler(req, context) {
         ? stageBeaconValues.status_resume_forced_terminalize_reason || "terminal_only_missing"
         : null;
 
-    if (terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
+    if (!STATUS_NO_ORCHESTRATION && terminalOnlyReason) applyTerminalOnlyCompletion(out, terminalOnlyReason);
     else {
       out.completed = false;
       out.terminal_only = false;

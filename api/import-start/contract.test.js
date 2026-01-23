@@ -1748,14 +1748,12 @@ test("/api/import/status auto-triggers resume-worker when resume status is block
 
         assert.equal(statusBody.resume_needed, true);
         assert.equal(statusBody.resume?.status, "blocked");
-        assert.equal(statusBody.stage_beacon, "enrichment_resume_blocked");
 
-        // Key behavior: blocked is treated as a throttled state; status should auto-trigger resume-worker.
-        assert.ok(statusBody.stage_beacon_values?.status_resume_blocked_auto_retry);
-        assert.equal(statusBody.resume?.triggered, true);
-        assert.ok(statusBody.stage_beacon_values?.status_trigger_resume_worker);
+        // Status endpoint is read-only + watchdog only: it must not orchestrate resume-worker.
+        assert.equal(Boolean(statusBody.stage_beacon_values?.status_trigger_resume_worker), false);
+        assert.equal(Boolean(statusBody.resume?.triggered), false);
 
-        // Sanity: resume doc remains blocked.
+        // Sanity: status must not mutate control docs.
         assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "blocked");
       } finally {
         require.cache[cosmosModuleId].exports = originalCosmosExports;
@@ -2026,16 +2024,18 @@ test("/api/import/status reopens completed resume doc when retryable missing fie
         assert.equal(statusBody.ok, true);
         assert.equal(statusBody.session_id, session_id);
 
-        // Core invariant: drift is repaired automatically.
-        assert.ok(statusBody.stage_beacon_values?.status_resume_reopened_from_complete);
-        assert.equal(statusBody.resume?.status, "queued");
-        assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "queued");
-        assert.equal(docsById.get(`_import_session_${session_id}`)?.status, "running");
-        assert.equal(docsById.get(`_import_session_${session_id}`)?.resume_needed, true);
+        // Status endpoint is read-only + watchdog only: it must not "repair drift" by reopening resume docs.
+        assert.equal(Boolean(statusBody.stage_beacon_values?.status_resume_reopened_from_complete), false);
+        assert.ok(["done", "complete"].includes(String(statusBody.resume?.status || "")));
 
-        // And it auto-triggers the resume worker without manual force_resume.
-        assert.ok(statusBody.stage_beacon_values?.status_trigger_resume_worker);
-        assert.equal(statusBody.resume?.triggered, true);
+        // Sanity: status must not mutate persisted control docs.
+        assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "complete");
+        assert.equal(docsById.get(`_import_session_${session_id}`)?.status, "complete");
+        assert.equal(docsById.get(`_import_session_${session_id}`)?.resume_needed, false);
+
+        // And it must not invoke the resume worker.
+        assert.equal(Boolean(statusBody.resume?.triggered), false);
+        assert.equal(Boolean(statusBody.stage_beacon_values?.status_trigger_resume_worker), false);
       } finally {
         require.cache[cosmosModuleId].exports = originalCosmosExports;
         if (require.cache[resumeWorkerModuleId]) {
@@ -2276,28 +2276,24 @@ test("/api/import/status force-terminalizes and completes when cycle cap reached
         assert.equal(statusBody.ok, true);
         assert.equal(statusBody.session_id, session_id);
 
-        assert.equal(statusBody.resume_needed, false);
-        assert.equal(statusBody.stage_beacon, "status_resume_terminal_only");
-        assert.equal(statusBody.resume?.status, "complete");
+        // Status endpoint must not force-terminalize.
+        assert.equal(Boolean(statusBody.terminal_only), false);
+        assert.notEqual(statusBody.stage_beacon, "status_resume_terminal_only");
+        assert.notEqual(statusBody.resume?.status, "complete");
 
-        assert.ok(statusBody.stage_beacon_values?.status_resume_terminal_only);
-        assert.equal(statusBody.stage_beacon_values?.status_resume_forced_terminalize_reason, "max_cycles");
+        assert.equal(Boolean(statusBody.stage_beacon_values?.status_resume_terminal_only), false);
+        assert.equal(Boolean(statusBody.stage_beacon_values?.status_resume_force_terminalize_selected), false);
 
-        // Forced terminalization should clear resume_error; remaining missing fields become terminalized.
-        assert.equal(statusBody.resume_error, null);
+        // Sanity: status must not mutate persisted control docs or terminalize company fields.
+        assert.notEqual(docsById.get(`_import_session_${session_id}`)?.stage_beacon, "status_resume_terminal_only");
+        assert.notEqual(docsById.get(`_import_resume_${session_id}`)?.status, "complete");
 
-        // Best-effort persistence to control docs.
-        assert.equal(docsById.get(`_import_session_${session_id}`)?.stage_beacon, "status_resume_terminal_only");
-        assert.equal(docsById.get(`_import_session_${session_id}`)?.resume_needed, false);
-        assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "complete");
-
-        // And we actually terminalize missing fields on the company doc (no retry loop).
         const updatedCompany = docsById.get("company_1");
-        assert.equal(updatedCompany?.import_missing_reason?.industries, "exhausted");
-        assert.equal(updatedCompany?.import_missing_reason?.product_keywords, "exhausted");
-        assert.equal(updatedCompany?.import_missing_reason?.headquarters_location, "exhausted");
-        assert.equal(updatedCompany?.import_missing_reason?.manufacturing_locations, "exhausted");
-        assert.equal(updatedCompany?.import_missing_reason?.reviews, "exhausted");
+        assert.equal(updatedCompany?.import_missing_reason?.industries, "not_found");
+        assert.equal(updatedCompany?.import_missing_reason?.product_keywords, "not_found");
+        assert.equal(updatedCompany?.import_missing_reason?.headquarters_location, "not_found");
+        assert.equal(updatedCompany?.import_missing_reason?.manufacturing_locations, "not_found");
+        assert.equal(updatedCompany?.import_missing_reason?.reviews, "not_found");
       } finally {
         require.cache[cosmosModuleId].exports = originalCosmosExports;
         delete require.cache[importStatusModuleId];
@@ -2544,17 +2540,17 @@ test("/api/import/status force-terminalizes max_cycles even when already blocked
         assert.equal(statusBody.ok, true);
         assert.equal(statusBody.session_id, session_id);
 
-        assert.equal(statusBody.resume_needed, false);
-        assert.equal(statusBody.stage_beacon, "status_resume_terminal_only");
-        assert.equal(statusBody.resume?.status, "complete");
+        // force_resume=1 is ignored by import-status (read-only).
+        assert.equal(Boolean(statusBody.terminal_only), false);
+        assert.notEqual(statusBody.stage_beacon, "status_resume_terminal_only");
+        assert.notEqual(statusBody.resume?.status, "complete");
 
-        assert.equal(statusBody.stage_beacon_values?.status_resume_force_terminalize_selected, true);
-        assert.ok(statusBody.stage_beacon_values?.status_resume_terminal_only);
+        assert.equal(Boolean(statusBody.stage_beacon_values?.status_resume_force_terminalize_selected), false);
+        assert.equal(Boolean(statusBody.stage_beacon_values?.status_resume_terminal_only), false);
 
-        // Best-effort persistence to control docs.
-        assert.equal(docsById.get(`_import_session_${session_id}`)?.stage_beacon, "status_resume_terminal_only");
-        assert.equal(docsById.get(`_import_session_${session_id}`)?.resume_needed, false);
-        assert.equal(docsById.get(`_import_resume_${session_id}`)?.status, "complete");
+        // Sanity: status must not mutate control docs.
+        assert.notEqual(docsById.get(`_import_session_${session_id}`)?.stage_beacon, "status_resume_terminal_only");
+        assert.notEqual(docsById.get(`_import_resume_${session_id}`)?.status, "complete");
       } finally {
         require.cache[cosmosModuleId].exports = originalCosmosExports;
         delete require.cache[importStatusModuleId];
@@ -2812,21 +2808,13 @@ test("/api/import/status converges to terminal-only even when stopped (mock cosm
         assert.equal(statusBody.ok, true);
         assert.equal(statusBody.session_id, session_id);
 
-        assert.equal(statusBody.resume_needed, false);
-        assert.equal(statusBody.terminal_only, true);
-        assert.equal(statusBody.status, "complete");
-        assert.equal(statusBody.state, "complete");
-        assert.equal(statusBody.stage_beacon, "status_resume_terminal_only");
-        assert.equal(statusBody.resume?.status, "complete");
+        // Stopped session should report stopped and not be forced to terminal-only by status.
+        assert.equal(statusBody.stopped, true);
+        assert.equal(statusBody.effective_resume_status, "stopped");
+        assert.equal(Boolean(statusBody.terminal_only), false);
 
-        assert.equal(statusBody.stage_beacon_values?.status_resume_force_terminalize_selected, true);
-        assert.ok(statusBody.stage_beacon_values?.status_resume_terminal_only);
-
-        // Force-terminalization must override stopped/IMPORT_STOPPED shaping.
-        assert.ok(statusBody.last_error == null);
-        assert.ok(statusBody.error == null);
-        assert.ok(statusBody.root_cause == null);
-        assert.ok(statusBody.progress_error == null);
+        assert.equal(Boolean(statusBody.stage_beacon_values?.status_resume_force_terminalize_selected), false);
+        assert.equal(Boolean(statusBody.stage_beacon_values?.status_resume_terminal_only), false);
       } finally {
         require.cache[cosmosModuleId].exports = originalCosmosExports;
         delete require.cache[importStatusModuleId];
