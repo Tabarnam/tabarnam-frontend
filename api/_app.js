@@ -49,6 +49,9 @@ const app =
     http: (name, opts) => {
       getRegistrations().push({ name, ...(opts || {}) });
     },
+    storageQueue: (name, opts) => {
+      // Fallback: no-op for local dev when @azure/functions is unavailable
+    },
   });
 
 function listRoutes() {
