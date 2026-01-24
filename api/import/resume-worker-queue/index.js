@@ -1,9 +1,5 @@
-let app;
-try {
-  ({ app } = require("@azure/functions"));
-} catch {
-  app = null;
-}
+// Import app from the centralized app setup (api/_app.js) which handles fallbacks
+const { app } = require("../_app");
 
 const { resumeWorkerQueueHandler } = require("./handler");
 
