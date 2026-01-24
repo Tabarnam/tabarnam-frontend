@@ -1,6 +1,14 @@
 // api/index.js - register all functions (CommonJS / v4 app model)
 const { app } = require("./_app");
 
+// Force-load queue trigger modules on cold start
+require("./_enrichmentQueue");
+require("./import/resume-worker-queue/index");
+
+// Log queue configuration
+const { logQueueConfigOnce, resolveQueueConfig } = require("./_enrichmentQueue");
+logQueueConfigOnce(resolveQueueConfig());
+
 console.log("[api/index.js] Starting handler registration...");
 
 const ROUTES_TEST_MODE = process.env.TABARNAM_API_INDEX_MODE === "routes-test";
