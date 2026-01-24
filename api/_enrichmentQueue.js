@@ -53,13 +53,7 @@ function logQueueConfigOnce(cfg) {
   didLogConfig = true;
 
   try {
-    console.info("[enrichmentQueue] resolved config", {
-      provider: cfg?.provider,
-      queue_name: cfg?.queueName,
-      connection_source: cfg?.connection_source,
-      has_connection_string: Boolean(cfg?.connectionString),
-      binding_connection_setting_name: cfg?.binding_connection_setting_name,
-    });
+    console.info(`[enrichment-queue-config] queue=${cfg?.queueName} source_env=${cfg?.connection_source} trigger_connection_setting=${cfg?.binding_connection_setting_name}`);
   } catch {
     // Ignore logging failures.
   }
