@@ -167,4 +167,5 @@ async function enqueueResumeRun({
 module.exports = {
   enqueueResumeRun,
   resolveQueueConfig,
+  logQueueConfigOnce,
 };
