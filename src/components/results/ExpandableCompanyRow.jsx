@@ -540,11 +540,11 @@ export default function ExpandableCompanyRow({
               <img
                 src={logoUrl}
                 alt={displayName}
-                className="w-full h-24 object-contain mb-3"
+                className="w-full h-40 object-contain mb-3"
                 onError={() => setLogoFailed(true)}
               />
             ) : (
-              <div className="w-full h-24 mb-3 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-2xl">
+              <div className="w-full h-40 mb-3 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-2xl">
                 {logoStatus === "not_found_on_site" ? (
                   <span className="text-sm font-semibold text-gray-500">No logo found on company website</span>
                 ) : logoStatus === "not_found" ? (
@@ -710,11 +710,11 @@ export default function ExpandableCompanyRow({
           <img
             src={logoUrl}
             alt={displayName}
-            className="w-full h-20 object-contain mb-2"
+            className="w-full h-32 object-contain mb-2"
             onError={() => setLogoFailed(true)}
           />
         ) : (
-          <div className="w-full h-20 mb-2 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-lg">
+          <div className="w-full h-32 mb-2 bg-gray-100 rounded flex items-center justify-center text-gray-700 font-bold text-lg">
             {logoStatus === "not_found_on_site" ? (
               <span className="text-xs font-semibold text-gray-500">No logo found on company website</span>
             ) : logoStatus === "not_found" ? (
