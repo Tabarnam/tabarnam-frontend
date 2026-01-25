@@ -14,4 +14,5 @@ test("api/index.js registers refresh-company routes", () => {
   assert.ok(routes.includes("admin/companies/{company_id}/history"), "missing route: admin/companies/{company_id}/history");
   assert.ok(routes.includes("admin-company-history"), "missing route: admin-company-history");
   assert.ok(routes.includes("company-logo"), "missing route: company-logo");
+  assert.ok(routes.includes("import-one"), "missing route: import-one");
 });
