@@ -3179,16 +3179,26 @@ export default function AdminImport() {
     if (startImportRequestInFlightRef.current) return;
 
     startImportRequestInFlightRef.current = true;
-    beginImport();
 
-    // If beginImport bails early (validation/config), don't lock the UI.
+    const q = query.trim();
+    const isUrl = looksLikeUrlOrDomain(q);
+
+    if (isUrl) {
+      // Single URL import using new import-one endpoint
+      beginImportOneUrl();
+    } else {
+      // Bulk import using traditional import-start
+      beginImport();
+    }
+
+    // If either handler bails early (validation/config), don't lock the UI.
     setTimeout(() => {
       const status = activeStatusRef.current;
       if (status !== "running" && status !== "stopping") {
         startImportRequestInFlightRef.current = false;
       }
     }, 0);
-  }, [beginImport, startImportDisabled]);
+  }, [query, beginImport, beginImportOneUrl, startImportDisabled]);
 
   const handleQueryInputEnter = useCallback(
     (e) => {
