@@ -3,7 +3,7 @@ const { app } = require("./_app");
 
 // Force-load queue trigger modules on cold start
 const { logQueueConfigOnce, resolveQueueConfig } = require("./_enrichmentQueue");
-require("./import/resume-worker-queue/index");
+require("./import-resume-worker-queue/index");
 
 // Log queue configuration on cold start
 logQueueConfigOnce(resolveQueueConfig());
