@@ -46,6 +46,16 @@ jobs:
           set -euo pipefail
           printf "%s" "${{ github.sha }}" > api/__build_id.txt
 
+      - name: Debug dist output
+        run: |
+          echo "PWD=$(pwd)"
+          ls -la
+          ls -la dist || true
+          echo "----- dist/index.html (first 120 lines) -----"
+          sed -n '1,120p' dist/index.html || true
+          echo "----- grep for assets -----"
+          grep -n "/assets/index-" dist/index.html || true
+
       - name: Sanity checks
         shell: bash
         run: |
