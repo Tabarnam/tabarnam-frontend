@@ -234,10 +234,10 @@ try {
 }
 
 try {
-  console.log("[api] Registering: import/resume-worker-queue");
-  require("./import/resume-worker-queue/index.js");
+  console.log("[api] Registering: import-resume-worker-queue");
+  require("./import-resume-worker-queue/index.js");
 } catch (e) {
-  console.error("[api] Failed to load import/resume-worker-queue:", e?.message || e);
+  console.error("[api] Failed to load import-resume-worker-queue:", e?.message || e);
 }
 
 try {
