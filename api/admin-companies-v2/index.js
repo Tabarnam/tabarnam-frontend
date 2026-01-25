@@ -253,6 +253,19 @@ function buildHeadquartersSeedFromDoc(doc) {
     if (typeof h === "string") return h.trim() === primaryRaw;
     if (typeof h !== "object") return false;
     const candidates = [h.address, h.full_address, h.formatted, h.location].map((v) => (typeof v === "string" ? v.trim() : ""));
+
+    // Also check composite location format (city, region, country)
+    const city = typeof h.city === "string" ? h.city.trim() : "";
+    const region = typeof (h.region || h.state) === "string" ? String(h.region || h.state).trim() : "";
+    const country = typeof h.country === "string" ? h.country.trim() : "";
+
+    if (city && region && country) {
+      candidates.push(`${city}, ${region}, ${country}`);
+    }
+    if (city && country) {
+      candidates.push(`${city}, ${country}`);
+    }
+
     return candidates.some((c) => c === primaryRaw);
   });
 
