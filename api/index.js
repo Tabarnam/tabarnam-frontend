@@ -250,6 +250,13 @@ try {
 }
 
 try {
+  console.log("[api] Registering: import-one");
+  require("./import-one/index.js");
+} catch (e) {
+  console.error("[api] Failed to load import-one:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: import-stop");
   require("./import-stop/index.js");
 } catch (e) {
