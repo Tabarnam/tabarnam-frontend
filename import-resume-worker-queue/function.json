@@ -1,0 +1,12 @@
+{
+  "scriptFile": "index.js",
+  "bindings": [
+    {
+      "type": "storageQueue",
+      "direction": "in",
+      "name": "msg",
+      "queueName": "%ENRICHMENT_QUEUE_NAME%",
+      "connection": "%ENRICHMENT_QUEUE_CONNECTION_SETTING%"
+    }
+  ]
+}
