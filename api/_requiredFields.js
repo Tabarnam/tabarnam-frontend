@@ -547,8 +547,8 @@ function isRealValue(field, value, doc) {
       keywords: doc?.keywords,
     });
 
-    // Quality gate: require at least 20 product-relevant keywords after sanitization.
-    if (stats.product_relevant_count < 20) return false;
+    // Quality gate: require at least 1 meaningful keyword after sanitization.
+    if (stats.product_relevant_count < 1) return false;
     return true;
   }
 
