@@ -318,6 +318,54 @@ function buildNormalizedSearchFilter(terms_norm, terms_compact, params) {
   return conditions.length === 1 ? conditions[0] : `(${conditions.join(" OR ")})`;
 }
 
+/**
+ * Build a legacy search filter using expanded terms
+ * This allows multiple CONTAINS checks for different term variations
+ */
+function buildLegacySearchFilterWithTerms(terms_norm, terms_compact, params) {
+  if (!terms_norm.length && !terms_compact.length) {
+    return "";
+  }
+
+  const conditions = [];
+  const fieldChecker = (fieldName, paramName) =>
+    `(IS_DEFINED(c.${fieldName}) AND IS_STRING(c.${fieldName}) AND CONTAINS(LOWER(c.${fieldName}), ${paramName}))`;
+  const fieldArrayChecker = (arrayField, paramName) =>
+    `(IS_ARRAY(c.${arrayField}) AND ARRAY_LENGTH(ARRAY(SELECT VALUE item FROM item IN c.${arrayField} WHERE IS_STRING(item) AND CONTAINS(LOWER(item), ${paramName}))) > 0)`;
+
+  const fields = ["company_name", "display_name", "name", "product_keywords", "keywords", "industries", "normalized_domain", "amazon_url"];
+  const arrayFields = ["product_keywords", "keywords", "industries"];
+  let paramIndex = 1;
+
+  // For each term, add conditions for all fields
+  const allTerms = [...new Set([...terms_norm, ...terms_compact])];
+
+  for (const term of allTerms) {
+    if (term) {
+      const paramName = `@term${paramIndex}`;
+      params.push({ name: paramName, value: term.toLowerCase() });
+
+      // Add conditions for each field
+      for (const field of fields) {
+        conditions.push(fieldChecker(field, paramName));
+      }
+
+      // Add array field conditions
+      for (const field of arrayFields) {
+        if (!fields.includes(field)) {  // avoid duplicating string fields that are also arrays
+          conditions.push(fieldArrayChecker(field, paramName));
+        }
+      }
+
+      paramIndex++;
+    }
+  }
+
+  // Join all conditions with OR
+  if (conditions.length === 0) return "";
+  return conditions.length === 1 ? conditions[0] : `(${conditions.join(" OR ")})`;
+}
+
 const SELECT_FIELDS = [
   // Identity / names
   "c.id",
