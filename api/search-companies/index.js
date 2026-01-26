@@ -646,10 +646,9 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
       if (sort === "manu") {
         // Build search filter that handles both spaced and non-spaced queries
-        // Always enable collapsed variant matching for flexible search
         let searchFilter = "";
         if (q_norm) {
-          const legacyFilter = buildLegacySearchFilter(true);
+          const legacyFilter = buildLegacySearchFilter();
           searchFilter = whereTextFilter
             ? `AND (((${whereTextFilter}) OR (${legacyFilter})) AND ${softDeleteFilter})`
             : `AND ((${legacyFilter}) AND ${softDeleteFilter})`;
@@ -707,7 +706,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         let searchFilter = "";
         if (q_norm) {
           // Combine normalized search with legacy search as fallback
-          const legacyFilter = buildLegacySearchFilter(true);
+          const legacyFilter = buildLegacySearchFilter();
           searchFilter = whereTextFilter
             ? `AND (((${whereTextFilter}) OR (${legacyFilter})) AND ${softDeleteFilter})`
             : `AND ((${legacyFilter}) AND ${softDeleteFilter})`;
