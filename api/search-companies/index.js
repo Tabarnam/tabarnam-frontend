@@ -647,13 +647,13 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
 
       if (sort === "manu") {
-        // Combine normalized search (if fields exist) with legacy search as fallback
-        // This handles both new records (with search_text_norm/compact) and old records
+        // Build search filter that handles both spaced and non-spaced queries
         let searchFilter = "";
         if (q_norm) {
+          const legacyFilter = buildLegacySearchFilter(q_norm, q_compact);
           searchFilter = whereTextFilter
-            ? `AND (((${whereTextFilter}) OR (${SQL_TEXT_FILTER})) AND ${softDeleteFilter})`
-            : `AND ((${SQL_TEXT_FILTER}) AND ${softDeleteFilter})`;
+            ? `AND (((${whereTextFilter}) OR (${legacyFilter})) AND ${softDeleteFilter})`
+            : `AND ((${legacyFilter}) AND ${softDeleteFilter})`;
         } else {
           searchFilter = `AND ${softDeleteFilter}`;
         }
@@ -667,7 +667,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           `;
         const paramsA = [{ name: "@take", value: limit }];
         if (q_norm) {
-          paramsA.push({ name: "@q", value: q_norm.toLowerCase() });
+          paramsA.push({ name: "@q_norm", value: q_norm.toLowerCase() });
+          paramsA.push({ name: "@q_compact", value: q_compact.toLowerCase() });
           // Add normalized search parameters
           if (whereTextFilter) {
             paramsA.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
@@ -690,7 +691,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             `;
           const paramsB = [{ name: "@take2", value: remaining }];
           if (q_norm) {
-            paramsB.push({ name: "@q", value: q_norm.toLowerCase() });
+            paramsB.push({ name: "@q_norm", value: q_norm.toLowerCase() });
+            paramsB.push({ name: "@q_compact", value: q_compact.toLowerCase() });
             // Add normalized search parameters
             if (whereTextFilter) {
               paramsB.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
@@ -706,9 +708,10 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         let searchFilter = "";
         if (q_norm) {
           // Combine normalized search with legacy search as fallback
+          const legacyFilter = buildLegacySearchFilter(q_norm, q_compact);
           searchFilter = whereTextFilter
-            ? `AND (((${whereTextFilter}) OR (${SQL_TEXT_FILTER})) AND ${softDeleteFilter})`
-            : `AND ((${SQL_TEXT_FILTER}) AND ${softDeleteFilter})`;
+            ? `AND (((${whereTextFilter}) OR (${legacyFilter})) AND ${softDeleteFilter})`
+            : `AND ((${legacyFilter}) AND ${softDeleteFilter})`;
         } else {
           searchFilter = `AND ${softDeleteFilter}`;
         }
@@ -723,7 +726,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
         const queryParams = [{ name: "@take", value: limit }];
         if (q_norm) {
-          queryParams.push({ name: "@q", value: q_norm.toLowerCase() });
+          queryParams.push({ name: "@q_norm", value: q_norm.toLowerCase() });
+          queryParams.push({ name: "@q_compact", value: q_compact.toLowerCase() });
           // Add normalized search parameters
           if (whereTextFilter) {
             queryParams.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
