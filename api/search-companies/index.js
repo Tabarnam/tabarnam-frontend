@@ -674,9 +674,6 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       let items = [];
       const params = [{ name: "@take", value: limit }];
 
-      // Check if the raw query had spaces (indicating user might want flexible matching)
-      const rawHadSpaces = q_raw.includes(" ");
-
       // Expand query terms using synonyms
       let terms_norm = [], terms_compact = [];
       let whereTextFilter = "";
