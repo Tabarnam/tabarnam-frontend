@@ -9,6 +9,7 @@ import {
 } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { initializeAzureUser } from "@/lib/azureAuth";
+import { logWiringDiagnostics } from "@/lib/diagnostics";
 
 import AdminPanel from "@pages/AdminPanel";
 import CompanyDashboard from "@pages/CompanyDashboard";
