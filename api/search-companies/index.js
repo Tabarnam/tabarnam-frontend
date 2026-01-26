@@ -234,53 +234,9 @@ function compareCompanies(sortField, dir, a, b) {
 }
 
 // Helper to build search filter that handles both spaced and non-spaced queries
-// When q_norm and q_compact differ (e.g., "bodywash" matches "body wash"), we need to check collapsed form
-function buildLegacySearchFilter(hasCollapsedVariant) {
-  if (!hasCollapsedVariant) {
-    // If no collapsed variant (q_norm == q_compact), just use simple @q parameter
-    return `
-      (IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND CONTAINS(LOWER(c.company_name), @q)) OR
-      (IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND CONTAINS(LOWER(c.display_name), @q)) OR
-      (IS_DEFINED(c.name) AND IS_STRING(c.name) AND CONTAINS(LOWER(c.name), @q)) OR
-      (IS_DEFINED(c.product_keywords) AND IS_STRING(c.product_keywords) AND CONTAINS(LOWER(c.product_keywords), @q)) OR
-      (
-        IS_ARRAY(c.product_keywords) AND
-        ARRAY_LENGTH(
-          ARRAY(
-            SELECT VALUE kw
-            FROM kw IN c.product_keywords
-            WHERE IS_STRING(kw) AND CONTAINS(LOWER(kw), @q)
-          )
-        ) > 0
-      ) OR
-      (IS_DEFINED(c.keywords) AND IS_STRING(c.keywords) AND CONTAINS(LOWER(c.keywords), @q)) OR
-      (
-        IS_ARRAY(c.keywords) AND
-        ARRAY_LENGTH(
-          ARRAY(
-            SELECT VALUE k
-            FROM k IN c.keywords
-            WHERE IS_STRING(k) AND CONTAINS(LOWER(k), @q)
-          )
-        ) > 0
-      ) OR
-      (IS_DEFINED(c.industries) AND IS_STRING(c.industries) AND CONTAINS(LOWER(c.industries), @q)) OR
-      (
-        IS_ARRAY(c.industries) AND
-        ARRAY_LENGTH(
-          ARRAY(
-            SELECT VALUE i
-            FROM i IN c.industries
-            WHERE IS_STRING(i) AND CONTAINS(LOWER(i), @q)
-          )
-        ) > 0
-      ) OR
-      (IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND CONTAINS(LOWER(c.normalized_domain), @q)) OR
-      (IS_DEFINED(c.amazon_url) AND IS_STRING(c.amazon_url) AND CONTAINS(LOWER(c.amazon_url), @q))
-    `;
-  }
-
-  // If there's a collapsed variant, check both forms
+// Uses both @q (from first term) and @q_compact to allow flexible matching
+function buildLegacySearchFilter() {
+  // Build filter that checks both @q and @q_compact in each field
   return `
     (IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND (CONTAINS(LOWER(c.company_name), @q) OR CONTAINS(REPLACE(LOWER(c.company_name), " ", ""), @q_compact))) OR
     (IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND (CONTAINS(LOWER(c.display_name), @q) OR CONTAINS(REPLACE(LOWER(c.display_name), " ", ""), @q_compact))) OR
