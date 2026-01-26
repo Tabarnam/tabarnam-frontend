@@ -47,6 +47,15 @@ const COUNTRY_CENTERS_DATA = [
   { "code": "EG", "name": "Egypt", "lat": 26.8206, "lng": 30.8025 },
 ];
 
+// Common country name aliases and abbreviations
+const COUNTRY_ALIASES = {
+  "USA": "US",
+  "UK": "GB",
+  "REPUBLIC OF KOREA": "KR",
+  "SOUTH KOREA": "KR",
+  "KOREA": "KR",
+};
+
 let countryCentersCache = null;
 function getCountryCenters() {
   if (countryCentersCache) return countryCentersCache;
@@ -57,6 +66,15 @@ function getCountryCenters() {
     byCode[item.code.toUpperCase()] = { lat: item.lat, lng: item.lng };
     byName[item.name.toUpperCase()] = { lat: item.lat, lng: item.lng };
   }
+
+  // Add aliases
+  for (const [alias, code] of Object.entries(COUNTRY_ALIASES)) {
+    if (byCode[code]) {
+      byCode[alias] = byCode[code];
+      byName[alias] = byCode[code];
+    }
+  }
+
   countryCentersCache = { byCode, byName };
   return countryCentersCache;
 }
