@@ -80,6 +80,9 @@ export default function App() {
     initializeAzureUser().catch(err => {
       console.error('[App] Failed to initialize Azure user:', err);
     });
+
+    // Log API wiring diagnostics for troubleshooting
+    logWiringDiagnostics();
   }, []);
 
   return (
