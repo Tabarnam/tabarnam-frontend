@@ -770,7 +770,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         message: e?.message,
         stack: e?.stack,
         sort,
-        q,
+        q_norm,
         limit,
       });
       return json({ ok: false, success: false, ...(cosmosTarget ? cosmosTarget : {}), error: e?.message || "query failed" }, 500, req);
