@@ -26,6 +26,7 @@ const {
 } = require("../_cosmosPartitionKey");
 const { getXAIEndpoint, getXAIKey, getResolvedUpstreamMeta } = require("../_shared");
 const { startBudget } = require("../_budget");
+const { patchCompanyWithSearchText } = require("../_computeSearchText");
 function requireImportCompanyLogo() {
   const mod = require("../_logoImport");
   if (!mod || typeof mod.importCompanyLogo !== "function") {
