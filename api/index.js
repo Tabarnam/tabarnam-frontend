@@ -566,6 +566,14 @@ try {
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-init-search-synonyms:", e?.message || e);
 }
+
+try {
+  console.log("[api] Registering: admin-backfill-search-text");
+  require("./admin-backfill-search-text/index.js");
+  console.log("[api] ✓ admin-backfill-search-text registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-backfill-search-text:", e?.message || e);
+}
 }
 
 console.log("[api/index.js] ✅ All handler registration complete! Exporting app.");
