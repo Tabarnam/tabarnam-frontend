@@ -247,6 +247,11 @@ function normalizeManufacturingLocationsForSeed(value) {
         return s ? { location: s } : null;
       }
       if (v && typeof v === "object") {
+        // If it has only a country field, convert it to location field
+        // so that getLocationAddress can properly extract the country name
+        if (v.country && !v.location && !v.address && !v.formatted && !v.full_address) {
+          return { ...v, location: v.country };
+        }
         return v;
       }
       return null;
