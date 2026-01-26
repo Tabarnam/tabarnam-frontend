@@ -690,12 +690,10 @@ async function searchCompaniesHandler(req, context, deps = {}) {
 
       if (sort === "manu") {
         // Build search filter that handles both spaced and non-spaced queries
+        // Always enable collapsed variant matching for flexible search
         let searchFilter = "";
         if (q_norm) {
-          // Always check if we should do collapsed variant matching
-          // (when there are spaces in the normalized form, collapsed version will be different)
-          const hasCollapsedVariant = rawHadSpaces;
-          const legacyFilter = buildLegacySearchFilter(hasCollapsedVariant);
+          const legacyFilter = buildLegacySearchFilter(true);
           searchFilter = whereTextFilter
             ? `AND (((${whereTextFilter}) OR (${legacyFilter})) AND ${softDeleteFilter})`
             : `AND ((${legacyFilter}) AND ${softDeleteFilter})`;
@@ -713,9 +711,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         const paramsA = [{ name: "@take", value: limit }];
         if (q_norm) {
           paramsA.push({ name: "@q", value: q_norm.toLowerCase() });
-          if (rawHadSpaces) {
-            paramsA.push({ name: "@q_compact", value: q_compact.toLowerCase() });
-          }
+          paramsA.push({ name: "@q_compact", value: q_compact.toLowerCase() });
           // Add normalized search parameters
           if (whereTextFilter) {
             paramsA.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
@@ -739,9 +735,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           const paramsB = [{ name: "@take2", value: remaining }];
           if (q_norm) {
             paramsB.push({ name: "@q", value: q_norm.toLowerCase() });
-            if (rawHadSpaces) {
-              paramsB.push({ name: "@q_compact", value: q_compact.toLowerCase() });
-            }
+            paramsB.push({ name: "@q_compact", value: q_compact.toLowerCase() });
             // Add normalized search parameters
             if (whereTextFilter) {
               paramsB.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
@@ -757,8 +751,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         let searchFilter = "";
         if (q_norm) {
           // Combine normalized search with legacy search as fallback
-          const hasCollapsedVariant = rawHadSpaces;
-          const legacyFilter = buildLegacySearchFilter(hasCollapsedVariant);
+          const legacyFilter = buildLegacySearchFilter(true);
           searchFilter = whereTextFilter
             ? `AND (((${whereTextFilter}) OR (${legacyFilter})) AND ${softDeleteFilter})`
             : `AND ((${legacyFilter}) AND ${softDeleteFilter})`;
@@ -777,9 +770,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         const queryParams = [{ name: "@take", value: limit }];
         if (q_norm) {
           queryParams.push({ name: "@q", value: q_norm.toLowerCase() });
-          if (rawHadSpaces) {
-            queryParams.push({ name: "@q_compact", value: q_compact.toLowerCase() });
-          }
+          queryParams.push({ name: "@q_compact", value: q_compact.toLowerCase() });
           // Add normalized search parameters
           if (whereTextFilter) {
             queryParams.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
