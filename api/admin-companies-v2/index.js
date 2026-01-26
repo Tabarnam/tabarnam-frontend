@@ -228,6 +228,37 @@ function normalizeLocationList(value) {
   return Array.isArray(value) ? value.filter(Boolean) : [];
 }
 
+function normalizeManufacturingLocationsForSeed(value) {
+  if (!value) return [];
+
+  // Handle string input (e.g., "China")
+  if (typeof value === "string") {
+    const s = value.trim();
+    return s ? [{ location: s }] : [];
+  }
+
+  // Handle array input
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((v) => {
+      if (typeof v === "string") {
+        const s = v.trim();
+        return s ? { location: s } : null;
+      }
+      if (v && typeof v === "object") {
+        // If it has only a country field, convert it to location field
+        // so that getLocationAddress can properly extract the country name
+        if (v.country && !v.location && !v.address && !v.formatted && !v.full_address) {
+          return { ...v, location: v.country };
+        }
+        return v;
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
 function hasAnyLatLng(list) {
   if (!Array.isArray(list) || list.length === 0) return false;
   return list.some((loc) => Boolean(extractLatLng(loc)));
@@ -277,14 +308,17 @@ function buildHeadquartersSeedFromDoc(doc) {
 function buildManufacturingSeedFromDoc(doc) {
   const base = doc && typeof doc === "object" ? doc : {};
 
-  const raw =
-    Array.isArray(base.manufacturing_geocodes) && base.manufacturing_geocodes.length
-      ? base.manufacturing_geocodes
-      : Array.isArray(base.manufacturing_locations) && base.manufacturing_locations.length
-        ? base.manufacturing_locations
-        : [];
+  // Prefer manufacturing_geocodes if available, otherwise use manufacturing_locations
+  if (Array.isArray(base.manufacturing_geocodes) && base.manufacturing_geocodes.length) {
+    return normalizeLocationList(base.manufacturing_geocodes);
+  }
 
-  return normalizeLocationList(raw);
+  // Normalize manufacturing_locations (handles both string and array formats)
+  if (base.manufacturing_locations) {
+    return normalizeManufacturingLocationsForSeed(base.manufacturing_locations);
+  }
+
+  return [];
 }
 
 async function maybeGeocodeLocationsForCompanyDoc(doc, { timeoutMs = 5000 } = {}) {
