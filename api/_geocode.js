@@ -138,6 +138,26 @@ async function geocodeAddress(address, { timeoutMs = 5000, strict = true } = {})
   const hit = _geocodeCache.get(cacheKey);
   if (hit) return { ...hit };
 
+  // Check if this is a country-only location and use country center if available
+  const countryCoords = tryGetCountryCenterCoords(normalized);
+  if (countryCoords) {
+    const out = {
+      ok: true,
+      lat: countryCoords.lat,
+      lng: countryCoords.lng,
+      geocode_status: "ok",
+      geocode_source: "country_center",
+      geocoded_at: now,
+      geocode_confidence: "low",
+      geocode_precision: "country",
+      geocode_partial_match: false,
+      geocode_formatted_address: normalized,
+      geocode_result_types: ["country"],
+    };
+    _geocodeCache.set(cacheKey, out);
+    return { ...out };
+  }
+
   const key = env("GOOGLE_MAPS_KEY", "") || env("GOOGLE_GEOCODE_KEY", "");
   if (!key) {
     const out = {
