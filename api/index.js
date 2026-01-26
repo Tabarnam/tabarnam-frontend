@@ -54,6 +54,13 @@ if (ROUTES_TEST_MODE) {
   } catch (e) {
     console.error("[api] ❌ Failed to load company-logo:", e?.message || e);
   }
+
+  try {
+    console.log("[api] Registering (routes-test): import-one");
+    require("./import-one/index.js");
+  } catch (e) {
+    console.error("[api] ❌ Failed to load import-one:", e?.message || e);
+  }
 } else {
   // -------------------------
   // Public endpoints
@@ -245,6 +252,13 @@ try {
   require("./import-progress/index.js");
 } catch (e) {
   console.error("[api] Failed to load import-progress:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: import-one");
+  require("./import-one/index.js");
+} catch (e) {
+  console.error("[api] Failed to load import-one:", e?.message || e);
 }
 
 try {

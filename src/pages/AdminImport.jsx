@@ -3059,6 +3059,113 @@ export default function AdminImport() {
     return toPrettyJsonText(resumeDebugPayload);
   }, [resumeDebugPayload]);
 
+  const beginImportOneUrl = useCallback(async () => {
+    const url = query.trim();
+    if (!url || !looksLikeUrlOrDomain(url)) {
+      toast.error("Enter a valid URL to import.");
+      return;
+    }
+
+    if (!importConfigured) {
+      toast.error("Import is not configured.");
+      return;
+    }
+
+    const uiSessionId = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `sess_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+    const newRun = {
+      session_id: uiSessionId,
+      session_id_confirmed: false,
+      query: url,
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      items: [],
+      saved: 0,
+      completed: false,
+      start_error: null,
+      progress_error: null,
+      progress_notice: null,
+    };
+
+    setRuns((prev) => [newRun, ...prev]);
+    setActiveSessionId(uiSessionId);
+    setActiveStatus("running");
+
+    try {
+      const res = await apiFetch("/import-one", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+
+      const body = await readJsonOrText(res);
+
+      if (!res.ok || !body.ok) {
+        const msg = typeof body?.error?.message === "string" ? body.error.message : `Failed (HTTP ${res.status})`;
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === uiSessionId
+              ? { ...r, start_error: msg, updatedAt: new Date().toISOString() }
+              : r
+          )
+        );
+        toast.error(msg);
+        setActiveStatus("error");
+        return;
+      }
+
+      const sessionId = body.session_id || uiSessionId;
+
+      if (body.completed) {
+        // Import completed within the request
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === uiSessionId
+              ? {
+                  ...r,
+                  session_id: sessionId,
+                  session_id_confirmed: true,
+                  saved: body.saved_count || 0,
+                  completed: true,
+                  updatedAt: new Date().toISOString(),
+                }
+              : r
+          )
+        );
+        toast.success(`Import complete: ${body.saved_count || 0} company saved`);
+        setActiveStatus("done");
+      } else {
+        // Import still running, start polling
+        setRuns((prev) =>
+          prev.map((r) =>
+            r.session_id === uiSessionId
+              ? {
+                  ...r,
+                  session_id: sessionId,
+                  session_id_confirmed: true,
+                  updatedAt: new Date().toISOString(),
+                }
+              : r
+          )
+        );
+        toast.info("Import started, polling for completion...");
+        resetPollAttempts(sessionId);
+        schedulePoll({ session_id: sessionId });
+      }
+    } catch (e) {
+      const msg = toErrorString(e) || "Import request failed";
+      setRuns((prev) =>
+        prev.map((r) =>
+          r.session_id === uiSessionId
+            ? { ...r, start_error: msg, updatedAt: new Date().toISOString() }
+            : r
+        )
+      );
+      toast.error(msg);
+      setActiveStatus("error");
+    }
+  }, [query, importConfigured, resetPollAttempts, schedulePoll]);
+
   const startImportDisabled = !API_BASE || activeStatus === "running" || activeStatus === "stopping";
 
   useEffect(() => {
@@ -3072,16 +3179,26 @@ export default function AdminImport() {
     if (startImportRequestInFlightRef.current) return;
 
     startImportRequestInFlightRef.current = true;
-    beginImport();
 
-    // If beginImport bails early (validation/config), don't lock the UI.
+    const q = query.trim();
+    const isUrl = looksLikeUrlOrDomain(q);
+
+    if (isUrl) {
+      // Single URL import using new import-one endpoint
+      beginImportOneUrl();
+    } else {
+      // Bulk import using traditional import-start
+      beginImport();
+    }
+
+    // If either handler bails early (validation/config), don't lock the UI.
     setTimeout(() => {
       const status = activeStatusRef.current;
       if (status !== "running" && status !== "stopping") {
         startImportRequestInFlightRef.current = false;
       }
     }, 0);
-  }, [beginImport, startImportDisabled]);
+  }, [query, beginImport, beginImportOneUrl, startImportDisabled]);
 
   const handleQueryInputEnter = useCallback(
     (e) => {
