@@ -1,4 +1,4 @@
-const test = require("node:test");
+const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
 test("api/index.js registers refresh-company routes", () => {
