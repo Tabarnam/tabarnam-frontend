@@ -80,10 +80,11 @@ async function streamToString(readableStream) {
 /**
  * Expand a query into a set of search terms using synonyms
  * Takes normalized and compact forms, looks up in synonyms, returns arrays of terms to search
+ * Also includes built-in common transformations (space → no-space variants)
  */
 async function expandQueryTerms(q_norm, q_compact) {
   const synonyms = await loadSynonyms();
-  
+
   const terms_norm = new Set();
   const terms_compact = new Set();
 
@@ -105,10 +106,71 @@ async function expandQueryTerms(q_norm, q_compact) {
     }
   }
 
+  // Also check the compact form in synonyms (e.g., "bodywash" → ["body wash"])
+  if (q_compact && q_compact !== q_norm && synonyms[q_compact]) {
+    const mappedSynonyms = synonyms[q_compact];
+    if (Array.isArray(mappedSynonyms)) {
+      for (const synonym of mappedSynonyms) {
+        if (synonym && typeof synonym === "string") {
+          terms_norm.add(synonym.toLowerCase().trim());
+          const compact = synonym.toLowerCase().trim().replace(/\s+/g, "");
+          if (compact) terms_compact.add(compact);
+        }
+      }
+    }
+  }
+
+  // Built-in common transformation: if query has no spaces, try adding space variants
+  // This handles "bodywash" → also search for "body wash"
+  if (q_norm && !q_norm.includes(" ") && q_norm.length > 4) {
+    // Try some common space insertions for common compound words
+    const commonSplits = buildCommonWordSplits(q_norm);
+    for (const split of commonSplits) {
+      terms_norm.add(split);
+      const compact = split.replace(/\s+/g, "");
+      if (compact) terms_compact.add(compact);
+    }
+  }
+
   return {
     terms_norm: Array.from(terms_norm),
     terms_compact: Array.from(terms_compact),
   };
+}
+
+/**
+ * Build common word splits for compound words without spaces
+ * E.g., "bodywash" → ["body wash"]
+ * This is a simple heuristic; more sophisticated solutions would use a dictionary
+ */
+function buildCommonWordSplits(word) {
+  const splits = [];
+
+  // Common compound words in product/business context
+  const commonPrefixes = ["body", "hair", "face", "skin", "eye"];
+  const commonSuffixes = ["wash", "care", "treatment", "lotion", "cream", "oil", "mask"];
+
+  for (const prefix of commonPrefixes) {
+    if (word.startsWith(prefix) && word.length > prefix.length) {
+      const remainder = word.substring(prefix.length);
+      // Check if remainder looks like a word (not too short)
+      if (remainder.length >= 3) {
+        splits.push(`${prefix} ${remainder}`);
+      }
+    }
+  }
+
+  // Also try all possible two-word splits
+  for (let i = 2; i < word.length - 2; i++) {
+    const left = word.substring(0, i);
+    const right = word.substring(i);
+    // Only include if both parts are at least 2 characters
+    if (left.length >= 2 && right.length >= 2) {
+      splits.push(`${left} ${right}`);
+    }
+  }
+
+  return splits;
 }
 
 module.exports = {
