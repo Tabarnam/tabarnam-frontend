@@ -645,19 +645,20 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       if (sort === "manu") {
         // Combine normalized search (if fields exist) with legacy search as fallback
         // This handles both new records (with search_text_norm/compact) and old records
-        let whereText = "";
+        let searchFilter = "";
         if (q_norm) {
-          whereText = whereTextFilter
-            ? `AND ((${whereTextFilter}) OR (${SQL_TEXT_FILTER}))`
-            : `AND (${SQL_TEXT_FILTER})`;
+          searchFilter = whereTextFilter
+            ? `AND (((${whereTextFilter}) OR (${SQL_TEXT_FILTER})) AND ${softDeleteFilter})`
+            : `AND ((${SQL_TEXT_FILTER}) AND ${softDeleteFilter})`;
+        } else {
+          searchFilter = `AND ${softDeleteFilter}`;
         }
 
         const sqlA = `
             SELECT TOP @take ${SELECT_FIELDS}
             FROM c
             WHERE IS_ARRAY(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
-            AND ${softDeleteFilter}
-            ${whereText}
+            ${searchFilter}
             ORDER BY c._ts DESC
           `;
         const paramsA = [{ name: "@take", value: limit }];
@@ -680,8 +681,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               SELECT TOP @take2 ${SELECT_FIELDS}
               FROM c
               WHERE (NOT IS_ARRAY(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
-              AND ${softDeleteFilter}
-              ${whereText.replace("@take", "@take2")}
+              ${searchFilter}
               ORDER BY c._ts DESC
             `;
           const paramsB = [{ name: "@take2", value: remaining }];
