@@ -699,17 +699,21 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
       } else {
         const orderBy = sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
-        let whereClause = softDeleteFilter;
+        let searchFilter = "";
         if (q_norm) {
-          whereClause = whereTextFilter
-            ? `(${whereTextFilter}) OR (${SQL_TEXT_FILTER}) AND ${softDeleteFilter}`
-            : `${SQL_TEXT_FILTER} AND ${softDeleteFilter}`;
+          // Combine normalized search with legacy search as fallback
+          searchFilter = whereTextFilter
+            ? `AND (((${whereTextFilter}) OR (${SQL_TEXT_FILTER})) AND ${softDeleteFilter})`
+            : `AND ((${SQL_TEXT_FILTER}) AND ${softDeleteFilter})`;
+        } else {
+          searchFilter = `AND ${softDeleteFilter}`;
         }
 
         const sql = `
             SELECT TOP @take ${SELECT_FIELDS}
             FROM c
-            WHERE ${whereClause}
+            WHERE 1=1
+            ${searchFilter}
             ${orderBy}
           `;
 
