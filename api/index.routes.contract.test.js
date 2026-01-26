@@ -1,10 +1,11 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+const test = require("node:test");
+const assert = require("node:assert/strict");
 
-test("api/index.js registers refresh-company routes", async () => {
+test("api/index.js registers refresh-company routes", () => {
   process.env.TABARNAM_API_INDEX_MODE = "routes-test";
-  // Import AFTER setting the environment variable
-  const app = await import("./index.js");
+  // Clear and reload the module cache to ensure ROUTES_TEST_MODE takes effect
+  delete require.cache[require.resolve("./index.js")];
+  const app = require("./index.js");
   const routes = app?._test?.listRoutes?.() || [];
 
   assert.ok(Array.isArray(routes), "expected listRoutes() to return an array");
