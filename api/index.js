@@ -98,6 +98,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: _ping");
+  require("./_ping/index.js");
+  console.log("[api] ✓ _ping registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load _ping:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: hello");
   require("./hello/index.js");
 } catch (e) {
