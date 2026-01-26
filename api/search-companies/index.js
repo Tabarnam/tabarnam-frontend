@@ -643,15 +643,9 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
 
       if (sort === "manu") {
-        // Build WHERE clause with both new normalized matching and fallback to old SQL_TEXT_FILTER
-        let whereText = "";
-        if (whereTextFilter) {
-          // Try normalized search first, with fallback to legacy search
-          whereText = `AND (${whereTextFilter} OR (${SQL_TEXT_FILTER}))`;
-        } else if (q_norm) {
-          // If no normalized filter but we have a query, use legacy filter
-          whereText = `AND (${SQL_TEXT_FILTER})`;
-        }
+        // Use legacy SQL_TEXT_FILTER as the primary search (works with existing data)
+        // Normalized search is additive when fields exist
+        const whereText = q_norm ? `AND (${SQL_TEXT_FILTER})` : "";
 
         const sqlA = `
             SELECT TOP @take ${SELECT_FIELDS}
@@ -662,14 +656,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             ORDER BY c._ts DESC
           `;
         const paramsA = [{ name: "@take", value: limit }];
-        // Add original query for legacy search fallback
         if (q_norm) paramsA.push({ name: "@q", value: q_norm.toLowerCase() });
-        // Add normalized search parameters
-        for (const p of params) {
-          if (p.name.startsWith("@norm") || p.name.startsWith("@comp")) {
-            paramsA.push(p);
-          }
-        }
 
         const partA = await container.items
           .query({ query: sqlA, parameters: paramsA }, { enableCrossPartitionQuery: true })
@@ -688,12 +675,6 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             `;
           const paramsB = [{ name: "@take2", value: remaining }];
           if (q_norm) paramsB.push({ name: "@q", value: q_norm.toLowerCase() });
-          // Copy over normalized search parameters
-          for (const p of params) {
-            if (p.name.startsWith("@norm") || p.name.startsWith("@comp")) {
-              paramsB.push(p);
-            }
-          }
           const partB = await container.items
             .query({ query: sqlB, parameters: paramsB }, { enableCrossPartitionQuery: true })
             .fetchAll();
@@ -701,32 +682,22 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
       } else {
         const orderBy = sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
-
-        // Build WHERE clause with both new normalized matching and fallback to old SQL_TEXT_FILTER
-        let whereClause = softDeleteFilter;
-        if (whereTextFilter && q_norm) {
-          whereClause = `(${whereTextFilter} OR (${SQL_TEXT_FILTER})) AND ${softDeleteFilter}`;
-        } else if (whereTextFilter) {
-          whereClause = `${whereTextFilter} AND ${softDeleteFilter}`;
-        } else if (q_norm) {
-          whereClause = `(${SQL_TEXT_FILTER}) AND ${softDeleteFilter}`;
-        }
-
-        const sql = `
+        const sql = q_norm
+          ? `
               SELECT TOP @take ${SELECT_FIELDS}
               FROM c
-              WHERE ${whereClause}
+              WHERE (${SQL_TEXT_FILTER})
+              AND ${softDeleteFilter}
+              ${orderBy}
+            `
+          : `
+              SELECT TOP @take ${SELECT_FIELDS}
+              FROM c
+              WHERE ${softDeleteFilter}
               ${orderBy}
             `;
-
         const queryParams = [{ name: "@take", value: limit }];
         if (q_norm) queryParams.push({ name: "@q", value: q_norm.toLowerCase() });
-        // Add normalized search parameters
-        for (const p of params) {
-          if (p.name.startsWith("@norm") || p.name.startsWith("@comp")) {
-            queryParams.push(p);
-          }
-        }
 
         const res = await container.items
           .query({ query: sql, parameters: queryParams }, { enableCrossPartitionQuery: true })
