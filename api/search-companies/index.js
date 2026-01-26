@@ -8,6 +8,8 @@ try {
 const { CosmosClient } = require("@azure/cosmos");
 const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
 const { logInboundRequest } = require("../_diagnostics");
+const { parseQuery } = require("../_queryNormalizer");
+const { expandQueryTerms } = require("../_searchSynonyms");
 
 let cosmosTargetPromise;
 
