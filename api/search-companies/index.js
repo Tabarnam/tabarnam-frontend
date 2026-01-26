@@ -8,6 +8,8 @@ try {
 const { CosmosClient } = require("@azure/cosmos");
 const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
 const { logInboundRequest } = require("../_diagnostics");
+const { parseQuery } = require("../_queryNormalizer");
+const { expandQueryTerms } = require("../_searchSynonyms");
 
 let cosmosTargetPromise;
 
@@ -275,6 +277,45 @@ const SQL_TEXT_FILTER = `
   (IS_DEFINED(c.amazon_url) AND IS_STRING(c.amazon_url) AND CONTAINS(LOWER(c.amazon_url), @q))
 `;
 
+/**
+ * Build a normalized search filter for Cosmos SQL
+ * Uses word boundary matching on search_text_norm and contains matching on search_text_compact
+ * Returns SQL fragment and updates params array
+ */
+function buildNormalizedSearchFilter(terms_norm, terms_compact, params) {
+  if (!terms_norm.length && !terms_compact.length) {
+    return "";
+  }
+
+  const conditions = [];
+  let paramIndex = 1;
+
+  // For each normalized term, add a boundary-matched condition
+  for (const term of terms_norm) {
+    if (term) {
+      const paramName = `@norm${paramIndex}`;
+      // Store with leading and trailing spaces for word boundary matching
+      params.push({ name: paramName, value: ` ${term} ` });
+      conditions.push(`(IS_DEFINED(c.search_text_norm) AND IS_STRING(c.search_text_norm) AND CONTAINS(c.search_text_norm, ${paramName}))`);
+      paramIndex++;
+    }
+  }
+
+  // For each compact term, add a contains condition
+  for (const term of terms_compact) {
+    if (term) {
+      const paramName = `@comp${paramIndex}`;
+      params.push({ name: paramName, value: term });
+      conditions.push(`(IS_DEFINED(c.search_text_compact) AND IS_STRING(c.search_text_compact) AND CONTAINS(c.search_text_compact, ${paramName}))`);
+      paramIndex++;
+    }
+  }
+
+  // Join all conditions with OR
+  if (conditions.length === 0) return "";
+  return conditions.length === 1 ? conditions[0] : `(${conditions.join(" OR ")})`;
+}
+
 const SELECT_FIELDS = [
   // Identity / names
   "c.id",
@@ -300,6 +341,10 @@ const SELECT_FIELDS = [
   "c.created_at",
   "c.updated_at",
   "c._ts",
+
+  // Normalized search fields (for normalized query matching)
+  "c.search_text_norm",
+  "c.search_text_compact",
 
   // Location (used for completeness + admin UX)
   "c.manufacturing_locations",
@@ -533,8 +578,27 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   }
 
   const url = new URL(req.url);
-  const qRaw = (url.searchParams.get("q") || "").trim();
-  const q = qRaw.toLowerCase();
+
+  // Support both old style (q param) and new style (raw, norm, compact params)
+  const qRawParam = url.searchParams.get("raw") || url.searchParams.get("q") || "";
+  const qNormParam = url.searchParams.get("norm") || "";
+  const qCompactParam = url.searchParams.get("compact") || "";
+
+  // If we get raw/norm/compact from frontend, use them directly; otherwise parse from q
+  let q_raw, q_norm, q_compact;
+  if (qNormParam || qCompactParam) {
+    // New style: frontend provided normalized forms
+    q_raw = qRawParam;
+    q_norm = qNormParam;
+    q_compact = qCompactParam;
+  } else {
+    // Old style or fallback: parse from raw query
+    const parsed = parseQuery(qRawParam);
+    q_raw = parsed.q_raw;
+    q_norm = parsed.q_norm;
+    q_compact = parsed.q_compact;
+  }
+
   const sort = (url.searchParams.get("sort") || "recent").toLowerCase();
   const sortField = (url.searchParams.get("sortField") || "").toLowerCase();
   const sortDir = (url.searchParams.get("sortDir") || "asc").toLowerCase() === "desc" ? "desc" : "asc";
@@ -563,12 +627,25 @@ async function searchCompaniesHandler(req, context, deps = {}) {
     try {
       let items = [];
       const params = [{ name: "@take", value: limit }];
-      if (q) params.push({ name: "@q", value: q });
+
+      // Expand query terms using synonyms
+      let terms_norm = [], terms_compact = [];
+      let whereTextFilter = "";
+      if (q_norm) {
+        const expansion = await expandQueryTerms(q_norm, q_compact);
+        terms_norm = expansion.terms_norm;
+        terms_compact = expansion.terms_compact;
+
+        // Build WHERE clause for normalized and compact term matching
+        whereTextFilter = buildNormalizedSearchFilter(terms_norm, terms_compact, params);
+      }
 
       const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
 
       if (sort === "manu") {
-        const whereText = q ? `AND (${SQL_TEXT_FILTER})` : "";
+        // Use legacy SQL_TEXT_FILTER as the primary search (works with existing data)
+        // Normalized search is additive when fields exist
+        const whereText = q_norm ? `AND (${SQL_TEXT_FILTER})` : "";
 
         const sqlA = `
             SELECT TOP @take ${SELECT_FIELDS}
@@ -578,8 +655,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             ${whereText}
             ORDER BY c._ts DESC
           `;
+        const paramsA = [{ name: "@take", value: limit }];
+        if (q_norm) paramsA.push({ name: "@q", value: q_norm.toLowerCase() });
+
         const partA = await container.items
-          .query({ query: sqlA, parameters: params }, { enableCrossPartitionQuery: true })
+          .query({ query: sqlA, parameters: paramsA }, { enableCrossPartitionQuery: true })
           .fetchAll();
         items = partA.resources || [];
 
@@ -594,7 +674,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               ORDER BY c._ts DESC
             `;
           const paramsB = [{ name: "@take2", value: remaining }];
-          if (q) paramsB.push({ name: "@q", value: q });
+          if (q_norm) paramsB.push({ name: "@q", value: q_norm.toLowerCase() });
           const partB = await container.items
             .query({ query: sqlB, parameters: paramsB }, { enableCrossPartitionQuery: true })
             .fetchAll();
@@ -602,7 +682,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
       } else {
         const orderBy = sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
-        const sql = q
+        const sql = q_norm
           ? `
               SELECT TOP @take ${SELECT_FIELDS}
               FROM c
@@ -616,8 +696,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               WHERE ${softDeleteFilter}
               ${orderBy}
             `;
+        const queryParams = [{ name: "@take", value: limit }];
+        if (q_norm) queryParams.push({ name: "@q", value: q_norm.toLowerCase() });
+
         const res = await container.items
-          .query({ query: sql, parameters: params }, { enableCrossPartitionQuery: true })
+          .query({ query: sql, parameters: queryParams }, { enableCrossPartitionQuery: true })
           .fetchAll();
         items = res.resources || [];
       }
@@ -653,7 +736,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           ...(cosmosTarget ? cosmosTarget : {}),
           items: paged,
           count: mapped.length,
-          meta: { q: qRaw, sort, skip, take, user_location },
+          meta: { q: q_raw, sort, skip, take, user_location },
         },
         200,
         req

@@ -26,6 +26,7 @@ const {
 } = require("../_cosmosPartitionKey");
 const { getXAIEndpoint, getXAIKey, getResolvedUpstreamMeta } = require("../_shared");
 const { startBudget } = require("../_budget");
+const { patchCompanyWithSearchText } = require("../_computeSearchText");
 function requireImportCompanyLogo() {
   const mod = require("../_logoImport");
   if (!mod || typeof mod.importCompanyLogo !== "function") {
@@ -2951,6 +2952,11 @@ async function upsertItemWithPkCandidates(container, doc) {
   if (!container || !doc) return { ok: false, error: "no_container" };
   const id = String(doc.id || "").trim();
   if (!id) return { ok: false, error: "missing_id" };
+
+  // Patch company documents with computed search text fields
+  if (doc && doc.company_name) {
+    patchCompanyWithSearchText(doc);
+  }
 
   const containerPkPath = await getCompaniesPartitionKeyPath(container);
   const pkValue = getValueAtPath(doc, containerPkPath);

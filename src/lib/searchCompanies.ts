@@ -1,5 +1,6 @@
 // src/lib/searchCompanies.ts
 import { apiFetch } from "./api";
+import { parseQuery } from "./queryNormalizer";
 
 type Sort = "recent" | "name" | "manu";
 
@@ -65,7 +66,10 @@ export async function searchCompanies(opts: SearchOptions) {
   const take = Math.max(1, Math.min(Number(opts.take ?? 25) || 25, 200));
   const skip = Math.max(0, Number(opts.skip ?? 0) || 0);
 
-  const params = new URLSearchParams({ q, sort, take: String(take) });
+  // Parse query into raw, normalized, and compact forms
+  const { q_raw, q_norm, q_compact } = parseQuery(q);
+
+  const params = new URLSearchParams({ raw: q_raw, norm: q_norm, compact: q_compact, sort, take: String(take) });
   if (skip > 0) params.set("skip", String(skip));
   const country = asStr(opts.country).trim();
   const state = asStr(opts.state).trim();
@@ -116,7 +120,7 @@ export async function searchCompanies(opts: SearchOptions) {
     return {
       items,
       count: Number(data?.count) || items.length,
-      meta: data?.meta ?? { q, sort },
+      meta: data?.meta ?? { q: q_raw, sort },
     };
   } catch (e) {
     console.warn("Search API failed:", e?.message);
