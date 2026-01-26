@@ -289,6 +289,26 @@ async function geocodeLocationEntry(locRaw, { timeoutMs = 5000 } = {}) {
     };
   }
 
+  // Check if this is a country-only location (has country field but no city/state)
+  const countryOnly = loc.country && !loc.city && !loc.state && !loc.address && !loc.location;
+  if (countryOnly) {
+    const countryCoords = tryGetCountryCenterCoords(loc.country);
+    if (countryCoords) {
+      return {
+        ...loc,
+        lat: countryCoords.lat,
+        lng: countryCoords.lng,
+        geocode_status: "ok",
+        geocode_source: "country_center",
+        geocoded_at: now,
+        geocode_confidence: "low",
+        geocode_precision: "country",
+        geocode_formatted_address: loc.country,
+        geocode_result_types: ["country"],
+      };
+    }
+  }
+
   const address = getLocationAddress(loc);
   if (!address) {
     return {
