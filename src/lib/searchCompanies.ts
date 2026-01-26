@@ -120,7 +120,7 @@ export async function searchCompanies(opts: SearchOptions) {
     return {
       items,
       count: Number(data?.count) || items.length,
-      meta: data?.meta ?? { q, sort },
+      meta: data?.meta ?? { q: q_raw, sort },
     };
   } catch (e) {
     console.warn("Search API failed:", e?.message);
