@@ -228,6 +228,32 @@ function normalizeLocationList(value) {
   return Array.isArray(value) ? value.filter(Boolean) : [];
 }
 
+function normalizeManufacturingLocationsForSeed(value) {
+  if (!value) return [];
+
+  // Handle string input (e.g., "China")
+  if (typeof value === "string") {
+    const s = value.trim();
+    return s ? [{ location: s }] : [];
+  }
+
+  // Handle array input
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((v) => {
+      if (typeof v === "string") {
+        const s = v.trim();
+        return s ? { location: s } : null;
+      }
+      if (v && typeof v === "object") {
+        return v;
+      }
+      return null;
+    })
+    .filter(Boolean);
+}
+
 function hasAnyLatLng(list) {
   if (!Array.isArray(list) || list.length === 0) return false;
   return list.some((loc) => Boolean(extractLatLng(loc)));
