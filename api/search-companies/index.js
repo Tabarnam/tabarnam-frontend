@@ -333,7 +333,7 @@ function buildLegacySearchFilterWithTerms(terms_norm, terms_compact, params) {
   const fieldArrayChecker = (arrayField, paramName) =>
     `(IS_ARRAY(c.${arrayField}) AND ARRAY_LENGTH(ARRAY(SELECT VALUE item FROM item IN c.${arrayField} WHERE IS_STRING(item) AND CONTAINS(LOWER(item), ${paramName}))) > 0)`;
 
-  const fields = ["company_name", "display_name", "name", "product_keywords", "keywords", "industries", "normalized_domain", "amazon_url"];
+  const stringFields = ["company_name", "display_name", "name", "normalized_domain", "amazon_url", "product_keywords", "keywords", "industries", "tagline"];
   const arrayFields = ["product_keywords", "keywords", "industries"];
   let paramIndex = 1;
 
@@ -345,16 +345,14 @@ function buildLegacySearchFilterWithTerms(terms_norm, terms_compact, params) {
       const paramName = `@term${paramIndex}`;
       params.push({ name: paramName, value: term.toLowerCase() });
 
-      // Add conditions for each field
-      for (const field of fields) {
+      // Add conditions for each string field
+      for (const field of stringFields) {
         conditions.push(fieldChecker(field, paramName));
       }
 
-      // Add array field conditions
+      // Add array field conditions (these handle when fields are arrays)
       for (const field of arrayFields) {
-        if (!fields.includes(field)) {  // avoid duplicating string fields that are also arrays
-          conditions.push(fieldArrayChecker(field, paramName));
-        }
+        conditions.push(fieldArrayChecker(field, paramName));
       }
 
       paramIndex++;
