@@ -10,6 +10,7 @@ const { upsertSession: upsertImportSession } = require("../_importSessionStore")
 const { buildPrimaryJobId: buildImportPrimaryJobId, getJob: getImportPrimaryJob, upsertJob: upsertImportPrimaryJob } = require("../_importPrimaryJobStore");
 const { runPrimaryJob } = require("../_importPrimaryWorker");
 const { getSession: getImportSession } = require("../_importSessionStore");
+const { enqueueResumeRun } = require("../_enrichmentQueue");
 
 const DEADLINE_MS = 25000; // 25 second max for request
 
