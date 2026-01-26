@@ -207,6 +207,40 @@ export function logWiringDiagnostics(): void {
   console.info('Resource Group: tabarnam-mvp-rg');
 
   console.groupEnd();
+
+  // Call _ping endpoint to identify which backend is serving /api
+  pingBackend();
+}
+
+/**
+ * Call the _ping endpoint to identify which backend is actually serving /api.
+ * This proves which Function App is receiving the requests.
+ */
+async function pingBackend(): Promise<void> {
+  try {
+    const pingUrl = `${API_BASE}/_ping`;
+    const response = await fetch(pingUrl, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!response.ok) {
+      console.warn('[Backend Ping] Request failed with status:', response.status);
+      return;
+    }
+
+    const data = await response.json();
+    console.group('%c[Backend Ping] Successfully identified backend', 'font-weight: bold; color: #10b981;');
+    console.info('Backend Name:', data.backend_name);
+    console.info('Timestamp:', data.timestamp);
+    if (data.request) {
+      console.info('Request Host:', data.request.host);
+      console.info('Request Path:', data.request.path);
+    }
+    console.groupEnd();
+  } catch (err) {
+    console.warn('[Backend Ping] Failed to identify backend:', err instanceof Error ? err.message : String(err));
+  }
 }
 
 /**
