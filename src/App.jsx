@@ -9,6 +9,7 @@ import {
 } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { initializeAzureUser } from "@/lib/azureAuth";
+import { logWiringDiagnostics } from "@/lib/diagnostics";
 
 import AdminPanel from "@pages/AdminPanel";
 import CompanyDashboard from "@pages/CompanyDashboard";
@@ -79,6 +80,9 @@ export default function App() {
     initializeAzureUser().catch(err => {
       console.error('[App] Failed to initialize Azure user:', err);
     });
+
+    // Log API wiring diagnostics for troubleshooting
+    logWiringDiagnostics();
   }, []);
 
   return (

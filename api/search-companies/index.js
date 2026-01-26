@@ -7,6 +7,7 @@ try {
 
 const { CosmosClient } = require("@azure/cosmos");
 const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
+const { logInboundRequest } = require("../_diagnostics");
 
 let cosmosTargetPromise;
 
@@ -512,6 +513,9 @@ function mapCompanyToPublic(doc) {
 }
 
 async function searchCompaniesHandler(req, context, deps = {}) {
+  // Log inbound request for wiring diagnostics (helps trace requests from frontend to Function App)
+  logInboundRequest(context, req, "search-companies");
+
   const method = String(req.method || "").toUpperCase();
   if (method === "OPTIONS") {
     return {
