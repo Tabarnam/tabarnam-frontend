@@ -1,8 +1,59 @@
 const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 
 function env(k, d = "") {
   const v = process.env[k];
   return (v == null ? d : String(v)).trim();
+}
+
+// Load country centers from JSON file (cached on first use)
+let countryCentersCache = null;
+function getCountryCenters() {
+  if (countryCentersCache) return countryCentersCache;
+  try {
+    const filePath = path.join(__dirname, "../public/geo/country-centers.json");
+    const data = fs.readFileSync(filePath, "utf-8");
+    const centers = JSON.parse(data);
+    // Create maps for fast lookup by code and name
+    const byCode = {};
+    const byName = {};
+    for (const item of centers) {
+      byCode[item.code.toUpperCase()] = { lat: item.lat, lng: item.lng };
+      byName[item.name.toUpperCase()] = { lat: item.lat, lng: item.lng };
+    }
+    countryCentersCache = { byCode, byName };
+    return countryCentersCache;
+  } catch (e) {
+    console.warn("[geocode] Failed to load country centers:", e?.message);
+    return { byCode: {}, byName: {} };
+  }
+}
+
+// Check if a location string appears to be just a country name or code
+function isCountryOnlyLocation(address, existingCountry = null) {
+  if (!address || typeof address !== "string") return false;
+  const normalized = address.trim().toUpperCase();
+
+  // Already have country info, don't treat as country-only
+  if (existingCountry) return false;
+
+  // Check if it matches a country code or name
+  const centers = getCountryCenters();
+  if (centers.byCode[normalized] || centers.byName[normalized]) {
+    return true;
+  }
+
+  return false;
+}
+
+// Try to get country center coordinates if location is country-only
+function tryGetCountryCenterCoords(address) {
+  if (!address || typeof address !== "string") return null;
+  const normalized = address.trim().toUpperCase();
+  const centers = getCountryCenters();
+
+  return centers.byCode[normalized] || centers.byName[normalized] || null;
 }
 
 function toFiniteNumber(v) {
