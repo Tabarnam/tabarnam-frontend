@@ -2953,6 +2953,11 @@ async function upsertItemWithPkCandidates(container, doc) {
   const id = String(doc.id || "").trim();
   if (!id) return { ok: false, error: "missing_id" };
 
+  // Patch company documents with computed search text fields
+  if (doc && doc.company_name) {
+    patchCompanyWithSearchText(doc);
+  }
+
   const containerPkPath = await getCompaniesPartitionKeyPath(container);
   const pkValue = getValueAtPath(doc, containerPkPath);
   const candidates = buildPartitionKeyCandidates({ doc, containerPkPath, requestedId: id });
