@@ -1,5 +1,6 @@
 // src/lib/searchCompanies.ts
 import { apiFetch } from "./api";
+import { parseQuery } from "./queryNormalizer";
 
 type Sort = "recent" | "name" | "manu";
 
