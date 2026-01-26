@@ -729,7 +729,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           ...(cosmosTarget ? cosmosTarget : {}),
           items: paged,
           count: mapped.length,
-          meta: { q: qRaw, sort, skip, take, user_location },
+          meta: { q: q_raw, sort, skip, take, user_location },
         },
         200,
         req
