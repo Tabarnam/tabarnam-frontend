@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import * as app from "./index.js";
 
-test("api/index.js registers refresh-company routes", () => {
+test("api/index.js registers refresh-company routes", async () => {
   process.env.TABARNAM_API_INDEX_MODE = "routes-test";
+  // Import AFTER setting the environment variable
+  const app = await import("./index.js");
   const routes = app?._test?.listRoutes?.() || [];
 
   assert.ok(Array.isArray(routes), "expected listRoutes() to return an array");
