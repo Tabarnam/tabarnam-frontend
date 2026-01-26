@@ -49,3 +49,39 @@ This app uses Azure Static Web Apps built-in auth with Microsoft Entra ID for th
 ### Notes
 - Post-login redirect on /login honors `?next=` or `?returnTo=` (defaults to `/admin`).
 - Logout uses `/.auth/logout?post_logout_redirect_uri=/login`.
+
+## Azure Functions Deployment
+
+### Flex Consumption Plan
+
+The backend is deployed on Azure Functions Flex Consumption plan. The following deployment constraints apply:
+
+**Publishing profiles are not supported.** Use one of these alternatives:
+
+1. **GitHub Actions**: Deploy via CI/CD pipeline using workflow files.
+2. **Function Keys**: Use function-level keys for direct deployments.
+3. **Static Web Apps (SWA) Linked Backend**: Link the SWA resource to the Function App via `linkedBackend.json`.
+
+### Verifying SWA Linked Backend Configuration
+
+If the SWA linked backend configuration becomes stale or misconfigured, requests to `/api/*` may route to the wrong Function App.
+
+**To verify and fix the linked backend configuration:**
+
+1. List the current linked backend configuration:
+   ```bash
+   az staticwebapp linked-backend list --resource-group tabarnam-mvp-rg --name tabarnam-frontend-v2
+   ```
+
+2. Compare the output `backendResourceId` with the current Function App resource ID in your subscription:
+   - Primary backend: `tabarnam-xai-dedicated`
+   - External API backend: `tabarnam-xai-externalapi`
+
+3. If the linked backend is stale, update it:
+   ```bash
+   az staticwebapp linked-backend link --resource-group tabarnam-mvp-rg --name tabarnam-frontend-v2 --backend-resource-id /subscriptions/{SUBSCRIPTION_ID}/resourceGroups/tabarnam-mvp-rg/providers/Microsoft.Web/sites/{FUNCTION_APP_NAME}
+   ```
+
+4. **Verify the route was linked correctly:** Open the browser console and check the **Backend Ping** diagnostic output. It shows which Function App is actually serving `/api` requests.
+   - Look for: `[Backend Ping] Successfully identified backend`
+   - Compare the `Backend Name` with your expected Function App name (e.g., `tabarnam-xai-dedicated` or `tabarnam-xai-externalapi`)
