@@ -535,8 +535,27 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   }
 
   const url = new URL(req.url);
-  const qRaw = (url.searchParams.get("q") || "").trim();
-  const q = qRaw.toLowerCase();
+
+  // Support both old style (q param) and new style (raw, norm, compact params)
+  const qRawParam = url.searchParams.get("raw") || url.searchParams.get("q") || "";
+  const qNormParam = url.searchParams.get("norm") || "";
+  const qCompactParam = url.searchParams.get("compact") || "";
+
+  // If we get raw/norm/compact from frontend, use them directly; otherwise parse from q
+  let q_raw, q_norm, q_compact;
+  if (qNormParam || qCompactParam) {
+    // New style: frontend provided normalized forms
+    q_raw = qRawParam;
+    q_norm = qNormParam;
+    q_compact = qCompactParam;
+  } else {
+    // Old style or fallback: parse from raw query
+    const parsed = parseQuery(qRawParam);
+    q_raw = parsed.q_raw;
+    q_norm = parsed.q_norm;
+    q_compact = parsed.q_compact;
+  }
+
   const sort = (url.searchParams.get("sort") || "recent").toLowerCase();
   const sortField = (url.searchParams.get("sortField") || "").toLowerCase();
   const sortDir = (url.searchParams.get("sortDir") || "asc").toLowerCase() === "desc" ? "desc" : "asc";
