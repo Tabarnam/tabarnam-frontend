@@ -354,12 +354,15 @@ async function maybeGeocodeLocationsForCompanyDoc(doc, { timeoutMs = 5000 } = {}
   const hasManuCoords = hasAnyLatLng(manuSeed);
 
   if (!hasManuCoords && manuSeed.length > 0) {
+    // Geocode all manufacturing locations
     const geocoded = await geocodeLocationArray(manuSeed, { timeoutMs, concurrency: 4 });
-    if (hasAnyLatLng(geocoded)) {
-      next.manufacturing_geocodes = geocoded;
-    }
-  } else if (!Array.isArray(next.manufacturing_geocodes) || next.manufacturing_geocodes.length === 0) {
-    // Ensure manufacturing_geocodes is present when the editor sends structured entries.
+    // Always save geocoded results (they include address, formatted fields, and coordinates if available)
+    next.manufacturing_geocodes = geocoded;
+  } else if (hasManuCoords && manuSeed.length > 0) {
+    // If manuSeed already has coordinates, use it directly
+    next.manufacturing_geocodes = manuSeed;
+  } else if (manuSeed.length > 0 && (!Array.isArray(next.manufacturing_geocodes) || next.manufacturing_geocodes.length === 0)) {
+    // Ensure manufacturing_geocodes is present when the editor sends structured entries
     next.manufacturing_geocodes = manuSeed;
   }
 
