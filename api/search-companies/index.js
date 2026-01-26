@@ -584,7 +584,18 @@ async function searchCompaniesHandler(req, context, deps = {}) {
     try {
       let items = [];
       const params = [{ name: "@take", value: limit }];
-      if (q) params.push({ name: "@q", value: q });
+
+      // Expand query terms using synonyms
+      let terms_norm = [], terms_compact = [];
+      let whereTextFilter = "";
+      if (q_norm) {
+        const expansion = await expandQueryTerms(q_norm, q_compact);
+        terms_norm = expansion.terms_norm;
+        terms_compact = expansion.terms_compact;
+
+        // Build WHERE clause for normalized and compact term matching
+        whereTextFilter = buildNormalizedSearchFilter(terms_norm, terms_compact, params);
+      }
 
       const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
 
