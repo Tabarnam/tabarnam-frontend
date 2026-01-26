@@ -643,9 +643,14 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
 
       if (sort === "manu") {
-        // Use legacy SQL_TEXT_FILTER as the primary search (works with existing data)
-        // Normalized search is additive when fields exist
-        const whereText = q_norm ? `AND (${SQL_TEXT_FILTER})` : "";
+        // Combine normalized search (if fields exist) with legacy search as fallback
+        // This handles both new records (with search_text_norm/compact) and old records
+        let whereText = "";
+        if (q_norm) {
+          whereText = whereTextFilter
+            ? `AND ((${whereTextFilter}) OR (${SQL_TEXT_FILTER}))`
+            : `AND (${SQL_TEXT_FILTER})`;
+        }
 
         const sqlA = `
             SELECT TOP @take ${SELECT_FIELDS}
@@ -656,7 +661,13 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             ORDER BY c._ts DESC
           `;
         const paramsA = [{ name: "@take", value: limit }];
-        if (q_norm) paramsA.push({ name: "@q", value: q_norm.toLowerCase() });
+        if (q_norm) {
+          paramsA.push({ name: "@q", value: q_norm.toLowerCase() });
+          // Add normalized search parameters
+          if (whereTextFilter) {
+            paramsA.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
+          }
+        }
 
         const partA = await container.items
           .query({ query: sqlA, parameters: paramsA }, { enableCrossPartitionQuery: true })
@@ -670,11 +681,17 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               FROM c
               WHERE (NOT IS_ARRAY(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
               AND ${softDeleteFilter}
-              ${whereText}
+              ${whereText.replace("@take", "@take2")}
               ORDER BY c._ts DESC
             `;
           const paramsB = [{ name: "@take2", value: remaining }];
-          if (q_norm) paramsB.push({ name: "@q", value: q_norm.toLowerCase() });
+          if (q_norm) {
+            paramsB.push({ name: "@q", value: q_norm.toLowerCase() });
+            // Add normalized search parameters
+            if (whereTextFilter) {
+              paramsB.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
+            }
+          }
           const partB = await container.items
             .query({ query: sqlB, parameters: paramsB }, { enableCrossPartitionQuery: true })
             .fetchAll();
@@ -682,22 +699,28 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
       } else {
         const orderBy = sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
-        const sql = q_norm
-          ? `
-              SELECT TOP @take ${SELECT_FIELDS}
-              FROM c
-              WHERE (${SQL_TEXT_FILTER})
-              AND ${softDeleteFilter}
-              ${orderBy}
-            `
-          : `
-              SELECT TOP @take ${SELECT_FIELDS}
-              FROM c
-              WHERE ${softDeleteFilter}
-              ${orderBy}
-            `;
+        let whereClause = softDeleteFilter;
+        if (q_norm) {
+          whereClause = whereTextFilter
+            ? `(${whereTextFilter}) OR (${SQL_TEXT_FILTER}) AND ${softDeleteFilter}`
+            : `${SQL_TEXT_FILTER} AND ${softDeleteFilter}`;
+        }
+
+        const sql = `
+            SELECT TOP @take ${SELECT_FIELDS}
+            FROM c
+            WHERE ${whereClause}
+            ${orderBy}
+          `;
+
         const queryParams = [{ name: "@take", value: limit }];
-        if (q_norm) queryParams.push({ name: "@q", value: q_norm.toLowerCase() });
+        if (q_norm) {
+          queryParams.push({ name: "@q", value: q_norm.toLowerCase() });
+          // Add normalized search parameters
+          if (whereTextFilter) {
+            queryParams.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
+          }
+        }
 
         const res = await container.items
           .query({ query: sql, parameters: queryParams }, { enableCrossPartitionQuery: true })
