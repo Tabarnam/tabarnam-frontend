@@ -7,6 +7,7 @@ try {
 
 const { CosmosClient } = require("@azure/cosmos");
 const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
+const { logInboundRequest } = require("../_diagnostics");
 
 let cosmosTargetPromise;
 
