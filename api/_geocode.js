@@ -7,27 +7,60 @@ function env(k, d = "") {
   return (v == null ? d : String(v)).trim();
 }
 
-// Load country centers from JSON file (cached on first use)
+// Country center coordinates (embedded for API reliability)
+const COUNTRY_CENTERS_DATA = [
+  { "code": "US", "name": "United States", "lat": 37.0902, "lng": -95.7129 },
+  { "code": "CA", "name": "Canada", "lat": 56.1304, "lng": -106.3468 },
+  { "code": "CN", "name": "China", "lat": 35.8617, "lng": 104.1954 },
+  { "code": "IN", "name": "India", "lat": 20.5937, "lng": 78.9629 },
+  { "code": "GB", "name": "United Kingdom", "lat": 55.3781, "lng": -3.4360 },
+  { "code": "DE", "name": "Germany", "lat": 51.1657, "lng": 10.4515 },
+  { "code": "FR", "name": "France", "lat": 46.2276, "lng": 2.2137 },
+  { "code": "JP", "name": "Japan", "lat": 36.2048, "lng": 138.2529 },
+  { "code": "MX", "name": "Mexico", "lat": 23.6345, "lng": -102.5528 },
+  { "code": "BR", "name": "Brazil", "lat": -14.2350, "lng": -51.9253 },
+  { "code": "IT", "name": "Italy", "lat": 41.8719, "lng": 12.5674 },
+  { "code": "AU", "name": "Australia", "lat": -25.2744, "lng": 133.7751 },
+  { "code": "KR", "name": "South Korea", "lat": 35.9078, "lng": 127.7669 },
+  { "code": "NL", "name": "Netherlands", "lat": 52.1326, "lng": 5.2913 },
+  { "code": "ES", "name": "Spain", "lat": 40.4637, "lng": -3.7492 },
+  { "code": "SE", "name": "Sweden", "lat": 60.1282, "lng": 18.6435 },
+  { "code": "RU", "name": "Russia", "lat": 61.5240, "lng": 105.3188 },
+  { "code": "TW", "name": "Taiwan", "lat": 23.6978, "lng": 120.9605 },
+  { "code": "SG", "name": "Singapore", "lat": 1.3521, "lng": 103.8198 },
+  { "code": "HK", "name": "Hong Kong", "lat": 22.3193, "lng": 114.1694 },
+  { "code": "TH", "name": "Thailand", "lat": 15.8700, "lng": 100.9925 },
+  { "code": "MY", "name": "Malaysia", "lat": 4.2105, "lng": 101.6964 },
+  { "code": "ID", "name": "Indonesia", "lat": -0.7893, "lng": 113.9213 },
+  { "code": "PH", "name": "Philippines", "lat": 12.8797, "lng": 121.7740 },
+  { "code": "VN", "name": "Vietnam", "lat": 14.0583, "lng": 108.2772 },
+  { "code": "PK", "name": "Pakistan", "lat": 30.3753, "lng": 69.3451 },
+  { "code": "BD", "name": "Bangladesh", "lat": 23.685, "lng": 90.3563 },
+  { "code": "CH", "name": "Switzerland", "lat": 46.8182, "lng": 8.2275 },
+  { "code": "BE", "name": "Belgium", "lat": 50.5039, "lng": 4.4699 },
+  { "code": "AT", "name": "Austria", "lat": 47.5162, "lng": 14.5501 },
+  { "code": "PL", "name": "Poland", "lat": 51.9194, "lng": 19.1451 },
+  { "code": "TR", "name": "Turkey", "lat": 38.9637, "lng": 35.2433 },
+  { "code": "SA", "name": "Saudi Arabia", "lat": 23.8859, "lng": 45.0792 },
+  { "code": "AE", "name": "United Arab Emirates", "lat": 23.4241, "lng": 53.8478 },
+  { "code": "IL", "name": "Israel", "lat": 31.0461, "lng": 34.8516 },
+  { "code": "ZA", "name": "South Africa", "lat": -30.5595, "lng": 22.9375 },
+  { "code": "NG", "name": "Nigeria", "lat": 9.0820, "lng": 8.6753 },
+  { "code": "EG", "name": "Egypt", "lat": 26.8206, "lng": 30.8025 },
+];
+
 let countryCentersCache = null;
 function getCountryCenters() {
   if (countryCentersCache) return countryCentersCache;
-  try {
-    const filePath = path.join(__dirname, "../public/geo/country-centers.json");
-    const data = fs.readFileSync(filePath, "utf-8");
-    const centers = JSON.parse(data);
-    // Create maps for fast lookup by code and name
-    const byCode = {};
-    const byName = {};
-    for (const item of centers) {
-      byCode[item.code.toUpperCase()] = { lat: item.lat, lng: item.lng };
-      byName[item.name.toUpperCase()] = { lat: item.lat, lng: item.lng };
-    }
-    countryCentersCache = { byCode, byName };
-    return countryCentersCache;
-  } catch (e) {
-    console.warn("[geocode] Failed to load country centers:", e?.message);
-    return { byCode: {}, byName: {} };
+  // Create maps for fast lookup by code and name
+  const byCode = {};
+  const byName = {};
+  for (const item of COUNTRY_CENTERS_DATA) {
+    byCode[item.code.toUpperCase()] = { lat: item.lat, lng: item.lng };
+    byName[item.name.toUpperCase()] = { lat: item.lat, lng: item.lng };
   }
+  countryCentersCache = { byCode, byName };
+  return countryCentersCache;
 }
 
 // Check if a location string appears to be just a country name or code
