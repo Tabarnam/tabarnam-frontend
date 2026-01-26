@@ -277,6 +277,45 @@ const SQL_TEXT_FILTER = `
   (IS_DEFINED(c.amazon_url) AND IS_STRING(c.amazon_url) AND CONTAINS(LOWER(c.amazon_url), @q))
 `;
 
+/**
+ * Build a normalized search filter for Cosmos SQL
+ * Uses word boundary matching on search_text_norm and contains matching on search_text_compact
+ * Returns SQL fragment and updates params array
+ */
+function buildNormalizedSearchFilter(terms_norm, terms_compact, params) {
+  if (!terms_norm.length && !terms_compact.length) {
+    return "";
+  }
+
+  const conditions = [];
+  let paramIndex = 1;
+
+  // For each normalized term, add a boundary-matched condition
+  for (const term of terms_norm) {
+    if (term) {
+      const paramName = `@norm${paramIndex}`;
+      // Store with leading and trailing spaces for word boundary matching
+      params.push({ name: paramName, value: ` ${term} ` });
+      conditions.push(`(IS_DEFINED(c.search_text_norm) AND IS_STRING(c.search_text_norm) AND CONTAINS(c.search_text_norm, ${paramName}))`);
+      paramIndex++;
+    }
+  }
+
+  // For each compact term, add a contains condition
+  for (const term of terms_compact) {
+    if (term) {
+      const paramName = `@comp${paramIndex}`;
+      params.push({ name: paramName, value: term });
+      conditions.push(`(IS_DEFINED(c.search_text_compact) AND IS_STRING(c.search_text_compact) AND CONTAINS(c.search_text_compact, ${paramName}))`);
+      paramIndex++;
+    }
+  }
+
+  // Join all conditions with OR
+  if (conditions.length === 0) return "";
+  return conditions.length === 1 ? conditions[0] : `(${conditions.join(" OR ")})`;
+}
+
 const SELECT_FIELDS = [
   // Identity / names
   "c.id",
