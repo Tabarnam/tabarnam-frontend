@@ -212,7 +212,42 @@ async function handleImportOne(req, context) {
         status: finalStatus,
       }, 200);
     } else {
-      // Work still in progress or deadline reached
+      // Work still in progress or deadline reached - enqueue resume message for background processing
+      try {
+        const enqueueResult = await enqueueResumeRun({
+          session_id: sessionId,
+          reason: "import-one-deadline",
+          requested_by: "import-one-endpoint",
+          enqueue_at: new Date().toISOString(),
+          run_after_ms: 0,
+        });
+
+        if (enqueueResult.ok) {
+          try {
+            console.log("[import-one] enqueued_resume", {
+              session_id: sessionId,
+              message_id: enqueueResult.message_id,
+              queue_name: enqueueResult.queue?.name,
+            });
+          } catch {}
+        } else {
+          try {
+            console.log("[import-one] enqueue_failed", {
+              session_id: sessionId,
+              error: enqueueResult.error,
+            });
+          } catch {}
+        }
+      } catch (err) {
+        try {
+          console.log("[import-one] enqueue_exception", {
+            session_id: sessionId,
+            error: String(err?.message || err),
+          });
+        } catch {}
+      }
+
+      // Return response indicating work is continuing in background
       return json({
         ok: true,
         completed: false,
