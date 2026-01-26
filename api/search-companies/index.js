@@ -643,7 +643,15 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
 
       if (sort === "manu") {
-        const whereText = whereTextFilter ? `AND ${whereTextFilter}` : "";
+        // Build WHERE clause with both new normalized matching and fallback to old SQL_TEXT_FILTER
+        let whereText = "";
+        if (whereTextFilter) {
+          // Try normalized search first, with fallback to legacy search
+          whereText = `AND (${whereTextFilter} OR (${SQL_TEXT_FILTER}))`;
+        } else if (q_norm) {
+          // If no normalized filter but we have a query, use legacy filter
+          whereText = `AND (${SQL_TEXT_FILTER})`;
+        }
 
         const sqlA = `
             SELECT TOP @take ${SELECT_FIELDS}
@@ -653,8 +661,18 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             ${whereText}
             ORDER BY c._ts DESC
           `;
+        const paramsA = [{ name: "@take", value: limit }];
+        // Add original query for legacy search fallback
+        if (q_norm) paramsA.push({ name: "@q", value: q_norm.toLowerCase() });
+        // Add normalized search parameters
+        for (const p of params) {
+          if (p.name.startsWith("@norm") || p.name.startsWith("@comp")) {
+            paramsA.push(p);
+          }
+        }
+
         const partA = await container.items
-          .query({ query: sqlA, parameters: params }, { enableCrossPartitionQuery: true })
+          .query({ query: sqlA, parameters: paramsA }, { enableCrossPartitionQuery: true })
           .fetchAll();
         items = partA.resources || [];
 
@@ -669,7 +687,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               ORDER BY c._ts DESC
             `;
           const paramsB = [{ name: "@take2", value: remaining }];
-          // Copy over all the normalized/compact search parameters
+          if (q_norm) paramsB.push({ name: "@q", value: q_norm.toLowerCase() });
+          // Copy over normalized search parameters
           for (const p of params) {
             if (p.name.startsWith("@norm") || p.name.startsWith("@comp")) {
               paramsB.push(p);
@@ -682,22 +701,35 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
       } else {
         const orderBy = sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
-        const sql = whereTextFilter
-          ? `
+
+        // Build WHERE clause with both new normalized matching and fallback to old SQL_TEXT_FILTER
+        let whereClause = softDeleteFilter;
+        if (whereTextFilter && q_norm) {
+          whereClause = `(${whereTextFilter} OR (${SQL_TEXT_FILTER})) AND ${softDeleteFilter}`;
+        } else if (whereTextFilter) {
+          whereClause = `${whereTextFilter} AND ${softDeleteFilter}`;
+        } else if (q_norm) {
+          whereClause = `(${SQL_TEXT_FILTER}) AND ${softDeleteFilter}`;
+        }
+
+        const sql = `
               SELECT TOP @take ${SELECT_FIELDS}
               FROM c
-              WHERE ${whereTextFilter}
-              AND ${softDeleteFilter}
-              ${orderBy}
-            `
-          : `
-              SELECT TOP @take ${SELECT_FIELDS}
-              FROM c
-              WHERE ${softDeleteFilter}
+              WHERE ${whereClause}
               ${orderBy}
             `;
+
+        const queryParams = [{ name: "@take", value: limit }];
+        if (q_norm) queryParams.push({ name: "@q", value: q_norm.toLowerCase() });
+        // Add normalized search parameters
+        for (const p of params) {
+          if (p.name.startsWith("@norm") || p.name.startsWith("@comp")) {
+            queryParams.push(p);
+          }
+        }
+
         const res = await container.items
-          .query({ query: sql, parameters: params }, { enableCrossPartitionQuery: true })
+          .query({ query: sql, parameters: queryParams }, { enableCrossPartitionQuery: true })
           .fetchAll();
         items = res.resources || [];
       }
