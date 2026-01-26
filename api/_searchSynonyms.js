@@ -144,33 +144,37 @@ async function expandQueryTerms(q_norm, q_compact) {
  * This is a simple heuristic; more sophisticated solutions would use a dictionary
  */
 function buildCommonWordSplits(word) {
-  const splits = [];
+  const splits = new Set();
 
-  // Common compound words in product/business context
-  const commonPrefixes = ["body", "hair", "face", "skin", "eye"];
-  const commonSuffixes = ["wash", "care", "treatment", "lotion", "cream", "oil", "mask"];
+  // Common compound words in product/business context - try these first
+  const commonSplits = {
+    "bodywash": "body wash",
+    "bodywashe": "body wash",  // common misspelling
+    "hairwash": "hair wash",
+    "haircare": "hair care",
+    "skincare": "skin care",
+    "facewash": "face wash",
+    "facecare": "face care",
+    "eyecare": "eye care",
+    "eyewash": "eye wash",
+  };
 
-  for (const prefix of commonPrefixes) {
-    if (word.startsWith(prefix) && word.length > prefix.length) {
-      const remainder = word.substring(prefix.length);
-      // Check if remainder looks like a word (not too short)
-      if (remainder.length >= 3) {
-        splits.push(`${prefix} ${remainder}`);
-      }
-    }
+  if (commonSplits[word]) {
+    splits.add(commonSplits[word]);
   }
 
-  // Also try all possible two-word splits
-  for (let i = 2; i < word.length - 2; i++) {
+  // Also try all possible two-word splits for any word
+  // This creates all possible single-position splits
+  for (let i = 1; i < word.length; i++) {
     const left = word.substring(0, i);
     const right = word.substring(i);
     // Only include if both parts are at least 2 characters
     if (left.length >= 2 && right.length >= 2) {
-      splits.push(`${left} ${right}`);
+      splits.add(`${left} ${right}`);
     }
   }
 
-  return splits;
+  return Array.from(splits);
 }
 
 module.exports = {
