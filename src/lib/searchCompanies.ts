@@ -124,7 +124,7 @@ export async function searchCompanies(opts: SearchOptions) {
     };
   } catch (e) {
     console.warn("Search API failed:", e?.message);
-    throw new Error(e?.message || "API unavailabletry later");
+    throw new Error(e?.message || "API unavailable, try later");
   }
 }
 
