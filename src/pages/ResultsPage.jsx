@@ -190,7 +190,7 @@ export default function ResultsPage() {
         setUserLoc({ lat: effectiveLocation.lat, lng: effectiveLocation.lng });
       }
 
-      const { items = [], meta } = await searchCompanies({
+      let searchResult = await searchCompanies({
         q,
         sort,
         country,
@@ -201,6 +201,32 @@ export default function ResultsPage() {
         lat: effectiveLocation?.lat,
         lng: effectiveLocation?.lng,
       });
+
+      // If no results, try alternative query forms (fallback retry)
+      if (!append && searchResult.items?.length === 0 && !skip) {
+        const alternatives = generateQueryAlternatives(q);
+        for (const altQuery of alternatives) {
+          if (altQuery !== q) {  // Don't retry the same query
+            const altResult = await searchCompanies({
+              q: altQuery,
+              sort,
+              country,
+              state,
+              city,
+              take,
+              skip,
+              lat: effectiveLocation?.lat,
+              lng: effectiveLocation?.lng,
+            });
+            if (altResult.items?.length > 0) {
+              searchResult = altResult;
+              break;  // Use first successful alternative
+            }
+          }
+        }
+      }
+
+      const { items = [], meta } = searchResult;
       const withDistances = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
       const withReviews = await loadReviews(withDistances);
 
@@ -433,6 +459,64 @@ export default function ResultsPage() {
 }
 
 /* ---------- helpers ---------- */
+
+/**
+ * Generate alternative query forms for fallback search retry
+ * E.g., "bodywash" → ["body wash"], "body-wash" → ["body wash"]
+ */
+function generateQueryAlternatives(query) {
+  const alternatives = [query];  // Start with original
+
+  if (!query || typeof query !== "string") return alternatives;
+
+  const q = query.toLowerCase().trim();
+
+  // Map of known compound words without spaces to their spaced versions
+  const knownCompounds = {
+    "bodywash": "body wash",
+    "hairwash": "hair wash",
+    "haircare": "hair care",
+    "skincare": "skin care",
+    "facewash": "face wash",
+    "facecare": "face care",
+    "eyecare": "eye care",
+    "eyewash": "eye wash",
+    "handwash": "hand wash",
+    "lipcare": "lip care",
+  };
+
+  // If exact match in known compounds, add that
+  if (knownCompounds[q]) {
+    alternatives.push(knownCompounds[q]);
+  }
+
+  // Try adding/removing spaces around hyphens and underscores
+  if (q.includes("-")) {
+    alternatives.push(q.replace(/-/g, " "));
+  }
+  if (q.includes("_")) {
+    alternatives.push(q.replace(/_/g, " "));
+  }
+
+  // Try collapsing spaces to no spaces
+  if (q.includes(" ")) {
+    const collapsed = q.replace(/\s+/g, "");
+    alternatives.push(collapsed);
+  }
+
+  // For words without spaces, try common splits (4/5 chars, 5/6 chars, etc.)
+  if (!q.includes(" ") && q.length > 6) {
+    // Try splitting at common lengths (body|wash is 4|4, hair|care is 4|4)
+    for (let i = 3; i <= Math.min(6, q.length - 2); i++) {
+      const split = q.slice(0, i) + " " + q.slice(i);
+      alternatives.push(split);
+    }
+  }
+
+  // Return unique alternatives only
+  return [...new Set(alternatives)];
+}
+
 function attachDistances(c, userLoc, unit) {
   const out = { ...c, _hqDist: null, _nearestManuDist: null, _manuDists: [], _hqDists: [] };
 

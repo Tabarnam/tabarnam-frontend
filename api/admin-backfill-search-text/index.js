@@ -93,8 +93,9 @@ async function backfillSearchText(req, context) {
         try {
           processed++;
 
-          // Fetch the full document
-          const fullDoc = await container.item(company.id, company.id).read();
+          // Fetch the full document using correct partition key
+          const partitionKey = company.normalized_domain || company.id;
+          const fullDoc = await container.item(company.id, partitionKey).read();
           const doc = fullDoc.resource;
 
           if (!doc) continue;
@@ -102,8 +103,8 @@ async function backfillSearchText(req, context) {
           // Patch with search text
           patchCompanyWithSearchText(doc);
 
-          // Update the document
-          await container.item(doc.id, doc.id).replace(doc);
+          // Update the document using correct partition key
+          await container.item(doc.id, doc.normalized_domain || doc.id).replace(doc);
           updated++;
 
           // Log progress periodically
