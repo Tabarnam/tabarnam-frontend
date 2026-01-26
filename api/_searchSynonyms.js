@@ -144,11 +144,12 @@ async function expandQueryTerms(q_norm, q_compact) {
  * Build common word splits for compound words without spaces
  * E.g., "bodywash" → ["body wash"]
  * This is a simple heuristic; more sophisticated solutions would use a dictionary
+ * Returns splits ordered by likelihood (most likely first)
  */
 function buildCommonWordSplits(word) {
-  const splits = new Set();
+  const splits = [];
 
-  // Common compound words in product/business context - try these first
+  // Common compound words in product/business context - these are most likely
   const commonSplits = {
     "bodywash": "body wash",
     "bodywashe": "body wash",  // common misspelling
@@ -159,24 +160,60 @@ function buildCommonWordSplits(word) {
     "facecare": "face care",
     "eyecare": "eye care",
     "eyewash": "eye wash",
+    "handwash": "hand wash",
+    "handcare": "hand care",
+    "lipscare": "lips care",
+    "lipcare": "lip care",
   };
 
+  // Add the exact match if it exists (highest priority)
   if (commonSplits[word]) {
-    splits.add(commonSplits[word]);
+    splits.push(commonSplits[word]);
   }
 
-  // Also try all possible two-word splits for any word
-  // This creates all possible single-position splits
-  for (let i = 1; i < word.length; i++) {
-    const left = word.substring(0, i);
-    const right = word.substring(i);
-    // Only include if both parts are at least 2 characters
-    if (left.length >= 2 && right.length >= 2) {
-      splits.add(`${left} ${right}`);
+  // Add likely splits (common word lengths near middle)
+  // For "bodywash" (9 chars), try splits near 4-5 which would give "body wash"
+  const likelyPositions = [];
+  if (word.length > 4) {
+    const mid = Math.floor(word.length / 2);
+    // Add positions around the middle
+    for (let offset = -2; offset <= 2; offset++) {
+      const pos = mid + offset;
+      if (pos > 1 && pos < word.length - 1) {
+        likelyPositions.push(pos);
+      }
     }
   }
 
-  return Array.from(splits);
+  // Add likely splits in order (without duplicates)
+  const addedSplits = new Set(splits);
+  for (const pos of likelyPositions) {
+    const left = word.substring(0, pos);
+    const right = word.substring(pos);
+    // Only include if both parts are at least 2 characters
+    if (left.length >= 2 && right.length >= 2) {
+      const split = `${left} ${right}`;
+      if (!addedSplits.has(split)) {
+        splits.push(split);
+        addedSplits.add(split);
+      }
+    }
+  }
+
+  // Finally, add all other possible splits
+  for (let i = 2; i < word.length - 1; i++) {
+    const left = word.substring(0, i);
+    const right = word.substring(i);
+    if (left.length >= 2 && right.length >= 2) {
+      const split = `${left} ${right}`;
+      if (!addedSplits.has(split)) {
+        splits.push(split);
+        addedSplits.add(split);
+      }
+    }
+  }
+
+  return splits;
 }
 
 module.exports = {
