@@ -342,6 +342,10 @@ const SELECT_FIELDS = [
   "c.updated_at",
   "c._ts",
 
+  // Normalized search fields (for normalized query matching)
+  "c.search_text_norm",
+  "c.search_text_compact",
+
   // Location (used for completeness + admin UX)
   "c.manufacturing_locations",
   "c.manufacturing_geocodes",
