@@ -639,7 +639,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
 
       if (sort === "manu") {
-        const whereText = q ? `AND (${SQL_TEXT_FILTER})` : "";
+        const whereText = whereTextFilter ? `AND ${whereTextFilter}` : "";
 
         const sqlA = `
             SELECT TOP @take ${SELECT_FIELDS}
@@ -665,7 +665,12 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               ORDER BY c._ts DESC
             `;
           const paramsB = [{ name: "@take2", value: remaining }];
-          if (q) paramsB.push({ name: "@q", value: q });
+          // Copy over all the normalized/compact search parameters
+          for (const p of params) {
+            if (p.name.startsWith("@norm") || p.name.startsWith("@comp")) {
+              paramsB.push(p);
+            }
+          }
           const partB = await container.items
             .query({ query: sqlB, parameters: paramsB }, { enableCrossPartitionQuery: true })
             .fetchAll();
@@ -673,11 +678,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
       } else {
         const orderBy = sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
-        const sql = q
+        const sql = whereTextFilter
           ? `
               SELECT TOP @take ${SELECT_FIELDS}
               FROM c
-              WHERE (${SQL_TEXT_FILTER})
+              WHERE ${whereTextFilter}
               AND ${softDeleteFilter}
               ${orderBy}
             `
