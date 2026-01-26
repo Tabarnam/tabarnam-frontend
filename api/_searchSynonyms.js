@@ -106,7 +106,7 @@ async function expandQueryTerms(q_norm, q_compact) {
     }
   }
 
-  // Also check the compact form in synonyms (e.g., "bodywash" → ["body wash"])
+    // Also check the compact form in synonyms (e.g., "bodywash" → ["body wash"])
   if (q_compact && q_compact !== q_norm && synonyms[q_compact]) {
     const mappedSynonyms = synonyms[q_compact];
     if (Array.isArray(mappedSynonyms)) {
@@ -125,7 +125,9 @@ async function expandQueryTerms(q_norm, q_compact) {
   if (q_norm && !q_norm.includes(" ") && q_norm.length > 4) {
     // Try some common space insertions for common compound words
     const commonSplits = buildCommonWordSplits(q_norm);
-    for (const split of commonSplits) {
+    // Limit to first 5 most likely splits to avoid excessive OR conditions
+    for (let i = 0; i < Math.min(5, commonSplits.length); i++) {
+      const split = commonSplits[i];
       terms_norm.add(split);
       const compact = split.replace(/\s+/g, "");
       if (compact) terms_compact.add(compact);
@@ -133,8 +135,8 @@ async function expandQueryTerms(q_norm, q_compact) {
   }
 
   return {
-    terms_norm: Array.from(terms_norm),
-    terms_compact: Array.from(terms_compact),
+    terms_norm: Array.from(terms_norm).slice(0, 10),  // Limit to 10 terms max to avoid huge SQL
+    terms_compact: Array.from(terms_compact).slice(0, 10),
   };
 }
 
