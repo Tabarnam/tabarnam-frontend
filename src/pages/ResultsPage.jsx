@@ -190,7 +190,7 @@ export default function ResultsPage() {
         setUserLoc({ lat: effectiveLocation.lat, lng: effectiveLocation.lng });
       }
 
-      const { items = [], meta } = await searchCompanies({
+      let searchResult = await searchCompanies({
         q,
         sort,
         country,
@@ -201,6 +201,32 @@ export default function ResultsPage() {
         lat: effectiveLocation?.lat,
         lng: effectiveLocation?.lng,
       });
+
+      // If no results, try alternative query forms (fallback retry)
+      if (!append && searchResult.items?.length === 0 && !skip) {
+        const alternatives = generateQueryAlternatives(q);
+        for (const altQuery of alternatives) {
+          if (altQuery !== q) {  // Don't retry the same query
+            const altResult = await searchCompanies({
+              q: altQuery,
+              sort,
+              country,
+              state,
+              city,
+              take,
+              skip,
+              lat: effectiveLocation?.lat,
+              lng: effectiveLocation?.lng,
+            });
+            if (altResult.items?.length > 0) {
+              searchResult = altResult;
+              break;  // Use first successful alternative
+            }
+          }
+        }
+      }
+
+      const { items = [], meta } = searchResult;
       const withDistances = items.map((c) => normalizeStars(attachDistances(c, effectiveLocation, unit)));
       const withReviews = await loadReviews(withDistances);
 
