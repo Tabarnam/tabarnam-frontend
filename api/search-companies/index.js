@@ -693,13 +693,20 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
 
       if (sort === "manu") {
-        // Build search filter that handles both spaced and non-spaced queries
+        // Build search filter using expanded terms
         let searchFilter = "";
+        let sqlParams = [{ name: "@take", value: limit }];
         if (q_norm) {
-          const legacyFilter = buildLegacySearchFilter();
+          // Build legacy filter with expanded terms
+          const legacyFilter = buildLegacySearchFilterWithTerms(terms_norm, terms_compact, sqlParams);
           searchFilter = whereTextFilter
             ? `AND (((${whereTextFilter}) OR (${legacyFilter})) AND ${softDeleteFilter})`
             : `AND ((${legacyFilter}) AND ${softDeleteFilter})`;
+
+          // Add normalized search parameters
+          if (whereTextFilter) {
+            sqlParams.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
+          }
         } else {
           searchFilter = `AND ${softDeleteFilter}`;
         }
@@ -711,15 +718,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             ${searchFilter}
             ORDER BY c._ts DESC
           `;
-        const paramsA = [{ name: "@take", value: limit }];
-        if (q_norm) {
-          paramsA.push({ name: "@q", value: q_norm.toLowerCase() });
-          paramsA.push({ name: "@q_compact", value: q_compact.toLowerCase() });
-          // Add normalized search parameters
-          if (whereTextFilter) {
-            paramsA.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
-          }
-        }
+        const paramsA = [...sqlParams];
 
         const partA = await container.items
           .query({ query: sqlA, parameters: paramsA }, { enableCrossPartitionQuery: true })
@@ -735,15 +734,8 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               ${searchFilter}
               ORDER BY c._ts DESC
             `;
-          const paramsB = [{ name: "@take2", value: remaining }];
-          if (q_norm) {
-            paramsB.push({ name: "@q", value: q_norm.toLowerCase() });
-            paramsB.push({ name: "@q_compact", value: q_compact.toLowerCase() });
-            // Add normalized search parameters
-            if (whereTextFilter) {
-              paramsB.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
-            }
-          }
+          const paramsB = sqlParams.map(p => p.name === "@take" ? { name: "@take2", value: remaining } : p);
+
           const partB = await container.items
             .query({ query: sqlB, parameters: paramsB }, { enableCrossPartitionQuery: true })
             .fetchAll();
@@ -752,12 +744,18 @@ async function searchCompaniesHandler(req, context, deps = {}) {
       } else {
         const orderBy = sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
         let searchFilter = "";
+        let queryParams = [{ name: "@take", value: limit }];
         if (q_norm) {
-          // Combine normalized search with legacy search as fallback
-          const legacyFilter = buildLegacySearchFilter();
+          // Build legacy filter with expanded terms
+          const legacyFilter = buildLegacySearchFilterWithTerms(terms_norm, terms_compact, queryParams);
           searchFilter = whereTextFilter
             ? `AND (((${whereTextFilter}) OR (${legacyFilter})) AND ${softDeleteFilter})`
             : `AND ((${legacyFilter}) AND ${softDeleteFilter})`;
+
+          // Add normalized search parameters
+          if (whereTextFilter) {
+            queryParams.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
+          }
         } else {
           searchFilter = `AND ${softDeleteFilter}`;
         }
@@ -769,16 +767,6 @@ async function searchCompaniesHandler(req, context, deps = {}) {
             ${searchFilter}
             ${orderBy}
           `;
-
-        const queryParams = [{ name: "@take", value: limit }];
-        if (q_norm) {
-          queryParams.push({ name: "@q", value: q_norm.toLowerCase() });
-          queryParams.push({ name: "@q_compact", value: q_compact.toLowerCase() });
-          // Add normalized search parameters
-          if (whereTextFilter) {
-            queryParams.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
-          }
-        }
 
         const res = await container.items
           .query({ query: sql, parameters: queryParams }, { enableCrossPartitionQuery: true })
