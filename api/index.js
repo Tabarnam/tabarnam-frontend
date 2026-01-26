@@ -558,6 +558,14 @@ try {
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-geocode-location:", e?.message || e);
 }
+
+try {
+  console.log("[api] Registering: admin-init-search-synonyms");
+  require("./admin-init-search-synonyms/index.js");
+  console.log("[api] ✓ admin-init-search-synonyms registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-init-search-synonyms:", e?.message || e);
+}
 }
 
 console.log("[api/index.js] ✅ All handler registration complete! Exporting app.");
