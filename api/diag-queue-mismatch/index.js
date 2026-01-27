@@ -82,7 +82,7 @@ app.http("diagQueueMismatch", {
         detected: mismatch,
         risk: mismatch ? "CRITICAL" : "OK",
         explanation: mismatch
-          ? `Enqueue resolves to '${enqueueAccount}' (via ${enqueueConnSource}). Trigger is hardcoded to 'AzureWebJobsStorage'='${triggerAccount}'. Messages will accumulate in wrong queue.`
+          ? `Enqueue resolves to '${enqueueAccount}' (via ${enqueueConnSource}). Trigger is hardcoded to 'AzureWebJobsStorage' which resolves to '${triggerAccount || "NOT SET (null)"}'. Messages will accumulate in wrong queue and trigger will never fire.`
           : `Both enqueue and trigger use same account: '${enqueueAccount}'`,
       },
       enqueue_side: {
