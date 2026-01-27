@@ -7,9 +7,11 @@ try {
 }
 
 const ROUTES_KEY = "__tabarnam_http_registrations";
+const TRIGGERS_KEY = "__tabarnam_trigger_registrations";
 const PATCHED_KEY = "__tabarnam_http_patched";
 
 const fallbackRegistrations = [];
+const fallbackTriggers = [];
 
 function normalizeRoute(value) {
   return String(value || "")
@@ -26,16 +28,31 @@ function getRegistrations() {
   return fallbackRegistrations;
 }
 
+function getTriggers() {
+  if (azureApp) {
+    if (!Array.isArray(azureApp[TRIGGERS_KEY])) azureApp[TRIGGERS_KEY] = [];
+    return azureApp[TRIGGERS_KEY];
+  }
+  return fallbackTriggers;
+}
+
 function ensurePatched() {
   if (!azureApp) return;
   if (azureApp[PATCHED_KEY]) return;
 
   const registrations = getRegistrations();
+  const triggers = getTriggers();
   const originalHttp = typeof azureApp.http === "function" ? azureApp.http.bind(azureApp) : null;
+  const originalStorageQueue = typeof azureApp.storageQueue === "function" ? azureApp.storageQueue.bind(azureApp) : null;
 
   azureApp.http = (name, opts) => {
     registrations.push({ name, ...(opts || {}) });
     return originalHttp ? originalHttp(name, opts) : undefined;
+  };
+
+  azureApp.storageQueue = (name, opts) => {
+    triggers.push({ name, type: "storageQueue", ...(opts || {}) });
+    return originalStorageQueue ? originalStorageQueue(name, opts) : undefined;
   };
 
   azureApp[PATCHED_KEY] = true;
