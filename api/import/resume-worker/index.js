@@ -17,9 +17,14 @@ app.http("import-resume-worker", {
 
 // Storage Queue trigger for production queue-driven execution
 // Converts queue message to HTTP-like request and delegates to the same handler
+// NOTE: Connection setting name MUST match what enqueue() resolves.
+// enqueue uses: ENRICHMENT_QUEUE_CONNECTION_STRING > AzureWebJobsStorage > AZURE_STORAGE_CONNECTION_STRING
+// So trigger uses ENRICHMENT_QUEUE_CONNECTION_SETTING (default: AzureWebJobsStorage)
+const triggerConnectionSetting =
+  String(process.env.ENRICHMENT_QUEUE_CONNECTION_SETTING || "").trim() || "AzureWebJobsStorage";
 app.storageQueue("import-resume-worker-queue-trigger", {
   queueName: "import-resume-worker",
-  connection: "AzureWebJobsStorage",
+  connection: triggerConnectionSetting,
   handler: async (message, context) => {
     // Convert queue message to HTTP-like request structure
     const queueBody = typeof message === "string" ? JSON.parse(message) : message;
