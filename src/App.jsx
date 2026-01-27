@@ -74,6 +74,9 @@ function Layout({ children }) {
   );
 }
 
+// Track if diagnostics have been run to prevent spam on hot reloads
+let diagnosticsRun = false;
+
 export default function App() {
   useEffect(() => {
     // Initialize Azure Entra ID user on app load
@@ -81,8 +84,11 @@ export default function App() {
       console.error('[App] Failed to initialize Azure user:', err);
     });
 
-    // Log API wiring diagnostics for troubleshooting
-    logWiringDiagnostics();
+    // Log API wiring diagnostics once on app startup (not on every hot reload)
+    if (!diagnosticsRun) {
+      diagnosticsRun = true;
+      logWiringDiagnostics();
+    }
   }, []);
 
   return (
