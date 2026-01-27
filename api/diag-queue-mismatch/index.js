@@ -1,3 +1,29 @@
+/**
+ * VERIFICATION RUNBOOK FOR QUEUE MISMATCH FIX
+ *
+ * After setting AzureWebJobsStorage in Azure App Settings:
+ *
+ * A) Verify diagnostic shows no mismatch:
+ *    - GET /api/diag/queue-mismatch
+ *    - Confirm "detected" is false
+ *    - Confirm both "enqueue_side" and "trigger_side" show same storage account (e.g., tabarnamstor2356)
+ *
+ * B) Start fresh import to test queue flow:
+ *    - Initiate a new import session (new session_id)
+ *
+ * C) Verify worker is processing (within 120 seconds):
+ *    - GET /api/import/status?session_id=<new_session_id>
+ *    - Confirm "resume_worker.handler_entered_at" is non-null (was null before fix)
+ *    - Confirm "last_finished_at" is non-null
+ *    - Confirm "stage_beacon" has advanced OFF "enrichment_resume_queued"
+ *
+ * If step (A) passes but worker still doesn't fire:
+ *    - Check Azure Functions "Monitor" tab for the queue-trigger function
+ *    - Check Application Insights / log stream for queue trigger exceptions
+ *    - Verify queue "import-resume-worker" shows dequeue activity (dequeueCount increases)
+ *      in the storage account (Azure Portal > Storage account > Queues)
+ */
+
 const { app } = require("@azure/functions");
 const { resolveQueueConfig } = require("../_enrichmentQueue");
 const { listTriggers } = require("../_app");
