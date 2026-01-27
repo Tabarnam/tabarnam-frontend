@@ -391,6 +391,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: admin-diag-triggers");
+  require("./admin-diag-triggers/index.js");
+  console.log("[api] ✓ admin-diag-triggers registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-diag-triggers:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: admin-companies-v2");
   require("./admin-companies-v2/index.js");
   console.log("[api] ✓ admin-companies-v2 registered");
