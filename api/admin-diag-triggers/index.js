@@ -19,10 +19,8 @@ function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
-// Use hyphenated route for reliability in Azure Functions routing
-// (slashed routes like "admin/diag/triggers" have had routing issues in prod)
 app.http("adminDiagTriggers", {
-  route: "admin-diag-triggers",
+  route: "admin/diag/triggers",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req, context) => {
