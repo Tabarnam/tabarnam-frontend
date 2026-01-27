@@ -104,10 +104,9 @@ app.http("diagQueueMismatch", {
       },
       fix: mismatch
         ? [
-            `Option A (recommended): Set ENRICHMENT_QUEUE_CONNECTION_STRING to same account as AzureWebJobsStorage (${triggerAccount})`,
-            `Option B: Update queue trigger connection from 'AzureWebJobsStorage' to match enqueue source`,
-            `Current enqueue source '${enqueueConnSource}' points to account '${enqueueAccount}'`,
-            `Current trigger expects connection 'AzureWebJobsStorage' which points to account '${triggerAccount}'`,
+            `Option A (recommended, simplest): Set AzureWebJobsStorage to the same connection string as ${enqueueConnSource} (which uses account '${enqueueAccount}'). This requires no code changes.`,
+            `Option B: If you prefer to keep using ${enqueueConnSource} for enqueue, set ENRICHMENT_QUEUE_CONNECTION_SETTING="${enqueueConnSource}" and redeploy PR #644 (dynamic trigger connection) so the trigger listens on the same setting.`,
+            `Current state: Enqueue side uses '${enqueueConnSource}' pointing to account '${enqueueAccount}'. Trigger is hardcoded to 'AzureWebJobsStorage' pointing to account '${triggerAccount}' (null if not set).`,
           ]
         : ["System is properly configured. Both sides use same storage account."],
     });
