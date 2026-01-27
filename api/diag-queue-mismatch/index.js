@@ -1,3 +1,29 @@
+/**
+ * VERIFICATION RUNBOOK FOR QUEUE MISMATCH FIX
+ *
+ * After setting AzureWebJobsStorage in Azure App Settings:
+ *
+ * A) Verify diagnostic shows no mismatch:
+ *    - GET /api/diag/queue-mismatch
+ *    - Confirm "detected" is false
+ *    - Confirm both "enqueue_side" and "trigger_side" show same storage account (e.g., tabarnamstor2356)
+ *
+ * B) Start fresh import to test queue flow:
+ *    - Initiate a new import session (new session_id)
+ *
+ * C) Verify worker is processing (within 120 seconds):
+ *    - GET /api/import/status?session_id=<new_session_id>
+ *    - Confirm "resume_worker.handler_entered_at" is non-null (was null before fix)
+ *    - Confirm "last_finished_at" is non-null
+ *    - Confirm "stage_beacon" has advanced OFF "enrichment_resume_queued"
+ *
+ * If step (A) passes but worker still doesn't fire:
+ *    - Check Azure Functions "Monitor" tab for the queue-trigger function
+ *    - Check Application Insights / log stream for queue trigger exceptions
+ *    - Verify queue "import-resume-worker" shows dequeue activity (dequeueCount increases)
+ *      in the storage account (Azure Portal > Storage account > Queues)
+ */
+
 const { app } = require("@azure/functions");
 const { resolveQueueConfig } = require("../_enrichmentQueue");
 const { listTriggers } = require("../_app");
@@ -82,7 +108,7 @@ app.http("diagQueueMismatch", {
         detected: mismatch,
         risk: mismatch ? "CRITICAL" : "OK",
         explanation: mismatch
-          ? `Enqueue resolves to '${enqueueAccount}' (via ${enqueueConnSource}). Trigger is hardcoded to 'AzureWebJobsStorage'='${triggerAccount}'. Messages will accumulate in wrong queue.`
+          ? `Enqueue resolves to '${enqueueAccount}' (via ${enqueueConnSource}). Trigger is hardcoded to 'AzureWebJobsStorage' which resolves to '${triggerAccount || "NOT SET (null)"}'. Messages will accumulate in wrong queue and trigger will never fire.`
           : `Both enqueue and trigger use same account: '${enqueueAccount}'`,
       },
       enqueue_side: {
@@ -104,10 +130,9 @@ app.http("diagQueueMismatch", {
       },
       fix: mismatch
         ? [
-            `Option A (recommended): Set ENRICHMENT_QUEUE_CONNECTION_STRING to same account as AzureWebJobsStorage (${triggerAccount})`,
-            `Option B: Update queue trigger connection from 'AzureWebJobsStorage' to match enqueue source`,
-            `Current enqueue source '${enqueueConnSource}' points to account '${enqueueAccount}'`,
-            `Current trigger expects connection 'AzureWebJobsStorage' which points to account '${triggerAccount}'`,
+            `Option A (recommended, simplest): Set AzureWebJobsStorage to the same connection string as ${enqueueConnSource} (which uses account '${enqueueAccount}'). This requires no code changes.`,
+            `Option B: If you prefer to keep using ${enqueueConnSource} for enqueue, set ENRICHMENT_QUEUE_CONNECTION_SETTING="${enqueueConnSource}" and redeploy PR #644 (dynamic trigger connection) so the trigger listens on the same setting.`,
+            `Current state: Enqueue side uses '${enqueueConnSource}' pointing to account '${enqueueAccount}'. Trigger is hardcoded to 'AzureWebJobsStorage' pointing to account '${triggerAccount}' (null if not set).`,
           ]
         : ["System is properly configured. Both sides use same storage account."],
     });
