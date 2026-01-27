@@ -90,6 +90,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: diag-queue-mismatch");
+  require("./diag-queue-mismatch/index.js");
+  console.log("[api] ✓ diag-queue-mismatch registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load diag-queue-mismatch:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: _diag-hello");
   require("./_diag-hello/index.js");
   console.log("[api] ✓ _diag-hello registered");
