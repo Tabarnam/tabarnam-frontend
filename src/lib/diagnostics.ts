@@ -213,33 +213,61 @@ export function logWiringDiagnostics(): void {
 }
 
 /**
- * Call the _ping endpoint to identify which backend is actually serving /api.
- * This proves which Function App is receiving the requests.
+ * Two-step identity probe to identify which backend is actually serving /api.
+ * Step A (primary): Try GET /api/ping
+ * Step B (fallback): Try GET /api/health only if /api/ping fails
+ *
+ * This proves which Function App is receiving the requests without requiring proxy auth keys.
  */
 async function pingBackend(): Promise<void> {
   try {
-    const pingUrl = `${API_BASE}/_ping`;
-    const response = await fetch(pingUrl, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-    });
+    // Step A: Try primary /api/ping endpoint
+    const pingUrl = `${API_BASE}/ping`;
 
-    if (!response.ok) {
-      console.warn('[Backend Ping] Request failed with status:', response.status);
-      return;
+    try {
+      const response = await fetch(pingUrl, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.group('%c[Backend Identity] Successfully identified backend', 'font-weight: bold; color: #10b981;');
+        console.info('Backend Name:', data.runtime?.website_site_name || 'unknown');
+        console.info('Hostname:', data.runtime?.website_hostname || 'unknown');
+        console.info('Timestamp:', data.ts || new Date().toISOString());
+        console.info('Build ID:', data.build_id || 'unknown');
+        console.groupEnd();
+        return;
+      }
+    } catch (pingErr) {
+      // Step A failed, will try Step B
     }
 
-    const data = await response.json();
-    console.group('%c[Backend Ping] Successfully identified backend', 'font-weight: bold; color: #10b981;');
-    console.info('Backend Name:', data.backend_name);
-    console.info('Timestamp:', data.timestamp);
-    if (data.request) {
-      console.info('Request Host:', data.request.host);
-      console.info('Request Path:', data.request.path);
+    // Step B: Fallback to /api/health endpoint
+    const healthUrl = `${API_BASE}/health`;
+
+    try {
+      const response = await fetch(healthUrl, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (response.ok) {
+        console.group('%c[Backend Identity] Backend reachable (limited identity)', 'font-weight: bold; color: #f59e0b;');
+        console.info('Status: Connected to backend via /api/health');
+        console.info('Note: Full identity payload unavailable; /api/ping endpoint not deployed');
+        console.groupEnd();
+        return;
+      }
+    } catch (healthErr) {
+      // Step B also failed
     }
-    console.groupEnd();
+
+    // Both endpoints failed
+    console.warn('[Backend Identity] Failed: Both /api/ping and /api/health are unreachable');
   } catch (err) {
-    console.warn('[Backend Ping] Failed to identify backend:', err instanceof Error ? err.message : String(err));
+    console.warn('[Backend Identity] Unexpected error:', err instanceof Error ? err.message : String(err));
   }
 }
 
