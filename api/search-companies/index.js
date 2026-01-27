@@ -834,7 +834,6 @@ app.http("search-companies", {
 });
 
 module.exports._test = {
-  SQL_TEXT_FILTER,
   SELECT_FIELDS,
   normalizeStringArray,
   mapCompanyToPublic,
