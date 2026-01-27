@@ -67,7 +67,7 @@ const app =
       getRegistrations().push({ name, ...(opts || {}) });
     },
     storageQueue: (name, opts) => {
-      // Fallback: no-op for local dev when @azure/functions is unavailable
+      getTriggers().push({ name, type: "storageQueue", ...(opts || {}) });
     },
   });
 
@@ -92,9 +92,25 @@ function listHttpRegistrations() {
   }));
 }
 
+function listTriggers() {
+  return getTriggers().map((t) => ({
+    name: String(t?.name || ""),
+    type: String(t?.type || ""),
+    queueName: String(t?.queueName || ""),
+  }));
+}
+
+function hasTrigger(name) {
+  const target = String(name || "").trim().toLowerCase();
+  if (!target) return false;
+  return getTriggers().some((t) => String(t?.name || "").trim().toLowerCase() === target);
+}
+
 if (!app._test) app._test = {};
 app._test.listRoutes = listRoutes;
 app._test.listHttpRegistrations = listHttpRegistrations;
 app._test.hasRoute = hasRoute;
+app._test.listTriggers = listTriggers;
+app._test.hasTrigger = hasTrigger;
 
-module.exports = { app, hasRoute, listRoutes, listHttpRegistrations };
+module.exports = { app, hasRoute, listRoutes, listHttpRegistrations, hasTrigger, listTriggers };
