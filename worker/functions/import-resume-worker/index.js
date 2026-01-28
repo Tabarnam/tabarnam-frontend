@@ -2,6 +2,11 @@ const { app } = require("@azure/functions");
 const { resumeWorkerHandler } = require("./handler");
 
 /**
+ * Dedicated worker for import resume queue processing.
+ * This function runs in tabarnam-xai-dedicated Function App only.
+ */
+
+/**
  * Storage Queue trigger for import resume worker.
  * Runs in the dedicated tabarnam-xai-dedicated Function App.
  *
