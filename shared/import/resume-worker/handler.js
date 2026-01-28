@@ -8,21 +8,21 @@ try {
 const {
   getContainerPartitionKeyPath,
   buildPartitionKeyCandidates,
-} = require("../../_cosmosPartitionKey");
+} = require("../../api/_cosmosPartitionKey");
 
 const {
   buildInternalFetchRequest,
   getInternalAuthDecision,
-} = require("../../_internalJobAuth");
+} = require("../../api/_internalJobAuth");
 
-const { getBuildInfo } = require("../../_buildInfo");
+const { getBuildInfo } = require("../../api/_buildInfo");
 const {
   computeMissingFields,
   deriveMissingReason,
   isTerminalMissingReason,
   isTerminalMissingField,
   isRealValue,
-} = require("../../_requiredFields");
+} = require("../../api/_requiredFields");
 
 const {
   fetchCuratedReviews,
@@ -31,9 +31,9 @@ const {
   fetchTagline,
   fetchIndustries,
   fetchProductKeywords,
-} = require("../../_grokEnrichment");
+} = require("../../api/_grokEnrichment");
 
-const { enqueueResumeRun } = require("../../_enrichmentQueue");
+const { enqueueResumeRun } = require("../../api/_enrichmentQueue");
 
 const HANDLER_ID = "import-resume-worker";
 
