@@ -1,39 +1,6 @@
-let CosmosClient;
-try {
-  ({ CosmosClient } = require("@azure/cosmos"));
-} catch {
-  CosmosClient = null;
-}
-
-const {
-  getContainerPartitionKeyPath,
-  buildPartitionKeyCandidates,
-} = require("../../_cosmosPartitionKey");
-
-const {
-  buildInternalFetchRequest,
-  getInternalAuthDecision,
-} = require("../../_internalJobAuth");
-
-const { getBuildInfo } = require("../../_buildInfo");
-const {
-  computeMissingFields,
-  deriveMissingReason,
-  isTerminalMissingReason,
-  isTerminalMissingField,
-  isRealValue,
-} = require("../../_requiredFields");
-
-const {
-  fetchCuratedReviews,
-  fetchHeadquartersLocation,
-  fetchManufacturingLocations,
-  fetchTagline,
-  fetchIndustries,
-  fetchProductKeywords,
-} = require("../../_grokEnrichment");
-
-const { enqueueResumeRun } = require("../../_enrichmentQueue");
+// This file re-exports the shared handler for backward compatibility
+// The actual implementation lives in shared/import/resume-worker/handler.js
+const { resumeWorkerHandler } = require("../../shared/import/resume-worker/handler");
 
 const HANDLER_ID = "import-resume-worker";
 
