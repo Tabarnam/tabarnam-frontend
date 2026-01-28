@@ -98,7 +98,38 @@ app.http("diagQueueMismatch", {
     // In external mode, don't check SWA trigger binding (it doesn't exist)
     if (isExternalMode) {
       const workerConfigured = Boolean(workerBaseUrl);
-      const riskLevel = workerConfigured ? "LOW" : "HIGH";
+      let workerHealthStatus = null;
+      let workerHealthOk = false;
+
+      // Attempt to check worker health if configured
+      if (workerConfigured) {
+        try {
+          const healthUrl = `${workerBaseUrl}/api/health`;
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          const healthResp = await fetch(healthUrl, {
+            method: "GET",
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          if (healthResp.ok) {
+            const healthData = await healthResp.json().catch(() => ({}));
+            workerHealthStatus = "reachable";
+            workerHealthOk = healthData?.ok === true;
+          } else {
+            workerHealthStatus = "unhealthy";
+          }
+        } catch (e) {
+          workerHealthStatus = "unreachable";
+        }
+      }
+
+      const riskLevel =
+        !workerConfigured || !enqueueAccount
+          ? "CRITICAL"
+          : workerHealthStatus === "unreachable"
+            ? "HIGH"
+            : "LOW";
 
       return json({
         ok: true,
@@ -107,17 +138,18 @@ app.http("diagQueueMismatch", {
         issue: {
           title: "Queue Trigger Configuration (External Worker Mode)",
           description:
-            "Trigger runs in external worker. SWA trigger check skipped by configuration.",
+            "Trigger runs in dedicated external worker. SWA-managed Functions are HTTP-only.",
           detected: false,
           risk: riskLevel,
           explanation: workerConfigured
-            ? `Queue trigger runs in dedicated worker app (tabarnam-xai-dedicated). Messages enqueued to '${enqueueAccount}' (via ${enqueueConnSource}). Worker configured at '${workerBaseUrl}'.`
-            : `Queue trigger runs in dedicated worker app (tabarnam-xai-dedicated). Messages enqueued to '${enqueueAccount}' (via ${enqueueConnSource}). WARNING: WORKER_BASE_URL not configured - worker health checks may be impacted.`,
+            ? `Queue trigger executes in dedicated worker app (tabarnam-xai-dedicated). Messages enqueued to '${enqueueAccount}' (via ${enqueueConnSource}). Worker health: ${workerHealthStatus || "unknown"}.`
+            : `Queue trigger configured to run externally, but WORKER_BASE_URL is not set.`,
         },
         enqueue_side: {
           resolved_connection_source: enqueueConnSource,
-          resolved_storage_account: enqueueAccount,
+          resolved_storage_account: enqueueAccount || "NOT RESOLVED",
           queue_name: queueConfig.queueName,
+          connection_configured: Boolean(enqueueConnStr),
           env_vars_checked: {
             ENRICHMENT_QUEUE_CONNECTION_STRING: getStorageAccountFromEnvVar("ENRICHMENT_QUEUE_CONNECTION_STRING"),
             AzureWebJobsStorage: getStorageAccountFromEnvVar("AzureWebJobsStorage"),
@@ -128,17 +160,33 @@ app.http("diagQueueMismatch", {
           mode: "external",
           worker_base_url: workerBaseUrl || null,
           worker_configured: workerConfigured,
+          worker_health_status: workerHealthStatus,
+          worker_health_ok: workerHealthOk,
           queue_name: queueConfig.queueName,
+          trigger_expected_in_swa: false,
           trigger_registered_in_swa: !!queueTrigger,
-          swa_trigger_note:
-            "Queue trigger not expected in SWA when external worker mode is enabled",
         },
-        fix: !workerConfigured
-          ? [
-              `QUEUE_TRIGGER_MODE is set to 'external' but WORKER_BASE_URL is not configured.`,
-              `Set WORKER_BASE_URL to the base URL of the dedicated worker app (e.g., https://tabarnam-xai-dedicated.azurewebsites.net).`,
-            ]
-          : ["Worker is properly configured for external queue trigger mode."],
+        fix:
+          riskLevel === "CRITICAL"
+            ? !workerConfigured
+              ? [
+                  `QUEUE_TRIGGER_MODE=external requires WORKER_BASE_URL to be configured.`,
+                  `Set WORKER_BASE_URL to the base URL of tabarnam-xai-dedicated (e.g., https://tabarnam-xai-dedicated.azurewebsites.net).`,
+                  `If you have not configured external worker mode, see documentation on setting QUEUE_TRIGGER_MODE.`,
+                ]
+              : !enqueueAccount
+                ? [
+                    `Enqueue storage account could not be resolved. Check ENRICHMENT_QUEUE_CONNECTION_STRING or AzureWebJobsStorage.`,
+                    `Ensure the connection string is properly set in SWA app settings.`,
+                  ]
+                : []
+            : riskLevel === "HIGH"
+              ? [
+                  `Worker health check failed. Verify ${workerBaseUrl}/api/health is accessible.`,
+                  `Check that the dedicated worker Function App (tabarnam-xai-dedicated) is running and configured.`,
+                  `Review worker deployment logs if health endpoint is not responding.`,
+                ]
+              : ["External worker mode is properly configured. Queue processing is delegated to dedicated worker."],
       });
     }
 
