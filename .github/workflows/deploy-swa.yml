@@ -31,7 +31,14 @@ jobs:
           npm ci
 
       - name: Build (Vite)
-        run: npm run build
+        run: |
+          set -euo pipefail
+          echo "=== Build Start ==="
+          npm run build
+          echo "=== Build Complete, checking output ==="
+          ls -lh dist/
+          echo "=== Checking index.html content ==="
+          head -20 dist/index.html
 
       - name: Write API build id file
         run: |
