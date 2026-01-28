@@ -19,6 +19,8 @@ app.http("import-resume-worker", {
 // Storage Queue trigger now runs in tabarnam-xai-dedicated Function App only.
 // SWA manages HTTP endpoints only.
 
+// Export for test visibility
 module.exports = {
+  handler: resumeWorkerHandler,
   resumeWorkerHandler,
 };
