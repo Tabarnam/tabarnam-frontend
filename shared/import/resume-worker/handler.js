@@ -2050,7 +2050,7 @@ async function resumeWorkerHandler(req, context) {
             const list = Array.isArray(r?.industries) ? r.industries : [];
             const sanitized = (() => {
               try {
-                const { sanitizeIndustries } = require("../../_requiredFields");
+                const { sanitizeIndustries } = require("../../api/_requiredFields");
                 return sanitizeIndustries(list);
               } catch {
                 return list.map((x) => String(x || "").trim()).filter(Boolean);
