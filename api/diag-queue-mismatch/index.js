@@ -80,6 +80,10 @@ app.http("diagQueueMismatch", {
       };
     }
 
+    const queueTriggerMode = String(process.env.QUEUE_TRIGGER_MODE || "").trim().toLowerCase();
+    const isExternalMode = queueTriggerMode === "external";
+    const workerBaseUrl = String(process.env.WORKER_BASE_URL || "").trim();
+
     const queueConfig = resolveQueueConfig();
     const triggers = listTriggers();
     const queueTrigger = triggers.find(
@@ -91,6 +95,54 @@ app.http("diagQueueMismatch", {
     const enqueueConnStr = queueConfig.connectionString;
     const enqueueAccount = extractAccountSuffix(enqueueConnStr);
 
+    // In external mode, don't check SWA trigger binding (it doesn't exist)
+    if (isExternalMode) {
+      const workerConfigured = Boolean(workerBaseUrl);
+      const riskLevel = workerConfigured ? "LOW" : "HIGH";
+
+      return json({
+        ok: true,
+        timestamp: new Date().toISOString(),
+        mode: "external_worker",
+        issue: {
+          title: "Queue Trigger Configuration (External Worker Mode)",
+          description:
+            "Trigger runs in external worker. SWA trigger check skipped by configuration.",
+          detected: false,
+          risk: riskLevel,
+          explanation: workerConfigured
+            ? `Queue trigger runs in dedicated worker app (tabarnam-xai-dedicated). Messages enqueued to '${enqueueAccount}' (via ${enqueueConnSource}). Worker configured at '${workerBaseUrl}'.`
+            : `Queue trigger runs in dedicated worker app (tabarnam-xai-dedicated). Messages enqueued to '${enqueueAccount}' (via ${enqueueConnSource}). WARNING: WORKER_BASE_URL not configured - worker health checks may be impacted.`,
+        },
+        enqueue_side: {
+          resolved_connection_source: enqueueConnSource,
+          resolved_storage_account: enqueueAccount,
+          queue_name: queueConfig.queueName,
+          env_vars_checked: {
+            ENRICHMENT_QUEUE_CONNECTION_STRING: getStorageAccountFromEnvVar("ENRICHMENT_QUEUE_CONNECTION_STRING"),
+            AzureWebJobsStorage: getStorageAccountFromEnvVar("AzureWebJobsStorage"),
+            AZURE_STORAGE_CONNECTION_STRING: getStorageAccountFromEnvVar("AZURE_STORAGE_CONNECTION_STRING"),
+          },
+        },
+        worker_side: {
+          mode: "external",
+          worker_base_url: workerBaseUrl || null,
+          worker_configured: workerConfigured,
+          queue_name: queueConfig.queueName,
+          trigger_registered_in_swa: !!queueTrigger,
+          swa_trigger_note:
+            "Queue trigger not expected in SWA when external worker mode is enabled",
+        },
+        fix: !workerConfigured
+          ? [
+              `QUEUE_TRIGGER_MODE is set to 'external' but WORKER_BASE_URL is not configured.`,
+              `Set WORKER_BASE_URL to the base URL of the dedicated worker app (e.g., https://tabarnam-xai-dedicated.azurewebsites.net).`,
+            ]
+          : ["Worker is properly configured for external queue trigger mode."],
+      });
+    }
+
+    // Original SWA-managed trigger mode (default)
     // What the trigger side uses (hardcoded to AzureWebJobsStorage)
     const triggerConnSettingName = "AzureWebJobsStorage"; // hardcoded in import/resume-worker/index.js
     const triggerConnStr = process.env.AzureWebJobsStorage || null;
@@ -101,6 +153,7 @@ app.http("diagQueueMismatch", {
     return json({
       ok: true,
       timestamp: new Date().toISOString(),
+      mode: "swa_managed",
       issue: {
         title: "Queue Enqueue vs Trigger Account Mismatch",
         description:
@@ -132,6 +185,7 @@ app.http("diagQueueMismatch", {
         ? [
             `Option A (recommended, simplest): Set AzureWebJobsStorage to the same connection string as ${enqueueConnSource} (which uses account '${enqueueAccount}'). This requires no code changes.`,
             `Option B: If you prefer to keep using ${enqueueConnSource} for enqueue, set ENRICHMENT_QUEUE_CONNECTION_SETTING="${enqueueConnSource}" and redeploy PR #644 (dynamic trigger connection) so the trigger listens on the same setting.`,
+            `Option C: Migrate to external worker mode by setting QUEUE_TRIGGER_MODE=external and configuring WORKER_BASE_URL.`,
             `Current state: Enqueue side uses '${enqueueConnSource}' pointing to account '${enqueueAccount}'. Trigger is hardcoded to 'AzureWebJobsStorage' pointing to account '${triggerAccount}' (null if not set).`,
           ]
         : ["System is properly configured. Both sides use same storage account."],

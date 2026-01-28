@@ -1,20 +1,22 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
-test("import/resume-worker registers storage queue trigger", () => {
+test("import/resume-worker queue trigger moved to dedicated worker", () => {
+  // Queue trigger has been moved to worker/functions/import-resume-worker/ (tabarnam-xai-dedicated Function App).
+  // SWA-managed API only registers HTTP endpoints. This test documents that the queue trigger is NOT expected here.
+
   // Reload the module cache to ensure fresh registration
   delete require.cache[require.resolve("../../index.js")];
   delete require.cache[require.resolve("../../_app.js")];
-  
+
   const app = require("../../index.js");
   const triggers = app?._test?.listTriggers?.() || [];
 
   assert.ok(Array.isArray(triggers), "expected listTriggers() to return an array");
-  
+
+  // Queue trigger should NOT be registered in SWA
   const queueTrigger = triggers.find((t) => t.name === "import-resume-worker-queue-trigger");
-  assert.ok(queueTrigger, "missing queue trigger: import-resume-worker-queue-trigger");
-  assert.strictEqual(queueTrigger.type, "storageQueue", "queue trigger should have type 'storageQueue'");
-  assert.strictEqual(queueTrigger.queueName, "import-resume-worker", "queue trigger should target 'import-resume-worker' queue");
+  assert.strictEqual(queueTrigger, undefined, "queue trigger should NOT be in SWA API (runs in dedicated worker instead)");
 });
 
 test("import/resume-worker registers HTTP endpoint", () => {

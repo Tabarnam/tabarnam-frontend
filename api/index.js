@@ -1,4 +1,5 @@
 // api/index.js - register all functions (CommonJS / v4 app model)
+// Rebuild tick: 2026-01-28T00:58:00Z (fixed _app module path in import/resume-worker)
 const { app } = require("./_app");
 
 console.log("[api/index.js] Starting handler registration...");
@@ -278,7 +279,7 @@ try {
 }
 
 try {
-  console.log("[api] Registering: import/resume-worker (queue trigger)");
+  console.log("[api] Registering: import/resume-worker (HTTP endpoint only)");
   require("./import/resume-worker/index.js");
 } catch (e) {
   console.error("[api] Failed to load import/resume-worker:", e?.message || e);
