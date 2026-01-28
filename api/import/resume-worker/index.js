@@ -1,10 +1,4 @@
-let app;
-try {
-  ({ app } = require("@azure/functions"));
-} catch {
-  app = { http() {}, storageQueue() {} };
-}
-
+const { app } = require("../_app");
 const { resumeWorkerHandler } = require("./handler");
 
 // HTTP endpoint for manual triggers or testing
