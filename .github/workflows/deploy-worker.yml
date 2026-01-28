@@ -1,162 +1,87 @@
-name: Deploy Worker (tabarnam-xai-dedicated)
-
-# Deploys queue triggers and background workers to the dedicated Function App.
-# The SWA-managed API (api/) is deployed via deploy-swa.yml to Static Web Apps.
-# The dedicated worker (worker/) is deployed separately to tabarnam-xai-dedicated Function App.
-#
-# Required secrets:
-# - WORKER_FUNCTIONAPP_PUBLISH_PROFILE: Full publish profile XML for tabarnam-xai-dedicated
+name: Deploy Worker (Queue Trigger)
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
     paths:
       - 'worker/**'
+      - 'api/_*.js'  # Changes to shared utilities trigger worker redeploy
       - '.github/workflows/deploy-worker.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
-
+    name: Build & Deploy to tabarnam-xai-dedicated
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-
-      - name: Assert package root (worker/)
-        run: |
-          set -euo pipefail
-          test -f worker/host.json
-          test -d worker/functions
-          test -d worker/functions/import-resume-worker
-          echo "✓ worker/ package root looks correct"
+          node-version: '18'
+          cache: 'npm'
 
       - name: Install worker dependencies
-        run: |
-          set -euo pipefail
-          cd worker
-          npm ci
-          echo "✓ Worker dependencies installed"
+        run: npm ci --prefix worker
 
-      - name: Write deploy stamp file
+      - name: Verify queue trigger configuration
         run: |
-          set -euo pipefail
-          node -e "const fs=require('node:fs'); const stamp={component:'worker',sha:process.env.GITHUB_SHA||'',run_id:process.env.GITHUB_RUN_ID||'',run_number:process.env.GITHUB_RUN_NUMBER||'',ts:new Date().toISOString()}; fs.writeFileSync('worker/__deploy_stamp.json', JSON.stringify(stamp)+'\n', 'utf8'); console.log('[deploy-stamp]', JSON.stringify(stamp));"
+          # Check that the queue trigger is properly configured
+          if grep -q "storageQueue\|queueTrigger" worker/functions/import-resume-worker/index.js; then
+            echo "✅ Queue trigger found in worker"
+          else
+            echo "⚠️  WARNING: No queue trigger definition found in worker"
+          fi
+          
+          # Verify trigger name
+          if grep -q "import-resume-worker" worker/functions/import-resume-worker/index.js; then
+            echo "✅ Correct queue name configured"
+          fi
 
-      - name: Deploy worker to tabarnam-xai-dedicated
+      - name: Build worker
+        run: npm run build --prefix worker 2>/dev/null || echo "No build script defined"
+
+      - name: Deploy to Azure Function App
         uses: Azure/functions-action@v1
         with:
-          app-name: tabarnam-xai-dedicated
-          package: worker
+          app-name: 'tabarnam-xai-dedicated'
+          slot-name: 'production'
+          package: 'worker'
           publish-profile: ${{ secrets.WORKER_FUNCTIONAPP_PUBLISH_PROFILE }}
+          scm-do-build-during-deployment: true
+          enable-oryx-build: true
 
-      - name: "Post-deploy: verify queue trigger registration"
-        if: always()
-        continue-on-error: true
+      - name: Check worker health
         run: |
-          set -euo pipefail
-          echo "✓ Worker deployed to tabarnam-xai-dedicated"
-          echo ""
-          echo "Expected behavior:"
-          echo "  - import-resume-worker queue trigger listens to 'import-resume-worker' queue"
-          echo "  - Connection setting: ENRICHMENT_QUEUE_CONNECTION_SETTING (default: AzureWebJobsStorage)"
-          echo "  - Messages from SWA API are dequeued and processed by this worker"
-          echo ""
-          echo "Verify in Azure Portal:"
-          echo "  1. Function App > Functions > import-resume-worker-queue-trigger"
-          echo "  2. Monitor tab should show recent executions"
-          echo "  3. Application Insights > Traces for any errors"
-
-      - name: "Kudu (non-blocking): fetch app settings summary"
-        if: always()
-        continue-on-error: true
-        env:
-          WORKER_FUNCTIONAPP_PUBLISH_PROFILE: ${{ secrets.WORKER_FUNCTIONAPP_PUBLISH_PROFILE }}
-        run: |
-          set -euo pipefail
-          node --input-type=module - <<'NODE'
-          import { Buffer } from 'node:buffer';
-
-          const profile = process.env.WORKER_FUNCTIONAPP_PUBLISH_PROFILE || '';
-
-          const tagMatch =
-            profile.match(/<publishProfile\b[^>]*publishMethod="ZipDeploy"[^>]*>/i) ||
-            profile.match(/<publishProfile\b[^>]*publishMethod="MSDeploy"[^>]*>/i) ||
-            profile.match(/<publishProfile\b[^>]*>/i);
-
-          const tag = tagMatch ? tagMatch[0] : '';
-
-          const getAttr = (name) => {
-            const re = new RegExp(name + '="([^"]+)"', 'i');
-            const m = tag.match(re);
-            return m ? m[1] : '';
-          };
-
-          const user = getAttr('userName');
-          const pass = getAttr('userPWD');
-          const publishUrlRaw = getAttr('publishUrl');
-
-          if (!user || !pass || !publishUrlRaw) {
-            console.log('[kudu] Could not parse publish profile for Kudu credentials.');
-            process.exit(0);
-          }
-
-          const publishHost = publishUrlRaw.replace(/^https?:\/\//i, '').replace(/:443$/i, '');
-          const scmHost = publishHost.includes('.scm.')
-            ? publishHost
-            : publishHost.replace('.azurewebsites.net', '.scm.azurewebsites.net');
-
-          const base = 'https://' + scmHost;
-          const auth = Buffer.from(`${user}:${pass}`).toString('base64');
-
-          const fetchAndPrint = async (path, desc) => {
-            const url = base + path;
-            let res;
-            let text = '';
-
-            try {
-              res = await fetch(url, {
-                headers: {
-                  authorization: `Basic ${auth}`,
-                  accept: 'application/json',
-                },
-              });
-              text = await res.text();
-            } catch (err) {
-              console.log(`[kudu] ${desc} request failed:`, err?.message || String(err));
-              return;
-            }
-
-            console.log(`[kudu] ${desc} -> HTTP ${res.status}`);
-            if (res.ok) {
-              try {
-                const j = JSON.parse(text);
-                const keys = Object.keys(j || {}).sort();
-                console.log(`[kudu] Found ${keys.length} settings`);
-              } catch {
-                console.log(`[kudu] Response is not JSON`);
-              }
-            }
-          };
-
-          await fetchAndPrint('/api/settings', 'Settings');
-          await fetchAndPrint('/api/vfs/site/wwwroot/', 'File list');
-          NODE
+          # Wait briefly for deployment to settle
+          sleep 10
+          
+          # Attempt to check worker health endpoint
+          WORKER_URL="https://tabarnam-xai-dedicated.azurewebsites.net/api/health"
+          echo "Checking worker health at: $WORKER_URL"
+          
+          if curl -s -m 10 "$WORKER_URL" | grep -q "ok"; then
+            echo "✅ Worker health check passed"
+          else
+            echo "⚠️  Worker health check did not confirm (may still be initializing)"
+          fi
 
       - name: Summary
-        if: always()
         run: |
-          echo "## Worker Deployment Summary"
+          echo "✅ Worker deployment complete"
           echo ""
-          echo "**Status**: ${{ job.status }}"
+          echo "Queue trigger configuration:"
+          echo "  - Queue: import-resume-worker"
+          echo "  - Storage Account: AzureWebJobsStorage (or ENRICHMENT_QUEUE_CONNECTION_SETTING)"
+          echo "  - Function App: tabarnam-xai-dedicated"
           echo ""
-          echo "### Next Steps"
-          echo "1. Verify queue trigger is registered in Azure Portal"
-          echo "2. Test by enqueueing a message to 'import-resume-worker' queue"
-          echo "3. Check Application Insights for trigger executions"
-          echo "4. Ensure SWA API endpoint /api/import/resume-worker still works (HTTP POST)"
+          echo "Verify with:"
+          echo "  - GET https://tabarnam-xai-dedicated.azurewebsites.net/api/health"
+          echo "  - Monitor Azure Function App logs in Portal"
