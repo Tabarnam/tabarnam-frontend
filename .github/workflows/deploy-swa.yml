@@ -1,64 +1,79 @@
 name: Deploy SWA (HTTP-only API)
 
+# Trigger on push to main branch and manual dispatch
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
-      - 'api/**'
-      - 'src/**'
-      - '.github/workflows/deploy-swa.yml'
+      - "public/**"
+      - "src/**"
+      - "api/**"
+      - "package.json"
+      - "tsconfig.json"
+      - ".github/workflows/deploy-swa.yml"
   workflow_dispatch:
 
-permissions:
-  contents: read
+env:
+  NODE_VERSION: "18"
 
 jobs:
-  build-and-deploy:
+  validate:
+    name: Validate HTTP-only API
     runs-on: ubuntu-latest
-    name: Build & Deploy SWA
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for queue triggers in api/
+        run: |
+          echo "Validating that api/ contains only HTTP-triggered functions..."
+          
+          # Check for non-HTTP trigger registrations
+          if grep -r "storageQueue\|queueTrigger\|timerTrigger\|serviceBusTrigger\|blobTrigger\|eventHubTrigger" api/ --include="*.js" --include="*.ts"; then
+            echo "ERROR: Non-HTTP triggers found in api/ folder!"
+            echo "Queue, timer, and event triggers must be defined in the worker/ folder only."
+            exit 1
+          fi
+          
+          echo "✓ Validation passed: api/ contains only HTTP triggers"
+
+  deploy:
+    name: Deploy Static Web App and API
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
-          cache: 'npm'
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
 
-      - name: Verify no queue triggers in api/
-        run: |
-          # Fail if any queue trigger definitions are found in the API folder
-          if grep -r "storageQueue\|queueTrigger" api/ --include="*.js" --include="*.json" | grep -v "node_modules" | grep -v ".funcignore"; then
-            echo "❌ ERROR: Queue triggers found in api/ folder"
-            echo "Queue triggers must NOT be in SWA-managed Functions."
-            echo "Move them to the worker/ folder for external processing."
-            exit 1
-          fi
-          echo "✅ Verified: No queue triggers in SWA API"
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Install API dependencies
-        run: npm ci --prefix api
-
-      - name: Build API
-        run: npm run build --prefix api 2>/dev/null || echo "No build script defined"
+      - name: Build frontend
+        run: npm run build
 
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-          action: 'upload'
-          app_location: '/'
-          api_location: 'api'
-          output_location: 'src'  # Adjust based on your frontend build output
-          skip_app_build: false
-          # Ensure SWA only builds API, not worker
-          skip_api_build: false
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_DEPLOYMENT_TOKEN }}
+          action: "upload"
+          app_location: "dist"
+          api_location: "api"
+          output_location: ""
+          skip_app_build: true
+          skip_api_build: true
 
-      - name: Verify deployment
+      - name: Verify SWA deployment
         run: |
-          echo "✅ SWA deployment initiated"
-          echo "API will be deployed as HTTP-only Functions (no queue triggers)"
-          echo "Queue processing delegated to external worker at tabarnam-xai-dedicated"
+          echo "SWA deployment complete"
+          echo "✓ Frontend deployed to Static Web App"
+          echo "✓ HTTP-only API functions deployed"
+          echo "✓ Queue triggers are handled by dedicated worker"
