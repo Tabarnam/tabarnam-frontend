@@ -1,5 +1,5 @@
 // api/index.js - register all functions (CommonJS / v4 app model)
-// Rebuild tick: 2026-01-28T00:40:00Z
+// Rebuild tick: 2026-01-28T00:50:00Z (excluded worker/ from SWA deployment)
 const { app } = require("./_app");
 
 console.log("[api/index.js] Starting handler registration...");
