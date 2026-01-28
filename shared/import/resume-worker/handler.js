@@ -2086,7 +2086,7 @@ async function resumeWorkerHandler(req, context) {
 
             const sanitized = (() => {
               try {
-                const { sanitizeKeywords } = require("../../_requiredFields");
+                const { sanitizeKeywords } = require("../../api/_requiredFields");
                 const stats = sanitizeKeywords({ product_keywords: list, keywords: list });
                 return Array.isArray(stats?.sanitized) ? stats.sanitized : [];
               } catch {
