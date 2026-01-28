@@ -14,6 +14,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Show forbidden 204 patterns (paths + line numbers)
+        run: |
+          set +e
+          echo "=== json({}, 204) ==="
+          grep -RIn --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git -E 'json\(\s*\{\s*\}\s*,\s*204\s*\)' .
+          echo "=== status: 204 ==="
+          grep -RIn --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git -E 'status\s*:\s*204\b' .
+          echo "=== res.status(204) ==="
+          grep -RIn --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git -E '\.status\(\s*204\s*\)' .
+          echo "=== new Response(..., { status: 204 }) ==="
+          grep -RIn --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git -E 'new\s+Response\([^)]*\{\s*status\s*:\s*204\b' .
+          exit 0
+
       - name: Block json({}, 204) (undici/Functions runtime crashes on 204)
         shell: bash
         run: |

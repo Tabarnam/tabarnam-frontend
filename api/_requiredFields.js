@@ -538,8 +538,6 @@ function isRealValue(field, value, doc) {
   const f = normalizeKey(field);
 
   if (f === "industries") {
-    const source = normalizeKey(doc?.industries_source || "");
-    if (source !== "grok") return false;
     return isValidIndustries(value);
   }
 
@@ -549,14 +547,8 @@ function isRealValue(field, value, doc) {
       keywords: doc?.keywords,
     });
 
-    const source = normalizeKey(doc?.product_keywords_source || doc?.keywords_source || "");
-
-    // Canonical keywords must come from Grok. Anything derived from the site scrape
-    // or other fallbacks should be treated as debug-only and NOT satisfy required-fields.
-    if (source !== "grok") return false;
-
-    // Quality gate: require at least 20 product-relevant keywords after sanitization.
-    if (stats.product_relevant_count < 20) return false;
+    // Quality gate: require at least 1 meaningful keyword after sanitization.
+    if (stats.product_relevant_count < 1) return false;
     return true;
   }
 

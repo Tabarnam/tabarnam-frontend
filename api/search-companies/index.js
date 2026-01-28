@@ -7,6 +7,9 @@ try {
 
 const { CosmosClient } = require("@azure/cosmos");
 const { getContainerPartitionKeyPath } = require("../_cosmosPartitionKey");
+const { logInboundRequest } = require("../_diagnostics");
+const { parseQuery } = require("../_queryNormalizer");
+const { expandQueryTerms } = require("../_searchSynonyms");
 
 let cosmosTargetPromise;
 
@@ -230,49 +233,136 @@ function compareCompanies(sortField, dir, a, b) {
   return dir === "desc" ? -cmp : cmp;
 }
 
-// Cosmos SQL: keep queries type-safe by guarding LOWER()/CONTAINS()/ARRAY ops
-// with IS_STRING / IS_ARRAY checks. (Cosmos SQL does not support [] array literals,
-// and will throw "One of the input values is invalid" for invalid expressions.)
-const SQL_TEXT_FILTER = `
-  (IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND CONTAINS(LOWER(c.company_name), @q)) OR
-  (IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND CONTAINS(LOWER(c.display_name), @q)) OR
-  (IS_DEFINED(c.name) AND IS_STRING(c.name) AND CONTAINS(LOWER(c.name), @q)) OR
-  (IS_DEFINED(c.product_keywords) AND IS_STRING(c.product_keywords) AND CONTAINS(LOWER(c.product_keywords), @q)) OR
-  (
-    IS_ARRAY(c.product_keywords) AND
-    ARRAY_LENGTH(
-      ARRAY(
-        SELECT VALUE kw
-        FROM kw IN c.product_keywords
-        WHERE IS_STRING(kw) AND CONTAINS(LOWER(kw), @q)
-      )
-    ) > 0
-  ) OR
-  (IS_DEFINED(c.keywords) AND IS_STRING(c.keywords) AND CONTAINS(LOWER(c.keywords), @q)) OR
-  (
-    IS_ARRAY(c.keywords) AND
-    ARRAY_LENGTH(
-      ARRAY(
-        SELECT VALUE k
-        FROM k IN c.keywords
-        WHERE IS_STRING(k) AND CONTAINS(LOWER(k), @q)
-      )
-    ) > 0
-  ) OR
-  (IS_DEFINED(c.industries) AND IS_STRING(c.industries) AND CONTAINS(LOWER(c.industries), @q)) OR
-  (
-    IS_ARRAY(c.industries) AND
-    ARRAY_LENGTH(
-      ARRAY(
-        SELECT VALUE i
-        FROM i IN c.industries
-        WHERE IS_STRING(i) AND CONTAINS(LOWER(i), @q)
-      )
-    ) > 0
-  ) OR
-  (IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND CONTAINS(LOWER(c.normalized_domain), @q)) OR
-  (IS_DEFINED(c.amazon_url) AND IS_STRING(c.amazon_url) AND CONTAINS(LOWER(c.amazon_url), @q))
-`;
+// Helper to build search filter that handles both spaced and non-spaced queries
+// Uses both @q (from first term) and @q_compact to allow flexible matching
+function buildLegacySearchFilter() {
+  // Build filter that checks both @q and @q_compact in each field
+  return `
+    (IS_DEFINED(c.company_name) AND IS_STRING(c.company_name) AND (CONTAINS(LOWER(c.company_name), @q) OR CONTAINS(REPLACE(LOWER(c.company_name), " ", ""), @q_compact))) OR
+    (IS_DEFINED(c.display_name) AND IS_STRING(c.display_name) AND (CONTAINS(LOWER(c.display_name), @q) OR CONTAINS(REPLACE(LOWER(c.display_name), " ", ""), @q_compact))) OR
+    (IS_DEFINED(c.name) AND IS_STRING(c.name) AND (CONTAINS(LOWER(c.name), @q) OR CONTAINS(REPLACE(LOWER(c.name), " ", ""), @q_compact))) OR
+    (IS_DEFINED(c.product_keywords) AND IS_STRING(c.product_keywords) AND (CONTAINS(LOWER(c.product_keywords), @q) OR CONTAINS(REPLACE(LOWER(c.product_keywords), " ", ""), @q_compact))) OR
+    (
+      IS_ARRAY(c.product_keywords) AND
+      ARRAY_LENGTH(
+        ARRAY(
+          SELECT VALUE kw
+          FROM kw IN c.product_keywords
+          WHERE IS_STRING(kw) AND (CONTAINS(LOWER(kw), @q) OR CONTAINS(REPLACE(LOWER(kw), " ", ""), @q_compact))
+        )
+      ) > 0
+    ) OR
+    (IS_DEFINED(c.keywords) AND IS_STRING(c.keywords) AND (CONTAINS(LOWER(c.keywords), @q) OR CONTAINS(REPLACE(LOWER(c.keywords), " ", ""), @q_compact))) OR
+    (
+      IS_ARRAY(c.keywords) AND
+      ARRAY_LENGTH(
+        ARRAY(
+          SELECT VALUE k
+          FROM k IN c.keywords
+          WHERE IS_STRING(k) AND (CONTAINS(LOWER(k), @q) OR CONTAINS(REPLACE(LOWER(k), " ", ""), @q_compact))
+        )
+      ) > 0
+    ) OR
+    (IS_DEFINED(c.industries) AND IS_STRING(c.industries) AND (CONTAINS(LOWER(c.industries), @q) OR CONTAINS(REPLACE(LOWER(c.industries), " ", ""), @q_compact))) OR
+    (
+      IS_ARRAY(c.industries) AND
+      ARRAY_LENGTH(
+        ARRAY(
+          SELECT VALUE i
+          FROM i IN c.industries
+          WHERE IS_STRING(i) AND (CONTAINS(LOWER(i), @q) OR CONTAINS(REPLACE(LOWER(i), " ", ""), @q_compact))
+        )
+      ) > 0
+    ) OR
+    (IS_DEFINED(c.normalized_domain) AND IS_STRING(c.normalized_domain) AND (CONTAINS(LOWER(c.normalized_domain), @q) OR CONTAINS(REPLACE(LOWER(c.normalized_domain), " ", ""), @q_compact))) OR
+    (IS_DEFINED(c.amazon_url) AND IS_STRING(c.amazon_url) AND (CONTAINS(LOWER(c.amazon_url), @q) OR CONTAINS(REPLACE(LOWER(c.amazon_url), " ", ""), @q_compact)))
+  `;
+}
+
+/**
+ * Build a normalized search filter for Cosmos SQL
+ * Uses word boundary matching on search_text_norm and contains matching on search_text_compact
+ * Returns SQL fragment and updates params array
+ */
+function buildNormalizedSearchFilter(terms_norm, terms_compact, params) {
+  if (!terms_norm.length && !terms_compact.length) {
+    return "";
+  }
+
+  const conditions = [];
+  let paramIndex = 1;
+
+  // For each normalized term, add a boundary-matched condition
+  for (const term of terms_norm) {
+    if (term) {
+      const paramName = `@norm${paramIndex}`;
+      // Store with leading and trailing spaces for word boundary matching
+      params.push({ name: paramName, value: ` ${term} ` });
+      conditions.push(`(IS_DEFINED(c.search_text_norm) AND IS_STRING(c.search_text_norm) AND CONTAINS(c.search_text_norm, ${paramName}))`);
+      paramIndex++;
+    }
+  }
+
+  // For each compact term, add a contains condition
+  for (const term of terms_compact) {
+    if (term) {
+      const paramName = `@comp${paramIndex}`;
+      params.push({ name: paramName, value: term });
+      conditions.push(`(IS_DEFINED(c.search_text_compact) AND IS_STRING(c.search_text_compact) AND CONTAINS(c.search_text_compact, ${paramName}))`);
+      paramIndex++;
+    }
+  }
+
+  // Join all conditions with OR
+  if (conditions.length === 0) return "";
+  return conditions.length === 1 ? conditions[0] : `(${conditions.join(" OR ")})`;
+}
+
+/**
+ * Build a legacy search filter using expanded terms
+ * This allows multiple CONTAINS checks for different term variations
+ */
+function buildLegacySearchFilterWithTerms(terms_norm, terms_compact, params) {
+  if (!terms_norm.length && !terms_compact.length) {
+    return "";
+  }
+
+  const conditions = [];
+  const fieldChecker = (fieldName, paramName) =>
+    `(IS_DEFINED(c.${fieldName}) AND IS_STRING(c.${fieldName}) AND CONTAINS(LOWER(c.${fieldName}), ${paramName}))`;
+  const fieldArrayChecker = (arrayField, paramName) =>
+    `(IS_ARRAY(c.${arrayField}) AND ARRAY_LENGTH(ARRAY(SELECT VALUE item FROM item IN c.${arrayField} WHERE IS_STRING(item) AND CONTAINS(LOWER(item), ${paramName}))) > 0)`;
+
+  const stringFields = ["company_name", "display_name", "name", "normalized_domain", "amazon_url", "product_keywords", "keywords", "industries", "tagline"];
+  const arrayFields = ["product_keywords", "keywords", "industries"];
+  let paramIndex = 1;
+
+  // For each term, add conditions for all fields
+  const allTerms = [...new Set([...terms_norm, ...terms_compact])];
+
+  for (const term of allTerms) {
+    if (term) {
+      const paramName = `@term${paramIndex}`;
+      params.push({ name: paramName, value: term.toLowerCase() });
+
+      // Add conditions for each string field
+      for (const field of stringFields) {
+        conditions.push(fieldChecker(field, paramName));
+      }
+
+      // Add array field conditions (these handle when fields are arrays)
+      for (const field of arrayFields) {
+        conditions.push(fieldArrayChecker(field, paramName));
+      }
+
+      paramIndex++;
+    }
+  }
+
+  // Join all conditions with OR
+  if (conditions.length === 0) return "";
+  return conditions.length === 1 ? conditions[0] : `(${conditions.join(" OR ")})`;
+}
 
 const SELECT_FIELDS = [
   // Identity / names
@@ -299,6 +389,10 @@ const SELECT_FIELDS = [
   "c.created_at",
   "c.updated_at",
   "c._ts",
+
+  // Normalized search fields (for normalized query matching)
+  "c.search_text_norm",
+  "c.search_text_compact",
 
   // Location (used for completeness + admin UX)
   "c.manufacturing_locations",
@@ -512,6 +606,9 @@ function mapCompanyToPublic(doc) {
 }
 
 async function searchCompaniesHandler(req, context, deps = {}) {
+  // Log inbound request for wiring diagnostics (helps trace requests from frontend to Function App)
+  logInboundRequest(context, req, "search-companies");
+
   const method = String(req.method || "").toUpperCase();
   if (method === "OPTIONS") {
     return {
@@ -529,8 +626,27 @@ async function searchCompaniesHandler(req, context, deps = {}) {
   }
 
   const url = new URL(req.url);
-  const qRaw = (url.searchParams.get("q") || "").trim();
-  const q = qRaw.toLowerCase();
+
+  // Support both old style (q param) and new style (raw, norm, compact params)
+  const qRawParam = url.searchParams.get("raw") || url.searchParams.get("q") || "";
+  const qNormParam = url.searchParams.get("norm") || "";
+  const qCompactParam = url.searchParams.get("compact") || "";
+
+  // If we get raw/norm/compact from frontend, use them directly; otherwise parse from q
+  let q_raw, q_norm, q_compact;
+  if (qNormParam || qCompactParam) {
+    // New style: frontend provided normalized forms
+    q_raw = qRawParam;
+    q_norm = qNormParam;
+    q_compact = qCompactParam;
+  } else {
+    // Old style or fallback: parse from raw query
+    const parsed = parseQuery(qRawParam);
+    q_raw = parsed.q_raw;
+    q_norm = parsed.q_norm;
+    q_compact = parsed.q_compact;
+  }
+
   const sort = (url.searchParams.get("sort") || "recent").toLowerCase();
   const sortField = (url.searchParams.get("sortField") || "").toLowerCase();
   const sortDir = (url.searchParams.get("sortDir") || "asc").toLowerCase() === "desc" ? "desc" : "asc";
@@ -559,23 +675,51 @@ async function searchCompaniesHandler(req, context, deps = {}) {
     try {
       let items = [];
       const params = [{ name: "@take", value: limit }];
-      if (q) params.push({ name: "@q", value: q });
+
+      // Expand query terms using synonyms
+      let terms_norm = [], terms_compact = [];
+      let whereTextFilter = "";
+      if (q_norm) {
+        const expansion = await expandQueryTerms(q_norm, q_compact);
+        terms_norm = expansion.terms_norm;
+        terms_compact = expansion.terms_compact;
+
+        // Build WHERE clause for normalized and compact term matching
+        whereTextFilter = buildNormalizedSearchFilter(terms_norm, terms_compact, params);
+      }
 
       const softDeleteFilter = "(NOT IS_DEFINED(c.is_deleted) OR c.is_deleted != true)";
 
       if (sort === "manu") {
-        const whereText = q ? `AND (${SQL_TEXT_FILTER})` : "";
+        // Build search filter using expanded terms
+        let searchFilter = "";
+        let sqlParams = [{ name: "@take", value: limit }];
+        if (q_norm) {
+          // Build legacy filter with expanded terms
+          const legacyFilter = buildLegacySearchFilterWithTerms(terms_norm, terms_compact, sqlParams);
+          searchFilter = whereTextFilter
+            ? `AND (((${whereTextFilter}) OR (${legacyFilter})) AND ${softDeleteFilter})`
+            : `AND ((${legacyFilter}) AND ${softDeleteFilter})`;
+
+          // Add normalized search parameters
+          if (whereTextFilter) {
+            sqlParams.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
+          }
+        } else {
+          searchFilter = `AND ${softDeleteFilter}`;
+        }
 
         const sqlA = `
             SELECT TOP @take ${SELECT_FIELDS}
             FROM c
             WHERE IS_ARRAY(c.manufacturing_locations) AND ARRAY_LENGTH(c.manufacturing_locations) > 0
-            AND ${softDeleteFilter}
-            ${whereText}
+            ${searchFilter}
             ORDER BY c._ts DESC
           `;
+        const paramsA = [...sqlParams];
+
         const partA = await container.items
-          .query({ query: sqlA, parameters: params }, { enableCrossPartitionQuery: true })
+          .query({ query: sqlA, parameters: paramsA }, { enableCrossPartitionQuery: true })
           .fetchAll();
         items = partA.resources || [];
 
@@ -585,12 +729,11 @@ async function searchCompaniesHandler(req, context, deps = {}) {
               SELECT TOP @take2 ${SELECT_FIELDS}
               FROM c
               WHERE (NOT IS_ARRAY(c.manufacturing_locations) OR ARRAY_LENGTH(c.manufacturing_locations) = 0)
-              AND ${softDeleteFilter}
-              ${whereText}
+              ${searchFilter}
               ORDER BY c._ts DESC
             `;
-          const paramsB = [{ name: "@take2", value: remaining }];
-          if (q) paramsB.push({ name: "@q", value: q });
+          const paramsB = sqlParams.map(p => p.name === "@take" ? { name: "@take2", value: remaining } : p);
+
           const partB = await container.items
             .query({ query: sqlB, parameters: paramsB }, { enableCrossPartitionQuery: true })
             .fetchAll();
@@ -598,22 +741,33 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         }
       } else {
         const orderBy = sort === "name" ? "ORDER BY c.company_name ASC" : "ORDER BY c._ts DESC";
-        const sql = q
-          ? `
-              SELECT TOP @take ${SELECT_FIELDS}
-              FROM c
-              WHERE (${SQL_TEXT_FILTER})
-              AND ${softDeleteFilter}
-              ${orderBy}
-            `
-          : `
-              SELECT TOP @take ${SELECT_FIELDS}
-              FROM c
-              WHERE ${softDeleteFilter}
-              ${orderBy}
-            `;
+        let searchFilter = "";
+        let queryParams = [{ name: "@take", value: limit }];
+        if (q_norm) {
+          // Build legacy filter with expanded terms
+          const legacyFilter = buildLegacySearchFilterWithTerms(terms_norm, terms_compact, queryParams);
+          searchFilter = whereTextFilter
+            ? `AND (((${whereTextFilter}) OR (${legacyFilter})) AND ${softDeleteFilter})`
+            : `AND ((${legacyFilter}) AND ${softDeleteFilter})`;
+
+          // Add normalized search parameters
+          if (whereTextFilter) {
+            queryParams.push(...params.filter(p => p.name.startsWith("@norm") || p.name.startsWith("@comp")));
+          }
+        } else {
+          searchFilter = `AND ${softDeleteFilter}`;
+        }
+
+        const sql = `
+            SELECT TOP @take ${SELECT_FIELDS}
+            FROM c
+            WHERE 1=1
+            ${searchFilter}
+            ${orderBy}
+          `;
+
         const res = await container.items
-          .query({ query: sql, parameters: params }, { enableCrossPartitionQuery: true })
+          .query({ query: sql, parameters: queryParams }, { enableCrossPartitionQuery: true })
           .fetchAll();
         items = res.resources || [];
       }
@@ -649,7 +803,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
           ...(cosmosTarget ? cosmosTarget : {}),
           items: paged,
           count: mapped.length,
-          meta: { q: qRaw, sort, skip, take, user_location },
+          meta: { q: q_raw, sort, skip, take, user_location },
         },
         200,
         req
@@ -660,7 +814,7 @@ async function searchCompaniesHandler(req, context, deps = {}) {
         message: e?.message,
         stack: e?.stack,
         sort,
-        q,
+        q_norm,
         limit,
       });
       return json({ ok: false, success: false, ...(cosmosTarget ? cosmosTarget : {}), error: e?.message || "query failed" }, 500, req);
@@ -680,7 +834,6 @@ app.http("search-companies", {
 });
 
 module.exports._test = {
-  SQL_TEXT_FILTER,
   SELECT_FIELDS,
   normalizeStringArray,
   mapCompanyToPublic,

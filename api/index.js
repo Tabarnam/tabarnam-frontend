@@ -1,13 +1,6 @@
 // api/index.js - register all functions (CommonJS / v4 app model)
 const { app } = require("./_app");
 
-// Force-load queue trigger modules on cold start
-const { logQueueConfigOnce, resolveQueueConfig } = require("./_enrichmentQueue");
-require("./import/resume-worker-queue/index");
-
-// Log queue configuration on cold start
-logQueueConfigOnce(resolveQueueConfig());
-
 console.log("[api/index.js] Starting handler registration...");
 
 const ROUTES_TEST_MODE = process.env.TABARNAM_API_INDEX_MODE === "routes-test";
@@ -54,6 +47,13 @@ if (ROUTES_TEST_MODE) {
   } catch (e) {
     console.error("[api] ❌ Failed to load company-logo:", e?.message || e);
   }
+
+  try {
+    console.log("[api] Registering (routes-test): import-one");
+    require("./import-one/index.js");
+  } catch (e) {
+    console.error("[api] ❌ Failed to load import-one:", e?.message || e);
+  }
 } else {
   // -------------------------
   // Public endpoints
@@ -90,11 +90,27 @@ try {
 }
 
 try {
+  console.log("[api] Registering: diag-queue-mismatch");
+  require("./diag-queue-mismatch/index.js");
+  console.log("[api] ✓ diag-queue-mismatch registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load diag-queue-mismatch:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: _diag-hello");
   require("./_diag-hello/index.js");
   console.log("[api] ✓ _diag-hello registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load _diag-hello:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: _ping");
+  require("./_ping/index.js");
+  console.log("[api] ✓ _ping registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load _ping:", e?.message || e);
 }
 
 try {
@@ -234,17 +250,17 @@ try {
 }
 
 try {
-  console.log("[api] Registering: import/resume-worker-queue");
-  require("./import/resume-worker-queue/index.js");
-} catch (e) {
-  console.error("[api] Failed to load import/resume-worker-queue:", e?.message || e);
-}
-
-try {
   console.log("[api] Registering: import-progress");
   require("./import-progress/index.js");
 } catch (e) {
   console.error("[api] Failed to load import-progress:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: import-one");
+  require("./import-one/index.js");
+} catch (e) {
+  console.error("[api] Failed to load import-one:", e?.message || e);
 }
 
 try {
@@ -259,6 +275,13 @@ try {
   require("./import/primary-worker/index.js");
 } catch (e) {
   console.error("[api] Failed to load import/primary-worker:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: import/resume-worker (queue trigger)");
+  require("./import/resume-worker/index.js");
+} catch (e) {
+  console.error("[api] Failed to load import/resume-worker:", e?.message || e);
 }
 
 try {
@@ -373,6 +396,14 @@ try {
   console.log("[api] ✓ admin-bulk-import-config registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-bulk-import-config:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-diag-triggers");
+  require("./admin-diag-triggers/index.js");
+  console.log("[api] ✓ admin-diag-triggers registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-diag-triggers:", e?.message || e);
 }
 
 try {
@@ -549,6 +580,22 @@ try {
   console.log("[api] ✓ admin-geocode-location registered");
 } catch (e) {
   console.error("[api] ❌ Failed to load admin-geocode-location:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-init-search-synonyms");
+  require("./admin-init-search-synonyms/index.js");
+  console.log("[api] ✓ admin-init-search-synonyms registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-init-search-synonyms:", e?.message || e);
+}
+
+try {
+  console.log("[api] Registering: admin-backfill-search-text");
+  require("./admin-backfill-search-text/index.js");
+  console.log("[api] ✓ admin-backfill-search-text registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load admin-backfill-search-text:", e?.message || e);
 }
 }
 
