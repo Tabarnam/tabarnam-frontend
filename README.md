@@ -85,3 +85,5 @@ If the SWA linked backend configuration becomes stale or misconfigured, requests
 4. **Verify the route was linked correctly:** Open the browser console and check the **Backend Ping** diagnostic output. It shows which Function App is actually serving `/api` requests.
    - Look for: `[Backend Ping] Successfully identified backend`
    - Compare the `Backend Name` with your expected Function App name (e.g., `tabarnam-xai-dedicated` or `tabarnam-xai-externalapi`)
+
+<!-- Test commit -->
