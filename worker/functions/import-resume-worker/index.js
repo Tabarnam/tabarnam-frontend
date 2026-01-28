@@ -1,3 +1,4 @@
+// Rebuild tick: 2026-01-27T23:50:00Z
 const { app } = require("@azure/functions");
 const { resumeWorkerHandler } = require("./handler");
 
