@@ -278,7 +278,7 @@ try {
 }
 
 try {
-  console.log("[api] Registering: import/resume-worker (queue trigger)");
+  console.log("[api] Registering: import/resume-worker (HTTP endpoint only)");
   require("./import/resume-worker/index.js");
 } catch (e) {
   console.error("[api] Failed to load import/resume-worker:", e?.message || e);
