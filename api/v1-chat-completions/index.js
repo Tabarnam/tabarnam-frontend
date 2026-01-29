@@ -161,6 +161,15 @@ app.http("v1-chat-completions", {
       };
     }
 
+    // Check internal-only gate if enabled
+    const authCheck = requireInternal(req);
+    if (!authCheck.ok) {
+      return jsonResponse(authCheck.status, {
+        ok: false,
+        error: authCheck.error,
+      });
+    }
+
     const handler_version = getHandlerVersion();
 
     // Capture ingress snapshot at the very top, before any mutation.
