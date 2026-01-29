@@ -413,6 +413,7 @@ app.http("diag-xai", {
           ok: false,
           route: "/api/diag/xai",
           ts,
+          diag_xai_build: buildInfo?.build_timestamp || ts,
           error: {
             name: e?.name || "Error",
             message: "Failed to read xAI configuration",
