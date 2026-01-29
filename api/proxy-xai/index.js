@@ -313,7 +313,7 @@ app.http("proxy-xai", {
 
     if (!baseUrl || !apiKey) {
       return json(
-        { error: "Server not configured (FUNCTION_URL / XAI_API_KEY)", proxy: { status: "misconfigured", build: BUILD_STAMP } },
+        { error: "Server not configured (XAI_BASE_URL + XAI_API_KEY / XAI_EXTERNAL_KEY)", proxy: { status: "misconfigured", build: BUILD_STAMP } },
         500,
         req
       );
