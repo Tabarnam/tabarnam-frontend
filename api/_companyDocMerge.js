@@ -320,8 +320,12 @@ function mergeCompanyDocsForSession({ existingDoc, incomingDoc, finalNormalizedD
   });
 
   scrubIfRetryableMissing("manufacturing_locations", () => {
-    merged.manufacturing_locations = [];
-    merged.mfg_unknown = true;
+    // Don't clear manufacturing_locations or set mfg_unknown if manufacturing_geocodes has valid data
+    const mergedMfgGeocodesHasValue = isRealValue("manufacturing_locations", merged.manufacturing_geocodes, merged);
+    if (!mergedMfgGeocodesHasValue) {
+      merged.manufacturing_locations = [];
+      merged.mfg_unknown = true;
+    }
   });
 
   scrubIfRetryableMissing("tagline", () => {
