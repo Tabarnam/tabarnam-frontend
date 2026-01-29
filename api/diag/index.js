@@ -378,6 +378,9 @@ app.http("diag-xai", {
         dns = null;
       }
 
+      // Get build info early so we can include it in all responses (requirement D)
+      const buildInfo = getBuildInfo();
+
       // Move shared imports into try/catch to detect errors (requirement B.2)
       let getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel;
       try {
@@ -390,6 +393,7 @@ app.http("diag-xai", {
           ok: false,
           route: "/api/diag/xai",
           ts,
+          diag_xai_build: buildInfo?.build_timestamp || ts,
           error: {
             name: e?.name || "Error",
             message: "Failed to load shared module",
@@ -397,8 +401,6 @@ app.http("diag-xai", {
           ...(debugAllowed ? { stack: asString(e?.stack || "") } : {}),
         });
       }
-
-      const buildInfo = getBuildInfo();
 
       // Wrap environment reads (requirement B.2)
       let base, key, configuredModel;
@@ -411,6 +413,7 @@ app.http("diag-xai", {
           ok: false,
           route: "/api/diag/xai",
           ts,
+          diag_xai_build: buildInfo?.build_timestamp || ts,
           error: {
             name: e?.name || "Error",
             message: "Failed to read xAI configuration",
@@ -446,6 +449,7 @@ app.http("diag-xai", {
           ok: false,
           route: "/api/diag/xai",
           ts,
+          diag_xai_build: buildInfo?.build_timestamp || ts,
           error: {
             name: e?.name || "Error",
             message: "Failed to resolve xAI endpoint for model",
@@ -462,6 +466,7 @@ app.http("diag-xai", {
           ok: false,
           route: "/api/diag/xai",
           ts,
+          diag_xai_build: buildInfo?.build_timestamp || ts,
           error: {
             name: "ConfigError",
             message: "Missing xAI configuration (base_url or key)",
@@ -543,6 +548,7 @@ app.http("diag-xai", {
         ok: smoke.ok,
         route: "/api/diag/xai",
         ts,
+        diag_xai_build: buildInfo?.build_timestamp || ts,
         env: envDiag,
         resolved,
         smoke,
@@ -552,11 +558,17 @@ app.http("diag-xai", {
       // Top-level catch for any unhandled errors (requirement A.1-3)
       const ts = nowIso();
       const debugAllowed = debugGateAllows(req);
+      let buildTimestamp = ts;
+      try {
+        const bi = getBuildInfo();
+        if (bi?.build_timestamp) buildTimestamp = bi.build_timestamp;
+      } catch {}
 
       return json({
         ok: false,
         route: "/api/diag/xai",
         ts,
+        diag_xai_build: buildTimestamp,
         error: {
           name: e?.name || "Error",
           message: asString(e?.message || e) || "Unhandled exception",
