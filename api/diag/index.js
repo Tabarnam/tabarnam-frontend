@@ -282,15 +282,7 @@ app.http("diag", {
 });
 
 // xAI connectivity diagnostic (same config + auth rules used by the import enrichment pipeline).
-let axios;
-try {
-  axios = require("axios");
-} catch {
-  axios = null;
-}
-
-const dns = require("dns");
-const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../_shared");
+// NOTE: axios, dns, and shared module imports are now inside the handler to avoid top-level crash risks (requirement B.1).
 
 function redactUrl(rawUrl) {
   const raw = asString(rawUrl).trim();
@@ -331,11 +323,28 @@ function redactHeaders(headersObj) {
   return out;
 }
 
+function classifyKeyShape(keyStr) {
+  const safe = asString(keyStr).trim();
+  if (!safe) return null;
+  if (safe.toLowerCase().startsWith("xai-")) return "starts_with_xai";
+  if (safe.length > 50 && /^[a-zA-Z0-9_-]+$/.test(safe)) return "looks_like_host_key";
+  if (safe.startsWith("http://") || safe.startsWith("https://")) return "looks_like_url";
+  return "unknown_format";
+}
+
+function debugGateAllows(req) {
+  const debugKeyFromEnv = asString(process.env.DEBUG_KEY || "").trim();
+  if (!debugKeyFromEnv) return false;
+  const headerValue = asString((req?.headers?.["x-debug-key"] ?? req?.headers?.["X-Debug-Key"]) || "").trim();
+  return headerValue === debugKeyFromEnv;
+}
+
 app.http("diag-xai", {
   route: "diag/xai",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req) => {
+    // Handle OPTIONS first (no need to wrap)
     const method = String(req?.method || "").toUpperCase();
     if (method === "OPTIONS") {
       return {
@@ -343,231 +352,217 @@ app.http("diag-xai", {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,OPTIONS",
-          "Access-Control-Allow-Headers": "content-type,authorization,x-functions-key",
+          "Access-Control-Allow-Headers": "content-type,authorization,x-debug-key,x-functions-key",
         },
       };
     }
 
-    const started = Date.now();
-    const buildInfo = getBuildInfo();
-
-    // NOTE: accepted query param name is session_id (snake_case) to match the import pipeline.
-    const session_id = asString(readQueryParam(req, "session_id")).trim() || null;
-
-    const base = asString(getXAIEndpoint()).trim();
-    const key = asString(getXAIKey()).trim();
-
-    const configuredModel = asString(process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "").trim();
-    if (!configuredModel) {
-      const responsePayload = {
-        ok: false,
-        error: "XAI_CHAT_MODEL_MISSING",
-        attempted_model: null,
-        elapsed_ms: Date.now() - started,
-        website_hostname: asString(process.env.WEBSITE_HOSTNAME || "") || null,
-        ...buildInfo,
-      };
-
-      const persisted = await persistIfRequested({
-        kind: "xai_diag_bundle",
-        session_id,
-        ok: false,
-        error: responsePayload.error,
-        attempted_model: responsePayload.attempted_model,
-        elapsed_ms: responsePayload.elapsed_ms,
-        website_hostname: responsePayload.website_hostname,
-        build_id: buildInfo?.build_id || null,
-        at: nowIso(),
-      });
-
-      return json({ ...responsePayload, ...(persisted ? { persisted } : {}) });
-    }
-
-    const model = asString(process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest").trim();
-    const url = resolveXaiEndpointForModel(base, model);
-
-    const hostname = (() => {
-      try {
-        return url ? new URL(url).hostname : "";
-      } catch {
-        return "";
-      }
-    })();
-
-    const dnsResult = await (async () => {
-      if (!hostname || !dns?.promises?.lookup) {
-        return { ok: false, host: hostname || null, error: "dns_lookup_unavailable" };
-      }
-      try {
-        const r = await dns.promises.lookup(hostname);
-        return { ok: true, host: hostname, address: r?.address || null, family: r?.family || null };
-      } catch (e) {
-        return { ok: false, host: hostname, error: asString(e?.message || e) || "dns_lookup_failed" };
-      }
-    })();
-
-    const persistIfRequested = async (bundle) => {
-      if (!session_id) return null;
-      return await persistXaiDiagBundle({ sessionId: session_id, bundle }).catch((e) => ({
-        ok: false,
-        error: asString(e?.message || e) || "persist_failed",
-      }));
-    };
-
-    if (!url || !key) {
-      const payload = {
-        ok: false,
-        error: "missing_xai_config",
-        attempted_model: model,
-        dns: dnsResult,
-        resolved_upstream_url_redacted: redactUrl(url) || null,
-        has_url: Boolean(url),
-        has_key: Boolean(key),
-        elapsed_ms: Date.now() - started,
-        website_hostname: asString(process.env.WEBSITE_HOSTNAME || "") || null,
-        ...buildInfo,
-      };
-
-      const persisted = await persistIfRequested({
-        kind: "xai_diag_bundle",
-        session_id,
-        ok: false,
-        error: payload.error,
-        attempted_model: payload.attempted_model,
-        dns: payload.dns,
-        resolved_upstream_url_redacted: payload.resolved_upstream_url_redacted,
-        elapsed_ms: payload.elapsed_ms,
-        website_hostname: payload.website_hostname,
-        build_id: buildInfo?.build_id || null,
-        at: nowIso(),
-      });
-
-      return json({ ...payload, ...(persisted ? { persisted } : {}) });
-    }
-
-    const headers = {
-      "Content-Type": "application/json",
-    };
-
-    if (isAzureWebsitesUrl(url)) {
-      headers["x-functions-key"] = key;
-    } else {
-      headers.Authorization = `Bearer ${key}`;
-    }
-
-    const payload = {
-      model,
-      messages: [{ role: "user", content: "ping" }],
-      max_tokens: 1,
-      temperature: 0,
-      stream: false,
-      search_parameters: { mode: "off" },
-    };
-
-    let status = null;
-    let responseHeaders = {};
-    let bodyPreview = "";
-
+    // Wrap entire handler body in try/catch (requirement A.1)
     try {
-      if (axios) {
-        const resp = await axios.post(url, payload, {
-          headers,
-          timeout: 12_000,
-          validateStatus: () => true,
-        });
+      const started = Date.now();
+      const ts = nowIso();
+      const debugAllowed = debugGateAllows(req);
 
-        status = Number(resp?.status || 0) || 0;
-        responseHeaders = redactHeaders(resp?.headers);
-
-        const dataText = (() => {
-          try {
-            if (typeof resp?.data === "string") return resp.data;
-            return JSON.stringify(resp?.data ?? {});
-          } catch {
-            return "";
-          }
-        })();
-
-        bodyPreview = dataText.slice(0, 500);
-      } else {
-        const res = await fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(payload),
-        });
-
-        status = res.status;
-        const headersObj = {};
-        try {
-          res.headers.forEach((v, k) => {
-            headersObj[k] = v;
-          });
-        } catch {}
-
-        responseHeaders = redactHeaders(headersObj);
-        const text = await res.text().catch(() => "");
-        bodyPreview = (text || "").slice(0, 500);
+      // Move optional imports inside handler (requirement B.1)
+      let axios;
+      try {
+        axios = require("axios");
+      } catch {
+        axios = null;
       }
-    } catch (e) {
-      const responsePayload = {
-        ok: false,
-        error: "xai_request_failed",
-        attempted_model: model,
-        message: asString(e?.message || e) || "xai_request_failed",
-        dns: dnsResult,
-        resolved_upstream_url_redacted: redactUrl(url) || null,
-        elapsed_ms: Date.now() - started,
-        website_hostname: asString(process.env.WEBSITE_HOSTNAME || "") || null,
-        ...buildInfo,
+
+      let dns;
+      try {
+        dns = require("dns");
+      } catch {
+        dns = null;
+      }
+
+      // Move shared imports into try/catch to detect errors (requirement B.2)
+      let getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel;
+      try {
+        const shared = require("../_shared");
+        getXAIEndpoint = shared.getXAIEndpoint;
+        getXAIKey = shared.getXAIKey;
+        resolveXaiEndpointForModel = shared.resolveXaiEndpointForModel;
+      } catch (e) {
+        return json({
+          ok: false,
+          route: "/api/diag/xai",
+          ts,
+          error: {
+            name: e?.name || "Error",
+            message: "Failed to load shared module",
+          },
+          ...(debugAllowed ? { stack: asString(e?.stack || "") } : {}),
+        });
+      }
+
+      const buildInfo = getBuildInfo();
+
+      // Wrap environment reads (requirement B.2)
+      let base, key, configuredModel;
+      try {
+        base = asString(getXAIEndpoint()).trim();
+        key = asString(getXAIKey()).trim();
+        configuredModel = asString(process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "").trim();
+      } catch (e) {
+        return json({
+          ok: false,
+          route: "/api/diag/xai",
+          ts,
+          error: {
+            name: e?.name || "Error",
+            message: "Failed to read xAI configuration",
+          },
+          ...(debugAllowed ? { stack: asString(e?.stack || "") } : {}),
+        });
+      }
+
+      // Build environment diagnostic (requirement D: env booleans and lengths only)
+      const envDiag = {
+        has_xai_api_key: Boolean(base),
+        xai_api_key_len: base.length,
+        has_xai_external_key: Boolean(key),
+        xai_external_key_len: key.length,
+        has_xai_base_url: Boolean(process.env.XAI_BASE_URL),
+        xai_base_url_len: asString(process.env.XAI_BASE_URL || "").length,
+        has_function_key: Boolean(process.env.FUNCTION_KEY),
+        function_key_len: asString(process.env.FUNCTION_KEY || "").length,
       };
 
-      const persisted = await persistIfRequested({
-        kind: "xai_diag_bundle",
-        session_id,
-        ok: false,
-        error: responsePayload.error,
-        attempted_model: responsePayload.attempted_model,
-        message: responsePayload.message,
-        dns: responsePayload.dns,
-        resolved_upstream_url_redacted: responsePayload.resolved_upstream_url_redacted,
-        elapsed_ms: responsePayload.elapsed_ms,
-        website_hostname: responsePayload.website_hostname,
-        build_id: buildInfo?.build_id || null,
-        at: nowIso(),
+      const resolved = {
+        base_url: base || null,
+        key_shape: key ? classifyKeyShape(key) : null,
+      };
+
+      // Wrap model resolution (requirement B.2)
+      let model, url;
+      try {
+        model = configuredModel || asString(process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest").trim();
+        url = base && model ? resolveXaiEndpointForModel(base, model) : null;
+      } catch (e) {
+        return json({
+          ok: false,
+          route: "/api/diag/xai",
+          ts,
+          error: {
+            name: e?.name || "Error",
+            message: "Failed to resolve xAI endpoint for model",
+          },
+          env: envDiag,
+          resolved,
+          ...(debugAllowed ? { stack: asString(e?.stack || "") } : {}),
+        });
+      }
+
+      // If missing config, return gracefully (requirement D: return 200 always)
+      if (!url || !key) {
+        return json({
+          ok: false,
+          route: "/api/diag/xai",
+          ts,
+          error: {
+            name: "ConfigError",
+            message: "Missing xAI configuration (base_url or key)",
+          },
+          env: envDiag,
+          resolved,
+        });
+      }
+
+      // Smoke test: minimal upstream call only if both base and key exist (requirement D)
+      const smoke = await (async () => {
+        try {
+          const headers = {
+            "Content-Type": "application/json",
+          };
+
+          if (isAzureWebsitesUrl(url)) {
+            headers["x-functions-key"] = key;
+          } else {
+            headers.Authorization = `Bearer ${key}`;
+          }
+
+          const payload = {
+            model,
+            messages: [{ role: "user", content: "ping" }],
+            max_tokens: 1,
+            temperature: 0,
+            stream: false,
+            search_parameters: { mode: "off" },
+          };
+
+          let status = null;
+
+          try {
+            if (axios) {
+              const resp = await axios.post(url, payload, {
+                headers,
+                timeout: 12_000,
+                validateStatus: () => true,
+              });
+              status = Number(resp?.status || 0) || 0;
+            } else {
+              const res = await fetch(url, {
+                method: "POST",
+                headers,
+                body: JSON.stringify(payload),
+              });
+              status = res.status;
+            }
+
+            if (status >= 200 && status < 300) {
+              return { ok: true, status };
+            } else {
+              return {
+                ok: false,
+                status,
+                message: `HTTP ${status} from upstream`,
+                detail: "non_2xx_response",
+              };
+            }
+          } catch (axiosOrFetchError) {
+            return {
+              ok: false,
+              message: asString(axiosOrFetchError?.message || axiosOrFetchError) || "request_failed",
+              detail: "upstream_call_failed",
+            };
+          }
+        } catch (e) {
+          return {
+            ok: false,
+            message: asString(e?.message || e) || "smoke_test_error",
+            detail: "smoke_test_exception",
+          };
+        }
+      })();
+
+      // Always return 200 with complete diagnostic (requirement E)
+      return json({
+        ok: smoke.ok,
+        route: "/api/diag/xai",
+        ts,
+        env: envDiag,
+        resolved,
+        smoke,
+        ...buildInfo,
       });
+    } catch (e) {
+      // Top-level catch for any unhandled errors (requirement A.1-3)
+      const ts = nowIso();
+      const debugAllowed = debugGateAllows(req);
 
-      return json({ ...responsePayload, ...(persisted ? { persisted } : {}) });
+      return json({
+        ok: false,
+        route: "/api/diag/xai",
+        ts,
+        error: {
+          name: e?.name || "Error",
+          message: asString(e?.message || e) || "Unhandled exception",
+        },
+        ...(debugAllowed ? { stack: asString(e?.stack || "") } : {}),
+      });
     }
-
-    const responsePayload = {
-      ok: status != null && status >= 200 && status < 300,
-      attempted_model: model,
-      dns: dnsResult,
-      http_status: status,
-      elapsed_ms: Date.now() - started,
-      resolved_upstream_url_redacted: redactUrl(url) || null,
-      response_headers: responseHeaders,
-      response_body_preview: bodyPreview,
-      website_hostname: asString(process.env.WEBSITE_HOSTNAME || "") || null,
-      ...buildInfo,
-    };
-
-    const persisted = await persistIfRequested({
-      kind: "xai_diag_bundle",
-      session_id,
-      ok: responsePayload.ok,
-      attempted_model: responsePayload.attempted_model,
-      dns: responsePayload.dns,
-      http_status: responsePayload.http_status,
-      resolved_upstream_url_redacted: responsePayload.resolved_upstream_url_redacted,
-      response_headers: responsePayload.response_headers,
-      response_body_preview: responsePayload.response_body_preview,
-      elapsed_ms: responsePayload.elapsed_ms,
-      website_hostname: responsePayload.website_hostname,
-      build_id: buildInfo?.build_id || null,
-      at: nowIso(),
-    });
-
-    return json({ ...responsePayload, ...(persisted ? { persisted } : {}) });
   },
 });
