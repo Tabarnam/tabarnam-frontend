@@ -462,6 +462,7 @@ app.http("diag-xai", {
           ok: false,
           route: "/api/diag/xai",
           ts,
+          diag_xai_build: buildInfo?.build_timestamp || ts,
           error: {
             name: "ConfigError",
             message: "Missing xAI configuration (base_url or key)",
