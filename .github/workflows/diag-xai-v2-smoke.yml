@@ -1,26 +1,65 @@
+# .github/workflows/diag-xai-v2-smoke.yml
 name: diag-xai-v2 smoke
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch: {}
   schedule:
     - cron: "15 16 * * *"
 
+permissions:
+  contents: read
+
+concurrency:
+  group: diag-xai-v2-smoke
+  cancel-in-progress: true
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Call diag-xai-v2
+      - name: Preflight (skip if not configured)
+        id: preflight
+        shell: bash
         env:
           DIAG_URL: ${{ secrets.TABARNAM_DIAG_XAI_V2_URL }}
           FUNCTION_KEY: ${{ secrets.TABARNAM_FUNCTION_KEY }}
         run: |
-          curl -fsS "$DIAG_URL?code=$FUNCTION_KEY" -o resp.json
+          set -euo pipefail
+
+          if [ -z "${DIAG_URL:-}" ]; then
+            echo "diag-xai-v2 smoke: skipping (TABARNAM_DIAG_XAI_V2_URL not set)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # FUNCTION_KEY is optional. Some endpoints are public; some require ?code=
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Call diag-xai-v2
+        if: steps.preflight.outputs.skip != 'true'
+        shell: bash
+        env:
+          DIAG_URL: ${{ secrets.TABARNAM_DIAG_XAI_V2_URL }}
+          FUNCTION_KEY: ${{ secrets.TABARNAM_FUNCTION_KEY }}
+        run: |
+          set -euo pipefail
+
+          url="$DIAG_URL"
+          if [ -n "${FUNCTION_KEY:-}" ]; then
+            if [[ "$url" == *\?* ]]; then
+              url="${url}&code=${FUNCTION_KEY}"
+            else
+              url="${url}?code=${FUNCTION_KEY}"
+            fi
+          fi
+
+          curl -fsS "$url" -o resp.json
           cat resp.json
+
           python - << 'PY'
           import json
-          j=json.load(open("resp.json"))
+          j = json.load(open("resp.json"))
           assert j.get("ok") is True
           assert j["smoke"]["ok"] is True
           assert j["smoke"]["status"] == 200
