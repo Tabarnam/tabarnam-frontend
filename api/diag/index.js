@@ -558,11 +558,17 @@ app.http("diag-xai", {
       // Top-level catch for any unhandled errors (requirement A.1-3)
       const ts = nowIso();
       const debugAllowed = debugGateAllows(req);
+      let buildTimestamp = ts;
+      try {
+        const bi = getBuildInfo();
+        if (bi?.build_timestamp) buildTimestamp = bi.build_timestamp;
+      } catch {}
 
       return json({
         ok: false,
         route: "/api/diag/xai",
         ts,
+        diag_xai_build: buildTimestamp,
         error: {
           name: e?.name || "Error",
           message: asString(e?.message || e) || "Unhandled exception",
