@@ -7,6 +7,7 @@ const {
   findCompanyByIdOrName,
   incrementCompanyReviewCounts,
 } = require("../_reviewCounts");
+const { xaiResponses } = require("../_xai");
 
 // -------- helpers ----------
 const E = (k, d = "") => (process.env[k] ?? d).toString().trim();
