@@ -99,6 +99,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: diag-xai-alias");
+  require("./diag-xai-alias/index.js");
+  console.log("[api] ✓ diag-xai-alias registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load diag-xai-alias:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: diag-queue-mismatch");
   require("./diag-queue-mismatch/index.js");
   console.log("[api] ✓ diag-queue-mismatch registered");
