@@ -1,0 +1,28 @@
+name: diag-xai-v2 smoke
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+  schedule:
+    - cron: "15 16 * * *"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call diag-xai-v2
+        env:
+          DIAG_URL: ${{ secrets.TABARNAM_DIAG_XAI_V2_URL }}
+          FUNCTION_KEY: ${{ secrets.TABARNAM_FUNCTION_KEY }}
+        run: |
+          curl -fsS "$DIAG_URL?code=$FUNCTION_KEY" -o resp.json
+          cat resp.json
+          python - << 'PY'
+          import json
+          j=json.load(open("resp.json"))
+          assert j.get("ok") is True
+          assert j["smoke"]["ok"] is True
+          assert j["smoke"]["status"] == 200
+          print("PASS")
+          PY

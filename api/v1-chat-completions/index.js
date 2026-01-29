@@ -130,6 +130,24 @@ function safeJsonParse(text) {
   }
 }
 
+function requireInternal(req) {
+  const internalOnly = (process.env.INTERNAL_ONLY_CHAT_COMPLETIONS || "").trim().toLowerCase() === "true";
+  if (!internalOnly) return { ok: true };
+
+  const provided = (req.headers.get("x-internal-key") || "").trim();
+  const expected = (process.env.INTERNAL_KEY || "").trim();
+
+  if (!expected) {
+    return { ok: false, status: 503, error: "INTERNAL_KEY not configured" };
+  }
+
+  if (provided !== expected) {
+    return { ok: false, status: 403, error: "Forbidden" };
+  }
+
+  return { ok: true };
+}
+
 app.http("v1-chat-completions", {
   methods: ["POST", "OPTIONS"],
   authLevel: "anonymous",
@@ -141,6 +159,15 @@ app.http("v1-chat-completions", {
         headers: withCors({}),
         body: "",
       };
+    }
+
+    // Check internal-only gate if enabled
+    const authCheck = requireInternal(req);
+    if (!authCheck.ok) {
+      return jsonResponse(authCheck.status, {
+        ok: false,
+        error: authCheck.error,
+      });
     }
 
     const handler_version = getHandlerVersion();

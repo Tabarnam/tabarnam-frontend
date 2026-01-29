@@ -7,6 +7,7 @@ const {
   findCompanyByIdOrName,
   incrementCompanyReviewCounts,
 } = require("../_reviewCounts");
+const { xaiResponses } = require("../_xai");
 
 // -------- helpers ----------
 const E = (k, d = "") => (process.env[k] ?? d).toString().trim();
@@ -95,33 +96,28 @@ app.http("submit-review", {
     let flagged_bot = false,
       bot_reason = "";
     try {
-      const XAI_API_KEY = E("XAI_API_KEY");
-      if (XAI_API_KEY) {
+      if (process.env.XAI_API_KEY || process.env.XAI_EXTERNAL_KEY) {
         const prompt = `Return strictly JSON: {"likely_bot": true|false, "reason": "short reason"} for this review:
 Review: ${JSON.stringify(text)}
 Name: ${user_name || "(none)"} | Location: ${user_location || "(none)"} | Length: ${
           text.length
         }`;
-        const r = await fetch("https://api.x.ai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${XAI_API_KEY}`,
-          },
-          body: JSON.stringify({
-            model: "grok-4-latest",
-            temperature: 0,
-            messages: [{ role: "user", content: prompt }],
-          }),
+        const result = await xaiResponses({
+          model: "grok-4-latest",
+          input: [{ role: "user", content: prompt }],
+          store: false,
         });
-        const data = await r.json().catch(() => ({}));
-        const content = data?.choices?.[0]?.message?.content || "{}";
-        try {
-          const parsed = JSON.parse(content);
-          flagged_bot = !!parsed?.likely_bot;
-          bot_reason = String(parsed?.reason || "");
-        } catch {
-          /* ignore parse errors */
+
+        if (result.ok) {
+          const content = result.json?.output?.[0]?.content?.find?.((c) => c?.type === "output_text")?.text ||
+                         result.json?.choices?.[0]?.message?.content || "{}";
+          try {
+            const parsed = JSON.parse(content);
+            flagged_bot = !!parsed?.likely_bot;
+            bot_reason = String(parsed?.reason || "");
+          } catch {
+            /* ignore parse errors */
+          }
         }
       }
     } catch (e) {
