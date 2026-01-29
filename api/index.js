@@ -91,6 +91,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: diag-xai-v2");
+  require("./diag-xai-v2/index.js");
+  console.log("[api] ✓ diag-xai-v2 registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load diag-xai-v2:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: diag-queue-mismatch");
   require("./diag-queue-mismatch/index.js");
   console.log("[api] ✓ diag-queue-mismatch registered");
