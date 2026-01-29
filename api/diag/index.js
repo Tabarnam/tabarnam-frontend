@@ -282,15 +282,7 @@ app.http("diag", {
 });
 
 // xAI connectivity diagnostic (same config + auth rules used by the import enrichment pipeline).
-let axios;
-try {
-  axios = require("axios");
-} catch {
-  axios = null;
-}
-
-const dns = require("dns");
-const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../_shared");
+// NOTE: axios, dns, and shared module imports are now inside the handler to avoid top-level crash risks (requirement B.1).
 
 function redactUrl(rawUrl) {
   const raw = asString(rawUrl).trim();
