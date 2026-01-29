@@ -219,8 +219,20 @@ function shouldClearMfgUnknown(company) {
   const c = company && typeof company === "object" ? company : {};
   const checkDoc = { ...c, mfg_unknown: false };
 
+  // Check manufacturing_locations first (primary field)
   if (isRealValue("manufacturing_locations", c.manufacturing_locations, checkDoc)) return true;
+
+  // Check manufacturing_geocodes (geocoded results from admin/import)
   if (isRealValue("manufacturing_locations", c.manufacturing_geocodes, checkDoc)) return true;
+
+  // Also check if manufacturing_geocodes is a non-empty array with any entries
+  // This ensures we recognize geocoded data even if some entries may have failed geocoding
+  if (Array.isArray(c.manufacturing_geocodes) && c.manufacturing_geocodes.length > 0) {
+    for (const entry of c.manufacturing_geocodes) {
+      if (isRealValue("manufacturing_locations", entry, checkDoc)) return true;
+    }
+  }
+
   return false;
 }
 
