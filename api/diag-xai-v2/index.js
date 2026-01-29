@@ -83,12 +83,26 @@ function debugGateAllows(req) {
   return headerValue === debugKeyFromEnv;
 }
 
+function normalizeBaseUrl(rawBase) {
+  const raw = asString(rawBase).trim();
+  if (!raw) return "";
+  // If someone mistakenly sets XAI_BASE_URL to the full endpoint, normalize it.
+  if (/\/v1\/(chat\/completions|responses)(\/)?$/i.test(raw)) {
+    return raw.replace(/\/v1\/(chat\/completions|responses)(\/)?$/i, "");
+  }
+  return raw.replace(/\/+$/, "");
+}
+
+function computeResponsesUrl(baseUrl) {
+  const base = normalizeBaseUrl(baseUrl) || "https://api.x.ai";
+  return `${base}/v1/responses`;
+}
+
 app.http("diag-xai-v2", {
   route: "diag/xai-v2",
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: async (req) => {
-    // Handle OPTIONS first (no need to wrap)
     const method = String(req?.method || "").toUpperCase();
     if (method === "OPTIONS") {
       return {
@@ -101,13 +115,10 @@ app.http("diag-xai-v2", {
       };
     }
 
-    // Wrap entire handler body in try/catch
     try {
-      const started = Date.now();
       const ts = nowIso();
       const debugAllowed = debugGateAllows(req);
 
-      // Move optional imports inside handler to avoid top-level crash risks
       let axios;
       try {
         axios = require("axios");
@@ -115,42 +126,31 @@ app.http("diag-xai-v2", {
         axios = null;
       }
 
-      let dns;
-      try {
-        dns = require("dns");
-      } catch {
-        dns = null;
-      }
-
-      // Get build info early so we can include it in all responses
+      // Build info early
       const buildInfo = getBuildInfo();
 
-      // Move shared imports into try/catch to detect errors
-      let getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel;
+      // Shared helpers
+      let getXAIEndpoint, getXAIKey;
       try {
         const shared = require("../_shared");
         getXAIEndpoint = shared.getXAIEndpoint;
         getXAIKey = shared.getXAIKey;
-        resolveXaiEndpointForModel = shared.resolveXaiEndpointForModel;
       } catch (e) {
         return json({
           ok: false,
           route: "diag/xai-v2",
           ts,
           diag_xai_build: buildInfo?.build_timestamp || ts,
-          error: {
-            name: e?.name || "Error",
-            message: "Failed to load shared module",
-          },
+          error: { name: e?.name || "Error", message: "Failed to load shared module" },
           ...(debugAllowed ? { stack: asString(e?.stack || "") } : {}),
         });
       }
 
-      // Wrap environment reads
+      // Read config
       let base, key, configuredModel;
       try {
-        base = asString(getXAIEndpoint()).trim();
-        key = asString(getXAIKey()).trim();
+        base = asString(getXAIEndpoint()).trim(); // may be XAI_BASE_URL or legacy; we normalize below
+        key = asString(getXAIKey()).trim(); // should be Bearer token for api.x.ai
         configuredModel = asString(process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "").trim();
       } catch (e) {
         return json({
@@ -158,75 +158,51 @@ app.http("diag-xai-v2", {
           route: "diag/xai-v2",
           ts,
           diag_xai_build: buildInfo?.build_timestamp || ts,
-          error: {
-            name: e?.name || "Error",
-            message: "Failed to read xAI configuration",
-          },
+          error: { name: e?.name || "Error", message: "Failed to read xAI configuration" },
           ...(debugAllowed ? { stack: asString(e?.stack || "") } : {}),
         });
       }
 
-      // Build environment diagnostic (env booleans and lengths only)
+      // Env diagnostics (lengths only)
       const envDiag = {
-        has_xai_api_key: Boolean(base),
-        xai_api_key_len: base.length,
-        has_xai_external_key: Boolean(key),
-        xai_external_key_len: key.length,
+        has_xai_endpoint: Boolean(base),
+        xai_endpoint_len: base.length,
+        has_xai_key: Boolean(key),
+        xai_key_len: key.length,
         has_xai_base_url: Boolean(process.env.XAI_BASE_URL),
         xai_base_url_len: asString(process.env.XAI_BASE_URL || "").length,
         has_function_key: Boolean(process.env.FUNCTION_KEY),
         function_key_len: asString(process.env.FUNCTION_KEY || "").length,
       };
 
+      const model = configuredModel || "grok-4";
+      const url = computeResponsesUrl(base || process.env.XAI_BASE_URL || "https://api.x.ai");
+
       const resolved = {
-        base_url: base || null,
+        base_url: redactUrl(url),
         key_shape: key ? classifyKeyShape(key) : null,
+        model,
       };
 
-      // Wrap model resolution
-      let model, url;
-      try {
-        model = configuredModel || asString(process.env.XAI_CHAT_MODEL || process.env.XAI_MODEL || "grok-4-latest").trim();
-        url = base && model ? resolveXaiEndpointForModel(base, model) : null;
-      } catch (e) {
+      if (!key) {
         return json({
           ok: false,
           route: "diag/xai-v2",
           ts,
           diag_xai_build: buildInfo?.build_timestamp || ts,
-          error: {
-            name: e?.name || "Error",
-            message: "Failed to resolve xAI endpoint for model",
-          },
+          error: { name: "ConfigError", message: "Missing xAI key" },
           env: envDiag,
           resolved,
-          ...(debugAllowed ? { stack: asString(e?.stack || "") } : {}),
+          ...buildInfo,
         });
       }
 
-      // If missing config, return gracefully (always return 200)
-      if (!url || !key) {
-        return json({
-          ok: false,
-          route: "diag/xai-v2",
-          ts,
-          diag_xai_build: buildInfo?.build_timestamp || ts,
-          error: {
-            name: "ConfigError",
-            message: "Missing xAI configuration (base_url or key)",
-          },
-          env: envDiag,
-          resolved,
-        });
-      }
-
-      // Smoke test: minimal upstream call only if both base and key exist
+      // Smoke test: call Responses API (not chat/completions)
       const smoke = await (async () => {
         try {
-          const headers = {
-            "Content-Type": "application/json",
-          };
+          const headers = { "Content-Type": "application/json" };
 
+          // Support both: direct xAI Bearer and "internal azure function" x-functions-key.
           if (isAzureWebsitesUrl(url)) {
             headers["x-functions-key"] = key;
           } else {
@@ -235,14 +211,15 @@ app.http("diag-xai-v2", {
 
           const payload = {
             model,
-            messages: [{ role: "user", content: "ping" }],
-            max_tokens: 1,
-            temperature: 0,
-            stream: false,
-            search_parameters: { mode: "off" },
+            input: [
+              { role: "system", content: "You are a helpful assistant." },
+              { role: "user", content: "Say 'ok' in one word." },
+            ],
+            store: false,
           };
 
-          let status = null;
+          let status = 0;
+          let data = null;
 
           try {
             if (axios) {
@@ -252,32 +229,57 @@ app.http("diag-xai-v2", {
                 validateStatus: () => true,
               });
               status = Number(resp?.status || 0) || 0;
+              data = resp?.data ?? null;
             } else {
-              const res = await fetch(url, {
-                method: "POST",
-                headers,
-                body: JSON.stringify(payload),
-              });
+              const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload) });
               status = res.status;
+              try {
+                data = await res.json();
+              } catch {
+                data = null;
+              }
             }
-
-            if (status >= 200 && status < 300) {
-              return { ok: true, status };
-            } else {
-              return {
-                ok: false,
-                status,
-                message: `HTTP ${status} from upstream`,
-                detail: "non_2xx_response",
-              };
-            }
-          } catch (axiosOrFetchError) {
+          } catch (requestErr) {
             return {
               ok: false,
-              message: asString(axiosOrFetchError?.message || axiosOrFetchError) || "request_failed",
+              message: asString(requestErr?.message || requestErr) || "request_failed",
               detail: "upstream_call_failed",
             };
           }
+
+          const ok = status >= 200 && status < 300;
+          if (!ok) {
+            return {
+              ok: false,
+              status,
+              message: `HTTP ${status} from upstream`,
+              detail: "non_2xx_response",
+              ...(debugAllowed
+                ? {
+                    upstream: {
+                      url: redactUrl(url),
+                      request_headers: redactHeaders(headers),
+                      response_excerpt: data && typeof data === "object" ? data : asString(data || ""),
+                    },
+                  }
+                : {}),
+            };
+          }
+
+          // Try to extract a short confirmation without leaking anything
+          const text =
+            data?.output?.[0]?.content?.find?.((c) => c?.type === "output_text")?.text ??
+            data?.output?.[0]?.content?.[0]?.text ??
+            "";
+
+          return {
+            ok: true,
+            status,
+            response_id: asString(data?.id || ""),
+            model: asString(data?.model || ""),
+            status_text: asString(data?.status || ""),
+            output_text: asString(text).slice(0, 64),
+          };
         } catch (e) {
           return {
             ok: false,
@@ -287,7 +289,6 @@ app.http("diag-xai-v2", {
         }
       })();
 
-      // Always return 200 with complete diagnostic
       return json({
         ok: smoke.ok,
         route: "diag/xai-v2",
@@ -299,9 +300,9 @@ app.http("diag-xai-v2", {
         ...buildInfo,
       });
     } catch (e) {
-      // Top-level catch for any unhandled errors
       const ts = nowIso();
       const debugAllowed = debugGateAllows(req);
+
       let buildTimestamp = ts;
       try {
         const bi = getBuildInfo();
