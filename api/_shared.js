@@ -117,16 +117,47 @@ function resolveXaiEndpointForModel(rawEndpoint, model) {
 
 /**
  * Get XAI API Key
- * Tries multiple env vars for backwards compatibility
+ * Hardened version: ONLY returns explicit xAI env vars.
+ * NEVER falls back to FUNCTION_KEY or internal auth secrets.
+ * Detects and refuses common "wrong key" patterns (Azure host keys, URLs).
  */
 function getXAIKey() {
-  // Prefer the consolidated key vars first.
-  // IMPORTANT: if an external key is present, legacy vars must NOT override it.
-  const primary = (process.env.XAI_API_KEY || process.env.XAI_EXTERNAL_KEY || process.env.FUNCTION_KEY || "").trim();
-  if (primary) return primary;
+  // Only allow explicit xAI env vars. Never use FUNCTION_KEY (Azure host key) as an API credential.
+  const raw =
+    (process.env.XAI_API_KEY || process.env.XAI_EXTERNAL_KEY || "").trim();
 
-  // Legacy fallback (only used when consolidated vars are missing).
-  return (process.env.XAI_KEY || "").trim();
+  if (!raw) return "";
+
+  // Hard guardrails:
+  // 1) Azure Functions host keys often start with "xm" and end with "=="
+  // 2) Many internal tokens are long base64-ish strings ending with "=="
+  // We refuse anything that looks like a Functions host key or accidental internal secret.
+  const looksLikeAzureFunctionKey =
+    /^xm[A-Za-z0-9+/]{10,}={0,2}$/.test(raw) || /={2}$/.test(raw);
+
+  // Additional heuristic: if user accidentally copied a URL or included whitespace/newlines
+  const looksLikeUrl = /^https?:\/\//i.test(raw);
+
+  if (looksLikeUrl || looksLikeAzureFunctionKey) {
+    // Do not leak the key. Only log shape and length.
+    console.error("[config] getXAIKey(): Refusing suspicious XAI key value.", {
+      reason: looksLikeUrl ? "looks_like_url" : "looks_like_azure_function_key",
+      len: raw.length,
+      startsWith: raw.slice(0, 2),
+      endsWith: raw.slice(-2),
+      hasWhitespace: /\s/.test(raw),
+      env_present: {
+        has_XAI_API_KEY: Boolean((process.env.XAI_API_KEY || "").trim()),
+        has_XAI_EXTERNAL_KEY: Boolean((process.env.XAI_EXTERNAL_KEY || "").trim()),
+        // This is only for diagnostics, NOT used for XAI.
+        has_FUNCTION_KEY: Boolean((process.env.FUNCTION_KEY || "").trim()),
+      },
+    });
+
+    return "";
+  }
+
+  return raw;
 }
 
 function getResolvedUpstreamMeta(rawUrl) {
