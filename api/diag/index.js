@@ -544,6 +544,7 @@ app.http("diag-xai", {
         ok: smoke.ok,
         route: "/api/diag/xai",
         ts,
+        diag_xai_build: buildInfo?.build_timestamp || ts,
         env: envDiag,
         resolved,
         smoke,
