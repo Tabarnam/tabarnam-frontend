@@ -378,6 +378,9 @@ app.http("diag-xai", {
         dns = null;
       }
 
+      // Get build info early so we can include it in all responses (requirement D)
+      const buildInfo = getBuildInfo();
+
       // Move shared imports into try/catch to detect errors (requirement B.2)
       let getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel;
       try {
@@ -390,6 +393,7 @@ app.http("diag-xai", {
           ok: false,
           route: "/api/diag/xai",
           ts,
+          diag_xai_build: buildInfo?.build_timestamp || ts,
           error: {
             name: e?.name || "Error",
             message: "Failed to load shared module",
@@ -397,8 +401,6 @@ app.http("diag-xai", {
           ...(debugAllowed ? { stack: asString(e?.stack || "") } : {}),
         });
       }
-
-      const buildInfo = getBuildInfo();
 
       // Wrap environment reads (requirement B.2)
       let base, key, configuredModel;
