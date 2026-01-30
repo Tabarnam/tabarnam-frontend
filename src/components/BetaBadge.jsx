@@ -12,7 +12,7 @@ export default function BetaBadge() {
       <div
         className="absolute bg-tabarnam-blue/70 backdrop-blur-sm flex items-center justify-center"
         style={{
-          padding: '8px 16px',
+          padding: '12px 24px',
           whiteSpace: 'nowrap',
           top: '0',
           left: '0',
@@ -21,10 +21,9 @@ export default function BetaBadge() {
           borderRadius: '4px',
           boxShadow: '0 4px 12px rgba(0, 95, 115, 0.15)',
           minWidth: 'max-content',
-          border: '2px solid red',
         }}
       >
-        <div className="text-white font-bold text-xs">
+        <div className="text-white font-bold text-sm tracking-tight">
           Early Access
         </div>
       </div>
