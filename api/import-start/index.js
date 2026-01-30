@@ -1872,8 +1872,39 @@ async function fetchLogo({ companyId, companyName, domain, websiteUrl, existingL
     };
   }
 
-  const importCompanyLogo = requireImportCompanyLogo();
-  return importCompanyLogo({ companyId, domain, websiteUrl, companyName }, console, { budgetMs: budget });
+  try {
+    const importCompanyLogo = requireImportCompanyLogo();
+    const result = await importCompanyLogo({ companyId, domain, websiteUrl, companyName }, console, { budgetMs: budget });
+    // Always return a structured result, never throw
+    return result || {
+      ok: true,
+      logo_status: "error",
+      logo_import_status: "failed",
+      logo_stage_status: "exception",
+      logo_error: "logo processing returned null/undefined",
+      logo_last_error: { code: "NULL_RESULT", message: "logo processing returned null/undefined" },
+      logo_source_url: null,
+      logo_source_type: null,
+      logo_url: null,
+      logo_telemetry: { budget_ms: budget, elapsed_ms: 0, candidates_total: 0, candidates_tried: 0, rejection_reasons: { null_result: 1 } },
+    };
+  } catch (e) {
+    // Logo processing failed - convert to non-blocking "skipped" state
+    const errorMsg = e?.message || String(e) || "unknown logo processing error";
+    console.warn(`[fetchLogo] Logo processing exception (non-blocking): ${errorMsg}`);
+    return {
+      ok: true, // Non-blocking: logo failure does not fail the import
+      logo_status: "skipped",
+      logo_import_status: "skipped",
+      logo_stage_status: "exception",
+      logo_error: `Logo processing failed (non-blocking): ${errorMsg}`,
+      logo_last_error: { code: "LOGO_EXCEPTION", message: errorMsg },
+      logo_source_url: null,
+      logo_source_type: null,
+      logo_url: null,
+      logo_telemetry: { budget_ms: budget, elapsed_ms: 0, candidates_total: 0, candidates_tried: 0, rejection_reasons: { exception: 1 } },
+    };
+  }
 }
 
 function normalizeUrlForCompare(s) {
