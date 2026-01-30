@@ -26,11 +26,11 @@ export default function BetaBadge() {
       <div
         className="absolute text-white font-bold tracking-widest whitespace-nowrap"
         style={{
-          top: '28px',
-          left: '12px',
-          fontSize: '13px',
+          top: '50px',
+          left: '15px',
+          fontSize: '12px',
           fontWeight: '700',
-          letterSpacing: '0.06em',
+          letterSpacing: '0.05em',
         }}
       >
         Early Access
