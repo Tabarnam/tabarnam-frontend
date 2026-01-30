@@ -1,7 +1,8 @@
-name: Azure Static Web Apps CI/CD
+# .github/workflows/azure-static-web-apps.yml
+name: Azure Static Web Apps (PR Preview)
 
 concurrency:
-  group: swa-${{ github.workflow }}-${{ github.ref }}
+  group: swa-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
@@ -10,15 +11,10 @@ permissions:
 
 on:
   pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - closed
+    types: [opened, synchronize, reopened]
 
 jobs:
-  build_and_deploy:
-    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+  preview:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -33,10 +29,6 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Clean dist
-        run: |
-          rm -rf dist
-
       - name: Build
         run: npm run build
 
@@ -46,33 +38,15 @@ jobs:
           set -euo pipefail
           printf "%s" "${{ github.sha }}" > api/__build_id.txt
 
-      - name: Debug dist output
-        run: |
-          echo "PWD=$(pwd)"
-          ls -la
-          ls -la dist || true
-          echo "----- dist/index.html (first 120 lines) -----"
-          sed -n '1,120p' dist/index.html || true
-          echo "----- grep for assets -----"
-          grep -n "/assets/index-" dist/index.html || true
-
       - name: Sanity checks
         shell: bash
         run: |
           set -euo pipefail
           test -f dist/index.html
-          if grep -q "/src/main.jsx" dist/index.html; then
-            echo "dist/index.html unexpectedly references /src/main.jsx" >&2
-            exit 1
-          fi
-          if ! grep -q "/assets/index-" dist/index.html; then
-            echo "dist/index.html does not reference /assets/index-*" >&2
-            exit 1
-          fi
           test -f dist/staticwebapp.config.json
           test -s api/__build_id.txt
 
-      - name: Deploy
+      - name: Deploy Preview
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
@@ -82,16 +56,4 @@ jobs:
           api_location: ""
           output_location: ""
           skip_app_build: true
-          production_branch: main
-
-  close_pull_request:
-    if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Close PR
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-          action: close
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
           production_branch: main

@@ -1,87 +1,47 @@
+# .github/workflows/deploy-worker.yml
 name: Deploy Worker (Queue Trigger)
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
-      - 'worker/**'
-      - 'api/_*.js'  # Changes to shared utilities trigger worker redeploy
-      - '.github/workflows/deploy-worker.yml'
+      - "worker/**"
+      - ".github/workflows/deploy-worker.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: true
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    name: Build & Deploy to tabarnam-xai-dedicated
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Node.js
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
-          cache: 'npm'
+          node-version: "18"
+          cache: npm
 
       - name: Install worker dependencies
         run: npm ci --prefix worker
 
-      - name: Verify queue trigger configuration
-        run: |
-          # Check that the queue trigger is properly configured
-          if grep -q "storageQueue\|queueTrigger" worker/functions/import-resume-worker/index.js; then
-            echo "✅ Queue trigger found in worker"
-          else
-            echo "⚠️  WARNING: No queue trigger definition found in worker"
-          fi
-          
-          # Verify trigger name
-          if grep -q "import-resume-worker" worker/functions/import-resume-worker/index.js; then
-            echo "✅ Correct queue name configured"
-          fi
-
       - name: Build worker
         run: npm run build --prefix worker 2>/dev/null || echo "No build script defined"
 
-      - name: Deploy to Azure Function App
+      - name: Deploy to Azure Function App (worker)
         uses: Azure/functions-action@v1
         with:
-          app-name: 'tabarnam-xai-dedicated'
-          slot-name: 'production'
-          package: 'worker'
+          app-name: ${{ secrets.WORKER_FUNCTIONAPP_NAME }}
+          slot-name: "production"
+          package: "worker"
           publish-profile: ${{ secrets.WORKER_FUNCTIONAPP_PUBLISH_PROFILE }}
           scm-do-build-during-deployment: true
           enable-oryx-build: true
-
-      - name: Check worker health
-        run: |
-          # Wait briefly for deployment to settle
-          sleep 10
-          
-          # Attempt to check worker health endpoint
-          WORKER_URL="https://tabarnam-xai-dedicated.azurewebsites.net/api/health"
-          echo "Checking worker health at: $WORKER_URL"
-          
-          if curl -s -m 10 "$WORKER_URL" | grep -q "ok"; then
-            echo "✅ Worker health check passed"
-          else
-            echo "⚠️  Worker health check did not confirm (may still be initializing)"
-          fi
-
-      - name: Summary
-        run: |
-          echo "✅ Worker deployment complete"
-          echo ""
-          echo "Queue trigger configuration:"
-          echo "  - Queue: import-resume-worker"
-          echo "  - Storage Account: AzureWebJobsStorage (or ENRICHMENT_QUEUE_CONNECTION_SETTING)"
-          echo "  - Function App: tabarnam-xai-dedicated"
-          echo ""
-          echo "Verify with:"
-          echo "  - GET https://tabarnam-xai-dedicated.azurewebsites.net/api/health"
-          echo "  - Monitor Azure Function App logs in Portal"

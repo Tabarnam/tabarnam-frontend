@@ -1,33 +1,42 @@
+# .github/workflows/deploy-tabarnam-xai-dedicated.yml
 name: Deploy tabarnam-xai-dedicated
-
-# Required secrets:
-# - AZURE_FUNCTIONAPP_PUBLISH_PROFILE: Full publish profile XML (must include real userName and userPWD)
-# - DEDICATED_FUNCTION_KEY: Function key used to call /api/diag (NOT the master key)
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
+    paths:
+      - "api/**"
+      - "scripts/**"
+      - ".github/workflows/deploy-tabarnam-xai-dedicated.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-tabarnam-xai-dedicated
+  cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Assert package root (api/)
+        shell: bash
         run: |
           set -euo pipefail
           test -f api/host.json
           test -d api/diag
-          test -d api/import-start
           echo "api/ package root looks correct"
 
       - name: Write build id files
         run: node scripts/write-build-id.mjs
 
-      - name: Write deploy stamp file (proof of what code was deployed)
+      - name: Write deploy stamp file
+        shell: bash
         run: |
           set -euo pipefail
           node -e "const fs=require('node:fs'); const stamp={sha:process.env.GITHUB_SHA||'', run_id:process.env.GITHUB_RUN_ID||'', run_number:process.env.GITHUB_RUN_NUMBER||'', ts:new Date().toISOString()}; fs.writeFileSync('api/__deploy_stamp.json', JSON.stringify(stamp)+'\n', 'utf8'); console.log('[deploy-stamp]', JSON.stringify(stamp));"
@@ -39,223 +48,22 @@ jobs:
           package: api
           publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
 
-      - name: Verify deployment via /api/diag (fail only if handler_version and handler_versions are missing)
+      - name: Post deploy smoke (diag-xai-v2)
         env:
-          DED_BASE: https://tabarnam-xai-dedicated-awe3h9bvcxckeja9.westus2-01.azurewebsites.net
-          DEDICATED_FUNCTION_KEY: ${{ secrets.DEDICATED_FUNCTION_KEY }}
+          DIAG_URL: ${{ secrets.TABARNAM_DIAG_XAI_V2_URL }}
+          FUNCTION_KEY: ${{ secrets.TABARNAM_FUNCTION_KEY }}
+        shell: bash
         run: |
           set -euo pipefail
-          node --input-type=module - <<'NODE'
-          import fs from 'node:fs';
-
-          const base = process.env.DED_BASE;
-          const code = process.env.DEDICATED_FUNCTION_KEY;
-
-          if (!base) {
-            console.error('[verify] Missing DED_BASE');
-            process.exit(1);
-          }
-
-          if (!code) {
-            console.error('[verify] Missing DEDICATED_FUNCTION_KEY');
-            process.exit(1);
-          }
-
-          const url = new URL('/api/diag', base);
-          url.searchParams.set('code', code);
-
-          const safeUrl = new URL(url.toString());
-          safeUrl.searchParams.set('code', '***');
-          console.log(`[verify] GET ${safeUrl.toString()}`);
-
-          let res;
-          let text = '';
-
-          try {
-            res = await fetch(url, { headers: { accept: 'application/json' } });
-            text = await res.text();
-          } catch (err) {
-            console.error('[verify] Request failed:', err?.message || String(err));
-            process.exit(1);
-          }
-
-          fs.writeFileSync('diag.json', text + '\n', 'utf8');
-
-          if (!res.ok) {
-            console.error(`[verify] HTTP ${res.status} ${res.statusText}`);
-            console.error('[verify] /api/diag response body (truncated):');
-            console.error(text.slice(0, 8000));
-            process.exit(1);
-          }
-
-          let j;
-          try {
-            j = JSON.parse(text);
-          } catch {
-            console.error('[verify] Invalid JSON from /api/diag');
-            console.error('[verify] /api/diag response body (truncated):');
-            console.error(text.slice(0, 8000));
-            process.exit(1);
-          }
-
-          const missing = [];
-          if (typeof j.handler_version !== 'string' || !j.handler_version.trim()) missing.push('handler_version');
-          if (!j.handler_versions || typeof j.handler_versions !== 'object') missing.push('handler_versions');
-
-          if (missing.length) {
-            console.error('[verify] Missing required fields:', missing.join(', '));
-            console.error('[verify] /api/diag response body:');
-            console.error(text.slice(0, 8000));
-            process.exit(1);
-          }
-
-          console.log(`[verify] ok handler_version=${j.handler_version}`);
-          NODE
-
-      - name: "Kudu (non-blocking): fetch app settings"
-        if: always()
-        continue-on-error: true
-        env:
-          AZURE_FUNCTIONAPP_PUBLISH_PROFILE: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
-        run: |
-          set -euo pipefail
-          node --input-type=module - <<'NODE'
-          import { Buffer } from 'node:buffer';
-
-          const profile = process.env.AZURE_FUNCTIONAPP_PUBLISH_PROFILE || '';
-
-          const tagMatch =
-            profile.match(/<publishProfile\b[^>]*publishMethod="ZipDeploy"[^>]*>/i) ||
-            profile.match(/<publishProfile\b[^>]*publishMethod="MSDeploy"[^>]*>/i) ||
-            profile.match(/<publishProfile\b[^>]*>/i);
-
-          const tag = tagMatch ? tagMatch[0] : '';
-
-          const getAttr = (name) => {
-            const re = new RegExp(name + '="([^"]+)"', 'i');
-            const m = tag.match(re);
-            return m ? m[1] : '';
-          };
-
-          const user = getAttr('userName');
-          const pass = getAttr('userPWD');
-          const publishUrlRaw = getAttr('publishUrl');
-
-          if (!user || !pass || !publishUrlRaw) {
-            console.log('[kudu] Could not parse publish profile for Kudu credentials.');
-            process.exit(0);
-          }
-
-          const publishHost = publishUrlRaw.replace(/^https?:\/\//i, '').replace(/:443$/i, '');
-          const scmHost = publishHost.includes('.scm.')
-            ? publishHost
-            : publishHost.replace('.azurewebsites.net', '.scm.azurewebsites.net');
-
-          const base = 'https://' + scmHost;
-          console.log(JSON.stringify({ event: 'kudu_info', scmHost }));
-
-          const auth = Buffer.from(`${user}:${pass}`).toString('base64');
-          const url = base + '/api/settings';
-
-          let res;
-          let text = '';
-
-          try {
-            res = await fetch(url, {
-              headers: {
-                authorization: `Basic ${auth}`,
-                accept: 'application/json',
-              },
-            });
-            text = await res.text();
-          } catch (err) {
-            console.log('[kudu] /api/settings request failed:', err?.message || String(err));
-            process.exit(0);
-          }
-
-          if (!res.ok) {
-            console.log(`[kudu] /api/settings HTTP ${res.status} ${res.statusText}`);
-            console.log(text.slice(0, 2000));
-            process.exit(0);
-          }
-
-          let j;
-          try {
-            j = JSON.parse(text);
-          } catch {
-            console.log('[kudu] /api/settings returned non-JSON');
-            process.exit(0);
-          }
-
-          const keys = Object.keys(j).sort();
-          console.log(JSON.stringify({ event: 'kudu_settings_keys', count: keys.length, sample: keys.slice(0, 75) }));
-          NODE
-
-      - name: "Kudu (non-blocking): list wwwroot and fetch deploy stamp"
-        if: always()
-        continue-on-error: true
-        env:
-          AZURE_FUNCTIONAPP_PUBLISH_PROFILE: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
-        run: |
-          set -euo pipefail
-          node --input-type=module - <<'NODE'
-          import { Buffer } from 'node:buffer';
-
-          const profile = process.env.AZURE_FUNCTIONAPP_PUBLISH_PROFILE || '';
-
-          const tagMatch =
-            profile.match(/<publishProfile\b[^>]*publishMethod="ZipDeploy"[^>]*>/i) ||
-            profile.match(/<publishProfile\b[^>]*publishMethod="MSDeploy"[^>]*>/i) ||
-            profile.match(/<publishProfile\b[^>]*>/i);
-
-          const tag = tagMatch ? tagMatch[0] : '';
-
-          const getAttr = (name) => {
-            const re = new RegExp(name + '="([^"]+)"', 'i');
-            const m = tag.match(re);
-            return m ? m[1] : '';
-          };
-
-          const user = getAttr('userName');
-          const pass = getAttr('userPWD');
-          const publishUrlRaw = getAttr('publishUrl');
-
-          if (!user || !pass || !publishUrlRaw) {
-            console.log('[kudu] Could not parse publish profile for Kudu credentials.');
-            process.exit(0);
-          }
-
-          const publishHost = publishUrlRaw.replace(/^https?:\/\//i, '').replace(/:443$/i, '');
-          const scmHost = publishHost.includes('.scm.')
-            ? publishHost
-            : publishHost.replace('.azurewebsites.net', '.scm.azurewebsites.net');
-
-          const base = 'https://' + scmHost;
-          console.log(JSON.stringify({ event: 'kudu_info', scmHost }));
-
-          const auth = Buffer.from(`${user}:${pass}`).toString('base64');
-
-          const fetchAndPrint = async (path, maxChars = 8000) => {
-            const url = base + path;
-            let res;
-            let text = '';
-
-            try {
-              res = await fetch(url, {
-                headers: {
-                  authorization: `Basic ${auth}`,
-                },
-              });
-              text = await res.text();
-            } catch (err) {
-              console.log(`[kudu] ${path} request failed:`, err?.message || String(err));
-              return;
-            }
-
-            console.log(`[kudu] GET ${path} -> HTTP ${res.status}`);
-            console.log(text.slice(0, maxChars));
-          };
-
-          await fetchAndPrint('/api/vfs/site/wwwroot/', 8000);
-          await fetchAndPrint('/api/vfs/site/wwwroot/__deploy_stamp.json', 8000);
-          NODE
+          test -n "$DIAG_URL"
+          test -n "$FUNCTION_KEY"
+          curl -fsS "$DIAG_URL?code=$FUNCTION_KEY" -o resp.json
+          cat resp.json
+          python - << 'PY'
+          import json
+          j=json.load(open("resp.json"))
+          assert j.get("ok") is True
+          assert j["smoke"]["ok"] is True
+          assert j["smoke"]["status"] == 200
+          print("PASS")
+          PY

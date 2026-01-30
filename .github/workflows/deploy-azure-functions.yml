@@ -1,7 +1,15 @@
-name: Deploy Azure Functions
+# .github/workflows/deploy-azure-functions.yml
+name: Deploy Azure Functions (Manual)
 
 on:
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-azure-functions-manual
+  cancel-in-progress: false
 
 jobs:
   deploy-functions:
@@ -32,16 +40,13 @@ jobs:
           test -s api/__build_id.txt || (echo "FATAL: api/__build_id.txt missing or empty" && exit 1)
 
       - name: Install API dependencies
-        run: cd api && npm install && cd ..
+        run: cd api && npm ci && cd ..
 
-      - name: Deploy to Azure Functions
+      - name: Deploy (SWA action, app dist only)
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN_V2 }}
           action: "upload"
-          # Important: NEVER deploy from repo root (".") because CI installs node_modules,
-          # which causes Azure Static Web Apps to reject the upload due to too many static files.
-          # Deploy the built app folder (or the committed dist/) instead.
           app_location: "dist"
-          api_location: "api"
+          api_location: ""
           skip_app_build: true

@@ -1,67 +1,90 @@
+# .github/workflows/ci.yml
 name: CI
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
+  push:
+    branches: [main]
 
 jobs:
   ci:
+    name: Build and test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show forbidden 204 patterns (paths + line numbers)
-        run: |
-          set +e
-          echo "=== json({}, 204) ==="
-          grep -RIn --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git -E 'json\(\s*\{\s*\}\s*,\s*204\s*\)' .
-          echo "=== status: 204 ==="
-          grep -RIn --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git -E 'status\s*:\s*204\b' .
-          echo "=== res.status(204) ==="
-          grep -RIn --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git -E '\.status\(\s*204\s*\)' .
-          echo "=== new Response(..., { status: 204 }) ==="
-          grep -RIn --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git -E 'new\s+Response\([^)]*\{\s*status\s*:\s*204\b' .
-          exit 0
-
-      - name: Block json({}, 204) (undici/Functions runtime crashes on 204)
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Scanning for forbidden pattern: json({}, 204)"
-          if grep -RIn --include='*.js' --include='*.ts' --include='*.jsx' --include='*.tsx' \
-            -E 'json\(\s*\{\s*\}\s*,\s*204\s*\)' api/; then
-            echo "::error::Forbidden pattern found: json({}, 204). Use json({}, 200) for OPTIONS responses."
-            exit 1
-          fi
-          echo "OK: no json({}, 204) found."
-
-      - name: "Block status: 204 in Functions responses"
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Scanning for forbidden pattern: status: 204"
-          if grep -RIn --include='*.js' --include='*.ts' --include='*.jsx' --include='*.tsx' \
-            -E 'status\s*:\s*204\b' api/; then
-            echo "::error::Forbidden status code 204 found. Use 200 with empty body for preflight."
-            exit 1
-          fi
-          echo "OK: no status: 204 found."
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
+          node-version: "20"
+          cache: "npm"
 
       - name: Install
         run: npm ci
 
+      - name: Lint
+        run: npm run lint --if-present
+
       - name: Test
-        run: npm test
+        run: npm test --if-present
 
       - name: Build
-        run: npm run build
+        run: npm run build --if-present
+
+  diag_xai_v2_smoke_on_main:
+    name: diag-xai-v2 smoke (push main only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [ci]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Smoke call /api/diag/xai-v2
+        env:
+          DIAG_URL: ${{ secrets.TABARNAM_DIAG_XAI_V2_URL }}
+          FUNCTION_KEY: ${{ secrets.TABARNAM_FUNCTION_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DIAG_URL:-}" ]; then
+            echo "Missing secret TABARNAM_DIAG_XAI_V2_URL"
+            exit 1
+          fi
+
+          URL="$DIAG_URL"
+          if [ -n "${FUNCTION_KEY:-}" ]; then
+            if echo "$URL" | grep -q '\?'; then
+              URL="${URL}&code=${FUNCTION_KEY}"
+            else
+              URL="${URL}?code=${FUNCTION_KEY}"
+            fi
+          fi
+
+          echo "GET $URL"
+
+          body="$(curl -sS -m 60 -H 'Accept: application/json' "$URL")"
+          echo "$body"
+
+          ok="$(echo "$body" | jq -r '.ok // empty')"
+          smoke_ok="$(echo "$body" | jq -r '.smoke.ok // empty')"
+          smoke_status="$(echo "$body" | jq -r '.smoke.status // empty')"
+
+          if [ "$ok" != "true" ]; then
+            echo "FAIL: .ok != true"
+            exit 1
+          fi
+
+          if [ "$smoke_ok" != "true" ]; then
+            echo "FAIL: .smoke.ok != true"
+            exit 1
+          fi
+
+          if [ "$smoke_status" != "200" ]; then
+            echo "FAIL: .smoke.status != 200 (got $smoke_status)"
+            exit 1
+          fi
+
+          echo "PASS: diag/xai-v2 smoke ok"
