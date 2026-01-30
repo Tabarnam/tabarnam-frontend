@@ -14,10 +14,10 @@ export default function BetaBadge() {
       <div
         className="absolute bg-tabarnam-blue/70 backdrop-blur-sm"
         style={{
-          width: '280px',
-          height: '280px',
-          top: '-70px',
-          left: '-70px',
+          width: '350px',
+          height: '350px',
+          top: '-85px',
+          left: '-85px',
           transform: 'rotate(-45deg)',
           borderRadius: '4px',
           boxShadow: '0 4px 12px rgba(0, 95, 115, 0.15)',
