@@ -3461,34 +3461,25 @@ async function saveCompaniesToCosmos({
               };
             }
 
-            // Fetch + upload logo for the company (uses existing blob if present)
+            // Determine company ID early (before logo fetch to avoid impact)
             const companyId = shouldUpdateExisting && existingDoc?.id
               ? String(existingDoc.id)
               : `company_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 
-            const remainingForLogo =
-              typeof getRemainingMs === "function"
-                ? Number(getRemainingMs())
-                : Number.isFinite(Number(axiosTimeout))
-                  ? Number(axiosTimeout)
-                  : DEFAULT_UPSTREAM_TIMEOUT_MS;
-
-            const logoBudgetMs = Math.max(
-              0,
-              Math.min(
-                8000,
-                Math.trunc(remainingForLogo - DEADLINE_SAFETY_BUFFER_MS - UPSTREAM_TIMEOUT_MARGIN_MS)
-              )
-            );
-
-            const logoImport = await fetchLogo({
-              companyId,
-              companyName,
-              domain: finalNormalizedDomain,
-              websiteUrl: company.website_url || company.canonical_url || company.url || "",
-              existingLogoUrl: company.logo_url || existingDoc?.logo_url || null,
-              budgetMs: logoBudgetMs,
-            });
+            // IMPORTANT: Logo processing is moved to AFTER Cosmos save to ensure:
+            // - Cosmos write succeeds even if sharp/logo processing fails
+            // - Logo failures do not block company persistence
+            // We'll fetch logo AFTER the document is successfully saved.
+            const logoImport = {
+              ok: true,
+              logo_status: "pending",
+              logo_import_status: "pending",
+              logo_stage_status: "deferred",
+              logo_source_url: null,
+              logo_source_type: null,
+              logo_url: null,
+              logo_error: "Logo processing deferred to post-save",
+            };
 
             // Calculate default rating based on company data
             const hasManufacturingLocations =
