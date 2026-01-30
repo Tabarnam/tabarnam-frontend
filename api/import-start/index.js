@@ -3476,9 +3476,12 @@ async function saveCompaniesToCosmos({
               logo_import_status: "pending",
               logo_stage_status: "deferred",
               logo_source_url: null,
+              logo_source_location: null,
+              logo_source_domain: null,
               logo_source_type: null,
               logo_url: null,
               logo_error: "Logo processing deferred to post-save",
+              logo_telemetry: null,
             };
 
             // Calculate default rating based on company data
