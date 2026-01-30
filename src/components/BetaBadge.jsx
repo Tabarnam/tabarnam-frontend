@@ -5,35 +5,27 @@ export default function BetaBadge() {
     <div
       className="fixed top-0 left-0 z-50 pointer-events-none"
       style={{
-        width: '250px',
-        height: '250px',
-        overflow: 'hidden',
-        clipPath: 'polygon(0 0, 100% 0, 0 100%)',
+        width: '0',
+        height: '0',
       }}
     >
       <div
-        className="absolute bg-tabarnam-blue/70 backdrop-blur-sm"
+        className="absolute bg-tabarnam-blue/70 backdrop-blur-sm flex items-center justify-center"
         style={{
-          width: '350px',
-          height: '350px',
-          top: '-85px',
-          left: '-85px',
           transform: 'rotate(-45deg)',
+          transformOrigin: 'top left',
           borderRadius: '4px',
           boxShadow: '0 4px 12px rgba(0, 95, 115, 0.15)',
-        }}
-      />
-      <div
-        className="absolute text-white font-bold tracking-widest whitespace-nowrap"
-        style={{
-          top: '50px',
-          left: '15px',
-          fontSize: '12px',
-          fontWeight: '700',
-          letterSpacing: '0.05em',
+          padding: '8px 16px',
+          width: 'fit-content',
+          whiteSpace: 'nowrap',
+          top: '0',
+          left: '0',
         }}
       >
-        Early Access
+        <div className="text-white font-bold text-xs">
+          Early Access
+        </div>
       </div>
     </div>
   );
