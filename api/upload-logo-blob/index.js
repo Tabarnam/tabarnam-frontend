@@ -209,6 +209,12 @@ app.http("upload-logo-blob", {
 
       const isSvg = String(file.type || "").toLowerCase().includes("image/svg+xml") || String(file.name || "").toLowerCase().endsWith(".svg");
 
+      // Check if sharp is available
+      if (!sharp) {
+        ctx.error(`[upload-logo-blob] Sharp module unavailable: ${sharpLoadError}. Cannot process images.`);
+        return json({ ok: false, error: "Image processing is currently unavailable. Please try again later." }, 503, req);
+      }
+
       let processedBuffer;
       let blobExt = "png";
       let blobContentType = "image/png";
