@@ -3986,6 +3986,65 @@ async function saveCompaniesToCosmos({
               throw new Error(upsertRes?.error || "upsert_failed");
             }
 
+            // AFTER successful Cosmos save: process logo (non-blocking, fire-and-forget)
+            // This ensures the company document is persisted even if logo processing fails
+            (async () => {
+              try {
+                const remainingForLogo =
+                  typeof getRemainingMs === "function"
+                    ? Number(getRemainingMs())
+                    : Number.isFinite(Number(axiosTimeout))
+                      ? Number(axiosTimeout)
+                      : DEFAULT_UPSTREAM_TIMEOUT_MS;
+
+                const logoBudgetMs = Math.max(
+                  0,
+                  Math.min(
+                    8000,
+                    Math.trunc(remainingForLogo - DEADLINE_SAFETY_BUFFER_MS - UPSTREAM_TIMEOUT_MARGIN_MS)
+                  )
+                );
+
+                const logoImportResult = await fetchLogo({
+                  companyId,
+                  companyName,
+                  domain: finalNormalizedDomain,
+                  websiteUrl: company.website_url || company.canonical_url || company.url || "",
+                  existingLogoUrl: company.logo_url || existingDoc?.logo_url || null,
+                  budgetMs: logoBudgetMs,
+                });
+
+                // Update document with logo information (non-blocking on failure)
+                if (logoImportResult && logoImportResult.logo_url) {
+                  const logoUpdateDoc = {
+                    id: companyId,
+                    normalized_domain: finalNormalizedDomain,
+                    partition_key: finalNormalizedDomain,
+                    logo_url: logoImportResult.logo_url || null,
+                    logo_source_url: logoImportResult.logo_source_url || null,
+                    logo_source_location: logoImportResult.logo_source_location || null,
+                    logo_source_domain: logoImportResult.logo_source_domain || null,
+                    logo_source_type: logoImportResult.logo_source_type || null,
+                    logo_status: logoImportResult.logo_status || "imported",
+                    logo_import_status: logoImportResult.logo_import_status || "imported",
+                    logo_stage_status: logoImportResult.logo_stage_status || "ok",
+                    logo_error: logoImportResult.logo_error || "",
+                    logo_telemetry: logoImportResult.logo_telemetry || null,
+                  };
+
+                  // Attempt update but don't fail if it doesn't work
+                  await upsertItemWithPkCandidates(container, logoUpdateDoc).catch((err) => {
+                    console.warn(`[import-start] Failed to update logo for company ${companyId}: ${err?.message || String(err)}`);
+                  });
+                }
+              } catch (err) {
+                // Logo processing error is logged but does not fail the save
+                console.warn(`[import-start] Post-save logo processing error for company ${companyId}: ${err?.message || String(err)}`);
+              }
+            })().catch(() => {
+              // Swallow any errors from the async logo processing
+            });
+
             return {
               type: "saved",
               index: companyIndex,
