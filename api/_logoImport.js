@@ -2,8 +2,11 @@ const {
   BlobServiceClient,
   StorageSharedKeyCredential,
 } = require("@azure/storage-blob");
-const sharp = require("sharp");
+const { tryLoadSharp } = require("./_shared");
 const { v4: uuidv4 } = require("uuid");
+
+// Load sharp safely - will be null if unavailable
+const { sharp, reason: sharpLoadError } = tryLoadSharp();
 
 function env(k, d = "") {
   const v = process.env[k];
