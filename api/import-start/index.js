@@ -3984,6 +3984,29 @@ async function saveCompaniesToCosmos({
               },
             ];
 
+            // ABSOLUTE GUARANTEE: logo processing can never block Cosmos save
+            // Remove all logo-derived fields if logo processing failed or was skipped
+            if (
+              doc.logo_stage_status === "skipped" ||
+              doc.logo_stage_status === "exception" ||
+              doc.logo_error ||
+              doc.logo_last_error
+            ) {
+              delete doc.logo_blob_url;
+              delete doc.logo_png_url;
+              delete doc.logo_metadata;
+              delete doc.logo_dimensions;
+              delete doc.logo_url;
+              delete doc.logo_source_url;
+              delete doc.logo_source_location;
+              delete doc.logo_source_domain;
+              delete doc.logo_source_type;
+              delete doc.logo_status;
+              delete doc.logo_import_status;
+              delete doc.logo_telemetry;
+              // Keep logo_stage_status and logo_error for diagnostics
+            }
+
             const upsertRes = await upsertItemWithPkCandidates(container, doc);
             if (!upsertRes?.ok) {
               throw new Error(upsertRes?.error || "upsert_failed");
