@@ -1136,7 +1136,12 @@ async function rasterizeToPng(buf, { maxSize = 500, isSvg = false } = {}) {
     // By default Sharp strips metadata unless withMetadata() is explicitly used.
     return await pipeline.png({ quality: 90 }).toBuffer();
   } catch (e) {
-    throw new Error(`image processing failed: ${e?.message || String(e)}`);
+    const msg = e?.message || String(e);
+    // Include sharp unavailable in the error message for better diagnostics
+    if (!sharp || msg.includes("undefined is not a function")) {
+      throw new Error(`Image processing unavailable: ${msg}`);
+    }
+    throw new Error(`image processing failed: ${msg}`);
   }
 }
 
