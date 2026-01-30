@@ -1245,6 +1245,34 @@ function sortCandidatesStrict(a, b) {
 }
 
 async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, logoSourceUrl }, logger = console, options = {}) {
+  // Early exit if sharp is unavailable
+  if (!sharp) {
+    logger?.warn?.(`[logoImport] Sharp module unavailable (${sharpLoadError}). Skipping logo processing.`);
+    return {
+      ok: true, // Logo processing is skipped, but import continues
+      logo_status: "skipped",
+      logo_import_status: "skipped",
+      logo_stage_status: "skipped",
+      logo_error: `Sharp module unavailable: ${sharpLoadError}`,
+      logo_last_error: { code: "SHARP_UNAVAILABLE", message: sharpLoadError },
+      logo_source_url: logoSourceUrl || null,
+      logo_source_type: logoSourceUrl ? "provided" : null,
+      logo_url: null,
+      logo_telemetry: {
+        budget_ms: 0,
+        elapsed_ms: 0,
+        discovery_ok: false,
+        discovery_page_url: "",
+        allowed_host_root: "",
+        candidates_total: 0,
+        candidates_tried: 0,
+        tiers: [],
+        rejection_reasons: { sharp_unavailable: 1 },
+        time_budget_exhausted: false,
+      },
+    };
+  }
+
   const budget = options?.budget || createTimeBudget(options?.budgetMs, { defaultMs: 20_000, maxMs: 25_000 });
 
   const telemetry = {
