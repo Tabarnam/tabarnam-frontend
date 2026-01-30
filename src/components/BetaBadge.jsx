@@ -4,24 +4,28 @@ export default function BetaBadge() {
   return (
     <div
       className="fixed top-0 left-0 z-50 pointer-events-none"
+      style={{
+        width: 'clamp(110px, 12vw, 160px)',
+        height: 'clamp(110px, 12vw, 160px)',
+      }}
     >
+      {/* Triangle background */}
       <div
-        className="absolute bg-tabarnam-blue/70 backdrop-blur-sm flex items-center justify-center"
+        className="absolute inset-0 bg-tabarnam-blue/70"
         style={{
-          padding: '10px 20px',
-          whiteSpace: 'nowrap',
-          top: '0',
-          left: '-16px',
-          width: 'max-content',
-          transform: 'rotate(45deg)',
-          transformOrigin: 'top left',
-          borderRadius: '2px',
-          boxShadow: '0 4px 12px rgba(0, 95, 115, 0.15)',
+          clipPath: 'polygon(0 0, 0 100%, 100% 0)',
+        }}
+      />
+      
+      {/* Text positioned inside triangle */}
+      <div
+        className="absolute text-white font-bold text-xs tracking-tight"
+        style={{
+          top: '18px',
+          left: '16px',
         }}
       >
-        <div className="text-white font-bold text-xs tracking-tight">
-          Early Access
-        </div>
+        Early Access
       </div>
     </div>
   );
