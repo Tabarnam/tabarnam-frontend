@@ -578,3 +578,71 @@ app.http("diag-xai", {
     }
   },
 });
+
+// Sharp availability diagnostic - helps verify logo processing can work
+app.http("diag-sharp", {
+  route: "diag/sharp",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req) => {
+    const method = String(req?.method || "").toUpperCase();
+    if (method === "OPTIONS") {
+      return {
+        status: 200,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,OPTIONS",
+          "Access-Control-Allow-Headers": "content-type,x-functions-key",
+        },
+      };
+    }
+
+    try {
+      const ts = nowIso();
+      const buildInfo = getBuildInfo();
+
+      // Try to load sharp and capture result
+      let has_sharp = false;
+      let reason = "";
+
+      try {
+        const { tryLoadSharp } = require("../_shared");
+        const { sharp, reason: sharpLoadReason } = tryLoadSharp();
+        has_sharp = Boolean(sharp);
+        reason = sharpLoadReason || (sharp ? "OK" : "unavailable");
+      } catch (e) {
+        reason = asString(e?.message || e) || "failed to test sharp";
+      }
+
+      const logoPolicy = "skip_if_missing"; // Default policy for non-blocking logo processing
+
+      return json({
+        ok: true,
+        route: "/api/diag/sharp",
+        ts,
+        has_sharp,
+        reason: reason.slice(0, 500), // Trim to safe length
+        logo_policy: logoPolicy,
+        ...buildInfo,
+      });
+    } catch (e) {
+      const ts = nowIso();
+      let buildTimestamp = ts;
+      try {
+        const bi = getBuildInfo();
+        if (bi?.build_timestamp) buildTimestamp = bi.build_timestamp;
+      } catch {}
+
+      return json({
+        ok: false,
+        route: "/api/diag/sharp",
+        ts,
+        error: {
+          name: e?.name || "Error",
+          message: asString(e?.message || e) || "Unhandled exception",
+        },
+        build_timestamp: buildTimestamp,
+      });
+    }
+  },
+});
