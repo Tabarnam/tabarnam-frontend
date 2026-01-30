@@ -48,22 +48,63 @@ jobs:
           package: api
           publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
 
-      - name: Post deploy smoke (diag-xai-v2)
-        env:
-          DIAG_URL: ${{ secrets.TABARNAM_DIAG_XAI_V2_URL }}
-          FUNCTION_KEY: ${{ secrets.TABARNAM_FUNCTION_KEY }}
+      - name: Validate dedicated diag endpoint
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$DIAG_URL"
-          test -n "$FUNCTION_KEY"
-          curl -fsS "$DIAG_URL?code=$FUNCTION_KEY" -o resp.json
+
+          URL="${TABARNAM_DIAG_XAI_V2_URL:-}"
+
+          if [ -z "$URL" ]; then
+            echo "ERROR: TABARNAM_DIAG_XAI_V2_URL is not set"
+            exit 1
+          fi
+
+          case "$URL" in
+            https://*.azurewebsites.net/api/diag*)
+              echo "Using dedicated diag endpoint: $URL"
+              ;;
+            *)
+              echo "ERROR: TABARNAM_DIAG_XAI_V2_URL does not point to the dedicated Functions host"
+              echo "Value: $URL"
+              exit 1
+              ;;
+          esac
+        env:
+          TABARNAM_DIAG_XAI_V2_URL: ${{ secrets.TABARNAM_DIAG_XAI_V2_URL }}
+
+      - name: Smoke test xAI endpoint (dedicated only)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          url="${TABARNAM_DIAG_XAI_V2_URL}"
+          if [ -n "${TABARNAM_FUNCTION_KEY:-}" ]; then
+            if echo "$url" | grep -q '\?'; then
+              url="${url}&code=${TABARNAM_FUNCTION_KEY}"
+            else
+              url="${url}?code=${TABARNAM_FUNCTION_KEY}"
+            fi
+          fi
+
+          echo "GET $url"
+          curl -fsS \
+            --max-time 10 \
+            --retry 2 \
+            --retry-delay 1 \
+            "$url" \
+            -o resp.json
+
           cat resp.json
+
           python - << 'PY'
           import json
-          j=json.load(open("resp.json"))
-          assert j.get("ok") is True
-          assert j["smoke"]["ok"] is True
-          assert j["smoke"]["status"] == 200
-          print("PASS")
+          j = json.load(open("resp.json"))
+          assert j.get("ok") is True, f"Expected .ok=true, got {j.get('ok')}"
+          assert j["smoke"]["ok"] is True, f"Expected .smoke.ok=true, got {j['smoke'].get('ok')}"
+          assert j["smoke"]["status"] == 200, f"Expected .smoke.status=200, got {j['smoke'].get('status')}"
+          print("PASS: diag/xai-v2 smoke ok")
           PY
+        env:
+          TABARNAM_DIAG_XAI_V2_URL: ${{ secrets.TABARNAM_DIAG_XAI_V2_URL }}
+          TABARNAM_FUNCTION_KEY: ${{ secrets.TABARNAM_FUNCTION_KEY }}
