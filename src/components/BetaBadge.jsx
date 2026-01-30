@@ -11,7 +11,7 @@ export default function BetaBadge() {
           padding: '10px 20px',
           whiteSpace: 'nowrap',
           top: '0',
-          left: '-25px',
+          left: '-20px',
           width: 'max-content',
           transform: 'rotate(45deg)',
           transformOrigin: 'top left',
