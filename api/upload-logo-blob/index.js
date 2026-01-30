@@ -1,8 +1,11 @@
 const { app } = require("@azure/functions");
 const { BlobServiceClient, StorageSharedKeyCredential } = require("@azure/storage-blob");
 const { CosmosClient } = require("@azure/cosmos");
-const sharp = require("sharp");
+const { tryLoadSharp } = require("../_shared");
 const { v4: uuidv4 } = require("uuid");
+
+// Load sharp safely - will be null if unavailable
+const { sharp, reason: sharpLoadError } = tryLoadSharp();
 
 function cors(req) {
   const origin = req.headers.get("origin") || "*";
