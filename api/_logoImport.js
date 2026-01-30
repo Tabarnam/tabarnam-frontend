@@ -478,6 +478,10 @@ async function fetchImageBufferWithRetries(
 }
 
 async function getImageMetadata(buf, isSvg) {
+  if (!sharp) {
+    // Sharp unavailable - cannot extract metadata
+    return { width: null, height: null };
+  }
   try {
     const meta = await sharp(buf, isSvg ? { density: 200 } : undefined).metadata();
     const width = Number.isFinite(meta?.width) ? meta.width : null;
