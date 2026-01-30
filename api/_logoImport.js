@@ -1126,6 +1126,9 @@ async function discoverLogoSourceUrl({ domain, websiteUrl, companyName }, logger
 }
 
 async function rasterizeToPng(buf, { maxSize = 500, isSvg = false } = {}) {
+  if (!sharp) {
+    throw new Error("Image processing unavailable (sharp module not loaded)");
+  }
   try {
     let pipeline = sharp(buf, isSvg ? { density: 300 } : undefined);
     pipeline = pipeline.resize({ width: maxSize, height: maxSize, fit: "inside", withoutEnlargement: true });
