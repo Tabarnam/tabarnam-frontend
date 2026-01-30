@@ -21,6 +21,7 @@ export default function BetaBadge() {
           borderRadius: '4px',
           boxShadow: '0 4px 12px rgba(0, 95, 115, 0.15)',
           minWidth: 'max-content',
+          border: '2px solid red',
         }}
       >
         <div className="text-white font-bold text-xs">
