@@ -10,8 +10,8 @@ export default function BetaBadge() {
         style={{
           padding: '10px 20px',
           whiteSpace: 'nowrap',
-          top: '0',
-          left: '0',
+          top: '-15px',
+          left: '-15px',
           width: 'max-content',
           transform: 'rotate(45deg)',
           transformOrigin: 'top left',
