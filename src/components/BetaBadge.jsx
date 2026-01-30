@@ -33,17 +33,17 @@ export default function BetaBadge() {
           opacity: 1,
           display: 'block',
           visibility: 'visible',
-          fontSize: '14px',
+          fontSize: '11px',
           fontWeight: 700,
           whiteSpace: 'nowrap',
           lineHeight: 1,
-          top: '10px',
-          left: '10px',
+          top: '38px',
+          left: '3px',
+          transform: 'rotate(-45deg)',
+          transformOrigin: 'left center',
           letterSpacing: '-0.5px',
           textShadow: '0 1px 2px rgba(0,0,0,0.35)',
           zIndex: 10,
-          backgroundColor: 'red',
-          padding: '4px',
         }}
       >
         Early Access
