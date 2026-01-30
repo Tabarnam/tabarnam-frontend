@@ -13,7 +13,7 @@ export default function BetaBadge() {
           top: '0',
           left: '0',
           width: 'max-content',
-          transform: 'rotate(-45deg)',
+          transform: 'rotate(45deg)',
           transformOrigin: 'top left',
           borderRadius: '2px',
           boxShadow: '0 4px 12px rgba(0, 95, 115, 0.15)',
