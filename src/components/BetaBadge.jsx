@@ -8,18 +8,18 @@ export default function BetaBadge() {
       <div
         className="absolute bg-tabarnam-blue/70 backdrop-blur-sm flex items-center justify-center"
         style={{
-          padding: '12px 24px',
+          padding: '10px 20px',
           whiteSpace: 'nowrap',
-          top: '-45px',
-          left: '-80px',
+          top: '0',
+          left: '0',
           width: 'max-content',
           transform: 'rotate(-45deg)',
-          transformOrigin: 'center',
-          borderRadius: '4px',
+          transformOrigin: 'top left',
+          borderRadius: '2px',
           boxShadow: '0 4px 12px rgba(0, 95, 115, 0.15)',
         }}
       >
-        <div className="text-white font-bold text-sm tracking-tight">
+        <div className="text-white font-bold text-xs tracking-tight">
           Early Access
         </div>
       </div>
