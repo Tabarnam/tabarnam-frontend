@@ -1,8 +1,11 @@
 const { app } = require("@azure/functions");
 const { BlobServiceClient, StorageSharedKeyCredential } = require("@azure/storage-blob");
 const { CosmosClient } = require("@azure/cosmos");
-const sharp = require("sharp");
+const { tryLoadSharp } = require("../_shared");
 const { v4: uuidv4 } = require("uuid");
+
+// Load sharp safely - will be null if unavailable
+const { sharp, reason: sharpLoadError } = tryLoadSharp();
 
 function cors(req) {
   const origin = req.headers.get("origin") || "*";
@@ -205,6 +208,12 @@ app.http("upload-logo-blob", {
       };
 
       const isSvg = String(file.type || "").toLowerCase().includes("image/svg+xml") || String(file.name || "").toLowerCase().endsWith(".svg");
+
+      // Check if sharp is available
+      if (!sharp) {
+        ctx.error(`[upload-logo-blob] Sharp module unavailable: ${sharpLoadError}. Cannot process images.`);
+        return json({ ok: false, error: "Image processing is currently unavailable. Please try again later." }, 503, req);
+      }
 
       let processedBuffer;
       let blobExt = "png";

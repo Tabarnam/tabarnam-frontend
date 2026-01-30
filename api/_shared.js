@@ -209,6 +209,22 @@ function json(context, status, obj, extraHeaders) {
   return context.res;
 }
 
+/**
+ * Safe sharp loader - never throws
+ * Returns { sharp, reason } where:
+ * - sharp is the loaded module or null if unavailable
+ * - reason is an error message if sharp failed to load, empty string if success
+ */
+function tryLoadSharp() {
+  try {
+    const sharp = require("sharp");
+    return { sharp, reason: "" };
+  } catch (e) {
+    const msg = (e && (e.message || String(e))) || "unknown error";
+    return { sharp: null, reason: msg };
+  }
+}
+
 module.exports = {
   getXAIEndpoint,
   getXAIKey,
@@ -216,4 +232,5 @@ module.exports = {
   getProxyBase,
   resolveXaiEndpointForModel,
   json,
+  tryLoadSharp,
 };

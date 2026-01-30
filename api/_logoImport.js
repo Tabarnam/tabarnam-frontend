@@ -2,8 +2,11 @@ const {
   BlobServiceClient,
   StorageSharedKeyCredential,
 } = require("@azure/storage-blob");
-const sharp = require("sharp");
+const { tryLoadSharp } = require("./_shared");
 const { v4: uuidv4 } = require("uuid");
+
+// Load sharp safely - will be null if unavailable
+const { sharp, reason: sharpLoadError } = tryLoadSharp();
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -475,6 +478,10 @@ async function fetchImageBufferWithRetries(
 }
 
 async function getImageMetadata(buf, isSvg) {
+  if (!sharp) {
+    // Sharp unavailable - cannot extract metadata
+    return { width: null, height: null };
+  }
   try {
     const meta = await sharp(buf, isSvg ? { density: 200 } : undefined).metadata();
     const width = Number.isFinite(meta?.width) ? meta.width : null;
@@ -1119,6 +1126,9 @@ async function discoverLogoSourceUrl({ domain, websiteUrl, companyName }, logger
 }
 
 async function rasterizeToPng(buf, { maxSize = 500, isSvg = false } = {}) {
+  if (!sharp) {
+    throw new Error("Image processing unavailable (sharp module not loaded)");
+  }
   try {
     let pipeline = sharp(buf, isSvg ? { density: 300 } : undefined);
     pipeline = pipeline.resize({ width: maxSize, height: maxSize, fit: "inside", withoutEnlargement: true });
@@ -1235,6 +1245,34 @@ function sortCandidatesStrict(a, b) {
 }
 
 async function importCompanyLogo({ companyId, domain, websiteUrl, companyName, logoSourceUrl }, logger = console, options = {}) {
+  // Early exit if sharp is unavailable
+  if (!sharp) {
+    logger?.warn?.(`[logoImport] Sharp module unavailable (${sharpLoadError}). Skipping logo processing.`);
+    return {
+      ok: true, // Logo processing is skipped, but import continues
+      logo_status: "skipped",
+      logo_import_status: "skipped",
+      logo_stage_status: "skipped",
+      logo_error: `Sharp module unavailable: ${sharpLoadError}`,
+      logo_last_error: { code: "SHARP_UNAVAILABLE", message: sharpLoadError },
+      logo_source_url: logoSourceUrl || null,
+      logo_source_type: logoSourceUrl ? "provided" : null,
+      logo_url: null,
+      logo_telemetry: {
+        budget_ms: 0,
+        elapsed_ms: 0,
+        discovery_ok: false,
+        discovery_page_url: "",
+        allowed_host_root: "",
+        candidates_total: 0,
+        candidates_tried: 0,
+        tiers: [],
+        rejection_reasons: { sharp_unavailable: 1 },
+        time_budget_exhausted: false,
+      },
+    };
+  }
+
   const budget = options?.budget || createTimeBudget(options?.budgetMs, { defaultMs: 20_000, maxMs: 25_000 });
 
   const telemetry = {
