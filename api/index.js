@@ -302,6 +302,14 @@ try {
 }
 
 try {
+  console.log("[api] Registering: import-resume-worker-queue (queue trigger)");
+  require("./import-resume-worker-queue/index.js");
+  console.log("[api] ✓ import-resume-worker-queue registered");
+} catch (e) {
+  console.error("[api] ❌ Failed to load import-resume-worker-queue:", e?.message || e);
+}
+
+try {
   console.log("[api] Registering: google/geocode");
   require("./google/geocode/index.js");
 } catch (e) {
