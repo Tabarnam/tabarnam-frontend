@@ -5,6 +5,9 @@ try {
   app = { http() {} };
 }
 
+// Build stamp for deployment verification - helps identify which code version is running in production
+const BUILD_STAMP = process.env.GIT_SHA || "import_one_build_pr671";
+
 const { randomUUID } = require("crypto");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
 const { buildPrimaryJobId: buildImportPrimaryJobId, getJob: getImportPrimaryJob, upsertJob: upsertImportPrimaryJob } = require("../_importPrimaryJobStore");
@@ -90,7 +93,7 @@ async function handleImportOne(req, context) {
     // Read and validate request body
     const body = await readJsonBody(req);
     if (!body || typeof body !== "object") {
-      return json({ ok: false, error: { message: "Invalid request body", code: "invalid_body" } }, 400);
+      return json({ ok: false, error: { message: "Invalid request body", code: "invalid_body" }, build_id: BUILD_STAMP }, 400);
     }
 
     const url = String(body.url || "").trim();
@@ -98,6 +101,7 @@ async function handleImportOne(req, context) {
       return json({
         ok: false,
         error: { message: "Missing or invalid 'url' in request body", code: "invalid_url" },
+        build_id: BUILD_STAMP,
       }, 400);
     }
 
@@ -106,30 +110,33 @@ async function handleImportOne(req, context) {
       return json({
         ok: false,
         error: { message: "Could not normalize URL", code: "normalize_error" },
+        build_id: BUILD_STAMP,
       }, 400);
     }
 
-    // Log start
+    // Log start with build stamp for deployment verification
     try {
+      console.log("[import-one] build", BUILD_STAMP);
       console.log("[import-one] started", { session_id: sessionId, url: normalizedUrl });
     } catch {}
 
     // Create session (upsertImportSession is synchronous)
     try {
+      console.log("[import-one] about_to_upsert_session", { session_id: sessionId });
       upsertImportSession({
         session_id: sessionId,
         status: "running",
         request_url: normalizedUrl,
         created_at: new Date().toISOString(),
       });
+      console.log("[import-one] session_upsert_ok", { session_id: sessionId });
     } catch (e) {
       // Non-fatal: session persistence should never hard-fail the import flow
-      try {
-        console.log("[import-one] session_upsert_failed_nonfatal", {
-          session_id: sessionId,
-          error: String(e?.message || e),
-        });
-      } catch {}
+      console.log("[import-one] session_upsert_threw", {
+        session_id: sessionId,
+        error: String(e?.message || e),
+        stack: String(e?.stack || "").slice(0, 500),
+      });
     }
 
     // Create primary job with single URL seed
@@ -229,6 +236,7 @@ async function handleImportOne(req, context) {
         session_id: sessionId,
         saved_count: savedCount,
         status: finalStatus,
+        build_id: BUILD_STAMP,
       }, 200);
     } else {
       // Work still in progress or deadline reached - enqueue resume message for background processing
@@ -273,6 +281,7 @@ async function handleImportOne(req, context) {
         session_id: sessionId,
         status: finalStatus,
         note: "Import started but not completed; use /api/import/status to poll",
+        build_id: BUILD_STAMP,
       }, 200);
     }
   } catch (err) {
@@ -284,6 +293,7 @@ async function handleImportOne(req, context) {
     return json({
       ok: false,
       error: { message: errorMessage, code: "handler_error" },
+      build_id: BUILD_STAMP,
     }, 500);
   }
 }
