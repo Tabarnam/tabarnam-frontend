@@ -134,28 +134,53 @@ async function handleImportOne(req, context) {
 
     // Create session (upsertImportSession is synchronous)
     // Set single_company_mode=true and request_kind="import-one" so status can trust this flag
+    const sessionPayload = {
+      session_id: sessionId,
+      status: "running",
+      request_url: normalizedUrl,
+      created_at: new Date().toISOString(),
+      // Critical: these flags allow status endpoint to correctly identify single-company mode
+      single_company_mode: true,
+      request_kind: "import-one",
+      request: {
+        query: normalizedUrl,
+        limit: 1,
+      },
+    };
+
+    let sessionUpsertResult = null;
+    let sessionUpsertSuccess = false;
+
     try {
       console.log("[import-one] about_to_upsert_session", { session_id: sessionId });
-      upsertImportSession({
+      sessionUpsertResult = upsertImportSession(sessionPayload);
+      sessionUpsertSuccess = true;
+
+      // Log the exact payload written and the result for debugging persistence issues
+      console.log("[import-one] session_upsert_complete", {
         session_id: sessionId,
-        status: "running",
-        request_url: normalizedUrl,
-        created_at: new Date().toISOString(),
-        // Critical: these flags allow status endpoint to correctly identify single-company mode
-        single_company_mode: true,
-        request_kind: "import-one",
-        request: {
-          query: normalizedUrl,
-          limit: 1,
+        upsert_success: true,
+        payload_written: {
+          single_company_mode: sessionPayload.single_company_mode,
+          request_kind: sessionPayload.request_kind,
+          request_url: sessionPayload.request_url,
+          request_limit: sessionPayload.request?.limit,
         },
+        result_keys: sessionUpsertResult ? Object.keys(sessionUpsertResult) : null,
+        result_single_company_mode: sessionUpsertResult?.single_company_mode,
+        result_request_kind: sessionUpsertResult?.request_kind,
       });
-      console.log("[import-one] session_upsert_ok", { session_id: sessionId });
     } catch (e) {
       // Non-fatal: session persistence should never hard-fail the import flow
       console.log("[import-one] session_upsert_threw", {
         session_id: sessionId,
+        upsert_success: false,
         error: String(e?.message || e),
         stack: String(e?.stack || "").slice(0, 500),
+        payload_attempted: {
+          single_company_mode: sessionPayload.single_company_mode,
+          request_kind: sessionPayload.request_kind,
+        },
       });
     }
 
