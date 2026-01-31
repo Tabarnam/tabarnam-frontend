@@ -5,8 +5,18 @@ try {
   app = { http() {} };
 }
 
+const { getBuildInfo } = require("./_buildInfo");
+
 // Build stamp for deployment verification - helps identify which code version is running in production
-const BUILD_STAMP = process.env.GIT_SHA || "import_one_build_pr671";
+// Now uses shared getBuildInfo instead of hardcoded value
+function getBuildStamp() {
+  try {
+    const info = getBuildInfo();
+    return info.build_id || "unknown";
+  } catch {
+    return process.env.GIT_SHA || "unknown";
+  }
+}
 
 const { randomUUID } = require("crypto");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
@@ -92,6 +102,8 @@ async function handleImportOne(req, context) {
   try {
     // Read and validate request body
     const body = await readJsonBody(req);
+    const BUILD_STAMP = getBuildStamp();
+
     if (!body || typeof body !== "object") {
       return json({ ok: false, error: { message: "Invalid request body", code: "invalid_body" }, build_id: BUILD_STAMP }, 400);
     }
