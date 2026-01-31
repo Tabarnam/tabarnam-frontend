@@ -277,6 +277,7 @@ async function handleImportOne(req, context) {
         session_id: sessionId,
         status: finalStatus,
         note: "Import started but not completed; use /api/import/status to poll",
+        build_id: BUILD_STAMP,
       }, 200);
     }
   } catch (err) {
