@@ -5,7 +5,7 @@ try {
   app = { http() {} };
 }
 
-const { getBuildInfo } = require("./_buildInfo");
+const { getBuildInfo } = require("../_buildInfo");
 
 // Build stamp for deployment verification - helps identify which code version is running in production
 // Now uses shared getBuildInfo instead of hardcoded value
