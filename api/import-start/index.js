@@ -131,6 +131,64 @@ const UPSTREAM_TIMEOUT_MARGIN_MS = 1_200;
 const XAI_SYSTEM_PROMPT =
   "You are a precise assistant. Follow the user's instructions exactly. When asked for JSON, output ONLY valid JSON with no markdown, no prose, and no extra keys.";
 
+// Helper: Check if the URL is an xAI /responses endpoint (vs /chat/completions)
+function isResponsesEndpoint(rawUrl) {
+  const raw = String(rawUrl || "").trim().toLowerCase();
+  return raw.includes("/v1/responses") || raw.includes("/responses");
+}
+
+// Helper: Convert chat/completions payload to /responses format
+function convertToResponsesPayload(chatPayload) {
+  if (!chatPayload || typeof chatPayload !== "object") return chatPayload;
+
+  // If it already has 'input', it's already in responses format
+  if (Array.isArray(chatPayload.input)) return chatPayload;
+
+  // Convert messages array to input array
+  const messages = chatPayload.messages;
+  if (!Array.isArray(messages)) return chatPayload;
+
+  const responsesPayload = {
+    model: chatPayload.model || "grok-4-latest",
+    input: messages.map(m => ({
+      role: m.role,
+      content: typeof m.content === "string" ? m.content : String(m.content || ""),
+    })),
+  };
+
+  // Add search if search_parameters was present
+  if (chatPayload.search_parameters) {
+    responsesPayload.search = { mode: chatPayload.search_parameters.mode || "on" };
+  }
+
+  return responsesPayload;
+}
+
+// Helper: Extract text content from xAI response (works for both formats)
+function extractXaiResponseText(data) {
+  if (!data || typeof data !== "object") return "";
+
+  // Try /responses format first: data.output[0].content[...].text
+  if (Array.isArray(data.output)) {
+    const firstOutput = data.output[0];
+    if (firstOutput?.content) {
+      // Find output_text type or use first text
+      const textItem = Array.isArray(firstOutput.content)
+        ? firstOutput.content.find(c => c?.type === "output_text") || firstOutput.content[0]
+        : firstOutput.content;
+      if (textItem?.text) return String(textItem.text);
+    }
+  }
+
+  // Fall back to /chat/completions format: data.choices[0].message.content
+  if (Array.isArray(data.choices)) {
+    const content = data.choices[0]?.message?.content;
+    if (content) return String(content);
+  }
+
+  return "";
+}
+
 const GROK_ONLY_FIELDS = new Set([
   "headquarters_location",
   "manufacturing_locations",
@@ -2410,7 +2468,7 @@ Rules:
     }
 
     const responseText =
-      response.data?.choices?.[0]?.message?.content ||
+      extractXaiResponseText(response.data) ||
       response.data?.choices?.[0]?.text ||
       response.data?.output_text ||
       response.data?.text ||
@@ -5943,6 +6001,19 @@ const importStartHandlerInner = async (req, context) => {
           } catch {}
 
           try {
+            // Convert payload to /responses format if using that endpoint
+            let finalBody = typeof body === "string" ? body : "";
+            if (isResponsesEndpoint(xaiUrl) && finalBody) {
+              try {
+                const parsed = JSON.parse(finalBody);
+                const converted = convertToResponsesPayload(parsed);
+                finalBody = JSON.stringify(converted);
+              } catch (parseErr) {
+                // If parsing fails, use original body
+                console.error("[import-start] payload conversion failed:", parseErr?.message);
+              }
+            }
+
             const res = await postJsonWithTimeout(xaiUrl, {
               headers: (() => {
                 const headers = {
@@ -5957,7 +6028,7 @@ const importStartHandlerInner = async (req, context) => {
 
                 return headers;
               })(),
-              body: typeof body === "string" ? body : "",
+              body: finalBody,
               timeoutMs: timeoutForThisStage,
             });
 
@@ -7822,7 +7893,7 @@ Return ONLY the JSON array, no other text. Return at least ${Math.max(1, xaiPayl
 
         if (xaiResponse.status >= 200 && xaiResponse.status < 300) {
           // Extract the response content
-          const responseText = xaiResponse.data?.choices?.[0]?.message?.content || JSON.stringify(xaiResponse.data);
+          const responseText = extractXaiResponseText(xaiResponse.data) || JSON.stringify(xaiResponse.data);
           console.log(
             `[import-start] session=${sessionId} xai response received chars=${typeof responseText === "string" ? responseText.length : 0}`
           );
@@ -8078,7 +8149,7 @@ Output JSON only:
               stageCapMsOverride: timeoutMs,
             });
 
-            const text = res?.data?.choices?.[0]?.message?.content || "";
+            const text = extractXaiResponseText(res?.data) || "";
 
             let obj = null;
             try {
@@ -8149,7 +8220,7 @@ Output JSON only:
               stageCapMsOverride: timeoutMs,
             });
 
-            const text = res?.data?.choices?.[0]?.message?.content || "";
+            const text = extractXaiResponseText(res?.data) || "";
 
             let obj = null;
             try {
@@ -9989,7 +10060,7 @@ Return ONLY the JSON array, no other text.`,
               });
 
               if (expansionResponse.status >= 200 && expansionResponse.status < 300) {
-                const expansionText = expansionResponse.data?.choices?.[0]?.message?.content || "";
+                const expansionText = extractXaiResponseText(expansionResponse.data) || "";
                 console.log(`[import-start] Expansion response preview: ${expansionText.substring(0, 100)}...`);
 
                 let expansionCompanies = [];
