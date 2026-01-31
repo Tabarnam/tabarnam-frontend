@@ -22,6 +22,12 @@ function isAzureWebsitesUrl(rawUrl) {
   }
 }
 
+// Check if the URL is an xAI /responses endpoint (vs /chat/completions)
+function isResponsesEndpoint(rawUrl) {
+  const raw = asString(rawUrl).trim().toLowerCase();
+  return raw.includes("/v1/responses") || raw.includes("/responses");
+}
+
 function normalizeHeaderKey(key) {
   return asString(key).trim().toLowerCase();
 }
@@ -200,17 +206,31 @@ async function xaiLiveSearch({
   }, timeoutUsedMs);
 
   try {
-    const payload = {
-      model: resolvedModel,
-      messages: [{ role: "user", content: asString(prompt) }],
-      max_tokens: Math.max(1, Math.trunc(Number(maxTokens) || 900)),
-      temperature: 0.2,
-      stream: false,
-      search_parameters: {
-        ...(search_parameters && typeof search_parameters === "object" ? search_parameters : {}),
-        mode: "on",
-      },
-    };
+    // Detect if we're using the /responses endpoint (newer xAI API) vs /chat/completions
+    const useResponsesFormat = isResponsesEndpoint(url);
+
+    // Build payload in the appropriate format for the endpoint
+    const payload = useResponsesFormat
+      ? {
+          // /v1/responses format
+          model: resolvedModel,
+          input: [{ role: "user", content: asString(prompt) }],
+          search: search_parameters && typeof search_parameters === "object"
+            ? { mode: search_parameters.mode || "on" }
+            : { mode: "on" },
+        }
+      : {
+          // /v1/chat/completions format
+          model: resolvedModel,
+          messages: [{ role: "user", content: asString(prompt) }],
+          max_tokens: Math.max(1, Math.trunc(Number(maxTokens) || 900)),
+          temperature: 0.2,
+          stream: false,
+          search_parameters: {
+            ...(search_parameters && typeof search_parameters === "object" ? search_parameters : {}),
+            mode: "on",
+          },
+        };
 
     if (!axios) {
       const headers = {
