@@ -170,6 +170,25 @@ async function handleImportOne(req, context) {
         result_single_company_mode: sessionUpsertResult?.single_company_mode,
         result_request_kind: sessionUpsertResult?.request_kind,
       });
+
+      // GUARD: Detect if critical flags were silently lost after upsert
+      const flagsLost = sessionUpsertResult && (
+        sessionUpsertResult.single_company_mode !== true ||
+        sessionUpsertResult.request_kind !== "import-one"
+      );
+
+      if (flagsLost) {
+        console.warn("[import-one] FLAGS_LOST_WARNING", {
+          session_id: sessionId,
+          expected_single_company_mode: true,
+          actual_single_company_mode: sessionUpsertResult?.single_company_mode,
+          actual_single_company_mode_type: typeof sessionUpsertResult?.single_company_mode,
+          expected_request_kind: "import-one",
+          actual_request_kind: sessionUpsertResult?.request_kind,
+          actual_request_kind_type: typeof sessionUpsertResult?.request_kind,
+          result_keys: Object.keys(sessionUpsertResult || {}),
+        });
+      }
     } catch (e) {
       // Non-fatal: session persistence should never hard-fail the import flow
       console.log("[import-one] session_upsert_threw", {
