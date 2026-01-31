@@ -2168,6 +2168,22 @@ async function handler(req, context) {
           const sessionDocId = `_import_session_${sessionId}`;
           const sessionDocForPolicy = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
 
+          // Debug logging: show which fields exist on the loaded sessionDoc before policy decisions
+          try {
+            console.log("[import-status] session_doc_fields_before_policy", {
+              session_id: sessionId,
+              session_doc_exists: Boolean(sessionDocForPolicy),
+              session_doc_keys: sessionDocForPolicy ? Object.keys(sessionDocForPolicy) : null,
+              single_company_mode: sessionDocForPolicy?.single_company_mode,
+              single_company_mode_type: typeof sessionDocForPolicy?.single_company_mode,
+              request_kind: sessionDocForPolicy?.request_kind,
+              request_kind_type: typeof sessionDocForPolicy?.request_kind,
+              request_limit: sessionDocForPolicy?.request?.limit,
+              resume_needed: sessionDocForPolicy?.resume_needed,
+              status: sessionDocForPolicy?.status,
+            });
+          } catch {}
+
           const singleCompanyMode = isSingleCompanyModeFromSession({
             sessionDoc: sessionDocForPolicy,
             savedCount: saved,
@@ -4187,6 +4203,22 @@ async function handler(req, context) {
         try {
           const sessionDocId = `_import_session_${sessionId}`;
           const sessionDocForPolicy = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
+
+          // Debug logging: show which fields exist on the loaded sessionDoc before policy decisions
+          try {
+            console.log("[import-status] session_doc_fields_before_policy", {
+              session_id: sessionId,
+              session_doc_exists: Boolean(sessionDocForPolicy),
+              session_doc_keys: sessionDocForPolicy ? Object.keys(sessionDocForPolicy) : null,
+              single_company_mode: sessionDocForPolicy?.single_company_mode,
+              single_company_mode_type: typeof sessionDocForPolicy?.single_company_mode,
+              request_kind: sessionDocForPolicy?.request_kind,
+              request_kind_type: typeof sessionDocForPolicy?.request_kind,
+              request_limit: sessionDocForPolicy?.request?.limit,
+              resume_needed: sessionDocForPolicy?.resume_needed,
+              status: sessionDocForPolicy?.status,
+            });
+          } catch {}
 
           const singleCompanyMode = isSingleCompanyModeFromSession({
             sessionDoc: sessionDocForPolicy,
