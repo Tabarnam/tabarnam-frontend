@@ -5900,11 +5900,11 @@ const importStartHandlerInner = async (req, context) => {
             Number.isFinite(Number(stageCapMsOverride)) && Number(stageCapMsOverride) > 0 ? Number(stageCapMsOverride) : null;
           const stageCapMs = stageCapMsOverrideNumber ? Math.min(stageCapMsOverrideNumber, stageCapMsBase) : stageCapMsBase;
 
-          // Dynamic stage timeout (SWA-safe): clamp to remaining budget and never exceed ~8s.
+          // Extended stage timeouts to allow thorough XAI searches (3-5+ minutes per field).
           const timeoutForThisStage = budget.clampStageTimeoutMs({
             remainingMs,
             minMs: 2500,
-            maxMs: Math.min(8000, stageCapMs),
+            maxMs: stageCapMs,
             safetyMarginMs: DEADLINE_SAFETY_BUFFER_MS + UPSTREAM_TIMEOUT_MARGIN_MS,
           });
 

@@ -31,15 +31,16 @@ function startBudget({ hardCapMs = 25_000, clientDeadlineMs = null, startedAtMs 
     return getRemainingMs() < min;
   };
 
+  // Extended stage timeouts to allow thorough XAI searches (3-5+ minutes per field).
   const clampStageTimeoutMs = ({
     remainingMs,
     minMs = 2_500,
-    maxMs = 8_000,
+    maxMs = 300_000,
     safetyMarginMs = 1_200,
   } = {}) => {
     const rem = Number.isFinite(Number(remainingMs)) ? Number(remainingMs) : getRemainingMs();
-    const min = clampInt(minMs, { min: 250, max: 60_000, fallback: 2_500 });
-    const max = clampInt(maxMs, { min, max: 60_000, fallback: 8_000 });
+    const min = clampInt(minMs, { min: 250, max: 600_000, fallback: 2_500 });
+    const max = clampInt(maxMs, { min, max: 600_000, fallback: 300_000 });
     const safety = clampInt(safetyMarginMs, { min: 0, max: 20_000, fallback: 1_200 });
 
     const raw = Math.max(0, Math.trunc(rem - safety));
