@@ -16,6 +16,7 @@ const {
 } = require("../../_internalJobAuth");
 
 const { getBuildInfo } = require("../../_buildInfo");
+const { getXAIEndpoint, getXAIKey, resolveXaiEndpointForModel } = require("../../_shared");
 const {
   computeMissingFields,
   deriveMissingReason,
@@ -1804,12 +1805,17 @@ async function resumeWorkerHandler(req, context) {
 
       const perDocBudgetMs = Math.max(4000, Math.trunc(deadlineMs / Math.max(1, plannedIds.length || 1)));
 
+      // Use shared XAI config resolution for consistent endpoint/key handling
+      const xaiEndpointRaw = getXAIEndpoint();
+      const xaiKey = getXAIKey();
+      const xaiUrl = resolveXaiEndpointForModel(xaiEndpointRaw, "grok-4-latest");
+
       const grokArgs = {
         companyName,
         normalizedDomain,
         budgetMs: perDocBudgetMs,
-        xaiUrl: process.env.XAI_API_URL,
-        xaiKey: process.env.XAI_API_KEY,
+        xaiUrl,
+        xaiKey,
       };
 
       progressRoot.enrichment_progress[companyId] =
@@ -2507,12 +2513,17 @@ async function resumeWorkerHandler(req, context) {
     const companyName = String(doc.company_name || doc.name || "").trim();
     const normalizedDomain = String(doc.normalized_domain || "").trim();
 
+    // Use shared XAI config resolution for consistent endpoint/key handling
+    const xaiEndpointRaw2 = getXAIEndpoint();
+    const xaiKey2 = getXAIKey();
+    const xaiUrl2 = resolveXaiEndpointForModel(xaiEndpointRaw2, "grok-4-latest");
+
     const grokArgs = {
       companyName,
       normalizedDomain,
       budgetMs: perDocBudgetMs,
-      xaiUrl: process.env.XAI_API_URL,
-      xaiKey: process.env.XAI_API_KEY,
+      xaiUrl: xaiUrl2,
+      xaiKey: xaiKey2,
     };
 
     let changed = false;
