@@ -93,7 +93,7 @@ async function handleImportOne(req, context) {
     // Read and validate request body
     const body = await readJsonBody(req);
     if (!body || typeof body !== "object") {
-      return json({ ok: false, error: { message: "Invalid request body", code: "invalid_body" } }, 400);
+      return json({ ok: false, error: { message: "Invalid request body", code: "invalid_body" }, build_id: BUILD_STAMP }, 400);
     }
 
     const url = String(body.url || "").trim();
@@ -101,6 +101,7 @@ async function handleImportOne(req, context) {
       return json({
         ok: false,
         error: { message: "Missing or invalid 'url' in request body", code: "invalid_url" },
+        build_id: BUILD_STAMP,
       }, 400);
     }
 
@@ -109,6 +110,7 @@ async function handleImportOne(req, context) {
       return json({
         ok: false,
         error: { message: "Could not normalize URL", code: "normalize_error" },
+        build_id: BUILD_STAMP,
       }, 400);
     }
 
