@@ -232,6 +232,7 @@ async function handleImportOne(req, context) {
         session_id: sessionId,
         saved_count: savedCount,
         status: finalStatus,
+        build_id: BUILD_STAMP,
       }, 200);
     } else {
       // Work still in progress or deadline reached - enqueue resume message for background processing
