@@ -646,3 +646,130 @@ app.http("diag-sharp", {
     }
   },
 });
+
+// Session document diagnostic - helps debug whether session flags are being persisted to Cosmos
+// Usage: GET /api/diag/session?session_id=<uuid>
+app.http("diag-session", {
+  route: "diag/session",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req) => {
+    const method = String(req?.method || "").toUpperCase();
+    if (method === "OPTIONS") {
+      return {
+        status: 200,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,OPTIONS",
+          "Access-Control-Allow-Headers": "content-type,x-functions-key,x-debug-key",
+        },
+      };
+    }
+
+    const ts = nowIso();
+    const buildInfo = getBuildInfo();
+
+    // Read session_id from query string
+    const sessionId = asString(readQueryParam(req, "session_id")).trim();
+    if (!sessionId) {
+      return json({
+        ok: false,
+        route: "/api/diag/session",
+        ts,
+        error: { message: "Missing session_id query parameter" },
+        ...buildInfo,
+      }, 400);
+    }
+
+    try {
+      const container = await getCosmosContainer();
+      if (!container) {
+        return json({
+          ok: false,
+          route: "/api/diag/session",
+          ts,
+          session_id: sessionId,
+          error: { message: "Cosmos not configured" },
+          ...buildInfo,
+        });
+      }
+
+      // Fetch all control docs for this session
+      const sessionDocId = `_import_session_${sessionId}`;
+      const resumeDocId = `_import_resume_${sessionId}`;
+      const completeDocId = `_import_complete_${sessionId}`;
+      const acceptDocId = `_import_accept_${sessionId}`;
+      const stopDocId = `_import_stop_${sessionId}`;
+
+      const [sessionDoc, resumeDoc, completeDoc, acceptDoc, stopDoc] = await Promise.all([
+        readControlDoc(container, sessionDocId, sessionId).catch((e) => ({ error: asString(e?.message || e) })),
+        readControlDoc(container, resumeDocId, sessionId).catch((e) => ({ error: asString(e?.message || e) })),
+        readControlDoc(container, completeDocId, sessionId).catch((e) => ({ error: asString(e?.message || e) })),
+        readControlDoc(container, acceptDocId, sessionId).catch((e) => ({ error: asString(e?.message || e) })),
+        readControlDoc(container, stopDocId, sessionId).catch((e) => ({ error: asString(e?.message || e) })),
+      ]);
+
+      // Extract key flags from session doc for quick visibility
+      const sessionFlags = sessionDoc && typeof sessionDoc === "object" && !sessionDoc.error
+        ? {
+            single_company_mode: sessionDoc.single_company_mode,
+            single_company_mode_type: typeof sessionDoc.single_company_mode,
+            request_kind: sessionDoc.request_kind,
+            request_kind_type: typeof sessionDoc.request_kind,
+            request_limit: sessionDoc.request?.limit,
+            status: sessionDoc.status,
+            stage_beacon: sessionDoc.stage_beacon,
+            resume_needed: sessionDoc.resume_needed,
+            resume_error: sessionDoc.resume_error,
+            saved_verified_count: sessionDoc.saved_verified_count,
+          }
+        : null;
+
+      // Extract key flags from resume doc for quick visibility
+      const resumeFlags = resumeDoc && typeof resumeDoc === "object" && !resumeDoc.error
+        ? {
+            status: resumeDoc.status,
+            resume_error: resumeDoc.resume_error,
+            lock_expires_at: resumeDoc.lock_expires_at,
+            attempt: resumeDoc.attempt,
+          }
+        : null;
+
+      return json({
+        ok: true,
+        route: "/api/diag/session",
+        ts,
+        session_id: sessionId,
+        session_flags: sessionFlags,
+        resume_flags: resumeFlags,
+        docs: {
+          session: sessionDoc,
+          resume: resumeDoc,
+          complete: completeDoc,
+          accept: acceptDoc,
+          stop: stopDoc,
+        },
+        doc_ids: {
+          session: sessionDocId,
+          resume: resumeDocId,
+          complete: completeDocId,
+          accept: acceptDocId,
+          stop: stopDocId,
+        },
+        ...buildInfo,
+      });
+    } catch (e) {
+      return json({
+        ok: false,
+        route: "/api/diag/session",
+        ts,
+        session_id: sessionId,
+        error: {
+          name: e?.name || "Error",
+          message: asString(e?.message || e) || "Unhandled exception",
+        },
+        ...buildInfo,
+      });
+    }
+  },
+});
