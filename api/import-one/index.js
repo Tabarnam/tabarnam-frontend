@@ -120,7 +120,7 @@ async function handleImportOne(req, context) {
       status: "running",
       request_url: normalizedUrl,
       created_at: new Date().toISOString(),
-    }).catch(() => null);
+    });
 
     // Create primary job with single URL seed
     const jobDoc = {
