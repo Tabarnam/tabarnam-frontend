@@ -286,6 +286,118 @@ function isSingleCompanyModeFromSession({ sessionDoc, savedCount, itemsCount }) 
   return false;
 }
 
+// Extended version that returns both the decision and the reason for logging
+function isSingleCompanyModeFromSessionWithReason({ sessionDoc, savedCount, itemsCount }) {
+  const single_company_mode_raw = sessionDoc?.single_company_mode;
+  const request_kind_raw = sessionDoc?.request_kind;
+  const request_limit_raw = sessionDoc?.request?.limit ?? sessionDoc?.request?.Limit;
+
+  // First check explicit single_company_mode flag (set by import-one endpoint)
+  if (sessionDoc?.single_company_mode === true) {
+    return {
+      decision: true,
+      reason: "flag_true",
+      inputs: {
+        single_company_mode_raw,
+        single_company_mode_type: typeof single_company_mode_raw,
+        request_kind_raw,
+        request_kind_type: typeof request_kind_raw,
+        request_limit_raw,
+        request_limit_type: typeof request_limit_raw,
+        savedCount,
+        itemsCount,
+      },
+    };
+  }
+
+  // Check request_kind from import-one
+  if (sessionDoc?.request_kind === "import-one") {
+    return {
+      decision: true,
+      reason: "request_kind_import_one",
+      inputs: {
+        single_company_mode_raw,
+        single_company_mode_type: typeof single_company_mode_raw,
+        request_kind_raw,
+        request_kind_type: typeof request_kind_raw,
+        request_limit_raw,
+        request_limit_type: typeof request_limit_raw,
+        savedCount,
+        itemsCount,
+      },
+    };
+  }
+
+  const limit = Number(request_limit_raw ?? 0);
+  if (Number.isFinite(limit) && limit === 1) {
+    return {
+      decision: true,
+      reason: "limit_one",
+      inputs: {
+        single_company_mode_raw,
+        single_company_mode_type: typeof single_company_mode_raw,
+        request_kind_raw,
+        request_kind_type: typeof request_kind_raw,
+        request_limit_raw,
+        request_limit_type: typeof request_limit_raw,
+        savedCount,
+        itemsCount,
+      },
+    };
+  }
+
+  const companiesCount = Number(savedCount || 0) || 0;
+  if (companiesCount === 1) {
+    return {
+      decision: true,
+      reason: "saved_count_one",
+      inputs: {
+        single_company_mode_raw,
+        single_company_mode_type: typeof single_company_mode_raw,
+        request_kind_raw,
+        request_kind_type: typeof request_kind_raw,
+        request_limit_raw,
+        request_limit_type: typeof request_limit_raw,
+        savedCount,
+        itemsCount,
+      },
+    };
+  }
+
+  const itemCount = Number(itemsCount || 0) || 0;
+  if (itemCount === 1) {
+    return {
+      decision: true,
+      reason: "items_count_one",
+      inputs: {
+        single_company_mode_raw,
+        single_company_mode_type: typeof single_company_mode_raw,
+        request_kind_raw,
+        request_kind_type: typeof request_kind_raw,
+        request_limit_raw,
+        request_limit_type: typeof request_limit_raw,
+        savedCount,
+        itemsCount,
+      },
+    };
+  }
+
+  return {
+    decision: false,
+    reason: "fallback_false",
+    inputs: {
+      single_company_mode_raw,
+      single_company_mode_type: typeof single_company_mode_raw,
+      request_kind_raw,
+      request_kind_type: typeof request_kind_raw,
+      request_limit_raw,
+      request_limit_type: typeof request_limit_raw,
+      savedCount,
+      itemsCount,
+    },
+  };
+}
+
 function shouldForceTerminalizeSingle({
   single,
   resume_needed,
