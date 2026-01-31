@@ -6070,4 +6070,77 @@ app.http("import-status-alt", {
   handler: deprecatedHandler,
 });
 
+// Raw session diagnostic endpoint - uses the EXACT SAME read path as import-status
+// This guarantees we're inspecting the same data that the policy logic reads
+app.http("import-status-session-raw", {
+  route: "import/status/session-raw",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req) => {
+    const method = String(req?.method || "").toUpperCase();
+    if (method === "OPTIONS") return { status: 200, headers: cors(req) };
+
+    const url = new URL(req.url);
+    const sessionId = String(url.searchParams.get("session_id") || "").trim();
+
+    if (!sessionId) {
+      return json({ ok: false, error: "Missing session_id" }, 400, req);
+    }
+
+    const ts = nowIso();
+
+    try {
+      const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+      const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+      const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+      const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+
+      if (!endpoint || !key || !CosmosClient) {
+        return json({
+          ok: false,
+          session_id: sessionId,
+          ts,
+          error: "Cosmos not configured",
+          cosmos_configured: false,
+        }, 200, req);
+      }
+
+      const client = new CosmosClient({ endpoint, key });
+      const container = client.database(databaseId).container(containerId);
+
+      // Use the EXACT SAME readControlDoc function that import-status uses
+      const sessionDocId = `_import_session_${sessionId}`;
+      const sessionDoc = await readControlDoc(container, sessionDocId, sessionId).catch((e) => ({
+        _read_error: String(e?.message || e),
+      }));
+
+      const found = Boolean(sessionDoc && !sessionDoc._read_error);
+
+      return json({
+        ok: true,
+        session_id: sessionId,
+        ts,
+        found,
+        keys: found ? Object.keys(sessionDoc) : null,
+        single_company_mode: sessionDoc?.single_company_mode,
+        single_company_mode_type: typeof sessionDoc?.single_company_mode,
+        request_kind: sessionDoc?.request_kind,
+        request_kind_type: typeof sessionDoc?.request_kind,
+        request: sessionDoc?.request || null,
+        status: sessionDoc?.status,
+        stage_beacon: sessionDoc?.stage_beacon,
+        resume_needed: sessionDoc?.resume_needed,
+        raw_sessionDoc: sessionDoc,
+      }, 200, req);
+    } catch (e) {
+      return json({
+        ok: false,
+        session_id: sessionId,
+        ts,
+        error: String(e?.message || e),
+      }, 200, req);
+    }
+  },
+});
+
 module.exports = { _test: { handler } };
