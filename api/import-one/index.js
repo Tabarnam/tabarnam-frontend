@@ -114,13 +114,23 @@ async function handleImportOne(req, context) {
       console.log("[import-one] started", { session_id: sessionId, url: normalizedUrl });
     } catch {}
 
-    // Create session
-    upsertImportSession({
-      session_id: sessionId,
-      status: "running",
-      request_url: normalizedUrl,
-      created_at: new Date().toISOString(),
-    });
+    // Create session (upsertImportSession is synchronous)
+    try {
+      upsertImportSession({
+        session_id: sessionId,
+        status: "running",
+        request_url: normalizedUrl,
+        created_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      // Non-fatal: session persistence should never hard-fail the import flow
+      try {
+        console.log("[import-one] session_upsert_failed_nonfatal", {
+          session_id: sessionId,
+          error: String(e?.message || e),
+        });
+      } catch {}
+    }
 
     // Create primary job with single URL seed
     const jobDoc = {
