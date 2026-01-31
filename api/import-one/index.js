@@ -13,7 +13,6 @@ try {
 }
 
 const { getBuildInfo } = require("../_buildInfo");
-const { getContainerPartitionKeyPath, buildPartitionKeyCandidates } = require("../_cosmosPartitionKey");
 
 // Build stamp for deployment verification - helps identify which code version is running in production
 // Now uses shared getBuildInfo instead of hardcoded value
