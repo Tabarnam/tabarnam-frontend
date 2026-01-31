@@ -286,6 +286,118 @@ function isSingleCompanyModeFromSession({ sessionDoc, savedCount, itemsCount }) 
   return false;
 }
 
+// Extended version that returns both the decision and the reason for logging
+function isSingleCompanyModeFromSessionWithReason({ sessionDoc, savedCount, itemsCount }) {
+  const single_company_mode_raw = sessionDoc?.single_company_mode;
+  const request_kind_raw = sessionDoc?.request_kind;
+  const request_limit_raw = sessionDoc?.request?.limit ?? sessionDoc?.request?.Limit;
+
+  // First check explicit single_company_mode flag (set by import-one endpoint)
+  if (sessionDoc?.single_company_mode === true) {
+    return {
+      decision: true,
+      reason: "flag_true",
+      inputs: {
+        single_company_mode_raw,
+        single_company_mode_type: typeof single_company_mode_raw,
+        request_kind_raw,
+        request_kind_type: typeof request_kind_raw,
+        request_limit_raw,
+        request_limit_type: typeof request_limit_raw,
+        savedCount,
+        itemsCount,
+      },
+    };
+  }
+
+  // Check request_kind from import-one
+  if (sessionDoc?.request_kind === "import-one") {
+    return {
+      decision: true,
+      reason: "request_kind_import_one",
+      inputs: {
+        single_company_mode_raw,
+        single_company_mode_type: typeof single_company_mode_raw,
+        request_kind_raw,
+        request_kind_type: typeof request_kind_raw,
+        request_limit_raw,
+        request_limit_type: typeof request_limit_raw,
+        savedCount,
+        itemsCount,
+      },
+    };
+  }
+
+  const limit = Number(request_limit_raw ?? 0);
+  if (Number.isFinite(limit) && limit === 1) {
+    return {
+      decision: true,
+      reason: "limit_one",
+      inputs: {
+        single_company_mode_raw,
+        single_company_mode_type: typeof single_company_mode_raw,
+        request_kind_raw,
+        request_kind_type: typeof request_kind_raw,
+        request_limit_raw,
+        request_limit_type: typeof request_limit_raw,
+        savedCount,
+        itemsCount,
+      },
+    };
+  }
+
+  const companiesCount = Number(savedCount || 0) || 0;
+  if (companiesCount === 1) {
+    return {
+      decision: true,
+      reason: "saved_count_one",
+      inputs: {
+        single_company_mode_raw,
+        single_company_mode_type: typeof single_company_mode_raw,
+        request_kind_raw,
+        request_kind_type: typeof request_kind_raw,
+        request_limit_raw,
+        request_limit_type: typeof request_limit_raw,
+        savedCount,
+        itemsCount,
+      },
+    };
+  }
+
+  const itemCount = Number(itemsCount || 0) || 0;
+  if (itemCount === 1) {
+    return {
+      decision: true,
+      reason: "items_count_one",
+      inputs: {
+        single_company_mode_raw,
+        single_company_mode_type: typeof single_company_mode_raw,
+        request_kind_raw,
+        request_kind_type: typeof request_kind_raw,
+        request_limit_raw,
+        request_limit_type: typeof request_limit_raw,
+        savedCount,
+        itemsCount,
+      },
+    };
+  }
+
+  return {
+    decision: false,
+    reason: "fallback_false",
+    inputs: {
+      single_company_mode_raw,
+      single_company_mode_type: typeof single_company_mode_raw,
+      request_kind_raw,
+      request_kind_type: typeof request_kind_raw,
+      request_limit_raw,
+      request_limit_type: typeof request_limit_raw,
+      savedCount,
+      itemsCount,
+    },
+  };
+}
+
 function shouldForceTerminalizeSingle({
   single,
   resume_needed,
@@ -2168,11 +2280,23 @@ async function handler(req, context) {
           const sessionDocId = `_import_session_${sessionId}`;
           const sessionDocForPolicy = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
 
-          const singleCompanyMode = isSingleCompanyModeFromSession({
+          // Use extended function to get decision reason for definitive logging
+          const singleCompanyResult = isSingleCompanyModeFromSessionWithReason({
             sessionDoc: sessionDocForPolicy,
             savedCount: saved,
             itemsCount: Array.isArray(saved_companies) ? saved_companies.length : 0,
           });
+          const singleCompanyMode = singleCompanyResult.decision;
+
+          // Definitive logging: show both inputs and decision at time of policy check
+          try {
+            console.log("[import-status] single_company_decision", {
+              session_id: sessionId,
+              ...singleCompanyResult.inputs,
+              decision_single_company_mode: singleCompanyResult.decision,
+              decision_reason: singleCompanyResult.reason,
+            });
+          } catch {}
 
           const currentCycleCount = Number(sessionDocForPolicy?.resume_cycle_count || 0) || 0;
 
@@ -3666,11 +3790,22 @@ async function handler(req, context) {
       stageBeaconValues.status_reconciled_low_quality_terminal = nowIso();
       stageBeaconValues.status_reconciled_low_quality_terminal_count = reconciledLowQualityCount;
 
-      const singleCompanyMode = isSingleCompanyModeFromSession({
+      const singleCompanyResultLowQuality = isSingleCompanyModeFromSessionWithReason({
         sessionDoc,
         savedCount: saved,
         itemsCount: savedDocs.length,
       });
+      const singleCompanyMode = singleCompanyResultLowQuality.decision;
+
+      // Definitive logging: show both inputs and decision at low quality reconciliation
+      try {
+        console.log("[import-status] single_company_decision_low_quality", {
+          session_id: sessionId,
+          ...singleCompanyResultLowQuality.inputs,
+          decision_single_company_mode: singleCompanyResultLowQuality.decision,
+          decision_reason: singleCompanyResultLowQuality.reason,
+        });
+      } catch {}
 
       if (singleCompanyMode) {
         for (const doc of Array.isArray(savedDocs) ? savedDocs : []) {
@@ -4188,11 +4323,23 @@ async function handler(req, context) {
           const sessionDocId = `_import_session_${sessionId}`;
           const sessionDocForPolicy = await readControlDoc(container, sessionDocId, sessionId).catch(() => null);
 
-          const singleCompanyMode = isSingleCompanyModeFromSession({
+          // Use extended function to get decision reason for definitive logging
+          const singleCompanyResult = isSingleCompanyModeFromSessionWithReason({
             sessionDoc: sessionDocForPolicy,
             savedCount: saved,
             itemsCount: Array.isArray(saved_companies) ? saved_companies.length : 0,
           });
+          const singleCompanyMode = singleCompanyResult.decision;
+
+          // Definitive logging: show both inputs and decision at time of policy check
+          try {
+            console.log("[import-status] single_company_decision", {
+              session_id: sessionId,
+              ...singleCompanyResult.inputs,
+              decision_single_company_mode: singleCompanyResult.decision,
+              decision_reason: singleCompanyResult.reason,
+            });
+          } catch {}
 
           const currentCycleCount = Number(sessionDocForPolicy?.resume_cycle_count || 0) || 0;
 
@@ -5921,6 +6068,79 @@ app.http("import-status-alt", {
   methods: ["GET", "OPTIONS"],
   authLevel: "anonymous",
   handler: deprecatedHandler,
+});
+
+// Raw session diagnostic endpoint - uses the EXACT SAME read path as import-status
+// This guarantees we're inspecting the same data that the policy logic reads
+app.http("import-status-session-raw", {
+  route: "import/status/session-raw",
+  methods: ["GET", "OPTIONS"],
+  authLevel: "anonymous",
+  handler: async (req) => {
+    const method = String(req?.method || "").toUpperCase();
+    if (method === "OPTIONS") return { status: 200, headers: cors(req) };
+
+    const url = new URL(req.url);
+    const sessionId = String(url.searchParams.get("session_id") || "").trim();
+
+    if (!sessionId) {
+      return json({ ok: false, error: "Missing session_id" }, 400, req);
+    }
+
+    const ts = nowIso();
+
+    try {
+      const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+      const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+      const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+      const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+
+      if (!endpoint || !key || !CosmosClient) {
+        return json({
+          ok: false,
+          session_id: sessionId,
+          ts,
+          error: "Cosmos not configured",
+          cosmos_configured: false,
+        }, 200, req);
+      }
+
+      const client = new CosmosClient({ endpoint, key });
+      const container = client.database(databaseId).container(containerId);
+
+      // Use the EXACT SAME readControlDoc function that import-status uses
+      const sessionDocId = `_import_session_${sessionId}`;
+      const sessionDoc = await readControlDoc(container, sessionDocId, sessionId).catch((e) => ({
+        _read_error: String(e?.message || e),
+      }));
+
+      const found = Boolean(sessionDoc && !sessionDoc._read_error);
+
+      return json({
+        ok: true,
+        session_id: sessionId,
+        ts,
+        found,
+        keys: found ? Object.keys(sessionDoc) : null,
+        single_company_mode: sessionDoc?.single_company_mode,
+        single_company_mode_type: typeof sessionDoc?.single_company_mode,
+        request_kind: sessionDoc?.request_kind,
+        request_kind_type: typeof sessionDoc?.request_kind,
+        request: sessionDoc?.request || null,
+        status: sessionDoc?.status,
+        stage_beacon: sessionDoc?.stage_beacon,
+        resume_needed: sessionDoc?.resume_needed,
+        raw_sessionDoc: sessionDoc,
+      }, 200, req);
+    } catch (e) {
+      return json({
+        ok: false,
+        session_id: sessionId,
+        ts,
+        error: String(e?.message || e),
+      }, 200, req);
+    }
+  },
 });
 
 module.exports = { _test: { handler } };

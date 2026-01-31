@@ -5,8 +5,26 @@ try {
   app = { http() {} };
 }
 
+let CosmosClient;
+try {
+  ({ CosmosClient } = require("@azure/cosmos"));
+} catch {
+  CosmosClient = null;
+}
+
+const { getBuildInfo } = require("../_buildInfo");
+const { getContainerPartitionKeyPath, buildPartitionKeyCandidates } = require("../_cosmosPartitionKey");
+
 // Build stamp for deployment verification - helps identify which code version is running in production
-const BUILD_STAMP = process.env.GIT_SHA || "import_one_build_pr671";
+// Now uses shared getBuildInfo instead of hardcoded value
+function getBuildStamp() {
+  try {
+    const info = getBuildInfo();
+    return info.build_id || "unknown";
+  } catch {
+    return process.env.GIT_SHA || "unknown";
+  }
+}
 
 const { randomUUID } = require("crypto");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
@@ -14,6 +32,75 @@ const { buildPrimaryJobId: buildImportPrimaryJobId, getJob: getImportPrimaryJob,
 const { runPrimaryJob } = require("../_importPrimaryWorker");
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { enqueueResumeRun } = require("../_enrichmentQueue");
+
+// Cosmos helpers for persisting session control doc with critical flags
+let _companiesPkPathPromise;
+async function getCompaniesPkPath(container) {
+  if (!container) return "/normalized_domain";
+  _companiesPkPathPromise ||= getContainerPartitionKeyPath(container, "/normalized_domain");
+  try {
+    return await _companiesPkPathPromise;
+  } catch {
+    return "/normalized_domain";
+  }
+}
+
+async function upsertSessionDocToCosmos({ sessionId, sessionPayload, cosmosEnabled }) {
+  if (!cosmosEnabled || !CosmosClient) return { ok: false, reason: "cosmos_disabled" };
+
+  const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+  const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+  const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+  const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+
+  if (!endpoint || !key) return { ok: false, reason: "cosmos_not_configured" };
+
+  try {
+    const client = new CosmosClient({ endpoint, key });
+    const container = client.database(databaseId).container(containerId);
+
+    const sessionDocId = `_import_session_${sessionId}`;
+    const now = new Date().toISOString();
+
+    const doc = {
+      id: sessionDocId,
+      session_id: sessionId,
+      normalized_domain: "import",
+      partition_key: "import",
+      type: "import_control",
+      status: sessionPayload.status || "running",
+      stage_beacon: "single_import_started",
+      // CRITICAL FLAGS - must be persisted to Cosmos for import-status to read
+      single_company_mode: sessionPayload.single_company_mode,
+      request_kind: sessionPayload.request_kind,
+      request: sessionPayload.request,
+      request_url: sessionPayload.request_url,
+      created_at: sessionPayload.created_at || now,
+      updated_at: now,
+    };
+
+    const containerPkPath = await getCompaniesPkPath(container);
+    const candidates = buildPartitionKeyCandidates({ doc, containerPkPath, requestedId: sessionDocId });
+
+    let lastErr = null;
+    for (const partitionKeyValue of candidates) {
+      try {
+        if (partitionKeyValue !== undefined) {
+          await container.items.upsert(doc, { partitionKey: partitionKeyValue });
+        } else {
+          await container.items.upsert(doc);
+        }
+        return { ok: true, doc_id: sessionDocId };
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+
+    return { ok: false, reason: "upsert_failed", error: lastErr?.message || String(lastErr) };
+  } catch (e) {
+    return { ok: false, reason: "exception", error: e?.message || String(e) };
+  }
+}
 
 const DEADLINE_MS = 25000; // 25 second max for request
 
@@ -92,6 +179,8 @@ async function handleImportOne(req, context) {
   try {
     // Read and validate request body
     const body = await readJsonBody(req);
+    const BUILD_STAMP = getBuildStamp();
+
     if (!body || typeof body !== "object") {
       return json({ ok: false, error: { message: "Invalid request body", code: "invalid_body" }, build_id: BUILD_STAMP }, 400);
     }
@@ -122,28 +211,109 @@ async function handleImportOne(req, context) {
 
     // Create session (upsertImportSession is synchronous)
     // Set single_company_mode=true and request_kind="import-one" so status can trust this flag
+    const sessionPayload = {
+      session_id: sessionId,
+      status: "running",
+      request_url: normalizedUrl,
+      created_at: new Date().toISOString(),
+      // Critical: these flags allow status endpoint to correctly identify single-company mode
+      single_company_mode: true,
+      request_kind: "import-one",
+      request: {
+        query: normalizedUrl,
+        limit: 1,
+      },
+    };
+
+    let sessionUpsertResult = null;
+    let sessionUpsertSuccess = false;
+
     try {
       console.log("[import-one] about_to_upsert_session", { session_id: sessionId });
-      upsertImportSession({
+      sessionUpsertResult = upsertImportSession(sessionPayload);
+      sessionUpsertSuccess = true;
+
+      // Log the exact payload written and the result for debugging persistence issues
+      console.log("[import-one] session_upsert_complete", {
         session_id: sessionId,
-        status: "running",
-        request_url: normalizedUrl,
-        created_at: new Date().toISOString(),
-        // Critical: these flags allow status endpoint to correctly identify single-company mode
-        single_company_mode: true,
-        request_kind: "import-one",
-        request: {
-          query: normalizedUrl,
-          limit: 1,
+        upsert_success: true,
+        payload_written: {
+          single_company_mode: sessionPayload.single_company_mode,
+          request_kind: sessionPayload.request_kind,
+          request_url: sessionPayload.request_url,
+          request_limit: sessionPayload.request?.limit,
         },
+        result_keys: sessionUpsertResult ? Object.keys(sessionUpsertResult) : null,
+        result_single_company_mode: sessionUpsertResult?.single_company_mode,
+        result_request_kind: sessionUpsertResult?.request_kind,
       });
-      console.log("[import-one] session_upsert_ok", { session_id: sessionId });
+
+      // GUARD: Detect if critical flags were silently lost after upsert
+      const flagsLost = sessionUpsertResult && (
+        sessionUpsertResult.single_company_mode !== true ||
+        sessionUpsertResult.request_kind !== "import-one"
+      );
+
+      if (flagsLost) {
+        console.warn("[import-one] FLAGS_LOST_WARNING", {
+          session_id: sessionId,
+          expected_single_company_mode: true,
+          actual_single_company_mode: sessionUpsertResult?.single_company_mode,
+          actual_single_company_mode_type: typeof sessionUpsertResult?.single_company_mode,
+          expected_request_kind: "import-one",
+          actual_request_kind: sessionUpsertResult?.request_kind,
+          actual_request_kind_type: typeof sessionUpsertResult?.request_kind,
+          result_keys: Object.keys(sessionUpsertResult || {}),
+        });
+      }
     } catch (e) {
       // Non-fatal: session persistence should never hard-fail the import flow
       console.log("[import-one] session_upsert_threw", {
         session_id: sessionId,
+        upsert_success: false,
         error: String(e?.message || e),
         stack: String(e?.stack || "").slice(0, 500),
+        payload_attempted: {
+          single_company_mode: sessionPayload.single_company_mode,
+          request_kind: sessionPayload.request_kind,
+        },
+      });
+    }
+
+    // CRITICAL: Persist session control doc to Cosmos with the flags
+    // This is what import-status actually reads - the in-memory store is NOT sufficient
+    try {
+      const cosmosResult = await upsertSessionDocToCosmos({
+        sessionId,
+        sessionPayload,
+        cosmosEnabled,
+      });
+
+      console.log("[import-one] cosmos_session_upsert", {
+        session_id: sessionId,
+        cosmos_ok: cosmosResult.ok,
+        cosmos_doc_id: cosmosResult.doc_id,
+        cosmos_reason: cosmosResult.reason,
+        cosmos_error: cosmosResult.error,
+        flags_persisted: {
+          single_company_mode: sessionPayload.single_company_mode,
+          request_kind: sessionPayload.request_kind,
+        },
+      });
+
+      if (!cosmosResult.ok) {
+        console.warn("[import-one] COSMOS_PERSIST_FAILED", {
+          session_id: sessionId,
+          reason: cosmosResult.reason,
+          error: cosmosResult.error,
+          flags_may_be_lost: true,
+        });
+      }
+    } catch (e) {
+      console.warn("[import-one] COSMOS_PERSIST_EXCEPTION", {
+        session_id: sessionId,
+        error: String(e?.message || e),
+        flags_may_be_lost: true,
       });
     }
 
