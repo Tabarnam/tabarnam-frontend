@@ -113,6 +113,38 @@ function upsertSession(input) {
           ? prev.resume_error_details
           : null,
 
+    // Single company mode flag: used by status endpoint to determine recovery paths
+    single_company_mode:
+      typeof input?.single_company_mode === "boolean"
+        ? input.single_company_mode
+        : typeof prev?.single_company_mode === "boolean"
+          ? prev.single_company_mode
+          : undefined,
+
+    // Request kind: identifies the endpoint that started the import (import-one, import-start, etc.)
+    request_kind:
+      typeof input?.request_kind === "string" && input.request_kind.trim()
+        ? input.request_kind.trim()
+        : typeof prev?.request_kind === "string" && prev.request_kind.trim()
+          ? prev.request_kind.trim()
+          : null,
+
+    // Request object: stores query, limit, and other request parameters
+    request:
+      input?.request && typeof input.request === "object"
+        ? input.request
+        : prev?.request && typeof prev.request === "object"
+          ? prev.request
+          : null,
+
+    // Request URL: the original URL passed to the import endpoint
+    request_url:
+      typeof input?.request_url === "string" && input.request_url.trim()
+        ? input.request_url.trim()
+        : typeof prev?.request_url === "string" && prev.request_url.trim()
+          ? prev.request_url.trim()
+          : null,
+
     created_at: prev?.created_at || nowIso(),
     updated_at: nowIso(),
   };

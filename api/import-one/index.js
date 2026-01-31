@@ -121,6 +121,7 @@ async function handleImportOne(req, context) {
     } catch {}
 
     // Create session (upsertImportSession is synchronous)
+    // Set single_company_mode=true and request_kind="import-one" so status can trust this flag
     try {
       console.log("[import-one] about_to_upsert_session", { session_id: sessionId });
       upsertImportSession({
@@ -128,6 +129,13 @@ async function handleImportOne(req, context) {
         status: "running",
         request_url: normalizedUrl,
         created_at: new Date().toISOString(),
+        // Critical: these flags allow status endpoint to correctly identify single-company mode
+        single_company_mode: true,
+        request_kind: "import-one",
+        request: {
+          query: normalizedUrl,
+          limit: 1,
+        },
       });
       console.log("[import-one] session_upsert_ok", { session_id: sessionId });
     } catch (e) {
