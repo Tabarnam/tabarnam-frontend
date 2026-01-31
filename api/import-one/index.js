@@ -280,6 +280,43 @@ async function handleImportOne(req, context) {
       });
     }
 
+    // CRITICAL: Persist session control doc to Cosmos with the flags
+    // This is what import-status actually reads - the in-memory store is NOT sufficient
+    try {
+      const cosmosResult = await upsertSessionDocToCosmos({
+        sessionId,
+        sessionPayload,
+        cosmosEnabled,
+      });
+
+      console.log("[import-one] cosmos_session_upsert", {
+        session_id: sessionId,
+        cosmos_ok: cosmosResult.ok,
+        cosmos_doc_id: cosmosResult.doc_id,
+        cosmos_reason: cosmosResult.reason,
+        cosmos_error: cosmosResult.error,
+        flags_persisted: {
+          single_company_mode: sessionPayload.single_company_mode,
+          request_kind: sessionPayload.request_kind,
+        },
+      });
+
+      if (!cosmosResult.ok) {
+        console.warn("[import-one] COSMOS_PERSIST_FAILED", {
+          session_id: sessionId,
+          reason: cosmosResult.reason,
+          error: cosmosResult.error,
+          flags_may_be_lost: true,
+        });
+      }
+    } catch (e) {
+      console.warn("[import-one] COSMOS_PERSIST_EXCEPTION", {
+        session_id: sessionId,
+        error: String(e?.message || e),
+        flags_may_be_lost: true,
+      });
+    }
+
     // Create primary job with single URL seed
     const jobDoc = {
       id: buildImportPrimaryJobId(sessionId),
