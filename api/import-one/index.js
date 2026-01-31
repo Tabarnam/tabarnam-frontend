@@ -5,6 +5,9 @@ try {
   app = { http() {} };
 }
 
+// Build stamp for deployment verification - helps identify which code version is running in production
+const BUILD_STAMP = process.env.GIT_SHA || "import_one_build_pr671";
+
 const { randomUUID } = require("crypto");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
 const { buildPrimaryJobId: buildImportPrimaryJobId, getJob: getImportPrimaryJob, upsertJob: upsertImportPrimaryJob } = require("../_importPrimaryJobStore");
