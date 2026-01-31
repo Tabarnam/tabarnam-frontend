@@ -268,6 +268,12 @@ function collectInfraRetryableMissing(docs) {
 }
 
 function isSingleCompanyModeFromSession({ sessionDoc, savedCount, itemsCount }) {
+  // First check explicit single_company_mode flag (set by import-one endpoint)
+  if (sessionDoc?.single_company_mode === true) return true;
+
+  // Check request_kind from import-one
+  if (sessionDoc?.request_kind === "import-one") return true;
+
   const limit = Number(sessionDoc?.request?.limit ?? sessionDoc?.request?.Limit ?? 0);
   if (Number.isFinite(limit) && limit === 1) return true;
 
