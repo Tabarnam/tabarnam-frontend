@@ -182,34 +182,79 @@ app.http("import-resume-enqueue", {
         const client = new CosmosClient({ endpoint, key });
         const container = client.database(databaseId).container(containerId);
 
-        // Best-effort: persist enqueue telemetry on the session doc.
-        if (sessionDoc && typeof sessionDoc === "object") {
-          const patched = {
-            ...sessionDoc,
-            resume_worker_last_enqueued_at: enqueueAt,
-            resume_worker_last_enqueue_reason: reason,
-            resume_worker_last_enqueue_ok: Boolean(enqueueRes.ok),
-            resume_worker_last_enqueue_error: enqueueRes.ok ? null : enqueueRes.error || "enqueue_failed",
-            updated_at: enqueueAt,
-          };
-          const up = await upsertWithPkCandidates(container, patched).catch(() => ({ ok: false }));
-          cosmos.wrote_session = Boolean(up.ok);
-        }
+        // Session patch: write resume-related fields so status can reflect reality
+        // Required fields: resume_last_triggered_at, resume_triggered_by, resume_trigger_reason, resume_message_id, resume_status
+        const sessionDocId = `_import_session_${sessionId}`;
+        const sessionBase = sessionDoc && typeof sessionDoc === "object"
+          ? sessionDoc
+          : {
+              id: sessionDocId,
+              session_id: sessionId,
+              normalized_domain: "import",
+              partition_key: "import",
+              type: "import_session",
+              created_at: enqueueAt,
+            };
 
-        // Best-effort: only mark resume.status=queued if enqueue succeeded.
-        if (resumeDoc && typeof resumeDoc === "object") {
-          const nextAllowed = enqueueRes.ok ? null : resumeDoc?.next_allowed_run_at || null;
+        const sessionPatched = {
+          ...sessionBase,
+          resume_last_triggered_at: enqueueRes.ok ? enqueueAt : sessionBase.resume_last_triggered_at || null,
+          resume_triggered_by: enqueueRes.ok ? requestedBy : sessionBase.resume_triggered_by || null,
+          resume_trigger_reason: enqueueRes.ok ? reason : sessionBase.resume_trigger_reason || null,
+          resume_message_id: enqueueRes.ok ? (enqueueRes.message_id || null) : sessionBase.resume_message_id || null,
+          resume_status: enqueueRes.ok ? "queued" : sessionBase.resume_status || null,
+          resume_worker_last_enqueued_at: enqueueAt,
+          resume_worker_last_enqueue_reason: reason,
+          resume_worker_last_enqueue_ok: Boolean(enqueueRes.ok),
+          resume_worker_last_enqueue_error: enqueueRes.ok ? null : enqueueRes.error || "enqueue_failed",
+          updated_at: enqueueAt,
+        };
+        const sessionUp = await upsertWithPkCandidates(container, sessionPatched).catch(() => ({ ok: false }));
+        cosmos.wrote_session = Boolean(sessionUp.ok);
 
-          const patched = {
-            ...resumeDoc,
-            status: enqueueRes.ok ? "queued" : resumeDoc?.status || "queued",
-            enrichment_queued_at: enqueueRes.ok ? enqueueAt : resumeDoc?.enrichment_queued_at || null,
-            next_allowed_run_at: enqueueRes.ok ? nextAllowed : resumeDoc?.next_allowed_run_at || null,
-            updated_at: enqueueAt,
-          };
-          const up = await upsertWithPkCandidates(container, patched).catch(() => ({ ok: false }));
-          cosmos.wrote_resume = Boolean(up.ok);
-        }
+        // Resume doc upsert: create or update with status, queue_name, message_id, enqueued_at, attempt
+        // This makes status truthful even if the worker is slow
+        const resumeDocId = `_import_resume_${sessionId}`;
+        const currentAttempt = Number.isFinite(Number(resumeDoc?.attempt)) ? Number(resumeDoc.attempt) : 0;
+        const nextAllowed = enqueueRes.ok ? null : resumeDoc?.next_allowed_run_at || null;
+
+        const resumeBase = resumeDoc && typeof resumeDoc === "object"
+          ? resumeDoc
+          : {
+              id: resumeDocId,
+              session_id: sessionId,
+              normalized_domain: "import",
+              partition_key: "import",
+              type: "import_control",
+              created_at: enqueueAt,
+              doc_created: false,
+            };
+
+        const resumePatched = {
+          ...resumeBase,
+          status: enqueueRes.ok ? "queued" : resumeBase.status || "queued",
+          queue_name: cfg.queueName || "import-resume-worker",
+          message_id: enqueueRes.ok ? (enqueueRes.message_id || null) : resumeBase.message_id || null,
+          enqueued_at: enqueueRes.ok ? enqueueAt : resumeBase.enqueued_at || null,
+          enrichment_queued_at: enqueueRes.ok ? enqueueAt : resumeBase.enrichment_queued_at || null,
+          next_allowed_run_at: nextAllowed,
+          attempt: currentAttempt,
+          doc_created: true,
+          updated_at: enqueueAt,
+        };
+        const resumeUp = await upsertWithPkCandidates(container, resumePatched).catch(() => ({ ok: false }));
+        cosmos.wrote_resume = Boolean(resumeUp.ok);
+
+        // Log for debugging
+        try {
+          console.log("[import-resume-enqueue] cosmos_write_result", {
+            session_id: sessionId,
+            wrote_session: cosmos.wrote_session,
+            wrote_resume: cosmos.wrote_resume,
+            enqueue_ok: Boolean(enqueueRes.ok),
+            message_id: enqueueRes.message_id || null,
+          });
+        } catch {}
       } catch {
         // ignore
       }
