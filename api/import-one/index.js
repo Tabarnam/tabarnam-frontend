@@ -5,7 +5,15 @@ try {
   app = { http() {} };
 }
 
+let CosmosClient;
+try {
+  ({ CosmosClient } = require("@azure/cosmos"));
+} catch {
+  CosmosClient = null;
+}
+
 const { getBuildInfo } = require("../_buildInfo");
+const { getContainerPartitionKeyPath, buildPartitionKeyCandidates } = require("../_cosmosPartitionKey");
 
 // Build stamp for deployment verification - helps identify which code version is running in production
 // Now uses shared getBuildInfo instead of hardcoded value
@@ -24,6 +32,75 @@ const { buildPrimaryJobId: buildImportPrimaryJobId, getJob: getImportPrimaryJob,
 const { runPrimaryJob } = require("../_importPrimaryWorker");
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { enqueueResumeRun } = require("../_enrichmentQueue");
+
+// Cosmos helpers for persisting session control doc with critical flags
+let _companiesPkPathPromise;
+async function getCompaniesPkPath(container) {
+  if (!container) return "/normalized_domain";
+  _companiesPkPathPromise ||= getContainerPartitionKeyPath(container, "/normalized_domain");
+  try {
+    return await _companiesPkPathPromise;
+  } catch {
+    return "/normalized_domain";
+  }
+}
+
+async function upsertSessionDocToCosmos({ sessionId, sessionPayload, cosmosEnabled }) {
+  if (!cosmosEnabled || !CosmosClient) return { ok: false, reason: "cosmos_disabled" };
+
+  const endpoint = (process.env.COSMOS_DB_ENDPOINT || process.env.COSMOS_DB_DB_ENDPOINT || "").trim();
+  const key = (process.env.COSMOS_DB_KEY || process.env.COSMOS_DB_DB_KEY || "").trim();
+  const databaseId = (process.env.COSMOS_DB_DATABASE || "tabarnam-db").trim();
+  const containerId = (process.env.COSMOS_DB_COMPANIES_CONTAINER || "companies").trim();
+
+  if (!endpoint || !key) return { ok: false, reason: "cosmos_not_configured" };
+
+  try {
+    const client = new CosmosClient({ endpoint, key });
+    const container = client.database(databaseId).container(containerId);
+
+    const sessionDocId = `_import_session_${sessionId}`;
+    const now = new Date().toISOString();
+
+    const doc = {
+      id: sessionDocId,
+      session_id: sessionId,
+      normalized_domain: "import",
+      partition_key: "import",
+      type: "import_control",
+      status: sessionPayload.status || "running",
+      stage_beacon: "single_import_started",
+      // CRITICAL FLAGS - must be persisted to Cosmos for import-status to read
+      single_company_mode: sessionPayload.single_company_mode,
+      request_kind: sessionPayload.request_kind,
+      request: sessionPayload.request,
+      request_url: sessionPayload.request_url,
+      created_at: sessionPayload.created_at || now,
+      updated_at: now,
+    };
+
+    const containerPkPath = await getCompaniesPkPath(container);
+    const candidates = buildPartitionKeyCandidates({ doc, containerPkPath, requestedId: sessionDocId });
+
+    let lastErr = null;
+    for (const partitionKeyValue of candidates) {
+      try {
+        if (partitionKeyValue !== undefined) {
+          await container.items.upsert(doc, { partitionKey: partitionKeyValue });
+        } else {
+          await container.items.upsert(doc);
+        }
+        return { ok: true, doc_id: sessionDocId };
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+
+    return { ok: false, reason: "upsert_failed", error: lastErr?.message || String(lastErr) };
+  } catch (e) {
+    return { ok: false, reason: "exception", error: e?.message || String(e) };
+  }
+}
 
 const DEADLINE_MS = 25000; // 25 second max for request
 
