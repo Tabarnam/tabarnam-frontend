@@ -936,10 +936,12 @@ async function resumeWorkerHandler(req, context) {
     { min: 1, max: 50 }
   );
 
+  // Default deadline increased to 5 minutes (300000ms) to allow thorough XAI enrichment.
+  // Deep searches for HQ, manufacturing locations, and reviews require significant time for accuracy.
   const deadlineMs = parseBoundedInt(
     body?.deadline_ms ?? body?.deadlineMs ?? url.searchParams.get("deadline_ms") ?? url.searchParams.get("deadlineMs"),
-    25000,
-    { min: 1000, max: 60000 }
+    300000,
+    { min: 1000, max: 600000 }
   );
 
   const forceTerminalizeSingle =
@@ -1699,19 +1701,22 @@ async function resumeWorkerHandler(req, context) {
       "reviews",
     ];
 
+    // Minimum time budgets per field - generous to allow thorough, accurate XAI searches.
+    // Deep research for locations and reviews requires substantial time.
     const MIN_REQUIRED_MS_BY_FIELD = {
-      tagline: 8_000 + 1_200,
-      headquarters_location: 12_000 + 1_200,
-      manufacturing_locations: 12_000 + 1_200,
-      industries: 8_000 + 1_200,
-      product_keywords: 8_000 + 1_200,
-      reviews: 20_000 + 1_200,
+      tagline: 30_000,
+      headquarters_location: 60_000,
+      manufacturing_locations: 60_000,
+      industries: 30_000,
+      product_keywords: 30_000,
+      reviews: 90_000,
     };
 
     const cycleCount = Number.isFinite(Number(resumeDoc?.cycle_count)) ? Number(resumeDoc.cycle_count) : 0;
     const isFreshSeed = cycleCount === 0;
 
-    const MAX_XAI_FIELDS_PER_RUN = isFreshSeed ? 9999 : 2;
+    // With 5-minute deadline, we can attempt all fields in a single run
+    const MAX_XAI_FIELDS_PER_RUN = 9999;
     let xaiFieldsAttemptedThisRun = 0;
 
     // Fresh seed invariant: no stage skipping.
@@ -2517,15 +2522,15 @@ async function resumeWorkerHandler(req, context) {
     const remainingRunMs = () => Math.max(0, deadlineMs - (Date.now() - startedEnrichmentAt));
 
     // Field-level planning:
-    // - Avoid doing many missing fields per cycle when the worker has a fixed wall-clock budget.
-    // - Prefer HQ/MFG first, then reviews, then lighter metadata fields.
+    // - Generous time budgets to allow thorough, accurate XAI searches.
+    // - Deep research for locations and reviews requires substantial time.
     const MIN_REQUIRED_MS_BY_FIELD = {
-      reviews: 20_000 + 1_200,
-      headquarters_location: 12_000 + 1_200,
-      manufacturing_locations: 12_000 + 1_200,
-      tagline: 8_000 + 1_200,
-      industries: 8_000 + 1_200,
-      product_keywords: 8_000 + 1_200,
+      reviews: 90_000,
+      headquarters_location: 60_000,
+      manufacturing_locations: 60_000,
+      tagline: 30_000,
+      industries: 30_000,
+      product_keywords: 30_000,
     };
 
     const taglineRetryable = !isRealValue("tagline", doc.tagline, doc) && !isTerminalMissingField(doc, "tagline");

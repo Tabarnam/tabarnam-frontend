@@ -18,17 +18,19 @@ function clampInt(value, { min, max, fallback }) {
   return Math.max(min, Math.min(max, i));
 }
 
-function resolveXaiStageTimeoutMaxMs(fallback = 25_000) {
+// XAI stage timeout max: generous to allow deep, accurate XAI searches (3-5+ minutes per field).
+function resolveXaiStageTimeoutMaxMs(fallback = 300_000) {
   const raw = Number(process.env.XAI_TIMEOUT_MS);
   if (!Number.isFinite(raw)) return fallback;
-  // Note: individual stage caps may still be lower (see XAI_STAGE_TIMEOUTS_MS).
-  return clampInt(raw, { min: 2_500, max: 60_000, fallback });
+  // Extended upper bound to allow thorough XAI research.
+  return clampInt(raw, { min: 2_500, max: 600_000, fallback });
 }
 
+// Extended stage timeouts to allow thorough XAI searches - accuracy is paramount.
 const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
-  reviews: { min: 20_000, max: 30_000 },
-  location: { min: 12_000, max: 20_000 },
-  light: { min: 8_000, max: 12_000 },
+  reviews: { min: 60_000, max: 180_000 },
+  location: { min: 60_000, max: 180_000 },
+  light: { min: 30_000, max: 120_000 },
 });
 
 // Short-TTL cache to avoid re-paying the same Grok searches on resume cycles.
@@ -99,11 +101,11 @@ async function xaiLiveSearchWithRetry({ maxAttempts = 2, baseBackoffMs = 350, ..
   return last;
 }
 
-// Keep upstream calls safely under the SWA gateway wall-clock (~30s) with a buffer.
+// Extended timeout constraints to allow thorough XAI searches (3-5+ minutes per field).
 function clampStageTimeoutMs({ remainingMs, minMs = 2_500, maxMs = resolveXaiStageTimeoutMaxMs(), safetyMarginMs = 1_200 } = {}) {
   const rem = Number.isFinite(Number(remainingMs)) ? Number(remainingMs) : 0;
-  const min = clampInt(minMs, { min: 250, max: 60_000, fallback: 2_500 });
-  const max = clampInt(maxMs, { min, max: 60_000, fallback: resolveXaiStageTimeoutMaxMs() });
+  const min = clampInt(minMs, { min: 250, max: 600_000, fallback: 2_500 });
+  const max = clampInt(maxMs, { min, max: 600_000, fallback: resolveXaiStageTimeoutMaxMs() });
   const safety = clampInt(safetyMarginMs, { min: 0, max: 20_000, fallback: 1_200 });
 
   const raw = Math.max(0, Math.trunc(rem - safety));

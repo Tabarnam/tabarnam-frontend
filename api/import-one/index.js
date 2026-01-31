@@ -27,10 +27,91 @@ function getBuildStamp() {
 
 const { randomUUID } = require("crypto");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
-const { buildPrimaryJobId: buildImportPrimaryJobId, upsertJob: upsertImportPrimaryJob } = require("../_importPrimaryJobStore");
+const { buildPrimaryJobId: buildImportPrimaryJobId, upsertJob: upsertImportPrimaryJob, getJob: getImportPrimaryJob } = require("../_importPrimaryJobStore");
 const { runPrimaryJob } = require("../_importPrimaryWorker");
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { enqueueResumeRun } = require("../_enrichmentQueue");
+
+// Helper to extract normalized domain from URL
+function toNormalizedDomain(urlStr) {
+  const s = String(urlStr || "").trim();
+  if (!s) return "unknown";
+  try {
+    const u = s.includes("://") ? new URL(s) : new URL(`https://${s}`);
+    let host = String(u.hostname || "").toLowerCase().replace(/^www\./, "");
+    return host || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+// Seed a single company to Cosmos companies container
+async function seedCompanyToCosmos({ company, sessionId, container }) {
+  if (!container || !company) return { ok: false, error: "missing_args" };
+
+  const companyName = String(company.company_name || company.name || "").trim();
+  const websiteUrl = String(company.website_url || company.url || "").trim();
+
+  if (!companyName || !websiteUrl) {
+    return { ok: false, error: "missing_required_fields" };
+  }
+
+  const normalizedDomain = toNormalizedDomain(websiteUrl);
+  const companyId = `company_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  const nowIso = new Date().toISOString();
+
+  const companyDoc = {
+    id: companyId,
+    company_id: companyId,
+    company_name: companyName,
+    name: companyName,
+    website_url: websiteUrl,
+    normalized_domain: normalizedDomain,
+    partition_key: normalizedDomain,
+
+    // Session tracking - this is how resume-worker finds companies to enrich
+    session_id: sessionId,
+    import_session_id: sessionId,
+
+    // Mark as needing enrichment
+    seed_ready: true,
+    source: "import-one",
+    source_stage: "seed",
+
+    // Fields that need enrichment
+    import_missing_fields: [
+      "industries",
+      "product_keywords",
+      "headquarters_location",
+      "manufacturing_locations",
+      "reviews",
+      "logo_url",
+      "tagline",
+    ],
+
+    // Timestamps
+    created_at: nowIso,
+    updated_at: nowIso,
+    import_created_at: nowIso,
+
+    // Initialize empty fields that will be enriched
+    industries: [],
+    product_keywords: [],
+    headquarters_location: "",
+    headquarters_locations: [],
+    manufacturing_locations: [],
+    reviews: [],
+    logo_url: "",
+    tagline: "",
+  };
+
+  try {
+    await container.items.upsert(companyDoc, { partitionKey: normalizedDomain });
+    return { ok: true, company_id: companyId, normalized_domain: normalizedDomain };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
 
 // Cosmos helper - cached client for companies container
 let cosmosCompaniesClient = null;
@@ -348,8 +429,136 @@ async function handleImportOne(req, context) {
       lastSession = await getImportSession({ session_id: sessionId, cosmosEnabled });
     } catch {}
 
+    // ============================================================
+    // CRITICAL: Seed companies from primary job to Cosmos
+    // This is what allows resume-worker to find and enrich the company
+    // ============================================================
+    let seededCompanyIds = [];
+    if (cosmosEnabled) {
+      try {
+        // Read the primary job to get the companies array
+        const primaryJob = await getImportPrimaryJob({ sessionId, cosmosEnabled });
+        const companiesFromJob = Array.isArray(primaryJob?.companies) ? primaryJob.companies : [];
+
+        if (companiesFromJob.length > 0) {
+          const container = getCompaniesCosmosContainer();
+          if (container) {
+            console.log("[import-one] seeding_companies", {
+              session_id: sessionId,
+              companies_count: companiesFromJob.length,
+            });
+
+            for (const company of companiesFromJob.slice(0, 5)) {
+              const seedResult = await seedCompanyToCosmos({ company, sessionId, container });
+              if (seedResult.ok) {
+                seededCompanyIds.push(seedResult.company_id);
+                console.log("[import-one] company_seeded", {
+                  session_id: sessionId,
+                  company_id: seedResult.company_id,
+                  company_name: company.company_name || company.name,
+                  normalized_domain: seedResult.normalized_domain,
+                });
+              } else {
+                console.log("[import-one] company_seed_failed", {
+                  session_id: sessionId,
+                  company_name: company.company_name || company.name,
+                  error: seedResult.error,
+                });
+              }
+            }
+
+            // Update session doc with saved company IDs so resume-worker can find them
+            if (seededCompanyIds.length > 0) {
+              const nowIso = new Date().toISOString();
+
+              // Create the missing_by_company array that resume-worker needs
+              const missingByCompany = seededCompanyIds.map((company_id) => ({
+                company_id,
+                missing_fields: [
+                  "industries",
+                  "tagline",
+                  "product_keywords",
+                  "headquarters_location",
+                  "manufacturing_locations",
+                  "logo",
+                  "reviews",
+                ],
+              }));
+
+              try {
+                const sessionDocId = `_import_session_${sessionId}`;
+                const sessionPatch = {
+                  id: sessionDocId,
+                  session_id: sessionId,
+                  normalized_domain: "import",
+                  partition_key: "import",
+                  type: "import_control",
+                  saved_company_ids: seededCompanyIds,
+                  saved_company_ids_verified: seededCompanyIds,
+                  saved_verified_count: seededCompanyIds.length,
+                  saved: seededCompanyIds.length,
+                  updated_at: nowIso,
+                };
+                await container.items.upsert(sessionPatch, { partitionKey: "import" });
+                console.log("[import-one] session_updated_with_saved_ids", {
+                  session_id: sessionId,
+                  saved_ids: seededCompanyIds,
+                });
+              } catch (e) {
+                console.log("[import-one] session_update_failed", {
+                  session_id: sessionId,
+                  error: String(e?.message || e),
+                });
+              }
+
+              // Create the resume doc with proper missing_by_company so resume-worker can enrich
+              try {
+                const resumeDocId = `_import_resume_${sessionId}`;
+                const resumeDoc = {
+                  id: resumeDocId,
+                  session_id: sessionId,
+                  normalized_domain: "import",
+                  partition_key: "import",
+                  type: "import_control",
+                  created_at: nowIso,
+                  updated_at: nowIso,
+                  status: "pending",
+                  doc_created: true,
+                  saved_company_ids: seededCompanyIds,
+                  missing_by_company: missingByCompany,
+                  cycle_count: 0,
+                  attempt: 0,
+                };
+                await container.items.upsert(resumeDoc, { partitionKey: "import" });
+                console.log("[import-one] resume_doc_created", {
+                  session_id: sessionId,
+                  missing_by_company_count: missingByCompany.length,
+                });
+              } catch (e) {
+                console.log("[import-one] resume_doc_create_failed", {
+                  session_id: sessionId,
+                  error: String(e?.message || e),
+                });
+              }
+            }
+          }
+        } else {
+          console.log("[import-one] no_companies_to_seed", {
+            session_id: sessionId,
+            job_state: primaryJob?.job_state,
+            companies_candidates_found: primaryJob?.companies_candidates_found,
+          });
+        }
+      } catch (e) {
+        console.log("[import-one] seed_companies_error", {
+          session_id: sessionId,
+          error: String(e?.message || e),
+        });
+      }
+    }
+
     const finalStatus = String(lastSession?.status || "").toLowerCase();
-    const savedCount = Number(lastSession?.saved_verified_count || 0);
+    const savedCount = seededCompanyIds.length > 0 ? seededCompanyIds.length : Number(lastSession?.saved_verified_count || 0);
 
     if (savedCount > 0) {
       // Import completed - return success with company data

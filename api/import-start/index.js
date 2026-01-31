@@ -103,18 +103,19 @@ try {
   });
 } catch {}
 
-const DEFAULT_HARD_TIMEOUT_MS = 25_000;
+// Extended timeout to 5 minutes for thorough XAI enrichment.
+// When called from resume-worker (internal), we have generous time budgets.
+const DEFAULT_HARD_TIMEOUT_MS = 300_000;
 
-// IMPORTANT: /api/* runs behind the SWA gateway. Keep upstream timeouts small and derived
-// from remaining budget so we return JSON before the platform kill (~30s).
-const DEFAULT_UPSTREAM_TIMEOUT_MS = 8_000;
+// Generous upstream timeouts to allow deep, accurate XAI searches.
+const DEFAULT_UPSTREAM_TIMEOUT_MS = 60_000;
 
-// Per-stage upstream hard caps (must stay under SWA gateway wall-clock).
+// Per-stage upstream caps - generous to allow thorough research.
 const STAGE_MAX_MS = {
-  primary: 8_000,
-  keywords: 8_000,
-  reviews: 8_000,
-  location: 7_000,
+  primary: 60_000,
+  keywords: 60_000,
+  reviews: 90_000,
+  location: 60_000,
   expand: 8_000,
 };
 
