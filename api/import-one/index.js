@@ -27,7 +27,7 @@ function getBuildStamp() {
 
 const { randomUUID } = require("crypto");
 const { upsertSession: upsertImportSession } = require("../_importSessionStore");
-const { buildPrimaryJobId: buildImportPrimaryJobId, getJob: getImportPrimaryJob, upsertJob: upsertImportPrimaryJob } = require("../_importPrimaryJobStore");
+const { buildPrimaryJobId: buildImportPrimaryJobId, upsertJob: upsertImportPrimaryJob } = require("../_importPrimaryJobStore");
 const { runPrimaryJob } = require("../_importPrimaryWorker");
 const { getSession: getImportSession } = require("../_importSessionStore");
 const { enqueueResumeRun } = require("../_enrichmentQueue");
