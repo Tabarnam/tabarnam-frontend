@@ -139,7 +139,16 @@ async function handleImportOne(req, context) {
       updated_at: new Date().toISOString(),
     };
 
-    await upsertImportPrimaryJob({ jobDoc, cosmosEnabled }).catch(() => null);
+    try {
+      await upsertImportPrimaryJob({ jobDoc, cosmosEnabled });
+    } catch (e) {
+      try {
+        console.log("[import-one] primary_job_upsert_failed_nonfatal", {
+          session_id: sessionId,
+          error: String(e?.message || e),
+        });
+      } catch {}
+    }
 
     // Run work loop until completion or deadline
     let lastSession = null;
@@ -253,7 +262,7 @@ async function handleImportOne(req, context) {
         completed: false,
         session_id: sessionId,
         status: finalStatus,
-        note: "Import started but not completed; use /api/import-status to poll",
+        note: "Import started but not completed; use /api/import/status to poll",
       }, 200);
     }
   } catch (err) {
