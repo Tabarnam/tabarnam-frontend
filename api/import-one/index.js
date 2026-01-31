@@ -289,6 +289,7 @@ async function handleImportOne(req, context) {
     return json({
       ok: false,
       error: { message: errorMessage, code: "handler_error" },
+      build_id: BUILD_STAMP,
     }, 500);
   }
 }
