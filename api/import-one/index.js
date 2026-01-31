@@ -114,27 +114,29 @@ async function handleImportOne(req, context) {
       }, 400);
     }
 
-    // Log start
+    // Log start with build stamp for deployment verification
     try {
+      console.log("[import-one] build", BUILD_STAMP);
       console.log("[import-one] started", { session_id: sessionId, url: normalizedUrl });
     } catch {}
 
     // Create session (upsertImportSession is synchronous)
     try {
+      console.log("[import-one] about_to_upsert_session", { session_id: sessionId });
       upsertImportSession({
         session_id: sessionId,
         status: "running",
         request_url: normalizedUrl,
         created_at: new Date().toISOString(),
       });
+      console.log("[import-one] session_upsert_ok", { session_id: sessionId });
     } catch (e) {
       // Non-fatal: session persistence should never hard-fail the import flow
-      try {
-        console.log("[import-one] session_upsert_failed_nonfatal", {
-          session_id: sessionId,
-          error: String(e?.message || e),
-        });
-      } catch {}
+      console.log("[import-one] session_upsert_threw", {
+        session_id: sessionId,
+        error: String(e?.message || e),
+        stack: String(e?.stack || "").slice(0, 500),
+      });
     }
 
     // Create primary job with single URL seed
