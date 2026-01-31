@@ -3790,11 +3790,22 @@ async function handler(req, context) {
       stageBeaconValues.status_reconciled_low_quality_terminal = nowIso();
       stageBeaconValues.status_reconciled_low_quality_terminal_count = reconciledLowQualityCount;
 
-      const singleCompanyMode = isSingleCompanyModeFromSession({
+      const singleCompanyResultLowQuality = isSingleCompanyModeFromSessionWithReason({
         sessionDoc,
         savedCount: saved,
         itemsCount: savedDocs.length,
       });
+      const singleCompanyMode = singleCompanyResultLowQuality.decision;
+
+      // Definitive logging: show both inputs and decision at low quality reconciliation
+      try {
+        console.log("[import-status] single_company_decision_low_quality", {
+          session_id: sessionId,
+          ...singleCompanyResultLowQuality.inputs,
+          decision_single_company_mode: singleCompanyResultLowQuality.decision,
+          decision_reason: singleCompanyResultLowQuality.reason,
+        });
+      } catch {}
 
       if (singleCompanyMode) {
         for (const doc of Array.isArray(savedDocs) ? savedDocs : []) {
