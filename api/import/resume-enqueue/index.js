@@ -19,6 +19,7 @@ const {
 } = require("../../_cosmosPartitionKey");
 
 const { enqueueResumeRun, resolveQueueConfig } = require("../../_enrichmentQueue");
+const { invokeResumeWorkerInProcess } = require("../resume-worker/handler");
 
 function asString(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
@@ -139,6 +140,51 @@ app.http("import-resume-enqueue", {
 
     const reason = asString(body?.reason).trim() || "manual_retry";
     const requestedBy = asString(body?.requested_by).trim() || "admin";
+
+    // Check for direct=1 query parameter to bypass the Azure Queue and invoke the worker directly
+    let directMode = false;
+    try {
+      const url = typeof req.url === "string" ? new URL(req.url, "http://localhost") : null;
+      directMode = url?.searchParams?.get("direct") === "1";
+    } catch {}
+
+    // If direct mode, invoke the resume worker in-process (bypasses Azure Queue trigger issues)
+    if (directMode) {
+      const invokeStart = nowIso();
+      let workerResult = null;
+      let workerError = null;
+
+      try {
+        workerResult = await invokeResumeWorkerInProcess({
+          session_id: sessionId,
+          context,
+        });
+      } catch (e) {
+        workerError = e?.message || String(e || "invoke_failed");
+      }
+
+      return json(
+        {
+          ok: Boolean(workerResult?.ok),
+          session_id: sessionId,
+          mode: "direct",
+          invoked_at: invokeStart,
+          reason,
+          requested_by: requestedBy,
+          worker_result: workerResult
+            ? {
+                ok: workerResult.ok,
+                status: workerResult.status,
+                gateway_key_attached: workerResult.gateway_key_attached,
+                request_id: workerResult.request_id,
+              }
+            : null,
+          error: workerError || (workerResult?.ok ? null : "worker_failed"),
+        },
+        workerResult?.ok ? 200 : 500,
+        req
+      );
+    }
 
     const cfg = resolveQueueConfig();
 
