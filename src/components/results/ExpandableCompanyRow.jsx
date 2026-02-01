@@ -684,6 +684,29 @@ export default function ExpandableCompanyRow({
           </div>
         )}
 
+        {/* Industries - inline in column 1 */}
+        {Array.isArray(company.industries) && company.industries.length > 0 && (
+          <div className="mt-2">
+            <div className="text-xs font-semibold text-gray-500 mb-1">Industries</div>
+            <div className="flex flex-wrap gap-x-2 gap-y-0.5 overflow-hidden max-h-12">
+              {company.industries.map((ind, idx) => (
+                <button
+                  key={idx}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onKeywordSearch(ind);
+                  }}
+                  className="text-xs text-blue-600 hover:underline whitespace-nowrap"
+                >
+                  {ind}
+                </button>
+              ))}
+              {company.industries.length > 6 && (
+                <span className="text-xs text-gray-400">...</span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Logo Column */}
@@ -723,30 +746,8 @@ export default function ExpandableCompanyRow({
         </div>
       ))}
 
-      {/* Industries Row - spans full width below company info */}
-      <div className="col-span-12 lg:col-span-5 mt-2 border-t pt-2">
-        <div className="text-xs font-semibold text-gray-500 mb-1">Industries</div>
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5 overflow-hidden max-h-5 relative">
-          {Array.isArray(company.industries) && company.industries.map((ind, idx) => (
-            <button
-              key={idx}
-              onClick={(e) => {
-                e.stopPropagation();
-                onKeywordSearch(ind);
-              }}
-              className="text-xs text-blue-600 hover:underline whitespace-nowrap"
-            >
-              {ind}
-            </button>
-          ))}
-          {Array.isArray(company.industries) && company.industries.length > 8 && (
-            <span className="text-xs text-gray-400 ml-1">...</span>
-          )}
-        </div>
-      </div>
-
       {/* Keywords Row - spans full width, 2 lines max */}
-      <div className="col-span-12 lg:col-span-5 mt-1">
+      <div className="col-span-12 lg:col-span-5 mt-2 border-t pt-2">
         <div className="text-xs font-semibold text-gray-500 mb-1">Keywords</div>
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 overflow-hidden max-h-10 relative">
           {(Array.isArray(company.keywords) && company.keywords.length > 0
