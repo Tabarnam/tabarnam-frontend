@@ -18,11 +18,12 @@ function clampInt(value, { min, max, fallback }) {
   return Math.max(min, Math.min(max, i));
 }
 
-// XAI stage timeout max: generous to allow deep, accurate XAI searches (3-5+ minutes per field).
-function resolveXaiStageTimeoutMaxMs(fallback = 300_000) {
+// XAI stage timeout max: 10 minutes to allow thorough, accurate XAI searches.
+// Accuracy is paramount - we'd rather leave a field blank than have false info.
+function resolveXaiStageTimeoutMaxMs(fallback = 600_000) {
   const raw = Number(process.env.XAI_TIMEOUT_MS);
   if (!Number.isFinite(raw)) return fallback;
-  // Extended upper bound to allow thorough XAI research.
+  // Extended upper bound to 10 minutes - take however long needed for accuracy.
   return clampInt(raw, { min: 2_500, max: 600_000, fallback });
 }
 
