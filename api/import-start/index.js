@@ -74,6 +74,17 @@ const { enqueueResumeRun, resolveQueueConfig } = require("../_enrichmentQueue");
 // IMPORTANT: pure handler module only (no app.http registrations). Loaded at cold start.
 const { invokeResumeWorkerInProcess } = require("../import/resume-worker/handler");
 
+// Direct enrichment orchestrator (no queue dependency)
+const { runDirectEnrichment, applyEnrichmentToCompany, getMissingFields } = require("../_directEnrichment");
+
+// Consolidated xAI response format handling
+const {
+  isResponsesEndpoint: isXaiResponsesEndpoint,
+  extractTextFromXaiResponse: extractXaiResponseTextShared,
+  buildXaiPayload,
+  parseJsonFromResponse,
+} = require("../_xaiResponseFormat");
+
 const {
   buildPrimaryJobId: buildImportPrimaryJobId,
   getJob: getImportPrimaryJob,
@@ -3183,78 +3194,147 @@ async function maybeQueueAndInvokeMandatoryEnrichment({
     missing_fields: [...MANDATORY_ENRICH_FIELDS],
   }));
 
-  // Optimistically mark queued, but we will correct status if enqueue fails.
+  // Mark as in_progress (direct HTTP mode, not queue)
   await upsertResumeDoc({
     session_id: sessionId,
-    status: "queued",
+    status: "in_progress",
     cycle_count: 0,
     missing_by_company,
     created_at: now,
     updated_at: now,
-    enrichment_queued_at: now,
+    enrichment_started_at: now,
     next_allowed_run_at: now,
     last_backoff_reason: null,
     last_backoff_ms: null,
     resume_error: null,
     blocked_at: null,
     lock_expires_at: null,
+    invocation_mode: "direct_http",
   }).catch(() => null);
 
-  const enqueueRes = await enqueueResumeRun({
-    session_id: sessionId,
-    company_ids: ids,
-    reason: reason || "seed_complete",
-    requested_by: "import_start",
-    enqueue_at: now,
-    cycle_count: 0,
-    run_after_ms: 0,
-  }).catch((e) => ({ ok: false, error: e?.message || String(e || "enqueue_failed") }));
+  // Use direct HTTP enrichment instead of queue
+  const enrichmentResults = [];
+  const container = getCompaniesCosmosContainer();
 
-  // Persist queue enqueue telemetry on the session doc.
+  for (const companyId of ids) {
+    try {
+      // Fetch the company document
+      const companyDoc = container
+        ? await readItemWithPkCandidates(container, companyId, {
+            id: companyId,
+            normalized_domain: "",
+            created_at: "",
+          }).catch(() => null)
+        : null;
+
+      if (!companyDoc) {
+        enrichmentResults.push({
+          company_id: companyId,
+          ok: false,
+          error: "company_not_found",
+        });
+        continue;
+      }
+
+      // Run direct enrichment (no queue)
+      const enrichResult = await runDirectEnrichment({
+        company: companyDoc,
+        sessionId,
+        budgetMs: 240000, // 4 minutes per company
+        fieldsToEnrich: [...MANDATORY_ENRICH_FIELDS],
+      });
+
+      // Apply enrichment results back to company doc
+      if (enrichResult?.enriched && Object.keys(enrichResult.enriched).length > 0) {
+        const updatedCompany = applyEnrichmentToCompany(companyDoc, enrichResult);
+
+        // Save updated company to Cosmos
+        if (container) {
+          await upsertItemWithPkCandidates(container, updatedCompany).catch((err) => {
+            logInfo(context, {
+              event: "enrichment_upsert_failed",
+              company_id: companyId,
+              error: String(err?.message || err),
+            });
+          });
+        }
+      }
+
+      enrichmentResults.push({
+        company_id: companyId,
+        ok: enrichResult?.ok ?? false,
+        fields_completed: enrichResult?.fields_completed || [],
+        fields_failed: enrichResult?.fields_failed || [],
+        elapsed_ms: enrichResult?.elapsed_ms || 0,
+      });
+
+      logInfo(context, {
+        event: "direct_enrichment_complete",
+        session_id: sessionId,
+        company_id: companyId,
+        ok: enrichResult?.ok ?? false,
+        fields_completed: enrichResult?.fields_completed || [],
+        elapsed_ms: enrichResult?.elapsed_ms || 0,
+      });
+    } catch (err) {
+      enrichmentResults.push({
+        company_id: companyId,
+        ok: false,
+        error: String(err?.message || err || "enrichment_failed"),
+      });
+    }
+  }
+
+  const allOk = enrichmentResults.every((r) => r.ok);
+  const anyOk = enrichmentResults.some((r) => r.ok);
+
+  // Update session doc with enrichment telemetry
   await upsertCosmosImportSessionDoc({
     sessionId,
     requestId,
     patch: {
-      enrichment_queued_at: now,
-      resume_needed: true,
-      resume_updated_at: now,
-      resume_worker_last_enqueued_at: now,
-      resume_worker_last_enqueue_reason: "seed_complete",
-      resume_worker_last_enqueue_ok: Boolean(enqueueRes?.ok),
-      resume_worker_last_enqueue_error: enqueueRes?.ok ? null : String(enqueueRes?.error || "enqueue_failed"),
-      resume_worker_last_enqueue_queue:
-        enqueueRes?.queue || (resolveQueueConfig()?.queueName ? { provider: "azure_storage_queue", name: resolveQueueConfig().queueName } : null),
-      updated_at: now,
+      enrichment_completed_at: new Date().toISOString(),
+      enrichment_mode: "direct_http",
+      resume_needed: !allOk,
+      resume_updated_at: new Date().toISOString(),
+      direct_enrichment_results: enrichmentResults.slice(0, 10), // Keep first 10 for telemetry
+      updated_at: new Date().toISOString(),
     },
   }).catch(() => null);
 
-  if (!enqueueRes?.ok) {
-    // Status must never claim "queued" unless a next run is actually queued.
-    await upsertResumeDoc({
-      session_id: sessionId,
-      status: "stalled",
-      updated_at: now,
-      resume_error: {
-        code: "ENQUEUE_FAILED",
-        message: String(enqueueRes?.error || "enqueue_failed"),
-        at: now,
-      },
-    }).catch(() => null);
-  }
+  // Update resume doc status
+  await upsertResumeDoc({
+    session_id: sessionId,
+    status: allOk ? "completed" : anyOk ? "partial" : "stalled",
+    updated_at: new Date().toISOString(),
+    enrichment_completed_at: new Date().toISOString(),
+    invocation_mode: "direct_http",
+    resume_error: allOk
+      ? null
+      : {
+          code: "ENRICHMENT_INCOMPLETE",
+          message: `${enrichmentResults.filter((r) => !r.ok).length} of ${ids.length} companies failed enrichment`,
+          at: new Date().toISOString(),
+        },
+  }).catch(() => null);
 
   logInfo(context, {
+    event: "direct_enrichment_batch_complete",
     session_id: sessionId,
-    company_ids: ids.slice(0, 5),
-    resume_worker_enqueued: Boolean(enqueueRes?.ok),
-    queue: enqueueRes?.queue || null,
-    message_id: enqueueRes?.message_id || null,
+    company_count: ids.length,
+    all_ok: allOk,
+    any_ok: anyOk,
+    invocation_mode: "direct_http",
   });
 
   return {
-    queued: Boolean(enqueueRes?.ok),
-    enqueued: Boolean(enqueueRes?.ok),
-    queue: enqueueRes?.queue || null,
-    message_id: enqueueRes?.message_id || null,
+    queued: false,
+    enqueued: false,
+    invoked: true,
+    invocation_mode: "direct_http",
+    enrichment_results: enrichmentResults,
+    all_ok: allOk,
+    any_ok: anyOk,
   };
 }
 
