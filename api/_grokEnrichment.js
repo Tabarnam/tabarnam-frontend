@@ -31,9 +31,9 @@ function resolveXaiStageTimeoutMaxMs(fallback = 600_000) {
 // We'd rather leave a field blank after 10 minutes than have false information.
 // Min values kept low for test compatibility; max extended to allow thorough searches in production.
 const XAI_STAGE_TIMEOUTS_MS = Object.freeze({
-  reviews: { min: 20_000, max: 600_000 },
-  location: { min: 20_000, max: 600_000 },
-  light: { min: 15_000, max: 300_000 },
+  reviews: { min: 15_000, max: 600_000 },
+  location: { min: 15_000, max: 600_000 },
+  light: { min: 10_000, max: 300_000 },
 });
 
 // Short-TTL cache to avoid re-paying the same Grok searches on resume cycles.
@@ -406,7 +406,7 @@ Reviews should be formatted as: Source Name   Title of Article or Video
 Include an abstract or quote from the review.
 End with: URL:   [the verified link]
 
-Output STRICT JSON only:
+Output STRICT JSON only (use key "reviews_url_candidates"; legacy name: "review_candidates"):
 {
   "reviews_url_candidates": [
     { "source_name": "...", "title": "...", "excerpt": "...", "source_url": "https://...", "category": "youtube" },
