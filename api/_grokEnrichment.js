@@ -1,3 +1,6 @@
+// api/_grokEnrichment.js
+// Overwrite file
+
 const { xaiLiveSearch, extractTextFromXaiResponse } = require("./_xaiLiveSearch");
 const { extractJsonFromText } = require("./_curatedReviewsXai");
 const { buildSearchParameters } = require("./_buildSearchParameters");
@@ -44,14 +47,6 @@ const GROK_STAGE_CACHE_TTL_MS = 10 * 60 * 1000;
 const IS_NODE_TEST_RUNNER =
   (Array.isArray(process.execArgv) && process.execArgv.includes("--test")) ||
   (Array.isArray(process.argv) && process.argv.includes("--test"));
-
-// Skip budget check - rely on actual timeouts instead of preemptive budget constraints.
-// The preemptive checks were too conservative and preventing enrichment from running.
-function shouldSkipBudgetCheck() {
-  // Always skip in production - let xAI calls run and timeout naturally if needed.
-  // The budget check was causing "deferred" status even when there was plenty of time.
-  return true;
-}
 
 function readStageCache(key) {
   const hasStub = globalThis && typeof globalThis.__xaiLiveSearchStub === "function";
@@ -113,7 +108,12 @@ async function xaiLiveSearchWithRetry({ maxAttempts = 2, baseBackoffMs = 350, ..
 }
 
 // Extended timeout constraints to allow thorough XAI searches (3-5+ minutes per field).
-function clampStageTimeoutMs({ remainingMs, minMs = 2_500, maxMs = resolveXaiStageTimeoutMaxMs(), safetyMarginMs = 1_200 } = {}) {
+function clampStageTimeoutMs({
+  remainingMs,
+  minMs = 2_500,
+  maxMs = resolveXaiStageTimeoutMaxMs(),
+  safetyMarginMs = 1_200,
+} = {}) {
   const rem = Number.isFinite(Number(remainingMs)) ? Number(remainingMs) : 0;
   const min = clampInt(minMs, { min: 250, max: 600_000, fallback: 2_500 });
   const max = clampInt(maxMs, { min, max: 600_000, fallback: resolveXaiStageTimeoutMaxMs() });
@@ -234,7 +234,7 @@ function parseHtmlMeta(html, { key, property } = {}) {
       "i"
     );
     const m = source.match(re);
-    return (m && (m[1] || m[2] || m[3])) ? asString(m[1] || m[2] || m[3]).trim() : null;
+    return m && (m[1] || m[2] || m[3]) ? asString(m[1] || m[2] || m[3]).trim() : null;
   };
 
   if (key) {
@@ -292,7 +292,11 @@ async function verifyUrlReachable(url, { timeoutMs = 8000, soft404Bytes = 12_000
   }
 
   try {
-    const res = await fetchWithTimeout(attempted, { method: "GET", timeoutMs, headers: { "User-Agent": "Mozilla/5.0" } });
+    const res = await fetchWithTimeout(attempted, {
+      method: "GET",
+      timeoutMs,
+      headers: { "User-Agent": "Mozilla/5.0" },
+    });
     const status = Number(res.status || 0) || 0;
     if (status < 200 || status >= 300) {
       return { ok: false, url: attempted, status, reason: `http_${status}` };
@@ -407,10 +411,9 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.reviews;
 
   // Budget clamp: if we can't safely run another upstream call, defer without terminalizing.
-  // Skip this check in test mode when a stub is present.
   const remaining = budgetMs - (Date.now() - started);
   const minRequired = stageTimeout.min + 1_200;
-  if (!shouldSkipBudgetCheck() && remaining < minRequired) {
+  if (remaining < minRequired) {
     return {
       curated_reviews: [],
       reviews_stage_status: "deferred",
@@ -534,7 +537,12 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
     if (c.category === "blog" && !needsBlog) continue;
 
     const host = normalizeHostForDedupe(urlHost(c.source_url));
-    if (c.category === "blog" && usedBlogHosts.has(host) && deduped.some((x) => x.category === "blog" && normalizeHostForDedupe(urlHost(x.source_url)) !== host)) {
+    if (
+      c.category === "blog" &&
+      host &&
+      usedBlogHosts.has(host) &&
+      deduped.some((x) => x.category === "blog" && normalizeHostForDedupe(urlHost(x.source_url)) !== host)
+    ) {
       // Prefer unique blog/magazine domains when possible.
       continue;
     }
@@ -565,7 +573,8 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
 
   const curated_reviews = [...verified_youtube.slice(0, 2), ...verified_blog.slice(0, 2)];
   const hasTwoYoutube = curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length >= 2;
-  const hasTwoBlog = curated_reviews.length - curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length >= 2;
+  const hasTwoBlog =
+    curated_reviews.length - curated_reviews.filter((r) => isYouTubeUrl(r?.source_url)).length >= 2;
 
   const ok = curated_reviews.length === 4 && hasTwoYoutube && hasTwoBlog;
 
@@ -610,13 +619,7 @@ Output STRICT JSON only as (use key "reviews_url_candidates"; legacy name: "revi
   return value;
 }
 
-async function fetchHeadquartersLocation({
-  companyName,
-  normalizedDomain,
-  budgetMs = 20000,
-  xaiUrl,
-  xaiKey,
-} = {}) {
+async function fetchHeadquartersLocation({ companyName, normalizedDomain, budgetMs = 20000, xaiUrl, xaiKey } = {}) {
   const started = Date.now();
 
   const name = asString(companyName).trim();
@@ -660,7 +663,7 @@ Return:
 
   const remaining = budgetMs - (Date.now() - started);
   const minRequired = stageTimeout.min + 1_200;
-  if (!shouldSkipBudgetCheck() && remaining < minRequired) {
+  if (remaining < minRequired) {
     return {
       headquarters_location: "",
       hq_status: "deferred",
@@ -704,7 +707,12 @@ Return:
 
   const out = parseJsonFromXaiResponse(r.resp);
 
-  if (!out || typeof out !== "object" || Array.isArray(out) || !Object.prototype.hasOwnProperty.call(out, "headquarters_location")) {
+  if (
+    !out ||
+    typeof out !== "object" ||
+    Array.isArray(out) ||
+    !Object.prototype.hasOwnProperty.call(out, "headquarters_location")
+  ) {
     const rawText = asString(extractTextFromXaiResponse(r.resp));
     return {
       headquarters_location: "",
@@ -720,8 +728,9 @@ Return:
 
   const value = asString(out?.headquarters_location).trim();
 
-  const hq_source_urls_raw =
-    Array.isArray(out?.location_source_urls?.hq_source_urls) ? out.location_source_urls.hq_source_urls : out?.source_urls;
+  const hq_source_urls_raw = Array.isArray(out?.location_source_urls?.hq_source_urls)
+    ? out.location_source_urls.hq_source_urls
+    : out?.source_urls;
 
   const source_urls = Array.isArray(hq_source_urls_raw)
     ? hq_source_urls_raw.map((x) => safeUrl(x)).filter(Boolean).slice(0, 12)
@@ -737,7 +746,12 @@ Return:
 
   // "Not disclosed" is a terminal sentinel (downstream treats it as complete).
   if (value.toLowerCase() === "not disclosed" || value.toLowerCase() === "not_disclosed") {
-    const valueOut = { headquarters_location: "Not disclosed", hq_status: "not_disclosed", source_urls, location_source_urls };
+    const valueOut = {
+      headquarters_location: "Not disclosed",
+      hq_status: "not_disclosed",
+      source_urls,
+      location_source_urls,
+    };
     if (cacheKey) writeStageCache(cacheKey, valueOut);
     return valueOut;
   }
@@ -747,13 +761,7 @@ Return:
   return valueOut;
 }
 
-async function fetchManufacturingLocations({
-  companyName,
-  normalizedDomain,
-  budgetMs = 20000,
-  xaiUrl,
-  xaiKey,
-} = {}) {
+async function fetchManufacturingLocations({ companyName, normalizedDomain, budgetMs = 20000, xaiUrl, xaiKey } = {}) {
   const started = Date.now();
 
   const name = asString(companyName).trim();
@@ -796,7 +804,7 @@ Return:
 
   const remaining = budgetMs - (Date.now() - started);
   const minRequired = stageTimeout.min + 1_200;
-  if (!shouldSkipBudgetCheck() && remaining < minRequired) {
+  if (remaining < minRequired) {
     return {
       manufacturing_locations: [],
       mfg_status: "deferred",
@@ -841,7 +849,12 @@ Return:
 
   const out = parseJsonFromXaiResponse(r.resp);
 
-  if (!out || typeof out !== "object" || Array.isArray(out) || !Object.prototype.hasOwnProperty.call(out, "manufacturing_locations")) {
+  if (
+    !out ||
+    typeof out !== "object" ||
+    Array.isArray(out) ||
+    !Object.prototype.hasOwnProperty.call(out, "manufacturing_locations")
+  ) {
     const rawText = asString(extractTextFromXaiResponse(r.resp));
     return {
       manufacturing_locations: [],
@@ -855,8 +868,9 @@ Return:
     };
   }
 
-  const mfg_source_urls_raw =
-    Array.isArray(out?.location_source_urls?.mfg_source_urls) ? out.location_source_urls.mfg_source_urls : out?.source_urls;
+  const mfg_source_urls_raw = Array.isArray(out?.location_source_urls?.mfg_source_urls)
+    ? out.location_source_urls.mfg_source_urls
+    : out?.source_urls;
 
   const source_urls = Array.isArray(mfg_source_urls_raw)
     ? mfg_source_urls_raw.map((x) => safeUrl(x)).filter(Boolean).slice(0, 12)
@@ -874,7 +888,12 @@ Return:
   }
 
   if (cleaned.length === 1 && cleaned[0].toLowerCase().includes("not disclosed")) {
-    const valueOut = { manufacturing_locations: ["Not disclosed"], mfg_status: "not_disclosed", source_urls, location_source_urls };
+    const valueOut = {
+      manufacturing_locations: ["Not disclosed"],
+      mfg_status: "not_disclosed",
+      source_urls,
+      location_source_urls,
+    };
     if (cacheKey) writeStageCache(cacheKey, valueOut);
     return valueOut;
   }
@@ -929,7 +948,7 @@ Return:
 
   const remaining = budgetMs - (Date.now() - started);
   const minRequired = stageTimeout.min + 1_200;
-  if (!shouldSkipBudgetCheck() && remaining < minRequired) {
+  if (remaining < minRequired) {
     return {
       tagline: "",
       tagline_status: "deferred",
@@ -974,7 +993,13 @@ Return:
 
   const out = parseJsonFromXaiResponse(r.resp);
 
-  if (!out || typeof out !== "object" || Array.isArray(out) || (!Object.prototype.hasOwnProperty.call(out, "tagline") && !Object.prototype.hasOwnProperty.call(out, "slogan"))) {
+  if (
+    !out ||
+    typeof out !== "object" ||
+    Array.isArray(out) ||
+    (!Object.prototype.hasOwnProperty.call(out, "tagline") &&
+      !Object.prototype.hasOwnProperty.call(out, "slogan"))
+  ) {
     const rawText = asString(extractTextFromXaiResponse(r.resp));
     return {
       tagline: "",
@@ -1045,7 +1070,7 @@ Return:
 
   const remaining = budgetMs - (Date.now() - started);
   const minRequired = stageTimeout.min + 1_200;
-  if (!shouldSkipBudgetCheck() && remaining < minRequired) {
+  if (remaining < minRequired) {
     return {
       industries: [],
       industries_status: "deferred",
@@ -1165,11 +1190,12 @@ Return:
 }
 `.trim();
 
+  // Use keywords-specific timeout (2x light) since keywords must accumulate all products
   const stageTimeout = XAI_STAGE_TIMEOUTS_MS.keywords;
 
   const remaining = budgetMs - (Date.now() - started);
   const minRequired = stageTimeout.min + 1_200;
-  if (!shouldSkipBudgetCheck() && remaining < minRequired) {
+  if (remaining < minRequired) {
     return {
       keywords: [],
       keywords_status: "deferred",
@@ -1243,7 +1269,11 @@ Return:
     };
   }
 
-  const list = Array.isArray(out?.product_keywords) ? out.product_keywords : Array.isArray(out?.keywords) ? out.keywords : [];
+  const list = Array.isArray(out?.product_keywords)
+    ? out.product_keywords
+    : Array.isArray(out?.keywords)
+      ? out.keywords
+      : [];
 
   const cleaned = list.map((x) => asString(x).trim()).filter(Boolean);
   const deduped = Array.from(new Set(cleaned));

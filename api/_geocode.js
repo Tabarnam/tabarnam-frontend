@@ -207,7 +207,7 @@ async function geocodeAddress(address, { timeoutMs = 5000, strict = true } = {})
     return { ...out };
   }
 
-  const key = env("GOOGLE_MAPS_KEY", "") || env("GOOGLE_GEOCODE_KEY", "");
+  const key = env("GOOGLE_MAPS_KEY", "") || env("GOOGLE_GEOCODE_KEY", "") || env("GOOGLE_GEOCODING_API_KEY", "") || env("GOOGLE_MAPS_API_KEY", "");
   if (!key) {
     const out = {
       ok: false,
