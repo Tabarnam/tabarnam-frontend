@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { tryGetStateCenterCoords, isStateOnlyLocation } = require("./_stateCenters");
 
 function env(k, d = "") {
   const v = process.env[k];
@@ -45,6 +46,28 @@ const COUNTRY_CENTERS_DATA = [
   { "code": "ZA", "name": "South Africa", "lat": -30.5595, "lng": 22.9375 },
   { "code": "NG", "name": "Nigeria", "lat": 9.0820, "lng": 8.6753 },
   { "code": "EG", "name": "Egypt", "lat": 26.8206, "lng": 30.8025 },
+  { "code": "CO", "name": "Colombia", "lat": 4.5709, "lng": -74.2973 },
+  { "code": "AR", "name": "Argentina", "lat": -38.4161, "lng": -63.6167 },
+  { "code": "CL", "name": "Chile", "lat": -35.6751, "lng": -71.5430 },
+  { "code": "PE", "name": "Peru", "lat": -9.1900, "lng": -75.0152 },
+  { "code": "NZ", "name": "New Zealand", "lat": -40.9006, "lng": 174.8860 },
+  { "code": "PT", "name": "Portugal", "lat": 39.3999, "lng": -8.2245 },
+  { "code": "IE", "name": "Ireland", "lat": 53.1424, "lng": -7.6921 },
+  { "code": "DK", "name": "Denmark", "lat": 56.2639, "lng": 9.5018 },
+  { "code": "NO", "name": "Norway", "lat": 60.4720, "lng": 8.4689 },
+  { "code": "FI", "name": "Finland", "lat": 61.9241, "lng": 25.7482 },
+  { "code": "GR", "name": "Greece", "lat": 39.0742, "lng": 21.8243 },
+  { "code": "CZ", "name": "Czech Republic", "lat": 49.8175, "lng": 15.4730 },
+  { "code": "RO", "name": "Romania", "lat": 45.9432, "lng": 24.9668 },
+  { "code": "HU", "name": "Hungary", "lat": 47.1625, "lng": 19.5033 },
+  { "code": "UA", "name": "Ukraine", "lat": 48.3794, "lng": 31.1656 },
+  { "code": "KE", "name": "Kenya", "lat": -0.0236, "lng": 37.9062 },
+  { "code": "MA", "name": "Morocco", "lat": 31.7917, "lng": -7.0926 },
+  { "code": "LK", "name": "Sri Lanka", "lat": 7.8731, "lng": 80.7718 },
+  { "code": "MM", "name": "Myanmar", "lat": 21.9162, "lng": 95.9560 },
+  { "code": "KH", "name": "Cambodia", "lat": 12.5657, "lng": 104.9910 },
+  { "code": "NP", "name": "Nepal", "lat": 28.3949, "lng": 84.1240 },
+  { "code": "ET", "name": "Ethiopia", "lat": 9.1450, "lng": 40.4897 },
 ];
 
 // Common country name aliases and abbreviations
@@ -54,6 +77,10 @@ const COUNTRY_ALIASES = {
   "REPUBLIC OF KOREA": "KR",
   "SOUTH KOREA": "KR",
   "KOREA": "KR",
+  "COLOMBIA": "CO",
+  "CZECHIA": "CZ",
+  "CZECH": "CZ",
+  "BURMA": "MM",
 };
 
 let countryCentersCache = null;
@@ -202,6 +229,26 @@ async function geocodeAddress(address, { timeoutMs = 5000, strict = true } = {})
       geocode_partial_match: false,
       geocode_formatted_address: normalized,
       geocode_result_types: ["country"],
+    };
+    _geocodeCache.set(cacheKey, out);
+    return { ...out };
+  }
+
+  // Check if this is a state/province-only location and use state center if available
+  const stateCoords = tryGetStateCenterCoords(normalized);
+  if (stateCoords) {
+    const out = {
+      ok: true,
+      lat: stateCoords.lat,
+      lng: stateCoords.lng,
+      geocode_status: "ok",
+      geocode_source: stateCoords.geocode_source || "state_center",
+      geocoded_at: now,
+      geocode_confidence: "low",
+      geocode_precision: stateCoords.geocode_precision || "administrative_area_level_1",
+      geocode_partial_match: false,
+      geocode_formatted_address: stateCoords.name || normalized,
+      geocode_result_types: ["administrative_area_level_1"],
     };
     _geocodeCache.set(cacheKey, out);
     return { ...out };
