@@ -218,20 +218,29 @@ async function postJsonWithTimeout(url, { headers, body, timeoutMs }) {
 
 function parseCompaniesFromXaiResponse(xaiResponse) {
   // Try to extract content from various xAI response formats:
-  // 1. /v1/chat/completions format: data.choices[0].message.content
-  // 2. /v1/responses format: data.output[0].content (where type === "message")
+  // 1. /v1/chat/completions format: data.choices[0].message.content (string)
+  // 2. /v1/responses format: data.output[0].content[].text (array of content blocks)
   // 3. Fallback to raw text
   let responseText = "";
 
-  // /v1/chat/completions format
+  // /v1/chat/completions format - content is a string
   if (xaiResponse?.data?.choices?.[0]?.message?.content) {
     responseText = xaiResponse.data.choices[0].message.content;
   }
-  // /v1/responses format - look for message output
+  // /v1/responses format - content is an array of content blocks
   else if (Array.isArray(xaiResponse?.data?.output)) {
-    const messageOutput = xaiResponse.data.output.find((o) => o?.type === "message" && o?.content);
-    if (messageOutput?.content) {
-      responseText = messageOutput.content;
+    const firstOutput = xaiResponse.data.output[0];
+    if (firstOutput?.content) {
+      // content is an array like [{ type: "output_text", text: "..." }]
+      if (Array.isArray(firstOutput.content)) {
+        const textItem = firstOutput.content.find((c) => c?.type === "output_text") || firstOutput.content[0];
+        if (textItem?.text) {
+          responseText = String(textItem.text);
+        }
+      } else if (typeof firstOutput.content === "string") {
+        // Fallback if content is somehow a string
+        responseText = firstOutput.content;
+      }
     }
   }
   // Fallback to raw text
